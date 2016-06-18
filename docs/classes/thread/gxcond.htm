@@ -1,0 +1,80 @@
+<HTML>
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1252">
+<META NAME="Generator" CONTENT="Microsoft Word 97">
+<TITLE>Condition Variable Class </TITLE>
+<META NAME="Template" CONTENT="C:\PROGRAM FILES\MICROSOFT OFFICE\OFFICE\html.dot">
+</HEAD>
+<BODY LINK="#0000ff" VLINK="#800080" BGCOLOR="#ffffff">
+
+<H1 ALIGN="CENTER">Condition Variable Class</H1>
+<P><HR></P>
+<B><U><FONT SIZE=4><P>Topics</B></U></FONT>:</P>
+<P><A HREF="#Overview">Overview</A><BR>
+<A HREF="#Enum">Enumerations</A><BR>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Ehandler">Error Handling</A></P>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Overview">Overview</A></B></FONT> </P>
+<P>The condition variable class is a synchronization mechanism used by a thread to block its own execution until an expression involving shared data reaches a particular state.</P>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Enum">Enumerations</A></P>
+</B></FONT><P>The following enumeration is used define integer constants used with the gxCondition class:</P>
+<PRE>enum <A NAME="gxConditionError"><B>gxConditionError</A></B> { // Condition variables error codes
+  <B>gxCONDITION_NO_ERROR</B> = 0, // No errors reported
+  <B>gxCONDITION_INVALID_CODE</B>, // Invalid error code
+  
+  <B>gxCONDITION_ATTR_DESTROY_ERROR</B>, // Error destroying attribute
+  <B>gxCONDITION_ATTR_INIT_ERROR</B>,    // Error initializing the attribute
+  <B>gxCONDITION_BROADCAST_ERROR</B>,    // Error broadcasting
+  <B>gxCONDITION_DESTROY_ERROR</B>,      // Error destroying condition
+  <B>gxCONDITION_EXTERNAL_ERROR</B>,     // External mutex error
+  <B>gxCONDITION_INIT_ERROR</B>,         // Error initializing condition
+  <B>gxCONDITION_INTERNAL_ERROR</B>,     // Internal condition error
+  <B>gxCONDITION_SET_SHARE_ERROR</B>,    // Error setting shared attribute
+  <B>gxCONDITION_SIGNAL_ERROR</B>,       // Error signaling
+  <B>gxCONDITION_TIMED_WAIT_ERROR</B>,   // Error during a timed waiting
+  <B>gxCONDITION_WAIT_ERROR</B>          // Error waiting
+};</PRE>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Functions">Functions</A></P>
+</B></FONT><P><A HREF="#ConditionBroadcast">gxCondition::ConditionBroadcast</A><BR>
+<A HREF="#ConditionDestroy">gxCondition::ConditionDestroy</A><BR>
+<A HREF="#ConditionExceptionMessage">gxCondition::ConditionExceptionMessage</A><BR>
+<A HREF="#ConditionInit">gxCondition::ConditionInit</A><BR>
+<A HREF="#ConditionSignal">gxCondition::ConditionSignal</A><BR>
+<A HREF="#ConditionTimedWait">gxCondition::ConditionTimedWait</A><BR>
+<A HREF="#ConditionWait">gxCondition::ConditionWait</A><BR>
+<A HREF="#GetCondition">gxCondition::GetCondition</A><BR>
+<A HREF="#GetConditionError">gxCondition::GetConditionError</A><BR>
+<A HREF="#GetConditionProcessType">gxCondition::GetConditionProcessType</A><BR>
+<A HREF="#NumWaiting">gxCondition::NumWaiting</A><BR>
+<A HREF="#ThreadsWaiting">gxCondition::ThreadsWaiting</A></P>
+<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="ConditionBroadcast">ConditionBroadcast</A>()</B></FONT> - Function used to wake up all threads waiting on this condition. Returns a non-zero value if any errors occur.</P>
+<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="ConditionDestroy">ConditionDestroy</A>()</B></FONT> - Function used by the gxCondition destructor to destroy the condition variable and free its resources. Returns a non-zero value if the condition variable cannot be destroyed or if any errors occur.</P>
+<B><FONT COLOR="#000080"><P>const char * gxCondition::<A NAME="ConditionExceptionMessage">ConditionExceptionMessage</A>()</B></FONT> - Returns a null terminated string that can be used to log or print a condition exception.</P>
+<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="ConditionInit">ConditionInit</A>(gxProcessType type = gxPROCESS_PRIVATE)</B></FONT> - Function used by the gxCondition constructor to initialize the condition variable. By default the process type is set to private meaning that this condition variable can only be shared by threads of the same process. If a <B>gxPROCESS_SHARED</B> process type is specified the condition variable can be shared across multiple processes. Returns a non-zero value if the condition variable cannot be initialized or if any errors occur.</P>
+<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="ConditionSignal">ConditionSignal</A>()</B></FONT> - Function used to wake up a thread waiting on the this condition. Returns a non-zero value if any errors occur.</P>
+<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="ConditionTimedWait">ConditionTimedWait</A>(gxMutex *m, unsigned long sec, unsigned long nsec=0)</B></FONT> - Function used to block a thread from its own execution until this condition is signaled or the timeout value elapses. Returns a non-zero value if any errors occur.</P>
+<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="ConditionWait">ConditionWait</A>(gxMutex *m)</B></FONT> - Function used to block a thread from its own execution until this condition is signaled. Returns a non-zero value if any errors occur.</P>
+<B><FONT COLOR="#000080"><P>gxCondition_t * gxCondition::<A NAME="GetCondition">GetCondition</A>()</B></FONT> - Returns a pointer to the gxCondition_t data structure, which contains platform specific variables. <B>NOTE</B>: This function is provided for debugging and testing purposes only. The gxCondition_t data structure and the helper functions that operate on gxCondition_t types should not be used directly.</P>
+<B><FONT COLOR="#000080"><P>gxConditionError gxCondition::<A NAME="GetConditionError">GetConditionError</A>()</B></FONT> - Returns the last reported condition variable error. The return value will match one of the integer constants defined in <A HREF="#gxConditionError">gxConditionError</A> enumeration.</P>
+<B><FONT COLOR="#000080"><P>gxProcessType gxCondition::<A NAME="GetConditionProcessType">GetConditionProcessType</A>()</B></FONT> - Returns the process type for this condition. The return value will match one of the integer constants defined in <A NAME="gxProcessType"><A HREF="gxthread.htm#gxProcessType">gxProcessType</A></A> enumeration.</P>
+<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="NumWaiting">NumWaiting</A>()</B></FONT> - Returns the total number of threads waiting on this condition.</P>
+<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="ThreadsWaiting">ThreadsWaiting</A>()</B></FONT> - Returns true if any threads are waiting on this condition.</P>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Ehandler">Error Handling</A></P>
+</B></FONT><P>The application is responsible for monitoring and handling any condition variable errors that occur following a condition variable operation. An error condition is reported to the application by any condition variable function returning a non-zero value. If any value other then 0 is returned the application must generate the appropriate exception to handle the error condition. </P>
+<P>Condition variable errors are recorded by the gxCondition_t helper functions and stored in the gxCondition_t::condition_error variable. The condition variable error variable is accessible to the application though the <A HREF="#GetConditionError">gxCondition::GetConditionError</A> function. A condition variable error is a numeric value corresponding to one of the integer constants defined in the <A HREF="#gxConditionError">gxConditionError</A> enumeration. The <A HREF="#ConditionExceptionMessage">gxCondition::ConditionExceptionMessage</A> function can be used to log or print a condition variable exception.</P>
+<P><HR></P>
+<P ALIGN="CENTER"><CENTER><TABLE BORDER CELLSPACING=1 BORDERCOLOR="#000000">
+<TR><TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">End Of Document</TD>
+</TR>
+</TABLE>
+</CENTER></P>
+
+<P>&nbsp;</P>
+
+</BODY>
+</HTML>

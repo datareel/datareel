@@ -1,0 +1,25 @@
+<?xml version="1.0" ?>
+
+<!-- XML file used to test parsing of CDATA -->
+<!-- Produced By: DataReel Software Development Team -->
+<!-- Copyright (c) 2001-2016 DataReel Software Development -->
+
+<xmlroot>
+  <parent1>
+    <html_page><![CDATA[
+      <html><body>
+      This normally generates an unmatched tag error: <br> 
+      This normally generates an unknown escape sequence error: '&nbsp;'
+      </body></html>
+    ]]></html_page>
+  </parent1>
+  <parent2>
+    <child1><![CDATA[
+       <html><body>
+       This normally generates an unmatched tag error: <br> 
+       This normally generates an unknown escape sequence error: '&nbsp;'
+       </body></html>
+       ]]>
+    </child1>
+  </parent2>
+</xmlroot>

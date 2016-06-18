@@ -1,0 +1,67 @@
+<HTML>
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1252">
+<META NAME="Generator" CONTENT="Microsoft Word 97">
+<TITLE>Platform Interoperable Data Types </TITLE>
+<META NAME="Template" CONTENT="C:\PROGRAM FILES\MICROSOFT OFFICE\OFFICE\html.dot">
+</HEAD>
+<BODY LINK="#0000ff" VLINK="#800080" BGCOLOR="#ffffff">
+
+<P>&nbsp;</P>
+<H1 ALIGN="CENTER">Platform Interoperable Data Types</H1>
+<P><HR></P>
+<P>Platform interoperable data types are implemented in the DataReel library in order to achieve database and network interoperability in heterogeneous computing environments. Essentially they allow database files and client/server applications to overcome the big and little endian byte ordering problems encountered when writing integer and floating point values to a common database file or device accessed by several different types of hardware architectures. The term "endian" is used to describe the order in which multi-byte numbers are stored in the computer's memory. File addresses or offsets are multi-byte numbers used to point to specific locations in a disk file. The byte order in which multi-byte numbers are stored in a computer's memory is specific to each microprocessor. For example, the Intel x86 family is little-endian, meaning that the lowest-order byte is stored first. Hewlett-Packard's PA-RISC and Sun's SuperSPARC are big-endian, meaning the highest-order byte is stored first. The Silicon Graph
+ics MIPS and IBM/Motorola Power PC processors are both little and big endian (bi-endian). A file address stored in a disk file will represent different values if the file is created on one system and read on the other system. </P>
+<TABLE BORDER CELLSPACING=5 BORDERCOLOR="#000000" CELLPADDING=5 WIDTH=468>
+<TR><TD VALIGN="MIDDLE">
+<P ALIGN="CENTER"><B>Value</B></TD>
+<TD VALIGN="MIDDLE">
+<B><P ALIGN="CENTER">Big-Endian</B></TD>
+<TD VALIGN="MIDDLE">
+<B><P ALIGN="CENTER">Little-Endian</B></TD>
+</TR>
+<TR><TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">0x12345678</TD>
+<TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">0x12345678</TD>
+<TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">0x78563412</TD>
+</TR>
+<TR><TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">0x1234 </TD>
+<TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">0x1234</TD>
+<TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">0x3412</TD>
+</TR>
+<TR><TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">0x5678</TD>
+<TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">0x5678</TD>
+<TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">0x7856</TD>
+</TR>
+<TR><TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">"ABC"</TD>
+<TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">41 42 43</TD>
+<TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">41 42 43</TD>
+</TR>
+</TABLE>
+
+<P>With big-endian ordering, the address of the multi-byte value is its most significant byte (its big end.) With little-endian ordering, the address of the multi-byte value is its least significant byte (its little end.) Character stings are stored in memory exactly as they appear regardless of the byte ordering used. In a data structure the order of bytes in memory will differ depending on the byte ordering and the particular data type used. If the contents of a data structure are written to disk or a device, the byte ordering will affect the data when it is moved to another platform.</P>
+<P>In order to gain platform interoperability database files and network routines must use there own representation of 32 and 64 bit-signed integers for file addresses and network headers. By manipulating multi-byte values in memory before they are written to disk or across a network connection, it is possible to represent 32 and 64 bit signed integers independently of the operating system and/or hardware platform used.</P>
+<P>The same scheme used to overcome the byte ordering problem encountered with 32 and 64 bit signed integers is also applied to unsigned integers and floating point values. String values are represented in memory exactly as they appear. Since none of the bytes in a string are reordered in memory, they can be written directly from memory to disk or across a network connection regardless of the platform used to create them. </P>
+<P><HR></P>
+<P ALIGN="CENTER"><CENTER><TABLE BORDER CELLSPACING=1 BORDERCOLOR="#000000">
+<TR><TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">End Of Document</TD>
+</TR>
+</TABLE>
+</CENTER></P>
+
+<P>&nbsp;</P>
+
+</BODY>
+</HTML>

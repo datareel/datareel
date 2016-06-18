@@ -1,0 +1,7 @@
+$(PROJECT)$(OBJ_EXT):	$(PROJECT).cpp $(PROJECT_DEP)
+	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) $(PROJECT).cpp
+
+httpserv$(OBJ_EXT):	httpserv.cpp $(HTTPSERV_DEP)
+	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) httpserv.cpp
+
+OBJECTS = $(PROJECT)$(OBJ_EXT) httpserv$(OBJ_EXT)

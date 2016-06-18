@@ -1,0 +1,83 @@
+<?xml version="1.0" ?>
+
+<!-- XML file used to test parsing of comment tags -->
+<!-- Produced By: DataReel Software Development Team -->
+<!-- Copyright (c) 2001-2016 DataReel Software Development -->
+
+<!-- This is a single line comment tag before root node -->
+<!-- 
+  This is a multi-line comment before root node
+  line 1
+  line 2
+  line 3
+-->
+
+<xmlroot>
+
+ <!-- This is a comment in the root node -->
+
+ <!--
+   This is a multi-line comment the root node
+   line 1
+   line 2
+   line 3
+  -->
+
+  <parent1>
+    <!-- This is a comment in a parent node -->
+
+    <!--
+       This is a multi-line comment in a parent node 
+       line 1
+       line 2
+       line 3
+    -->
+
+    <child1>
+      <!-- This is a comment in a child node -->
+      <sub-child1>
+        <!-- This is a comment in a sub child node -->
+        <!--
+	   This is a multi-line comment in a sub-child node 
+           line 1
+           line 2
+           line 3
+        -->
+      </sub-child1>
+      <!--
+	 This is a multi-line comment in a child node 
+         line 1
+         line 2
+         line 3
+     -->
+    </child1>
+
+    <!-- This is a comment in a parent node -->
+
+    <!--
+       This is a multi-line comment in a parent node 
+       line 1
+       line 2
+       line 3
+    -->
+</parent1>
+
+  <!-- This is a comment in the root node -->
+
+  <!--
+    This is a multi-line comment the root node
+    line 1
+    line 2
+    line 3
+  -->
+
+</xmlroot>
+
+<!-- This is a comment after root node -->
+
+<!--
+  This is a multi-line after the root node
+  line 1
+  line 2
+  line 3
+-->

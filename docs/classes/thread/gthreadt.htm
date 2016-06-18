@@ -1,0 +1,97 @@
+<HTML>
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1252">
+<META NAME="Generator" CONTENT="Microsoft Word 97">
+<TITLE>Thread Variable Class </TITLE>
+<META NAME="Template" CONTENT="C:\PROGRAM FILES\MICROSOFT OFFICE\OFFICE\html.dot">
+</HEAD>
+<BODY LINK="#0000ff" VLINK="#800080" BGCOLOR="#ffffff">
+
+<H1 ALIGN="CENTER">Thread Variable Class</H1>
+<P><HR></P>
+<B><U><FONT SIZE=4><P>Topics</B></U></FONT>:</P>
+<P><A HREF="#Overview">Overview</A><BR>
+<A HREF="#Variables">Thread Variables</A><BR>
+<A HREF="#Functions">Member Functions</A><BR>
+<A HREF="#Ehandler">Error Handling</A></P>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Overview">Overview</A></B></FONT> </P>
+<P>The gxThread_t class is a data structure used to initialize and store thread variables prior to and after thread creation. Thread variables are set by the gxThread base class and handled in a consistent manner across multiple platforms. A complete set of thread variables will be made available to classes derived from the <A HREF="gxthread.htm">gxThread</A> base class and to the application though the use of gxThread_t pointers. </P>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Variables">Thread Variables</A></P>
+</B></FONT><P>Thread variables are used to store various thread information that can be used by the application to perform an operation based on the particular value. The variables are accessed directly by the gxThread class and the low-level thread API wrapper class. An application can access these variables through the gxThread_t member functions.</P>
+<P>gxThread *<B>entry</B> - Pointer to this thread's entry function. The gxThread base class sets this value when a new thread is <A HREF="gxthread.htm#ConstructThread">constructed</A> or <A HREF="gxthread.htm#CreateThread">created</A>. The thread API wrapper class uses this variable to access the thread's entry function.</P>
+<P>gxStackSizeType <B>stack_size </B>- Variable used to set the thread's stack size if the default stack size is not sufficient to execute the thread's entry function. A value of zero will set the stack size to the default value of the native thread API.</P>
+<P>gxThreadPriority <B>thread_priority</B> - Variable used to set the thread's priority. The thread priority value must match one of the enumerated integer constants defined in the <A HREF="gxthread.htm#gxThreadPriority">gxThreadPriority</A> enumeration.</P>
+<P>gxThreadPriorityClass <B>thread_priority_class</B> - Variable used to set the thread's scheduling policy. The thread priority class value must match one of the enumerated integer constants defined in the <A HREF="gxthread.htm#gxThreadPriorityClass">gxThreadPriorityClass</A> enumeration.</P>
+<P>gxThreadState <B>thread_state</B> - Variable used by the gxThread base class to set the thread's current state. This value will match one of the integer constants defined in the <A HREF="gxthread.htm#gxThreadState">gxThreadState</A> enumeration.</P>
+<P>gxThreadID <B>thread_id</B> - Variable used to store the platform specific thread ID after the thread has been created. </P>
+<P>gxThreadAttribute <B>thread_attribute</B> - Platform specific thread attribute used to initialize a thread during creation.</P>
+<P>gxThreadType <B>thread_type</B> - Variable used to set the thread's state. By default all threads are created as joinable threads. This value will match one of the integer constants defined in the <A HREF="gxthread.htm#gxThreadType">gxThreadType</A> enumeration.</P>
+<P>gxThreadError <B>thread_error</B> - Variable used to hold the last error reported following a thread operation. This value will match one of the integer constants defined in the <A HREF="gxthread.htm#gxThreadError">gxThreadError</A> enumeration.</P>
+<P>gxThreadExitCode <B>thread_exit_code</B> - Variable used to store the exit code returned by the thread's entry function or the value set following a <A HREF="gxthread.htm#ExitThread">gxThread::ExitThread()</A> call.</P>
+<P>void *<B>thread_parm</B> - Optional thread parameter pointer used to pass a parameter to thread when a new thread is <A HREF="gxthread.htm#ConstructThread">constructed</A> or <A HREF="gxthread.htm#CreateThread">created</A>.</P>
+<P>gxThreadObjectID <B>thread_oid</B> - Variable used to store the optional object ID of a thread. The OID variable can be used by an application in place of the platform-specific thread ID to identify threads in a consistent manner regardless of the platform used. </P>
+<P>gxThreadClassID <B>thread_cid</B> - Variable used to store the optional class ID of a thread. The CID and OID variables can be used by an application in place of the platform-specific thread ID to identify threads in a consistent manner regardless of the platform used.</P>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Functions">Member Functions</A></P>
+</B></FONT><P><A HREF="#StatusFunctions">Thread Status Functions</A><BR>
+<A HREF="#MessageFunctions">Thread Status/Debug Message Functions</A><BR>
+<A HREF="#InitializationFunctions">Thread Initialization Functions</A><BR>
+<A HREF="#PriorityFunctions">Thread Priority Functions</A><BR>
+<A HREF="#ErrorFunctions">Thread Error Functions</A><BR>
+<A HREF="#ParameterFunctions">Thread Parameter Functions</A><BR>
+<A HREF="#OIDFunctions">Thread Class ID/Object ID Functions</A><BR>
+<A HREF="#Operators">Overloaded Operators</A></P>
+<B><U><P><A NAME="StatusFunctions">Thread Status Functions</A></B></U>:</P>
+<B><FONT COLOR="#000080"><P>gxThreadState gxThread_t::GetThreadState() </B></FONT>- Returns current state of the thread. This value will match one of the integer constants defined in the <A HREF="gxthread.htm#gxThreadState">gxThreadState</A> enumeration.</P>
+<B><FONT COLOR="#000080"><P>gxThreadID gxThread_t::GetThreadID()</B></FONT> - Returns the platform specific thread ID.</P>
+<B><FONT COLOR="#000080"><P>gxThreadType gxThread_t::GetThreadType()</B></FONT> - Returns the thread type. This value will match one of the integer constants defined in the <A HREF="gxthread.htm#gxThreadType">gxThreadType</A> enumeration.</P>
+<B><FONT COLOR="#000080"><P>gxStackSizeType gxThread_t::GetStackSize()</B></FONT> - Returns the thread's stack size or zero if the default stack size was used.</P>
+<B><FONT COLOR="#000080"><P>gxThreadAttribute * gxThread_t::GetThreadAttribute()</B></FONT> - Returns a pointer to the platform specific thread attribute used to initialize a thread during creation. </P>
+<B><U><P><A NAME="MessageFunctions">Thread Status/Debug Message Functions</A></B></U>:</P>
+<B><FONT COLOR="#000080"><P>const char * gxThread_t::ThreadExceptionMessage()</B></FONT> - Returns a null terminated string that can be used to log or print a thread exception.</P>
+<B><FONT COLOR="#000080"><P>const char * gxThread_t::ThreadPriorityMessage()</B></FONT> - Returns a null terminated string that can be used to log or print the thread's priority.</P>
+<B><FONT COLOR="#000080"><P>const char * gxThread_t::ThreadPriorityClassMessage()</B></FONT> - Returns a null terminated string that can be used to log or print the thread's priority class.</P>
+<B><FONT COLOR="#000080"><P>const char * gxThread_t::ThreadStateMessage()</B></FONT> - Returns a null terminated string that can be used to log or print the thread's state.</P>
+<B><FONT COLOR="#000080"><P>const char * gxThread_t::ThreadTypeMessage()</B></FONT> - Returns a null terminated string that can be used to log or print the thread type.</P>
+<B><U><P><A NAME="InitializationFunctions">Thread Initialization Functions</A></B></U>:</P>
+<B><FONT COLOR="#000080"><P>void gxThread_t::SetThreadStackSize(unsigned ssize)</B></FONT> - Function used to set the thread's stack size if the default stack size is not sufficient to execute the thread's entry function. <B>NOTE</B>: This value must be set before the thread is created. </P>
+<B><FONT COLOR="#000080"><P>void gxThread_t::SetThreadType(gxThreadType t)</B></FONT> - Function used to set the thread type prior to thread creation. This value must correspond to one of the integer constants defined in the <A HREF="gxthread.htm#gxThreadType">gxThreadType</A> enumeration. <B>NOTE</B>: This value must be set before the thread is created.</P>
+<B><U><P><A NAME="PriorityFunctions">Thread Priority Functions</A></B></U>:</P>
+<B><FONT COLOR="#000080"><P>void gxThread_t::SetThreadPriority(gxThreadPriority p)</B></FONT> - Function use to set a thread priority value. This value must correspond to one of the integer constants defined in the <A HREF="gxthread.htm#gxThreadPriority">gxThreadPriority</A> enumeration.</P>
+<B><FONT COLOR="#000080"><P>gxThreadPriority gxThread_t::GetThreadPriority()</B></FONT> - Returns the current thread priority. The return value will match one of the integer constants defined in the <A HREF="gxthread.htm#gxThreadPriority">gxThreadPriority</A> enumeration. </P>
+<B><FONT COLOR="#000080"><P>void gxThread_t::SetThreadPriorityClass(gxThreadPriorityClass prio_class)</B></FONT> - Function use to set the thread's priority class. This value must correspond to one of the integer constants defined in the <A HREF="gxthread.htm#gxThreadPriorityClass">gxThreadPriorityClass</A> enumeration.</P>
+<B><FONT COLOR="#000080"><P>gxThreadPriorityClass gxThread_t::GetThreadPriorityClass()</B></FONT> - Returns the current thread priority class. The return value will match one of the integer constants defined in <A HREF="gxthread.htm#gxThreadPriorityClass">gxThreadPriorityClass</A><A HREF="gxthread.htm#gxThreadPriority">gxthread.htm - gxThreadPriority</A> enumeration.</P>
+<B><U><P><A NAME="ErrorFunctions">Thread Error Functions</A></B></U>:</P>
+<B><FONT COLOR="#000080"><P>gxThreadError gxThread_t::GetThreadError()</B></FONT> - Returns the last reported thread error. The return value will match one of the integer constants defined in <A HREF="gxthread.htm#gxThreadError">gxThreadError</A> enumeration.</P>
+<B><FONT COLOR="#000080"><P>gxThreadExitCode gxThread_t::GetThreadExitCode()</B></FONT> - Returns the value returned by the thread's entry function or the value set following a <A HREF="gxthread.htm#ExitThread">gxThread::ExitThread()</A> call.</P>
+<B><FONT COLOR="#000080"><P>void gxThread_t::ResetThreadError()</B></FONT> - Function used by the application to reset a thread error.</P>
+<B><FONT COLOR="#000080"><P>void gxThread_t::ResetThreadExitCode()</B></FONT> - Function used by the application to reset the thread's exit code value to zero.</P>
+<B><U><P><A NAME="ParameterFunctions">Thread Parameter Functions</A></B></U>:</P>
+<B><FONT COLOR="#000080"><P>void * gxThread_t::GetThreadParm()</B></FONT> - Returns a pointer to the optional thread parameter.</P>
+<B><FONT COLOR="#000080"><P>void gxThread_t::SetThreadParm(void *v)</B></FONT> - Function used by the application to set the thread's parameter prior to thread creation.</P>
+<B><U><P><A NAME="OIDFunctions">Class ID/Object ID Functions</A></B></U>:</P>
+<B><FONT COLOR="#000080"><P>gxThreadClassID gxThread_t::GetClassID()</B></FONT> - Returns the class ID of the thread.</P>
+<B><FONT COLOR="#000080"><P>gxThreadObjectID gxThread_t::GetObjectID()</B></FONT> - Returns the object ID of the thread.</P>
+<B><FONT COLOR="#000080"><P>void gxThread_t::SetClassID(gxThreadClassID cid)</B></FONT> - Function used by the application to set the thread's class ID.</P>
+<B><FONT COLOR="#000080"><P>void gxThread_t::SetObjectID(gxThreadObjectID oid)</B></FONT> - Function used by the application to set the thread's object ID.</P>
+<B><U><P><A NAME="Operators">Overloaded Operators</A></B></U>:</P>
+<B><FONT COLOR="#000080"><P>int operator==(const gxThread_t &amp;a, const gxThread_t &amp;b)</B></FONT> - Friend function used to compare the thread IDs of gxThread_t "a" and gxThread_t "b". Returns true if the IDs are equal. <B>NOTE</B>: This function was added specifically for UNIX variants that do not use an integer type for thread IDs.</P>
+<B><FONT COLOR="#000080"><P>int operator!=(const gxThread_t &amp;a, const gxThread_t &amp;b)</B></FONT> - Friend function used to compare the thread IDs of gxThread_t "a" and gxThread_t "b". Returns true if the IDs are not equal. <B>NOTE</B>: This function was added specifically for UNIX variants that do not use an integer type for thread IDs.</P>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Ehandler">Error Handling</A></P>
+</B></FONT><P>The application is responsible for monitoring and handling any thread errors that occur following a gxThread operation. An error condition is reported to the application by any gxThread function returning a non-zero value. If any value other then 0 is returned the application must generate the appropriate exception to handle the error condition.</P>
+<P>Thread errors are recorded by the thread API wrapper class and stored in the gxThread_t::thread_error variable. The thread error variable is accessible to the application though the appropriate <A HREF="#ErrorFunctions">gxThread_t Error Function</A>. A thread error is a numeric value corresponding to one of the integer constants defined in the <A HREF="gxthread.htm#gxThreadError">gxThreadError</A> enumeration. The appropriate <A HREF="#MessageFunctions">gxThread_t Message Function</A> can be used to log or print a thread exception.</P>
+<P><HR></P>
+<P ALIGN="CENTER"><CENTER><TABLE BORDER CELLSPACING=1 BORDERCOLOR="#000000">
+<TR><TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">End Of Document</TD>
+</TR>
+</TABLE>
+</CENTER></P>
+
+<P>&nbsp;</P>
+
+</BODY>
+</HTML>

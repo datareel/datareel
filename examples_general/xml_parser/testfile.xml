@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+
+<!-- XML test file used to test the DataReel XML parser -->
+<!-- Produced By: DataReel Software Development Team -->
+<!-- Copyright (c) 2001-2016 DataReel Software Development -->
+
+<Headlines>
+
+  <Author />
+  <publisher>DataReel Software Development Group</publisher>
+
+  <Headline>
+   <Title>News Headlines</Title>
+
+   <support1 link="http://www.example.com">
+     <email>example@example.com</email>
+     <name>support name</name>
+     <fax>fax number</fax>
+   </support1>
+
+   <subtree_depth_test>
+     <email accountinfo="example">
+       <username>uname</username>
+       <server>
+	 <hostname>pop3 host</hostname>
+	 <pop3>
+	   <port>default</port>
+	   <usessl>yes</usessl>
+	   <local>
+	     <filters>yes</filters>
+	     <arch_dir>default</arch_dir>
+	   </local>
+	 </pop3>
+       </server>
+     </email>
+     <name>name</name>
+     <fax>fax number</fax>
+   </subtree_depth_test>
+
+   <Hyperlink>http://www.example.com/</Hyperlink>
+   <BulletImagelink>http://www.example.com/images</BulletImagelink>
+   <Imagelink>http://www.example.com/images</Imagelink>
+   <MouseoverTitle>Current Events</MouseoverTitle>
+   <test2 />
+   <IsEditable>true is edit</IsEditable>
+   <Expires>false</Expires>
+   <ExpiresDays>5</ExpiresDays>
+   <ExpiresHours>1</ExpiresHours>
+   <Priority>3</Priority>
+   <support attr="1">
+     <email>email address</email>
+     <name>support name</name>
+   </support>
+   <test3 attr1="1" attr2="3" attr3="3" />
+  </Headline>
+
+</Headlines>

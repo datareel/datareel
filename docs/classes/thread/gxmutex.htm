@@ -1,0 +1,75 @@
+<HTML>
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1252">
+<META NAME="Generator" CONTENT="Microsoft Word 97">
+<TITLE> Mutex Class </TITLE>
+<META NAME="Template" CONTENT="C:\PROGRAM FILES\MICROSOFT OFFICE\OFFICE\html.dot">
+</HEAD>
+<BODY LINK="#0000ff" VLINK="#800080" BGCOLOR="#ffffff">
+
+<H1 ALIGN="CENTER">Mutex Class</H1>
+<P><HR></P>
+<B><U><FONT SIZE=4><P>Topics</B></U></FONT>:</P>
+<P><A HREF="#Overview">Overview</A><BR>
+<A HREF="#Enum">Enumerations</A><BR>
+<A HREF="#Functions">Mutex Functions</A><BR>
+<A HREF="#Ehandler">Error Handling</A></P>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Overview">Overview</A></B></FONT> </P>
+<P>The mutual exclusion class provides simple lock primitives that can be used to control access to a shared resource. A mutex is used to cause other threads to wait while the thread holding the mutex executes code in a critical section.</P>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Enum">Enumerations</A></P>
+</B></FONT><P>The following enumeration is used define integer constants used with the gxMutex class:</P>
+<PRE>enum <A NAME="gxMutexError"><B>gxMutexError</A></B> { // Mutex error codes
+  <B>gxMUTEX_NO_ERROR</B> = 0, // No errors reported
+  <B>gxMUTEX_INVALID_CODE</B>, // Invalid error code
+
+  <B>gxMUTEX_ATTR_DESTROY_ERROR</B>, // Error destroying attribute
+  <B>gxMUTEX_ATTR_INIT_ERROR</B>,    // Error initializing the attribute
+  <B>gxMUTEX_DESTROY_ERROR</B>,      // Error destroying mutex
+  <B>gxMUTEX_INIT_ERROR</B>,         // Error initializing the mutex
+  <B>gxMUTEX_LOCK_ERROR</B>,         // Error locking the mutex
+  <B>gxMUTEX_SET_SHARE_ERROR</B>,    // Error setting shared attribute
+  <B>gxMUTEX_TRY_LOCK_ERROR</B>,     // Error trying to lock the mutex
+  <B>gxMUTEX_UNLOCK_ERROR</B>        // Error unlocking the mutex
+};</PRE>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Functions">Mutex Functions</A></P>
+</B></FONT><P><A HREF="#GetMutex">gxMutex::GetMutex</A><BR>
+<A HREF="#GetMutexError">gxMutex::GetMutexError</A><BR>
+<A HREF="#GetMutexProcessType">gxMutex::GetMutexProcessType</A><BR>
+<A HREF="#IsLocked">gxMutex::IsLocked</A><BR>
+<A HREF="#MutexDestroy">gxMutex::MutexDestroy</A><BR>
+<A HREF="#MutexExceptionMessage">gxMutex::MutexExceptionMessage</A><BR>
+<A HREF="#MutexInit">gxMutex::MutexInit</A><BR>
+<A HREF="#MutexLock">gxMutex::MutexLock</A><BR>
+<A HREF="#MutexTryLock">gxMutex::MutexTryLock</A><BR>
+<A HREF="#MutexUnlock">gxMutex::MutexUnlock</A><BR>
+<A HREF="#NumLocks">gxMutex::NumLocks</A></P>
+<B><FONT COLOR="#000080"><P>gxMutex_t * gxMutex::<A NAME="GetMutex">GetMutex</A>()</B></FONT> - Returns a pointer to the gxMutex_t data structure, which contains platform specific variables. <B>NOTE</B>: This function is provided for debugging and testing purposes only. The gxMutex_t data structure and the helper functions that operate on gxMutex_t types should not be used directly.</P>
+<B><FONT COLOR="#000080"><P>gxMutexError gxMutex::<A NAME="GetMutexError">GetMutexError</A>()</B></FONT> - Returns the last reported mutex error. The return value will match one of the integer constants defined in <A HREF="#gxMutexError">gxMutexError</A> enumeration.</P>
+<B><FONT COLOR="#000080"><P>gxProcessType gxMutex::<A NAME="GetMutexProcessType">GetMutexProcessType</A>()</B></FONT> - Returns the process type for this mutex. The return value will match one of the integer constants defined in <A NAME="gxProcessType"><A HREF="gxthread.htm#gxProcessType">gxProcessType</A></A> enumeration.</P>
+<B><FONT COLOR="#000080"><P>int gxMutex::<A NAME="IsLocked">IsLocked</A>()</B></FONT> - Returns true if the mutex is locked.</P>
+<B><FONT COLOR="#000080"><P>int gxMutex::<A NAME="MutexDestroy">MutexDestroy</A>()</B></FONT> - Function used by the gxMutex destructor to destroy the mutex and free its resources. Returns a non-zero value if the mutex cannot be destroyed or if any errors occur.</P>
+<B><FONT COLOR="#000080"><P>const char * gxMutex::<A NAME="MutexExceptionMessage">MutexExceptionMessage</A>()</B></FONT> - Returns a null terminated string that can be used to log or print a mutex exception.</P>
+<B><FONT COLOR="#000080"><P>int gxMutex::<A NAME="MutexInit">MutexInit</A>(gxProcessType type = gxPROCESS_PRIVATE)</B></FONT> - Function used by the gxMutex constructor to initialize the mutex. By default the process type is set to private meaning that this mutex can only be shared by threads of the same process. If a <B>gxPROCESS_SHARED</B> process type is specified the mutex can be shared across multiple processes. Returns a non-zero value if the mutex cannot be initialized or if any errors occur.</P>
+<B><FONT COLOR="#000080"><P>int gxMutex::<A NAME="MutexLock">MutexLock</A>()</B></FONT> - Lock the mutex. If the mutex is already locked, the calling thread blocks until the mutex becomes available. Returns a non-zero value if the mutex cannot be locked or if any errors occur.</P>
+<B><FONT COLOR="#000080"><P>int gxMutex::<A NAME="MutexTryLock">MutexTryLock</A>()</B></FONT> - Test the mutex state before locking it. Returns a non-zero if any errors occur.</P>
+<B><FONT COLOR="#000080"><P>int gxMutex::<A NAME="MutexUnlock">MutexUnlock</A>()</B></FONT> - Unlock the mutex. Returns a non-zero value if the mutex cannot be unlocked or if any errors occur.</P>
+<B><FONT COLOR="#000080"><P>int gxMutex::<A NAME="NumLocks">NumLocks</A>() </B></FONT>- Returns the total number of locks.</P>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Ehandler">Error Handling</A></P>
+</B></FONT><P>The application is responsible for monitoring and handling any mutex errors that occur following a mutex operation. An error condition is reported to the application by any mutex function returning a non-zero value. If any value other then 0 is returned the application must generate the appropriate exception to handle the error condition. </P>
+<P>Mutex errors are recorded by the gxMutex_t helper functions and stored in the gxMutex_t::mutex_error variable. The mutex error variable is accessible to the application though the <A HREF="#GetMutexError">gxMutex::GetMutexError</A> function. A mutex error is a numeric value corresponding to one of the integer constants defined in the <A HREF="#gxMutexError">gxMutexError</A> enumeration. The <A HREF="#MutexExceptionMessage">gxMutex::MutexExceptionMessage</A> function can be used to log or print a mutex exception.</P>
+<P><HR></P>
+<P ALIGN="CENTER"><CENTER><TABLE BORDER CELLSPACING=1 BORDERCOLOR="#000000">
+<TR><TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">End Of Document</TD>
+</TR>
+</TABLE>
+</CENTER></P>
+
+<P>&nbsp;</P>
+
+</BODY>
+</HTML>

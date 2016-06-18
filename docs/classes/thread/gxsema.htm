@@ -1,0 +1,71 @@
+<HTML>
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1252">
+<META NAME="Generator" CONTENT="Microsoft Word 97">
+<TITLE>Semaphore Class </TITLE>
+<META NAME="Template" CONTENT="C:\PROGRAM FILES\MICROSOFT OFFICE\OFFICE\html.dot">
+</HEAD>
+<BODY LINK="#0000ff" VLINK="#800080" BGCOLOR="#ffffff">
+
+<H1 ALIGN="CENTER">Semaphore Class</H1>
+<P><HR></P>
+<B><U><FONT SIZE=4><P>Topics</B></U></FONT>:</P>
+<P><A HREF="#Overview">Overview</A><BR>
+<A HREF="#Enum">Enumerations</A><BR>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Ehandler">Error Handling</A></P>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Overview">Overview</A></B></FONT> </P>
+<P>The semaphore synchronization class is implemented using condition variables and a mutually exclusive integer variable. Typically, an application uses a semaphore to limit the number of threads using a resource by causing a thread to stop and wait until another thread signals that it has arrived at a certain place in the entry function.</P>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Enum">Enumerations</A></P>
+</B></FONT><P>The following enumeration is used define integer constants used with the gxSemaphore class:</P>
+<PRE>enum <A NAME="gxSemaphoreError"><B>gxSemaphoreError</A></B> { // Semaphore error codes
+  <B>gxSEMAPHORE_NO_ERROR</B> = 0,   // No errors reported
+  <B>gxSEMAPHORE_INVALID_CODE</B>,   // Invalid error code
+  <B>gxSEMAPHORE_DESTROY_ERROR</B>,  // Error destroying semaphore
+  <B>gxSEMAPHORE_INIT_ERROR</B>,     // Error initializing the semaphore
+  <B>gxSEMAPHORE_INTERNAL_ERROR</B>, // Internal mutex error
+  <B>gxSEMAPHORE_POST_ERROR</B>,     // Error posting
+  <B>gxSEMAPHORE_WAIT_ERROR</B>      // Error waiting
+};</PRE>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Functions">Functions</A></P>
+</B></FONT><P><A HREF="#GetSemaphore">gxSemaphore::GetSemaphore</A><BR>
+<A HREF="#GetSemaphoreError">gxSemaphore::GetSemaphoreError</A><BR>
+<A HREF="#GetSemaphoreProcessType">gxSemaphore::GetSemaphoreProcessType</A><BR>
+<A HREF="#SemaphoreDecrement">gxSemaphore::SemaphoreDecrement</A><BR>
+<A HREF="#SemaphoreDestroy">gxSemaphore::SemaphoreDestroy</A><BR>
+<A HREF="#SemaphoreExceptionMessage">gxSemaphore::SemaphoreExceptionMessage</A><BR>
+<A HREF="#SemaphoreIncrement">gxSemaphore::SemaphoreIncrement</A><BR>
+<A HREF="#SemaphoreInit">gxSemaphore::SemaphoreInit</A><BR>
+<A HREF="#SemaphorePost">gxSemaphore::SemaphorePost</A><BR>
+<A HREF="#SemaphoreValue">gxSemaphore::SemaphoreValue</A><BR>
+<A HREF="#SemaphoreWait">gxSemaphore::SemaphoreWait</A></P>
+<B><FONT COLOR="#000080"><P>gxSemaphore_t * gxSemaphore::<A NAME="GetSemaphore">GetSemaphore</A>()</B></FONT> - Returns a pointer to the gxSemaphore_t data structure, which contains platform specific variables. <B>NOTE</B>: This function is provided for debugging and testing purposes only. The gxSemaphore_t data structure and the helper functions that operate on gxSemaphore_t types should not be used directly.</P>
+<B><FONT COLOR="#000080"><P>gxSemaphoreError gxSemaphore::<A NAME="GetSemaphoreError">GetSemaphoreError</A>()</B></FONT> - Returns the last reported condition variable error. The return value will match one of the integer constants defined in <A HREF="#gxSemaphoreError">gxSemaphoreError</A> enumeration.</P>
+<B><FONT COLOR="#000080"><P>gxProcessType gxSemaphore::<A NAME="GetSemaphoreProcessType">GetSemaphoreProcessType</A>()</B></FONT> - Returns the process type for this semaphore. The return value will match one of the integer constants defined in <A NAME="gxProcessType"><A HREF="gxthread.htm#gxProcessType">gxProcessType</A></A> enumeration.</P>
+<B><FONT COLOR="#000080"><P>int gxSemaphore::<A NAME="SemaphoreDecrement">SemaphoreDecrement</A>()</B></FONT> - This is a non-blocking function that decrements the value of the semaphore. It allows threads to decrement the semaphore to some negative value as part of an initialization process. Decrements allow multiple threads to move up on a semaphore before another thread can go down. Returns a non-zero value if any errors occur. <B>NOTE</B>: An overloaded postfix -- operator is also provided that can be used in place of this function.</P>
+<B><FONT COLOR="#000080"><P>int gxSemaphore::<A NAME="SemaphoreDestroy">SemaphoreDestroy</A>()</B></FONT> - Function used by the gxSemaphore destructor to destroy the condition variable and free its resources. Returns a non-zero value if the condition variable cannot be destroyed or if any errors occur.</P>
+<B><FONT COLOR="#000080"><P>const char * gxSemaphore::<A NAME="SemaphoreExceptionMessage">SemaphoreExceptionMessage</A>()</B></FONT> - Returns a null terminated string that can be used to log or print a semaphore exception.</P>
+<B><FONT COLOR="#000080"><P>int gxSemaphore::<A NAME="SemaphoreIncrement">SemaphoreIncrement</A>()</B></FONT> - This is a non-blocking function that increments the value of the semaphore. Returns a non-zero value if any errors occur. <B>NOTE</B>: An overloaded postfix ++ operator is also provided that can be used in place of this function.</P>
+<B><FONT COLOR="#000080"><P>int gxSemaphore::<A NAME="SemaphoreInit">SemaphoreInit</A>(gxProcessType type = gxPROCESS_PRIVATE)</B></FONT> - Function used by the gxSemaphore constructor to initialize the semaphore. By default the process type is set to private meaning that this semaphore can only be shared by threads of the same process. If a <B>gxPROCESS_SHARED</B> process type is specified the semaphore can be shared across multiple processes. Returns a non-zero value if the semaphore cannot be initialized or if any errors occur.</P>
+<B><FONT COLOR="#000080"><P>int gxSemaphore::<A NAME="SemaphorePost">SemaphorePost</A>()</B></FONT> - Increments the semaphore and signals any threads that are blocked. Returns a non-zero value if any errors occur.</P>
+<B><FONT COLOR="#000080"><P>int gxSemaphore::<A NAME="SemaphoreValue">SemaphoreValue</A>()</B></FONT> - Returns the integer value of the semaphore at the time the critical section is accessed. <B>NOTE</B>: The value may change after the function unlocks the critical section. An int conversion function is also provided that will automatically convert gxSemaphore objects to an int type.</P>
+<B><FONT COLOR="#000080"><P>int gxSemaphore::<A NAME="SemaphoreWait">SemaphoreWait</A>()</B></FONT> - Decrement the semaphore and block if the semaphore value is zero until another thread signals a change. Returns a non-zero value if any errors occur.</P>
+<P><HR></P>
+<B><FONT SIZE=4><P><A NAME="Ehandler">Error Handling</A></P>
+</B></FONT><P>The application is responsible for monitoring and handling any semaphore errors that occur following a semaphore operation. An error condition is reported to the application by any semaphore function returning a non-zero value. If any value other then 0 is returned the application must generate the appropriate exception to handle the error condition. </P>
+<P>Semaphore errors are recorded by the gxSemaphore _t helper functions and stored in the gxSemaphore_t::semaphore_error variable. The semaphore error variable is accessible to the application though the <A HREF="#GetSemaphoreError">gxSemaphore::GetSemaphoreError</A> function. A semaphore error is a numeric value corresponding to one of the integer constants defined in the <A HREF="#gxSemaphoreError">gxSemaphoreError</A> enumeration. The <A HREF="#SemaphoreExceptionMessage">gxSemaphore::SemaphoreExceptionMessage</A> function can be used to log or print a semaphore exception.</P>
+<P><HR></P>
+<P ALIGN="CENTER"><CENTER><TABLE BORDER CELLSPACING=1 BORDERCOLOR="#000000">
+<TR><TD VALIGN="MIDDLE">
+<P ALIGN="CENTER">End Of Document</TD>
+</TR>
+</TABLE>
+</CENTER></P>
+
+<P>&nbsp;</P>
+
+</BODY>
+</HTML>
