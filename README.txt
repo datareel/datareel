@@ -244,9 +244,10 @@ BUILDING UNIX SHARE AND STATIC LIBRARIES
 ----------------------------------------
 Example install and build:
 
-> cd $HOME
-> tar xvfz ~/Downloads/datareel_5.01.tar.gz
-> cd datareel_5.01
+> mkdir -pv ~/git
+> cd ~/git
+> git clone https://github.com/datareel/datareel
+> cd datareel
 > cd env
 
 In the env directory edit the linux.env file if you need to make any
