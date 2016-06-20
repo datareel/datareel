@@ -269,14 +269,14 @@ To build with OpenSSL:
 
 To build example programs:
 
-> cd $HOME/datareel_5.01/examples_database
+> cd ~/git/datareel/examples_database
 > ls -l 
 > cd simple
 > make
 
 To build utility programs
 
-> cd $HOME/datareel_5.01/utils
+> cd ~/git/datareel/utils
 > ls
 > cd hexdump
 > make
