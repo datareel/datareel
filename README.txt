@@ -264,8 +264,8 @@ To build with OpenSSL:
 
 > export USE_OPEN_SSL=YES
 > make -f makefile_ssl
-> make install
-> make clean
+> make -f makefile_ssl install
+> make -f makefile_ssl clean
 
 To build example programs:
 
