@@ -254,7 +254,7 @@ In the env directory edit the linux.env file if you need to make any
 adjustments or modifications to the build 
 
 > source gnu_env.sh
-> ../build
+> cd ../build
 > make 
 
 > make install
