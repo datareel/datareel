@@ -6,7 +6,7 @@
 # C/C++ Compiler Used: GNU, Intel, Cray
 # Produced By: DataReel Software Development Team
 # File Creation Date: 08/15/2000
-# Date Last Modified: 06/06/2016
+# Date Last Modified: 06/29/2016
 # --------------------------------------------------------------- 
 # --------------- Makefile Description and Details -------------- 
 # --------------------------------------------------------------- 
@@ -366,10 +366,6 @@ GXDLCODE_DEP = $(GLIB_INCLUDE_PATH)asprint.h \
 	$(GLIB_INCLUDE_PATH)devcache.h \
 	$(GLIB_INCLUDE_PATH)devtypes.h \
 	$(GLIB_INCLUDE_PATH)dfileb.h \
-	$(GLIB_INCLUDE_PATH)eds101.h \
-	$(GLIB_INCLUDE_PATH)eds201.h \
-	$(GLIB_INCLUDE_PATH)edscfg.h \
-	$(GLIB_INCLUDE_PATH)edst101.h \
 	$(GLIB_INCLUDE_PATH)ehandler.h \
 	$(GLIB_INCLUDE_PATH)fstring.h \
 	$(GLIB_INCLUDE_PATH)futils.h \
@@ -440,7 +436,6 @@ GXDLCODE_DEP = $(GLIB_INCLUDE_PATH)asprint.h \
 	$(GLIB_INCLUDE_PATH)pod.h \
 	$(GLIB_INCLUDE_PATH)pscript.h \
 	$(GLIB_INCLUDE_PATH)scomserv.h \
-	$(GLIB_INCLUDE_PATH)sreg101.h \
 	$(GLIB_INCLUDE_PATH)stdafx.h \
 	$(GLIB_INCLUDE_PATH)strutil.h \
 	$(GLIB_INCLUDE_PATH)systime.h \
@@ -1004,10 +999,6 @@ STDAFX_DEP = $(GLIB_INCLUDE_PATH)asprint.h \
 	$(GLIB_INCLUDE_PATH)devcache.h \
 	$(GLIB_INCLUDE_PATH)devtypes.h \
 	$(GLIB_INCLUDE_PATH)dfileb.h \
-	$(GLIB_INCLUDE_PATH)eds101.h \
-	$(GLIB_INCLUDE_PATH)eds201.h \
-	$(GLIB_INCLUDE_PATH)edscfg.h \
-	$(GLIB_INCLUDE_PATH)edst101.h \
 	$(GLIB_INCLUDE_PATH)ehandler.h \
 	$(GLIB_INCLUDE_PATH)fstring.h \
 	$(GLIB_INCLUDE_PATH)futils.h \
@@ -1078,7 +1069,6 @@ STDAFX_DEP = $(GLIB_INCLUDE_PATH)asprint.h \
 	$(GLIB_INCLUDE_PATH)pod.h \
 	$(GLIB_INCLUDE_PATH)pscript.h \
 	$(GLIB_INCLUDE_PATH)scomserv.h \
-	$(GLIB_INCLUDE_PATH)sreg101.h \
 	$(GLIB_INCLUDE_PATH)stdafx.h \
 	$(GLIB_INCLUDE_PATH)strutil.h \
 	$(GLIB_INCLUDE_PATH)systime.h \

@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/09/2000 
-// Date Last Modified: 06/17/2016
+// Date Last Modified: 06/29/2016
 // Copyright (c) 2001-2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -71,11 +71,10 @@ directive is defined.
 #define _CRTDBG_MAP_ALLOC 
 #endif
 
-#endif // __MSVC_DEBUG__
-
 GXDLCODE_API void OutputHeading(const char *explanation);
 GXDLCODE_API void InitLeakTest();
 
+#endif // __MSVC_DEBUG__
 
 #endif // __GX_LEAK_TEST_HPP__
 // ----------------------------------------------------------- // 
