@@ -695,12 +695,14 @@ int SocketWRThread::read_socket_cached(SocketWR_t *s)
     }
     s->bytes_read += br;
 
-    if(s->bytes_read >= servercfg->buffer_overflow_size) {
-      if(servercfg->log_level >= 3) {
-	message << clear << "[" << seq_num << "]: " << s->log_str << " read " << s->bytes_read << " bytes from client";
-	LogMessage(message.c_str());
-	message << clear << "[" << seq_num << "]: " << s->log_str << " Closing connection due to buffer overflow";
-	LogMessage(message.c_str());
+    if(servercfg->enable_buffer_overflow_detection) {
+      if(s->bytes_read >= servercfg->buffer_overflow_size) {
+	if(servercfg->log_level >= 3) {
+	  message << clear << "[" << seq_num << "]: " << s->log_str << " read " << s->bytes_read << " bytes from client";
+	  LogMessage(message.c_str());
+	  message << clear << "[" << seq_num << "]: " << s->log_str << " Closing connection due to buffer overflow";
+	  LogMessage(message.c_str());
+	}
       }
     }
 

@@ -75,6 +75,7 @@ LBconfig::LBconfig()
   num_logs_to_keep = 3;
   last_log = 0;
   max_log_size = 5000000;
+  enable_buffer_overflow_detection = 0;
   buffer_overflow_size = 6400000;
   server_thread = 0;
   console_thread = 0;
@@ -700,7 +701,8 @@ int LoadOrBuildConfigFile()
     dfile << "# Should match: cat /proc/sys/net/core/somaxconn" << "\n";
     dfile << "somaxconn = 128" << "\n";
     dfile << "#" << "\n";
-    dfile << "# Buffer overflow detection with using cached reads" << "\n";
+    dfile << "# Buffer overflow detection with using cached reads, disabled by default" << "\n";
+    dfile << "enable_buffer_overflow_detection = 0" << "\n";
     dfile << "buffer_overflow_size = 6400000" << "\n";
     dfile << "#" << "\n";
     dfile << "# Retries for backend node connection errors" << "\n";
@@ -900,6 +902,9 @@ int LoadOrBuildConfigFile()
 	    NT_print("Config file has bad max_log_size");
 	    error_level = 1;
 	  }
+	}
+	if(ptr->data.IFind("enable_buffer_overflow_detection") != -1) {
+	  servercfg->enable_buffer_overflow_detection = CfgGetTrueFalseValue(ptr->data);
 	}
 	if(ptr->data.IFind("buffer_overflow_size") != -1) {
 	  servercfg->buffer_overflow_size = CfgGetEqualToParm(ptr->data);

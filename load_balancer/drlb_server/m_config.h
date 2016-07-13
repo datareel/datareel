@@ -172,6 +172,7 @@ struct LBconfig {
   gxThread_t *log_thread;
   gxThread_t *console_thread;
   unsigned buffer_overflow_size;
+  int enable_buffer_overflow_detection;
   unsigned retries;
   unsigned retry_wait;
   int timeout_secs;

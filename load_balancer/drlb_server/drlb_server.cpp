@@ -175,8 +175,14 @@ int main(int argc, char **argv)
 
   if(servercfg->use_buffer_cache == 1) {
     NT_print("Socket buffer cache enabled");
-    sbuf << clear << shn << servercfg->buffer_overflow_size;
-    NT_print("Buffer overflow size", sbuf.c_str()); 
+    if(servercfg->enable_buffer_overflow_detection) {
+      NT_print("INFO: Buffer overflow detection is enabled");
+      sbuf << clear << shn << servercfg->buffer_overflow_size;
+      NT_print("INFO: Buffer overflow size", sbuf.c_str()); 
+    }
+    else {
+      NT_print("Buffer overflow detection is disabled");
+    }
   }
   else {
     NT_print("Socket buffer cache disabled");
