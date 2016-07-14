@@ -216,19 +216,18 @@ int main(int argc, char **argv)
   else {
     NT_print("Socket read timeouts disabled");
   }
-    sbuf << clear << servercfg->log_queue_size;
+  sbuf << clear << servercfg->log_queue_size;
   NT_print("Max number of log or console messages to queue", sbuf.c_str()); 
   sbuf << clear << servercfg->log_queue_debug_size;
   NT_print("Max number of debug messages to queue", sbuf.c_str()); 
   sbuf << clear << servercfg->log_queue_proc_size;
   NT_print("Max number of process messages to queue", sbuf.c_str()); 
-  sbuf << clear << servercfg->num_logs_to_keep;
   if(servercfg->enable_logging)  {
     NT_print("Logging is enabled");
     if(servercfg->clear_log) {
       NT_print("Log file will cleared when LB server is restarted");
     } 
-
+    sbuf << clear << servercfg->num_logs_to_keep;
     NT_print("Number of log files to keep", sbuf.c_str()); 
     sbuf << clear << shn << servercfg->max_log_size;
     NT_print("Max log file size set to", sbuf.c_str()); 
