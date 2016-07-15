@@ -320,6 +320,10 @@ int main(int argc, char **argv)
     return 1;
   }
 
+  servercfg->loq_queue_nodes = new LogQueueNode[servercfg->log_queue_size];
+  servercfg->loq_queue_debug_nodes = new LogQueueNode[servercfg->log_queue_debug_size];
+  servercfg->loq_queue_proc_nodes = new LogQueueNode[servercfg->log_queue_proc_size];
+
   if((servercfg->scheme == LB_DISTRIB) || (servercfg->scheme == LB_ASSIGNED && servercfg->assigned_default == LB_DISTRIB)) { 
     NT_print("Building distributed node assignments");
     if(!servercfg->build_distributed_rr_node_list()) {

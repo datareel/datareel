@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/11/2016 
+// Date Last Modified: 07/14/2016 
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -97,9 +97,9 @@ LBconfig::LBconfig()
   log_queue_size = 5000;
   log_queue_debug_size = 5000;
   log_queue_proc_size = 5000;
-  loq_queue_nodes = new LogQueueNode[log_queue_size];
-  loq_queue_debug_nodes = new LogQueueNode[log_queue_debug_size];
-  loq_queue_proc_nodes = new LogQueueNode[log_queue_proc_size];
+  loq_queue_nodes = 0;
+  loq_queue_debug_nodes = 0;
+  loq_queue_proc_nodes = 0;
   queue_node_count_is_locked = 0;
   queue_node_count_retries = log_queue_size;
   queue_debug_count_is_locked = 0;
@@ -897,7 +897,8 @@ int LoadOrBuildConfigFile()
 	  }
 	}
 	if(ptr->data.IFind("max_log_size") != -1) {
-	  servercfg->max_log_size = CfgGetEqualToParm(ptr->data);
+	  gxString lbuf = CfgGetEqualToParm(ptr->data, pbuf);
+	  servercfg->max_log_size = lbuf.Atol();
 	  if(servercfg->max_log_size <= 0) {
 	    NT_print("Config file has bad max_log_size");
 	    error_level = 1;

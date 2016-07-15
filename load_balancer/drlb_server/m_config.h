@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/10/2016
+// Date Last Modified: 07/14/2016
 // Copyright (c) 2001-2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -187,7 +187,7 @@ struct LBconfig {
   int clear_log;
   int enable_logging;
   int num_logs_to_keep;
-  int max_log_size;
+  long max_log_size;
   int last_log;
   gxString logfile_name;
   int log_level;
