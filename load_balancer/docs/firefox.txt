@@ -1,0 +1,15 @@
+# HTTP persistent connection testing using Firefox
+# Last modified: 07/15/2016
+
+When using Firefox to test load balanced HTTP connections there is a
+default limit of 6 persistent connection Firxfox will allow. To
+increase this limit for testing, enter the following URL: 
+
+about:config
+
+Search for:
+
+network.http.max-persistent-connections-per-server
+
+Change the default from 6 to a higher number.
+
