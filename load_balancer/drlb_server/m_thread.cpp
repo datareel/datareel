@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/14/2016 
+// Date Last Modified: 07/15/2016 
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -553,26 +553,56 @@ void *SocketWRThread::ThreadEntryRoutine(gxThread_t *thread)
   int rv;
 
   servercfg->NUM_CLIENT_THREADS(1);
+  gxString message;
 
   if(servercfg->use_buffer_cache) {
     while(servercfg->echo_loop) {
       rv = read_socket_cached(s);
-      if(rv < 0) break;
+      if(rv < 0) {
+	break;
+      }
+      if(rv == 0) {
+	if(servercfg->debug || servercfg->log_level > 3) {
+	  message << clear << "[" << s->seq_num << "]: " << s->log_str << " client has disconnected";
+	  LogMessage(message.c_str());
+	}
+	// Socket is halfway closed, so we need to signal both sides not to read or write
+	shutdown(s->read_sock, SHUT_RDWR);
+	break;
+      }
       rv = write_socket_cached(s);
-      if(rv < 0) break;
+      if(rv < 0) {
+	break;
+      }
     }
   }
   else {
     while(servercfg->echo_loop) {
       rv = read_socket(s);
-      if(rv < 0) break;
+      if(rv < 0) {
+	break;
+      }
+      if(rv == 0) {
+	if(servercfg->debug || servercfg->log_level > 3) {
+	  message << clear << "[" << s->seq_num << "]: " << s->log_str << " client has disconnected";
+	  LogMessage(message.c_str());
+	}
+	// Socket is halfway closed, so we need to signal both sides not to read or write
+	shutdown(s->read_sock, SHUT_RDWR);
+	break;
+      }
       rv = write_socket(s);
-      if(rv < 0) break;
+      if(rv < 0) {
+	break;
+      }
     }
   }
   return (void *)0;
 }
 
+// Returns number of bytes read.
+// Returns -1 if there is a socket error
+// Returns 0 if no bytes where read
 int SocketWRThread::read_socket(SocketWR_t *s)
 {
   int br = 0;
@@ -598,12 +628,8 @@ int SocketWRThread::read_socket(SocketWR_t *s)
     LogMessage(message.c_str());
   }
   if(br == 0) {
-    if(servercfg->log_level > 3) {
-      message << clear << "[" << seq_num << "]: " << s->log_str << " client has disconnected";
-      LogMessage(message.c_str());
-    }
     s->bytes_read = 0;
-    return -1;
+    return 0;
   }
   if(br < 0) {
     if(servercfg->log_level >= 3) {
@@ -647,6 +673,9 @@ int SocketWRThread::write_socket(SocketWR_t *s)
   return bm;
 }
 
+// Returns number of bytes read.
+// Returns -1 if there is a socket error
+// Returns 0 if no bytes where read
 int SocketWRThread::read_socket_cached(SocketWR_t *s)
 {
   int br = 0;
@@ -676,12 +705,8 @@ int SocketWRThread::read_socket_cached(SocketWR_t *s)
       LogDebugMessage(message.c_str());
     }
     if(br == 0) {
-      if(servercfg->log_level > 3) {
-	message << clear << "[" << seq_num << "]: " << s->log_str << " client has disconnected";
-	LogMessage(message.c_str());
-      }
       s->bytes_read = 0;
-      return -1;
+      return 0;
     }
     if(br < 0) {
       if(servercfg->log_level >= 3) {

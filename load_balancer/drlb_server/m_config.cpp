@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/14/2016 
+// Date Last Modified: 07/15/2016 
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -94,9 +94,9 @@ LBconfig::LBconfig()
   queue_node_count = -1;
   queue_debug_count = -1;
   queue_proc_count = -1;
-  log_queue_size = 5000;
-  log_queue_debug_size = 5000;
-  log_queue_proc_size = 5000;
+  log_queue_size = 2048;
+  log_queue_debug_size = 4096;
+  log_queue_proc_size = 255;
   loq_queue_nodes = 0;
   loq_queue_debug_nodes = 0;
   loq_queue_proc_nodes = 0;
@@ -428,7 +428,7 @@ unsigned LBnode::NUM_CONNECTIONS(int inc, int dec, unsigned set_to)
 int ProcessDashDashArg(gxString &arg)
 {
   gxString sbuf, equal_arg;
-  int has_valid_args = 0;
+  int has_arg_errors = 0;
   
   if(arg.Find("=") != -1) {
     // Look for equal arguments
@@ -445,23 +445,19 @@ int ProcessDashDashArg(gxString &arg)
   
   // Process all -- arguments here
   if(arg == "help") {
-    has_valid_args = 1;
     HelpMessage(servercfg->ProgramName.c_str());
-    return 0; // Signal program to exit
+    ExitProc(); // Signal program to exit
   }
   if(arg == "?") {
-    has_valid_args = 1;
     HelpMessage(servercfg->ProgramName.c_str());
-    return 0; // Signal program to exit
+    ExitProc(); // Signal program to exit
   }
   if((arg == "version") || (arg == "ver")) {
-    has_valid_args = 1;
     VersionMessage();
-    return 0; // Signal program to exit
+    ExitProc(); // Signal program to exit
   }
 
   if(arg == "verbose") {
-    has_valid_args = 1;
     servercfg->verbose = 1;
   }
 
@@ -469,34 +465,27 @@ int ProcessDashDashArg(gxString &arg)
     if(equal_arg.is_null()) { 
       servercfg->verbose = 1;
       NT_print("Error no verbose level supplied with the --verbose-level swtich");
-      return 0;
+      has_arg_errors++;
     }
-    has_valid_args = 1;
-    servercfg->verbose = 1;
-    if(!equal_arg.is_null()) { 
+    else {
+      servercfg->verbose = 1;
       servercfg->verbose_level = equal_arg.Atoi(); 
       if(servercfg->verbose_level <= 0) servercfg->verbose_level = 1;
     }
   }
 
   if(arg == "debug") {
-    has_valid_args = 1;
     servercfg->debug = 1;
-    if(!equal_arg.is_null()) { 
-      servercfg->debug_level = equal_arg.Atoi(); 
-      if(servercfg->debug_level <= 0) servercfg->debug_level = 1;
-    }
   }
 
   if(arg == "debug-level") {
     if(equal_arg.is_null()) { 
       servercfg->verbose = 1;
       NT_print("Error no debug level supplied with the --debug-level swtich");
-      return 0;
+      has_arg_errors++;
     }
-    has_valid_args = 1;
-    servercfg->debug = 1;
-    if(!equal_arg.is_null()) { 
+    else {
+      servercfg->debug = 1;
       servercfg->debug_level = equal_arg.Atoi(); 
       if(servercfg->debug_level <= 0) servercfg->debug_level = 1;
     }
@@ -506,26 +495,27 @@ int ProcessDashDashArg(gxString &arg)
     if(equal_arg.is_null()) { 
       servercfg->verbose = 1;
       NT_print("Error no config file name supplied with the --config-file swtich"); 
-      return 0;
+      has_arg_errors++;
     }
-    has_valid_args = 1;
-    servercfg->config_file = equal_arg;
-    servercfg->user_config_file = 1;
+    else {
+      servercfg->config_file = equal_arg;
+      servercfg->user_config_file = 1;
+    }
   }
 
   if(arg == "log-file") {
     if(equal_arg.is_null()) { 
       servercfg->verbose = 1;
       NT_print("Error no LOG file name supplied with the --log-file swtich");
-      return 0;
+      has_arg_errors++;
     }
-    has_valid_args = 1;
-    servercfg->logfile_name = equal_arg;
-    servercfg->enable_logging = 1;
+    else {
+      servercfg->logfile_name = equal_arg;
+      servercfg->enable_logging = 1;
+    }
   }
 
   if(arg == "log-file-clear") {
-    has_valid_args = 1;
     servercfg->clear_log = 1;
   }
 
@@ -533,17 +523,16 @@ int ProcessDashDashArg(gxString &arg)
     if(equal_arg.is_null()) { 
       servercfg->verbose = 1;
       NT_print("Error no debug level supplied with the --log-level swtich");
-      return 0;
+      has_arg_errors++;
     }
-    has_valid_args = 1;
-    if(!equal_arg.is_null()) { 
+    else {
       servercfg->log_level = equal_arg.Atoi(); 
       if(servercfg->log_level < 0) servercfg->log_level = 0;
     }
   }
 
   arg.Clear();
-  return has_valid_args;
+  return has_arg_errors;
 }
 
 int ProcessArgs(int argc, char *argv[])
@@ -551,6 +540,7 @@ int ProcessArgs(int argc, char *argv[])
   // process the program's argument list
   int i;
   gxString sbuf;
+  int has_arg_errors = 0;
 
   for(i = 1; i < argc; i++ ) {
     if(*argv[i] == '-') {
@@ -561,12 +551,13 @@ int ProcessArgs(int argc, char *argv[])
 	  sbuf = &argv[i][2]; 
 	  // Add all -- prepend filters here
 	  sbuf.TrimLeading('-');
-	  if(!ProcessDashDashArg(sbuf)) return 0;
+	  if(ProcessDashDashArg(sbuf) != 0) has_arg_errors++;
 	  break;
 
 	case '?':
 	  HelpMessage(servercfg->ProgramName.c_str());
-	  return 0; // Signal program to exit
+	  ExitProc(); // Signal program to exit
+	  break;
 	  
 	case 'v': case 'V': 
 	  servercfg->verbose = 1;
@@ -578,17 +569,16 @@ int ProcessArgs(int argc, char *argv[])
 
 	default:
 	  servercfg->verbose = 1; 
-	  NT_print("\n");
 	  sbuf << clear << "Unknown command line arg " << argv[i];
 	  NT_print(sbuf.c_str());
 	  NT_print("Exiting with errors");
-	  NT_print("\n");
-	  return 0;
+	  ExitProc(); // Signal program to exit
+	  break;
       }
     }
   }
 
-  return 1; // All command line arguments were valid
+  return has_arg_errors;
 }
 
 void CfgGetEqualToParm(const gxString &cfgline, gxString &parm)
@@ -687,9 +677,9 @@ int LoadOrBuildConfigFile()
     dfile << "num_logs_to_keep = 3" << "\n";
     dfile << "last_log = 1" << "\n";
     dfile << "max_log_size = 5000000" << "\n";
-    dfile << "log_queue_size = 5000 # Max number of log or console messages to queue" << "\n";
-    dfile << "log_queue_debug_size = 5000 # Max number of debug messages to queue" << "\n";
-    dfile << "log_queue_proc_size = 5000 # Max number of process messages to queue" << "\n";
+    dfile << "log_queue_size = 2048 # Max number of log or console messages to queue" << "\n";
+    dfile << "log_queue_debug_size = 4096 # Max number of debug messages to queue" << "\n";
+    dfile << "log_queue_proc_size = 255 # Max number of process messages to queue" << "\n";
     dfile << "# Values below can be set here or args when program is launched" << "\n";
     dfile << "##clear_log = 0" << "\n";
     dfile << "##enable_logging = 0" << "\n";

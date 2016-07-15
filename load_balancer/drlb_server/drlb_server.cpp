@@ -6,7 +6,7 @@
 // Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/07/2016
+// Date Last Modified: 07/15/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -65,7 +65,11 @@ int main(int argc, char **argv)
     if(arg[0] != '\0') {
       if(arg[0] == '-') { // Look for command line arguments
 	// Exit if argument is not valid or argument signals program to exit
-	if(!ProcessArgs(argc, argv)) return 1; 
+	if(ProcessArgs(argc, argv) != 0) {
+	  servercfg->verbose = 1;
+	  NT_print("ERROR - Bad -- argument, use --help to print valid -- arguments");
+	  return 1; 
+	}
       }
     }
     arg = argv[++narg];
@@ -73,11 +77,9 @@ int main(int argc, char **argv)
 
   if(!servercfg->user_config_file) {
     servercfg->verbose = 1;
-    NT_print("\n");
     NT_print("ERROR - No config file specified. Use --config-file option to specify a config file");
     NT_print("INFO - If you do not have a config file the program will build a default config and exit");
     NT_print("INFO - Use --help option to see help menu");
-    NT_print("\n");
     return 1;
   }
 
@@ -465,6 +467,12 @@ int main(int argc, char **argv)
 
   NT_print("Main server thread has exited program will exit");  
 
+  // Check to see if the process was stopped
+  if(servercfg->echo_loop == 0 && servercfg->accept_clients == 0) {
+    NT_print("Exiting program...");
+    return 1;
+  }
+  // If process was not stopped call StopProc()
   retries = 3;
   while(!StopProc() && --retries) sSleep(1);
   NT_print("Exiting program...");
