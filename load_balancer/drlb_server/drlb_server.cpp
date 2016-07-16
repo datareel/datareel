@@ -6,7 +6,7 @@
 // Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/15/2016
+// Date Last Modified: 07/16/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -125,37 +125,6 @@ int main(int argc, char **argv)
 
   if(servercfg->scheme == LB_ASSIGNED) {
     NT_print("Load balancing scheme = LB_ASSIGNED");
-    NT_print("Checking rules configuration file");
-    if(servercfg->rules_config_file.is_null()) {
-      NT_print("ERROR - No rules_config_file specified in LB server config");
-      return 1;
-    }
-    switch(servercfg->ReadRulesConfig()) {
-      case 0:
-	NT_print("INFO - Rules config file checks good at start up");
-	if(servercfg->dynamic_rules_read) {
-	  NT_print("INFO - Rules config dynamic read is enabled.");
-	  NT_print("INFO - Rules config file will be re-read. Changes do not require a server restart.");
-	}
-	else {
-	  NT_print("INFO - Rules config dynamic read is disenabled.");
-	  NT_print("INFO - Rules config will only be read once. Changes will require a server restart.");
-	}
-	break;
-      case 1:
-	  NT_print("ERROR - Fatal error reading rules config file");
-	return 1;
-      case 2:
-	NT_print("ERROR - Bad rule line in rules config file");
-	return 1;
-      case 3:
-	NT_print("ERROR - Bad regular expression in rules config file");
-	return 1;
-      default:
-	NT_print("ERROR - Unknown error reading rules config file");
-	return 1;
-    }
-
     switch(servercfg->assigned_default) {
       case LB_RR:
 	NT_print("INFO - Assigned connections will use LB round robin for node fail over");
@@ -179,7 +148,7 @@ int main(int argc, char **argv)
     NT_print("Socket buffer cache enabled");
     if(servercfg->enable_buffer_overflow_detection) {
       NT_print("INFO: Buffer overflow detection is enabled");
-      sbuf << clear << shn << servercfg->buffer_overflow_size;
+      sbuf << clear << wn << servercfg->buffer_overflow_size;
       NT_print("INFO: Buffer overflow size", sbuf.c_str()); 
     }
     else {
@@ -231,7 +200,13 @@ int main(int argc, char **argv)
     } 
     sbuf << clear << servercfg->num_logs_to_keep;
     NT_print("Number of log files to keep", sbuf.c_str()); 
-    sbuf << clear << shn << servercfg->max_log_size;
+
+
+
+    char lbuf[255];
+    memset(lbuf, 0, 255);
+    sprintf(lbuf, "%lu" , servercfg->max_log_size);
+    sbuf << clear << wn << servercfg->max_log_size;
     NT_print("Max log file size set to", sbuf.c_str()); 
     sbuf << clear << servercfg->log_level;
     NT_print("Logging level set to", sbuf.c_str()); 
@@ -325,6 +300,39 @@ int main(int argc, char **argv)
   servercfg->loq_queue_nodes = new LogQueueNode[servercfg->log_queue_size];
   servercfg->loq_queue_debug_nodes = new LogQueueNode[servercfg->log_queue_debug_size];
   servercfg->loq_queue_proc_nodes = new LogQueueNode[servercfg->log_queue_proc_size];
+
+  if(servercfg->scheme == LB_ASSIGNED) {
+    NT_print("Checking rules configuration file");
+    if(servercfg->rules_config_file.is_null()) {
+      NT_print("ERROR - No rules_config_file specified in LB server config");
+      return 1;
+    }
+    switch(servercfg->ReadRulesConfig()) {
+      case 0:
+	NT_print("INFO - Rules config file checks good at start up");
+	if(servercfg->dynamic_rules_read) {
+	  NT_print("INFO - Rules config dynamic read is enabled.");
+	  NT_print("INFO - Rules config file will be re-read. Changes do not require a server restart.");
+	}
+	else {
+	  NT_print("INFO - Rules config dynamic read is disenabled.");
+	  NT_print("INFO - Rules config will only be read once. Changes will require a server restart.");
+	}
+	break;
+      case 1:
+	  NT_print("ERROR - Fatal error reading rules config file");
+	return 1;
+      case 2:
+	NT_print("ERROR - Bad rule line in rules config file");
+	return 1;
+      case 3:
+	NT_print("ERROR - Bad regular expression in rules config file");
+	return 1;
+      default:
+	NT_print("ERROR - Unknown error reading rules config file");
+	return 1;
+    }
+  }
 
   if((servercfg->scheme == LB_DISTRIB) || (servercfg->scheme == LB_ASSIGNED && servercfg->assigned_default == LB_DISTRIB)) { 
     NT_print("Building distributed node assignments");

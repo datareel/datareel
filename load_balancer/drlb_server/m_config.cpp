@@ -646,7 +646,7 @@ int LoadOrBuildConfigFile()
       NT_print("Cannot write to config file", servercfg->config_file.c_str());
       return 0;
     }
-    dfile << "#  " << GetProgramDescription() << " " << GetVersionString() << " configuration file" << "\n";
+    dfile << "# " << GetProgramDescription() << " " << GetVersionString() << " configuration file" << "\n";
     dfile << "#" << "\n";
     dfile << "\n";
     dfile << "# Default LB config file" << "\n";
@@ -660,7 +660,7 @@ int LoadOrBuildConfigFile()
     dfile << "##scheme = LB_ASSIGNED" << "\n";
     dfile << "##rules_config_file = drlb_server_rules.cfg" << "\n";
     dfile << "##dynamic_rules_read = 1 # Read the rules config while LB server is running" << "\n";
-    dfile << "##assigned_default = LB_RR; # Use round robin, distib or weighted, for node fail over" << "\n";
+    dfile << "##assigned_default = LB_RR # Use round robin, distib or weighted, for node fail over" << "\n";
     dfile << "# Set assigned_default to LB_NONE to disable node fail over, meaning:" << "\n";
     dfile << "# If the assigned node is not available the client connection will fail" << "\n";
     dfile << "#" << "\n";
@@ -674,9 +674,10 @@ int LoadOrBuildConfigFile()
     dfile << "max_threads = -1 # Not set, if set will limit number of threads for this process" << "\n";
     dfile << "#" << "\n";
     dfile << "# Log settings" << "\n";
+    dfile << "# Keep log file plus last 3. Disk space will be: (max_log_size * (num_logs_to_keep +1))" << "\n";
     dfile << "num_logs_to_keep = 3" << "\n";
-    dfile << "last_log = 1" << "\n";
-    dfile << "max_log_size = 5000000" << "\n";
+    dfile << "# Set max size per log file, max is 2000000000" << "\n";
+    dfile << "max_log_size = 5000000 # Default is 5M, max is 2G" << "\n";
     dfile << "log_queue_size = 2048 # Max number of log or console messages to queue" << "\n";
     dfile << "log_queue_debug_size = 4096 # Max number of debug messages to queue" << "\n";
     dfile << "log_queue_proc_size = 255 # Max number of process messages to queue" << "\n";
@@ -684,7 +685,6 @@ int LoadOrBuildConfigFile()
     dfile << "##clear_log = 0" << "\n";
     dfile << "##enable_logging = 0" << "\n";
     dfile << "# Log levels 0-5, 0 lowest log level, 5 highest log level " << "\n";
-    dfile << "##log_level = 1" << "\n";
     dfile << "##logfile_name = drlb_server.log" << "\n";
     dfile << "#" << "\n";
     dfile << "# Set max number of back logged connections" << "\n";
@@ -708,6 +708,9 @@ int LoadOrBuildConfigFile()
     dfile << "##service_name = drlb_server" << "\n";
     dfile << "#" << "\n";
     dfile << "# Values below can be set here or args when program is launched" << "\n";
+    dfile << "# Debug and verbose modes used mainly for development and testing" << "\n";
+    dfile << "# NOTE: Debug level 5 will greatly increase log file size" << "\n";
+    dfile << "# NOTE: Verbose mode will echo messages to the console, used mainly to test config files" << "\n";
     dfile << "##debug = 0" << "\n";
     dfile << "##debug_level = 1" << "\n";
     dfile << "##verbose = 0" << "\n";
@@ -804,6 +807,7 @@ int LoadOrBuildConfigFile()
   ptr = list.GetHead();
   char pbuf[255];
   gxString parm;
+  int has_scheme = 0;
 
   while(ptr) {
     gxString strdup = ptr->data;
@@ -818,6 +822,7 @@ int LoadOrBuildConfigFile()
 	}
 	// Add all server conifg reads here
 	if(ptr->data.IFind("scheme") != -1) {
+	  has_scheme++;
 	  CfgGetEqualToParm(ptr->data, parm);
 	  if(parm.IFind("LB_ASSIGNED") != -1) {
 	    servercfg->scheme = LB_ASSIGNED;
@@ -835,6 +840,11 @@ int LoadOrBuildConfigFile()
 	    NT_print("Config file has bad scheme value", parm.c_str());
 	    error_level = 1;
 	  }
+	  if(has_scheme > 1) {
+	    NT_print("Config file has more than one scheme defined");
+	    error_level = 1;
+	  }
+
 	}
 	if(ptr->data.IFind("use_buffer_cache") != -1) {
 	  servercfg->use_buffer_cache = CfgGetTrueFalseValue(ptr->data);
@@ -889,6 +899,10 @@ int LoadOrBuildConfigFile()
 	if(ptr->data.IFind("max_log_size") != -1) {
 	  gxString lbuf = CfgGetEqualToParm(ptr->data, pbuf);
 	  servercfg->max_log_size = lbuf.Atol();
+	  if(servercfg->max_log_size > 2000000000) {
+	    NT_print("Config max_log_size is over 2GB");
+	    error_level =1;
+	  }
 	  if(servercfg->max_log_size <= 0) {
 	    NT_print("Config file has bad max_log_size");
 	    error_level = 1;
