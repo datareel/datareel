@@ -6,26 +6,27 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/14/2016
-// Copyright (c) 2001-2016 DataReel Software Development
+// Date Last Modified: 07/16/2016
+// Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
 // ----------------------------------------------------------- // 
 /*
-This library is free software; you can redistribute it and/or
-modify it under the terms of the GNU Lesser General Public
-License as published by the Free Software Foundation; either
-version 2.1 of the License, or (at your option) any later version.
- 
-This library is distributed in the hope that it will be useful,
+This file is part of the DataReel software distribution.
+
+Datareel is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation, either version 3 of the License, or (at your
+option) any later version. 
+
+Datareel software is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-Lesser General Public License for more details.
+General Public License for more details.
 
-You should have received a copy of the GNU Lesser General Public
-License along with this library; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  
-USA
+You should have received a copy of the GNU General Public License
+along with the DataReel software distribution.  If not, see
+<http://www.gnu.org/licenses/>.
 
 Log functions for Datareel load balancer.
 
