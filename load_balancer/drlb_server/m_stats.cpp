@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/16/2016
+// Date Last Modified: 07/17/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -35,7 +35,7 @@ Stat functions for Datareel load balancer.
 #include "gxdlcode.h"
 
 #include "drlb_server.h"
-#include "m_dbase.h"
+#include "m_stats.h"
 
 // ----------------------------------------------------------- // 
 // ------------------------------- //
