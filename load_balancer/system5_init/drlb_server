@@ -28,7 +28,7 @@ fi
 error_level=0
 
 LBPROCNAME="drlb_server"
-LBPROC="/sbin/${LBPROCNAME}"
+LBPROC="/usr/sbin/${LBPROCNAME}"
 ACTIVE_CONFIGS="/etc/drlb_server/active_configs.list"
 SINGLECONFIG="${2}"
 

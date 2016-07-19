@@ -14,8 +14,8 @@ install_root:
 	chmod 755 /etc/drlb_server
 	mkdir -pv /var/log/drlb_server
 	chmod 755 /var/log/drlb_server
-	cp -fv drlb_server /sbin/drlb_server
-	chmod 755 /sbin/drlb_server
+	cp -fv drlb_server /usr/sbin/drlb_server
+	chmod 755 /usr/sbin/drlb_server
 	touch /etc/sysconfig/drlb_server
 	chmod 644 /etc/sysconfig/drlb_server
 	touch /etc/drlb_server/active_configs.list
