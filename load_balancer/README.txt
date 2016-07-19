@@ -65,6 +65,14 @@ Once your configuration is set up, run a test with debug and logging enabled:
 
 $ ./drlb_server --verbose --debug --config-file=/tmp/lb_test_config.cfg --log-file=/tmp/lb_test.log
 
+Installing:
+----------
+The development version can be installed on CENTOS6/RHEL6 or
+CENTOS7/RHEL7 from the makefile:
+
+$ cd $HOME/git/datareel/load_balancer/drlb_server
+$ sudo su -c 'make install_root'
+
 Linux Kernel Tuning:
 -------------------
 Developers  and system administrators see the following document:
@@ -121,8 +129,6 @@ open source distribution.
 
 Remaining work to be added to this open source project:
 
-* Add system 5 init scripts 
-* Add systemd init
 * RPM install for CENTOS/RHEL 6.X and 7.X
 * HTML Documentation
 
