@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/16/2016
+// Date Last Modified: 07/23/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -38,7 +38,7 @@ Extra socket functions for Datareel load balancer.
 #include "gxdlcode.h"
 #include "gxstring.h"
 
-// Get string value for errno. Returns the error_number provided by caller */
+// Get string value for errno. Returns the error_number provided by caller
 int fd_error_to_string(int error_number, gxString &sbuf);
 
 #endif // __DRLB_SOCKET_HPP__

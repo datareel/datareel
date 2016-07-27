@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/16/2016
+// Date Last Modified: 07/22/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -265,7 +265,7 @@ void LBClientRequestThread::ThreadExitRoutine(gxThread_t *thread)
   if(frontend_rw_thread) {
     if(frontend_rw_thread->GetThreadState() == gxTHREAD_STATE_RUNNING) {
       if(servercfg->debug && servercfg->debug_level == 5) { 
-	message << clear << "[" << s->seq_num << "]: Cancel frontend_rw_thread ";
+	message << clear << "[" << s->seq_num << "]: Cancel frontend_rw_thread";
 	LogDebugMessage(message.c_str());
       }
       socket_rw_thread.CancelThread(frontend_rw_thread);
@@ -278,7 +278,7 @@ void LBClientRequestThread::ThreadExitRoutine(gxThread_t *thread)
   if(backend_rw_thread) {
     if(backend_rw_thread->GetThreadState() == gxTHREAD_STATE_RUNNING) {
       if(servercfg->debug && servercfg->debug_level == 5) { 
-	message << clear << "[" << s->seq_num << "]: Cancel backend_rw_thread ";
+	message << clear << "[" << s->seq_num << "]: Cancel backend_rw_thread";
 	LogDebugMessage(message.c_str());
       }
       socket_rw_thread.CancelThread(backend_rw_thread);
@@ -310,7 +310,7 @@ void LBClientRequestThread::ThreadCleanupHandler(gxThread_t *thread)
   ClientSocket_t *s = (ClientSocket_t *)thread->GetThreadParm();
 
   if(servercfg->debug && servercfg->debug_level == 5) { 
-    message << clear << "[" << s->seq_num << "]: Client request thread clean up handler closing connections: ";
+    message << clear << "[" << s->seq_num << "]: Client request thread clean up handler closing connections";
     LogDebugMessage(message.c_str());
   }
 
@@ -320,7 +320,7 @@ void LBClientRequestThread::ThreadCleanupHandler(gxThread_t *thread)
   if(frontend_rw_thread) {
     if(frontend_rw_thread->GetThreadState() == gxTHREAD_STATE_RUNNING) {
       if(servercfg->debug && servercfg->debug_level == 5) { 
-	message << clear << "[" << s->seq_num << "]: Cancel frontend_rw_thread ";
+	message << clear << "[" << s->seq_num << "]: Cancel frontend_rw_thread";
 	LogDebugMessage(message.c_str());
       }
       socket_rw_thread.CancelThread(frontend_rw_thread);
@@ -333,7 +333,7 @@ void LBClientRequestThread::ThreadCleanupHandler(gxThread_t *thread)
   if(backend_rw_thread) {
     if(backend_rw_thread->GetThreadState() == gxTHREAD_STATE_RUNNING) {
       if(servercfg->debug && servercfg->debug_level == 5) { 
-	message << clear << "[" << s->seq_num << "]: Cancel backend_rw_thread ";
+	message << clear << "[" << s->seq_num << "]: Cancel backend_rw_thread";
 	LogDebugMessage(message.c_str());
       }
       socket_rw_thread.CancelThread(backend_rw_thread);

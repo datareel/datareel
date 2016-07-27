@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 07/17/2016
+// Date Last Modified: 07/27/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -38,7 +38,7 @@ Help functions for Datareel cluster manager.
 #include "m_help.h"
 
 // Version number, program  and publisher info
-const char *VersionString = "1.01";
+const char *VersionString = "1.14";
 const char *ProgramDescription = "Datareel Cluster Manager";
 const char *ProducedBy = "http://datareel.com";
 
@@ -62,6 +62,17 @@ void HelpMessage(const char *ProgramName)
   VersionMessage();
   cout << "Usage: " << ProgramName << " [args]" << "\n" << flush;
   cout << "args: " << "\n" << flush;
+  cout << "     --help                      Print help message and exit" << "\n" << flush;
+  cout << "     --version                   Print version number and exit" << "\n" << flush;
+  cout << "     --check-config              Check the CM config file and exit" << "\n" << flush;
+  cout << "     --debug                     Enable debug mode default level --debug=1" << "\n" << flush;
+  cout << "     --debug-level=1             Set debugging level, 1-5" << "\n" << flush;
+  cout << "     --verbose                   Turn on verbose messaging to console" << "\n" << flush;
+  cout << "     --verbose-level=1           Set verbose level, 0-5" << "\n" << flush;
+  cout << "     --config-file=\"cm.cfg\"      Specify configuration CFG file location" << "\n" << flush;
+  cout << "     --log-file=\"drcm.log\"       Specify a log file name" << "\n" << flush;
+  cout << "     --log-level=1               Set logging level, 0-5" << "\n" << flush;
+  cout << "     --log-file-clear            Clear the log file when program starts" << "\n" << flush;
   cout << "\n" << flush;
 }
 

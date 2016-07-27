@@ -1,0 +1,7 @@
+# Cluster manaager sub-interface template file
+# RHEL/CENTOS location: /etc/sysconfig/network-scripts
+# NOTE: IPADDR and PREFIX/NETMASK will be set by DRCM process
+DEVICE=eth0:2
+BOOTPROTO=none
+ONBOOT=yes
+

@@ -1,0 +1,21 @@
+####################################################
+# DR Cluster Manager crontab for system crons 
+####################################################
+# min hour monthday month weekday user command
+#---------------------------------------------
+#    minute 0-59
+#    hour 0-23
+#    monthday 1-31
+#    month 0-12
+#    weekday 0-6; 0=Sunday
+#
+# CM root cron example, to run a backup every day at 05:30:
+#
+# 30 05 * * * root bash -c '/etc/drcm/file_system_sync/backup_to_shared_storage.sh > /dev/null 2>&1'
+
+####################################################################################################
+
+# Add all your system crons below. 
+# NOTE: The crons below are jobs that can only run on one cluster node. If you have a job
+# NOTE: that has to run on both nodes, add that job to root's crontab.
+

@@ -1,0 +1,22 @@
+####################################################
+# DR Cluster Manager crontab for user crons 
+####################################################
+# min hour monthday month weekday user command
+#---------------------------------------------
+#    minute 0-59
+#    hour 0-23
+#    monthday 1-31
+#    month 0-12
+#    weekday 0-6; 0=Sunday
+#
+# CM user cron example, to run an update every 5 minutes:
+#
+# */5 * * * * ldm bash -c '/usr/local/ldm/util/send_keep_alive.sh > /dev/null 2>&1'
+# TIMES       USER SHELL    COMMAND                             ARGS  LOG FILE or NULL device   
+#
+###############################################################################################
+
+# Add all your user crons below
+# NOTE: The crons below are jobs that can only run on one cluster node. If you have a job
+# NOTE: that has to run on both nodes, add that job to the user's crontab.
+

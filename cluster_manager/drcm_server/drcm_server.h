@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 07/17/2016
+// Date Last Modified: 07/27/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -65,15 +65,17 @@ using namespace std; // Use unqualified names for Standard C++ library
 #include "gxscomm.h"
 
 // Project include files
+#include "m_log.h"
 #include "m_config.h"
+#include "m_socket.h"
 #include "m_app.h"
 #include "m_dbase.h"
 #include "m_thread.h"
-#include "m_socket.h"
 #include "m_proc.h"
 #include "m_help.h"
-#include "m_log.h"
 #include "m_stats.h"
+
+int run_server();
 
 #endif // __DRCM_SERVER_HPP__
 // ----------------------------------------------------------- // 

@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 07/17/2016
+// Date Last Modified: 07/27/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -37,6 +37,49 @@ Log functions for Datareel cluster manager.
 
 #include "gxdlcode.h"
 #include "drcm_server.h"
+
+// Queue node used for log file and console messages
+struct LogQueueNode {
+  LogQueueNode() {
+    memset(sbuf, 0, 255);
+    dirty[0] = 0;
+  }
+
+  char sbuf[255];
+  char dirty[1];
+};
+
+class LogThread : public gxThread
+{
+public:
+  LogThread() { }
+  ~LogThread() { }
+
+public:
+  void write_log_entry(char *sbuf);
+  int flush_all_logs();
+
+private:
+  void *ThreadEntryRoutine(gxThread_t *thread);
+  void ThreadExitRoutine(gxThread_t *thread);
+  void ThreadCleanupHandler(gxThread_t *thread);
+};
+
+// Thread safe routines. Called when threads are running.
+void LogMessage(const char *mesg); // Log to thread message queue
+void LogDebugMessage(const char *mesg); // Log to debug queue
+void LogProcMessage(const char *mesg);  // Log to process queue
+int CheckThreadError(gxThread_t *thread, int seq_num = 0);
+int CheckSocketError(gxSocket *s, int seq_num = 0);
+
+// Non-thread safe console and logging functions.
+// Only called when process starts and stops and no threads are running.
+int NT_print(const char *mesg1, const char *mesg2 = 0, const char *mesg3 = 0);
+int NT_printblock(const char *mesg1, const char *mesg2 = 0, 
+		  const char *mesg3 = 0, int lines = 0, int blob = 0);
+int NT_printlines(const char *mesg1, const char *mesg2 = 0, 
+		  const char *mesg3 = 0);
+int NT_log_rotate(); // Called when program starts and no threads are running
 
 #endif // __DRCM_LOG_HPP__
 // ----------------------------------------------------------- // 

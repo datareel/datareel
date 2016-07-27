@@ -1,9 +1,9 @@
-PROJECT_DEP = m_thread.h drcm_server.h m_socket.h m_config.h m_log.h \
-m_proc.h m_help.h m_dbase.h m_app.h m_stats.h
+PROJECT_DEP = drcm_server.h  m_app.h  m_config.h  m_dbase.h \
+m_help.h  m_log.h  m_proc.h  m_socket.h  m_stats.h  m_thread.h 
 
 M_THREAD_DEP = $(PROJECT_DEP)
 
-M_SOCKET_DEP = m_socket.h
+M_SOCKET_DEP = $(PROJECT_DEP)
 
 M_LOG_DEP = $(PROJECT_DEP)
 

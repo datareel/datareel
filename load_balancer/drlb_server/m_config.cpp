@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/18/2016
+// Date Last Modified: 07/21/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -699,6 +699,7 @@ int LoadOrBuildConfigFile()
     dfile << "##clear_log = 0" << "\n";
     dfile << "##enable_logging = 0" << "\n";
     dfile << "# Log levels 0-5, 0 lowest log level, 5 highest log level " << "\n";
+    dfile << "##log_level = 0" << "\n";
     dfile << "##logfile_name = drlb_server.log" << "\n";
     dfile << "#" << "\n";
     dfile << "# Set max number of back logged connections" << "\n";

@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 07/17/2016
+// Date Last Modified: 07/27/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -36,7 +36,13 @@ Application classes and functions for Datareel cluster manager.
 #define __DRCM_APP_HPP__
 
 #include "gxdlcode.h"
+#include "drcm_server.h"
 
+void PrintGlobalConfig();
+void PrintNodeConfig();
+int check_config();
+int run_client();
+int load_hash_key();
 
 #endif // __DRCM_APP_HPP__
 // ----------------------------------------------------------- // 

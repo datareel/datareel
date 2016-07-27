@@ -1,0 +1,21 @@
+####################################################
+# DR Cluster Manager crontab for application package
+####################################################
+# min hour monthday month weekday user command
+#---------------------------------------------
+#    minute 0-59
+#    hour 0-23
+#    monthday 1-31
+#    month 0-12
+#    weekday 0-6; 0=Sunday
+#
+# CM user cron example, to run an update every 5 minutes:
+#
+# */5 * * * * postgres bash -c '/usr/local/dbapps/bin/run_db_purge.sh textprods> /dev/null 2>&1'
+# TIMES       USER     SHELL    COMMAND                               ARGS       LOG FILE or NULL
+#
+###############################################################################################
+
+# Add all application specific crons below
+# NOTE: The crons below are jobs you want to run on specific cluster nodes.
+

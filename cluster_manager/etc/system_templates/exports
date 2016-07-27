@@ -1,0 +1,5 @@
+# /etc/exports
+# For bare metal testing with VMs 
+
+/data 192.168.122.0/24(rw,sync)
+/archive 192.168.122.0/24(rw,sync)

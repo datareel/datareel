@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 07/17/2016
+// Date Last Modified: 07/27/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -36,7 +36,70 @@ Extra socket functions for Datareel cluster manager.
 #define __DRCM_SOCKET_HPP__
 
 #include "gxdlcode.h"
-#include "gxstring.h"
+#include "drcm_server.h"
+
+const int NET_CHECKWORD = 0X1010FEFE;
+const int DEFAULT_PORT = 53897;
+const int DEFAULT_TIMEOUT = 300;
+const int DEFAULT_TIMEOUT_US = 0;
+const int DEFAULT_DATAGRAM_SIZE = 1500;
+
+enum CM_CMD { // Cluster Manager Commands
+  CM_CMD_NAK = 0,
+  CM_CMD_ACK,
+  CM_CMD_PING,
+  CM_CMD_KEEPALIVE
+};
+
+const char DEFAULT_DATAGRAM_FILL = 'X';
+
+struct CM_MessageHeader {
+  CM_MessageHeader();
+  ~CM_MessageHeader() { }
+  CM_MessageHeader(const CM_MessageHeader &ob);
+  CM_MessageHeader &operator=(const CM_MessageHeader &ob);
+
+  void clear();
+  void copy(const CM_MessageHeader &ob);
+  int get_word(char bytes[4]);
+  void set_word(char bytes[4], int val);
+
+  char checkword[4];
+  char bytes[4];
+  char datagram_size[4];
+  char cluster_command[4];
+  char sha1sum[40];
+};
+
+// Client socket type used to associate client sockets other data types.
+struct CMClientSocket_t
+{
+  CMClientSocket_t() {
+    seq_num = 0;
+    r_port = 1;
+    client_socket = -1;
+  }
+  ~CMClientSocket_t() { }
+
+  gxsSocket_t client_socket;
+  int seq_num; // Sequence number for log entries
+  gxString client_name;
+  int r_port;
+  CM_MessageHeader cmhdr;
+};
+
+// Send a keep alive message to a CM node
+// Return 0 for pass, 1 for fail
+// error_level = -1 for fatal error
+// error_level = 1 for socket write error
+// error_level = 2 for read timeout error
+// error_level = 3 for read error
+int send_keep_alive(CMnode *n, int &error_level, int timeout_secs = 1, int timeout_usecs = 0);
+
+
+// Get string value for errno. Returns the error_number provided by caller
+int fd_error_to_string(int error_number, gxString &sbuf);
+
 
 #endif // __DRCM_SOCKET_HPP__
 // ----------------------------------------------------------- // 

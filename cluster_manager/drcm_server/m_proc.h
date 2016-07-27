@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 07/17/2016
+// Date Last Modified: 07/27/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -45,6 +45,34 @@ Process functions for Datareel cluster manager.
 #include "m_config.h"
 #include "m_log.h"
 #include "m_dbase.h"
+
+class ProcessThread : public gxThread
+{
+public:
+  ProcessThread() { }
+  ~ProcessThread() { }
+
+private:
+  void *ThreadEntryRoutine(gxThread_t *thread);
+};
+
+// Signal I/O process functions
+void signal_handler_IO(int status);
+void termination_handler(int signum);
+
+// Main process functions
+int StopThreads();
+int StopProc();
+void ExitProc();
+void SpwanChildProcess(const char *command, const char *switches, const char *arg);
+int RunSystemCommand(const gxString &input_command);
+int RunSystemCommand(const gxString &input_command, const gxString &user, const gxString &group);
+
+// Timer functions
+void sSleep(unsigned long seconds);
+void nSleep(unsigned long nanoseconds);
+void uSleep(unsigned long microseconds);
+void mSleep(unsigned long  milliseconds);
 
 #endif // __DRCM_PROC_HPP__
 // ----------------------------------------------------------- // 
