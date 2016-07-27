@@ -650,10 +650,10 @@ int LoadOrBuildConfigFile()
     dfile << "[CM_CRONTABS]" << "\n";
     dfile << "# Cluter crontabs" << "\n";
     dfile << "# CSV format: nickname, template_file, install_location, resource_script " << "\n";
-    dfile << "system, /etc/drcm/crontabs/cm_system_crons, /etc/cron.d, /etc/drcm/resources/crontab.sh" << "\n";
-    dfile << "user, /etc/drcm/crontabs/cm_user_crons, /etc/cron.d, /etc/drcm/resources/crontab.sh" << "\n";
-    dfile << "apps1, /etc/drcm/crontabs/cm_apps_package1, /etc/cron.d, /etc/drcm/resources/crontab.sh" << "\n";
-    dfile << "apps2, /etc/drcm/crontabs/cm_apps_package2, /etc/cron.d, /etc/drcm/resources/crontab.sh" << "\n";
+    dfile << "system, /etc/drcm/crontabs/system_crons, /etc/cron.d, /etc/drcm/resources/crontab.sh" << "\n";
+    dfile << "user, /etc/drcm/crontabs/user_crons, /etc/cron.d, /etc/drcm/resources/crontab.sh" << "\n";
+    dfile << "apps1, /etc/drcm/crontabs/apps_package1, /etc/cron.d, /etc/drcm/resources/crontab.sh" << "\n";
+    dfile << "apps2, /etc/drcm/crontabs/apps_package2, /etc/cron.d, /etc/drcm/resources/crontab.sh" << "\n";
     dfile << "" << "\n";
     dfile << "[CM_IPADDRS]" << "\n";
     dfile << "# Cluster floating IP addresses" << "\n";
