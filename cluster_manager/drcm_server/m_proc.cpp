@@ -285,7 +285,7 @@ int StopThreads()
     }
   }
   else {
-    LogProcMessage("CM filesystems_thread no active");
+    LogProcMessage("CM filesystems_thread not active");
   }
 
   // Stop the log thread last
