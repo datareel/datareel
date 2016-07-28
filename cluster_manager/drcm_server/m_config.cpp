@@ -131,6 +131,7 @@ void CMnode::copy_list(const gxList<gxString> &source, gxList<gxString> &dest)
 CMconfig::CMconfig() 
 { 
   is_client = 0;
+  is_client_interactive = 1;
   debug = 0;
   debug_level = 1;
   verbose = 0;
@@ -171,6 +172,7 @@ CMconfig::CMconfig()
   server_retry = 1;
   client_request_pool = new thrPool;
   process_thread = 0;
+  console_thread = 0;
   log_thread = 0;
   udp_server_thread = 0;
   keep_alive_thread = 0;
@@ -261,6 +263,10 @@ CMconfig::~CMconfig()
   if(client_request_pool) {
     delete client_request_pool;
     client_request_pool = 0;
+  }
+  if(console_thread) {
+    delete console_thread;
+    console_thread = 0;
   }
 }
 
@@ -360,7 +366,7 @@ int CMconfig::QUEUE_PROC_COUNT()
 int ProcessDashDashArg(gxString &arg)
 {
   gxString sbuf, equal_arg;
-  int has_arg_errors = 0;
+  int error_level = 0;
   int has_arg = 0;
 
   if(arg.Find("=") != -1) {
@@ -373,6 +379,8 @@ int ProcessDashDashArg(gxString &arg)
     equal_arg.TrimLeading('\"'); equal_arg.TrimTrailing('\"');
     equal_arg.TrimLeading('\''); equal_arg.TrimTrailing('\'');
   }
+
+  if(arg.is_null()) return 1;
   
   arg.ToLower();
   
@@ -398,11 +406,25 @@ int ProcessDashDashArg(gxString &arg)
     servercfg->is_client = 1;
     has_arg = 1;
   }
+
+  if(arg == "command") {
+    if(equal_arg.is_null()) { 
+      servercfg->verbose = 1;
+      NT_print("Error no config file name supplied with the client --command swtich"); 
+      error_level = 1;
+    }
+    else {
+      servercfg->client_command = equal_arg;
+      servercfg->is_client_interactive = 0;
+      has_arg = 1;
+    }
+  }
+
   if(arg == "verbose-level") {
     if(equal_arg.is_null()) { 
       servercfg->verbose = 1;
       NT_print("Error no verbose level supplied with the --verbose-level swtich");
-      has_arg_errors++;
+      error_level = 1;
     }
     else {
       servercfg->verbose_level = equal_arg.Atoi(); 
@@ -420,7 +442,7 @@ int ProcessDashDashArg(gxString &arg)
     if(equal_arg.is_null()) { 
       servercfg->verbose = 1;
       NT_print("Error no debug level supplied with the --debug-level swtich");
-      has_arg_errors++;
+      error_level = 1;
     }
     else {
       servercfg->debug = 1;
@@ -438,7 +460,7 @@ int ProcessDashDashArg(gxString &arg)
     if(equal_arg.is_null()) { 
       servercfg->verbose = 1;
       NT_print("Error no config file name supplied with the --config-file swtich"); 
-      has_arg_errors++;
+      error_level = 1;
     }
     else {
       servercfg->config_file = equal_arg;
@@ -451,7 +473,7 @@ int ProcessDashDashArg(gxString &arg)
     if(equal_arg.is_null()) { 
       servercfg->verbose = 1;
       NT_print("Error no log file name supplied with the --log-file swtich");
-      has_arg_errors++;
+      error_level = 1;
     }
     else {
       servercfg->logfile_name = equal_arg;
@@ -468,7 +490,7 @@ int ProcessDashDashArg(gxString &arg)
   if(arg == "log-level") {
     if(equal_arg.is_null()) { 
       NT_print("Error no log level supplied with the --log-level swtich");
-      has_arg_errors++;
+      error_level = 1;
     }
     else {
       servercfg->log_level = equal_arg.Atoi(); 
@@ -478,9 +500,9 @@ int ProcessDashDashArg(gxString &arg)
   }
 
   arg.Clear();
-  if(has_arg == 0) has_arg_errors = 1;
+  if(has_arg == 0) error_level = 1;
 
-  return has_arg_errors;
+  return error_level;
 }
 
 int ProcessArgs(int argc, char *argv[])
@@ -499,6 +521,7 @@ int ProcessArgs(int argc, char *argv[])
 	  sbuf = &argv[i][2]; 
 	  // Add all -- prepend filters here
 	  sbuf.TrimLeading('-');
+	  if(sbuf.is_null()) break; // -- escape
 	  if(ProcessDashDashArg(sbuf) != 0) has_arg_errors++;
 	  break;
 
@@ -669,14 +692,14 @@ int LoadOrBuildConfigFile()
     dfile << "" << "\n";
     dfile << "[CM_APPLICATIONS]" << "\n";
     dfile << "# Applications managed by cluter" << "\n";
-    dfile << "# CSV format: nickname, user:group, start_program [args], stop_program [args]" << "\n";
+    dfile << "# CSV format: nickname, user:group, start_program, stop_program" << "\n";
     dfile << "# Or with optional application ensure script:" << "\n";
-    dfile << "# CSV format: nickname, user:group, start_program [args], stop_program [args], ensure_script [args]" << "\n";
+    dfile << "# CSV format: nickname, user:group, start_program, stop_program, ensure_script" << "\n";
     dfile << "##ldm, ldm:fxalpha, ldmadmin clean; ldmadmin mkqueue; ldmadmin start, ldmadmin stop; ldmadmin delqueue" << "\n";
     dfile << "" << "\n";
     dfile << "[CM_FILESYSTEMS]" << "\n";
     dfile << "# File system mounts for cluster nodes" << "\n";
-    dfile << "# CSV format: nickname, source, target, resource_script [args]" << "\n";
+    dfile << "# CSV format: nickname, source, target, resource_script" << "\n";
     dfile << "data, 192.168.122.1:/data, /data, /etc/drcm/resources/nfs.sh" << "\n";
     dfile << "archive, 192.168.122.1:/archive, /archive, /etc/drcm/resources/nfs.sh" << "\n";
     dfile << "### webshare, //192.168.122.225/users/web, /mnt/dfs, /etc/drcm/resources/cifs.sh" << "\n";
@@ -800,7 +823,6 @@ int LoadOrBuildConfigFile()
     info_line.DeleteAfterIncluding("#"); // Filter inline remarks
     info_line.TrimTrailingSpaces();
     info_line.ReplaceString("HashMarkPlaceHolder", "#");
-    info_line << "\n";
 
     list.Add(info_line);
   }
@@ -1023,7 +1045,7 @@ int LoadOrBuildConfigFile()
 	  break;
 	}
 	line_dup = ptr->data;
-	applicationslist.Add(line_dup);
+	if(!line_dup.is_null()) applicationslist.Add(line_dup);
 	ptr = ptr->next;
 	if(!ptr) {
 	  break;
@@ -1408,10 +1430,10 @@ int LoadOrBuildConfigFile()
   // Add the CM services for all nodes
   listptr = cronlist.GetHead();
   if(!listptr) {
-    NT_print("INFO - CM config does not have any crontabs");
+    if(servercfg->check_config) NT_print("INFO - CM config does not have any crontabs");
   }
   else {
-    NT_print("INFO - Installing CM crontabs");
+    if(servercfg->check_config) NT_print("INFO - Installing CM crontabs");
     while(listptr) {
       line_dup = listptr->data.c_str();
       line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
@@ -1452,10 +1474,10 @@ int LoadOrBuildConfigFile()
 
   listptr = iplist.GetHead();
   if(!listptr) {
-    NT_print("INFO - CM config does not have any floating IP addresses");
+    if(servercfg->check_config) NT_print("INFO - CM config does not have any floating IP addresses");
   }
   else {
-    NT_print("INFO - Installing CM floating IP addresses");
+   if(servercfg->check_config)  NT_print("INFO - Installing CM floating IP addresses");
     while(listptr) {
       line_dup = listptr->data.c_str();
       line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
@@ -1498,10 +1520,10 @@ int LoadOrBuildConfigFile()
 
   listptr = serviceslist.GetHead();
   if(!listptr) {
-    NT_print("INFO - CM config does not have any services");
+    if(servercfg->check_config) NT_print("INFO - CM config does not have any services");
   }
   else {
-    NT_print("INFO - Installing CM services");
+    if(servercfg->check_config) NT_print("INFO - Installing CM services");
     while(listptr) {
       line_dup = listptr->data.c_str();
       line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
@@ -1540,10 +1562,10 @@ int LoadOrBuildConfigFile()
 
   listptr = applicationslist.GetHead();
   if(!listptr) {
-    NT_print("INFO - CM config does not have any applications");
+    if(servercfg->check_config) NT_print("INFO - CM config does not have any applications");
   }
   else {
-    NT_print("INFO - Installing CM applications");
+    if(servercfg->check_config) NT_print("INFO - Installing CM applications");
     while(listptr) {
       line_dup = listptr->data.c_str();
       line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
@@ -1594,10 +1616,10 @@ int LoadOrBuildConfigFile()
   
   listptr = filesystemslist.GetHead();
   if(!listptr) {
-    NT_print("INFO - CM config does not have any file systems");
+    if(servercfg->check_config) NT_print("INFO - CM config does not have any file systems");
   }
   else {
-    NT_print("INFO - Installing CM file systems");
+    if(servercfg->check_config) NT_print("INFO - Installing CM file systems");
     while(listptr) {
       line_dup = listptr->data.c_str();
       line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();

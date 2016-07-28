@@ -102,7 +102,7 @@ int main(int argc, char **argv)
 
   retries = 3;
   while(!StopProc() && --retries) sSleep(1);
-  NT_print("Exiting program...");
+  NT_print("Exiting DRCM server...");
   return 0;
 }
 
@@ -278,12 +278,12 @@ int run_server()
 
   NT_print("Starting CM process thread");
   ProcessThread process;
-  gxThread_t *process_thread = process.CreateThread();
-  if(!process_thread) {
+  servercfg->process_thread = process.CreateThread();
+  if(!servercfg->process_thread) {
     LogMessage("ERROR - Encountered fatal error creating CM process thread");
     return 1;
   }
-  if(process_thread->GetThreadError() != gxTHREAD_NO_ERROR) {
+  if(servercfg->process_thread->GetThreadError() != gxTHREAD_NO_ERROR) {
     LogMessage("ERROR - Encountered fatal error starting CM process thread");
     return 1;
   }
@@ -348,11 +348,140 @@ int run_server()
     return 1;
   }
 
-  if(process.JoinThread(process_thread) != 0) {
+  if(process.JoinThread(servercfg->process_thread) != 0) {
     LogMessage("ERROR - Could not join CM process thread");
     return 1;
   }
   
+  return 0;
+}
+
+int run_client()
+{
+  gxString sbuf;
+  int error_level = 0;
+  if(servercfg->is_client_interactive) servercfg->verbose = 1;
+  servercfg->logfile_name = "drcm_client.log";
+
+  NT_print("Startring DR Cluster Manager Client");
+
+  if(!futils_exists(servercfg->config_file.c_str())) {
+    servercfg->verbose = 1;
+    NT_print("ERROR - Config file not found", servercfg->config_file.c_str());
+    return 1; // We cannot continue
+  }
+
+  error_level = LoadOrBuildConfigFile();
+  if((error_level != 0)) {
+    servercfg->verbose = 1;
+    NT_print("ERROR - CM config file load error.");
+    return error_level; // We cannot continue;
+  }
+
+  if(load_hash_key() != 0) return 1;
+
+  servercfg->loq_queue_nodes = new LogQueueNode[servercfg->log_queue_size];
+  servercfg->loq_queue_debug_nodes = new LogQueueNode[servercfg->log_queue_debug_size];
+  servercfg->loq_queue_proc_nodes = new LogQueueNode[servercfg->log_queue_proc_size];
+
+  gxString message, command;
+  gxString user = "root";
+  if(servercfg->cluster_user == user.c_str()) {
+    if(geteuid() != 0) {
+      servercfg->verbose = 1;
+      NT_print("Config file set to run CM as root");
+      NT_print("ERROR - You must be root to run this program");
+      return 1;  // We cannot continue
+    }
+  }
+  else {
+    user.Clear();
+    char *e = getenv("USER");
+    if(!e) {
+      servercfg->verbose = 1;
+      NT_print("ERROR - ${USER} var not set in your ENV");
+    }
+    user = getenv("USER");
+    if(servercfg->cluster_user != user.c_str()) {
+      servercfg->verbose = 1;
+      message << clear << "ERROR - Username starting CM client is " << user;
+      NT_print(message.c_str());
+      message << clear << "ERROR - CM config file username is set to " << servercfg->cluster_user; 
+      NT_print(message.c_str());
+      return 1;  // We cannot continue
+    }
+  }
+
+  if(!futils_exists(servercfg->etc_dir.c_str())) {
+    servercfg->verbose = 1;
+    NT_print("ERROR - Missing DIR ", servercfg->etc_dir.c_str());
+    error_level = 1;
+  }
+  if(!NT_check_dir(servercfg->log_dir)) {
+    servercfg->verbose = 1;
+    NT_print("ERROR - Missing DIR ", servercfg->log_dir.c_str());
+    error_level = 1;
+  }
+  if(!NT_check_dir(servercfg->spool_dir)) {
+    servercfg->verbose = 1;
+    NT_print("ERROR - Missing DIR ", servercfg->spool_dir.c_str());
+    return 1;
+  }
+  if(!NT_check_dir(servercfg->run_dir)) {
+    servercfg->verbose = 1;
+    NT_print("ERROR - Missing DIR ", servercfg->run_dir.c_str());
+    error_level = 1;
+  }
+
+  // End of requried client startup checks
+  if(error_level != 0) return error_level;
+
+  NT_log_rotate();
+
+  LogThread log_t;
+  if(servercfg->is_client_interactive == 0) {
+    error_level = run_console_command(servercfg->client_command);
+    log_t.flush_all_logs();
+    return error_level;
+  } 
+  
+  if(servercfg->verbose_level >= 5) NT_print("Starting log server thread");
+  servercfg->log_thread = log_t.CreateThread();
+  if(servercfg->log_thread->GetThreadError() != gxTHREAD_NO_ERROR) {
+    NT_print("ERROR - Fatal error starting log thread");
+    NT_print(servercfg->udp_server_thread->ThreadExceptionMessage());
+    return 1;
+  }
+
+  if(servercfg->verbose_level >= 5) NT_print("Starting CM process thread");
+  ProcessThread process;
+  servercfg->process_thread = process.CreateThread();
+  if(!servercfg->process_thread) {
+    LogMessage("ERROR - Encountered fatal error creating CM process thread");
+    return 1;
+  }
+  if(servercfg->process_thread->GetThreadError() != gxTHREAD_NO_ERROR) {
+    LogMessage("ERROR - Encountered fatal error starting CM process thread");
+    return 1;
+  }
+
+  if(servercfg->verbose_level >= 5) NT_print("Starting CM console thread");
+  ConsoleThread console_t;
+  servercfg->console_thread = console_t.CreateThread();
+  if(servercfg->console_thread->GetThreadError() != gxTHREAD_NO_ERROR) {
+    NT_print("ERROR - Fatal error starting console thread");
+    NT_print(servercfg->console_thread->ThreadExceptionMessage());
+    return 1;
+  }
+
+  if(process.JoinThread(servercfg->process_thread) != 0) {
+    LogMessage("ERROR - Could not join CM process thread");
+    return 1;
+  }
+
+  int retries = 3;
+  while(!StopProc() && --retries) sSleep(1);
+  NT_print("Exiting DRCM client...");
   return 0;
 }
 // ----------------------------------------------------------- // 

@@ -113,10 +113,10 @@ void LogThread::write_log_entry(char *sbuf)
   if(!sbuf) return;
   SysTime logtime;
   gxString output_message;
-
-  output_message << clear << logtime.GetSyslogTime() << " " << servercfg->service_name << ": ";
-  output_message << sbuf;
-  output_message << "\n";
+  gxString prefix;
+  
+  prefix << clear << logtime.GetSyslogTime() << " " << servercfg->service_name << ": ";
+  output_message << clear << prefix << sbuf << "\n";
   
   if(servercfg->enable_logging == 1) {
     if(servercfg->logfile.Open(servercfg->logfile_name.c_str()) == 0) {
@@ -129,11 +129,14 @@ void LogThread::write_log_entry(char *sbuf)
     else { // Could not write to log file
      if(servercfg->verbose) {
        if(servercfg->log_file_err == 0) {
-	 cout << logtime.GetSyslogTime() << " " << servercfg->service_name.c_str() << ": " 
-	      << "Error writing to log file " << servercfg->logfile_name.c_str()
-	      << "\n";
-	 cout << output_message.c_str();
-	 cout.flush(); 
+	 if(servercfg->is_client && servercfg->is_client_interactive) {
+	   cout << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n" << flush;
+	 }
+	 else {
+	   cout << prefix.c_str() << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n";
+	   cout << output_message.c_str();
+	   cout.flush(); 
+	 }
        }
      }
      servercfg->log_file_err = 1;
@@ -141,6 +144,7 @@ void LogThread::write_log_entry(char *sbuf)
   }
   
   if(servercfg->verbose) {
+    if(servercfg->is_client && servercfg->is_client_interactive) output_message.DeleteBeforeIncluding(prefix);
     cout << output_message.c_str();
     cout.flush(); 
   }
@@ -212,23 +216,28 @@ int rotate_log_file()
   gxString new_name = servercfg->logfile_name.c_str();
   FAU_t fsize = servercfg->logfile.df_FileSize(servercfg->logfile_name.c_str());
   SysTime logtime;
+  gxString prefix;
 
+  prefix << clear << logtime.GetSyslogTime() << " " << servercfg->service_name << ": ";
   if(!servercfg->logfile.Open(servercfg->logfile_name.c_str()) == 0) {
     if(servercfg->verbose) {
-      cout << logtime.GetSyslogTime() << " " << servercfg->service_name.c_str() << ": " 
-	   << "Error writing to log file " << servercfg->logfile_name.c_str()
-	   << "\n";
+      if(servercfg->is_client && servercfg->is_client_interactive) {
+	cout << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n";
+      }
+      else {
+	cout << prefix << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n";
+      }
       cout.flush(); 
     }
     return 0;
   }
   if(fsize >= (FAU_t)servercfg->max_log_size) {
     gxString output_message;
-    output_message << clear << shn << logtime.GetSyslogTime() << " " << servercfg->service_name 
-		<< ": Log file exceeded " << servercfg->max_log_size << " bytes" << "\n";
+    output_message << clear << shn << prefix << "Log file exceeded " << servercfg->max_log_size << " bytes" << "\n";
     servercfg->logfile << output_message.c_str();
     servercfg->logfile.df_Flush();
     if(servercfg->verbose) {
+      if(servercfg->is_client && servercfg->is_client_interactive) output_message.DeleteBeforeIncluding(prefix);
       cout << output_message.c_str();
       cout.flush(); 
     }
@@ -247,22 +256,19 @@ int rotate_log_file()
       next_log = servercfg->last_log;
     }
     new_name << "." << next_log;
-    output_message << clear << logtime.GetSyslogTime() << " " << servercfg->service_name 
-		<< ": Rotating log, saving prev log file " << new_name.c_str() << "\n";
+    output_message << clear << prefix << "Rotating log, saving prev log file " << new_name.c_str() << "\n";
     servercfg->logfile << output_message.c_str();
     servercfg->logfile.df_Flush();
     servercfg->logfile.Close();
     if(servercfg->logfile.df_rename(servercfg->logfile_name.c_str(), new_name.c_str()) != DiskFileB::df_NO_ERROR) {
-      
       servercfg->logfile.Open(servercfg->logfile_name.c_str());
-			      
-      output_message << clear << logtime.GetSyslogTime() << " " << servercfg->service_name 
-		     << ": ERROR - could not rotate log, cannot create new log file " << new_name.c_str() << "\n";
+      output_message << clear << prefix << "ERROR - could not rotate log, cannot create new log file " << new_name.c_str() << "\n";
       servercfg->logfile << output_message.c_str();
       servercfg->logfile.df_Flush();
       servercfg->logfile.Close();
 
       if(servercfg->verbose) {
+	if(servercfg->is_client && servercfg->is_client_interactive) output_message.DeleteBeforeIncluding(prefix);
 	cout << output_message.c_str();
 	cout.flush(); 
       }
@@ -270,25 +276,29 @@ int rotate_log_file()
     }
     
     if(servercfg->verbose) {
+      if(servercfg->is_client && servercfg->is_client_interactive) output_message.DeleteBeforeIncluding(prefix);
       cout << output_message.c_str();
       cout.flush(); 
     }
     if(servercfg->logfile.Open(servercfg->logfile_name.c_str()) == 0) {
-      output_message << clear << logtime.GetSyslogTime() << " " << servercfg->service_name 
-		  << ": New log file started " << "\n";
+      output_message << clear << prefix  << "New log file started " << "\n";
       servercfg->logfile << output_message.c_str();
       servercfg->logfile.df_Flush();
       servercfg->logfile.Close();
       if(servercfg->verbose) {
+	if(servercfg->is_client && servercfg->is_client_interactive) output_message.DeleteBeforeIncluding(prefix);
 	cout << output_message.c_str();
 	cout.flush(); 
       }
       else {
 	if(servercfg->verbose) {
-	  cout << logtime.GetSyslogTime() << " " << servercfg->service_name.c_str() << ": " 
-	       << "Error writing to log file " << servercfg->logfile_name.c_str()
-	       << "\n";
-	  cout.flush(); 
+	  if(servercfg->is_client && servercfg->is_client_interactive) {
+	    cout << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n" << flush; 
+	  }
+	  else {
+	    cout << prefix << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n";
+	    cout.flush(); 
+	  }
 	}
       }
     }
@@ -324,25 +334,25 @@ int NT_printblock(const char *mesg1, const char *mesg2, const char *mesg3,
 
   SysTime logtime;
   gxString output_message;
+  gxString prefix;
+
+  prefix << clear << logtime.GetSyslogTime() << " " << servercfg->service_name << ": ";
+  output_message.Clear();
+
   if(lines) {
-    if(mesg1) output_message << logtime.GetSyslogTime() 
-			     << " " << servercfg->service_name << ": " << mesg1 << "\n";
-    if(mesg2) output_message << logtime.GetSyslogTime() 
-			     << " " << servercfg->service_name << ": " << mesg2 << "\n";
-    if(mesg3) output_message << logtime.GetSyslogTime() 
-			     << " " << servercfg->service_name << ": " << mesg3 << "\n";
+    if(mesg1) output_message << prefix << mesg1 << "\n";
+    if(mesg2) output_message << prefix << mesg2 << "\n";
+    if(mesg3) output_message << prefix << mesg3 << "\n";
   }
   else if(blob) {
-    output_message << logtime.GetSyslogTime() 
-		   << " " << servercfg->service_name << ": " << "Message Block <<" 
-		   << "\n";
+    output_message << prefix << "Message Block <<" << "\n";
     if(mesg1) output_message << mesg1;
     if(mesg2) output_message << mesg2; 
     if(mesg3) output_message << mesg3; 
     output_message << ">>" << "\n";
   }
   else {
-    output_message << logtime.GetSyslogTime() << " " << servercfg->service_name << ": ";
+    output_message << prefix;
     if(mesg1) output_message << mesg1;
     if(mesg2) output_message << " " << mesg2;
     if(mesg3) output_message << " " << mesg3;
@@ -357,16 +367,20 @@ int NT_printblock(const char *mesg1, const char *mesg2, const char *mesg3,
     }
     else { // Could not write to log file
      if(servercfg->verbose) {
-       cout << logtime.GetSyslogTime() << " " << servercfg->service_name.c_str() << ": " 
-	    << "Error writing to log file " << servercfg->logfile_name.c_str()
-	    << "\n";
-       cout << output_message.c_str();
-       cout.flush(); 
+       if(servercfg->is_client && servercfg->is_client_interactive) {
+	 cout << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n" << flush;
+       }
+       else {
+	 cout << prefix.c_str() << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n";
+	 cout << output_message.c_str();
+	 cout.flush();
+       } 
      }
     }
   }
   
   if(servercfg->verbose) {
+    if(servercfg->is_client && servercfg->is_client_interactive) output_message.DeleteBeforeIncluding(prefix);
     cout << output_message.c_str();
     cout.flush(); 
   }

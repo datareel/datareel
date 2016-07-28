@@ -154,6 +154,13 @@ void PrintNodeConfig()
   while(ptr) {
     NT_print("nodename =", ptr->data->nodename.c_str());
     NT_print("hostname =", ptr->data->hostname.c_str());
+
+    if(ptr->data->node_is_active) {
+      NT_print("This node is active");
+    }
+    else {
+      NT_print("This not is not active");
+    }
     if(ptr->data->keep_services) {
       NT_print("Will keep node_services enabled if CM is offline");
     }
@@ -331,27 +338,35 @@ int check_config()
       error_level = 1;
     }
   }
-
-  // TODO: need to verify BASH rc and BASH shell settings files setting are good
-
+  
+  if(!futils_exists(servercfg->bash_shell.c_str())) {
+    servercfg->verbose = 1;
+    NT_print("ERROR - Bad BASH shell in config file ", servercfg->bash_shell.c_str());
+    error_level = 1;
+  }
+  if(!futils_exists(servercfg->bash_rc_file.c_str())) {
+    servercfg->verbose = 1;
+    NT_print("ERROR - Missing or cannot read bashrc file ", servercfg->bash_rc_file.c_str());
+    error_level = 1;
+  }
   if(!futils_exists(servercfg->etc_dir.c_str())) {
     servercfg->verbose = 1;
-    NT_print("ERROR - Missing DIR ", servercfg->etc_dir.c_str());
+    NT_print("ERROR - Missing or cannot read DIR ", servercfg->etc_dir.c_str());
     error_level = 1;
   }
   if(!futils_exists(servercfg->log_dir.c_str())) {
     servercfg->verbose = 1;
-    NT_print("ERROR - Missing DIR ", servercfg->log_dir.c_str());
+    NT_print("ERROR - Missing or cannot read DIR ", servercfg->log_dir.c_str());
     error_level = 1;
   }
   if(!futils_exists(servercfg->spool_dir.c_str())) {
     servercfg->verbose = 1;
-    NT_print("ERROR - Missing DIR ", servercfg->spool_dir.c_str());
+    NT_print("ERROR - Missing or cannot read DIR ", servercfg->spool_dir.c_str());
     error_level = 1;
   }
   if(!futils_exists(servercfg->run_dir.c_str())) {
     servercfg->verbose = 1;
-    NT_print("ERROR - Missing DIR ", servercfg->run_dir.c_str());
+    NT_print("ERROR - Missing or cannot read DIR ", servercfg->run_dir.c_str());
     error_level = 1;
   }
   
@@ -384,15 +399,15 @@ int check_config()
   gxListNode <CMcrontabs> *cptr = servercfg->node_crontabs.GetHead();
   while(cptr) {
     if(!futils_exists(cptr->data.template_file.c_str())) {
-      NT_print("ERROR - Missing crontab template:", cptr->data.template_file.c_str());
+      NT_print("ERROR - Missing or cannot read crontab template:", cptr->data.template_file.c_str());
       error_level = 1;
     }
     if(!futils_exists(cptr->data.install_location.c_str())) {
-      NT_print("ERROR - Missing crontab DIR:", cptr->data.install_location.c_str());
+      NT_print("ERROR - Missing or cannot read crontab DIR:", cptr->data.install_location.c_str());
       error_level = 1;
     }
     if(!futils_exists(cptr->data.resource_script.c_str())) {
-      NT_print("ERROR - Missing crontab resouce:", cptr->data.resource_script.c_str());
+      NT_print("ERROR - Missing or cannot read crontab resouce:", cptr->data.resource_script.c_str());
       error_level = 1;
     }
     cptr = cptr->next;
@@ -401,7 +416,7 @@ int check_config()
   gxListNode <CMipaddrs> *iptr = servercfg->node_ipaddrs.GetHead();
   while(iptr) {
     if(!futils_exists(iptr->data.resource_script.c_str())) {
-      NT_print("ERROR - Missing IP address resouce:", iptr->data.resource_script.c_str());
+      NT_print("ERROR - Missing or cannot read IP address resouce:", iptr->data.resource_script.c_str());
       error_level = 1;
     }
     iptr = iptr->next;
@@ -410,7 +425,7 @@ int check_config()
   gxListNode <CMservices> *sptr = servercfg->node_services.GetHead();
   while(sptr) {
     if(!futils_exists(sptr->data.resource_script.c_str())) {
-      NT_print("ERROR - Missing service resouce:", sptr->data.resource_script.c_str());
+      NT_print("ERROR - Missing or cannot read service resouce:", sptr->data.resource_script.c_str());
       error_level = 1;
     }
     sptr = sptr->next;
@@ -419,16 +434,16 @@ int check_config()
   gxListNode <CMapplications> *aptr = servercfg->node_applications.GetHead();
   while(aptr) {
     if(!futils_exists(aptr->data.start_program.c_str())) {
-      NT_print("ERROR - Missing application resouce:", aptr->data.start_program.c_str());
+      NT_print("ERROR - Missing or cannot read application resouce:", aptr->data.start_program.c_str());
       error_level = 1;
     }
     if(!futils_exists(aptr->data.stop_program.c_str())) {
-      NT_print("ERROR - Missing application resouce:", aptr->data.stop_program.c_str());
+      NT_print("ERROR - Missing or cannot read application resouce:", aptr->data.stop_program.c_str());
       error_level = 1;
     }
     if(!aptr->data.ensure_script.is_null()) {
       if(!futils_exists(aptr->data.ensure_script.c_str())) {
-	NT_print("ERROR - Missing application resouce:", aptr->data.ensure_script.c_str());
+	NT_print("ERROR - Missing or cannot read application resouce:", aptr->data.ensure_script.c_str());
 	error_level = 1;
       }
     }
@@ -438,7 +453,7 @@ int check_config()
   gxListNode <CMfilesystems> *fptr = servercfg->node_filesystems.GetHead();
   while(fptr) {
     if(!futils_exists(fptr->data.resource_script.c_str())) {
-      NT_print("ERROR - Missing filesystem resouce:", fptr->data.resource_script.c_str());
+      NT_print("ERROR - Missing or cannot read filesystem resouce:", fptr->data.resource_script.c_str());
       error_level = 1;
     }
     fptr = fptr->next;
@@ -487,10 +502,128 @@ int load_hash_key()
   return 0;
 }
 
-int run_client()
+void ConsoleThread::ThreadExitRoutine(gxThread_t *thread)
 {
-  // TODO: Need to implement client code for stats and monitoring
+  cout << "\n" << "Exiting interactive console" << "\n" << flush;
+  servercfg->process_loop = 0;
+  if(servercfg->process_lock.IsLocked()) {
+    servercfg->process_cond.ConditionSignal(); 
+    servercfg->process_lock.MutexUnlock();
+  }
+}
 
+void *ConsoleThread::ThreadEntryRoutine(gxThread_t *thread)
+{
+  const int cmd_len = 255;
+  char sbuf[cmd_len];
+  gxString command;
+  gxString prompt = "DRCM> ";
+  cout << "\n" << "Entering interactive console, enter help for commands or exit to quit" << "\n" << flush;
+  int error_level = 0;
+
+  while(servercfg->echo_loop) {
+    cout << prompt.c_str() << flush;
+    memset(sbuf, 0, 255);
+    cin >> sbuf;
+    command << clear << sbuf;
+    if(command == "quit" || command == "exit") break;
+    error_level = run_console_command(command);
+    if(error_level < 0) {
+      cout << "Invalid command" << "\n" << flush;
+      cout << "Enter exit to quit or help for valid command" << "\n" << flush;
+    }
+  }
+
+  return (void *)0;
+}
+
+int console_command_is_valid(const gxString &command)
+{
+  if(command == "help") return 1;
+  if(command == "ping") return 1;
+  if(command == "printcfg") return 1;
+  return 0;
+}
+
+int print_console_help()
+{
+  cout << "DRCM console commands" << "\n";
+  cout << "\n";
+  cout << "ping     - Test connectivity to all active cluster nodes" << "\n";
+  cout << "printcfg - Pring cluster configuration" << "\n";
+  cout << "\n";
+  cout.flush();
+  return 0;
+}
+
+int run_console_command(const gxString &command)
+{
+  int error_level = 0;
+  if(!console_command_is_valid(command)) return -1;
+  if(command == "help") return print_console_help(); 
+  if(command == "printcfg") return print_config(); 
+  if(command == "ping") return ping_cluster(); 
+  return error_level;
+}
+
+int print_config()
+{
+  PrintGlobalConfig();
+  PrintNodeConfig();
+  return 0;
+}
+
+int ping_cluster()
+{
+  int error_level = 0;
+  cout << "ping DRCM cluster" << "\n" << flush;
+  gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
+  while(ptr) {
+    error_level = ping_node(ptr->data); 
+    ptr = ptr->next;
+  }
+  if(error_level == 0) {
+    cout << "ping DRCM cluster successful" << "\n" << flush;
+  }
+  else {
+    cout << "ping DRCM cluster failed" << "\n" << flush;
+  }
+  return error_level;
+}
+
+int ping_node(CMnode *node)
+{
+  gxString suffix;
+  suffix << clear << node->nodename << "@" << node->keep_alive_ip;
+  gxSocket client(SOCK_DGRAM, servercfg->udpport, node->keep_alive_ip.c_str());
+  if(!client) {
+    cout << "ping fatal error could not start CM client socket" << "\n" << flush;
+    return 1;
+  }
+
+  CM_MessageHeader cmhdr;
+  int hdr_size = sizeof(CM_MessageHeader);
+  
+  cmhdr.set_word(cmhdr.checkword, NET_CHECKWORD);
+  memmove(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum));
+  cmhdr.set_word(cmhdr.cluster_command, CM_CMD_PING);
+
+  int optVal = 1;
+  client.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, (char *)&optVal, sizeof(optVal));
+  char datagram[DEFAULT_DATAGRAM_SIZE];
+
+  int bytes_moved = client.SendTo(&cmhdr, sizeof(cmhdr));
+  if(bytes_moved != sizeof(cmhdr)) {
+    cout << "ping " << suffix.c_str() << " failed with send error" << "\n";      
+    return 1;
+  }
+  cmhdr.clear();
+  int bytes_read = client.RemoteRecvFrom(&cmhdr, sizeof(cmhdr), 5, 0);
+  if(bytes_read != sizeof(cmhdr)) {
+    cout << "ping " << suffix.c_str() << " failed with recv error" << "\n";      
+    return 1;
+  }
+  cout << "ping " << suffix.c_str() << " successful" << "\n";      
   return 0;
 }
 // ----------------------------------------------------------- // 

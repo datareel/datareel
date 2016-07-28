@@ -218,6 +218,8 @@ struct CMconfig {
   gxList<CMapplications> node_applications;
   gxList<CMfilesystems> node_filesystems;
   int is_client;
+  int is_client_interactive;
+  gxString client_command;
   int debug;
   int debug_level;
   int verbose;
@@ -261,6 +263,7 @@ struct CMconfig {
   gxThread_t *ipaddr_thread;
   gxThread_t *filesystems_thread;
   thrPool *client_request_pool;
+  gxThread_t *console_thread;
 
   // Log settings
   LogFile logfile;

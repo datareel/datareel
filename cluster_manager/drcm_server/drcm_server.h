@@ -76,6 +76,7 @@ using namespace std; // Use unqualified names for Standard C++ library
 #include "m_stats.h"
 
 int run_server();
+int run_client();
 
 #endif // __DRCM_SERVER_HPP__
 // ----------------------------------------------------------- // 

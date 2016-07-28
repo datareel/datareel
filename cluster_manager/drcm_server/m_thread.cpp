@@ -247,6 +247,7 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
   gxString message;
   const int max_message_count = 10;
   const int max_failed_message_count = 10;
+  const int num_inactive_node_count = 100;
   int message_count = 0;
   int keep_alive_error_level = 0;
 
@@ -265,6 +266,8 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
     gxList<CMnode *> failed_nodes;
     gxList<CMnode *> prev_failed_nodes;
     int rv;
+    int in_active_node_count = 0;
+    int num_active_nodes = 0;
 
     gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
     while(ptr) {
@@ -274,10 +277,39 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
 
       // Skip the keep alive check on this node
       if(servercfg->my_hostname == ptr->data->hostname) {
+	if(ptr->data->node_is_active) num_active_nodes++;
 	ptr = ptr->next;
 	continue;
       }
 
+      if(!ptr->data->node_is_active) {
+	if(ptr->data->CLUSTER_TAKE_OVER_FLAG() == 0) {
+	  if(in_active_node_count == 0) {
+	    message << clear << ptr->data->hostname << " is marked inactive in CM config";
+	    LogMessage(message.c_str());
+	  }
+	  if(ptr->data->CLUSTER_TAKE_OVER_FLAG() == 0) {	
+	    ptr->data->CLUSTER_TAKE_OVER_FLAG(1, 0);
+	    if(in_active_node_count == 0) {
+	      message << clear << "Node " << ptr->data->nodename << " is inactive, signaling cluster resource failover to active nodes";
+	      LogMessage(message.c_str());
+	    }
+	  }
+	  else {
+	    if(in_active_node_count == 0) {
+	      message << clear << "Node " << ptr->data->nodename << " is inactive, resources failed over to active nodes";
+	      LogMessage(message.c_str());
+	    }
+	    ptr->data->CLUSTER_TAKE_OVER_FLAG(1, 0);
+	  }
+	}
+	in_active_node_count++;
+	if(in_active_node_count >= num_inactive_node_count) in_active_node_count = 0;
+	if(!ptr->next) break;
+      }
+      else { 
+	num_active_nodes++;
+      }
       if(servercfg->debug && servercfg->debug_level >= 5) {
 	if(message_count == 0) {
 	  message << clear << "Checking active node " << ptr->data->nodename;
@@ -331,6 +363,12 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
     if(error_count == num_nodes) {
       if(message_count == 0) {
 	LogMessage("ERROR - All active CM nodes failed pre connection test");
+      }
+    }
+
+    if(num_active_nodes == 0) {
+      if(message_count == 0) {
+	LogMessage("ERROR - All nodes are marked inactive in CM config");
       }
     }
 
@@ -430,10 +468,7 @@ void *CM_CrontabsThread::ThreadEntryRoutine(gxThread_t *thread)
   gxString command;
 
   sSleep(node.crontabs_check); // Time for process start up
-
-  command << clear << servercfg->bash_shell << " --rcfile " << servercfg->bash_rc_file << " -c \""
-	  << "echo \'CM crontab resource log\' > " << servercfg->log_dir << "/crontab_resource.log; date >> "
-	  << servercfg->log_dir << "/crontab_resource.log\"";   
+  command << clear << "date > " << servercfg->log_dir << "/crontab_resource.log";
   RunSystemCommand(command);
 
   while(servercfg->accept_clients) { 
@@ -662,11 +697,7 @@ void *CM_IPaddrsThread::ThreadEntryRoutine(gxThread_t *thread)
   gxString command;
 
   sSleep(node.ipaddrs_check); // Time for process start up
-
-  command << clear << servercfg->bash_shell << " --rcfile " << servercfg->bash_rc_file << " -c \""
-	  << "echo \'CM IPv4 address resource log\' > " 
-	  << servercfg->log_dir << "/ipv4addr_resource.log; date >> "
-	  << servercfg->log_dir << "/ipv4addr_resource.log\"";   
+  command << clear << "date > " << servercfg->log_dir << "/ipv4addr_resource.log";
   RunSystemCommand(command);
 
   while(servercfg->accept_clients) { 
@@ -914,9 +945,7 @@ void *CM_servicesThread::ThreadEntryRoutine(gxThread_t *thread)
 
   sSleep(node.services_check); // Time for process start up
 
-  command << clear << servercfg->bash_shell << " --rcfile " << servercfg->bash_rc_file << " -c \""
-	  << "echo \'CM service resource log\' > " << servercfg->log_dir << "/service_resource.log; date >> "
-	  << servercfg->log_dir << "/service_resource.log\"";   
+  command << clear << "date > " << servercfg->log_dir << "/service_resource.log";
   RunSystemCommand(command);
 
   while(servercfg->accept_clients) { 
@@ -1051,7 +1080,7 @@ int CM_servicesThread::install_services()
 	      LogMessage(message.c_str());
 	    }
 	    command << clear << sptr->data.resource_script << " " << sptr->data.service_name 
-		    << " watch &> /dev/null";
+		    << " watch >> " <<  servercfg->log_dir << "/service_resource.log 2>&1";
 	    rv = RunSystemCommand(command);
 	    if(rv != 0) {
 	      if(servercfg->debug && servercfg->debug_level >= 5) {
@@ -1115,7 +1144,7 @@ int CM_servicesThread::install_services()
 		  LogMessage(message.c_str());
 		}
 		command << clear << sptr->data.resource_script << " " << sptr->data.service_name 
-			<< " watch &> /dev/null";
+			<< " watch >> " <<  servercfg->log_dir << "/service_resource.log 2>&1";
 		rv = RunSystemCommand(command);
 		if(rv != 0) {
 		  if(servercfg->debug && servercfg->debug_level >= 5) {
@@ -1218,9 +1247,7 @@ void *CM_applicationsThread::ThreadEntryRoutine(gxThread_t *thread)
 
   sSleep(node.applications_check); // Time for process start up
 
-  command << clear << servercfg->bash_shell << " --rcfile " << servercfg->bash_rc_file << " -c \""
-	  << "echo \'CM application resource log\' > " << servercfg->log_dir << "/application_resource.log; date >> "
-	  << servercfg->log_dir << "/application_resource.log\"";   
+  command << clear << "date > " << servercfg->log_dir << "/application_resource.log";
   RunSystemCommand(command);
 
   while(servercfg->accept_clients) { 
@@ -1554,10 +1581,7 @@ void *CM_filesystemsThread::ThreadEntryRoutine(gxThread_t *thread)
   gxString command;
 
   sSleep(node.applications_check); // Time for process start up
-
-  command << clear << servercfg->bash_shell << " --rcfile " << servercfg->bash_rc_file << " -c \""
-	  << "echo \'CM file systems resource log\' > " << servercfg->log_dir << "/filesystem_resource.log; date >> "
-	  << servercfg->log_dir << "/filesystem_resource.log\"";   
+  command << clear << "date > " << servercfg->log_dir << "/filesystem_resource.log";
   RunSystemCommand(command);
 
   while(servercfg->accept_clients) { 
@@ -1565,7 +1589,7 @@ void *CM_filesystemsThread::ThreadEntryRoutine(gxThread_t *thread)
     if(servercfg->kill_server) break;
   
     if(mount_filesystems() != 0) {
-      LogMessage("ERROR - File systems mount/remount reported errors");
+      LogMessage("ERROR - File systems mount/unmount reported errors");
     }
 
     sSleep(node.filesystems_check);
@@ -1640,7 +1664,7 @@ int CM_filesystemsThread::mount_filesystems()
 	  message << clear << "Mounting file system " << fptr->data.nickname;
 	  LogMessage(message.c_str());
 	  command << clear << fptr->data.resource_script << " " << fptr->data.source << " " << fptr->data.target 
-		  << " mount " << servercfg->log_dir << "/filesystem_resource.log 2>&1";
+		  << " mount >> " << servercfg->log_dir << "/filesystem_resource.log 2>&1";
 	  rv = RunSystemCommand(command);
 	  if(rv != 0) {
 	    message << clear << "ERROR - Resource script could not mount file system " << fptr->data.nickname;
@@ -1704,7 +1728,7 @@ int CM_filesystemsThread::mount_filesystems()
 	      message << clear << ptr->data->nodename << " failover file system mount " << fptr->data.nickname;
 	      LogMessage(message.c_str());
 	      command << clear << fptr->data.resource_script << " " << fptr->data.source << " " << fptr->data.target 
-		      << " mount " << servercfg->log_dir << "/filesystem_resource.log 2>&1";
+		      << " mount >> " << servercfg->log_dir << "/filesystem_resource.log 2>&1";
 	      rv = RunSystemCommand(command);
 	      if(rv != 0) {
 		message << clear << "ERROR - Resource script could not mount failover filesystem " 
@@ -1731,7 +1755,7 @@ int CM_filesystemsThread::mount_filesystems()
 	    message << clear << ptr->data->nodename << " failback file system unmount " << fptr->data.nickname;
 	    LogMessage(message.c_str());
 	    command << clear << fptr->data.resource_script << " " << fptr->data.source << " " << fptr->data.target 
-		    << " unmount " << servercfg->log_dir << "/filesystem_resource.log 2>&1";
+		    << " unmount >> " << servercfg->log_dir << "/filesystem_resource.log 2>&1";
 	    rv = RunSystemCommand(command);
 	    if(rv != 0) {
 	      message << clear << "ERROR - Resource script could not stop failover filesystem" 
@@ -1767,7 +1791,7 @@ int CM_filesystemsThread::unmount_all_filesystems()
 
   while(fptr) {
     command << clear << fptr->data.resource_script << " " << fptr->data.source << " " << fptr->data.target 
-	    << " unmount " << servercfg->log_dir << "/filesystem_resource.log 2>&1";
+	    << " unmount >> " << servercfg->log_dir << "/filesystem_resource.log 2>&1";
     if(RunSystemCommand(command) != 0) {
       message << clear << "ERROR - Resource script could not unmount filesystem" 
 	      << fptr->data.nickname;
@@ -1804,7 +1828,7 @@ int CM_filesystemsThread::unmount_backup_filesystems()
 	message << clear << "Unmounting failover file system " << fptr->data.nickname;
 	LogMessage(message.c_str());
 	command << clear << fptr->data.resource_script << " " << fptr->data.source << " " << fptr->data.target 
-		<< " unmount " << servercfg->log_dir << "/filesystem_resource.log 2>&1";
+		<< " unmount >> " << servercfg->log_dir << "/filesystem_resource.log 2>&1";
 	rv = RunSystemCommand(command);
 	if(rv != 0) {
 	  message << clear << "ERROR - Resource script could not unmount failover filesystem" 

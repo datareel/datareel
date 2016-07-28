@@ -70,6 +70,33 @@ int StopThreads()
   ProcessThread t;
   int error_level= 0;
 
+  // If client or non-interactive command stop the console thread
+  if(servercfg->console_thread) { 
+    LogProcMessage("Stopping CM console_thread");
+    if(servercfg->console_thread->GetThreadState() == gxTHREAD_STATE_RUNNING) {
+      t.CancelThread(servercfg->console_thread);
+      sSleep(1); // Allow I/O recovery time
+      t.JoinThread(servercfg->console_thread);
+      if(servercfg->console_thread->GetThreadState() == gxTHREAD_STATE_CANCELED) {
+	LogProcMessage("CM console_thread was halted");
+      }
+      else {
+	LogProcMessage("CM console_thread did not shutdown properly");
+	error_level = 1;
+      }
+    }
+    else {
+      LogProcMessage("CM console_thread was stopped");
+    }
+    if(error_level == 0) {
+      delete servercfg->console_thread;
+      servercfg->console_thread = 0;
+    }
+  }
+  else {
+    LogProcMessage("CM console_thread not active");
+  }
+
   // Stop the CM crons first
   if(servercfg->crontab_thread) { 
     LogProcMessage("Stopping CM crontab_thread");
@@ -344,7 +371,7 @@ int StopProc()
 
 void ExitProc()
 {
-  NT_print("Exiting process...");
+  NT_print("Exiting DRCM process...");
   exit(1);
 }
 
@@ -544,7 +571,7 @@ int RunSystemCommand(const gxString &input_command)
     command = input_command;
   }
   else {
-    command << clear << servercfg->sudo_command << " " << input_command;
+    command << clear << servercfg->sudo_command << " \'" << input_command << "\'";
   }
 
   if(servercfg->debug && servercfg->debug_level >= 5) {

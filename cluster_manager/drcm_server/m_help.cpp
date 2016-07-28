@@ -38,7 +38,7 @@ Help functions for Datareel cluster manager.
 #include "m_help.h"
 
 // Version number, program  and publisher info
-const char *VersionString = "1.15";
+const char *VersionString = "1.17";
 const char *ProgramDescription = "Datareel Cluster Manager";
 const char *ProducedBy = "http://datareel.com";
 
@@ -69,10 +69,14 @@ void HelpMessage(const char *ProgramName)
   cout << "     --debug-level=1             Set debugging level, 1-5" << "\n" << flush;
   cout << "     --verbose                   Turn on verbose messaging to console" << "\n" << flush;
   cout << "     --verbose-level=1           Set verbose level, 0-5" << "\n" << flush;
-  cout << "     --config-file=\"cm.cfg\"      Specify configuration CFG file location" << "\n" << flush;
+  cout << "     --config-file=\"cm.cfg\"      Specify configuration file name" << "\n" << flush;
   cout << "     --log-file=\"drcm.log\"       Specify a log file name" << "\n" << flush;
   cout << "     --log-level=1               Set logging level, 0-5" << "\n" << flush;
   cout << "     --log-file-clear            Clear the log file when program starts" << "\n" << flush;
+  cout << "\n" << flush;
+  cout << "CM console: " << "\n" << flush;
+  cout << "     --client                    Enter interactive client CM console" << "\n" << flush;
+  cout << "     --command=\"cm_command\"      Execute a CM client command and exit" << "\n" << flush;
   cout << "\n" << flush;
 }
 

@@ -38,11 +38,32 @@ Application classes and functions for Datareel cluster manager.
 #include "gxdlcode.h"
 #include "drcm_server.h"
 
+// Thread for CM client based applications
+class ConsoleThread : public gxThread
+{
+public:
+  ConsoleThread() { }
+  ~ConsoleThread() { }
+
+private:
+  void ThreadExitRoutine(gxThread_t *thread);
+  void *ThreadEntryRoutine(gxThread_t *thread);
+};
+
 void PrintGlobalConfig();
 void PrintNodeConfig();
 int check_config();
-int run_client();
+
+// Load the hash key for this client or server, return 0 if pass, non-zero for fail
 int load_hash_key();
+
+// DRCM client console functions
+int console_command_is_valid(const gxString &command);
+int print_console_help();
+int run_console_command(const gxString &command);
+int ping_cluster();
+int ping_node(CMnode *node);
+int print_config();
 
 #endif // __DRCM_APP_HPP__
 // ----------------------------------------------------------- // 
