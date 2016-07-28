@@ -586,7 +586,7 @@ int RunSystemCommand(const gxString &input_command, const gxString &user, const 
   gxString superuser = "root";
   gxString command;
   if(servercfg->cluster_user == superuser) {
-    command << clear << "su -g " << group << " -c \'" << input_command << "\' - " << user;
+    command << clear << "su -g " << group << " -c \'" << input_command << "\' - " << user << " >/dev/null 2>&1";
   }
   else {
     command << clear << servercfg->sudo_command 

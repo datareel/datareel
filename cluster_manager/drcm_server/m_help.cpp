@@ -38,7 +38,7 @@ Help functions for Datareel cluster manager.
 #include "m_help.h"
 
 // Version number, program  and publisher info
-const char *VersionString = "1.17";
+const char *VersionString = "1.18";
 const char *ProgramDescription = "Datareel Cluster Manager";
 const char *ProducedBy = "http://datareel.com";
 

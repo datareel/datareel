@@ -53,8 +53,6 @@ void PrintGlobalConfig()
   NT_print("CM user =", servercfg->cluster_user.c_str());
   NT_print("CM group =", servercfg->cluster_group.c_str());
   NT_print("SUDO command =", servercfg->sudo_command.c_str());
-  NT_print("BASH shell =", servercfg->bash_shell.c_str());
-  NT_print("BASH rc =", servercfg->bash_rc_file.c_str());
   sbuf << clear << servercfg->log_queue_size;
   NT_print("Max number of log or console messages to queue", sbuf.c_str()); 
   sbuf << clear << servercfg->log_queue_debug_size;
@@ -292,9 +290,25 @@ int check_config()
   servercfg->loq_queue_proc_nodes = new LogQueueNode[servercfg->log_queue_proc_size];
 
   int error_level = 0;
+  int warning_level = 0;
+  int app_info_level = 0;
   servercfg->verbose = 1;
   servercfg->debug = 1;
   servercfg->debug_level = 5;
+  servercfg->verbose_level = 5;
+
+  // Keep logging disabled so config check does not get logged
+  servercfg->enable_logging = 0;
+  servercfg->has_enable_logging_override = 1;
+
+  // Do not reset when CFG file is read
+  if(!servercfg->has_debug_override) servercfg->has_debug_override = 1;
+  if(!servercfg->has_debug_level_override) servercfg->has_debug_level_override = 1;
+  if(!servercfg->has_verbose_override) servercfg->has_verbose_override = 1;
+  if(!servercfg->has_verbose_level_override) servercfg->has_verbose_level_override = 1;
+
+  gxListNode<gxString> *node_listptr;
+  gxListNode<CMnode *> *ptr;
 
   error_level = LoadOrBuildConfigFile();
   if(error_level == 2) {
@@ -302,11 +316,10 @@ int check_config()
     return error_level;
   }
   if(error_level != 0) {
-    NT_print("ERROR - CM config file has errors.");
-    return error_level;
+    error_level = 1;
   }
 
-  if(load_hash_key() != 0) return 1;
+  if(load_hash_key() != 0) error_level = 1;
 
   PrintGlobalConfig();
   PrintNodeConfig();
@@ -316,9 +329,9 @@ int check_config()
   if(servercfg->cluster_user == user.c_str()) {
     if(geteuid() != 0) {
       servercfg->verbose = 1;
-      NT_print("Config file set to run CM as root");
-      NT_print("ERROR - You must be root to run this program");
-      error_level =1;
+      NT_print("WARNING - CM config file set to run CM server as root");
+      NT_print("WARNING - You will need to start the CM server as root");
+      warning_level =1;
     }
   }
   else {
@@ -327,28 +340,21 @@ int check_config()
     if(!e) {
       servercfg->verbose = 1;
       NT_print("ERROR - ${USER} var not set in your ENV");
-    }
-    user = getenv("USER");
-    if(servercfg->cluster_user != user.c_str()) {
-      servercfg->verbose = 1;
-      message << clear << "ERROR - Username starting CM server is " << user;
-      NT_print(message.c_str());
-      message << clear << "ERROR - CM config file username is set to " << servercfg->cluster_user; 
-      NT_print(message.c_str());
       error_level = 1;
+    } 
+    else {
+      user = getenv("USER");
+      if(servercfg->cluster_user != user.c_str()) {
+	servercfg->verbose = 1;
+	message << clear << "WARNING - Username checking CM config is " << user;
+	NT_print(message.c_str());
+	message << clear << "WARNING - CM config file username is set to " << servercfg->cluster_user; 
+	NT_print(message.c_str());
+	warning_level = 1;
+      }
     }
   }
   
-  if(!futils_exists(servercfg->bash_shell.c_str())) {
-    servercfg->verbose = 1;
-    NT_print("ERROR - Bad BASH shell in config file ", servercfg->bash_shell.c_str());
-    error_level = 1;
-  }
-  if(!futils_exists(servercfg->bash_rc_file.c_str())) {
-    servercfg->verbose = 1;
-    NT_print("ERROR - Missing or cannot read bashrc file ", servercfg->bash_rc_file.c_str());
-    error_level = 1;
-  }
   if(!futils_exists(servercfg->etc_dir.c_str())) {
     servercfg->verbose = 1;
     NT_print("ERROR - Missing or cannot read DIR ", servercfg->etc_dir.c_str());
@@ -382,7 +388,7 @@ int check_config()
     servercfg->my_hostname = hbuf;
     int has_hostname = 0;
 
-    gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
+    ptr = servercfg->nodes.GetHead();
     int node_cfg_error_level = 0;
     while(ptr) {
       if(ptr->data->hostname == servercfg->my_hostname) has_hostname = 1;
@@ -432,22 +438,26 @@ int check_config()
   }
 
   gxListNode <CMapplications> *aptr = servercfg->node_applications.GetHead();
+  int num_apps = 0;
   while(aptr) {
-    if(!futils_exists(aptr->data.start_program.c_str())) {
-      NT_print("ERROR - Missing or cannot read application resouce:", aptr->data.start_program.c_str());
-      error_level = 1;
-    }
-    if(!futils_exists(aptr->data.stop_program.c_str())) {
-      NT_print("ERROR - Missing or cannot read application resouce:", aptr->data.stop_program.c_str());
-      error_level = 1;
-    }
-    if(!aptr->data.ensure_script.is_null()) {
-      if(!futils_exists(aptr->data.ensure_script.c_str())) {
-	NT_print("ERROR - Missing or cannot read application resouce:", aptr->data.ensure_script.c_str());
-	error_level = 1;
-      }
-    }
+    num_apps++;
+    message << clear << "INFO - " << aptr->data.nickname << " applciation user: " << aptr->data.user << " group:" << aptr->data.group;
+    NT_print(message.c_str());
+    message << clear << "INFO - " << aptr->data.nickname << " applciation has start program: " << aptr->data.start_program;
+    NT_print(message.c_str());
+    message << clear << "INFO - " << aptr->data.nickname << " applciation has stop program: " << aptr->data.stop_program;
+    NT_print(message.c_str());
+    message << clear << "INFO - " << aptr->data.nickname << " applciation has ensure script: " << aptr->data.ensure_script;
+    NT_print(message.c_str());
     aptr = aptr->next;
+  }
+  if(num_apps > 0) {
+    message << clear << "INFO - " << num_apps << " application(s) installed"; 
+    NT_print(message.c_str());
+    app_info_level = 1;
+  }
+  else {
+    NT_print("INFO - No applications installed");
   }
 
   gxListNode <CMfilesystems> *fptr = servercfg->node_filesystems.GetHead();
@@ -459,14 +469,56 @@ int check_config()
     fptr = fptr->next;
   }
 
-  if(error_level == 0)  {
-    NT_print("INFO - CM config file checks good");
-  }
-  else {
-    NT_print("ERROR - CM config file checks bad");
+
+  // TODO: Must add check below for all node resources and backup node resources 
+  ptr = servercfg->nodes.GetHead();
+  int has_value = 0;
+  int num_node_errors = 0;
+  while(ptr) {
+    num_node_errors = 0;
+    node_listptr = ptr->data->filesystems.GetHead();
+    while(node_listptr) {
+      has_value = 0;
+      fptr = servercfg->node_filesystems.GetHead();
+      while(fptr) {
+	if(node_listptr->data == fptr->data.nickname) {
+	  has_value = 1;
+	  break;
+	}
+	fptr = fptr->next;
+      }
+      if(!has_value) num_node_errors++;
+      node_listptr = node_listptr->next;
+    }
+    if(num_node_errors != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " node has file system not listed in global resource";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    ptr = ptr->next;
   }
 
-  return error_level;
+
+
+
+  if(warning_level != 0) {
+    NT_print("CM config file has WARNINGS");
+  }
+  if(error_level != 0) {
+    NT_print("CM config file has ERRORS");
+  }
+  if(app_info_level != 0) {
+    NT_print("INFO - Check your application programs before starting CM server");
+  }
+
+  if(error_level == 0 && warning_level == 0)  {
+    NT_print("INFO - CM config file checks good");
+  }
+
+  if(error_level != 0) return 1;
+  if(warning_level != 0) return 2;
+
+  return 0;
 }
 
 int load_hash_key()
@@ -476,23 +528,21 @@ int load_hash_key()
   gxString sbuf;
   akfile.df_Open(servercfg->auth_key_file.c_str());
   if(!akfile) {
-    NT_print("Cannot open auth key file", servercfg->auth_key_file.c_str());
-    NT_print(akfile.df_ExceptionMessage());
+    NT_print("ERROR - Cannot open or read auth key file", servercfg->auth_key_file.c_str());
     return 1;
   }
   if(akfile.df_Read(servercfg->auth_key, 2048) != DiskFileB::df_NO_ERROR) {
-    NT_print("Error loading auth key from ", servercfg->auth_key_file.c_str());
-    NT_print(akfile.df_ExceptionMessage());
+    NT_print("ERROR - Cannot read auth key ", servercfg->auth_key_file.c_str());
     return 1;
   }
   shafile.df_Open(servercfg->sha1_file.c_str());
   if(!shafile) {
-    NT_print("Cannot open auth key file", servercfg->sha1_file.c_str());
+    NT_print("ERROR - Cannot open or read auth hash", servercfg->sha1_file.c_str());
     NT_print(shafile.df_ExceptionMessage());
     return 1;
   }
   if(shafile.df_Read(servercfg->sha1sum, 40) != DiskFileB::df_NO_ERROR) {
-    NT_print("Error loading auth key from ", servercfg->sha1_file.c_str());
+    NT_print("ERROR - Cannot read auth hash", servercfg->sha1_file.c_str());
     NT_print(shafile.df_ExceptionMessage());
     return 1;
   }

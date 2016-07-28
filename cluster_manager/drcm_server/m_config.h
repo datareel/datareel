@@ -243,8 +243,6 @@ struct CMconfig {
   gxString cluster_group;
   gxString cluster_umask;
   gxString sudo_command;
-  gxString bash_rc_file;
-  gxString bash_shell;
 
   // Server stop and restart variables
   int kill_server;
@@ -264,6 +262,17 @@ struct CMconfig {
   gxThread_t *filesystems_thread;
   thrPool *client_request_pool;
   gxThread_t *console_thread;
+
+  // -- arg overrides when CFG file loaded
+  int has_debug_override;
+  int has_debug_level_override;
+  int has_verbose_override;
+  int has_verbose_level_override;
+  int has_config_file_override;
+  int has_log_file_name_override;
+  int has_log_level_override;
+  int has_log_file_clear_override;
+  int has_enable_logging_override;
 
   // Log settings
   LogFile logfile;

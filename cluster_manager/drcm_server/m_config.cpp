@@ -140,8 +140,6 @@ CMconfig::CMconfig()
   cluster_user = "root";
   cluster_group = "root";
   sudo_command = "sudo su root -c";
-  bash_shell = "/bin/bash";
-  bash_rc_file = "~/.bashrc";
   run_dir = "/var/run/drcm";
   log_dir = "/var/log/drcm";
   spool_dir = "/var/spool/drcm";
@@ -153,8 +151,8 @@ CMconfig::CMconfig()
   logfile_name << clear << log_dir << "/drcm.log";
   log_file_err = 0;
 
-  log_level = 0;
-  enable_logging = 0; 
+  log_level = 1;
+  enable_logging = 1; 
   service_name = "drcm_server"; // Default service name
   ProgramName = "drcm_server";  // Default program name
   user_config_file = 0;
@@ -203,6 +201,16 @@ CMconfig::CMconfig()
 
   memset(sha1sum, 0, 40);
   memset(auth_key, 0, 2048);
+
+  has_debug_override = 0;
+  has_debug_level_override = 0;
+  has_verbose_override = 0;
+  has_verbose_level_override = 0;
+  has_config_file_override = 0;
+  has_log_file_name_override = 0;
+  has_log_level_override = 0;
+  has_log_file_clear_override = 0;
+  has_enable_logging_override = 0;
 }
 
 CMconfig::~CMconfig() 
@@ -399,6 +407,7 @@ int ProcessDashDashArg(gxString &arg)
   }
 
   if(arg == "verbose") {
+    servercfg->has_verbose_override = 1;
     servercfg->verbose = 1;
     has_arg = 1;
   }
@@ -427,6 +436,7 @@ int ProcessDashDashArg(gxString &arg)
       error_level = 1;
     }
     else {
+      servercfg->has_verbose_level_override = 1;
       servercfg->verbose_level = equal_arg.Atoi(); 
       if(servercfg->verbose_level <= 0) servercfg->verbose_level = 1;
       has_arg = 1;
@@ -434,6 +444,7 @@ int ProcessDashDashArg(gxString &arg)
   }
 
   if(arg == "debug") {
+    servercfg->has_debug_override = 1;
     servercfg->debug = 1;
     has_arg = 1;
   }
@@ -445,6 +456,7 @@ int ProcessDashDashArg(gxString &arg)
       error_level = 1;
     }
     else {
+      servercfg->has_debug_level_override = 1;
       servercfg->debug = 1;
       servercfg->debug_level = equal_arg.Atoi(); 
       if(servercfg->debug_level <= 0) servercfg->debug_level = 1;
@@ -463,6 +475,7 @@ int ProcessDashDashArg(gxString &arg)
       error_level = 1;
     }
     else {
+      servercfg->has_config_file_override = 1;
       servercfg->config_file = equal_arg;
       servercfg->user_config_file = 1;
       has_arg = 1;
@@ -476,6 +489,7 @@ int ProcessDashDashArg(gxString &arg)
       error_level = 1;
     }
     else {
+      servercfg->has_log_file_name_override = 1;
       servercfg->logfile_name = equal_arg;
       servercfg->enable_logging = 1;
       has_arg = 1;
@@ -483,6 +497,7 @@ int ProcessDashDashArg(gxString &arg)
   }
 
   if(arg == "log-file-clear") {
+    servercfg->has_log_file_clear_override = 1;
     servercfg->clear_log = 1;
     has_arg = 1;
   }
@@ -493,6 +508,7 @@ int ProcessDashDashArg(gxString &arg)
       error_level = 1;
     }
     else {
+      servercfg->has_log_level_override = 1;
       servercfg->log_level = equal_arg.Atoi(); 
       if(servercfg->log_level < 0) servercfg->log_level = 0;
       has_arg = 1;
@@ -532,9 +548,11 @@ int ProcessArgs(int argc, char *argv[])
 	  
 	case 'v': case 'V': 
 	  servercfg->verbose = 1;
+	  servercfg->has_verbose_override = 1;
 	  break;
 
 	case 'd': case 'D':
+	  servercfg->has_debug_override = 1;
 	  servercfg->debug = 1;
 	  break;
 
@@ -642,8 +660,6 @@ int LoadOrBuildConfigFile()
     dfile << "cluster_group = root" << "\n";
     dfile << "# sudo command for non-root CM user" << "\n";
     dfile << "sudo_command = sudo su root -c" << "\n";
-    dfile << "bash_shell = /bin/bash" << "\n";
-    dfile << "bash_rc_file = /root/.bashrc" << "\n";
     dfile << "" << "\n";
     dfile << "# Log setup" << "\n";
     dfile << "# Log file should not contain a path. Logs will be stored in log_dir location" << "\n";
@@ -660,14 +676,14 @@ int LoadOrBuildConfigFile()
     dfile << "##clear_log = 0" << "\n";
     dfile << "enable_logging = 1" << "\n";
     dfile << "# Log levels 0-5, 0 lowest log level, 5 highest log level " << "\n";
-    dfile << "log_level = 5" << "\n";
+    dfile << "log_level = 1" << "\n";
     dfile << "" << "\n";
     dfile << "# Values below can be set here or args when program is launched" << "\n";
     dfile << "# Debug and verbose modes used mainly for development and testing" << "\n";
     dfile << "# NOTE: Debug and verbose level 5 will greatly increase log file size" << "\n";
-    dfile << "debug = 1" << "\n";
-    dfile << "debug_level = 5" << "\n";
-    dfile << "verbose = 1 # echo log messages to the console" << "\n";
+    dfile << "debug = 0" << "\n";
+    dfile << "debug_level = 1" << "\n";
+    dfile << "verbose = 0 # echo log messages to the console" << "\n";
     dfile << "verbose_level = 1 # verbose level for debugging" << "\n";
     dfile << "" << "\n";
     dfile << "[CM_CRONTABS]" << "\n";
@@ -685,13 +701,13 @@ int LoadOrBuildConfigFile()
     dfile << "ldm, 192.168.122.35, 255.255.255.0, eth0:2, /etc/drcm/resources/ipv4addr.sh" << "\n";
     dfile << "" << "\n";
     dfile << "[CM_SERVICES]" << "\n";
-    dfile << "# Services managed by cluster manager" << "\n";
+    dfile << "# Services managed by the cluster manager" << "\n";
     dfile << "# CSV format: nickname, service_name, resource_script" << "\n";
     dfile << "web, httpd, /etc/drcm/resources/service.sh" << "\n";
     dfile << "ntp, ntpd, /etc/drcm/resources/service.sh" << "\n";
     dfile << "" << "\n";
     dfile << "[CM_APPLICATIONS]" << "\n";
-    dfile << "# Applications managed by cluter" << "\n";
+    dfile << "# Applications managed the by cluster manager" << "\n";
     dfile << "# CSV format: nickname, user:group, start_program, stop_program" << "\n";
     dfile << "# Or with optional application ensure script:" << "\n";
     dfile << "# CSV format: nickname, user:group, start_program, stop_program, ensure_script" << "\n";
@@ -823,7 +839,6 @@ int LoadOrBuildConfigFile()
     info_line.DeleteAfterIncluding("#"); // Filter inline remarks
     info_line.TrimTrailingSpaces();
     info_line.ReplaceString("HashMarkPlaceHolder", "#");
-
     list.Add(info_line);
   }
 
@@ -859,32 +874,35 @@ int LoadOrBuildConfigFile()
 	}
 	// Add all server conifg reads here
 	if(ptr->data.Find("debug") != -1) {
-	  servercfg->debug = CfgGetTrueFalseValue(ptr->data);
+	  if(!servercfg->has_debug_override) servercfg->debug = CfgGetTrueFalseValue(ptr->data);
 	}
 	if(ptr->data.Find("debug_level") != -1) {
-	  servercfg->debug_level = CfgGetEqualToParm(ptr->data);
+	  if(!servercfg->has_debug_level_override) servercfg->debug_level = CfgGetEqualToParm(ptr->data);
 	}
 	if(ptr->data.Find("verbose") != -1) {
-	  servercfg->verbose = CfgGetTrueFalseValue(ptr->data);
+	  if(!servercfg->has_verbose_override) servercfg->verbose = CfgGetTrueFalseValue(ptr->data);
 	}
 	if(ptr->data.Find("verbose_level") != -1) {
-	  servercfg->verbose_level = CfgGetEqualToParm(ptr->data);
+	  if(!servercfg->has_verbose_level_override) servercfg->verbose_level = CfgGetEqualToParm(ptr->data);
 	}
 	if(ptr->data.Find("clear_log") != -1) {
-	  servercfg->clear_log = CfgGetTrueFalseValue(ptr->data);
+	  if(!servercfg->has_log_file_clear_override) servercfg->clear_log = CfgGetTrueFalseValue(ptr->data);
 	}
 	if(ptr->data.Find("logfile_name") != -1) {
-	  servercfg->logfile_name = CfgGetEqualToParm(ptr->data, pbuf);
+	  if(!servercfg->has_log_file_name_override) servercfg->logfile_name = CfgGetEqualToParm(ptr->data, pbuf);
 	}
 	if(ptr->data.Find("enable_logging") != -1) {
-	  servercfg->enable_logging = CfgGetTrueFalseValue(ptr->data);
+	  if(!servercfg->has_enable_logging_override) servercfg->enable_logging = CfgGetTrueFalseValue(ptr->data);
 	}
 	if(ptr->data.Find("log_level") != -1) {
-	  servercfg->log_level = CfgGetEqualToParm(ptr->data);
+	  if(!servercfg->has_log_level_override) servercfg->log_level = CfgGetEqualToParm(ptr->data);
 	}
+
+	// TODO: Add to default config build
 	if(ptr->data.Find("service_name") != -1) {
 	  servercfg->service_name = CfgGetEqualToParm(ptr->data, pbuf);
 	}
+
 	if(ptr->data.Find("num_logs_to_keep") != -1) {
 	  servercfg->num_logs_to_keep = CfgGetEqualToParm(ptr->data);
 	  if(servercfg->num_logs_to_keep <= 0) {
@@ -966,12 +984,6 @@ int LoadOrBuildConfigFile()
 	}
 	if(ptr->data.Find("sudo_command") != -1) {
 	  servercfg->sudo_command = CfgGetEqualToParm(ptr->data, pbuf);
-	}
-	if(ptr->data.Find("bash_shell") != -1) {
-	  servercfg->bash_shell = CfgGetEqualToParm(ptr->data, pbuf);
-	}
-	if(ptr->data.Find("bash_rc_file") != -1) {
-	  servercfg->bash_rc_file = CfgGetEqualToParm(ptr->data, pbuf);
 	}
 	ptr = ptr->next;
       }
@@ -1421,6 +1433,10 @@ int LoadOrBuildConfigFile()
   }
   
   // Set CM logfile name
+  if(servercfg->is_client) {
+    if(!servercfg->has_log_file_name_override) servercfg->logfile_name << clear << "drcm_client.log";
+  }
+
   if(servercfg->logfile_name.Find("/") != -1) {
     servercfg->logfile_name.DeleteBeforeLastIncluding("/");
   }
@@ -1433,7 +1449,7 @@ int LoadOrBuildConfigFile()
     if(servercfg->check_config) NT_print("INFO - CM config does not have any crontabs");
   }
   else {
-    if(servercfg->check_config) NT_print("INFO - Installing CM crontabs");
+    if(servercfg->check_config) NT_print("Installing CM crontabs");
     while(listptr) {
       line_dup = listptr->data.c_str();
       line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
@@ -1451,8 +1467,8 @@ int LoadOrBuildConfigFile()
 	continue;
       }
       vals = ParseStrings(line_dup, delimiter, num_arr);
-      if(num_arr < 4) {
-	NT_print("ERROR - missing values on line:", listptr->data.c_str());
+      if(num_arr != 4) {
+	NT_print("ERROR - missing or extra values on line:", listptr->data.c_str());
 	error_level++;
       }
       else {
@@ -1460,9 +1476,9 @@ int LoadOrBuildConfigFile()
 	crontab.nickname = vals[0];  
 	crontab.nickname.TrimLeadingSpaces(); crontab.nickname.TrimTrailingSpaces();  
 	crontab.template_file = vals[1];
-	crontab.template_file.TrimLeadingSpaces(); crontab.template_file.TrimTrailingSpaces();  
+	crontab.template_file.FilterChar(' ');
 	crontab.install_location = vals[2];
-	crontab.install_location.TrimLeadingSpaces(); crontab.install_location.TrimTrailingSpaces();  
+	crontab.install_location.FilterChar(' ');
 	crontab.resource_script = vals[3];
 	crontab.resource_script.TrimLeadingSpaces(); crontab.resource_script.TrimTrailingSpaces();  
 	servercfg->node_crontabs.Add(crontab);
@@ -1477,7 +1493,7 @@ int LoadOrBuildConfigFile()
     if(servercfg->check_config) NT_print("INFO - CM config does not have any floating IP addresses");
   }
   else {
-   if(servercfg->check_config)  NT_print("INFO - Installing CM floating IP addresses");
+   if(servercfg->check_config)  NT_print("Installing CM floating IP addresses");
     while(listptr) {
       line_dup = listptr->data.c_str();
       line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
@@ -1495,8 +1511,8 @@ int LoadOrBuildConfigFile()
 	continue;
       }
       vals = ParseStrings(line_dup, delimiter, num_arr);
-      if(num_arr < 5) {
-	NT_print("ERROR - missing values on line:", listptr->data.c_str());
+      if(num_arr != 5) {
+	NT_print("ERROR - missing or extra values on line:", listptr->data.c_str());
 	error_level++;
       }
       else {
@@ -1504,11 +1520,11 @@ int LoadOrBuildConfigFile()
 	ipaddr.nickname = vals[0];  
 	ipaddr.nickname.TrimLeadingSpaces(); ipaddr.nickname.TrimTrailingSpaces();  
 	ipaddr.ip_address = vals[1];
-	ipaddr.ip_address.TrimLeadingSpaces(); ipaddr.ip_address.TrimTrailingSpaces();  
+	ipaddr.ip_address.FilterChar(' ');
 	ipaddr.netmask = vals[2];
-	ipaddr.netmask.TrimLeadingSpaces(); ipaddr.netmask.TrimTrailingSpaces();  
+	ipaddr.netmask.FilterChar(' ');
 	ipaddr.interface = vals[3];
-	ipaddr.interface.TrimLeadingSpaces(); ipaddr.interface.TrimTrailingSpaces();  
+	ipaddr.interface.FilterChar(' ');
 	ipaddr.resource_script = vals[4];
 	ipaddr.resource_script.TrimLeadingSpaces(); ipaddr.resource_script.TrimTrailingSpaces();  
 	servercfg->node_ipaddrs.Add(ipaddr);
@@ -1523,7 +1539,7 @@ int LoadOrBuildConfigFile()
     if(servercfg->check_config) NT_print("INFO - CM config does not have any services");
   }
   else {
-    if(servercfg->check_config) NT_print("INFO - Installing CM services");
+    if(servercfg->check_config) NT_print("Installing CM services");
     while(listptr) {
       line_dup = listptr->data.c_str();
       line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
@@ -1541,8 +1557,8 @@ int LoadOrBuildConfigFile()
 	continue;
       }
       vals = ParseStrings(line_dup, delimiter, num_arr);
-      if(num_arr < 3) {
-	NT_print("ERROR - missing values on line:", listptr->data.c_str());
+      if(num_arr != 3) {
+	NT_print("ERROR - missing or extra values on line:", listptr->data.c_str());
 	error_level++;
       }
       else {
@@ -1550,7 +1566,7 @@ int LoadOrBuildConfigFile()
 	service.nickname = vals[0];  
 	service.nickname.TrimLeadingSpaces(); service.nickname.TrimTrailingSpaces();  
 	service.service_name = vals[1];
-	service.service_name.TrimLeadingSpaces(); service.service_name.TrimTrailingSpaces();  
+	service.service_name.FilterChar(' ');
 	service.resource_script = vals[2];
 	service.resource_script.TrimLeadingSpaces(); service.resource_script.TrimTrailingSpaces();  
 	servercfg->node_services.Add(service);
@@ -1565,7 +1581,7 @@ int LoadOrBuildConfigFile()
     if(servercfg->check_config) NT_print("INFO - CM config does not have any applications");
   }
   else {
-    if(servercfg->check_config) NT_print("INFO - Installing CM applications");
+    if(servercfg->check_config) NT_print("Installing CM applications");
     while(listptr) {
       line_dup = listptr->data.c_str();
       line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
@@ -1583,29 +1599,35 @@ int LoadOrBuildConfigFile()
 	continue;
       }
       vals = ParseStrings(line_dup, delimiter, num_arr);
-      if(num_arr < 4) {
-	NT_print("ERROR - missing values on line:", listptr->data.c_str());
+      if(num_arr < 4 || num_arr > 5) {
+	NT_print("ERROR - missing or extra values on line:", listptr->data.c_str());
 	error_level++;
       }
       else {
 	CMapplications application;
-	application.nickname = vals[0];  
-	application.nickname.TrimLeadingSpaces(); application.nickname.TrimTrailingSpaces();  
-	gxString appuser = vals[1];
-	appuser.DeleteAfterIncluding(":");
-	appuser.FilterChar(' ');
-	application.user = appuser;
-	gxString appgroup = vals[1];
-	appgroup.DeleteBeforeLastIncluding(":");
-	appgroup.FilterChar(' ');
-	application.group = appgroup;
-	application.start_program = vals[2];
-	application.start_program.TrimLeadingSpaces(); application.start_program.TrimTrailingSpaces();  
-	application.stop_program = vals[3];
-	application.stop_program.TrimLeadingSpaces(); application.stop_program.TrimTrailingSpaces();  
-	if(num_arr == 5) {
-	  application.ensure_script = vals[4];
-	  application.ensure_script.TrimLeadingSpaces(); application.ensure_script.TrimTrailingSpaces();  
+	if(vals[1].Find(":") == -1) {
+	  NT_print("ERROR - Bad user:group on line:", listptr->data.c_str());
+	  error_level++;
+	}
+	else {
+	  application.nickname = vals[0];  
+	  application.nickname.TrimLeadingSpaces(); application.nickname.TrimTrailingSpaces();  
+	  gxString appuser = vals[1];
+	  appuser.DeleteAfterIncluding(":");
+	  appuser.FilterChar(' ');
+	  application.user = appuser;
+	  gxString appgroup = vals[1];
+	  appgroup.DeleteBeforeLastIncluding(":");
+	  appgroup.FilterChar(' ');
+	  application.group = appgroup;
+	  application.start_program = vals[2];
+	  application.start_program.TrimLeadingSpaces(); application.start_program.TrimTrailingSpaces();  
+	  application.stop_program = vals[3];
+	  application.stop_program.TrimLeadingSpaces(); application.stop_program.TrimTrailingSpaces();  
+	  if(num_arr == 5) {
+	    application.ensure_script = vals[4];
+	    application.ensure_script.TrimLeadingSpaces(); application.ensure_script.TrimTrailingSpaces();  
+	  }
 	  servercfg->node_applications.Add(application);
 	}
       }
@@ -1619,7 +1641,7 @@ int LoadOrBuildConfigFile()
     if(servercfg->check_config) NT_print("INFO - CM config does not have any file systems");
   }
   else {
-    if(servercfg->check_config) NT_print("INFO - Installing CM file systems");
+    if(servercfg->check_config) NT_print("Installing CM file systems");
     while(listptr) {
       line_dup = listptr->data.c_str();
       line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
@@ -1637,8 +1659,8 @@ int LoadOrBuildConfigFile()
 	continue;
       }
       vals = ParseStrings(line_dup, delimiter, num_arr);
-      if(num_arr < 4) {
-	NT_print("ERROR - missing values on line:", listptr->data.c_str());
+      if(num_arr != 4) {
+	NT_print("ERROR - missing or extra values on line:", listptr->data.c_str());
 	error_level++;
       }
       else {
@@ -1646,9 +1668,9 @@ int LoadOrBuildConfigFile()
 	filesystem.nickname = vals[0];  
 	filesystem.nickname.TrimLeadingSpaces(); filesystem.nickname.TrimTrailingSpaces();  
 	filesystem.source = vals[1];
-	filesystem.source.TrimLeadingSpaces(); filesystem.source.TrimTrailingSpaces();  
+	filesystem.source.FilterChar(' ');
 	filesystem.target = vals[2];
-	filesystem.target.TrimLeadingSpaces(); filesystem.target.TrimTrailingSpaces();  
+	filesystem.target.FilterChar(' ');
 	filesystem.resource_script = vals[3];
 	filesystem.resource_script.TrimLeadingSpaces(); filesystem.resource_script.TrimTrailingSpaces();  
 	servercfg->node_filesystems.Add(filesystem);
