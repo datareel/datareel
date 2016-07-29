@@ -36,6 +36,28 @@ Stat functions for Datareel cluster manager.
 #define __DRCM_STATS_HPP__
 
 #include "gxdlcode.h"
+#include "drcm_server.h"
+
+struct CMstats {
+  CMstats() {
+    stats_is_locked = 0;
+    stats_retries = 3;
+  }
+
+  int Add(gxString &s, int check_existing = 0);
+  int Remove(const gxString &s);
+  void Clear();
+  void Get(gxList<gxString> &s);
+  void Get(gxString &sbuf);
+
+private:
+  gxList<gxString> stats;
+  gxMutex stats_lock;
+  gxCondition stats_cond;
+  int stats_is_locked;
+  int stats_retries;
+};
+
 
 
 #endif // __DRCM_STATS_HPP__

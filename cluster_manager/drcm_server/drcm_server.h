@@ -66,6 +66,7 @@ using namespace std; // Use unqualified names for Standard C++ library
 
 // Project include files
 #include "m_log.h"
+#include "m_stats.h"
 #include "m_config.h"
 #include "m_socket.h"
 #include "m_app.h"
@@ -73,7 +74,7 @@ using namespace std; // Use unqualified names for Standard C++ library
 #include "m_thread.h"
 #include "m_proc.h"
 #include "m_help.h"
-#include "m_stats.h"
+
 
 int run_server();
 int run_client();

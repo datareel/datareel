@@ -397,7 +397,7 @@ int check_config()
     
     if(!has_hostname) {
       servercfg->verbose = 1;
-      NT_print("ERROR - The hostname of this server does not match and node hostname in config file");
+      NT_print("ERROR - The hostname of this server does not match any node hostname in config file");
       error_level = 1;
     }
   }
@@ -469,11 +469,262 @@ int check_config()
     fptr = fptr->next;
   }
 
-
-  // TODO: Must add check below for all node resources and backup node resources 
   ptr = servercfg->nodes.GetHead();
   int has_value = 0;
   int num_node_errors = 0;
+  while(ptr) {
+    num_node_errors = 0;
+    node_listptr = ptr->data->crontabs.GetHead();
+    while(node_listptr) {
+      has_value = 0;
+      cptr = servercfg->node_crontabs.GetHead();
+      while(cptr) {
+	if(node_listptr->data == cptr->data.nickname) {
+	  has_value = 1;
+	  break;
+	}
+	cptr = cptr->next;
+      }
+      if(!has_value) num_node_errors++;
+      node_listptr = node_listptr->next;
+    }
+    if(num_node_errors != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " node has crontab not listed in global resource";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    ptr = ptr->next;
+  }
+
+  ptr = servercfg->nodes.GetHead();
+  has_value = 0;
+  num_node_errors = 0;
+  int backup_missing_nodename = 0;
+  while(ptr) {
+    num_node_errors = 0;
+    node_listptr = ptr->data->backup_crontabs.GetHead();
+    while(node_listptr) {
+      has_value = 0;
+      cptr = servercfg->node_crontabs.GetHead();
+      sbuf << clear << node_listptr->data;
+      if(sbuf.Find(":") == -1) backup_missing_nodename++;
+      sbuf.DeleteBeforeLastIncluding(":");
+      while(cptr) {
+	if(sbuf == cptr->data.nickname) {
+	  has_value = 1;
+	  break;
+	}
+	cptr = cptr->next;
+      }
+      if(!has_value) num_node_errors++;
+      node_listptr = node_listptr->next;
+    }
+    if(num_node_errors != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " node has backup crontab not listed in global resource";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    if(backup_missing_nodename != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " backup crontab with no backup nodename, bad nodename:nickname format";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    ptr = ptr->next;
+  }
+
+  ptr = servercfg->nodes.GetHead();
+  has_value = 0;
+  num_node_errors = 0;
+  while(ptr) {
+    num_node_errors = 0;
+    node_listptr = ptr->data->floating_ip_addrs.GetHead();
+    while(node_listptr) {
+      has_value = 0;
+      iptr = servercfg->node_ipaddrs.GetHead();
+      while(iptr) {
+	if(node_listptr->data == iptr->data.nickname) {
+	  has_value = 1;
+	  break;
+	}
+	iptr = iptr->next;
+      }
+      if(!has_value) num_node_errors++;
+      node_listptr = node_listptr->next;
+    }
+    if(num_node_errors != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " node has floating IP address not listed in global resource";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    ptr = ptr->next;
+  }
+
+  ptr = servercfg->nodes.GetHead();
+  has_value = 0;
+  num_node_errors = 0;
+  backup_missing_nodename = 0;
+  while(ptr) {
+    num_node_errors = 0;
+    node_listptr = ptr->data->backup_floating_ip_addrs.GetHead();
+    while(node_listptr) {
+      has_value = 0;
+      iptr = servercfg->node_ipaddrs.GetHead();
+      sbuf << clear << node_listptr->data;  
+      if(sbuf.Find(":") == -1) backup_missing_nodename++;
+      sbuf.DeleteBeforeLastIncluding(":");
+      while(iptr) {
+	if(sbuf == iptr->data.nickname) {
+	  has_value = 1;
+	  break;
+	}
+	iptr = iptr->next;
+      }
+      if(!has_value) num_node_errors++;
+      node_listptr = node_listptr->next;
+    }
+    if(num_node_errors != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " node has backup floating IP address not listed in global resource";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    if(backup_missing_nodename != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " backup floating IP with no backup nodename, bad nodename:nickname format";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    ptr = ptr->next;
+  }
+
+  ptr = servercfg->nodes.GetHead();
+  has_value = 0;
+  num_node_errors = 0;
+  while(ptr) {
+    num_node_errors = 0;
+    node_listptr = ptr->data->services.GetHead();
+    while(node_listptr) {
+      has_value = 0;
+      sptr = servercfg->node_services.GetHead();
+      while(sptr) {
+	if(node_listptr->data == sptr->data.nickname) {
+	  has_value = 1;
+	  break;
+	}
+	sptr = sptr->next;
+      }
+      if(!has_value) num_node_errors++;
+      node_listptr = node_listptr->next;
+    }
+    if(num_node_errors != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " node has service not listed in global resource";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    ptr = ptr->next;
+  }
+
+
+  ptr = servercfg->nodes.GetHead();
+  has_value = 0;
+  num_node_errors = 0;
+  backup_missing_nodename = 0;
+  while(ptr) {
+    num_node_errors = 0;
+    node_listptr = ptr->data->backup_services.GetHead();
+    while(node_listptr) {
+      has_value = 0;
+      sptr = servercfg->node_services.GetHead();
+      sbuf << clear << node_listptr->data;  
+      if(sbuf.Find(":") == -1) backup_missing_nodename++;
+      sbuf.DeleteBeforeLastIncluding(":");
+      while(sptr) {
+	if(sbuf == sptr->data.nickname) {
+	  has_value = 1;
+	  break;
+	}
+	sptr = sptr->next;
+      }
+      if(!has_value) num_node_errors++;
+      node_listptr = node_listptr->next;
+    }
+    if(num_node_errors != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " node has backup service not listed in global resource";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    if(backup_missing_nodename != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " backup service with no backup nodename, bad nodename:nickname format";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    ptr = ptr->next;
+  }
+
+  ptr = servercfg->nodes.GetHead();
+  has_value = 0;
+  num_node_errors = 0;
+  while(ptr) {
+    num_node_errors = 0;
+    node_listptr = ptr->data->applications.GetHead();
+    while(node_listptr) {
+      has_value = 0;
+      aptr = servercfg->node_applications.GetHead();
+      while(aptr) {
+	if(node_listptr->data == aptr->data.nickname) {
+	  has_value = 1;
+	  break;
+	}
+	aptr = aptr->next;
+      }
+      if(!has_value) num_node_errors++;
+      node_listptr = node_listptr->next;
+    }
+    if(num_node_errors != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " node has application not listed in global resource";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    ptr = ptr->next;
+  }
+
+  ptr = servercfg->nodes.GetHead();
+  has_value = 0;
+  num_node_errors = 0;
+  backup_missing_nodename = 0;
+  while(ptr) {
+    num_node_errors = 0;
+    node_listptr = ptr->data->backup_applications.GetHead();
+    while(node_listptr) {
+      has_value = 0;
+      aptr = servercfg->node_applications.GetHead();
+      sbuf << clear << node_listptr->data;  
+      if(sbuf.Find(":") == -1) backup_missing_nodename++;
+      sbuf.DeleteBeforeLastIncluding(":");
+      while(aptr) {
+	if(sbuf == aptr->data.nickname) {
+	  has_value = 1;
+	  break;
+	}
+	aptr = aptr->next;
+      }
+      if(!has_value) num_node_errors++;
+      node_listptr = node_listptr->next;
+    }
+    if(num_node_errors != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " node has backup application not listed in global resource";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    if(backup_missing_nodename != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " backup application with no backup nodename, bad nodename:nickname format";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    ptr = ptr->next;
+  }
+
+  ptr = servercfg->nodes.GetHead();
+  has_value = 0;
+  num_node_errors = 0;
   while(ptr) {
     num_node_errors = 0;
     node_listptr = ptr->data->filesystems.GetHead();
@@ -498,8 +749,41 @@ int check_config()
     ptr = ptr->next;
   }
 
-
-
+  ptr = servercfg->nodes.GetHead();
+  has_value = 0;
+  num_node_errors = 0;
+  backup_missing_nodename = 0;
+  while(ptr) {
+    num_node_errors = 0;
+    node_listptr = ptr->data->backup_filesystems.GetHead();
+    while(node_listptr) {
+      has_value = 0;
+      fptr = servercfg->node_filesystems.GetHead();
+      sbuf << clear << node_listptr->data;  
+      if(sbuf.Find(":") == -1) backup_missing_nodename++;
+      sbuf.DeleteBeforeLastIncluding(":");
+      while(fptr) {
+	if(sbuf == fptr->data.nickname) {
+	  has_value = 1;
+	  break;
+	}
+	fptr = fptr->next;
+      }
+      if(!has_value) num_node_errors++;
+      node_listptr = node_listptr->next;
+    }
+    if(num_node_errors != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " node has backup file system not listed in global resource";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    if(backup_missing_nodename != 0) {
+      message << clear << "ERROR - " << ptr->data->nodename << " backup file system with no backup nodename, bad nodename:nickname format";
+      NT_print(message.c_str());
+      error_level = 1;
+    }
+    ptr = ptr->next;
+  }
 
   if(warning_level != 0) {
     NT_print("CM config file has WARNINGS");
@@ -592,6 +876,8 @@ int console_command_is_valid(const gxString &command)
   if(command == "help") return 1;
   if(command == "ping") return 1;
   if(command == "printcfg") return 1;
+  if(command == "rstats") return 1;
+
   return 0;
 }
 
@@ -601,6 +887,7 @@ int print_console_help()
   cout << "\n";
   cout << "ping     - Test connectivity to all active cluster nodes" << "\n";
   cout << "printcfg - Pring cluster configuration" << "\n";
+  cout << "rstats    - Print raw stats buffer for each cluster node" << "\n";
   cout << "\n";
   cout.flush();
   return 0;
@@ -613,6 +900,7 @@ int run_console_command(const gxString &command)
   if(command == "help") return print_console_help(); 
   if(command == "printcfg") return print_config(); 
   if(command == "ping") return ping_cluster(); 
+  if(command == "rstats") return get_cluster_rstats(); 
   return error_level;
 }
 
@@ -660,20 +948,84 @@ int ping_node(CMnode *node)
 
   int optVal = 1;
   client.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, (char *)&optVal, sizeof(optVal));
-  char datagram[DEFAULT_DATAGRAM_SIZE];
 
   int bytes_moved = client.SendTo(&cmhdr, sizeof(cmhdr));
   if(bytes_moved != sizeof(cmhdr)) {
-    cout << "ping " << suffix.c_str() << " failed with send error" << "\n";      
+    cout << "ping " << suffix.c_str() << " failed with send error" << "\n" << flush;      
     return 1;
   }
   cmhdr.clear();
   int bytes_read = client.RemoteRecvFrom(&cmhdr, sizeof(cmhdr), 5, 0);
   if(bytes_read != sizeof(cmhdr)) {
-    cout << "ping " << suffix.c_str() << " failed with recv error" << "\n";      
+    cout << "ping " << suffix.c_str() << " failed with recv error" << "\n" << flush;      
     return 1;
   }
-  cout << "ping " << suffix.c_str() << " successful" << "\n";      
+  cout << "ping " << suffix.c_str() << " successful" << "\n" << flush;      
+  return 0;
+}
+
+int get_cluster_rstats()
+{
+  int error_level = 0;
+  gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
+  while(ptr) {
+    error_level = get_rstats(ptr->data); 
+    ptr = ptr->next;
+  }
+  return error_level;
+}
+
+int get_rstats(CMnode *node)
+{
+  gxString suffix;
+  suffix << clear << node->nodename << "@" << node->keep_alive_ip;
+  gxSocket client(SOCK_DGRAM, servercfg->udpport, node->keep_alive_ip.c_str());
+  if(!client) {
+    cout << "rstats fatal error could not start CM client socket" << "\n" << flush;
+    return 1;
+  }
+
+  CM_MessageHeader cmhdr;
+  int hdr_size = sizeof(CM_MessageHeader);
+  
+  cmhdr.set_word(cmhdr.checkword, NET_CHECKWORD);
+  memmove(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum));
+  cmhdr.set_word(cmhdr.cluster_command, CM_CMD_GETSTATS);
+
+  int optVal = 1;
+  client.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, (char *)&optVal, sizeof(optVal));
+
+  int bytes_moved = client.SendTo(&cmhdr, sizeof(cmhdr));
+  if(bytes_moved != sizeof(cmhdr)) {
+    cout << "rstats " << suffix.c_str() << " failed with send error" << "\n" << flush;      
+    return 1;
+  }
+
+  cmhdr.clear();
+  int bytes_read = client.RemoteRecvFrom(&cmhdr, sizeof(cmhdr), 5, 0);
+  if(bytes_read != sizeof(cmhdr)) {
+    cout << "rstats ack " << suffix.c_str() << " failed with recv error" << "\n" << flush;      
+    return 1;
+  }
+
+  int sizebuf = cmhdr.get_word(cmhdr.datagram_size);
+  if(sizebuf <= 0) {
+    cout << "rstats ack " << suffix.c_str() << " failed with bad datagram size" << "\n" << flush;      
+    return 1;
+  }
+  char *datagram = new char[sizebuf+1];
+  memset(datagram, 0, (sizebuf+1));
+
+  bytes_read = client.RemoteRecvFrom(datagram, sizebuf, 15, 0);
+  if(bytes_read != sizebuf) {
+    cout << "rstats " << suffix.c_str() << " failed with recv error" << "\n" << flush;      
+    return 1;
+  }
+
+  cout << "rstats " << suffix.c_str() << " successful" << "\n" << flush;      
+  cout << datagram << flush;
+  cout << "rstats " << suffix.c_str() << " end" << "\n" << flush;      
+
   return 0;
 }
 // ----------------------------------------------------------- // 

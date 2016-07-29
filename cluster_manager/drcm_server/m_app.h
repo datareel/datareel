@@ -64,6 +64,9 @@ int run_console_command(const gxString &command);
 int ping_cluster();
 int ping_node(CMnode *node);
 int print_config();
+int get_cluster_rstats();
+int get_rstats(CMnode *node);
+
 
 #endif // __DRCM_APP_HPP__
 // ----------------------------------------------------------- // 

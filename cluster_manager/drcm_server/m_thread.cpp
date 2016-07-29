@@ -161,6 +161,7 @@ void *CM_UDP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
     }
 
     int cluster_command = cmhdr.get_word(cmhdr.cluster_command);
+    gxString stats_buf;
 
     switch(cluster_command) {
       case CM_CMD_NAK:
@@ -206,6 +207,38 @@ void *CM_UDP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
 	  }
 	}
 	break;
+      case CM_CMD_GETSTATS:
+	servercfg->stats.Get(stats_buf);
+	if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) {
+	  message << clear << "[" << seq_num << "]: Received get stats command from " << client_name;
+	  LogDebugMessage(message.c_str());
+	}
+
+	cmhdr_dup.copy(cmhdr);
+	cmhdr_dup.set_word(cmhdr_dup.cluster_command, CM_CMD_ACK);
+	cmhdr_dup.set_word(cmhdr_dup.datagram_size, stats_buf.length());
+	bytes_moved = RemoteRawWriteTo(&cmhdr_dup, sizeof(cmhdr_dup));
+	get_fd_thread_error(error_number, sbuf);
+	if(bytes_moved !=  sizeof(cmhdr_dup)) {
+	  if(servercfg->debug) {
+	    message << clear << "[" << seq_num << "]: ERROR - Error sending stats ack to " << client_name;
+	    LogDebugMessage(message.c_str());
+	    message << clear << "[" << seq_num << "]: send() Return: " << bytes_moved << " ENUM: " << error_number << " Message: " << sbuf;
+	    LogDebugMessage(message.c_str());
+	  }
+	}
+	bytes_moved = RemoteRawWriteTo(stats_buf.c_str(), stats_buf.length());
+	get_fd_thread_error(error_number, sbuf);
+	if(bytes_moved !=  stats_buf.length()) {
+	  if(servercfg->debug) {
+	    message << clear << "[" << seq_num << "]: ERROR - Error sending stats to " << client_name;
+	    LogDebugMessage(message.c_str());
+	    message << clear << "[" << seq_num << "]: send() Return: " << bytes_moved << " ENUM: " << error_number << " Message: " << sbuf;
+	    LogDebugMessage(message.c_str());
+	  }
+	}
+	break;
+
       default:
 	if(servercfg->debug) {
 	  message << clear << "[" << seq_num << "]: WARNING - Received bad or unknown command from " << client_name;
@@ -517,6 +550,7 @@ int CM_CrontabsThread::install_crontabs()
   int has_errors = 0;
   int is_installed = 0;
   int rv = 0;
+  gxString stat_message;
 
   // Install crontabs for this host
   listptr = node.crontabs.GetHead();
@@ -547,6 +581,8 @@ int CM_CrontabsThread::install_crontabs()
 	  }
 	  else {
 	    installed_crontabs.Add(cptr->data.nickname);
+	    stat_message << clear << "cron:" << cptr->data.nickname;
+	    servercfg->stats.Add(stat_message);
 	  }
 	}
       }
@@ -601,6 +637,8 @@ int CM_CrontabsThread::install_crontabs()
 	      }
 	      else {
 		installed_backup_crontabs.Add(cptr->data.nickname);
+		stat_message << clear << "backup_cron:" << cptr->data.nickname;
+		servercfg->stats.Add(stat_message);
 	      }
 	    }
 	    cptr = cptr->next;
@@ -629,7 +667,8 @@ int CM_CrontabsThread::install_crontabs()
 	      has_errors++;
 	    }
 	    else {
-	      
+	      stat_message << clear << "backup_cron:" << cptr->data.nickname;
+	      servercfg->stats.Remove(stat_message);
 	      installed_backup_crontabs.Remove(installed_ptr);
 	    }
 	  }
@@ -778,6 +817,7 @@ int CM_IPaddrsThread::install_floating_ipaddrs()
   int has_errors = 0;
   int is_installed = 0;
   int rv = 0;
+  gxString stat_message;
 
   // Install floating IP addresses for this host
   listptr = node.floating_ip_addrs.GetHead();
@@ -811,6 +851,8 @@ int CM_IPaddrsThread::install_floating_ipaddrs()
 	  }
 	  else {
 	    installed_floating_ipaddrs.Add(iptr->data.nickname);
+	    stat_message << clear << "ip:" << iptr->data.nickname;
+	    servercfg->stats.Add(stat_message);
 	  }
 	}
       }
@@ -866,6 +908,8 @@ int CM_IPaddrsThread::install_floating_ipaddrs()
 	      }
 	      else {
 		installed_backup_floating_ipaddrs.Add(iptr->data.nickname);
+		stat_message << clear << "backup_ip:" << iptr->data.nickname;
+		servercfg->stats.Add(stat_message);
 	      }
 	    }
 	    iptr = iptr->next;
@@ -895,8 +939,9 @@ int CM_IPaddrsThread::install_floating_ipaddrs()
 	      has_errors++;
 	    }
 	    else {
-	      
 	      installed_backup_floating_ipaddrs.Remove(installed_ptr);
+	      stat_message << clear << "backup_ip:" << iptr->data.nickname;
+	      servercfg->stats.Remove(stat_message);
 	    }
 	  }
 	  iptr = iptr->next;
@@ -1063,6 +1108,7 @@ int CM_servicesThread::install_services()
   int has_errors = 0;
   int is_started = 0;
   int rv = 0;
+  gxString stat_message;
 
   // Install services for this host
   listptr = node.services.GetHead();
@@ -1106,6 +1152,8 @@ int CM_servicesThread::install_services()
 	  }
 	  else {
 	    installed_services.Add(sptr->data.nickname);
+	    stat_message << clear << "service:" << sptr->data.nickname;
+	    servercfg->stats.Add(stat_message);
 	  }
 	}
       }
@@ -1171,6 +1219,8 @@ int CM_servicesThread::install_services()
 	      }
 	      else {
 		installed_backup_services.Add(sptr->data.nickname);
+		stat_message << clear << "backup_service:" << sptr->data.nickname;
+		servercfg->stats.Add(stat_message);
 	      }
 	    }
 	    sptr = sptr->next;
@@ -1197,8 +1247,9 @@ int CM_servicesThread::install_services()
 	      has_errors++;
 	    }
 	    else {
-	      
 	      installed_backup_services.Remove(installed_ptr);
+	      stat_message << clear << "backup_service:" << sptr->data.nickname;
+	      servercfg->stats.Remove(stat_message);
 	    }
 	  }
 	  sptr = sptr->next;
@@ -1373,6 +1424,7 @@ int CM_applicationsThread::install_applications()
   int has_errors = 0;
   int is_started = 0;
   int rv = 0;
+  gxString stat_message;
 
   // Install applications for this host
   listptr = node.applications.GetHead();
@@ -1426,6 +1478,8 @@ int CM_applicationsThread::install_applications()
 	  }
 	  else {
 	    installed_applications.Add(aptr->data.nickname);
+	    stat_message << clear << "application:" << aptr->data.nickname;
+	    servercfg->stats.Add(stat_message);
 	  }
 	}
       }
@@ -1501,6 +1555,8 @@ int CM_applicationsThread::install_applications()
 	      }
 	      else {
 		installed_backup_applications.Add(aptr->data.nickname);
+		stat_message << clear << "backup_application:" << aptr->data.nickname;
+		servercfg->stats.Add(stat_message);
 	      }
 	    }
 	    aptr = aptr->next;
@@ -1532,6 +1588,8 @@ int CM_applicationsThread::install_applications()
 	    }
 	    else {
 	      installed_backup_applications.Remove(installed_ptr);
+	      stat_message << clear << "backup_application:" << aptr->data.nickname;
+	      servercfg->stats.Remove(stat_message);
 	    }
 	  }
 	  aptr = aptr->next;
@@ -1630,6 +1688,7 @@ int CM_filesystemsThread::mount_filesystems()
   int has_errors = 0;
   int is_mounted = 0;
   int rv = 0;
+  gxString stat_message;
 
   // Mount file systems for this host
   listptr = node.filesystems.GetHead();
@@ -1673,6 +1732,8 @@ int CM_filesystemsThread::mount_filesystems()
 	  }
 	  else {
 	    installed_filesystems.Add(fptr->data.nickname);
+	    stat_message << clear << "filesystem:" << fptr->data.nickname;
+	    servercfg->stats.Add(stat_message);
 	  }
 	}
       }
@@ -1738,6 +1799,8 @@ int CM_filesystemsThread::mount_filesystems()
 	      }
 	      else {
 		installed_backup_filesystems.Add(fptr->data.nickname);
+		stat_message << clear << "backup_filesystem:" << fptr->data.nickname;
+		servercfg->stats.Add(stat_message);
 	      }
 	    }
 	    fptr = fptr->next;
@@ -1765,6 +1828,8 @@ int CM_filesystemsThread::mount_filesystems()
 	    }
 	    else {
 	      installed_backup_filesystems.Remove(installed_ptr);
+	      stat_message << clear << "backup_filesystem:" << fptr->data.nickname;
+	      servercfg->stats.Remove(stat_message);
 	    }
 	  }
 	  fptr = fptr->next;

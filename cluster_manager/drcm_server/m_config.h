@@ -211,6 +211,7 @@ struct CMconfig {
   int QUEUE_DEBUG_COUNT();
   int QUEUE_PROC_COUNT();
 
+  CMstats stats;
   gxList<CMnode *> nodes;
   gxList<CMcrontabs> node_crontabs;
   gxList<CMipaddrs> node_ipaddrs;

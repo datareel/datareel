@@ -48,7 +48,8 @@ enum CM_CMD { // Cluster Manager Commands
   CM_CMD_NAK = 0,
   CM_CMD_ACK,
   CM_CMD_PING,
-  CM_CMD_KEEPALIVE
+  CM_CMD_KEEPALIVE,
+  CM_CMD_GETSTATS
 };
 
 const char DEFAULT_DATAGRAM_FILL = 'X';

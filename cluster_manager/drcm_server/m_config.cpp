@@ -662,6 +662,8 @@ int LoadOrBuildConfigFile()
     dfile << "sudo_command = sudo su root -c" << "\n";
     dfile << "" << "\n";
     dfile << "# Log setup" << "\n";
+    dfile << "# Service name that appears in log file" << "\n";
+    dfile << "##service_name = drcm_server" << "\n";
     dfile << "# Log file should not contain a path. Logs will be stored in log_dir location" << "\n";
     dfile << "# Path entries in the logfile config line will be ignored" << "\n";
     dfile << "logfile = drcm.log" << "\n";
@@ -897,12 +899,9 @@ int LoadOrBuildConfigFile()
 	if(ptr->data.Find("log_level") != -1) {
 	  if(!servercfg->has_log_level_override) servercfg->log_level = CfgGetEqualToParm(ptr->data);
 	}
-
-	// TODO: Add to default config build
 	if(ptr->data.Find("service_name") != -1) {
 	  servercfg->service_name = CfgGetEqualToParm(ptr->data, pbuf);
 	}
-
 	if(ptr->data.Find("num_logs_to_keep") != -1) {
 	  servercfg->num_logs_to_keep = CfgGetEqualToParm(ptr->data);
 	  if(servercfg->num_logs_to_keep <= 0) {
@@ -1158,8 +1157,7 @@ int LoadOrBuildConfigFile()
 	if(ptr->data.Find("node_crontabs") != -1) {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
-	  line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
-	  line_dup.FilterChar('\n');
+	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
 	  if(servercfg->check_config) {
 	    NT_print("Adding node crons:", line_dup.c_str());
 	  }
@@ -1183,7 +1181,7 @@ int LoadOrBuildConfigFile()
 	if(ptr->data.Find("node_backup_crontabs") != -1) {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
-	  line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
+	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
 	  line_dup.FilterChar('\n');
 	  if(servercfg->check_config) {
 	    NT_print("Adding node backup crons:", line_dup.c_str());
@@ -1209,7 +1207,7 @@ int LoadOrBuildConfigFile()
 	if(ptr->data.Find("node_floating_ip_addrs") != -1) {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
-	  line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
+	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
 	  line_dup.FilterChar('\n');
 	  if(servercfg->check_config) {
 	    NT_print("Adding node floating IP addr:", line_dup.c_str());
@@ -1234,8 +1232,7 @@ int LoadOrBuildConfigFile()
 	if(ptr->data.Find("node_backup_floating_ip_addrs") != -1) {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
-	  line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
-	  line_dup.FilterChar('\n');
+	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
 	  if(servercfg->check_config) {
 	    NT_print("Adding node backup floating IP addr:", line_dup.c_str());
 	  }
@@ -1260,7 +1257,7 @@ int LoadOrBuildConfigFile()
 	if(ptr->data.Find("node_services") != -1) {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
-	  line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
+	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
 	  line_dup.FilterChar('\n');
 	  if(servercfg->check_config) {
 	    NT_print("Adding node service:", line_dup.c_str());
@@ -1285,8 +1282,7 @@ int LoadOrBuildConfigFile()
 	if(ptr->data.Find("node_backup_services") != -1) {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
-	  line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
-	  line_dup.FilterChar('\n');
+	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
 	  if(servercfg->check_config) {
 	    NT_print("Adding node backup service:", line_dup.c_str());
 	  }
@@ -1311,8 +1307,7 @@ int LoadOrBuildConfigFile()
 	if(ptr->data.Find("node_applications") != -1) {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
-	  line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
-	  line_dup.FilterChar('\n');
+	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
 	  if(servercfg->check_config) {
 	    NT_print("Adding node application:", line_dup.c_str());
 	  }
@@ -1336,8 +1331,7 @@ int LoadOrBuildConfigFile()
 	if(ptr->data.Find("node_backup_applications") != -1) {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
-	  line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
-	  line_dup.FilterChar('\n');
+	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
 	  if(servercfg->check_config) {
 	    NT_print("Adding node backup application:", line_dup.c_str());
 	  }
@@ -1362,8 +1356,7 @@ int LoadOrBuildConfigFile()
 	if(ptr->data.Find("node_filesystems") != -1) {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
-	  line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
-	  line_dup.FilterChar('\n');
+	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
 	  if(servercfg->check_config) {
 	    NT_print("Adding node file system:", line_dup.c_str());
 	  }
@@ -1387,8 +1380,7 @@ int LoadOrBuildConfigFile()
 	if(ptr->data.Find("node_backup_filesystems") != -1) {
 	  line_dup = ptr->data;
 	  line_dup.DeleteBeforeIncluding("=");
-	  line_dup.TrimLeadingSpaces(); line_dup.TrimTrailingSpaces();
-	  line_dup.FilterChar('\n');
+	  line_dup.FilterChar(' '); line_dup.FilterChar('\n');
 	  if(servercfg->check_config) {
 	    NT_print("Adding node backup file system:", line_dup.c_str());
 	  }

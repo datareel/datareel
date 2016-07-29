@@ -35,7 +35,155 @@ Stat functions for Datareel cluster manager.
 #include "gxdlcode.h"
 
 #include "drcm_server.h"
-#include "m_dbase.h"
+#include "m_stats.h"
+
+int CMstats::Add(gxString &s, int check_existing) {
+  stats_lock.MutexLock();
+
+  int num_try = 0;
+  while(stats_is_locked != 0) {
+    if(++num_try < stats_retries) {
+      stats_cond.ConditionWait(&stats_lock);
+    }
+    else {
+      return 0;
+    }
+  }
+  
+  stats_is_locked = 1; 
+  
+  // ********** Enter Critical Section ******************* //
+  int has_stat = 0;
+  int was_added = 0;
+
+  if(check_existing) {
+    gxListNode<gxString> *ptr = stats.GetHead();
+    while(ptr) {
+      if(ptr->data == s) {
+	has_stat = 1;
+	break;
+      }
+      ptr = ptr->next;
+    }
+  }
+  if(!has_stat) {
+    was_added = 1;
+    stats.Add(s);
+  }
+  // ********** Leave Critical Section ******************* //
+  
+  stats_is_locked = 0; 
+  stats_cond.ConditionSignal();
+  stats_lock.MutexUnlock();
+
+  return was_added;
+}
+
+void CMstats::Clear() {
+  stats_lock.MutexLock();
+    
+  int num_try = 0;
+  while(stats_is_locked != 0) {
+    if(++num_try < stats_retries) {
+      stats_cond.ConditionWait(&stats_lock);
+    }
+    else {
+      return;
+    }
+  }
+  
+  stats_is_locked = 1; 
+  
+  // ********** Enter Critical Section ******************* //
+  stats.ClearList();
+  // ********** Leave Critical Section ******************* //
+  
+  stats_is_locked = 0; 
+  stats_cond.ConditionSignal();
+  stats_lock.MutexUnlock();
+}
+
+int CMstats::Remove(const gxString &s) {
+  stats_lock.MutexLock();
+    
+  int num_try = 0;
+  while(stats_is_locked != 0) {
+    if(++num_try < stats_retries) {
+      stats_cond.ConditionWait(&stats_lock);
+    }
+    else {
+      return 0;
+    }
+  }
+  
+  stats_is_locked = 1; 
+  
+  // ********** Enter Critical Section ******************* //
+  gxListNode<gxString> *ptr = stats.GetHead();
+  int has_stat = 0;
+  while(ptr) {
+    if(ptr->data == s) {
+      stats.Remove(ptr);
+      has_stat = 1;
+      break;
+    }
+    ptr = ptr->next;
+  }
+  // ********** Leave Critical Section ******************* //
+  
+  stats_is_locked = 0; 
+  stats_cond.ConditionSignal();
+  stats_lock.MutexUnlock();
+
+  return has_stat;
+}
+
+void CMstats::Get(gxString &sbuf) 
+{
+
+  sbuf.Clear();
+  gxList<gxString> s;
+  Get(s);
+  gxListNode<gxString> *ptr = s.GetHead();
+  while(ptr) {
+    sbuf << ptr->data << "\n";
+    ptr = ptr->next;
+  }
+  if(sbuf.is_null()) sbuf << "No CM resources started" << "\n";
+
+}
+
+void CMstats::Get(gxList<gxString> &s) 
+{
+  stats_lock.MutexLock();
+    
+  int num_try = 0;
+  while(stats_is_locked != 0) {
+    if(++num_try < stats_retries) {
+      stats_cond.ConditionWait(&stats_lock);
+    }
+    else {
+      return;
+    }
+  }
+  
+  stats_is_locked = 1; 
+  
+  // ********** Enter Critical Section ******************* //
+  s.ClearList();
+  gxListNode<gxString> *ptr = stats.GetHead();
+  int has_stat = 0;
+  while(ptr) {
+    s.Add(ptr->data);
+    ptr = ptr->next;
+  }
+  // ********** Leave Critical Section ******************* //
+  
+  stats_is_locked = 0; 
+  stats_cond.ConditionSignal();
+  stats_lock.MutexUnlock();
+}
+
 
 // ----------------------------------------------------------- // 
 // ------------------------------- //

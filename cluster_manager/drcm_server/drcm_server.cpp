@@ -92,6 +92,7 @@ int main(int argc, char **argv)
     if(servercfg->restart_server) {
       LogMessage("Restarting CM server");
       while(StopThreads() != 0 && retries--) sleep(1);
+      servercfg->stats.Clear();
       sSleep(5); // Allow for I/O recovery time
       continue;
     }
@@ -206,7 +207,7 @@ int run_server()
 
   if(!has_hostname) {
     servercfg->verbose = 1;
-    NT_print("ERROR - The hostname of this server does not match and node hostname in config file");
+    NT_print("ERROR - The hostname of this server does not match any node hostname in config file");
     NT_print("Exiting with setup errors");
     error_level = 1;
   }
