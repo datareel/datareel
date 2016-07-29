@@ -66,7 +66,7 @@ int ping_node(CMnode *node);
 int print_config();
 int get_cluster_rstats();
 int get_rstats(CMnode *node);
-
+int cm_stat();
 
 #endif // __DRCM_APP_HPP__
 // ----------------------------------------------------------- // 

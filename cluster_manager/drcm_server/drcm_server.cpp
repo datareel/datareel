@@ -85,10 +85,12 @@ int main(int argc, char **argv)
   }
 
   int retries = 3;
+  int error_level = 0;
 
   // Start the CM server
   while(!servercfg->kill_server) {
-    if(run_server() != 0) break;
+    error_level = run_server();
+    if(error_level != 0) break;
     if(servercfg->restart_server) {
       LogMessage("Restarting CM server");
       while(StopThreads() != 0 && retries--) sleep(1);
@@ -104,7 +106,7 @@ int main(int argc, char **argv)
   retries = 3;
   while(!StopProc() && --retries) sSleep(1);
   NT_print("Exiting DRCM server...");
-  return 0;
+  return error_level;
 }
 
 int run_server()
@@ -200,12 +202,16 @@ int run_server()
   // Run node checks here, only check VARs that would cause server to crash
   gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
   int node_cfg_error_level = 0;
+  CMnode *this_node = 0;
   while(ptr) {
-    if(ptr->data->hostname == servercfg->my_hostname) has_hostname = 1;
+    if(ptr->data->hostname == servercfg->my_hostname) {
+      this_node = ptr->data;
+      has_hostname = 1;
+    }
     ptr = ptr->next;
   }
 
-  if(!has_hostname) {
+  if(!has_hostname || !this_node) {
     servercfg->verbose = 1;
     NT_print("ERROR - The hostname of this server does not match any node hostname in config file");
     NT_print("Exiting with setup errors");
@@ -214,6 +220,29 @@ int run_server()
 
   // End of requried server startup checks
   if(error_level != 0) return error_level;
+  
+  // Check to see if an instance of the CM server is running on this node
+  int udp_server_is_running = 0;
+  gxSocket check_client(SOCK_DGRAM, servercfg->udpport, this_node->keep_alive_ip.c_str());
+  if(check_client) {
+    CM_MessageHeader cmhdr_check;
+    cmhdr_check.set_word(cmhdr_check.checkword, NET_CHECKWORD);
+    memmove(cmhdr_check.sha1sum, servercfg->sha1sum, sizeof(cmhdr_check.sha1sum));
+    cmhdr_check.set_word(cmhdr_check.cluster_command, CM_CMD_KEEPALIVE);
+    int check_optVal = 1;
+    check_client.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, (char *)&check_optVal, sizeof(check_optVal));
+    if(check_client.RawWriteTo(&cmhdr_check, sizeof(cmhdr_check)) == sizeof(cmhdr_check)) {
+      cmhdr_check.clear();
+      if(check_client.RemoteRecvFrom(&cmhdr_check, sizeof(cmhdr_check), 5, 0) == sizeof(cmhdr_check)) {
+	udp_server_is_running = 1;
+      }
+    }
+  }
+  if(udp_server_is_running) {
+    NT_print("ERROR - DRCM server already started and running on this node");
+    return  1; // We cannot continue
+  }
+
 
   sbuf << clear << servercfg->udpport;
   NT_print("CM keep alive listening on UDP port", sbuf.c_str()); 
@@ -361,8 +390,19 @@ int run_client()
 {
   gxString sbuf;
   int error_level = 0;
-  if(servercfg->is_client_interactive) servercfg->verbose = 1;
-  servercfg->logfile_name = "drcm_client.log";
+  if(servercfg->is_client_interactive) {
+    servercfg->verbose = 1;
+    servercfg->has_verbose_override = 1;
+  }
+
+  if(!servercfg->has_log_file_name_override) servercfg->logfile_name << clear << "drcm_client.log";
+  if(servercfg->logfile_name.Find("/") != -1) {
+    servercfg->logfile_name.DeleteBeforeLastIncluding("/");
+  }
+  gxString logbuf = servercfg->logfile_name;
+  servercfg->logfile_name << clear << servercfg->log_dir << "/" << logbuf;
+  servercfg->has_log_file_name_override = 1;
+  servercfg->service_name  = servercfg->client_name;
 
   NT_print("Startring DR Cluster Manager Client");
 

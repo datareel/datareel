@@ -128,6 +128,19 @@ void CMnode::copy_list(const gxList<gxString> &source, gxList<gxString> &dest)
   }
 }
 
+void CMstatsnode::Copy(const CMstatsnode &n) 
+{
+  if(&n == this) return;
+  node.Copy(n.node);
+  is_alive = n.is_alive;
+  stats.ClearList();
+  gxListNode<gxString> *ptr = n.stats.GetHead();
+  while(ptr) {
+    stats.Add(ptr->data);
+    ptr = ptr->next;
+  }
+}
+
 CMconfig::CMconfig() 
 { 
   is_client = 0;
@@ -154,6 +167,7 @@ CMconfig::CMconfig()
   log_level = 1;
   enable_logging = 1; 
   service_name = "drcm_server"; // Default service name
+  client_name = "drcm_client";  // Default client serivce name
   ProgramName = "drcm_server";  // Default program name
   user_config_file = 0;
   udpport = tcpport = DEFAULT_PORT;
@@ -900,7 +914,7 @@ int LoadOrBuildConfigFile()
 	  if(!servercfg->has_log_level_override) servercfg->log_level = CfgGetEqualToParm(ptr->data);
 	}
 	if(ptr->data.Find("service_name") != -1) {
-	  servercfg->service_name = CfgGetEqualToParm(ptr->data, pbuf);
+	  if(!servercfg->is_client) servercfg->service_name = CfgGetEqualToParm(ptr->data, pbuf);
 	}
 	if(ptr->data.Find("num_logs_to_keep") != -1) {
 	  servercfg->num_logs_to_keep = CfgGetEqualToParm(ptr->data);

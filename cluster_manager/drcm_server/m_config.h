@@ -203,6 +203,24 @@ private:
   int cluster_take_over_flag_retries;
 };
 
+// Node info for detailed status reports
+struct CMstatsnode {
+  CMstatsnode() {
+    is_alive = 0;
+  }
+  ~CMstatsnode() { }
+  CMstatsnode(const CMstatsnode &n) { Copy(n); }
+  CMstatsnode operator=(const CMstatsnode &n) {
+    Copy(n);
+    return *this;
+  }
+  void Copy(const CMstatsnode &n);
+
+  CMnode node;
+  int is_alive;
+  gxList<gxString> stats;
+};
+
 struct CMconfig {
   CMconfig(); 
   ~CMconfig();
@@ -238,6 +256,7 @@ struct CMconfig {
   int server_retry;
   int fatal_error;
   gxString service_name;
+  gxString client_name;
   gxString ProgramName;
   int echo_loop;
   gxString cluster_user;

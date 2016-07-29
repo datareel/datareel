@@ -38,6 +38,7 @@ Stat functions for Datareel cluster manager.
 #include "gxdlcode.h"
 #include "drcm_server.h"
 
+// Stats message queue
 struct CMstats {
   CMstats() {
     stats_is_locked = 0;
@@ -57,8 +58,6 @@ private:
   int stats_is_locked;
   int stats_retries;
 };
-
-
 
 #endif // __DRCM_STATS_HPP__
 // ----------------------------------------------------------- // 

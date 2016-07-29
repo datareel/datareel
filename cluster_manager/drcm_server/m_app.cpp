@@ -860,6 +860,7 @@ void *ConsoleThread::ThreadEntryRoutine(gxThread_t *thread)
     memset(sbuf, 0, 255);
     cin >> sbuf;
     command << clear << sbuf;
+    if(command.is_null()) continue;
     if(command == "quit" || command == "exit") break;
     error_level = run_console_command(command);
     if(error_level < 0) {
@@ -873,11 +874,13 @@ void *ConsoleThread::ThreadEntryRoutine(gxThread_t *thread)
 
 int console_command_is_valid(const gxString &command)
 {
+  if(command == "exit") return 1;
+  if(command == "quit") return 1;
   if(command == "help") return 1;
   if(command == "ping") return 1;
   if(command == "printcfg") return 1;
   if(command == "rstats") return 1;
-
+  if(command == "cm_stat") return 1;
   return 0;
 }
 
@@ -885,9 +888,13 @@ int print_console_help()
 {
   cout << "DRCM console commands" << "\n";
   cout << "\n";
+  cout << "cm_stat  - Cluster Manager Status Monitor" << "\n";
+  cout << "exit     - Exit console" << "\n";
+  cout << "help     - Print this help menu" << "\n";
   cout << "ping     - Test connectivity to all active cluster nodes" << "\n";
-  cout << "printcfg - Pring cluster configuration" << "\n";
-  cout << "rstats    - Print raw stats buffer for each cluster node" << "\n";
+  cout << "printcfg - Print cluster configuration" << "\n";
+  cout << "quit     - Exit console" << "\n";
+  cout << "rstats   - Print raw stats buffer for each cluster node" << "\n";
   cout << "\n";
   cout.flush();
   return 0;
@@ -901,6 +908,7 @@ int run_console_command(const gxString &command)
   if(command == "printcfg") return print_config(); 
   if(command == "ping") return ping_cluster(); 
   if(command == "rstats") return get_cluster_rstats(); 
+  if(command == "cm_stat") return cm_stat(); 
   return error_level;
 }
 
@@ -1019,15 +1027,193 @@ int get_rstats(CMnode *node)
   bytes_read = client.RemoteRecvFrom(datagram, sizebuf, 15, 0);
   if(bytes_read != sizebuf) {
     cout << "rstats " << suffix.c_str() << " failed with recv error" << "\n" << flush;      
+    delete datagram;
     return 1;
   }
 
   cout << "rstats " << suffix.c_str() << " successful" << "\n" << flush;      
   cout << datagram << flush;
   cout << "rstats " << suffix.c_str() << " end" << "\n" << flush;      
+  delete datagram;
 
   return 0;
 }
+
+int cm_stat()
+{
+  gxList<CMstatsnode> nodelist;
+  gxListNode<CMstatsnode> *nptr;
+
+  int error_level = 0;
+  unsigned num_arr;
+  gxString *vals = 0; 
+  gxString delimiter = "\n";
+  gxString sbuf;
+  int i;
+
+  gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
+  while(ptr) {
+    CMstatsnode statnode;
+    statnode.node.Copy(*ptr->data);
+    statnode.is_alive = 0;
+    gxSocket client(SOCK_DGRAM, servercfg->udpport, statnode.node.keep_alive_ip.c_str());
+    if(client) {
+      CM_MessageHeader cmhdr;
+      int hdr_size = sizeof(cmhdr);
+      cmhdr.set_word(cmhdr.checkword, NET_CHECKWORD);
+      memmove(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum));
+      cmhdr.set_word(cmhdr.cluster_command, CM_CMD_GETSTATS);
+      int optVal = 1;
+      client.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, (char *)&optVal, sizeof(optVal));
+      if(client.SendTo(&cmhdr, sizeof(cmhdr)) == sizeof(cmhdr)) {
+	cmhdr.clear();
+	if(client.RemoteRecvFrom(&cmhdr, sizeof(cmhdr), 5, 0) == sizeof(cmhdr)) {
+	  int sizebuf = cmhdr.get_word(cmhdr.datagram_size);
+	  if(sizebuf > 0) {
+	    char *datagram = new char[sizebuf+1];
+	    memset(datagram, 0, (sizebuf+1));
+	    if(client.RemoteRecvFrom(datagram, sizebuf, 15, 0) == sizebuf) {
+	      statnode.is_alive = 1;
+	      sbuf << clear << datagram;
+	      while(sbuf.Find("\n\n") != -1) sbuf.ReplaceString("\n\n", "\n");      
+	      sbuf.TrimLeading('\n'); sbuf.TrimTrailing('\n');
+	      if(sbuf.Find("\n") == -1) {
+		if(!sbuf.is_null()) statnode.stats.Add(sbuf);
+	      }
+	      else {
+		num_arr = 0;
+		vals = ParseStrings(sbuf, delimiter, num_arr);
+		for(i = 0; i < num_arr; i++) {
+		  statnode.stats.Add(vals[i]);
+		}
+		if(vals) {
+		  delete[] vals;
+		  vals = 0; 
+		}
+	      }
+	    }
+	    delete datagram;
+	  }
+	}
+      }
+    }
+    nodelist.Add(statnode);
+    ptr = ptr->next;
+  }
+
+  SysTime logtime;
+  gxString display, nickname, starttime;
+  gxListNode<gxString> *lptr;
+  gxString status;
+  
+  display << clear << "\n" << "Cluster Manager Status Monitor                                  " << logtime.GetSyslogTime() << "\n";
+  display << "\n";
+  display << "========================= M e m b e r   S t a t u s ===========================" << "\n";
+  display << "\n";
+  display << "  CM Node     Hostname     Status     IP address" << "\n";
+  display << "  -------     --------     -------    ----------" << "\n";
+  nptr = nodelist.GetHead();
+  while(nptr) {
+    display << "  " << nptr->data.node.nodename << "\t" << nptr->data.node.hostname << "\t";
+    nptr->data.is_alive ? display << "Up  " : display << "Down";
+    display << "\t" << nptr->data.node.keep_alive_ip << "\n";
+    nptr = nptr->next;
+  }
+  display << "\n";
+  display << "======================== R e s o u r c e   S t a t u s ========================" << "\n";
+  display << "\n";
+  display << "  Resource     Nickname     Owner     Status     Start Time" << "\n";
+  display << "  --------     --------     -----     -----      ----------" << "\n";
+
+  nptr = nodelist.GetHead();
+  while(nptr) {
+    if(!nptr->data.is_alive) {
+      nptr = nptr->next;
+      continue;
+    }
+    lptr = nptr->data.stats.GetHead();
+    while(lptr) {
+      if(lptr->data.Find("cron:") != -1) {
+	nickname = lptr->data;
+	nickname.DeleteBeforeIncluding(":");
+	nickname.DeleteAfterIncluding(",");
+	starttime = lptr->data;
+	starttime.DeleteBeforeIncluding(",");
+	status << clear << "OK-Normal";
+	if(lptr->data.Find("backup_") != -1) status << clear << "OK-Backup";
+	display << "   Crontab\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+      }
+      lptr = lptr->next;
+    }
+    lptr = nptr->data.stats.GetHead();
+    while(lptr) {
+      if(lptr->data.Find("ip:") != -1) {
+	nickname = lptr->data;
+	nickname.DeleteBeforeIncluding(":");
+	nickname.DeleteAfterIncluding(",");
+	starttime = lptr->data;
+	starttime.DeleteBeforeIncluding(",");
+	status << clear << "OK-Normal";
+	if(lptr->data.Find("backup_") != -1) status << clear << "OK-Backup";
+	display << "   IPaddr\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+      }
+      lptr = lptr->next;
+    }
+    lptr = nptr->data.stats.GetHead();
+    while(lptr) {
+      if(lptr->data.Find("service:") != -1) {
+	nickname = lptr->data;
+	nickname.DeleteBeforeIncluding(":");
+	nickname.DeleteAfterIncluding(",");
+	starttime = lptr->data;
+	starttime.DeleteBeforeIncluding(",");
+	status << clear << "OK-Normal";
+	if(lptr->data.Find("backup_") != -1) status << clear << "OK-Backup";
+	display << "   Service\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+      }
+      lptr = lptr->next;
+    }
+    lptr = nptr->data.stats.GetHead();
+    while(lptr) {
+      if(lptr->data.Find("application:") != -1) {
+	nickname = lptr->data;
+	nickname.DeleteBeforeIncluding(":");
+	nickname.DeleteAfterIncluding(",");
+	starttime = lptr->data;
+	starttime.DeleteBeforeIncluding(",");
+	status << clear << "OK-Normal";
+	if(lptr->data.Find("backup_") != -1) status << clear << "OK-Backup";
+	display << "   Application\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+      }
+      lptr = lptr->next;
+    }
+
+    lptr = nptr->data.stats.GetHead();
+    while(lptr) {
+      if(lptr->data.Find("filesystem:") != -1) {
+	nickname = lptr->data;
+	nickname.DeleteBeforeIncluding(":");
+	nickname.DeleteAfterIncluding(",");
+	starttime = lptr->data;
+	starttime.DeleteBeforeIncluding(",");
+	status << clear << "OK-Normal";
+	if(lptr->data.Find("backup_") != -1) status << clear << "OK-Backup";
+	display << "   FileSystem\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+      }
+      lptr = lptr->next;
+    }
+    if(nptr->next) display << "\n";
+    nptr = nptr->next;
+  }
+
+
+
+
+  cout << display << "\n" << flush;
+
+  return error_level;
+}
+
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

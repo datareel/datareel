@@ -1,0 +1,110 @@
+#!/bin/bash
+#
+# drcm_server	Start up the DR cluster manager service
+#
+# chkconfig: 345 60 30
+# description: DR cluster manager.
+#
+# processname: drcm_server
+# config: /etc/drcm/cm.cfg
+
+### BEGIN INIT INFO
+# Provides: drcm_server
+# Required-Start: $local_fs $network
+# Default-Start: 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: Start up the DRCM server daemon
+# Description:       DR high availability Linux cluster manager.
+### END INIT INFO
+
+# source function library
+. /etc/rc.d/init.d/functions
+
+# System specific ENV overrides
+# ARGS
+# CFGFILE
+# CMPROCNAME
+# CMPROC
+if [ -f /etc/sysconfig/drcm_server ]; then . /etc/sysconfig/drcm_server; fi
+
+if [ -z ${CFGFILE} ]; then CFGFILE=/etc/drcm/cm.cfg; fi 
+if [ -z ${CMPROCNAME} ]; then CMPROCNAME="drcm_server"; fi
+if [ -z ${CMPROC} ]; then CMPROC="/usr/sbin/${CMPROCNAME}"; fi
+
+if [ ! -f ${CFGFILE} ]; then
+   echo "ERROR - Missing CM config file: ${CFGFILE}"
+   exit 1
+fi 
+
+error_level=0
+
+function start() {
+    pid=$(ps -ef | grep ${CMPROCNAME} | grep ${CFGFILE} | grep -v grep | awk '{ print $2 }')
+    if [ ! -z $pid ]; then
+	echo "${CMPROCNAME} already running"
+	error_level=0
+    else
+	echo "Starting ${CMPROCNAME}"
+	if [ -z ${ARGS} ]; then 
+	    ${CMPROC} --config-file=${CFGFILE} ${ARGS} > /dev/null &
+	else 
+	    ${CMPROC} --config-file=${CFGFILE} > /dev/null &
+	fi
+	pid=$(ps -ef | grep ${CMPROCNAME} | grep -- ${CFGFILE} | grep -v grep | awk '{ print $2 }')
+	if [ -z $pid ]; then error_level=1; fi
+    fi
+}
+
+function stop() {
+    pid=$(ps -ef | grep ${CMPROCNAME} | grep -- ${CFGFILE} | grep -v grep | awk '{ print $2 }')
+    if [ ! -z $pid ]; then
+	pids=$(ps -ef | grep ${pid} | grep -v grep | awk '{ print $2 }')
+	for p in ${pids}
+	do
+	    ppid=$(ps -ef | grep ${pid} | grep -v grep | awk '{ print $3 }')
+	    if [ ! -z ${ppid} ]; then
+		if [ ${ppid} -eq ${pid} ]; then 
+		    echo "Stopping child process ${p}"
+		    kill ${p}
+		fi
+	    fi
+	done
+	echo "Stopping ${CMPROCNAME}"
+	kill ${pid}
+	sleep 20
+	pid=$(ps -ef | grep ${CMPROCNAME} | grep -- ${CFGFILE} | grep -v grep | awk '{ print $2 }')
+	if [ ! -z $pid ]; then
+	    echo "Forcing CM shutdown after $count retries"
+	    kill -9 ${pid}
+	    error_level=1
+	    echo "${CMPROCNAME} stopped"
+	    return;
+	fi
+	echo "${CMPROCNAME} stopped"
+	error_level=0
+    else
+	echo "${CMPROCNAME} not running"
+	error_level=1
+    fi
+}
+
+case "${1}" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    status)
+        status ${CMPROCNAME}
+        ;;
+    restart|reload|condrestart)
+        stop
+        start
+        ;;
+    *)
+        echo $"Usage: ${0} {start|stop|restart|status}"
+        exit 1
+esac
+
+exit $error_level

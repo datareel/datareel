@@ -1,0 +1,14 @@
+# /etc/sysconfig/drcm_server
+# File used to override the init script VARs
+
+# ARGS to pass to the drcm_server program
+##ARGS=""
+
+# CM config file to use, if not default config
+##CFGFILE="/etc/drcm/cm.cfg"
+
+# Set to change the name of the server binary
+##CMPROCNAME="drcm_server"
+
+# Set to change the path to the server binary
+##CMPROC="/usr/sbin/${CMPROCNAME}"

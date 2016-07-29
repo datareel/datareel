@@ -33,4 +33,11 @@ install_root:
 	chmod 755 /var/spool/drcm
 	cp -fv drcm_server /sbin/drcm_server
 	chmod 755 /sbin/drcm_server
-
+	if [ ! -f /etc/sysconfig/drcm_server ]; then cp -fv ../etc/system_templates/drcm_server_sysconfig /etc/sysconfig/drcm_server; fi
+	chmod 644 /etc/sysconfig/drcm_server
+	cp -fv ../system5_init/drcm_server /etc/rc.d/init.d/drcm_server
+	chmod 755 /etc/rc.d/init.d/drcm_server
+	if [ ! -d /etc/systemd/system ]; then chkconfig --add drcm_server; fi
+	if [ -d /etc/systemd/system ]; then cp -fv ../systemd_init/drcm_server.service  /etc/systemd/system/drcm_server.service; fi
+	if [ -d /etc/systemd/system ]; then chmod 644 /etc/systemd/system/drcm_server.service; fi
+	if [ -d /etc/systemd/system ]; then systemctl daemon-reload; fi

@@ -55,11 +55,15 @@ int CMstats::Add(gxString &s, int check_existing) {
   // ********** Enter Critical Section ******************* //
   int has_stat = 0;
   int was_added = 0;
+  gxString sbuf;
+  SysTime logtime;
 
   if(check_existing) {
     gxListNode<gxString> *ptr = stats.GetHead();
     while(ptr) {
-      if(ptr->data == s) {
+      sbuf = ptr->data;
+      sbuf.DeleteAfterIncluding(",");
+      if(sbuf == s) {
 	has_stat = 1;
 	break;
       }
@@ -68,7 +72,8 @@ int CMstats::Add(gxString &s, int check_existing) {
   }
   if(!has_stat) {
     was_added = 1;
-    stats.Add(s);
+    sbuf << clear << s << "," << logtime.GetSyslogTime();
+    stats.Add(sbuf);
   }
   // ********** Leave Critical Section ******************* //
   
@@ -121,8 +126,11 @@ int CMstats::Remove(const gxString &s) {
   // ********** Enter Critical Section ******************* //
   gxListNode<gxString> *ptr = stats.GetHead();
   int has_stat = 0;
+  gxString sbuf;
   while(ptr) {
-    if(ptr->data == s) {
+    sbuf = ptr->data;
+    sbuf.DeleteAfterIncluding(",");
+    if(sbuf == s) {
       stats.Remove(ptr);
       has_stat = 1;
       break;

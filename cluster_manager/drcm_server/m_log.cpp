@@ -133,9 +133,8 @@ void LogThread::write_log_entry(char *sbuf)
 	   cout << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n" << flush;
 	 }
 	 else {
-	   cout << prefix.c_str() << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n";
-	   cout << output_message.c_str();
-	   cout.flush(); 
+	   cout << prefix.c_str() << "Error writing to log file " 
+		<< servercfg->logfile_name.c_str() << "\n" << flush;
 	 }
        }
      }
@@ -371,9 +370,8 @@ int NT_printblock(const char *mesg1, const char *mesg2, const char *mesg3,
 	 cout << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n" << flush;
        }
        else {
-	 cout << prefix.c_str() << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n";
-	 cout << output_message.c_str();
-	 cout.flush();
+	 cout << prefix.c_str() << "Error writing to log file " 
+	      << servercfg->logfile_name.c_str() << "\n" << flush;
        } 
      }
     }

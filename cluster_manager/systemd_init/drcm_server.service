@@ -1,0 +1,16 @@
+[Unit]
+Description=DR cluster manager service
+After=network.target
+
+[Service]
+Type=forking
+EnvironmentFile=/etc/sysconfig/drcm_server
+ExecStart=/etc/rc.d/init.d/drcm_server start
+ExecReload=/etc/rc.d/init.d/drcm_server reload
+ExecStop=/etc/rc.d/init.d/drcm_server stop
+
+StandardOutput=syslog
+StandardError=syslog
+
+[Install]
+WantedBy=multi-user.target
