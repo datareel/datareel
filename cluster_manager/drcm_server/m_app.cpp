@@ -1050,6 +1050,12 @@ int cm_stat()
   gxString delimiter = "\n";
   gxString sbuf;
   int i;
+  gxListNode <CMcrontabs> *cptr;
+  gxListNode <CMipaddrs> *iptr;
+  gxListNode <CMservices> *sptr;
+  gxListNode <CMapplications> *aptr;
+  gxListNode <CMfilesystems> *fptr;
+  int num_alive = 0;
 
   gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
   while(ptr) {
@@ -1105,7 +1111,10 @@ int cm_stat()
   gxString display, nickname, starttime;
   gxListNode<gxString> *lptr;
   gxString status;
-  
+  gxString resource, rbuf;
+  int num_down = 0;
+  int num_failedover = 0;
+
   display << clear << "\n" << "Cluster Manager Status Monitor                                  " << logtime.GetSyslogTime() << "\n";
   display << "\n";
   display << "========================= M e m b e r   S t a t u s ===========================" << "\n";
@@ -1116,6 +1125,8 @@ int cm_stat()
   while(nptr) {
     display << "  " << nptr->data.node.nodename << "\t" << nptr->data.node.hostname << "\t";
     nptr->data.is_alive ? display << "Up  " : display << "Down";
+    if(!nptr->data.is_alive) num_down++;
+    if(nptr->data.is_alive) num_alive++;
     display << "\t" << nptr->data.node.keep_alive_ip << "\n";
     nptr = nptr->next;
   }
@@ -1124,13 +1135,21 @@ int cm_stat()
   display << "\n";
   display << "  Resource     Nickname     Owner     Status     Start Time" << "\n";
   display << "  --------     --------     -----     -----      ----------" << "\n";
-
+  if(num_alive == 0) {
+    display << "  Crontab: All nodes are down" << "\n";
+    display << "  IPaddr: All nodes are down" << "\n";
+    display << "  Service: All nodes are down" << "\n";
+    display << "  Application: All nodes are down" << "\n";
+    display << "  FileSystem: All nodes are down" << "\n";
+    display << "\n";
+  }
   nptr = nodelist.GetHead();
   while(nptr) {
     if(!nptr->data.is_alive) {
       nptr = nptr->next;
       continue;
     }
+
     lptr = nptr->data.stats.GetHead();
     while(lptr) {
       if(lptr->data.Find("cron:") != -1) {
@@ -1140,11 +1159,29 @@ int cm_stat()
 	starttime = lptr->data;
 	starttime.DeleteBeforeIncluding(",");
 	status << clear << "OK-Normal";
-	if(lptr->data.Find("backup_") != -1) status << clear << "OK-Backup";
-	display << "   Crontab\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+	if(lptr->data.Find("backup_") != -1) {
+	  status << clear << "OK-Backup";
+	  num_failedover++;
+	}
+	resource.Clear();
+	cptr = servercfg->node_crontabs.GetHead();
+	while(cptr) {
+	  if(cptr->data.nickname == nickname) {
+	    resource << cptr->data.install_location;
+	    resource.TrimTrailing('/');
+	    rbuf << clear << cptr->data.template_file;
+	    rbuf.DeleteBeforeLastIncluding("/");
+	    resource << "/" << rbuf;
+	    break;
+	  }
+	  cptr = cptr->next;
+	}
+	display << "   Crontab:\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+	display << "     Resouce: " << resource << "\n";
       }
       lptr = lptr->next;
     }
+
     lptr = nptr->data.stats.GetHead();
     while(lptr) {
       if(lptr->data.Find("ip:") != -1) {
@@ -1154,8 +1191,21 @@ int cm_stat()
 	starttime = lptr->data;
 	starttime.DeleteBeforeIncluding(",");
 	status << clear << "OK-Normal";
-	if(lptr->data.Find("backup_") != -1) status << clear << "OK-Backup";
-	display << "   IPaddr\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+	resource.Clear();
+	iptr = servercfg->node_ipaddrs.GetHead();
+	while(iptr) {
+	  if(iptr->data.nickname == nickname) {
+	    resource << iptr->data.interface << " " << iptr->data.ip_address << "/" << iptr->data.netmask;
+	    break;
+	  }
+	  iptr = iptr->next;
+	}
+	if(lptr->data.Find("backup_") != -1) {
+	  status << clear << "OK-Backup";
+	  num_failedover++;
+	}
+	display << "   IPaddr:\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+	display << "     Resouce: " << resource << "\n";
       }
       lptr = lptr->next;
     }
@@ -1168,8 +1218,21 @@ int cm_stat()
 	starttime = lptr->data;
 	starttime.DeleteBeforeIncluding(",");
 	status << clear << "OK-Normal";
-	if(lptr->data.Find("backup_") != -1) status << clear << "OK-Backup";
-	display << "   Service\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+	if(lptr->data.Find("backup_") != -1) {
+	  status << clear << "OK-Backup";
+	  num_failedover++;
+	}
+	resource.Clear();
+	sptr = servercfg->node_services.GetHead();
+	while(sptr) {
+	  if(sptr->data.nickname == nickname) {
+	    resource << sptr->data.service_name;
+	    break;
+	  }
+	  sptr = sptr->next;
+	}
+	display << "   Service:\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+	display << "     Resouce: " << resource << "\n";
       }
       lptr = lptr->next;
     }
@@ -1182,8 +1245,26 @@ int cm_stat()
 	starttime = lptr->data;
 	starttime.DeleteBeforeIncluding(",");
 	status << clear << "OK-Normal";
-	if(lptr->data.Find("backup_") != -1) status << clear << "OK-Backup";
-	display << "   Application\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+	if(lptr->data.Find("backup_") != -1) {
+	  status << clear << "OK-Backup";
+	  num_failedover++;
+	}
+	resource.Clear();
+	aptr = servercfg->node_applications.GetHead();
+	while(aptr) {
+	  if(aptr->data.nickname == nickname) {
+	    if(aptr->data.ensure_script.is_null()) {
+	      resource << aptr->data.user << ":" << aptr->data.group << " started> " << aptr->data.start_program;
+	    }
+	    else {
+	      resource << aptr->data.user << ":" << aptr->data.group << " watching> " << aptr->data.start_program;
+	    }
+	    break;
+	  }
+	  aptr = aptr->next;
+	}
+	display << "   Application:\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+	display << "     Resouce: " << resource << "\n";
       }
       lptr = lptr->next;
     }
@@ -1197,8 +1278,21 @@ int cm_stat()
 	starttime = lptr->data;
 	starttime.DeleteBeforeIncluding(",");
 	status << clear << "OK-Normal";
-	if(lptr->data.Find("backup_") != -1) status << clear << "OK-Backup";
-	display << "   FileSystem\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+	if(lptr->data.Find("backup_") != -1) {
+	  status << clear << "OK-Backup";
+	  num_failedover++;
+	}
+	resource.Clear();
+	fptr = servercfg->node_filesystems.GetHead();
+	while(fptr) {
+	  if(fptr->data.nickname == nickname) {
+	    resource << fptr->data.source << " " << fptr->data.target;
+	    break;
+	  }
+	  fptr = fptr->next;
+	}
+	display << "   FileSystem:\t" << nickname << "\t" << nptr->data.node.hostname << "\t" << status << "\t" << starttime << "\n";
+	display << "     Resouce: " << resource << "\n";
       }
       lptr = lptr->next;
     }
@@ -1206,8 +1300,53 @@ int cm_stat()
     nptr = nptr->next;
   }
 
-
-
+  display << "======================== C l u s t e r   H e a l t h  =========================" << "\n";
+  display << "\n";
+  if(num_down == 0) {
+    display << "  Node status: All cluster nodes are UP" << "\n";
+  }
+  else {
+    if(num_down == 1) {
+      display << "  Node status: Cluster has 1 node DOWN" << "\n";
+    }
+    else {
+      display << "  Node status: Cluster has " << num_down <<  " nodes DOWN" << "\n";
+    }
+  }
+  if(num_failedover == 0) {
+    if(num_alive == 0) {
+      display << "  Resource status: All cluster resources in FAILED state" << "\n";
+    }
+    else {
+      display << "  Resource status: All cluster resources in NORMAL state" << "\n";
+    }
+  }
+  else {
+    if(num_failedover == 1) {
+      display << "  Resource status: Cluster has 1 failed over resource" << "\n";
+    }
+    else {
+      display << "  Resource status: Cluster has " << num_failedover << " failed over resources" << "\n";
+    }
+  }
+  if(num_down == 0 && num_failedover ==0) {
+    display << "  Cluster status: HEALTHY" << "\n";
+  }
+  else {
+    display << "  Cluster status: ";
+    if(num_alive == 0) {
+      display << "All nodes DOWN and all resources FAILED" << "\n";
+    }
+    else {
+      if(num_down > 0) display << "DOWN nodes";
+      if(num_failedover > 0) {
+	display << " FAILEDOVER resources" << "\n"; 
+      }
+      else {
+	display << "\n";
+      }
+    }
+  }
 
   cout << display << "\n" << flush;
 

@@ -38,7 +38,7 @@ Help functions for Datareel cluster manager.
 #include "m_help.h"
 
 // Version number, program  and publisher info
-const char *VersionString = "1.19";
+const char *VersionString = "1.21";
 const char *ProgramDescription = "Datareel Cluster Manager";
 const char *ProducedBy = "http://datareel.com";
 
@@ -77,6 +77,9 @@ void HelpMessage(const char *ProgramName)
   cout << "CM console: " << "\n" << flush;
   cout << "     --client                    Enter interactive client CM console" << "\n" << flush;
   cout << "     --command=\"cm_command\"      Execute a CM client command and exit" << "\n" << flush;
+  cout << "\n" << flush;
+  cout << "CM console command list: " << "\n" << flush;
+  cout << "     --client --command=help" << "\n" << flush;
   cout << "\n" << flush;
 }
 
