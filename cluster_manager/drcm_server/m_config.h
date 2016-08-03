@@ -236,6 +236,11 @@ struct CMconfig {
   gxList<CMservices> node_services;
   gxList<CMapplications> node_applications;
   gxList<CMfilesystems> node_filesystems;
+  int num_resource_crons;
+  int num_resource_ipaddrs;
+  int num_resource_services;
+  int num_resource_applications;
+  int num_resource_filesystems;
   int is_client;
   int is_client_interactive;
   gxString client_command;

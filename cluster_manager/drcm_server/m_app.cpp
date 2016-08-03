@@ -1057,6 +1057,16 @@ int cm_stat()
   gxListNode <CMfilesystems> *fptr;
   int num_alive = 0;
 
+  int total_resources = servercfg->num_resource_crons + servercfg->num_resource_ipaddrs +
+    servercfg->num_resource_services + servercfg->num_resource_applications +
+    servercfg->num_resource_filesystems;
+  int loaded_resources = 0;
+  int loaded_crons = 0;
+  int loaded_ipaddrs = 0;
+  int loaded_services = 0;
+  int loaded_applications = 0;
+  int loaded_filesystems = 0;
+
   gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
   while(ptr) {
     CMstatsnode statnode;
@@ -1090,6 +1100,12 @@ int cm_stat()
 		num_arr = 0;
 		vals = ParseStrings(sbuf, delimiter, num_arr);
 		for(i = 0; i < num_arr; i++) {
+		  loaded_resources++;
+		  if(vals[i].Find("cron:") != -1) loaded_crons++;
+		  if(vals[i].Find("ip:") != -1) loaded_ipaddrs++;
+		  if(vals[i].Find("service:") != -1) loaded_services++;
+		  if(vals[i].Find("application:") != -1) loaded_applications++;
+		  if(vals[i].Find("filesystem:") != -1) loaded_filesystems++;
 		  statnode.stats.Add(vals[i]);
 		}
 		if(vals) {
@@ -1143,6 +1159,25 @@ int cm_stat()
     display << "  FileSystem: All nodes are down" << "\n";
     display << "\n";
   }
+  if(total_resources != loaded_resources) {
+    if(servercfg->num_resource_crons != loaded_crons) {
+      display << "  Crontab: " << loaded_crons << " resource crons loaded out of " << servercfg->num_resource_crons << "\n";
+    }
+    if(servercfg->num_resource_ipaddrs != loaded_ipaddrs) {
+      display << "  IPaddr: " << loaded_ipaddrs << " resource ipaddrs loaded out of " << servercfg->num_resource_ipaddrs << "\n";
+    }
+    if(servercfg->num_resource_services != loaded_services) {
+      display << "  Service: " << loaded_services << " resource services loaded out of " << servercfg->num_resource_services << "\n";
+    }
+    if(servercfg->num_resource_applications != loaded_applications) {
+      display << "  Application: " << loaded_applications << " resource applications loaded out of " << servercfg->num_resource_applications << "\n";
+    }
+    if(servercfg->num_resource_filesystems != loaded_filesystems) {
+      display << "  FileSystem: " << loaded_filesystems << " resource filesystems loaded out of " << servercfg->num_resource_filesystems << "\n";
+    }
+    display << "\n";
+  }
+
   nptr = nodelist.GetHead();
   while(nptr) {
     if(!nptr->data.is_alive) {
@@ -1318,7 +1353,12 @@ int cm_stat()
       display << "  Resource status: All cluster resources in FAILED state" << "\n";
     }
     else {
-      display << "  Resource status: All cluster resources in NORMAL state" << "\n";
+      if(total_resources != loaded_resources) {
+	display << "  Resource status: " << loaded_resources << " resoruces loaded out of " << total_resources << "\n";
+      }
+      else {
+	display << "  Resource status: All cluster resources in NORMAL state" << "\n";
+      }
     }
   }
   else {
@@ -1353,6 +1393,61 @@ int cm_stat()
   return error_level;
 }
 
+int get_node_stat_buffer(CMnode *node, gxString &buffer, gxString &error_message)
+{
+  buffer.Clear();
+  error_message.Clear();
+
+  gxSocket client(SOCK_DGRAM, servercfg->udpport, node->keep_alive_ip.c_str());
+  if(!client) {
+    error_message << clear << "ERROR - Fatal error starting CM client socket" << "\n";
+    return 1;
+  }
+
+  CM_MessageHeader cmhdr;
+  int hdr_size = sizeof(CM_MessageHeader);
+  
+  cmhdr.set_word(cmhdr.checkword, NET_CHECKWORD);
+  memmove(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum));
+  cmhdr.set_word(cmhdr.cluster_command, CM_CMD_GETSTATS);
+
+  int optVal = 1;
+  client.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, (char *)&optVal, sizeof(optVal));
+
+  int bytes_moved = client.SendTo(&cmhdr, sizeof(cmhdr));
+  if(bytes_moved != sizeof(cmhdr)) {
+    error_message << clear << "ERROR - Error sending CM header message to " <<  node->keep_alive_ip;
+    return 1;
+  }
+
+  cmhdr.clear();
+  int bytes_read = client.RemoteRecvFrom(&cmhdr, sizeof(cmhdr), 5, 0);
+  if(bytes_read != sizeof(cmhdr)) {
+    error_message << clear << "ERROR - Error reading CM header message from " <<  node->keep_alive_ip;
+    return 1;
+  }
+
+  int sizebuf = cmhdr.get_word(cmhdr.datagram_size);
+  if(sizebuf <= 0) {
+    error_message << clear << "ERROR - Receive bad CM header message from " <<  node->keep_alive_ip;
+    return 1;
+  }
+  char *datagram = new char[sizebuf+1];
+  memset(datagram, 0, (sizebuf+1));
+
+  bytes_read = client.RemoteRecvFrom(datagram, sizebuf, 5, 0);
+  if(bytes_read != sizebuf) {
+    error_message << clear << "ERROR - Receive bad rstats buffer from " <<  node->keep_alive_ip;
+    delete datagram;
+    return 1;
+  }
+
+
+  buffer << clear << datagram;
+  delete datagram;
+
+  return 0;
+}
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

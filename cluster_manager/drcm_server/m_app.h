@@ -57,6 +57,10 @@ int check_config();
 // Load the hash key for this client or server, return 0 if pass, non-zero for fail
 int load_hash_key();
 
+// Get raw stats buffer, return 0 if pass, non-zero for fail
+// Pass back rstats in buffer string and any error message in error_message string
+int get_node_stat_buffer(CMnode *node, gxString &buffer, gxString &error_message);
+
 // DRCM client console functions
 int console_command_is_valid(const gxString &command);
 int print_console_help();

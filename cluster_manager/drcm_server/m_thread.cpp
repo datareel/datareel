@@ -551,6 +551,7 @@ int CM_CrontabsThread::install_crontabs()
   int is_installed = 0;
   int rv = 0;
   gxString stat_message;
+  gxString sbuf;
 
   // Install crontabs for this host
   listptr = node.crontabs.GetHead();
@@ -612,9 +613,29 @@ int CM_CrontabsThread::install_crontabs()
 	  cptr = servercfg->node_crontabs.GetHead();
 	  while(cptr) {
 	    is_installed = 0;
+
+	    // Check the other cluster nodes to see if they picked the failover resources
+	    gxListNode<CMnode *> *takeoverptr = servercfg->nodes.GetHead();
+	    gxString rstats_buffer, rstats_error_message;
+	    while(takeoverptr) {
+	      if(takeoverptr->data->nodename != ptr->data->nodename) { // Don't check the failed node
+		if(get_node_stat_buffer(takeoverptr->data, rstats_buffer, rstats_error_message) == 0) {
+		  stat_message << clear << "backup_cron:" << cptr->data.nickname;
+		  if(rstats_buffer.Find(stat_message) != -1) {
+		    is_installed = 1;
+		    message << clear << takeoverptr->data->nodename  << " has " 
+			    << cptr->data.nickname << " failover crontab installed";
+		    LogMessage(message.c_str());
+		  }
+		}
+	      }
+	      takeoverptr = takeoverptr->next;
+	    }
+
 	    installed_ptr = installed_backup_crontabs.GetHead();
 	    while(installed_ptr) {
-	      if(installed_ptr->data == cptr->data.nickname) {
+	      sbuf << clear << ptr->data->nodename << ":" << cptr->data.nickname;
+	      if(installed_ptr->data == sbuf) {
 		is_installed = 1;
 		break;
 	      }
@@ -636,7 +657,8 @@ int CM_CrontabsThread::install_crontabs()
 		has_errors++;
 	      }
 	      else {
-		installed_backup_crontabs.Add(cptr->data.nickname);
+		sbuf << clear << ptr->data->nodename << ":" << cptr->data.nickname;
+		installed_backup_crontabs.Add(sbuf);
 		stat_message << clear << "backup_cron:" << cptr->data.nickname;
 		servercfg->stats.Add(stat_message);
 	      }
@@ -652,7 +674,8 @@ int CM_CrontabsThread::install_crontabs()
       while(installed_ptr) {
 	cptr = servercfg->node_crontabs.GetHead();
 	while(cptr) {
-	  if(installed_ptr->data == cptr->data.nickname) {
+	  sbuf << clear << ptr->data->nodename << ":" << cptr->data.nickname;
+	  if(installed_ptr->data == sbuf) {
 	    message << clear << ptr->data->nodename << " failback crontab remove " << cptr->data.template_file
 		    << " " << cptr->data.install_location;
 	    LogMessage(message.c_str());

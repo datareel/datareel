@@ -225,6 +225,11 @@ CMconfig::CMconfig()
   has_log_level_override = 0;
   has_log_file_clear_override = 0;
   has_enable_logging_override = 0;
+  num_resource_crons = 0;
+  num_resource_ipaddrs = 0;
+  num_resource_services = 0;
+  num_resource_applications = 0;
+  num_resource_filesystems = 0;
 }
 
 CMconfig::~CMconfig() 
@@ -740,7 +745,7 @@ int LoadOrBuildConfigFile()
     dfile << "[CM_NODE]" << "\n";
     dfile << "nodename = cmnode1 # Your name for this cluster node " << "\n";
     dfile << "# Fully qualified hostname of this node" << "\n";
-    dfile << "# Must match $(uname -n)" << "\n";
+    dfile << "# Must match uname -n" << "\n";
     dfile << "hostname = vm1.example.com" << "\n";
     dfile << "#" << "\n";
     dfile << "node_is_active = 1 # Set to 0 to deacitvate this node but keep in config" << "\n";
@@ -1487,6 +1492,7 @@ int LoadOrBuildConfigFile()
 	crontab.install_location.FilterChar(' ');
 	crontab.resource_script = vals[3];
 	crontab.resource_script.TrimLeadingSpaces(); crontab.resource_script.TrimTrailingSpaces();  
+	servercfg->num_resource_crons++;
 	servercfg->node_crontabs.Add(crontab);
       }
       if(vals) { delete[] vals; vals = 0; }
@@ -1533,6 +1539,7 @@ int LoadOrBuildConfigFile()
 	ipaddr.interface.FilterChar(' ');
 	ipaddr.resource_script = vals[4];
 	ipaddr.resource_script.TrimLeadingSpaces(); ipaddr.resource_script.TrimTrailingSpaces();  
+	servercfg->num_resource_ipaddrs++;
 	servercfg->node_ipaddrs.Add(ipaddr);
       }
       if(vals) { delete[] vals; vals = 0; }
@@ -1575,6 +1582,7 @@ int LoadOrBuildConfigFile()
 	service.service_name.FilterChar(' ');
 	service.resource_script = vals[2];
 	service.resource_script.TrimLeadingSpaces(); service.resource_script.TrimTrailingSpaces();  
+	servercfg->num_resource_services++;
 	servercfg->node_services.Add(service);
       }
       if(vals) { delete[] vals; vals = 0; }
@@ -1634,6 +1642,7 @@ int LoadOrBuildConfigFile()
 	    application.ensure_script = vals[4];
 	    application.ensure_script.TrimLeadingSpaces(); application.ensure_script.TrimTrailingSpaces();  
 	  }
+	  servercfg->num_resource_applications++;
 	  servercfg->node_applications.Add(application);
 	}
       }
@@ -1679,6 +1688,7 @@ int LoadOrBuildConfigFile()
 	filesystem.target.FilterChar(' ');
 	filesystem.resource_script = vals[3];
 	filesystem.resource_script.TrimLeadingSpaces(); filesystem.resource_script.TrimTrailingSpaces();  
+	servercfg->num_resource_filesystems++;
 	servercfg->node_filesystems.Add(filesystem);
       }
       if(vals) { delete[] vals; vals = 0; }
