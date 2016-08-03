@@ -576,7 +576,8 @@ int CM_CrontabsThread::install_crontabs()
 		  <<  servercfg->log_dir << "/crontab_resource.log 2>&1";
 	  rv = RunSystemCommand(command);
 	  if(rv != 0) {
-	    message << clear << "ERROR - Resource script could not install " << cptr->data.template_file << " to " << cptr->data.install_location;
+	    message << clear << "ERROR - Resource script could not install " << cptr->data.template_file 
+		    << " to " << cptr->data.install_location;
 	    LogMessage(message.c_str());
 	    has_errors++;
 	  }
@@ -841,6 +842,7 @@ int CM_IPaddrsThread::install_floating_ipaddrs()
   int is_installed = 0;
   int rv = 0;
   gxString stat_message;
+  gxString sbuf;
 
   // Install floating IP addresses for this host
   listptr = node.floating_ip_addrs.GetHead();
@@ -905,9 +907,29 @@ int CM_IPaddrsThread::install_floating_ipaddrs()
 	  iptr = servercfg->node_ipaddrs.GetHead();
 	  while(iptr) {
 	    is_installed = 0;
+
+	    // Check the other cluster nodes to see if they picked the failover resources
+	    gxListNode<CMnode *> *takeoverptr = servercfg->nodes.GetHead();
+	    gxString rstats_buffer, rstats_error_message;
+	    while(takeoverptr) {
+	      if(takeoverptr->data->nodename != ptr->data->nodename) { // Don't check the failed node
+		if(get_node_stat_buffer(takeoverptr->data, rstats_buffer, rstats_error_message) == 0) {
+		  stat_message << clear << "backup_ip:" << iptr->data.nickname;
+		  if(rstats_buffer.Find(stat_message) != -1) {
+		    is_installed = 1;
+		    message << clear << takeoverptr->data->nodename  << " has " 
+			    << iptr->data.nickname << " failover ipaddr installed";
+		    LogMessage(message.c_str());
+		  }
+		}
+	      }
+	      takeoverptr = takeoverptr->next;
+	    }
+
 	    installed_ptr = installed_backup_floating_ipaddrs.GetHead();
 	    while(installed_ptr) {
-	      if(installed_ptr->data == iptr->data.nickname) {
+	      sbuf << clear << ptr->data->nodename << ":" << iptr->data.nickname;
+	      if(installed_ptr->data == sbuf) {
 		is_installed = 1;
 		break;
 	      }
@@ -930,7 +952,8 @@ int CM_IPaddrsThread::install_floating_ipaddrs()
 		has_errors++;
 	      }
 	      else {
-		installed_backup_floating_ipaddrs.Add(iptr->data.nickname);
+		sbuf << clear << ptr->data->nodename << ":" << iptr->data.nickname;
+		installed_backup_floating_ipaddrs.Add(sbuf);
 		stat_message << clear << "backup_ip:" << iptr->data.nickname;
 		servercfg->stats.Add(stat_message);
 	      }
@@ -946,7 +969,8 @@ int CM_IPaddrsThread::install_floating_ipaddrs()
       while(installed_ptr) {
 	iptr = servercfg->node_ipaddrs.GetHead();
 	while(iptr) {
-	  if(installed_ptr->data == iptr->data.nickname) {
+	  sbuf << clear << ptr->data->nodename << ":" << iptr->data.nickname;
+	  if(installed_ptr->data == sbuf) {
 	    message << clear << ptr->data->nodename << " failback floaing IP address remove " << iptr->data.ip_address
 		    << " " << iptr->data.interface;
 	    LogMessage(message.c_str());
