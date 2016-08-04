@@ -1094,7 +1094,15 @@ int cm_stat()
 	      while(sbuf.Find("\n\n") != -1) sbuf.ReplaceString("\n\n", "\n");      
 	      sbuf.TrimLeading('\n'); sbuf.TrimTrailing('\n');
 	      if(sbuf.Find("\n") == -1) {
-		if(!sbuf.is_null()) statnode.stats.Add(sbuf);
+		if(!sbuf.is_null()) {
+		  loaded_resources++;
+		  if(sbuf.Find("cron:") != -1) loaded_crons++;
+		  if(sbuf.Find("ip:") != -1) loaded_ipaddrs++;
+		  if(sbuf.Find("service:") != -1) loaded_services++;
+		  if(sbuf.Find("application:") != -1) loaded_applications++;
+		  if(sbuf.Find("filesystem:") != -1) loaded_filesystems++;
+		  statnode.stats.Add(sbuf);
+		}
 	      }
 	      else {
 		num_arr = 0;
@@ -1335,6 +1343,7 @@ int cm_stat()
     nptr = nptr->next;
   }
 
+  display << "\n";
   display << "======================== C l u s t e r   H e a l t h  =========================" << "\n";
   display << "\n";
   if(num_down == 0) {
@@ -1380,7 +1389,11 @@ int cm_stat()
     else {
       if(num_down > 0) display << "DOWN nodes";
       if(num_failedover > 0) {
-	display << " FAILEDOVER resources" << "\n"; 
+	display << " FAILEDOVER resources";
+	if(total_resources == loaded_resources) display << "\n"; 
+      }
+      if(total_resources != loaded_resources) {
+	display << " MISSING resources" << "\n"; 
       }
       else {
 	display << "\n";

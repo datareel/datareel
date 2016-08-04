@@ -1156,6 +1156,7 @@ int CM_servicesThread::install_services()
   int is_started = 0;
   int rv = 0;
   gxString stat_message;
+  gxString sbuf;
 
   // Install services for this host
   listptr = node.services.GetHead();
@@ -1230,9 +1231,29 @@ int CM_servicesThread::install_services()
 	  sptr = servercfg->node_services.GetHead();
 	  while(sptr) {
 	    is_started = 0;
+
+	    // Check the other cluster nodes to see if they picked the failover resources
+	    gxListNode<CMnode *> *takeoverptr = servercfg->nodes.GetHead();
+	    gxString rstats_buffer, rstats_error_message;
+	    while(takeoverptr) {
+	      if(takeoverptr->data->nodename != ptr->data->nodename) { // Don't check the failed node
+		if(get_node_stat_buffer(takeoverptr->data, rstats_buffer, rstats_error_message) == 0) {
+		  stat_message << clear << "backup_service:" << sptr->data.nickname;
+		  if(rstats_buffer.Find(stat_message) != -1) {
+		    is_started = 1;
+		    message << clear << takeoverptr->data->nodename  << " has " 
+			    << sptr->data.nickname << " failover service installed";
+		    LogMessage(message.c_str());
+		  }
+		}
+	      }
+	      takeoverptr = takeoverptr->next;
+	    }
+
 	    installed_ptr = installed_backup_services.GetHead();
 	    while(installed_ptr) {
-	      if(installed_ptr->data == sptr->data.nickname) {
+	      sbuf << clear << ptr->data->nodename << ":" << sptr->data.nickname;
+	      if(installed_ptr->data == sbuf) {
 		is_started = 1;
 		if(servercfg->debug && servercfg->debug_level >= 5) {
 		  message << clear << "Checking failed over service " << sptr->data.service_name;
@@ -1265,7 +1286,8 @@ int CM_servicesThread::install_services()
 		has_errors++;
 	      }
 	      else {
-		installed_backup_services.Add(sptr->data.nickname);
+		sbuf << clear << ptr->data->nodename << ":" << sptr->data.nickname;
+		installed_backup_services.Add(sbuf);
 		stat_message << clear << "backup_service:" << sptr->data.nickname;
 		servercfg->stats.Add(stat_message);
 	      }
@@ -1281,7 +1303,8 @@ int CM_servicesThread::install_services()
       while(installed_ptr) {
 	sptr = servercfg->node_services.GetHead();
 	while(sptr) {
-	  if(installed_ptr->data == sptr->data.nickname) {
+	  sbuf << clear << ptr->data->nodename << ":" << sptr->data.nickname;
+	  if(installed_ptr->data == sbuf) {
 	    message << clear << ptr->data->nodename << " failback service stop " << sptr->data.service_name;
 	    LogMessage(message.c_str());
 	    command << clear << sptr->data.resource_script << " " << sptr->data.service_name << " stop >> " 
