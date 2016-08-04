@@ -1042,7 +1042,7 @@ int get_rstats(CMnode *node)
 int cm_stat()
 {
   gxList<CMstatsnode> nodelist;
-  gxListNode<CMstatsnode> *nptr;
+  gxListNode<CMstatsnode> *nptr = 0;
 
   int error_level = 0;
   unsigned num_arr;
@@ -1066,6 +1066,14 @@ int cm_stat()
   int loaded_services = 0;
   int loaded_applications = 0;
   int loaded_filesystems = 0;
+  int has_resource = 0;
+  SysTime logtime;
+  gxString display, nickname, nickname2, starttime;
+  gxListNode<gxString> *lptr;
+  gxString status;
+  gxString resource, rbuf;
+  int num_down = 0;
+  int num_failedover = 0;
 
   gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
   while(ptr) {
@@ -1095,25 +1103,95 @@ int cm_stat()
 	      sbuf.TrimLeading('\n'); sbuf.TrimTrailing('\n');
 	      if(sbuf.Find("\n") == -1) {
 		if(!sbuf.is_null()) {
-		  loaded_resources++;
-		  if(sbuf.Find("cron:") != -1) loaded_crons++;
-		  if(sbuf.Find("ip:") != -1) loaded_ipaddrs++;
-		  if(sbuf.Find("service:") != -1) loaded_services++;
-		  if(sbuf.Find("application:") != -1) loaded_applications++;
-		  if(sbuf.Find("filesystem:") != -1) loaded_filesystems++;
-		  statnode.stats.Add(sbuf);
+		  if(sbuf.Find("No CM resources started") == -1) {
+		    has_resource = 0;
+		    nptr = nodelist.GetHead();			    
+		    while(nptr) {
+		      lptr = nptr->data.stats.GetHead();
+		      while(lptr) {
+		      	nickname = lptr->data;
+			nickname.DeleteBeforeIncluding(":");
+			nickname.DeleteAfterIncluding(",");
+			nickname2 = sbuf;
+			nickname2.DeleteBeforeIncluding(":");
+			nickname2.DeleteAfterIncluding(",");
+			if(nickname == nickname2) {
+			  has_resource = 1;
+			  break;
+			}
+			lptr = lptr->next;
+		      }
+		      if(has_resource) break;
+		      nptr = nptr->next;
+		    }
+		    if(sbuf.Find("cron:") != -1) {
+		      loaded_resources++;
+		      loaded_crons++;
+		    }
+		    if(sbuf.Find("ip:") != -1) {
+		      loaded_resources++;
+		      loaded_ipaddrs++;
+		    }
+		    if((sbuf.Find("service:") != -1) && (!has_resource)) {
+		      loaded_resources++;
+		      loaded_services++;
+		    }
+		    if((sbuf.Find("application:") != -1) && (!has_resource)) {
+		      loaded_applications++;
+		      loaded_resources++;
+		    }
+		    if((sbuf.Find("filesystem:") != -1) && (!has_resource)) {
+		      loaded_filesystems++;
+		      loaded_resources++;
+		    }
+		    statnode.stats.Add(sbuf);
+		  }
 		}
 	      }
 	      else {
 		num_arr = 0;
 		vals = ParseStrings(sbuf, delimiter, num_arr);
 		for(i = 0; i < num_arr; i++) {
-		  loaded_resources++;
-		  if(vals[i].Find("cron:") != -1) loaded_crons++;
-		  if(vals[i].Find("ip:") != -1) loaded_ipaddrs++;
-		  if(vals[i].Find("service:") != -1) loaded_services++;
-		  if(vals[i].Find("application:") != -1) loaded_applications++;
-		  if(vals[i].Find("filesystem:") != -1) loaded_filesystems++;
+		  has_resource = 0;
+		  nptr = nodelist.GetHead();
+		  while(nptr) {
+		    lptr = nptr->data.stats.GetHead();
+		    while(lptr) {
+		      nickname = lptr->data;
+		      nickname.DeleteBeforeIncluding(":");
+		      nickname.DeleteAfterIncluding(",");
+		      nickname2 = vals[i];
+		      nickname2.DeleteBeforeIncluding(":");
+		      nickname2.DeleteAfterIncluding(",");
+		      if(nickname == nickname2) {
+			has_resource = 1;
+			break;
+		      }
+		      lptr = lptr->next;
+		    }
+		    if(has_resource) break;
+		    nptr = nptr->next;
+		  }
+		  if(vals[i].Find("cron:") != -1) {
+		    loaded_resources++;
+		    loaded_crons++;
+		  }
+		  if(vals[i].Find("ip:") != -1) {
+		    loaded_resources++;
+		    loaded_ipaddrs++;
+		  }
+		  if((vals[i].Find("service:") != -1) && (!has_resource)) {
+		    loaded_resources++;
+		    loaded_services++;
+		  }
+		  if((vals[i].Find("application:") != -1) && (!has_resource)) {
+		    loaded_applications++;
+		    loaded_resources++;
+		  }
+		  if((vals[i].Find("filesystem:") != -1) && (!has_resource)) {
+		    loaded_filesystems++;
+		    loaded_resources++;
+		  }
 		  statnode.stats.Add(vals[i]);
 		}
 		if(vals) {
@@ -1131,13 +1209,11 @@ int cm_stat()
     ptr = ptr->next;
   }
 
-  SysTime logtime;
-  gxString display, nickname, starttime;
-  gxListNode<gxString> *lptr;
-  gxString status;
-  gxString resource, rbuf;
-  int num_down = 0;
-  int num_failedover = 0;
+  // We cannot have duplicate crons or IP addresses
+  int has_duplicate_cron = 0;
+  int has_duplicate_ip = 0;
+  if(loaded_crons > servercfg->num_resource_crons) has_duplicate_cron = 1;
+  if(loaded_ipaddrs > servercfg->num_resource_ipaddrs) has_duplicate_ip = 1;
 
   display << clear << "\n" << "Cluster Manager Status Monitor                                  " << logtime.GetSyslogTime() << "\n";
   display << "\n";
@@ -1171,8 +1247,14 @@ int cm_stat()
     if(servercfg->num_resource_crons != loaded_crons) {
       display << "  Crontab: " << loaded_crons << " resource crons loaded out of " << servercfg->num_resource_crons << "\n";
     }
+    if(has_duplicate_cron) {
+      display << "  Crontab: WARNING - duplicate crontab resource detected" << "\n";
+    }
     if(servercfg->num_resource_ipaddrs != loaded_ipaddrs) {
       display << "  IPaddr: " << loaded_ipaddrs << " resource ipaddrs loaded out of " << servercfg->num_resource_ipaddrs << "\n";
+    }
+    if(has_duplicate_ip) {
+      display << "  IPaddr: WARNING - duplicate IP address resource detected" << "\n";
     }
     if(servercfg->num_resource_services != loaded_services) {
       display << "  Service: " << loaded_services << " resource services loaded out of " << servercfg->num_resource_services << "\n";
@@ -1378,7 +1460,7 @@ int cm_stat()
       display << "  Resource status: Cluster has " << num_failedover << " failed over resources" << "\n";
     }
   }
-  if(num_down == 0 && num_failedover ==0) {
+  if((num_down == 0 && num_failedover ==0) &&  (total_resources == loaded_resources)){
     display << "  Cluster status: HEALTHY" << "\n";
   }
   else {
