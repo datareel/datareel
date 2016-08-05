@@ -804,10 +804,10 @@ int LoadOrBuildConfigFile()
     dfile << "keep_filesystems = 1" << "\n";
     dfile << "keep_applications = 0" << "\n";
     dfile << "keep_alive_ip = 192.168.122.112" << "\n";
-    dfile << "ipapddrs_check = 35" << "\n";
-    dfile << "filesystems_check = 45" << "\n";
-    dfile << "services_check = 50" << "\n";
-    dfile << "crontabs_check = 60" << "\n";
+    dfile << "ipapddrs_check = 40" << "\n";
+    dfile << "filesystems_check = 50" << "\n";
+    dfile << "services_check = 55" << "\n";
+    dfile << "crontabs_check = 65" << "\n";
     dfile << "applications_check = 65" << "\n";
     dfile << "node_crontabs = apps2" << "\n";
     dfile << "node_backup_crontabs = cmnode1:user,cmnode1:system,cmnode1:apps1" << "\n";

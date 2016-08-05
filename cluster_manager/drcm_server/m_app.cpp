@@ -1382,7 +1382,7 @@ int cm_stat()
 	      resource << aptr->data.user << ":" << aptr->data.group << " started> " << aptr->data.start_program;
 	    }
 	    else {
-	      resource << aptr->data.user << ":" << aptr->data.group << " watching> " << aptr->data.start_program;
+	      resource << aptr->data.user << ":" << aptr->data.group << " watching> " << aptr->data.ensure_script;
 	    }
 	    break;
 	  }
