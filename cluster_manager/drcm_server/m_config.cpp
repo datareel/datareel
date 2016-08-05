@@ -797,7 +797,7 @@ int LoadOrBuildConfigFile()
     dfile << "[CM_NODE]" << "\n";
     dfile << "nodename = cmnode2 # Your name for this cluster node " << "\n";
     dfile << "# Fully qualified hostname of this node" << "\n";
-    dfile << "# Must match $(uname -n)" << "\n";
+    dfile << "# Must match uname -n" << "\n";
     dfile << "hostname = vm2.example.com" << "\n";
     dfile << "node_is_active = 1" << "\n";
     dfile << "keep_services = 0" << "\n";

@@ -695,12 +695,18 @@ int CM_CrontabsThread::install_crontabs()
 	      has_errors++;
 	    }
 	    else {
+	      installed_backup_crontabs.Remove(installed_ptr);
+	      installed_ptr = 0; // Signal to start at top of installed backup list
 	      stat_message << clear << "backup_cron:" << cptr->data.nickname;
 	      servercfg->stats.Remove(stat_message);
-	      installed_backup_crontabs.Remove(installed_ptr);
+	      break;
 	    }
 	  }
 	  cptr = cptr->next;
+	}
+	if(!installed_ptr) { // Check to see if the list pointer was removed
+	  installed_ptr = installed_backup_crontabs.GetHead();
+	  continue;
 	}
 	installed_ptr = installed_ptr->next;
       }
@@ -995,11 +1001,17 @@ int CM_IPaddrsThread::install_floating_ipaddrs()
 	    }
 	    else {
 	      installed_backup_floating_ipaddrs.Remove(installed_ptr);
+	      installed_ptr = 0; // Signal to start at top of installed backup list
 	      stat_message << clear << "backup_ip:" << iptr->data.nickname;
 	      servercfg->stats.Remove(stat_message);
+	      break;
 	    }
 	  }
 	  iptr = iptr->next;
+	}
+	if(!installed_ptr) { // Check to see if the list pointer was removed
+	  installed_ptr = installed_backup_floating_ipaddrs.GetHead();
+	  continue;
 	}
 	installed_ptr = installed_ptr->next;
       }
@@ -1110,9 +1122,15 @@ int CM_servicesThread::stop_backup_services()
 	}
 	else {
 	  installed_backup_services.Remove(installed_ptr);
+	  installed_ptr = 0; // Signal to start at top of installed backup list
+	  break;
 	}
       }
       sptr = sptr->next;
+    }
+    if(!installed_ptr) { // Check to see if the list pointer was removed
+      installed_ptr = installed_backup_services.GetHead();
+      continue;
     }
     installed_ptr = installed_ptr->next;
   }
@@ -1330,11 +1348,17 @@ int CM_servicesThread::install_services()
 	    }
 	    else {
 	      installed_backup_services.Remove(installed_ptr);
+	      installed_ptr = 0; // Signal to start at top of installed backup list
 	      stat_message << clear << "backup_service:" << sptr->data.nickname;
 	      servercfg->stats.Remove(stat_message);
+	      break;
 	    }
 	  }
 	  sptr = sptr->next;
+	}
+	if(!installed_ptr) { // Check to see if the list pointer was removed
+	  installed_ptr = installed_backup_services.GetHead();
+	  continue;
 	}
 	installed_ptr = installed_ptr->next;
       }
@@ -1483,9 +1507,15 @@ int CM_applicationsThread::stop_backup_applications()
 	}
 	else {
 	  installed_backup_applications.Remove(installed_ptr);
+	  installed_ptr = 0; // Signal to start at top of installed backup list
+	  break;
 	}
       }
       aptr = aptr->next;
+    }
+    if(!installed_ptr) { // Check to see if the list pointer was removed
+      installed_ptr = installed_backup_applications.GetHead();
+      continue;
     }
     installed_ptr = installed_ptr->next;
   }
@@ -1697,11 +1727,17 @@ int CM_applicationsThread::install_applications()
 	    }
 	    else {
 	      installed_backup_applications.Remove(installed_ptr);
+	      installed_ptr = 0; // Signal to start at top of installed backup list
 	      stat_message << clear << "backup_application:" << aptr->data.nickname;
 	      servercfg->stats.Remove(stat_message);
+	      break;
 	    }
 	  }
 	  aptr = aptr->next;
+	}
+	if(!installed_ptr) { // Check to see if the list pointer was removed
+	  installed_ptr = installed_backup_applications.GetHead();
+	  continue;
 	}
 	installed_ptr = installed_ptr->next;
       }
@@ -1798,6 +1834,7 @@ int CM_filesystemsThread::mount_filesystems()
   int is_mounted = 0;
   int rv = 0;
   gxString stat_message;
+  gxString sbuf;
 
   // Mount file systems for this host
   listptr = node.filesystems.GetHead();
@@ -1872,9 +1909,33 @@ int CM_filesystemsThread::mount_filesystems()
 	  fptr = servercfg->node_filesystems.GetHead();
 	  while(fptr) {
 	    is_mounted = 0;
+
+	    // Check the other cluster nodes to see if they picked the failover resources
+	    gxListNode<CMnode *> *takeoverptr = servercfg->nodes.GetHead();
+	    gxString rstats_buffer, rstats_error_message;
+	    while(takeoverptr) {
+	      if(takeoverptr->data->nodename != ptr->data->nodename) { // Don't check the failed node 
+		if(takeoverptr->data->hostname == servercfg->my_hostname) { // Dont't check this node
+		  takeoverptr = takeoverptr->next;
+		  continue;
+		}
+		if(get_node_stat_buffer(takeoverptr->data, rstats_buffer, rstats_error_message) == 0) {
+		  stat_message << clear << "backup_filesystem:" << fptr->data.nickname;
+		  if(rstats_buffer.Find(stat_message) != -1) {
+		    is_mounted = 1;
+		    message << clear << takeoverptr->data->nodename  << " has " 
+			    << fptr->data.nickname << " failover file system mounted";
+		    LogMessage(message.c_str());
+		  }
+		}
+	      }
+	      takeoverptr = takeoverptr->next;
+	    }
+
 	    installed_ptr = installed_backup_filesystems.GetHead();
 	    while(installed_ptr) {
-	      if(installed_ptr->data == fptr->data.nickname) {
+	      sbuf << clear << ptr->data->nodename << ":" << fptr->data.nickname;
+	      if(installed_ptr->data == sbuf) {
 		is_mounted = 1;
 		if(servercfg->debug && servercfg->debug_level >= 5) {
 		  message << clear << "Checking failed over file system mount " << fptr->data.nickname;
@@ -1907,7 +1968,8 @@ int CM_filesystemsThread::mount_filesystems()
 		has_errors++;
 	      }
 	      else {
-		installed_backup_filesystems.Add(fptr->data.nickname);
+		sbuf << clear << ptr->data->nodename << ":" << fptr->data.nickname;
+		installed_backup_filesystems.Add(sbuf);
 		stat_message << clear << "backup_filesystem:" << fptr->data.nickname;
 		servercfg->stats.Add(stat_message);
 	      }
@@ -1923,7 +1985,8 @@ int CM_filesystemsThread::mount_filesystems()
       while(installed_ptr) {
 	fptr = servercfg->node_filesystems.GetHead();
 	while(fptr) {
-	  if(installed_ptr->data == fptr->data.nickname) {
+	  sbuf << clear << ptr->data->nodename << ":" << fptr->data.nickname;
+	  if(installed_ptr->data == sbuf) {
 	    message << clear << ptr->data->nodename << " failback file system unmount " << fptr->data.nickname;
 	    LogMessage(message.c_str());
 	    command << clear << fptr->data.resource_script << " " << fptr->data.source << " " << fptr->data.target 
@@ -1937,11 +2000,17 @@ int CM_filesystemsThread::mount_filesystems()
 	    }
 	    else {
 	      installed_backup_filesystems.Remove(installed_ptr);
+	      installed_ptr = 0; // Signal to start at top of installed backup list
 	      stat_message << clear << "backup_filesystem:" << fptr->data.nickname;
 	      servercfg->stats.Remove(stat_message);
+	      break;
 	    }
 	  }
 	  fptr = fptr->next;
+	}
+	if(!installed_ptr) { // Check to see if the list pointer was removed
+	  installed_ptr = installed_backup_filesystems.GetHead();
+	  continue;
 	}
 	installed_ptr = installed_ptr->next;
       }
@@ -2012,9 +2081,15 @@ int CM_filesystemsThread::unmount_backup_filesystems()
 	}
 	else {
 	  installed_backup_filesystems.Remove(installed_ptr);
+	  installed_ptr = 0; // Signal to start at top of installed backup list
+	  break;
 	}
       }
       fptr = fptr->next;
+    }
+    if(!installed_ptr) { // Check to see if the list pointer was removed
+      installed_ptr = installed_backup_filesystems.GetHead();
+      continue;
     }
     installed_ptr = installed_ptr->next;
   }
