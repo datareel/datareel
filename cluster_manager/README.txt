@@ -20,6 +20,7 @@ Contents:
 * Running the DRCM Server
 * DRCM Resource Scripts 
 * Running Applications:
+* Cluster Monitor and Reports
 * Remaining Work on This Project
 * Support and Bug Tracking
 
@@ -369,6 +370,23 @@ ldm, ldm:users, ldmadmin clean; ldmadmin mkqueue; ldmadmin start, ldmadmin stop;
 
 ldm, ldm:users, ldmadmin start, ldmadmin stop, if [ -f ~/util/ldm_ensure.sh ]; then ~/util/ldm_ensure.sh; fi
 
+Cluster Monitor and Reports
+---------------------------
+DRCM provides a formatted reporting tool and raw stats you can use to
+build custom reports. To view the detailed cluster report, from any
+cluster node:
+
+/usr/sbin/drcm_server --client --command=cm_stat
+
+To create custom reports use the rstats command from any cluster node, for example:
+
+for CMNODE in cmnode1 cmnode2 cmnode3 cmnode4
+> do
+> echo $CMNODE
+> /usr/sbin/drcm_server --client --command=rstats | sed -n "/$CMNODE/,/$CMNODE/p" | grep -v $CMNODE
+> echo ""
+> done
+
 Remaining Work on This Project:
 ------------------------------ 
 The first DRCM release was successfully tested on VM and bare metal
@@ -380,6 +398,9 @@ Remaining work to be added to this open source project:
 
 * RPM install for CENTOS/RHEL 6.X and 7.X
 * HTML Documentation
+* Add TCP cluster protocol for WAN based clusters
+* Add file sync tools (in progress)
+* Add email alert function (in progress)
 
 Support and Bug Tracking:
 ------------------------

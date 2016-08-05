@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 07/27/2016
+// Date Last Modified: 08/05/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -1197,7 +1197,7 @@ int CM_servicesThread::install_services()
 	    is_started = 1;
 	    if(servercfg->debug && servercfg->debug_level >= 5) {
 	      message << clear << "Checking service " << sptr->data.service_name;
-	      LogMessage(message.c_str());
+	      LogDebugMessage(message.c_str());
 	    }
 	    command << clear << sptr->data.resource_script << " " << sptr->data.service_name 
 		    << " watch >> " <<  servercfg->log_dir << "/service_resource.log 2>&1";
@@ -1206,7 +1206,7 @@ int CM_servicesThread::install_services()
 	      if(servercfg->debug && servercfg->debug_level >= 5) {
 		message << clear << "ERROR - Resource script reported service error " 
 			<< sptr->data.service_name;
-		LogMessage(message.c_str());
+		LogDebugMessage(message.c_str());
 	      }
 	    }
 	    break;
@@ -1287,7 +1287,7 @@ int CM_servicesThread::install_services()
 		is_started = 1;
 		if(servercfg->debug && servercfg->debug_level >= 5) {
 		  message << clear << "Checking failed over service " << sptr->data.service_name;
-		  LogMessage(message.c_str());
+		  LogDebugMessage(message.c_str());
 		}
 		command << clear << sptr->data.resource_script << " " << sptr->data.service_name 
 			<< " watch >> " <<  servercfg->log_dir << "/service_resource.log 2>&1";
@@ -1296,7 +1296,7 @@ int CM_servicesThread::install_services()
 		  if(servercfg->debug && servercfg->debug_level >= 5) {
 		    message << clear << "ERROR - Resource script reported failed over service error " 
 			    << sptr->data.service_name;
-		    LogMessage(message.c_str());
+		    LogDebugMessage(message.c_str());
 		  }
 		}
 		break;
@@ -1452,7 +1452,7 @@ int CM_applicationsThread::stop_all_applications()
   }
 
   while(aptr) {
-    if(servercfg->debug && servercfg->debug_level >= 5) {
+    if(servercfg->debug && servercfg->debug_level >= 10) {
       command << clear << aptr->data.stop_program;
     }
     else {
@@ -1492,7 +1492,7 @@ int CM_applicationsThread::stop_backup_applications()
       if(installed_ptr->data == aptr->data.nickname) {
 	message << clear << "Stopping failover application " << aptr->data.nickname;
 	LogMessage(message.c_str());
-	if(servercfg->debug && servercfg->debug_level >= 5) {
+	if(servercfg->debug && servercfg->debug_level >= 10) {
 	  command << clear << aptr->data.stop_program;
 	}
 	else {
@@ -1553,9 +1553,9 @@ int CM_applicationsThread::install_applications()
 	    if(!aptr->data.ensure_script.is_null()) {
 	      if(servercfg->debug && servercfg->debug_level >= 5) {
 		message << clear << "Checking application " << aptr->data.nickname;
-		LogMessage(message.c_str());
+		LogDebugMessage(message.c_str());
 	      }
-	      if(servercfg->debug && servercfg->debug_level >= 5) {
+	      if(servercfg->debug && servercfg->debug_level >= 10) {
 		command << clear << aptr->data.ensure_script;
 	      }
 	      else {
@@ -1566,7 +1566,7 @@ int CM_applicationsThread::install_applications()
 		if(servercfg->debug && servercfg->debug_level >= 5) {
 		  message << clear << "ERROR - Resource script reported application ensure error " 
 			  << aptr->data.nickname;
-		  LogMessage(message.c_str());
+		  LogDebugMessage(message.c_str());
 		}
 	      }
 	    }
@@ -1577,7 +1577,7 @@ int CM_applicationsThread::install_applications()
 	if(is_started == 0) {
 	  message << clear << "Starting application " << aptr->data.nickname;
 	  LogMessage(message.c_str());
-	  if(servercfg->debug && servercfg->debug_level >= 5) {
+	  if(servercfg->debug && servercfg->debug_level >= 10) {
 	    command << clear << aptr->data.start_program;
 	  }
 	  else {
@@ -1653,9 +1653,9 @@ int CM_applicationsThread::install_applications()
 		if(!aptr->data.ensure_script.is_null()) {
 		  if(servercfg->debug && servercfg->debug_level >= 5) {
 		    message << clear << "Checking failed over application " << aptr->data.nickname;
-		    LogMessage(message.c_str());
+		    LogDebugMessage(message.c_str());
 		  }
-		  if(servercfg->debug && servercfg->debug_level >= 5) {
+		  if(servercfg->debug && servercfg->debug_level >= 10) {
 		    command << clear << aptr->data.ensure_script;
 		  }
 		  else {
@@ -1666,7 +1666,7 @@ int CM_applicationsThread::install_applications()
 		    if(servercfg->debug && servercfg->debug_level >= 5) {
 		      message << clear << "ERROR - Resource script reported failed over application ensure error " 
 			      << aptr->data.nickname;
-		      LogMessage(message.c_str());
+		      LogDebugMessage(message.c_str());
 		    }
 		  }
 		}
@@ -1677,7 +1677,7 @@ int CM_applicationsThread::install_applications()
 	    if(application_nickname == aptr->data.nickname && is_started == 0) {
 	      message << clear << ptr->data->nodename << " failover application start " << aptr->data.nickname;
 	      LogMessage(message.c_str());
-	      if(servercfg->debug && servercfg->debug_level >= 5) {
+	      if(servercfg->debug && servercfg->debug_level >= 10) {
 		command << clear << aptr->data.start_program;
 	      }
 	      else {
@@ -1712,7 +1712,7 @@ int CM_applicationsThread::install_applications()
 	  if(installed_ptr->data == sbuf) {
 	    message << clear << ptr->data->nodename << " failback application stop " << aptr->data.nickname;
 	    LogMessage(message.c_str());
-	    if(servercfg->debug && servercfg->debug_level >= 5) {
+	    if(servercfg->debug && servercfg->debug_level >= 10) {
 	      command << clear << aptr->data.stop_program;
 	    }
 	    else {
@@ -1849,7 +1849,7 @@ int CM_filesystemsThread::mount_filesystems()
 	    is_mounted = 1;
 	    if(servercfg->debug && servercfg->debug_level >= 5) {
 	      message << clear << "Checking file system mount " << fptr->data.nickname;
-	      LogMessage(message.c_str());
+	      LogDebugMessage(message.c_str());
 	    }
 	    command << clear << fptr->data.resource_script << " " << fptr->data.source << " " << fptr->data.target 
 		    << " watch > /dev/null 2>&1";
@@ -1939,7 +1939,7 @@ int CM_filesystemsThread::mount_filesystems()
 		is_mounted = 1;
 		if(servercfg->debug && servercfg->debug_level >= 5) {
 		  message << clear << "Checking failed over file system mount " << fptr->data.nickname;
-		  LogMessage(message.c_str());
+		  LogDebugMessage(message.c_str());
 		}
 		command << clear << fptr->data.resource_script << " " << fptr->data.source << " " << fptr->data.target 
 			<< " watch > /dev/null 2>&1";
@@ -1948,7 +1948,7 @@ int CM_filesystemsThread::mount_filesystems()
 		  if(servercfg->debug && servercfg->debug_level >= 5) {
 		    message << clear << "ERROR - Resource script reported failed over file system watch error " 
 			    << fptr->data.nickname;
-		    LogMessage(message.c_str());
+		    LogDebugMessage(message.c_str());
 		  }
 		}
 		break;
