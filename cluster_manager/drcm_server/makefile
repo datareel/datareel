@@ -12,9 +12,33 @@ install:
 install_root:
 	mkdir -pv /etc/drcm
 	chmod 755 /etc/drcm
+	cp -fv ../etc/cm_2_node_example.cfg /etc/drcm/.
+	chmod 644 /etc/drcm/cm_2_node_example.cfg
+	cp -fv ../etc/cm_4_node_example.cfg /etc/drcm/.
+	chmod 644 /etc/drcm/cm_4_node_example.cfg
+	mkdir -pv /etc/drcm/file_system_sync
+	chmod 755 /etc/drcm/file_system_sync
+	cp -fv ../etc/file_system_sync/* /etc/drcm/file_system_sync/.
+	chmod 755 /etc/drcm/file_system_sync/*
+	mkdir -pv /etc/drcm/utils
+	chmod 755 /etc/drcm/utils
+	cp -fv ../etc/utils/* /etc/drcm/utils/.
+	chmod 755  /etc/drcm/utils/*
+	mkdir -pv /etc/drcm/my_cluster_conf
+	chmod 755 /etc/drcm/my_cluster_conf
+	if [ ! -f /etc/drcm/my_cluster_conf/my_cluster_info.sh ]; then cp -fv ../etc/my_cluster_conf/my_cluster_info.sh /etc/drcm/my_cluster_conf/my_cluster_info.sh; fi
+	chmod 755 /etc/drcm/my_cluster_conf/my_cluster_info.sh
+	cp -fv ../etc/my_cluster_conf/my_cluster_info_example1.sh /etc/drcm/my_cluster_conf/.
+	chmod 644 /etc/drcm/my_cluster_conf/my_cluster_info_example1.sh
+	cp -fv ../etc/my_cluster_conf/testfs_sync_list.sh /etc/drcm/my_cluster_conf/.
+	chmod 644 /etc/drcm/my_cluster_conf/testfs_sync_list.sh
+	mkdir -pv /etc/drcm/system_templates
+	chmod 755 /etc/drcm/system_templates
+	cp -fv ../etc/system_templates/* /etc/drcm/system_templates/.
+	chmod 644 /etc/drcm/system_templates/*
 	mkdir -pv /etc/drcm/resources
 	chmod 755 /etc/drcm/resources
-	cp -fpv ../etc/resources/* /etc/drcm/resources/.
+	cp -fv ../etc/resources/* /etc/drcm/resources/.
 	chmod 755 /etc/drcm/resources/*
 	mkdir -pv /etc/drcm/crontabs
 	chmod 755 /etc/drcm/crontabs
