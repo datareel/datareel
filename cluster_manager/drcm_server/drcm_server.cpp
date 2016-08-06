@@ -453,6 +453,15 @@ int run_client()
     }
   }
 
+  char hbuf[gxsMAX_NAME_LEN];
+  memset(hbuf, 0 , gxsMAX_NAME_LEN);
+  if(gethostname(hbuf, gxsMAX_NAME_LEN) < 0) {
+    servercfg->verbose = 1;
+    NT_print("ERROR - Could not get hostname for this cluster node client");
+    error_level = 1;
+  }
+  servercfg->my_hostname = hbuf;
+
   if(!futils_exists(servercfg->etc_dir.c_str())) {
     servercfg->verbose = 1;
     NT_print("ERROR - Missing DIR ", servercfg->etc_dir.c_str());
@@ -481,7 +490,14 @@ int run_client()
 
   LogThread log_t;
   if(servercfg->is_client_interactive == 0) {
-    error_level = run_console_command(servercfg->client_command);
+    gxString command_buf = servercfg->client_command; 
+    if(command_buf == "ping" && !servercfg->client_ping_nodename.is_null()) {
+      command_buf << clear << "ping " << servercfg->client_ping_nodename; 
+    }
+    if(command_buf == "rstats" && !servercfg->client_ping_nodename.is_null()) {
+      command_buf << clear << "rstats " << servercfg->client_ping_nodename; 
+    }
+    error_level = run_console_command(command_buf);
     log_t.flush_all_logs();
     return error_level;
   } 

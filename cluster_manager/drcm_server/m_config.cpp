@@ -144,6 +144,7 @@ void CMstatsnode::Copy(const CMstatsnode &n)
 CMconfig::CMconfig() 
 { 
   is_client = 0;
+  client_ping_count = 1;
   is_client_interactive = 1;
   debug = 0;
   debug_level = 1;
@@ -558,6 +559,31 @@ int ProcessArgs(int argc, char *argv[])
 	  sbuf.TrimLeading('-');
 	  if(sbuf.is_null()) break; // -- escape
 	  if(ProcessDashDashArg(sbuf) != 0) has_arg_errors++;
+	  break;
+
+	case 'c':
+	  sbuf = &argv[i][2]; 
+	  if(sbuf.is_null()) {
+	    servercfg->verbose = 1; 
+	    sbuf << clear << "No count value supplied with arg " << argv[i];
+	    NT_print(sbuf.c_str());
+	    NT_print("Exiting with errors");
+	    ExitProc(); // Signal program to exit
+	  }
+	  servercfg->client_ping_count = sbuf.Atoi();
+	  if(servercfg->client_ping_count <= 0) servercfg->client_ping_count = 1;
+	  break;
+
+	case 'n':
+	  sbuf = &argv[i][2]; 
+	  if(sbuf.is_null()) {
+	    servercfg->verbose = 1; 
+	    sbuf << clear << "No name or IP value supplied with arg " << argv[i];
+	    NT_print(sbuf.c_str());
+	    NT_print("Exiting with errors");
+	    ExitProc(); // Signal program to exit
+	  }
+	  servercfg->client_ping_nodename = sbuf;
 	  break;
 
 	case '?':

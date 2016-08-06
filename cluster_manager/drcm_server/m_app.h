@@ -66,10 +66,13 @@ int console_command_is_valid(const gxString &command);
 int print_console_help();
 int run_console_command(const gxString &command);
 int ping_cluster();
+int ping_cluster_node(const gxString &n);
 int ping_node(CMnode *node);
 int print_config();
 int get_cluster_rstats();
+int get_rstats_node(const gxString &n);
 int get_rstats(CMnode *node);
+CMnode *get_client_node(const gxString &n) ;
 int cm_stat();
 
 #endif // __DRCM_APP_HPP__

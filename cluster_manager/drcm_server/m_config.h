@@ -243,6 +243,8 @@ struct CMconfig {
   int num_resource_filesystems;
   int is_client;
   int is_client_interactive;
+  int client_ping_count; // Client ping count
+  gxString client_ping_nodename; // Ping and rstats node name
   gxString client_command;
   int debug;
   int debug_level;

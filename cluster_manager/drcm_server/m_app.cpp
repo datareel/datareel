@@ -858,7 +858,7 @@ void *ConsoleThread::ThreadEntryRoutine(gxThread_t *thread)
   while(servercfg->echo_loop) {
     cout << prompt.c_str() << flush;
     memset(sbuf, 0, 255);
-    cin >> sbuf;
+    cin.getline(sbuf, 254);
     command << clear << sbuf;
     if(command.is_null()) continue;
     if(command == "quit" || command == "exit") break;
@@ -874,27 +874,65 @@ void *ConsoleThread::ThreadEntryRoutine(gxThread_t *thread)
 
 int console_command_is_valid(const gxString &command)
 {
-  if(command == "exit") return 1;
-  if(command == "quit") return 1;
-  if(command == "help") return 1;
-  if(command == "ping") return 1;
-  if(command == "printcfg") return 1;
-  if(command == "rstats") return 1;
-  if(command == "cm_stat") return 1;
+  gxString sbuf = command;
+  if(sbuf.Find(" ") != -1) {
+    sbuf.TrimLeadingSpaces();
+    sbuf.TrimTrailingSpaces();
+    sbuf.DeleteAfterIncluding(" "); 
+  }
+
+  if(sbuf == "exit") return 1;
+  if(sbuf == "quit") return 1;
+  if(sbuf == "help") return 1;
+  if(sbuf == "ping") return 1;
+  if(sbuf == "printcfg") return 1;
+  if(sbuf == "rstats") return 1;
+  if(sbuf == "cm_stat") return 1;
   return 0;
 }
 
 int print_console_help()
 {
-  cout << "DRCM console commands" << "\n";
-  cout << "\n";
-  cout << "cm_stat  - Cluster Manager Status Monitor" << "\n";
-  cout << "exit     - Exit console" << "\n";
-  cout << "help     - Print this help menu" << "\n";
-  cout << "ping     - Test connectivity to all active cluster nodes" << "\n";
-  cout << "printcfg - Print cluster configuration" << "\n";
-  cout << "quit     - Exit console" << "\n";
-  cout << "rstats   - Print raw stats buffer for each cluster node" << "\n";
+  if(servercfg->is_client_interactive == 0)  {
+    cout << "DRCM non-interactive input args" << "\n";
+    cout << "\n";
+    cout << "Cluster Manager Status Monitor:" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=cm_stat" << "\n";
+    cout << "\n";
+    cout << "Test connectivity to all active cluster nodes:" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=ping" << "\n";
+    cout << "\n";
+    cout << "Ping single node by name or IP:" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=ping -n\"CMNODE_nodename\"" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=ping -n\"localhost\"" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=ping -n\"$(uname -n)\"" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=ping -c5 -n\"$(uname -n)\"" << "\n";
+    cout << "\n";
+    cout << "Print cluster configuration:" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=printcfg" << "\n";
+    cout << "\n";
+    cout << "Print raw stats buffer for each cluster node:" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=rstats" << "\n";
+    cout << "\n";
+    cout << "Print raw stats for single node by name or IP:" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=rstats -n\"CMNODE_nodename\"" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=rstats -n\"localhost\"" << "\n";
+    cout << "\t" << servercfg->ProgramName.c_str() << " --client --command=rstats -n\"$(uname -n)\"" << "\n";
+  }
+  else {
+    cout << "DRCM console commands" << "\n";
+    cout << "\n";
+    cout << "cm_stat     - Cluster Manager Status Monitor" << "\n";
+    cout << "exit        - Exit console" << "\n";
+    cout << "help        - Print this help menu" << "\n";
+    cout << "ping        - Test connectivity to all active cluster nodes" << "\n";
+    cout << "ping node   - Ping single node by name or IP" << "\n";
+    cout << "printcfg    - Print cluster configuration" << "\n";
+    cout << "quit        - Exit console" << "\n";
+    cout << "rstats      - Print raw stats buffer for each cluster node" << "\n";
+    cout << "rstats node - Print raw stats for single node by name or IP" << "\n";
+  }
+
   cout << "\n";
   cout.flush();
   return 0;
@@ -903,6 +941,21 @@ int print_console_help()
 int run_console_command(const gxString &command)
 {
   int error_level = 0;
+
+  gxString sbuf = command;
+  gxString arg;
+  if(sbuf.Find(" ")) {
+    sbuf.TrimLeadingSpaces();
+    sbuf.TrimTrailingSpaces();
+    if(sbuf.Find(" ") != -1) {
+      arg = sbuf;
+      sbuf.DeleteAfterIncluding(" ");
+      arg.DeleteBeforeIncluding(" ");
+    }
+  }
+
+  if(!arg.is_null() && sbuf == "ping") return ping_cluster_node(arg); 
+  if(!arg.is_null() && sbuf == "rstats") return get_rstats_node(arg); 
   if(!console_command_is_valid(command)) return -1;
   if(command == "help") return print_console_help(); 
   if(command == "printcfg") return print_config(); 
@@ -917,6 +970,72 @@ int print_config()
   PrintGlobalConfig();
   PrintNodeConfig();
   return 0;
+}
+
+CMnode *get_client_node(const gxString &n) 
+{
+  gxString sbuf = n;
+  sbuf.TrimLeadingSpaces();
+  sbuf.TrimTrailingSpaces();
+  sbuf.DeleteAfterIncluding(" ");
+  sbuf.DeleteAfterIncluding(" ");
+  sbuf.ToLower();
+  
+  int has_node = 0;
+  int is_loopback = 0;
+
+  if((sbuf == "127.0.0.1") || (sbuf == "localhost") || (sbuf == "loopback")) {
+    is_loopback = 1;
+  }
+
+  gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
+  while(ptr) {
+    if((ptr->data->keep_alive_ip == sbuf) || (ptr->data->nodename == sbuf) || (ptr->data->hostname == sbuf)) {
+      has_node = 1;
+      break;
+    }
+    if(is_loopback == 1 && ptr->data->hostname == servercfg->my_hostname) {
+      has_node = 1;
+      break;
+    }
+    ptr = ptr->next;
+  }
+
+  if(!has_node) return 0;
+  return ptr->data;
+}
+
+int get_rstats_node(const gxString &n)
+{
+  CMnode *node = get_client_node(n); 
+  if(node) return get_rstats(node); 
+  cout << "rstats ERROR no cluster node found for " << n.c_str() << "\n" << flush;
+  return 255;
+}
+
+int ping_cluster_node(const gxString &n)
+{
+  int error_level = 0;
+
+  CMnode *node = get_client_node(n); 
+  cout << "ping " << n.c_str() << "\n" << flush;
+
+  int retries = servercfg->client_ping_count;
+  if(node) {
+    while(retries--) error_level = ping_node(node); 
+  }
+  else {
+    cout << "ping ERROR no cluster node found for " << n.c_str() << "\n" << flush;
+    return 255;
+  }
+
+  if(error_level == 0) {
+    cout << "ping " << n.c_str() << " successful" << "\n" << flush;
+  }
+  else {
+    cout << "ping " << n.c_str() << " failed" << "\n" << flush;
+  }
+  return error_level;
 }
 
 int ping_cluster()
