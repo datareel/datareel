@@ -7,7 +7,7 @@
 # File Creation Date: 07/17/2016 
 # Date Last Modified: 08/07/2016
 #
-# Version control: 1.17
+# Version control: 1.18
 #
 # Contributor(s):
 # ----------------------------------------------------------- 
@@ -114,6 +114,7 @@ if [ -z "${DRCMdir}" ]; then export DRCMdir="/etc/drcm"; fi
 if [ -z "${VARdir}" ]; then export VARdir="/var/run/drcm"; fi
 if [ -z "${RYSNC}" ]; then export RYSNC="/usr/bin/rsync"; fi
 if [ -z "${SSH}" ]; then export SSH="/usr/bin/ssh"; fi
+if [ -z "${SCP}" ]; then export SCP="/usr/bin/scp"; fi
 if [ -z "${IP}" ]; then export IP="/usr/sbin/ip"; fi
 if [ -z "${EXPR}" ]; then export EXPR="/usr/bin/expr"; fi
 if [ -z "${DRCM_server}" ]; then export DRCM_server="/usr/sbin/drcm_server"; fi
@@ -317,7 +318,7 @@ if [ "${hasfailedover}" == "FALSE" ]
 		echo "Our fail over was more then ${HRS} ago." | tee -a ${LOGfile}
 		echo "Removing all flagback flags and exiting" | tee -a ${LOGfile}
 		rm -f ${VARdir}/${SERVICENAME}_failback_sync_flag
-		${SSH} -o stricthostkeychecking=no "${FAILBACKNODE}" rm -f ${VARdir}/${SERVICENAME}_failback_sync_flag 2>&1
+		${SSH} -o stricthostkeychecking=no "${FAILBACKNODE}" "rm -f ${VARdir}/${SERVICENAME}_failback_sync_flag" 2>&1
 		RemoveLockFile
 		exit 0
 	    else
@@ -331,7 +332,7 @@ if [ "${hasfailedover}" == "TRUE" ]
     then
     echo "DRCM cluster has failed over to ${FAILOVERNODE}" | tee -a ${LOGfile}
 
-    if [ "${ismaster}" == "TRUE" ]
+    if [ "${isprimary}" == "TRUE" ]
 	then 
 	echo "This is the master cluster node is up" | tee -a ${LOGfile}
 	echo "No operation will be preformed" | tee -a ${LOGfile}
