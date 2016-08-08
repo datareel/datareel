@@ -5,9 +5,9 @@
 # Shell: BASH shell
 # Original Author(s): DataReel Software Development
 # File Creation Date: 07/17/2016 
-# Date Last Modified: 08/06/2016
+# Date Last Modified: 08/07/2016
 #
-# Version control: 1.16
+# Version control: 1.17
 #
 # Contributor(s):
 # ----------------------------------------------------------- 
@@ -158,7 +158,7 @@ if [ "$1" == "failback" ]; then BACKUPNODE="${FAILBACKNODE}"; fi
 
 # Auto detect which node we are on
 isprimary=$(${DRCMdir}/utils/is_primary_fs.sh)
-ifbackup=$(${DRCMdir}/utils/is_backup_fs.sh)
+isbackup=$(${DRCMdir}/utils/is_backup_fs.sh)
 
 # See if we have failed over
 hasfailedover=$(${DRCMdir}/utils/fs_has_failedover.sh)
@@ -168,10 +168,8 @@ if [ -z ${hasfailedover} ]; then
     exit 1
 fi
 
-if [ "${hasfailedover}" == "FALSE" ];  then BACKUPNODE="${FAILOVERNODE}"; fi
-if [ "${hasfailedover}" == "TRUE" ];  then BACKUPNODE="${FAILBACKNODE}"; fi
-
 if [ "${isprimary}" == "TRUE" ];  then BACKUPNODE="${FAILOVERNODE}"; fi
+if [ "${hasfailedover}" == "TRUE" ];  then BACKUPNODE="${FAILBACKNODE}"; fi
 if [ "${isbackup}" == "TRUE" ];  then BACKUPNODE="${FAILBACKNODE}"; fi
 
 # Source include scripts
