@@ -63,8 +63,8 @@ install_root:
 	chmod 755 /var/run/drcm
 	mkdir -pv /var/spool/drcm
 	chmod 755 /var/spool/drcm
-	cp -fv drcm_server /sbin/drcm_server
-	chmod 755 /sbin/drcm_server
+	cp -fv drcm_server /usr/sbin/drcm_server
+	chmod 755 /usr/sbin/drcm_server
 	if [ ! -f /etc/sysconfig/drcm_server ]; then cp -fv ../etc/system_templates/drcm_server_sysconfig /etc/sysconfig/drcm_server; fi
 	chmod 644 /etc/sysconfig/drcm_server
 	cp -fv ../system5_init/drcm_server /etc/rc.d/init.d/drcm_server
