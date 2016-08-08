@@ -5,9 +5,9 @@
 # Shell: BASH shell
 # Original Author(s): DataReel Software Development
 # File Creation Date: 07/17/2016 
-# Date Last Modified: 08/07/2016
+# Date Last Modified: 08/08/2016
 #
-# Version control: 1.18
+# Version control: 1.19
 #
 # Contributor(s):
 # ----------------------------------------------------------- 
@@ -112,11 +112,11 @@ fi
 if [ -z "${LOGdir}" ]; then export LOGdir="/var/log/drcm"; fi
 if [ -z "${DRCMdir}" ]; then export DRCMdir="/etc/drcm"; fi
 if [ -z "${VARdir}" ]; then export VARdir="/var/run/drcm"; fi
-if [ -z "${RYSNC}" ]; then export RYSNC="/usr/bin/rsync"; fi
-if [ -z "${SSH}" ]; then export SSH="/usr/bin/ssh"; fi
-if [ -z "${SCP}" ]; then export SCP="/usr/bin/scp"; fi
-if [ -z "${IP}" ]; then export IP="/usr/sbin/ip"; fi
-if [ -z "${EXPR}" ]; then export EXPR="/usr/bin/expr"; fi
+if [ -z "${RYSNC}" ]; then export RYSNC="rsync"; fi
+if [ -z "${SSH}" ]; then export SSH="ssh"; fi
+if [ -z "${SCP}" ]; then export SCP="scp"; fi
+if [ -z "${IP}" ]; then export IP="ip"; fi
+if [ -z "${EXPR}" ]; then export EXPR="expr"; fi
 if [ -z "${DRCM_server}" ]; then export DRCM_server="/usr/sbin/drcm_server"; fi
 
 # Set RSYNC args for directory mirror

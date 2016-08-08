@@ -1,5 +1,7 @@
 #!/bin/bash
 
+if [ -f ~/.bashrc ]; then . ~/.bashrc; fi
+
 HUNGPROCS=$(ps eaxo etime,pid,comm | grep rsync |  grep -v " 00:" | grep -- - | awk '{ print $2 }')
 
 for p in ${HUNGPROCS}

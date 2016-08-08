@@ -5,9 +5,9 @@
 # Shell: BASH shell
 # Original Author(s): DataReel Software Development
 # File Creation Date: 07/17/2016 
-# Date Last Modified: 08/06/2016
+# Date Last Modified: 08/08/2016
 #
-# Version control: 1.11
+# Version control: 1.12
 #
 # Contributor(s):
 # ----------------------------------------------------------- 
@@ -93,8 +93,8 @@ fi
 if [ -z "${LOGdir}" ]; then export LOGdir="/var/log/drcm"; fi
 if [ -z "${DRCMdir}" ]; then export DRCMdir="/etc/drcm"; fi
 if [ -z "${VARdir}" ]; then export VARdir="/var/run/drcm"; fi
-if [ -z "${RYSNC}" ]; then export RYSNC="/usr/bin/rsync"; fi
-if [ -z "${SSH}" ]; then export SSH="/usr/bin/ssh"; fi
+if [ -z "${RYSNC}" ]; then export RYSNC="rsync"; fi
+if [ -z "${SSH}" ]; then export SSH="ssh"; fi
 
 # Set RSYNC args for directory mirror
 if [ -z "${RYSNCargs}" ]; then export RYSNCargs="-AavPh --delete --sparse --progress --force --stats"; fi
