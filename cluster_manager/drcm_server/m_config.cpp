@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 08/05/2016
+// Date Last Modified: 08/09/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -519,6 +519,12 @@ int ProcessDashDashArg(gxString &arg)
   if(arg == "log-file-clear") {
     servercfg->has_log_file_clear_override = 1;
     servercfg->clear_log = 1;
+    has_arg = 1;
+  }
+
+  if(arg == "log-disable") {
+    servercfg->has_enable_logging_override = 1;
+    servercfg->enable_logging = 0;
     has_arg = 1;
   }
 

@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 08/05/2016
+// Date Last Modified: 08/09/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -38,7 +38,7 @@ Help functions for Datareel cluster manager.
 #include "m_help.h"
 
 // Version number, program  and publisher info
-const char *VersionString = "1.27";
+const char *VersionString = "1.29";
 const char *ProgramDescription = "Datareel Cluster Manager";
 const char *ProducedBy = "http://datareel.com";
 
@@ -73,6 +73,7 @@ void HelpMessage(const char *ProgramName)
   cout << "     --log-file=\"drcm.log\"       Specify a log file name" << "\n" << flush;
   cout << "     --log-level=1               Set logging level, 0-5" << "\n" << flush;
   cout << "     --log-file-clear            Clear the log file when program starts" << "\n" << flush;
+  cout << "     --log-disable               Disable logging" << "\n" << flush;
   cout << "\n" << flush;
   cout << "CM console: " << "\n" << flush;
   cout << "     --client                    Enter interactive client CM console" << "\n" << flush;
