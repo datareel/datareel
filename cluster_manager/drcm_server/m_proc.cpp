@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 08/05/2016
+// Date Last Modified: 08/09/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -586,11 +586,20 @@ int RunSystemCommand(const gxString &input_command, const gxString &user, const 
   gxString superuser = "root";
   gxString command;
   if(servercfg->cluster_user == superuser) {
+#ifdef __HAS_SU_DASH_G__
     command << clear << "su -g " << group << " -c \'" << input_command << "\' - " << user << " >/dev/null 2>&1";
+#else
+    command << clear << "su -c \'" << input_command << "\' - " << user << " >/dev/null 2>&1";
+#endif
   }
   else {
+#ifdef __HAS_SU_DASH_G__
     command << clear << servercfg->sudo_command 
 	    << " \"su -g " << group << " -c \'" << input_command << "\' - " << user << "\""; 
+#else
+    command << clear << servercfg->sudo_command 
+	    << " \"su -c \'" << input_command << "\' - " << user << "\""; 
+#endif
   }
 
   if(servercfg->debug && servercfg->debug_level >= 5) {
