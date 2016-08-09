@@ -70,6 +70,7 @@ install_root:
 	cp -fv ../system5_init/drcm_server /etc/rc.d/init.d/drcm_server
 	chmod 755 /etc/rc.d/init.d/drcm_server
 	if [ ! -d /etc/systemd/system ]; then chkconfig --add drcm_server; fi
+	if [ ! -d /etc/systemd/system ]; then chkconfig drcm_server off; fi
 	if [ -d /etc/systemd/system ]; then cp -fv ../systemd_init/drcm_server.service  /etc/systemd/system/drcm_server.service; fi
 	if [ -d /etc/systemd/system ]; then chmod 644 /etc/systemd/system/drcm_server.service; fi
 	if [ -d /etc/systemd/system ]; then systemctl daemon-reload; fi
