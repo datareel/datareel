@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/22/2016
+// Date Last Modified: 08/13/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -560,6 +560,8 @@ void *SocketWRThread::ThreadEntryRoutine(gxThread_t *thread)
     while(servercfg->echo_loop) {
       rv = read_socket_cached(s);
       if(rv < 0) {
+	// Socket is closed, so we need to signal both sides not to read or write
+	shutdown(s->write_sock, SHUT_RDWR);
 	break;
       }
       if(rv == 0) {
@@ -568,11 +570,12 @@ void *SocketWRThread::ThreadEntryRoutine(gxThread_t *thread)
 	  LogMessage(message.c_str());
 	}
 	// Socket is halfway closed, so we need to signal both sides not to read or write
-	shutdown(s->read_sock, SHUT_RDWR);
+	shutdown(s->write_sock, SHUT_RDWR);
 	break;
       }
       rv = write_socket_cached(s);
       if(rv < 0) {
+	shutdown(s->read_sock, SHUT_RDWR);
 	break;
       }
     }
@@ -581,6 +584,8 @@ void *SocketWRThread::ThreadEntryRoutine(gxThread_t *thread)
     while(servercfg->echo_loop) {
       rv = read_socket(s);
       if(rv < 0) {
+	// Socket is closed, so we need to signal both sides not to read or write
+	shutdown(s->write_sock, SHUT_RDWR);
 	break;
       }
       if(rv == 0) {
@@ -589,15 +594,17 @@ void *SocketWRThread::ThreadEntryRoutine(gxThread_t *thread)
 	  LogMessage(message.c_str());
 	}
 	// Socket is halfway closed, so we need to signal both sides not to read or write
-	shutdown(s->read_sock, SHUT_RDWR);
+	shutdown(s->write_sock, SHUT_RDWR);
 	break;
       }
       rv = write_socket(s);
       if(rv < 0) {
+	shutdown(s->read_sock, SHUT_RDWR);
 	break;
       }
     }
   }
+
   return (void *)0;
 }
 
