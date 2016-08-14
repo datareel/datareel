@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/16/2016
+// Date Last Modified: 08/14/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -211,6 +211,17 @@ struct LBconfig {
   int WEIGHT_SCALE(int inc = 0, int dec = 0, unsigned set_to = 0);
   int PREV_REFACTORED_CONNECTIONS(int inc = 0, int dec = 0, unsigned set_to = 0);
   int REFACTORED_CONNECTIONS(int inc = 0, int dec = 0, unsigned set_to = 0);
+
+  // -- arg overrides when CFG file loaded
+  int has_debug_override;
+  int has_debug_level_override;
+  int has_verbose_override;
+  int has_verbose_level_override;
+  int has_config_file_override;
+  int has_log_file_name_override;
+  int has_log_level_override;
+  int has_log_file_clear_override;
+  int has_enable_logging_override;
 
 private: // Cannot be accessed directly
   int refactored_connections;

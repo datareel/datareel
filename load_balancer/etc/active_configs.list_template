@@ -2,7 +2,7 @@
 
 # Below is an example config file. Remove line below after testing.
 
-/etc/drlb_server/http_rr_test.cfg
+/etc/drlb/http_rr_test.cfg
 
 # List all the LB configs you need to start on this server.
 # All entries must use an absolute path to the .cfg file.

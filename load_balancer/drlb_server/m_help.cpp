@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/13/2016
+// Date Last Modified: 08/14/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -72,6 +72,7 @@ void HelpMessage(const char *ProgramName)
   cout << "     --log-file=\"logfile.log\"    Use log file to log program output" << "\n" << flush;
   cout << "     --log-level=1               Set logging level, 0-5" << "\n" << flush;
   cout << "     --log-file-clear            Clear the log file when program starts" << "\n" << flush;
+  cout << "     --log-disable               Disable logging, override cfg setting" << "\n" << flush;
   cout << "\n" << flush;
 }
 

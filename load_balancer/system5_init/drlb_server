@@ -20,8 +20,8 @@
 # source function library
 . /etc/rc.d/init.d/functions
 
-if [ ! -f /etc/drlb_server/active_configs.list ]; then
-   echo "ERROR - No configs found missing: /etc/drlb_server/active_configs.list"
+if [ ! -f /etc/drlb/active_configs.list ]; then
+   echo "ERROR - No configs found missing: /etc/drlb/active_configs.list"
    exit 1
 fi 
 
@@ -29,7 +29,7 @@ error_level=0
 
 LBPROCNAME="drlb_server"
 LBPROC="/usr/sbin/${LBPROCNAME}"
-ACTIVE_CONFIGS="/etc/drlb_server/active_configs.list"
+ACTIVE_CONFIGS="/etc/drlb/active_configs.list"
 SINGLECONFIG="${2}"
 
 # System specific ENV overrides

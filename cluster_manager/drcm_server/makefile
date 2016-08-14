@@ -50,6 +50,8 @@ install_root:
 	chmod 755 /etc/drcm/crontabs
 	if [ ! -f /etc/drcm/crontabs/apps_package1 ]; then cp -fv ../etc/crontabs/apps_package1 /etc/drcm/crontabs/apps_package1; fi	
 	if [ ! -f /etc/drcm/crontabs/apps_package2 ]; then cp -fv ../etc/crontabs/apps_package2 /etc/drcm/crontabs/apps_package2; fi	
+	if [ ! -f /etc/drcm/crontabs/apps_package3 ]; then cp -fv ../etc/crontabs/apps_package3 /etc/drcm/crontabs/apps_package3; fi	
+	if [ ! -f /etc/drcm/crontabs/apps_package4 ]; then cp -fv ../etc/crontabs/apps_package4 /etc/drcm/crontabs/apps_package4; fi	
 	if [ ! -f /etc/drcm/crontabs/system_crons ]; then cp -fv ../etc/crontabs/system_crons /etc/drcm/crontabs/system_crons; fi	
 	if [ ! -f /etc/drcm/crontabs/user_crons ]; then cp -fv ../etc/crontabs/user_crons /etc/drcm/crontabs/user_crons; fi	
 	chmod 644 /etc/drcm/crontabs/*
