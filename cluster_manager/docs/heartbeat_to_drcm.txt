@@ -1,0 +1,253 @@
+Quick start instructions for transition from 2 node heartbeat to DRCM
+RHEL6/CENTOS6 bare metal NFS cluster example
+Last modeified: 08/14/2016
+
+NOTE: The 2-way file replication at the end of this document is not part of heartbeat.
+NOTE: The 2-way file replication transition only applies to clusters using the 
+NOTE: file_system_sync add on for HA clusters.
+
+On both cluster nodes:
+
+# cd /root
+# crontab -l > crontab
+# crontab -r
+
+# cd /var/spool/cron
+# ls -rtal
+
+Backup and remove all user crons as required by your server setup.
+
+On both cluster nodes:
+
+# service heartbeat stop
+# chkconfig heartbeat off
+
+Check for deprecated ATRPMS repo:
+
+# ls -rtal /etc/yum.repos.d/atrpms.repo
+# emacs /etc/yum.repos.d/atrpms.repo
+
+enabled=0
+
+Remove heartbeat:
+
+# yum remove heartbeat-devel heartbeat-libs heartbeat pacemaker
+# mv /etc/ha.d /etc/ha.d_old_archive_only
+
+From user account on both nodes:
+
+$ cd $HOME
+$ mkdir -p git
+$ cd git
+$ git clone https://github.com/datareel/datareel
+$ cd $HOME/git/datareel/cluster_manager/drcm_server
+$ make
+$ sudo su root -c 'make install_root'
+
+As root, on primary node:
+
+# /usr/sbin/drcm_server --check-config
+# emacs /etc/drcm/cm.cfg /etc/ha.d_old_archive_only/ha.cf
+
+[CM_NODE]
+nodename = nfs1
+hostname = nfs1.example.com
+keep_alive_ip = 192.168.2.111
+
+from ha.cf:
+
+node nfs1.example.com
+node nfs2.example.com
+ucast p2p1 192.168.2.112
+
+from ha.cf on backup node:
+
+ucast p2p1 192.168.2.111
+
+NOTE: Must get ucast value from the ha.cf from both nodes. In heartbaet the order is reversed.
+
+# emacs /etc/drcm/cm.cfg /etc/ha.d_old_archive_only/haresources
+
+[CM_IPADDRS]
+web, 192.168.2.15, 26, em1, /etc/drcm/resources/ipv4addr.sh
+db, 192.168.2.17, 24, em2, /etc/drcm/resources/ipv4addr.sh
+
+from haresources
+
+nfs1.example.com IPaddr2::192.168.2.15/26/em1 IPaddr2::192.168.2.17/24/em2 Crontab::system_crons Crontab::user_crons Crontab::user_crons mysqld::start
+
+# cp /etc/ha.d_old_archive_only/cron.d/system_crons /etc/drcm/crontabs/nfs_system_crons
+# cp /etc/ha.d_old_archive_only/cron.d/user_crons /etc/drcm/crontabs/nfs_user_crons
+
+Review all crontabs:
+
+# emacs /etc/drcm/crontabs/nfs_system_crons
+# emacs /etc/drcm/crontabs/nfs_user_crons
+
+# emacs /etc/drcm/cm.cfg
+
+[CM_CRONTABS]
+system, /etc/drcm/crontabs/nfs_system_crons, /etc/cron.d, /etc/drcm/resources/crontab.sh
+user, /etc/drcm/crontabs/nfs_user_crons, /etc/cron.d, /etc/drcm/resources/crontab.sh
+
+[CM_SERVICES]
+mysql, mysqld, /etc/drcm/resources/service.sh
+
+[CM_NODE]
+nodename = nfs1
+...
+node_crontabs = user,system
+node_backup_crontabs =
+node_floating_ip_addrs = web, db
+node_services = mysql
+node_backup_services =
+node_applications =
+node_filesystems =
+node_backup_filesystems =
+
+
+[CM_NODE]
+nodename = nfs2
+...
+node_crontabs =	
+node_backup_crontabs = nfs1:user, nfs1:system
+node_floating_ip_addrs =
+node_backup_floating_ip_addrs = nfs1:web, nfs1:db
+node_services =
+node_backup_services = nfs1:mysql
+node_applications =
+node_backup_applications =
+node_filesystems =
+node_backup_filesystems =
+
+On primary node:
+
+# dd if=/dev/urandom bs=1024 count=2 > /etc/drcm/.auth/authkey
+# sha1sum /etc/drcm/.auth/authkey | cut -b1-40 > /etc/drcm/.auth/authkey.sha1
+# chmod 600 /etc/drcm/.auth/authkey /etc/drcm/.auth/authkey.sha1
+
+# /usr/sbin/drcm_server --check-config
+
+# ifconfig
+
+Check for floating IP addresses
+
+# service drcm_server start; service drcm_server status
+# /usr/sbin/drcm_server --client --command=cm_stat
+
+Depending on you cm.cfg setting the cluster resource will activate with 1 to 5 mintues:
+
+# /usr/sbin/drcm_server --client --command=cm_stat
+
+  Node status: Cluster has 1 node DOWN
+  Resource status: All cluster resources in NORMAL state
+  Cluster status: DOWN nodes
+
+# ifconfig
+# chkconfig drcm_server on
+
+Mirror /etc/drcm directory to back up node:
+
+# rsync -avc -n /etc/drcm nfs2:/etc/.
+
+Only after testing with command above:
+
+# rsync -avc /etc/drcm nfs2:/etc/.
+
+On backup node:
+
+# /usr/sbin/drcm_server --check-config
+# chkconfig drcm_server on
+# service drcm_server start; service drcm_server status
+
+# /usr/sbin/drcm_server --client --command=cm_stat
+
+  Node status: All cluster nodes are UP
+  Resource status: All cluster resources in NORMAL state
+  Cluster status: HEALTHY
+
+SETUP FOR 2-WAY FILE REPLICATION:
+---------------------------------
+On primary node, setup file replication if needed:
+
+# emacs /etc/drcm/my_cluster_conf/my_cluster_info.sh /etc/ha.d_old_archive_only/my_cluster_info.cfg
+
+export CLUSTER_NAME="nfs"
+export BACKUP_STORAGE_SERVER="192.168.2.1"
+export BACKUP_STORAGE_LOCATION="/backups"
+export BACKUP_USER="root"
+export PRIMARY_FILESYSTEMS_IP="192.168.2.111"
+export PRIMARY_FILESYSTEMS_ETH="p2p1"
+export BACKUP_FILESYSTEMS_IP="192.168.2.112"
+export BACKUP_FILESYSTEMS_ETH="p2p1"
+export PRIMARY_FILESYSTEMS_RSYNC_IP="192.168.3.111"
+export BACKUP_FILESYSTEMS_RSYNC_IP="192.168.3.112"
+
+from /etc/ha.d_old_archive_only/my_cluster_info.cfg:
+
+CLUSTERNAME="nfs"
+NODE_INTERFACE="em1:1"
+HB1_INTERFACE="p2p1"
+HB2_INTERFACE="p2p2"
+
+NOTE: PRIMARY_FILESYSTEMS_RSYNC_IP = keep alive IP
+NOTE: BACKUP_FILESYSTEMS_RSYNC_IP = keep alive IP
+
+NOTE: PRIMARY_FILESYSTEMS_RSYNC_IP = ifcfg p2p2
+NOTE: BACKUP_FILESYSTEMS_RSYNC_IP = ssh nfs2 ifcfg p2p2
+
+NOTE: BACKUP_STORAGE_SERVER = Server used to backup all nodes
+NOTE: BACKUP_STORAGE_LOCATION = The DIR on storage server where you keep your backups
+
+Copy over FS sync configurations:
+
+# cp /etc/ha.d_old_archive_only/file_system_sync/*.cfg /etc/drcm/my_cluster_conf/.
+# cd /etc/drcm/my_cluster_conf
+# chmod 644 *.cfg
+# files=$(find -name "*.cfg" -print)
+# for f in ${files}; do newname=$(echo $f | sed s/.cfg/.sh/g); mv ${f} ${newname}; done
+# mv samba_sync_list.sh cifs_sync_list.sh
+
+# /etc/drcm/file_system_sync/backup_to_shared_storage.sh
+# /etc/drcm/file_system_sync/sync_testfs.sh
+
+Mirror /etc/drcm directory to back up node:
+
+# rsync -avc -n /etc/drcm nfs2:/etc/.
+
+Only after testing with command above:
+
+# rsync -avc /etc/drcm nfs2:/etc/.
+
+On the primary node, add the following to root's crontab:
+# crontab -e -u root
+
+*/5 * * * *  /etc/drcm/file_system_sync/sync_mysql.sh > /dev/null 2>&1
+*/5 * * * *  /etc/drcm/file_system_sync/sync_pgsql.sh > /dev/null 2>&1
+*/5 * * * *  /etc/drcm/file_system_sync/sync_testfs.sh > /dev/null 2>&1
+*/6 * * * *  /etc/drcm/file_system_sync/sync_cifs.sh > /dev/null 2>&1
+*/7 * * * *  /etc/drcm/file_system_sync/sync_nfs.sh > /dev/null 2>&1
+*/8 * * * *  /etc/drcm/file_system_sync/sync_www.sh > /dev/null 2>&1
+*/11 * * * * /etc/drcm/file_system_sync/sync_other.sh > /dev/null 2>&1
+
+On the backup node, add the following to root's crontab:
+# crontab -e -u root
+
+* * * * * /etc/drcm/file_system_sync/sync_mysql.sh > /dev/null 2>&1
+* * * * * /etc/drcm/file_system_sync/sync_pgsql.sh > /dev/null 2>&1
+* * * * * /etc/drcm/file_system_sync/sync_testfs.sh > /dev/null 2>&1
+* * * * * /etc/drcm/file_system_sync/sync_cifs.sh > /dev/null 2>&1
+* * * * * /etc/drcm/file_system_sync/sync_nfs.sh > /dev/null 2>&1
+* * * * * /etc/drcm/file_system_sync/sync_www.sh > /dev/null 2>&1
+* * * * * /etc/drcm/file_system_sync/sync_other.sh > /dev/null 2>&1
+
+To test the FS fail over and fail back:
+
+On primary node:
+
+# /etc/drcm/utils/manual_fs_failover.sh
+# /usr/sbin/drcm_server --client --command=cm_stat
+
+To fail back:
+
+service drcm_server restart
