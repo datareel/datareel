@@ -31,4 +31,8 @@ install_root:
 	if [ -d /etc/systemd/system ]; then cp -fv ../systemd_init/drlb_server.service  /etc/systemd/system/drlb_server.service; fi
 	if [ -d /etc/systemd/system ]; then chmod 644 /etc/systemd/system/drlb_server.service; fi
 	if [ -d /etc/systemd/system ]; then systemctl daemon-reload; fi
+	mkdir -p /usr/share/doc/drlb
+	cp -fv ../README.txt /usr/share/doc/drlb/README.txt
+	cp -fv ../COPYING /usr/share/doc/drlb/COPYING
+	cp -fv ../version.txt /usr/share/doc/drlb/version.txt
 

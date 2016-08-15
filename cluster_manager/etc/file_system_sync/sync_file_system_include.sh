@@ -364,7 +364,7 @@ if [ "${BACKUPNODE}" == "${FAILBACKNODE}" ]
     if [ ! -e ${VARdir}/${SERVICENAME}_failback_sync_flag ]
 	then 
 	echo "We have no sync flag for ${SERVICENAME} files" | tee -a ${LOGfile}
-	echo "No file sync to primary cluster node will be prefomred" | tee -a ${LOGfile}
+	echo "No file sync to primary cluster node will be performed" | tee -a ${LOGfile}
 	RemoveLockFile
 	exit 1
     fi
@@ -375,7 +375,7 @@ if [ "${BACKUPNODE}" == "${FAILBACKNODE}" ]
     if [ $? -ne 0 ]
 	then
 	echo "Primary cluster node is still down" | tee -a ${LOGfile}
-	echo "No file sync to primary cluster node will be prefomred" | tee -a ${LOGfile}
+	echo "No file sync to primary cluster node will be performed" | tee -a ${LOGfile}
 	RemoveLockFile
 	exit 1
     fi
