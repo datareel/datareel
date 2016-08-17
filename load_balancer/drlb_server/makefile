@@ -35,4 +35,6 @@ install_root:
 	cp -fv ../README.txt /usr/share/doc/drlb/README.txt
 	cp -fv ../COPYING /usr/share/doc/drlb/COPYING
 	cp -fv ../version.txt /usr/share/doc/drlb/version.txt
+	gzip -c ../man/drlb_server.8 > /usr/share/man/man8/drlb_server.8.gz
+	chmod 644  /usr/share/man/man8/drlb_server.8.gz
 
