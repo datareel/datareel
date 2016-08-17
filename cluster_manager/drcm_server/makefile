@@ -82,5 +82,7 @@ install_root:
 	cp -fv ../version.txt /usr/share/doc/drcm/version.txt
 	gzip -c ../man/drcm_server.1 > /usr/share/man/man1/drcm_server.1.gz
 	gzip -c ../man/drcm_server.8 > /usr/share/man/man8/drcm_server.8.gz
-	chmod 644  /usr/share/man/man1/drcm_server.1.gz /usr/share/man/man8/drcm_server.8.gz
+	chmod 644  /usr/share/man/man1/drcm_server.1.gz
+	chmod 644 /usr/share/man/man8/drcm_server.8.gz
+
 
