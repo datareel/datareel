@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/17/2016
+// Date Last Modified: 08/18/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -56,17 +56,6 @@ ClientSocket_t::~ClientSocket_t()
 
 }
 
-SocketWR_t::~SocketWR_t() {
-  if(buffer) delete buffer;
-  gxListNode<MemoryBuffer *> *ptr = cache.GetHead();
-  while(ptr) {
-    delete ptr->data;
-    ptr->data = 0;
-    ptr = ptr->next;
-  }
-  cache.ClearList();
-}
-
 int LBServerThread::InitServer(int max_connections)
 // Initialize the server. Returns a non-zero value if any errors ocurr.
 {
@@ -113,8 +102,10 @@ int LBServerThread::InitServer(int max_connections)
 
 void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
 {
-  gxString message;
+  gxString message, sbuf;
   int accept_retires = 5;
+  int error_number = 0;
+
   while(servercfg->accept_clients) { 
     if(servercfg->debug && servercfg->debug_level == 5) {
       LogDebugMessage("LB server thread accept() call");
@@ -181,8 +172,11 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
 
     ClientSocket_t *s = new ClientSocket_t;
     if(!s) {
+      get_fd_error(error_number, sbuf);
       message << clear << "[" << seq_num << "]: ERROR - A fatal memory allocation error occurred in main server thread";
       LogMessage(message.c_str());
+      message << clear << "[" << seq_num << "]: Fatal memory error ENUM: " << error_number << " Message: " << sbuf;
+      LogProcMessage(message.c_str());
       break;
     }
     
@@ -196,18 +190,28 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
     RebuildThreadPool(servercfg->client_request_pool);
 
     if(servercfg->debug && servercfg->debug_level == 5) LogDebugMessage("LB server starting client request thread");
-    gxThread_t *rthread = request_thread.CreateThread(servercfg->client_request_pool, (void *)s);
+
+    gxThreadType type = gxTHREAD_TYPE_DETACHED;
+    gxThreadPriority prio = gxTHREAD_PRIORITY_NORMAL;
+    gxStackSizeType ssize = 2048;
+    gxThread_t *rthread = request_thread.CreateThread(servercfg->client_request_pool, (void *)s, prio, type, ssize);
     if(!rthread) {
+      get_fd_error(error_number, sbuf);
       message << clear << "[" << seq_num << "]: ERROR - Memory allocation main server thread, cannot allocate client thread";
       LogMessage(message.c_str());
-      delete s;
+      message << clear << "[" << seq_num << "]: Fatal thread create error ENUM: " << error_number << " Message: " << sbuf;
+      LogProcMessage(message.c_str());
+      delete s; s = 0;
       break;
     }
 
     if(CheckThreadError(rthread, seq_num)) {
+      get_fd_error(error_number, sbuf);
       message << clear << "[" << seq_num << "]: ERROR - Fatal error starting client thread";
       LogMessage(message.c_str());
-      delete s;
+      message << clear << "[" << seq_num << "]: " << rthread->ThreadExceptionMessage() << " ENUM: " << error_number << " Message: " << sbuf;
+      LogProcMessage(message.c_str());
+      delete s; s = 0;
       break;
     }
   }
@@ -250,20 +254,20 @@ void LBClientRequestThread::ThreadExitRoutine(gxThread_t *thread)
 // Thread exit function used to close the client thread.
 {
   gxString message;
-
-  // Extract the client socket from the thread parameter
-  ClientSocket_t *s = (ClientSocket_t *)thread->GetThreadParm();
-
-  if(servercfg->debug && servercfg->debug_level == 5) { 
-    message << clear << "[" << s->seq_num << "]: Client request thread exit routine closing connections";
-    LogDebugMessage(message.c_str());
-  }
-
   servercfg->NUM_CLIENT_THREADS(0, 1);
-  if(s->node) s->node->NUM_CONNECTIONS(0, 1);
 
-  if(s) delete s;
-  s = 0;
+  ClientSocket_t *s = (ClientSocket_t *)thread->GetThreadParm();
+  if(s) {
+    if(servercfg->debug && servercfg->debug_level == 5) { 
+      message << clear << "[" << s->seq_num 
+	      << "]: Client request thread exit routine closing connections";
+      LogDebugMessage(message.c_str());
+    }
+   if(s->node) s->node->NUM_CONNECTIONS(0, 1);
+    close(s->client_socket);
+    close(s->client.GetSocket());
+    delete s; s = 0;
+  }
 }
 
 void LBClientRequestThread::ThreadCleanupHandler(gxThread_t *thread)
@@ -271,20 +275,19 @@ void LBClientRequestThread::ThreadCleanupHandler(gxThread_t *thread)
 // canceled.
 {
   gxString message;
-
-  // Extract the client socket from the thread parameter
-  ClientSocket_t *s = (ClientSocket_t *)thread->GetThreadParm();
-
-  if(servercfg->debug && servercfg->debug_level == 5) { 
-    message << clear << "[" << s->seq_num << "]: Client request thread clean up handler closing connections";
-    LogDebugMessage(message.c_str());
-  }
-
   servercfg->NUM_CLIENT_THREADS(0, 1);
-  if(s->node) s->node->NUM_CONNECTIONS(0, 1);
-
-  if(s) delete s;
-  s = 0;
+  ClientSocket_t *s = (ClientSocket_t *)thread->GetThreadParm();
+  if(s) {
+    if(servercfg->debug && servercfg->debug_level == 5) { 
+      message << clear << "[" << s->seq_num 
+	      << "]: Client request thread exit routine closing connections";
+      LogDebugMessage(message.c_str());
+    }
+    if(s->node) s->node->NUM_CONNECTIONS(0, 1);
+    close(s->client_socket);
+    close(s->client.GetSocket());
+    delete s; s = 0;
+  }
 }
 
 int get_fd_error(int &error_number, gxString &sbuf)
@@ -370,7 +373,6 @@ void LBClientRequestThread::HandleClientRequest(ClientSocket_t *s)
     LogDebugMessage(message.c_str());
   }
 
-  // TODO: Added cached version
   if(servercfg->use_buffer_cache) {
     LB_CachedReadWrite(s, n->buffer_size);
   }
@@ -378,8 +380,8 @@ void LBClientRequestThread::HandleClientRequest(ClientSocket_t *s)
     LB_ReadWrite(s, n->buffer_size);
   }
 
-  close(s->client_socket);
-  close(s->client.GetSocket());
+  shutdown(s->client_socket, SHUT_RDWR);
+  shutdown(s->client.GetSocket(), SHUT_RDWR);
 
   if(servercfg->debug && servercfg->debug_level == 5) {
     message << clear << "[" << seq_num << "]: Client has disconnected, exiting client request thread";
@@ -408,8 +410,10 @@ int LBClientRequestThread::LB_ReadWrite(ClientSocket_t *s, int buffer_size)
       ready = 0;
     }
     else {
-      idle_count++;
-      if(idle_count >= servercfg->max_idle_count) ReadSelect(s->client_socket, servercfg->idle_wait_secs, servercfg->idle_wait_usecs); // Keep CPU from spiking
+      if(!servercfg->use_nonblock_sockets) {
+	idle_count++;
+	if(idle_count >= servercfg->max_idle_count) ReadSelect(s->client_socket, servercfg->idle_wait_secs, servercfg->idle_wait_usecs);
+      }
       flags1 = fcntl(s->client_socket, F_GETFL, 0);
       fcntl(s->client_socket, F_SETFL, flags1 | O_NONBLOCK); // Set read not to block
       ready = recv(s->client_socket, buffer, buffer_size, MSG_PEEK); 
@@ -544,16 +548,14 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
   gxList<MemoryBuffer *> cache;
   gxListNode<MemoryBuffer *> *ptr = 0;
   int idle_count = 0;
-  const int max_idle_count = 60000;
 
   while(servercfg->accept_clients) {
     ready = 1;
     bytes_read = bytes_moved = 0;
-    idle_count++;
-
-    // Keep CPU from spiking
-    if(idle_count >= servercfg->max_idle_count) ReadSelect(s->client_socket, servercfg->idle_wait_secs, servercfg->idle_wait_usecs);
-
+    if(!servercfg->use_nonblock_sockets) {
+      idle_count++;
+      if(idle_count >= servercfg->max_idle_count) ReadSelect(s->client_socket, servercfg->idle_wait_secs, servercfg->idle_wait_usecs);
+    }
     while(ready > 0) {
       flags1 = fcntl(s->client_socket, F_GETFL, 0);
       fcntl(s->client_socket, F_SETFL, flags1 | O_NONBLOCK); // Set read not to block
@@ -772,329 +774,6 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
   cache.ClearList();
   delete buffer;
   return error_level;
-}
-
-void SocketWRThread::ThreadExitRoutine(gxThread_t *thread)
-// Thread exit function used to close the client thread.
-{
-  gxString message;
-  SocketWR_t *s = (SocketWR_t *)thread->GetThreadParm();
-
-  if(servercfg->debug && servercfg->debug_level == 5) { 
-    message << clear << "[" << s->seq_num << "]: " << s->log_str << " read/write thread exiting";
-    LogDebugMessage(message.c_str());
-  }
-  if(s) delete s;
-  s = 0;
-  servercfg->NUM_CLIENT_THREADS(0, 1);
-}
-
-void SocketWRThread::ThreadCleanupHandler(gxThread_t *thread)
-// Thread cleanup handler used in the event that the thread is
-// canceled.
-{
-  gxString message;
-  SocketWR_t *s = (SocketWR_t *)thread->GetThreadParm();
-  if(servercfg->debug && servercfg->debug_level == 5) { 
-    message << clear << "[" << s->seq_num << "]: " << s->log_str << " read/write thread clean up handler";
-    LogDebugMessage(message.c_str());
-  }
-  if(s) delete s;
-  s = 0; 
-  servercfg->NUM_CLIENT_THREADS(0, 1);
-}
-
-
-void *SocketWRThread::ThreadEntryRoutine(gxThread_t *thread)
-{
-  SocketWR_t *s = (SocketWR_t *)thread->GetThreadParm();
-  int rv;
-
-  servercfg->NUM_CLIENT_THREADS(1);
-  gxString message;
-
-  if(servercfg->use_buffer_cache) {
-    while(servercfg->echo_loop) {
-      rv = read_socket_cached(s);
-      if(rv < 0) {
-	// Socket is closed, so we need to signal both sides not to read or write
-
-	if(s->log_str == "Frontend") shutdown(s->read_sock, SHUT_RDWR);
-	if(s->log_str == "Backend") shutdown(s->write_sock, SHUT_RDWR);
-
-	//	shutdown(s->write_sock, SHUT_RDWR);
-	//	close(s->write_sock);
-	//	s->write_sock = -1;
-	break;
-      }
-      if(rv == 0) {
-	if(servercfg->debug || servercfg->log_level > 3) {
-	  message << clear << "[" << s->seq_num << "]: " << s->log_str << " client has disconnected";
-	  LogMessage(message.c_str());
-	}
-	//	Socket is halfway closed, so we need to signal both sides not to read or write
-	if(s->log_str == "Frontend") shutdown(s->read_sock, SHUT_RDWR);
-	if(s->log_str == "Backend") shutdown(s->write_sock, SHUT_RDWR);
-	break;
-      }
-      rv = write_socket_cached(s);
-      if(rv < 0) {
-
-	if(s->log_str == "Frontend") shutdown(s->read_sock, SHUT_RDWR);
-	if(s->log_str == "Backend") shutdown(s->write_sock, SHUT_RDWR);
-
-	//	shutdown(s->read_sock, SHUT_RDWR);
-	//	close(s->read_sock);
-	//	s->read_sock = -1;
-	break;
-      }
-    }
-  }
-  else {
-    while(servercfg->echo_loop) {
-      rv = read_socket(s);
-      if(rv < 0) {
-	// Socket is closed, so we need to signal both sides not to read or write
-	shutdown(s->write_sock, SHUT_RDWR);
-	break;
-      }
-      if(rv == 0) {
-	if(servercfg->debug || servercfg->log_level > 3) {
-	  message << clear << "[" << s->seq_num << "]: " << s->log_str << " client has disconnected";
-	  LogMessage(message.c_str());
-	}
-	// Socket is halfway closed, so we need to signal both sides not to read or write
-	shutdown(s->write_sock, SHUT_RDWR);
-	break;
-      }
-      rv = write_socket(s);
-      if(rv < 0) {
-	shutdown(s->read_sock, SHUT_RDWR);
-	break;
-      }
-    }
-  }
-
-  return (void *)0;
-}
-
-// Returns number of bytes read.
-// Returns -1 if there is a socket error
-// Returns 0 if no bytes where read
-int SocketWRThread::read_socket(SocketWR_t *s)
-{
-  int br = 0;
-  gxString message, sbuf;
-  unsigned seq_num = s->seq_num;
-  int error_number = 0;
-
-  if(s->read_sock < 0) {
-    s->bytes_read = 0;
-    return -1;
-  }
-
-  if(servercfg->use_timeout && (!ReadSelect(s->read_sock, servercfg->timeout_secs, servercfg->timeout_usecs))) {
-    if(servercfg->log_level >= 4) {
-      message << clear << "[" << seq_num << "]: " << s->log_str << " read socket timeout after " 
-	      << servercfg->timeout_secs << " secs " << servercfg->timeout_usecs << " usecs";
-      LogMessage(message.c_str());
-      message << clear << "[" << seq_num << "]: Closing " << s->log_str << " connection"; 
-      LogMessage(message.c_str());
-    }
-    s->bytes_read = 0;
-    return -1;
-  }
-  br = read(s->read_sock, s->buffer, s->buffer_size);
-  if(servercfg->debug && servercfg->debug_level == 5) { 
-    get_fd_error(error_number, sbuf);
-    message << clear << "[" << seq_num << "]: " << s->log_str << " read() Return: " << br << " ENUM: " << error_number << " Message: " << sbuf;
-    LogMessage(message.c_str());
-  }
-  if(br == 0) {
-    s->bytes_read = 0;
-    return 0;
-  }
-  if(br < 0) {
-    if(servercfg->log_level >= 3) {
-      message << clear << "[" << seq_num << "]: Error reading from " << s->log_str << " client socket";
-      LogMessage(message.c_str());
-      message << clear << "[" << seq_num << "]: " << s->log_str << " read returned " << br << " ERROR: " << error_number << ": " << sbuf;
-      LogMessage(message.c_str());
-    }
-    s->bytes_read = 0;
-    return -1;
-  }
-  s->bytes_read = br;
-  return br;
-}
-
-int SocketWRThread::write_socket(SocketWR_t *s)
-{
-  gxString message, sbuf;
-  unsigned seq_num = s->seq_num;
-  int error_number = 0;
-
-  if(s->bytes_read == 0) return 0;
-  if(s->bytes_read < 0) return -1;
-
-  if(s->write_sock < 0) {
-    return -1;
-  }
-
-  int bm = write(s->write_sock, s->buffer, s->bytes_read);
-  get_fd_error(error_number, sbuf);
-  if(servercfg->debug && servercfg->debug_level == 5) { 
-    message << clear << "[" << seq_num << "]: " << s->log_str << " write() Return: " << bm << " ENUM: " << error_number << " Message: " << sbuf;
-    LogDebugMessage(message.c_str());
-  }
-  
-  if(bm < 0) {
-    if(servercfg->log_level >= 3) {
-      message << clear << "[" << seq_num << "]: Error writing to " << s->log_str << " client socket";
-      LogMessage(message.c_str());
-      message << clear << "[" << seq_num << "]: " << s->log_str << " write returned " << bm << " ERROR: " << error_number << ": " << sbuf;
-      LogMessage(message.c_str());
-    }
-    return -1;
-  }
-  return bm;
-}
-
-// Returns number of bytes read.
-// Returns -1 if there is a socket error
-// Returns 0 if no bytes where read
-int SocketWRThread::read_socket_cached(SocketWR_t *s)
-{
-  int br = 0;
-  gxString message, sbuf;
-  unsigned seq_num = s->seq_num;
-  int error_number = 0;
-  int ready = 1;
-  fd_set sock_fds;
-  struct timeval timeo;
-
-  if(s->read_sock < 0) {
-    s->bytes_read = 0;
-    return -1;
-  }
-
-  while(ready > 0) {
-    if(servercfg->use_timeout && (!ReadSelect(s->read_sock, servercfg->timeout_secs, servercfg->timeout_usecs))) {
-      if(servercfg->log_level >= 4) {
-	message << clear << "[" << seq_num << "]: " << s->log_str << " read socket timeout after " 
-		<< servercfg->timeout_secs << " secs " << servercfg->timeout_usecs << " usecs";
-	LogMessage(message.c_str());
-	message << clear << "[" << seq_num << "]: Closing " << s->log_str << " connection"; 
-	LogMessage(message.c_str());
-      }
-      s->bytes_read = 0;
-      return -1;
-    }
-    br = read(s->read_sock, s->buffer, s->buffer_size);
-    get_fd_error(error_number, sbuf);
-    if(servercfg->debug && servercfg->debug_level == 5) { 
-      message << clear << "[" << seq_num << "]: Cached " << s->log_str << " read() Return: " << br << " ENUM: " << error_number << " Message: " << sbuf;
-      LogDebugMessage(message.c_str());
-    }
-    if(br == 0) {
-      s->bytes_read = 0;
-      return 0;
-    }
-    if(br < 0) {
-      if(servercfg->log_level >= 3) {
-	message << clear << "[" << seq_num << "]: Error reading from " << s->log_str << " client socket";
-	LogMessage(message.c_str());
-	message << clear << "[" << seq_num << "]: " << s->log_str << " read returned " << br << " ERROR: " << error_number << ": " << sbuf;
-	LogMessage(message.c_str());
-      }
-      s->bytes_read = 0;
-      return -1;
-    }
-    s->bytes_read += br;
-
-    if(servercfg->enable_buffer_overflow_detection) {
-      if(s->bytes_read >= servercfg->buffer_overflow_size) {
-	if(servercfg->log_level >= 3) {
-	  message << clear << "[" << seq_num << "]: " << s->log_str << " read " << s->bytes_read << " bytes from client";
-	  LogMessage(message.c_str());
-	  message << clear << "[" << seq_num << "]: " << s->log_str << " Closing connection due to buffer overflow";
-	  LogMessage(message.c_str());
-	}
-      }
-    }
-
-    MemoryBuffer *inbuf = new MemoryBuffer(s->buffer, br);
-    s->cache.Add(inbuf);
-
-    // Check for bytes waiting to be read
-    int flags1 = fcntl(s->read_sock, F_GETFL, 0);
-    fcntl(s->read_sock, F_SETFL, flags1 | O_NONBLOCK); // Set read not to block
-    ready = recv(s->read_sock, s->buffer, s->buffer_size, MSG_PEEK); 
-    if(errno == EAGAIN) { // EAGAIN and EWOULDBLOCK are the same value
-      errno = 0;
-    }
-    fcntl(s->read_sock, F_SETFL, flags1); // Set socket back to blocking read
-  }
-  return s->bytes_read;
-}
-
-int SocketWRThread::write_socket_cached(SocketWR_t *s)
-{
-  gxString message, sbuf;
-  unsigned seq_num = s->seq_num;
-  int error_number = 0;
-  int bytes_moved = 0;
-  int bm = 0;
-
-  if(s->bytes_read == 0) return 0;
-  if(s->bytes_read < 0) return -1;
-
-  if(s->write_sock < 0) {
-    return -1;
-  }
-
-  gxListNode<MemoryBuffer *> *ptr = s->cache.GetHead();
-  bytes_moved = 0;
-  while(ptr) {
-    bm = write(s->write_sock, ptr->data->m_buf(), ptr->data->length());
-    get_fd_error(error_number, sbuf);
-    if(bm > 0) bytes_moved += bm;
-    if(bm < 0 && error_number == EAGAIN) { // EAGAIN and EWOULDBLOCK are the same value
-      bm = bytes_moved;
-      break;
-    }
-    if(bm < 0) {
-      if(servercfg->log_level >= 3) {
-	message << clear << "[" << seq_num << "]: Error writing to " << s->log_str << " client socket";
-	LogMessage(message.c_str());
-	message << clear << "[" << seq_num << "]: " << s->log_str << " write returned " << bm << " ERROR: " << error_number << ": " << sbuf;
-	LogMessage(message.c_str());
-      }
-      break;
-    }
-    if(servercfg->debug && servercfg->debug_level == 5) { 
-      message << clear << "[" << seq_num << "]: " << s->log_str << " cached write() Return: " << bm << " ENUM: " << error_number << " Message: " << sbuf;
-      LogDebugMessage(message.c_str());
-    }
-    ptr = ptr->next;
-  }
-
-  ptr = s->cache.GetHead();
-  while(ptr) {
-    delete ptr->data;
-    ptr->data = 0;
-    ptr = ptr->next;
-  }
-  s->cache.ClearList();
-
-  if(bm < 0) return -1;
-
-  if(servercfg->debug && servercfg->debug_level == 5) { 
-    message << clear << "[" << seq_num << "]: Cached " << s->log_str << " write() bytes moved: " << bytes_moved; 
-    LogDebugMessage(message.c_str());
-  }
-  
-  return bytes_moved;
 }
 
 LBnode *LBClientRequestThread::round_robin(ClientSocket_t *s)

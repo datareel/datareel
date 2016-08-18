@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/16/2016
+// Date Last Modified: 08/18/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -67,60 +67,11 @@ struct ClientSocket_t
   int r_port;
 };
 
-// Hold vars for socket read/write threads
-struct SocketWR_t
-{
-  SocketWR_t() {
-    log_str = "Socket";
-    read_sock = write_sock = -1; 
-    seq_num = 0;
-    buffer = 0;
-    buffer_size = 0;
-    bytes_read = 0;
-    node = 0;
- }
-  ~SocketWR_t();
-
-  gxString log_str;
-  gxsSocket_t read_sock; 
-  gxsSocket_t write_sock; 
-  int seq_num;
-  char *buffer;
-  unsigned buffer_size;
-  gxList<MemoryBuffer *> cache;
-  int bytes_read;
-  LBnode *node;
-};
-
-class SocketWRThread : public gxSocket, public gxThread
-{
-public:
-  SocketWRThread() { }
-  ~SocketWRThread() { }
-
-public:
-  int read_socket(SocketWR_t *s);
-  int write_socket(SocketWR_t *s);
-  int read_socket_cached(SocketWR_t *s);
-  int write_socket_cached(SocketWR_t *s);
-
-private: // gxThread Interface
-  void *ThreadEntryRoutine(gxThread_t *thread);
-  void ThreadExitRoutine(gxThread_t *thread);
-  void ThreadCleanupHandler(gxThread_t *thread);
-};
-
 class LBClientRequestThread : public gxSocket, public gxThread
 {
 public:
-  LBClientRequestThread() { 
-    frontend_rw_thread = 0;
-    backend_rw_thread = 0;
-  }
-  ~LBClientRequestThread() { 
-    if(frontend_rw_thread) delete frontend_rw_thread;
-    if(backend_rw_thread) delete backend_rw_thread;
-  }
+  LBClientRequestThread() { }
+  ~LBClientRequestThread() { }
 
 public: // Client routines
   void HandleClientRequest(ClientSocket_t *s);
@@ -138,9 +89,6 @@ private: // gxThread Interface
   void ThreadCleanupHandler(gxThread_t *thread);
 
 private:
-  SocketWRThread socket_rw_thread;
-  gxThread_t *frontend_rw_thread;
-  gxThread_t *backend_rw_thread;
 };
 
 class LBServerThread : public gxSocket, public gxThread

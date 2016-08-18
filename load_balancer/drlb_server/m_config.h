@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/17/2016
+// Date Last Modified: 08/18/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -189,6 +189,7 @@ struct LBconfig {
   int max_idle_count;
   int idle_wait_secs;
   int idle_wait_usecs;
+  int use_nonblock_sockets;
 
   // Log settings
   int clear_log;
@@ -228,6 +229,7 @@ struct LBconfig {
   int has_log_level_override;
   int has_log_file_clear_override;
   int has_enable_logging_override;
+  int has_disable_logging_override;
 
 private: // Cannot be accessed directly
   int refactored_connections;

@@ -6,7 +6,7 @@
 // Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/17/2016
+// Date Last Modified: 08/18/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -194,6 +194,12 @@ int main(int argc, char **argv)
   NT_print("Idle secs for blocking sockets", sbuf.c_str()); 
   sbuf << clear << servercfg->idle_wait_usecs;
   NT_print("Idle usecs for blocking sockets", sbuf.c_str()); 
+  if(servercfg->use_nonblock_sockets) {
+    NT_print("Using non-blocking sockets, idle settings ignored");
+  }
+  else {
+    NT_print("Using blocking sockets with idle settings");
+  }
   sbuf << clear << servercfg->log_queue_size;
   NT_print("Max number of log or console messages to queue", sbuf.c_str()); 
   sbuf << clear << servercfg->log_queue_debug_size;

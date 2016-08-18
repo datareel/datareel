@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/17/2016
+// Date Last Modified: 08/18/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -126,12 +126,14 @@ LBconfig::LBconfig()
   has_log_level_override = 0;
   has_log_file_clear_override = 0;
   has_enable_logging_override = 0;
+  has_disable_logging_override = 0;
   is_client = 0;
   is_client_interactive = 0;
   log_file_err = 0;
   max_idle_count = 60000;
   idle_wait_secs = 0;
   idle_wait_usecs = 500;
+  use_nonblock_sockets = 0;
 }
 
 LBconfig::~LBconfig()
@@ -458,7 +460,8 @@ int ProcessDashDashArg(gxString &arg)
 {
   gxString sbuf, equal_arg;
   int has_arg_errors = 0;
-  
+  int has_arg = 0;
+
   if(arg.Find("=") != -1) {
     // Look for equal arguments
     // --config-file="/etc/program.cfg"
@@ -489,6 +492,7 @@ int ProcessDashDashArg(gxString &arg)
   if(arg == "verbose") {
     servercfg->has_verbose_override = 1;
     servercfg->verbose = 1;
+    has_arg = 1;
   }
 
   if(arg == "verbose-level") {
@@ -501,12 +505,14 @@ int ProcessDashDashArg(gxString &arg)
       servercfg->has_verbose_level_override = 1;
       servercfg->verbose_level = equal_arg.Atoi(); 
       if(servercfg->verbose_level <= 0) servercfg->verbose_level = 1;
+      has_arg = 1;
     }
   }
 
   if(arg == "debug") {
     servercfg->has_debug_override = 1;
     servercfg->debug = 1;
+    has_arg = 1;
   }
 
   if(arg == "debug-level") {
@@ -520,6 +526,7 @@ int ProcessDashDashArg(gxString &arg)
       servercfg->debug = 1;
       servercfg->debug_level = equal_arg.Atoi(); 
       if(servercfg->debug_level <= 0) servercfg->debug_level = 1;
+      has_arg = 1;
     }
   }
 
@@ -533,6 +540,7 @@ int ProcessDashDashArg(gxString &arg)
       servercfg->has_config_file_override = 1;
       servercfg->config_file = equal_arg;
       servercfg->user_config_file = 1;
+      has_arg = 1;
     }
   }
 
@@ -546,17 +554,20 @@ int ProcessDashDashArg(gxString &arg)
       servercfg->has_log_file_name_override = 1;
       servercfg->logfile_name = equal_arg;
       servercfg->enable_logging = 1;
+      has_arg = 1;
     }
   }
 
   if(arg == "log-file-clear") {
     servercfg->has_log_file_clear_override = 1;
     servercfg->clear_log = 1;
+    has_arg = 1;
   }
 
   if(arg == "log-disable") {
-    servercfg->has_enable_logging_override = 1;
+    servercfg->has_disable_logging_override = 1;
     servercfg->enable_logging = 0;
+    has_arg = 1;
   }
 
   if(arg == "log-level") {
@@ -569,10 +580,13 @@ int ProcessDashDashArg(gxString &arg)
       servercfg->has_log_level_override = 1;
       servercfg->log_level = equal_arg.Atoi(); 
       if(servercfg->log_level < 0) servercfg->log_level = 0;
+      has_arg = 1;
     }
   }
 
-  arg.Clear();
+  arg.Clear(); 
+  if(has_arg == 0) has_arg_errors++;
+  
   return has_arg_errors;
 }
 
@@ -754,7 +768,9 @@ int LoadOrBuildConfigFile()
     dfile << "# Idle time for blocking sockets" << "\n";
     dfile << "max_idle_count = 60000" << "\n";
     dfile << "idle_wait_secs = 0"  << "\n";
-    dfile << "idle_wait_usecs = 500"  << "\n";
+    dfile << "idle_wait_usecs = 500" << "\n";
+    dfile << "# Use non-blocking sockets" << "\n";
+    dfile << "use_nonblock_sockets = 0" << "\n";
     dfile << "#" << "\n";
     dfile << "# Values below can be set here or args when program is launched" << "\n";
     dfile << "# Debug and verbose modes used mainly for development and testing" << "\n";
@@ -923,14 +939,16 @@ int LoadOrBuildConfigFile()
 	if(ptr->data.IFind("max_connections") != -1) {
 	  servercfg->max_connections = CfgGetEqualToParm(ptr->data);
 	}
-	if(ptr->data.IFind("clear_log") != -1) {
-	  if(!servercfg->has_log_file_clear_override) servercfg->clear_log = CfgGetTrueFalseValue(ptr->data);
-	}
-	if(ptr->data.IFind("logfile_name") != -1) {
-	  if(!servercfg->has_log_file_name_override) servercfg->logfile_name = CfgGetEqualToParm(ptr->data, pbuf);
-	}
-	if(ptr->data.IFind("enable_logging") != -1) {
-	  if(!servercfg->has_enable_logging_override) servercfg->enable_logging = CfgGetTrueFalseValue(ptr->data);
+	if(!servercfg->has_disable_logging_override) {
+	  if(ptr->data.IFind("clear_log") != -1) {
+	    if(!servercfg->has_log_file_clear_override) servercfg->clear_log = CfgGetTrueFalseValue(ptr->data);
+	  }
+	  if(ptr->data.IFind("logfile_name") != -1) {
+	    if(!servercfg->has_log_file_name_override) servercfg->logfile_name = CfgGetEqualToParm(ptr->data, pbuf);
+	  }
+	  if(ptr->data.IFind("enable_logging") != -1) {
+	    if(!servercfg->has_enable_logging_override) servercfg->enable_logging = CfgGetTrueFalseValue(ptr->data);
+	  }
 	}
 	if(ptr->data.IFind("log_level") != -1) {
 	  if(!servercfg->has_log_level_override) servercfg->log_level = CfgGetEqualToParm(ptr->data);
@@ -1015,6 +1033,9 @@ int LoadOrBuildConfigFile()
 	    NT_print("Config file has bad timeout_usecs value");
 	    error_level = 1;
 	  }
+	}
+	if(ptr->data.IFind("use_nonblock_sockets") != -1) {
+	  servercfg->use_nonblock_sockets = CfgGetTrueFalseValue(ptr->data);
 	}
 	if(ptr->data.IFind("max_idle_count") != -1) {
 	  servercfg->max_idle_count = CfgGetEqualToParm(ptr->data);
