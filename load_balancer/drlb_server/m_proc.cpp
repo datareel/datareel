@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/17/2016
+// Date Last Modified: 08/17/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -82,35 +82,36 @@ int StopProc()
   unsigned num_threads = 0;
   gxString message;
   ConsoleThread t;
-
-  LogProcMessage("Closing all open client request threads");
-  if(!servercfg->client_request_pool->IsEmpty()) {
-    thrPoolNode *ptr = servercfg->client_request_pool->GetHead();
-    while(ptr) {
-      gxThread_t *thread = ptr->GetThreadPtr();
-      if(thread->GetThreadState() == gxTHREAD_STATE_RUNNING) {
-	num_threads++;
-	t.CancelThread(thread);
-	LogProcMessage("Shutting down client thread");
-	t.JoinThread(thread);
-	if(thread->GetThreadState() == gxTHREAD_STATE_CANCELED) {
-	  LogProcMessage("Client thread was canceled");
+  if(servercfg->client_request_pool) {
+    LogProcMessage("Closing all open client request threads");
+    if(!servercfg->client_request_pool->IsEmpty()) {
+      thrPoolNode *ptr = servercfg->client_request_pool->GetHead();
+      while(ptr) {
+	gxThread_t *thread = ptr->GetThreadPtr();
+	if(thread->GetThreadState() == gxTHREAD_STATE_RUNNING) {
+	  num_threads++;
+	  t.CancelThread(thread);
+	  LogProcMessage("Shutting down client thread");
+	  t.JoinThread(thread);
+	  if(thread->GetThreadState() == gxTHREAD_STATE_CANCELED) {
+	    LogProcMessage("Client thread was canceled");
+	  }
+	  else {
+	    LogProcMessage("Client thread was not canceled");
+	    return 0;
+	  }
 	}
-	else {
-	  LogProcMessage("Client thread was not canceled");
-	  return 0;
-	}
-      }
-      ptr = ptr->GetNext();
-    } 
-    message << clear << "Found " << num_threads << " working client threads";
-    LogProcMessage(message.c_str());
-    sSleep(1); // Allow I/O recovery time
-    t.DestroyThreadPool(servercfg->client_request_pool);
-    servercfg->client_request_pool = 0;
-  }
-  else {
-    LogProcMessage("No open connections");
+	ptr = ptr->GetNext();
+      } 
+      message << clear << "Found " << num_threads << " working client threads";
+      LogProcMessage(message.c_str());
+      sSleep(1); // Allow I/O recovery time
+      t.DestroyThreadPool(servercfg->client_request_pool);
+      servercfg->client_request_pool = 0;
+    }
+    else {
+      LogProcMessage("No open connections");
+    }
   }
 
   if(servercfg->console_thread) {
@@ -119,6 +120,8 @@ int StopProc()
       t.JoinThread(servercfg->console_thread);
       if(servercfg->console_thread->GetThreadState() == gxTHREAD_STATE_CANCELED) {
 	LogProcMessage("LB console thread was stopped");
+	delete servercfg->console_thread;
+	servercfg->client_request_pool = 0;
       }
       else {
 	LogProcMessage("LB console thread did not shutdown properly");
@@ -135,6 +138,8 @@ int StopProc()
       t.JoinThread(servercfg->server_thread);
       if(servercfg->server_thread->GetThreadState() == gxTHREAD_STATE_CANCELED) {
 	LogProcMessage("LB server thread was stopped");
+	delete servercfg->server_thread;
+	servercfg->server_thread = 0;
       }
       else {
 	LogProcMessage("LB server thread did not shutdown properly");
@@ -153,6 +158,8 @@ int StopProc()
       log.JoinThread(servercfg->log_thread);
       if(servercfg->log_thread->GetThreadState() == gxTHREAD_STATE_CANCELED) {
 	NT_print("Log thread was stopped");
+	delete servercfg->log_thread;
+	servercfg->log_thread = 0;
       }
       else {
 	NT_print("LB server thread did not shutdown properly");
@@ -163,6 +170,9 @@ int StopProc()
       NT_print("Log thread was stopped");
     }
   }
+
+  LogThread log_t;
+  log_t.flush_all_logs();
 
   NT_print("Sending termination signal to end process");
   sSleep(1);

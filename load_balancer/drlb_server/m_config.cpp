@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/14/2016
+// Date Last Modified: 08/17/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -126,6 +126,12 @@ LBconfig::LBconfig()
   has_log_level_override = 0;
   has_log_file_clear_override = 0;
   has_enable_logging_override = 0;
+  is_client = 0;
+  is_client_interactive = 0;
+  log_file_err = 0;
+  max_idle_count = 60000;
+  idle_wait_secs = 0;
+  idle_wait_usecs = 500;
 }
 
 LBconfig::~LBconfig()
@@ -745,6 +751,11 @@ int LoadOrBuildConfigFile()
     dfile << "# Service name that appears in log file" << "\n";
     dfile << "##service_name = drlb_server" << "\n";
     dfile << "#" << "\n";
+    dfile << "# Idle time for blocking sockets" << "\n";
+    dfile << "max_idle_count = 60000" << "\n";
+    dfile << "idle_wait_secs = 0"  << "\n";
+    dfile << "idle_wait_usecs = 500"  << "\n";
+    dfile << "#" << "\n";
     dfile << "# Values below can be set here or args when program is launched" << "\n";
     dfile << "# Debug and verbose modes used mainly for development and testing" << "\n";
     dfile << "# NOTE: Debug level 5 will greatly increase log file size" << "\n";
@@ -1002,6 +1013,27 @@ int LoadOrBuildConfigFile()
 	  servercfg->timeout_usecs = CfgGetEqualToParm(ptr->data);
 	  if(servercfg->timeout_usecs < 0) {
 	    NT_print("Config file has bad timeout_usecs value");
+	    error_level = 1;
+	  }
+	}
+	if(ptr->data.IFind("max_idle_count") != -1) {
+	  servercfg->max_idle_count = CfgGetEqualToParm(ptr->data);
+	  if(servercfg->max_idle_count < 0) {
+	    NT_print("Config file has bad max_idle_count value");
+	    error_level = 1;
+	  }
+	}
+	if(ptr->data.IFind("idle_wait_secs") != -1) {
+	  servercfg->idle_wait_secs = CfgGetEqualToParm(ptr->data);
+	  if(servercfg->idle_wait_secs < 0) {
+	    NT_print("Config file has bad idle_wait_secs value");
+	    error_level = 1;
+	  }
+	}
+	if(ptr->data.IFind("idle_wait_usecs") != -1) {
+	  servercfg->idle_wait_usecs = CfgGetEqualToParm(ptr->data);
+	  if(servercfg->idle_wait_usecs < 0) {
+	    NT_print("Config file has bad idle_wait_usecs value");
 	    error_level = 1;
 	  }
 	}

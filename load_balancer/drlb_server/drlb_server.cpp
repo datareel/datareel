@@ -6,7 +6,7 @@
 // Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/16/2016
+// Date Last Modified: 08/17/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -188,6 +188,12 @@ int main(int argc, char **argv)
   else {
     NT_print("Socket read timeouts disabled");
   }
+  sbuf << clear << servercfg->max_idle_count;
+  NT_print("Idle count for blocking sockets", sbuf.c_str()); 
+  sbuf << clear << servercfg->idle_wait_secs;
+  NT_print("Idle secs for blocking sockets", sbuf.c_str()); 
+  sbuf << clear << servercfg->idle_wait_usecs;
+  NT_print("Idle usecs for blocking sockets", sbuf.c_str()); 
   sbuf << clear << servercfg->log_queue_size;
   NT_print("Max number of log or console messages to queue", sbuf.c_str()); 
   sbuf << clear << servercfg->log_queue_debug_size;
@@ -201,9 +207,6 @@ int main(int argc, char **argv)
     } 
     sbuf << clear << servercfg->num_logs_to_keep;
     NT_print("Number of log files to keep", sbuf.c_str()); 
-
-
-
     char lbuf[255];
     memset(lbuf, 0, 255);
     sprintf(lbuf, "%lu" , servercfg->max_log_size);

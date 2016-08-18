@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/14/2016
+// Date Last Modified: 08/17/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -183,6 +183,12 @@ struct LBconfig {
   gxsSocket_t server_accept_socket;
   int server_retry;
   int max_connections;   // Max concurrent connections for this server
+  int is_client;
+  int is_client_interactive;
+  int log_file_err;
+  int max_idle_count;
+  int idle_wait_secs;
+  int idle_wait_usecs;
 
   // Log settings
   int clear_log;
