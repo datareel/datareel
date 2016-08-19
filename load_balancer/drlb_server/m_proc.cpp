@@ -175,7 +175,7 @@ int StopProc()
   log_t.flush_all_logs();
 
   NT_print("Sending termination signal to end process");
-  sSleep(1);
+  sSleep(5);
 
   return 1;
 }

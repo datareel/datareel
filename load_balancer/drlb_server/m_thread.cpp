@@ -132,8 +132,8 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
       LogDebugMessage(message.c_str());
     }
 
-    // NOTE: Getting client info for statistical purposes only
     char client_name[gxsMAX_NAME_LEN]; int r_port = -1;
+    memset(client_name, 0, gxsMAX_NAME_LEN);
     GetClientInfo(client_name, r_port);
     int seq_num = r_port;
     if(servercfg->log_level >= 1) {
@@ -191,6 +191,10 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
 
     if(servercfg->debug && servercfg->debug_level == 5) LogDebugMessage("LB server starting client request thread");
 
+    // 08/18/2016: Must set thread type to detached to free thread resources. To watch memory usage under high load:
+    // $ watch -n 1 'ps -eo %mem,pid,user,args | grep drlb | grep -v grep'
+    // $ watch -n 1 "cat /proc/$(ps -ef | grep drlb_server | grep -v grep | awk '{ print $2 }')/status | grep -i vmsize"
+    //
     gxThreadType type = gxTHREAD_TYPE_DETACHED;
     gxThreadPriority prio = gxTHREAD_PRIORITY_NORMAL;
     gxStackSizeType ssize = 2048;
@@ -1223,8 +1227,6 @@ LBnode *LBClientRequestThread::weighted(ClientSocket_t *s)
 
   return limit_ptr->data.active_ptr;
 }
-
-
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

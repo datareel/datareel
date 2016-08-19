@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/17/2016
+// Date Last Modified: 08/18/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -57,21 +57,21 @@ int LogThread::flush_all_logs()
       }
     }
   }
-  if(servercfg->loq_queue_proc_nodes) {
-    for(i = 0; i < servercfg->log_queue_proc_size; i++) {
-      if(servercfg->loq_queue_proc_nodes[i].dirty[0] == 1) {
-	servercfg->loq_queue_proc_nodes[i].dirty[0] = 0;
-	memmove(sbuf, servercfg->loq_queue_proc_nodes[i].sbuf, 255);
-	is_dirty++;
-	write_log_entry(sbuf);
-      }
-    }
-  }
   if(servercfg->loq_queue_debug_nodes) {
     for(i = 0; i < servercfg->log_queue_debug_size; i++) {
       if(servercfg->loq_queue_debug_nodes[i].dirty[0] == 1) {
 	servercfg->loq_queue_debug_nodes[i].dirty[0] = 0;
 	memmove(sbuf, servercfg->loq_queue_debug_nodes[i].sbuf, 255);
+	is_dirty++;
+	write_log_entry(sbuf);
+      }
+    }
+  }
+  if(servercfg->loq_queue_proc_nodes) {
+    for(i = 0; i < servercfg->log_queue_proc_size; i++) {
+      if(servercfg->loq_queue_proc_nodes[i].dirty[0] == 1) {
+	servercfg->loq_queue_proc_nodes[i].dirty[0] = 0;
+	memmove(sbuf, servercfg->loq_queue_proc_nodes[i].sbuf, 255);
 	is_dirty++;
 	write_log_entry(sbuf);
       }
