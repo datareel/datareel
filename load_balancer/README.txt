@@ -3,6 +3,17 @@ DataReel Copyright (c) 2016 DataReel Software Development
 
 https://github.com/datareel/datareel/tree/master/load_balancer
 
+Contents:
+--------
+* Overview
+* Why Another Load Balancer
+* Building
+* Installing
+* Linux Kernel Tuning
+* Testing with Apache
+* Remaining work on this project
+* Support and Bug Tracking
+
 Overview:
 --------
 The DataReel load balancer (LB) is a software based TCP load balancing
@@ -81,7 +92,7 @@ $ less $HOME/git/datareel/load_balancer/docs/linux_kernel_tuning.txt
 
 Load balancing will require kernel tuning based the volume of traffic
 and type of TCP service you are load balancing. NOTE: The values in
-the “linux_kernel_tuning.txt” are based on extremely high
+the "linux_kernel_tuning.txt" are based on extremely high
 volume. Depending on your application you may not need to set many of
 the parameters listed. But please keep in mind that you will need to
 tune the kernel for any server acting as a load balancer.

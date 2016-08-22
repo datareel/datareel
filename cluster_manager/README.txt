@@ -8,9 +8,8 @@ Contents:
 * Overview
 * Documented Usage
 * Prerequisites
-* Building and Installing
-* DRCM Auth Tokens
 * Building and Installing From Source Code
+* DRCM Auth Tokens
 * Testing CM Configuration Files
 * CM Node Hostname and IP Settings
 * CM Global Configuration Settings
@@ -19,7 +18,7 @@ Contents:
 * Floating IP Address Interface Configuration
 * Running the DRCM Server
 * DRCM Resource Scripts 
-* Running Applications:
+* Running Applications
 * Cluster Monitor and Reports
 * 2-way file replication
 * Setting up cluster alerts
@@ -88,9 +87,9 @@ $ sudo su root -c 'make install_root'
 
 The default configuration directory is: /etc/drcm
 
-NOTE: All nodes in the same cluster must have identical “/etc/drcm”
+NOTE: All nodes in the same cluster must have identical "/etc/drcm"
 directories. It's recommended to design your initial configuration on a
-node you designate as a cluster entry point. Then push all “/etc/drcm”
+node you designate as a cluster entry point. Then push all "/etc/drcm"
 updates to all the nodes in the cluster.  
 
 DRCM Auth Tokens:
@@ -145,7 +144,7 @@ keep_alive_ip = 192.168.122.183
 ...
 
 [CM_NODE]
-nodename = cmnode2                                                                                                                                            
+nodename = cmnode2
 hostname = cmnode2.example.com
 keep_alive_ip = 192.168.122.184
 ...
@@ -156,7 +155,7 @@ The CM_SERVER configuration setting sets values used by the DRCM
 service and all cluster nodes. Before starting the DRCM service, set
 the CM port number and host-based firewall rules: 
 
-# Global cluser configuration                                                                                                                                                                     
+# Global cluser configuration
 [CM_SERVER]
 udpport = 53897
 tcpport = 53897
@@ -273,7 +272,7 @@ resource is activated.
 Running the DRCM Server:
 -----------------------
 After setting up your cluster configuration and mirroring the
-“/etc/drcm” directory to all nodes in the cluster, start the DRCM
+"/etc/drcm" directory to all nodes in the cluster, start the DRCM
 server on each node. 
 
 RHEL 7/CENTOS 7:
@@ -345,20 +344,20 @@ There are 2 formats to define a user application:
 # CSV format: nickname, user:group, start_program, stop_program
 # CSV format: nickname, user:group, start_program, stop_program, ensure_script
 
-The “user:group” must be set to the username that will run the
+The "user:group" must be set to the username that will run the
 application and the group associated with application.  
 
-The “start_program” is the program used to start the application, with
+The "start_program" is the program used to start the application, with
 or without input arguments. This can be multiple entries separated by
 semicolons ; 
 
-The “stop_program” is the program used to start the application, with
+The "stop_program" is the program used to start the application, with
 or without input arguments. This can be multiple entries separated by
 semicolons ; 
 
-The “ensure_script” is a script or program that checks to ensure the
+The "ensure_script" is a script or program that checks to ensure the
 application is running. If an ensure script is provided the DRCM
-server will use the “ensure_script” to watch the application. 
+server will use the "ensure_script" to watch the application. 
 
 NOTE: The user environment will be sourced so you do not have to use
 absolute paths to programs if the program path is defined in the user
@@ -391,7 +390,7 @@ for CMNODE in cmnode1 cmnode2 cmnode3 cmnode4
 
 2-way file replication:
 ----------------------
-The DRCM distributions includes several utilities to synchronize file
+The DRCM distributions include several utilities to synchronize file
 systems between a primary and secondary cluster node. This is
 typically used when a primary node is acting as a NFS server for other
 servers and/or workstations. Or for primary nodes replicating database
@@ -399,7 +398,7 @@ directories to a cold spare.
 
 NOTE: File replication requires public SSH key authentication for the
 backup user account that will run the replication scripts from the
-user’s crontab. NOTE: If you are using “root” to run system backups
+user’s crontab. NOTE: If you are using "root" to run system backups
 you can limit access to key SSH authentication to run specific
 commands. Typically the back user is a special user account used just
 for running file system backups. 
@@ -419,44 +418,45 @@ you must set you node configuration in the following file:
 
 /etc/drcm/my_cluster_conf/my_cluster_info.sh
 
-In the “my_cluster_info.sh” file set the following variables:
+In the "my_cluster_info.sh" file set the following variables:
 
-# Set a simple cluster name, any name you will recognize                                                                                      
-# this cluster as, no spaces.                                                                                                                 
+# Set a simple cluster name, any name you will recognize
+# this cluster as, no spaces.
 export CLUSTER_NAME="NFS-CLUSTER1"
 
-# Set IP or hostname of online storage server for shared backups                                                                              
+# Set IP or hostname of online storage server for shared backups
 # This is only need if you plan to backup the NFS or database 
 # directories to a backup storage severs.
 export BACKUP_STORAGE_SERVER="192.168.122.1"
 
-# Set the destination directory on the storage server                                                                                         
+# Set the destination directory on the storage server
 export BACKUP_STORAGE_LOCATION="/backups"
 
-# Set the user name that runs you backups.                                                                                                    
-# NOTE: This user name must have keyed SSH authentication access                                                                              
-# NOTE: to the cluster nodes and backup storage server                                                                                        
+# Set the user name that runs you backups.
+# NOTE: This user name must have keyed SSH authentication access
+# NOTE: to the cluster nodes and backup storage server
 export BACKUP_USER="root"
 
-#                                                                                                                                             
-# Set the following for 2-way file system replication                                                                                         
-#                                                                                                                                             
-# IP address and Ethernet Interface of the cluster node with primary                                                                          
-# file systems. File systems on this node will be replicated to the                                                                           
-# backup file system in the event of a fail over to the backup node.                                                                          
+#
+# Set the following for 2-way file system replication
+#
+# IP address and Ethernet Interface of the cluster node with primary
+# file systems. File systems on this node will be replicated to the
+# backup file system in the event of a fail over to the backup node.
 export PRIMARY_FILESYSTEMS_IP="192.168.122.111"
 export PRIMARY_FILESYSTEMS_ETH="eth0"
-#                                                                                                                                             
-# IP address and Ethernet Interface of the backup for this cluster node,                                                                      
-# where the primary file systems are mirrored too. When the primary                                                                           
-# node is down this node will host the file systems.                                                                                          
+#
+# IP address and Ethernet Interface of the backup for this cluster
+# node,
+# where the primary file systems are mirrored too. When the primary
+# node is down this node will host the file systems.
 export BACKUP_FILESYSTEMS_IP="192.168.122.112"
 export BACKUP_FILESYSTEMS_ETH="eth0"
 
 # Allow RSYNC on a diffent IP/Interface if high bandwidth required to sync file systems
 # These settings are used to move high bandwidth consumption to another Ethernet interface 
 # and/or network.                                                         
-## export PRIMARY_FILESYSTEMS_RSYNC_IP=""                                                                                                     
+## export PRIMARY_FILESYSTEMS_RSYNC_IP=""
 ## export BACKUP_FILESYSTEMS_RSYNC_IP=""
 
 Once you setup your configuration, edit the following file to run a
@@ -552,7 +552,7 @@ All the configuration files will be autogened in the following:
 
 /etc/drcm/my_cluster_conf
 
-NOTE: Your backup user must have write access to the “my_cluster_conf”
+NOTE: Your backup user must have write access to the "my_cluster_conf"
 directory. 
 
 Edit the "/etc/drcm/my_cluster_conf/*sync_list.sh" config files to
@@ -573,7 +573,7 @@ an alert list configuration file for you:
 NOTE: If you run the watch_cluster.sh script as another user, the user
 must have read access to the /etc/drcm/.auth directory and auth keys.
 
-In your “cm_alert_list.sh” file set up the email accounts and/or SMS
+In your "cm_alert_list.sh" file set up the email accounts and/or SMS
 accounts:
 
 # vi /etc/drcm/my_cluster_conf/cm_alert_list.sh
@@ -627,7 +627,7 @@ functions by writing scripts similar to the above example.
 If you do not have a Linux system setup up as a relay host, you can
 setup postfix on one cluster node as a smart host and allow other
 nodes to relay messages. For more information on setting up postfix
-mail as a smart host, search online for: “postfix smarthost setup”
+mail as a smart host, search online for: "postfix smarthost setup"
 
 Remaining Work on This Project:
 ------------------------------ 
