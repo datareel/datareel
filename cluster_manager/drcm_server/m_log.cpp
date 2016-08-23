@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 08/05/2016
+// Date Last Modified: 08/22/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -232,7 +232,7 @@ int rotate_log_file()
   }
   if(fsize >= (FAU_t)servercfg->max_log_size) {
     gxString output_message;
-    output_message << clear << shn << prefix << "Log file exceeded " << servercfg->max_log_size << " bytes" << "\n";
+    output_message << clear << prefix << "Log file exceeded " << servercfg->max_log_size << " bytes" << "\n";
     servercfg->logfile << output_message.c_str();
     servercfg->logfile.df_Flush();
     if(servercfg->verbose) {
