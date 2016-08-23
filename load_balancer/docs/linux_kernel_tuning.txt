@@ -1,5 +1,11 @@
 Linux kernel tuning for load balancing
-Last modified: 07/15/2016
+Last modified: 08/23/2016
+
+NOTICE: Any setting you make to change default kernel limits and/or
+user limits must be implemented with caution. All changes should be
+thoroughly tested on development servers whenever possible. If you are
+not careful when adjusting default limits you can render your server
+inoperable. 
 
 Below are some kernel tuning parameters for Linux servers hosting load
 balancer services. NOTE: This setting are dependant on the type of
