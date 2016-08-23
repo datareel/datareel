@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/18/2016
+// Date Last Modified: 08/22/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -184,6 +184,8 @@ LBconfig::~LBconfig()
     delete loq_queue_proc_nodes;
     loq_queue_proc_nodes = 0;
   }
+
+  if(logfile) logfile.Close();
 }
 
 unsigned LBconfig::NUM_NODES()

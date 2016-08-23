@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/18/2016
+// Date Last Modified: 08/22/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -119,13 +119,13 @@ void LogThread::write_log_entry(char *sbuf)
   output_message << clear << prefix << sbuf << "\n";
   
   if(servercfg->enable_logging == 1) {
-    if(servercfg->logfile.Open(servercfg->logfile_name.c_str()) == 0) {
+    if(!servercfg->logfile) servercfg->logfile.Open(servercfg->logfile_name.c_str());
+    if(servercfg->logfile) {
       servercfg->logfile << output_message.c_str();
       servercfg->logfile.df_Flush();
-      servercfg->logfile.Close();
       rotate_log_file();  
       servercfg->log_file_err = 0;
-  }
+    }
     else { // Could not write to log file
      if(servercfg->verbose) {
        if(servercfg->log_file_err == 0) {
@@ -218,7 +218,10 @@ int rotate_log_file()
   gxString prefix;
 
   prefix << clear << logtime.GetSyslogTime() << " " << servercfg->service_name << ": ";
-  if(!servercfg->logfile.Open(servercfg->logfile_name.c_str()) == 0) {
+  
+  if(!servercfg->logfile) servercfg->logfile.Open(servercfg->logfile_name.c_str());
+			    
+  if(!servercfg->logfile) {
     if(servercfg->verbose) {
       if(servercfg->is_client && servercfg->is_client_interactive) {
 	cout << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n";
@@ -232,7 +235,7 @@ int rotate_log_file()
   }
   if(fsize >= (FAU_t)servercfg->max_log_size) {
     gxString output_message;
-    output_message << clear << shn << prefix << "Log file exceeded " << servercfg->max_log_size << " bytes" << "\n";
+    output_message << clear << prefix << "Log file exceeded " << servercfg->max_log_size << " bytes" << "\n";
     servercfg->logfile << output_message.c_str();
     servercfg->logfile.df_Flush();
     if(servercfg->verbose) {
@@ -261,11 +264,11 @@ int rotate_log_file()
     servercfg->logfile.Close();
     if(servercfg->logfile.df_rename(servercfg->logfile_name.c_str(), new_name.c_str()) != DiskFileB::df_NO_ERROR) {
       servercfg->logfile.Open(servercfg->logfile_name.c_str());
-      output_message << clear << prefix << "ERROR - could not rotate log, cannot create new log file " << new_name.c_str() << "\n";
-      servercfg->logfile << output_message.c_str();
-      servercfg->logfile.df_Flush();
-      servercfg->logfile.Close();
-
+      if(servercfg->logfile) {
+	output_message << clear << prefix << "ERROR - could not rotate log, cannot create new log file " << new_name.c_str() << "\n";
+	servercfg->logfile << output_message.c_str();
+	servercfg->logfile.df_Flush();
+      }
       if(servercfg->verbose) {
 	if(servercfg->is_client && servercfg->is_client_interactive) output_message.DeleteBeforeIncluding(prefix);
 	cout << output_message.c_str();
@@ -283,21 +286,20 @@ int rotate_log_file()
       output_message << clear << prefix  << "New log file started " << "\n";
       servercfg->logfile << output_message.c_str();
       servercfg->logfile.df_Flush();
-      servercfg->logfile.Close();
       if(servercfg->verbose) {
 	if(servercfg->is_client && servercfg->is_client_interactive) output_message.DeleteBeforeIncluding(prefix);
 	cout << output_message.c_str();
 	cout.flush(); 
       }
-      else {
-	if(servercfg->verbose) {
-	  if(servercfg->is_client && servercfg->is_client_interactive) {
-	    cout << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n" << flush; 
-	  }
-	  else {
-	    cout << prefix << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n";
-	    cout.flush(); 
-	  }
+    }
+    else {
+      if(servercfg->verbose) {
+	if(servercfg->is_client && servercfg->is_client_interactive) {
+	  cout << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n" << flush; 
+	}
+	else {
+	  cout << prefix << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n";
+	  cout.flush(); 
 	}
       }
     }
@@ -359,10 +361,10 @@ int NT_printblock(const char *mesg1, const char *mesg2, const char *mesg3,
   }
 
   if(servercfg->enable_logging == 1) {
-    if(servercfg->logfile.Open(servercfg->logfile_name.c_str()) == 0) {
+    if(!servercfg->logfile) servercfg->logfile.Open(servercfg->logfile_name.c_str());
+    if(servercfg->logfile) { 
       servercfg->logfile << output_message.c_str();
       servercfg->logfile.df_Flush();
-      servercfg->logfile.Close();
     }
     else { // Could not write to log file
      if(servercfg->verbose) {

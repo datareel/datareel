@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/17/2016
+// Date Last Modified: 08/22/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -173,6 +173,7 @@ int StopProc()
 
   LogThread log_t;
   log_t.flush_all_logs();
+  if(servercfg->logfile) servercfg->logfile.Close();
 
   NT_print("Sending termination signal to end process");
   sSleep(5);

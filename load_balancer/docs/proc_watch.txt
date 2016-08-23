@@ -1,18 +1,30 @@
 Shell commands to watch drlb_server process under a high load
-Last modified: 08/18/2016
+Last modified: 08/22/2016
 
 Watch percentage of memory
 --------------------------
 $ watch -n 1 'ps -eo %mem,pid,user,args | grep drlb | grep -v grep'
 
+Watch percentage of CPU
+-----------------------
+$ watch -n 1 'ps -eo %cpu,pid,user,args | grep drlb | grep -v grep'
+
+Watch percentage of CPU and memory
+----------------------------------
+$ watch -n 1 'ps -eo %cpu,%mem,pid,etime,args | grep drlb | grep -v grep'
+
 Watch memory usage
 ------------------
-$ watch -n 1 "cat /proc/$(ps -ef | grep drlb_server | grep -v grep | awk '{ print $2 }')/status | grep -i vmsize"
+$ pids=$(ps -ef | grep drlb_server | grep -v grep | awk '{ print $2 }')
+$ for p in $pids; do cat /proc/$p/status | grep -i vmsize; done
 
 Watch number of threads
 -----------------------
-$ watch -n 1 "cat /proc/$(ps -ef | grep drlb_server | grep -v grep | awk '{ print $2 }')/status | grep -i thread"
+$ pids=$(ps -ef | grep drlb_server | grep -v grep | awk '{ print $2 }')
+$ for p in $pids; do cat /proc/$p/status | grep -i threads; done
 
-Watch percentage of CPU
------------------------
-$ watch -n 1 'ps -eo %cpu,etime,args | grep drlb | grep -v grep'
+Watch number of open files
+--------------------------
+$ pids=$(ps -ef | grep drlb_server | grep -v grep | awk '{ print $2 }')
+$ for p in $pids; do ls -l --color=none /proc/$p/fd; done
+

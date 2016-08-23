@@ -6,7 +6,7 @@
 // Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/18/2016
+// Date Last Modified: 08/22/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -221,6 +221,14 @@ int main(int argc, char **argv)
     sbuf << clear << servercfg->log_level;
     NT_print("Logging level set to", sbuf.c_str()); 
     NT_print("Log file", servercfg->logfile_name.c_str()); 
+    if(!servercfg->logfile) {
+      servercfg->logfile.Open(servercfg->logfile_name.c_str());
+      servercfg->enable_logging = 0;
+      servercfg->verbose = 1;
+      NT_print("ERROR - Cannot open log file", servercfg->logfile_name.c_str());
+      NT_print("Exiting with errors");
+      return 1;
+    }
   }
   else {
     NT_print("Logging is disabled");
@@ -487,6 +495,7 @@ int main(int argc, char **argv)
 
   // Check to see if the process was stopped
   if(servercfg->echo_loop == 0 && servercfg->accept_clients == 0) {
+    if(servercfg->logfile) servercfg->logfile.Close();
     NT_print("Exiting program...");
     return 1;
   }
