@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/25/2000
-// Date Last Modified: 06/17/2016
+// Date Last Modified: 08/28/2016
 // Copyright (c) 2001-2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -59,6 +59,10 @@ release counts before decrementing.
 // ----------------------------------------------------------- //   
 #include "gxdlcode.h"
 
+#if defined(__LINUX__)
+#include <errno.h>
+#endif
+
 #include <string.h>
 #include "thelpers.h"
 
@@ -67,7 +71,7 @@ release counts before decrementing.
 // --------------------------------------------------------------
 // NOTE: This array must contain the same number of exceptions as the
 // gxMutexError enumeration. 
-const int gxMaxMutexExceptionMessages = 10;
+const int gxMaxMutexExceptionMessages = 15;
 const char *gxMutexExceptionMessages[gxMaxMutexExceptionMessages] = {
   "Mutex exception: No exception reported",          // NO_ERROR
   "Mutex exception: Invalid exception code",         // INVALID_CODE
@@ -78,7 +82,12 @@ const char *gxMutexExceptionMessages[gxMaxMutexExceptionMessages] = {
   "Mutex exception: Error locking the mutex",        // LOCK_ERROR
   "Mutex exception: Error setting shared attribute", // SET_SHARE_ERROR
   "Mutex exception: Error trying to lock the mutex", // TRY_LOCK_ERROR
-  "Mutex exception: Error unlocking the mutex"       // UNLOCK_ERROR
+  "Mutex exception: Error unlocking the mutex",      // UNLOCK_ERROR
+  "Mutex exception: Error mutex lock not recoverable",
+  "Mutex exception: Error mutex lock owner is dead",
+  "Mutex exception: Try lock mutex busy",
+  "Mutex exception: Thread does not own this mutex",
+  "Mutex exception: Value specified by mutex is invalid"
 };
 
 // NOTE: This array must contain the same number of exceptions as the
@@ -219,15 +228,14 @@ GXDLCODE_API int gxThreadMutexInit(gxMutex_t *m, gxProcessType type)
       return rv;
     }
 
-    rv = pthread_mutexattr_setpshared(&m->mutex_attribute,
-				      PTHREAD_PROCESS_SHARED);
+    rv = pthread_mutexattr_setpshared(&m->mutex_attribute, PTHREAD_PROCESS_SHARED);
     if(rv != 0) {
       m->is_initialized = 0;
       gxThreadMutexAttributeDestroy(&m->mutex_attribute);
       m->mutex_error = gxMUTEX_SET_SHARE_ERROR;
       return rv;
     }
-    
+
     rv = pthread_mutex_init(&m->mutex, &m->mutex_attribute);
     if(rv != 0) {
       m->is_initialized = 0;
@@ -235,6 +243,33 @@ GXDLCODE_API int gxThreadMutexInit(gxMutex_t *m, gxProcessType type)
       m->mutex_error = gxMUTEX_INIT_ERROR;
       return rv;
     }
+#elif defined(__LINUX__)
+    rv = gxThreadMutexAttributeInit(&m->mutex_attribute);
+    if(rv != 0) {
+      m->is_initialized = 0;
+      m->mutex_error = gxMUTEX_ATTR_INIT_ERROR;
+      return rv;
+    }
+
+    rv = pthread_mutexattr_setpshared(&m->mutex_attribute, PTHREAD_PROCESS_SHARED);
+    if(rv != 0) {
+      m->is_initialized = 0;
+      gxThreadMutexAttributeDestroy(&m->mutex_attribute);
+      m->mutex_error = gxMUTEX_SET_SHARE_ERROR;
+      return rv;
+    }
+
+    // 08/26/2016: Using robust mutex for Linux builds
+    pthread_mutexattr_setrobust_np(&m->mutex_attribute, PTHREAD_MUTEX_ROBUST_NP);
+
+    rv = pthread_mutex_init(&m->mutex, &m->mutex_attribute);
+    if(rv != 0) {
+      m->is_initialized = 0;
+      gxThreadMutexAttributeDestroy(&m->mutex_attribute);
+      m->mutex_error = gxMUTEX_INIT_ERROR;
+      return rv;
+    }
+
 #else
     // This UNIX variant does not support shared mutexs
     m->process_type = gxPROCESS_PRIVATE;
@@ -249,12 +284,40 @@ GXDLCODE_API int gxThreadMutexInit(gxMutex_t *m, gxProcessType type)
 #endif // PTHREAD_PROCESS_SHARED
   }
   else {
+#if defined(__LINUX__)
+    rv = gxThreadMutexAttributeInit(&m->mutex_attribute);
+    if(rv != 0) {
+      m->is_initialized = 0;
+      m->mutex_error = gxMUTEX_ATTR_INIT_ERROR;
+      return rv;
+    }
+    
+    rv = pthread_mutexattr_setpshared(&m->mutex_attribute, PTHREAD_PROCESS_PRIVATE);
+    if(rv != 0) {
+      m->is_initialized = 0;
+      gxThreadMutexAttributeDestroy(&m->mutex_attribute);
+      m->mutex_error = gxMUTEX_SET_SHARE_ERROR;
+      return rv;
+    }
+    
+    // 08/26/2016: Using robust mutex for Linux builds
+    pthread_mutexattr_setrobust_np(&m->mutex_attribute, PTHREAD_MUTEX_ROBUST_NP);
+    
+    rv = pthread_mutex_init(&m->mutex, &m->mutex_attribute);
+    if(rv != 0) {
+      m->is_initialized = 0;
+      gxThreadMutexAttributeDestroy(&m->mutex_attribute);
+      m->mutex_error = gxMUTEX_INIT_ERROR;
+      return rv;
+    }
+#else
     rv = pthread_mutex_init(&m->mutex, (pthread_mutexattr_t*)0);
     if(rv != 0) { // Could not initialize the mutex
       m->is_initialized = 0;
       m->mutex_error = gxMUTEX_INIT_ERROR;
       return rv;
     }
+#endif
   }
 #else
 #error You must define an API: __WIN32__ or __POSIX__
@@ -378,7 +441,17 @@ GXDLCODE_API int gxThreadMutexLock(gxMutex_t *m)
 #elif defined (__POSIX__)
   int rv = pthread_mutex_lock(&m->mutex);
   if(rv != 0) {
-    m->mutex_error = gxMUTEX_LOCK_ERROR;
+    switch(rv) {
+      case EOWNERDEAD:
+	m->mutex_error = gxMUTEX_OWNERDEAD_ERROR;
+	break;
+      case gxMUTEX_NOTRECOVERABLE_ERROR:
+	m->mutex_error = gxMUTEX_NOTRECOVERABLE_ERROR;
+	break;
+      default:
+	m->mutex_error = gxMUTEX_LOCK_ERROR;
+	break;
+    }
     return rv;
   }
 #else
@@ -412,13 +485,34 @@ GXDLCODE_API int gxThreadMutexUnlock(gxMutex_t *m)
   // results. 
   int rv = pthread_mutex_unlock(&m->mutex);
   if(rv != 0) {
-    m->mutex_error = gxMUTEX_UNLOCK_ERROR;
+    switch(rv) {
+      case EPERM:
+	m->mutex_error = gxMUTEX_PERM_ERROR;
+	break;
+      default:
+	m->mutex_error = gxMUTEX_UNLOCK_ERROR;
+	break;
+    }
     return rv;
   }
 #else
 #error You must define an API: __WIN32__ or __POSIX__
 #endif
   return 0;
+}
+
+GXDLCODE_API int gxThreadMutexMakeConsistent(gxMutex_t *m)
+{
+#if defined(__POSIX__) && defined(__LINUX__)
+  int rv = pthread_mutex_consistent_np(&m->mutex);
+  if(rv == EINVAL) {
+    m->mutex_error = gxMUTEX_INVAL_ERROR;
+  }
+  if(rv == 0) m->mutex_error = gxMUTEX_NO_ERROR; 
+  return rv;
+#else
+  return 0;
+#endif
 }
 
 GXDLCODE_API int gxThreadMutexTryLock(gxMutex_t *m)
@@ -438,11 +532,24 @@ GXDLCODE_API int gxThreadMutexTryLock(gxMutex_t *m)
     LeaveCriticalSection(&m->mutex);
   }
 #elif defined (__POSIX__)
- int rv = pthread_mutex_trylock(&m->mutex);
- if(rv != 0) {
-   m->mutex_error = gxMUTEX_TRY_LOCK_ERROR;
-   return rv;
- }
+  int rv = pthread_mutex_trylock(&m->mutex);
+  if(rv != 0) {
+    switch(rv) {
+      case EOWNERDEAD:
+        m->mutex_error = gxMUTEX_OWNERDEAD_ERROR;
+        break;
+      case gxMUTEX_NOTRECOVERABLE_ERROR:
+        m->mutex_error = gxMUTEX_NOTRECOVERABLE_ERROR;
+	break;
+      case EBUSY:
+        m->mutex_error = gxMUTEX_BUSY_ERROR;
+        break;
+      default:
+	m->mutex_error = gxMUTEX_LOCK_ERROR;
+	break;
+    }
+    return rv;
+  }
 #else
 #error You must define an API: __WIN32__ or __POSIX__
 #endif

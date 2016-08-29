@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/25/2000
-// Date Last Modified: 06/17/2016
+// Date Last Modified: 08/28/2016
 // Copyright (c) 2001-2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -53,6 +53,7 @@ int gxMutex::MutexInit(gxProcessType type)
 // mutex cannot be initialized or if any errors occur.
 {
   mutex_lock = 0;
+  auto_fix_deadlock = 1;
   int rv = gxThreadMutexInit(&mutex, type);
   if(rv != 0) return rv;
   return 0;
@@ -74,10 +75,20 @@ int gxMutex::MutexLock()
 // non-zero value if the mutex cannot be locked or if any errors
 // occur.
 {
-  int rv = gxThreadMutexLock(&mutex);
-  if(rv != 0) return rv;
   mutex_lock++;
-  return 0;
+  int rv = gxThreadMutexLock(&mutex); // Blocking lock
+  if(rv != 0) {
+    if((mutex.mutex_error == gxMUTEX_OWNERDEAD_ERROR) && (auto_fix_deadlock == 1)) {
+      rv = MakeConsistent(); // We now own this lock
+      if(rv != 0) { // Unable to make the state consistent
+	gxThreadMutexUnlock(&mutex);
+	mutex_lock--;
+	return rv;
+      }
+    }
+  }  
+  if(rv != 0) mutex_lock--;
+  return rv;
 }
 
 int gxMutex::MutexUnlock()
@@ -94,10 +105,20 @@ int gxMutex::MutexTryLock()
 // Test the mutex state before locking it. Returns a non-zero if
 // any errors occur.
 {
-  int rv = gxThreadMutexTryLock(&mutex);
-  if(rv != 0) return rv;
   mutex_lock++;
-  return 0;
+  int rv = gxThreadMutexTryLock(&mutex); // Blocking lock
+  if(rv != 0) {
+    if((mutex.mutex_error == gxMUTEX_OWNERDEAD_ERROR) && (auto_fix_deadlock == 1)) {
+      rv = MakeConsistent(); // We now own this lock
+      if(rv != 0) { // Unable to make the state consistent
+	gxThreadMutexUnlock(&mutex);  
+	mutex_lock--;
+	return rv;
+      }
+    }
+  }  
+  if(rv != 0) mutex_lock--;
+  return rv;
 }
 
 const char *gxMutex::MutexExceptionMessage()
@@ -105,6 +126,16 @@ const char *gxMutex::MutexExceptionMessage()
 // be use to log or print a mutex exception.
 {
   return gxThreadMutexExceptionMessage(&mutex);
+}
+
+int gxMutex::DisableAutoFix(int reset) {
+  if(reset) { auto_fix_deadlock = 1; return auto_fix_deadlock; }
+  auto_fix_deadlock = 0;
+  return auto_fix_deadlock;
+}
+
+int gxMutex::MakeConsistent() {
+  return gxThreadMutexMakeConsistent(&mutex);
 }
 // ----------------------------------------------------------- // 
 // ------------------------------- //

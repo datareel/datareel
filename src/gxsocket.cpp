@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 06/17/2016
+// Date Last Modified: 08/28/2016
 // Copyright (c) 2001-2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -203,7 +203,7 @@ void gxSocket::Clear()
   is_bound = 0;
   socket_error = gxSOCKET_NO_ERROR;
   socket_version = gxSOCKET_WSAVER_ONEONE;
-  
+
   // Zero-out the Internet address structures
   memset(&sin, 0, sizeof(gxsSocketAddress));
   memset(&remote_sin, 0, sizeof(gxsSocketAddress));
@@ -326,6 +326,25 @@ gxsSocket_t gxSocket::InitSocket(gxsAddressFamily af,
   sin.sin_family = address_family;
 
   if(hostname) {
+#if defined (__LINUX__) && defined (__REENTRANT__)
+    // 08/25/2016: Added thread safe code to replace gethostbyname() call
+    struct addrinfo hints, *res;
+    memset (&hints, 0, sizeof (hints));
+    hints.ai_family = af;
+    hints.ai_socktype = st;
+    hints.ai_protocol = pf;
+    hints.ai_flags |= AI_PASSIVE; // return socket addresses for use with connect(),sendto(), or sendmsg()
+    if(getaddrinfo(hostname, 0, &hints, &res) != 0) {
+      socket_error = gxSOCKET_HOSTNAME_ERROR;
+      return -1;
+    }
+    if(!res) {
+      socket_error = gxSOCKET_HOSTNAME_ERROR;
+      return -1;
+    }
+    sin.sin_addr.s_addr = ((struct sockaddr_in *)(res->ai_addr))->sin_addr.s_addr; 
+    freeaddrinfo(res);
+#else
     // Get the server's Internet address
     gxsHostNameInfo *hostnm = gethostbyname(hostname); 
     if(hostnm == (struct hostent *) 0) {
@@ -333,10 +352,17 @@ gxsSocket_t gxSocket::InitSocket(gxsAddressFamily af,
       return -1;
     }
     // Put the server information into the client structure.
+    // 08/24/2016: Prevent core dump if not set
+    if(!hostnm->h_addr) {
+       socket_error = gxSOCKET_HOSTNAME_ERROR;
+       return -1;
+    }
     sin.sin_addr.s_addr = *((unsigned long *)hostnm->h_addr);
+#endif
   }
-  else   
+  else {   
     sin.sin_addr.s_addr = INADDR_ANY; // Use my IP address
+  }
 
   // The port must be put into network byte order.
   // htons()--"Host to Network Short" 
@@ -427,6 +453,25 @@ int gxSocket::InitSIN(gxsSocketAddress *host_sin, gxsAddressFamily af,
   host_sin->sin_family = address_family;
 
   if(hostname) {
+#if defined (__LINUX__) && defined (__REENTRANT__)
+    // 08/28/2016: Added thread safe code to replace gethostbyname() call
+    struct addrinfo hints, *res;
+    memset (&hints, 0, sizeof (hints));
+    hints.ai_family = af;
+    hints.ai_socktype = 0;
+    hints.ai_protocol = 0;
+    hints.ai_flags |= AI_PASSIVE; // return socket addresses for use with connect(),sendto(), or sendmsg()
+    if(getaddrinfo(hostname, 0, &hints, &res) != 0) {
+      socket_error = gxSOCKET_HOSTNAME_ERROR;
+      return -1;
+    }
+    if(!res) {
+      socket_error = gxSOCKET_HOSTNAME_ERROR;
+      return -1;
+    }
+    sin.sin_addr.s_addr = ((struct sockaddr_in *)(res->ai_addr))->sin_addr.s_addr; 
+    freeaddrinfo(res);
+#else
     // Get the Internet address
     gxsHostNameInfo *hostnm = gethostbyname(hostname); 
     if(hostnm == (struct hostent *) 0) {
@@ -435,6 +480,7 @@ int gxSocket::InitSIN(gxsSocketAddress *host_sin, gxsAddressFamily af,
     }
     // Put the server information into the client structure.
     host_sin->sin_addr.s_addr = *((unsigned long *)hostnm->h_addr);
+#endif
   }
   else {  
     host_sin->sin_addr.s_addr = INADDR_ANY; // Use my IP address
@@ -1233,6 +1279,17 @@ int gxSocket::GetRemoteHostName(char *sbuf)
 // A memory buffer equal to "gxsMAX_NAME_LEN" must be pre-allocated
 // prior to using this function. Return -1 if an error occurs.
 {
+  
+#if defined (__LINUX__) && defined (__REENTRANT__)
+  // 08/25/2016: Added thread safe code to replace inet_ntoa call
+  char client_name[gxsMAX_NAME_LEN];
+  memset(client_name, 0, gxsMAX_NAME_LEN);
+  inet_ntop(AF_INET, &remote_sin.sin_addr, client_name, gxsMAX_NAME_LEN);
+
+  // Prevent crashes if memory has not been allocated
+  if(!sbuf) sbuf = new char[gxsMAX_NAME_LEN]; 
+  strncpy(sbuf, client_name, (gxsMAX_NAME_LEN-1));
+#else
   char *s = inet_ntoa(remote_sin.sin_addr);
   if(s == 0) {
     socket_error = gxSOCKET_HOSTNAME_ERROR;
@@ -1243,6 +1300,7 @@ int gxSocket::GetRemoteHostName(char *sbuf)
   if(!sbuf) sbuf = new char[gxsMAX_NAME_LEN]; 
 
   strcpy(sbuf, s);
+#endif
   return 0;
 }
 
@@ -1337,8 +1395,8 @@ void gxSocket::GetClientInfo(char *client_name, int &r_port)
   int rv = GetRemoteHostName(client_name);
   if(rv < 0) {
     char *unc = (char *)"UNKNOWN";
-    for(unsigned i = 0; i < gxsMAX_NAME_LEN; i++) client_name[i] = '\0';
-    strcpy(client_name, unc);
+    memset(client_name, 0,  gxsMAX_NAME_LEN);
+    strncpy(client_name, unc, (gxsMAX_NAME_LEN-1));
   }
   r_port = GetRemotePortNumber();
 }

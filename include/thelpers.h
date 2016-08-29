@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/25/2000
-// Date Last Modified: 06/17/2016
+// Date Last Modified: 08/28/2016
 // Copyright (c) 2001-2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -72,14 +72,19 @@ enum gxMutexError { // Mutex error codes
   gxMUTEX_NO_ERROR = 0, // No errors reported
   gxMUTEX_INVALID_CODE, // Invalid error code
 
-  gxMUTEX_ATTR_DESTROY_ERROR, // Error destroying attribute
-  gxMUTEX_ATTR_INIT_ERROR,    // Error initializing the attribute
-  gxMUTEX_DESTROY_ERROR,      // Error destroying mutex
-  gxMUTEX_INIT_ERROR,         // Error initializing the mutex
-  gxMUTEX_LOCK_ERROR,         // Error locking the mutex
-  gxMUTEX_SET_SHARE_ERROR,    // Error setting shared attribute
-  gxMUTEX_TRY_LOCK_ERROR,     // Error trying to lock the mutex
-  gxMUTEX_UNLOCK_ERROR        // Error unlocking the mutex
+  gxMUTEX_ATTR_DESTROY_ERROR,  // Error destroying attribute
+  gxMUTEX_ATTR_INIT_ERROR,     // Error initializing the attribute
+  gxMUTEX_DESTROY_ERROR,       // Error destroying mutex
+  gxMUTEX_INIT_ERROR,          // Error initializing the mutex
+  gxMUTEX_LOCK_ERROR,          // Error locking the mutex
+  gxMUTEX_SET_SHARE_ERROR,     // Error setting shared attribute
+  gxMUTEX_TRY_LOCK_ERROR,      // Error trying to lock the mutex
+  gxMUTEX_UNLOCK_ERROR,        // Error unlocking the mutex
+  gxMUTEX_NOTRECOVERABLE_ERROR,
+  gxMUTEX_OWNERDEAD_ERROR,
+  gxMUTEX_BUSY_ERROR,
+  gxMUTEX_PERM_ERROR,
+  gxMUTEX_INVAL_ERROR
 };
 
 enum gxConditionError { // Condition variables error codes
@@ -220,6 +225,7 @@ GXDLCODE_API int gxThreadMutexAttributeDestroy(gxMutexAttribute *attr);
 GXDLCODE_API int gxThreadMutexLock(gxMutex_t *m);
 GXDLCODE_API int gxThreadMutexUnlock(gxMutex_t *m);
 GXDLCODE_API int gxThreadMutexTryLock(gxMutex_t *m);
+GXDLCODE_API int gxThreadMutexMakeConsistent(gxMutex_t *m);
 GXDLCODE_API int gxThreadConditionInit(gxCondition_t *c,
 				       gxProcessType type = gxPROCESS_PRIVATE);
 GXDLCODE_API int gxThreadConditionDestroy(gxCondition_t *c);

@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/25/2000
-// Date Last Modified: 06/17/2016
+// Date Last Modified: 08/28/2016
 // Copyright (c) 2001-2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -62,13 +62,24 @@ public:
   gxMutex_t *GetMutex() { return &mutex; }
   gxMutexError GetMutexError() { return mutex.mutex_error; }
   gxProcessType GetMutexProcessType() { return mutex.process_type; }
-  
+
+  // 08/28/2016: Added to work with Linux robust mutexs
+  // Do not attempt to fix a dead lock, leave it to application
+  // If reset, set back to auto fix
+  // Returns the autofix setting after set or reset
+  int DisableAutoFix(int reset = 0); 
+
+  // Attempt to put robust mutex in consistent state
+  // Return 0 if pass, or errno value if fail
+  int MakeConsistent(); 
+                        
 public: // Mutex status/debug message functions
   const char *MutexExceptionMessage();
 
 private:
   int mutex_lock;
   gxMutex_t mutex;
+  int auto_fix_deadlock; // If robust mutex, try to fix deadlock
 };
 
 #endif // __GX_MUTEX_HPP__
