@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/16/2016
+// Date Last Modified: 08/30/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -36,7 +36,9 @@ Application classes and functions for Datareel load balancer.
 #define __DRLB_APP_HPP__
 
 #include "gxdlcode.h"
+#include "drlb_server.h"
 
+int check_config();
 
 #endif // __DRLB_APP_HPP__
 // ----------------------------------------------------------- // 

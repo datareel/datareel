@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/16/2016
+// Date Last Modified: 08/29/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -50,7 +50,6 @@ public:
 
 private:
   void *ThreadEntryRoutine(gxThread_t *thread);
-  void ThreadExitRoutine(gxThread_t *thread);
   void ThreadCleanupHandler(gxThread_t *thread);
 };
 
@@ -69,6 +68,12 @@ int NT_printblock(const char *mesg1, const char *mesg2 = 0,
 int NT_printlines(const char *mesg1, const char *mesg2 = 0, 
 		  const char *mesg3 = 0);
 int NT_log_rotate(); // Called when program starts and no threads are running
+
+// Syslog functions
+void SyslogErrorMessage(const char *mesg);
+void SyslogDebugMessage(const char *mesg);
+void SyslogInfoMessage(const char *mesg);
+void SyslogWarningMessage(const char *mesg);
 
 #endif // __DRLB_LOG_HPP__
 // ----------------------------------------------------------- // 

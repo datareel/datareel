@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/16/2016
+// Date Last Modified: 08/29/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -36,6 +36,24 @@ Stat functions for Datareel load balancer.
 #define __DRLB_STATS_HPP__
 
 #include "gxdlcode.h"
+
+class StatsThread : public gxThread
+{
+public:
+  StatsThread() { 
+    node_prev_connection_count = 0;
+  }
+  ~StatsThread();
+
+public:
+  int rotate_stats_file();
+
+private:
+  void *ThreadEntryRoutine(gxThread_t *thread);
+
+private:
+  unsigned long *node_prev_connection_count;
+};
 
 
 #endif // __DRLB_STATS_HPP__

@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/18/2016
+// Date Last Modified: 08/25/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -60,7 +60,7 @@ struct ClientSocket_t
   ~ClientSocket_t();
 
   gxsSocket_t client_socket; // Frontend client socket
-  gxSocket client;  // Backend client 
+  gxSocket client;           // Backend client 
   int seq_num; // Sequence number for log entries
   gxString client_name;
   LBnode *node;
@@ -73,7 +73,7 @@ public:
   LBClientRequestThread() { }
   ~LBClientRequestThread() { }
 
-public: // Client routines
+public:
   void HandleClientRequest(ClientSocket_t *s);
   LBnode *round_robin(ClientSocket_t *s, gxList<LBnode *> &node_list);
   LBnode *round_robin(ClientSocket_t *s);
@@ -83,12 +83,9 @@ public: // Client routines
   int LB_ReadWrite(ClientSocket_t *s, int buffer_size);
   int LB_CachedReadWrite(ClientSocket_t *s, int buffer_size);
 
-private: // gxThread Interface
-  void *ThreadEntryRoutine(gxThread_t *thread);
-  void ThreadExitRoutine(gxThread_t *thread);
-  void ThreadCleanupHandler(gxThread_t *thread);
-
 private:
+  void *ThreadEntryRoutine(gxThread_t *thread);
+  void ThreadCleanupHandler(gxThread_t *thread);
 };
 
 class LBServerThread : public gxSocket, public gxThread
@@ -97,15 +94,14 @@ public:
   LBServerThread() { }
   ~LBServerThread() { }
 
-public: // Server functions
+public:
   int InitServer(int max_connections = SOMAXCONN);
 
-private: // gxThread Interface
+private:
   void *ThreadEntryRoutine(gxThread_t *thread);
-  void ThreadExitRoutine(gxThread_t *thread);
   void ThreadCleanupHandler(gxThread_t *thread);
   
-public: // Server data members
+public:
   LBClientRequestThread request_thread;
 };
 

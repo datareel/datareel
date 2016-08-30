@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/22/2016
+// Date Last Modified: 08/30/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -34,6 +34,8 @@ Log functions for Datareel load balancer.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
+#include <syslog.h>
+
 #include "drlb_server.h"
 #include "m_log.h"
 
@@ -43,7 +45,7 @@ void log_message(gxString &message, int is_proc_message, int is_debug);
 int LogThread::flush_all_logs()
 {
   int is_dirty = 0;
-  size_t i;
+  int i;
   char sbuf[255];
   memset(sbuf, 0, 255);
 
@@ -80,14 +82,6 @@ int LogThread::flush_all_logs()
   return is_dirty;
 }
 
-void LogThread::ThreadExitRoutine(gxThread_t *thread)
-{
-  int retries = 255;
-  while(retries--) {
-    if(flush_all_logs() == 0) break;
-  }
-}
-
 void LogThread::ThreadCleanupHandler(gxThread_t *thread)
 {
   int retries = 255;
@@ -103,6 +97,13 @@ void *LogThread::ThreadEntryRoutine(gxThread_t *thread)
   while(servercfg->accept_clients) { 
     is_dirty = flush_all_logs();
     if(is_dirty == 0) sSleep(1); // All queues are empty
+  }
+
+  LogProcMessage("Log server thread has stopped");
+
+  int retries = 255;
+  while(retries--) {
+    if(flush_all_logs() == 0) break;
   }
 
   return (void *)0;
@@ -337,6 +338,14 @@ int NT_printblock(const char *mesg1, const char *mesg2, const char *mesg3,
   gxString output_message;
   gxString prefix;
 
+  int verbose = servercfg->verbose;
+  int enable_logging = servercfg->enable_logging;
+  if(servercfg->check_config) {
+    // In check config mode we will always have verbose enabled and logging disabled
+    verbose = 1;
+    enable_logging = 0;
+  }
+
   prefix << clear << logtime.GetSyslogTime() << " " << servercfg->service_name << ": ";
   output_message.Clear();
 
@@ -360,14 +369,14 @@ int NT_printblock(const char *mesg1, const char *mesg2, const char *mesg3,
     output_message << "\n";
   }
 
-  if(servercfg->enable_logging == 1) {
+  if(enable_logging == 1) {
     if(!servercfg->logfile) servercfg->logfile.Open(servercfg->logfile_name.c_str());
     if(servercfg->logfile) { 
       servercfg->logfile << output_message.c_str();
       servercfg->logfile.df_Flush();
     }
     else { // Could not write to log file
-     if(servercfg->verbose) {
+     if(verbose) {
        if(servercfg->is_client && servercfg->is_client_interactive) {
 	 cout << "Error writing to log file " << servercfg->logfile_name.c_str() << "\n" << flush;
        }
@@ -379,7 +388,7 @@ int NT_printblock(const char *mesg1, const char *mesg2, const char *mesg3,
     }
   }
   
-  if(servercfg->verbose) {
+  if(verbose) {
     if(servercfg->is_client && servercfg->is_client_interactive) output_message.DeleteBeforeIncluding(prefix);
     cout << output_message.c_str();
     cout.flush(); 
@@ -427,6 +436,35 @@ int CheckSocketError(gxSocket *s, int seq_num)
     LogMessage(message.c_str());
   }
   return 1;
+}
+
+void SyslogMessage(const char *mesg, int prio)
+{
+  // Log message to /var/log/messages
+  // ref: man 3 syslog
+  openlog(servercfg->service_name.c_str(), LOG_PID | LOG_NDELAY, LOG_USER);
+  syslog(prio, mesg);
+  closelog();
+}
+
+void SyslogErrorMessage(const char *mesg)
+{
+  SyslogMessage(mesg, LOG_ERR);
+}
+
+void SyslogDebugMessage(const char *mesg)
+{
+  SyslogMessage(mesg, LOG_DEBUG);
+}
+
+void SyslogInfoMessage(const char *mesg)
+{
+  SyslogMessage(mesg, LOG_INFO);
+}
+
+void SyslogWarningMessage(const char *mesg)
+{
+  SyslogMessage(mesg, LOG_WARNING);
 }
 // ----------------------------------------------------------- // 
 // ------------------------------- //

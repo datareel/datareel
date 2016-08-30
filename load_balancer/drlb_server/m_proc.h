@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/16/2016
+// Date Last Modified: 08/29/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -46,16 +46,15 @@ Process functions for Datareel load balancer.
 #include "m_log.h"
 #include "m_dbase.h"
 
-class ConsoleThread : public gxThread
+class ProcessThread : public gxThread
 {
 public:
-  ConsoleThread() { }
-  ~ConsoleThread() { }
+  ProcessThread() { }
+  ~ProcessThread() { }
 
 private:
   void *ThreadEntryRoutine(gxThread_t *thread);
 };
-
 
 // Signal I/O process functions
 void signal_handler_IO(int status);  // Signal handler
@@ -64,7 +63,7 @@ void termination_handler(int signum);
 // Main process functions
 int StopProc();
 void ExitProc();
-void SpwanChildProcess(const char *command, const char *switches, const char *arg);
+int StopThreads();
 
 // Timer functions
 void sSleep(unsigned long seconds);

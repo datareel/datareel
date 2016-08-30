@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/22/2016
+// Date Last Modified: 08/30/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -55,6 +55,7 @@ LBconfig::LBconfig()
   max_threads = -1;
   max_connections = -1;
   num_client_threads = 0;
+  num_server_connections = 0;
   clear_log = 0;
   config_file = "drlb_server.cfg";
   logfile_name.Clear();
@@ -63,24 +64,31 @@ LBconfig::LBconfig()
   service_name = "drlb_server"; // Default service name
   ProgramName = "drlb_server";  // Default program name
   user_config_file = 0;
-  port = 8085;
+  port = 8080;
   accept_clients = 1;
-  echo_loop = 1;
   client_request_pool = new thrPool;
   fatal_error = 0;
   num_nodes = 0;
-  num_nodes_is_locked = 0;
-  num_nodes_thread_retries = 3;
-  num_client_threads_is_locked = 0;
-  num_client_threads_retries = 3;
+  enable_stats = 0;
+  stats_file_name = "drlb_stats.log";
+  max_stats_size  = 5000000;
+  num_stats_to_keep = 3;
+  last_stats = 0;
+  stats_min = 5;
+  stats_secs = 0;
+
+  // Stat reporting members
+  connection_total = 0;
+  etime_server_start = time(0);
+
   num_logs_to_keep = 3;
   last_log = 0;
   max_log_size = 5000000;
   enable_buffer_overflow_detection = 0;
   buffer_overflow_size = 6400000;
   server_thread = 0;
-  console_thread = 0;
   log_thread  = 0;
+  stats_thread = 0;
   retries = 3;
   retry_wait = 1;
   timeout_secs = 300;
@@ -88,9 +96,7 @@ LBconfig::LBconfig()
   use_timeout = 0;
   server_accept_socket = -1;
   somaxconn = 128;
-  server_retry = 1;
-  rules_config_is_locked = 0;
-  rules_config_retries = 3;
+  connection_total_is_locked = 0;
   assigned_default = LB_RR;
   queue_node_count = -1;
   queue_debug_count = -1;
@@ -102,21 +108,15 @@ LBconfig::LBconfig()
   loq_queue_debug_nodes = 0;
   loq_queue_proc_nodes = 0;
   queue_node_count_is_locked = 0;
-  queue_node_count_retries = log_queue_size;
   queue_debug_count_is_locked = 0;
-  queue_debug_count_retries = log_queue_debug_size;
   queue_proc_count_is_locked = 0;
-  queue_proc_count_retries = log_queue_proc_size;
   refactor_scale = 1;
   refactored_connections = 1;
   prev_refactored_connections = 1;
   weight_scale = 1;
   weight_scale_is_locked = 0;
-  weight_scale_retries = 3;
   refactored_connections_is_locked = 0;
-  refactored_connections_retries = 3;
   prev_refactored_connections_is_locked = 0;
-  prev_refactored_connections_retries = 3;
   has_debug_override = 0;
   has_debug_level_override = 0;
   has_verbose_override = 0;
@@ -127,13 +127,22 @@ LBconfig::LBconfig()
   has_log_file_clear_override = 0;
   has_enable_logging_override = 0;
   has_disable_logging_override = 0;
+  has_stats_file_name_override = 0;
+  has_enable_stats_override = 0;
+  has_disable_stats_override = 0;
   is_client = 0;
   is_client_interactive = 0;
+  check_config = 0;
   log_file_err = 0;
   max_idle_count = 60000;
   idle_wait_secs = 0;
   idle_wait_usecs = 500;
   use_nonblock_sockets = 0;
+  process_thread = 0;
+  process_loop = 1;
+  process_is_locked = 0;
+  kill_server = 0;
+  restart_server = 0;
 }
 
 LBconfig::~LBconfig()
@@ -142,20 +151,22 @@ LBconfig::~LBconfig()
     delete client_request_pool;
     client_request_pool = 0;
   }
-
   if(server_thread) {
     delete server_thread;
     server_thread = 0;
-  }
-  if(console_thread) {
-    delete console_thread;
-    console_thread = 0;
   }
   if(log_thread) {
     delete log_thread;
     log_thread = 0;
   }
-
+  if(stats_thread) {
+    delete stats_thread;
+    stats_thread = 0;
+  }
+  if(process_thread) {
+    delete process_thread;
+    process_thread = 0;
+  }
   gxListNode<LB_rule *> *lptr = rules_config_list.GetHead();
   while(lptr) {
     delete lptr->data;
@@ -173,174 +184,104 @@ LBconfig::~LBconfig()
   nodes.ClearList();
 
   if(loq_queue_nodes) {
-    delete loq_queue_nodes;
+    delete[] loq_queue_nodes;
     loq_queue_nodes = 0;
   }
   if(loq_queue_debug_nodes) {
-    delete loq_queue_debug_nodes;
+    delete[] loq_queue_debug_nodes;
     loq_queue_debug_nodes = 0;
   }
   if(loq_queue_proc_nodes) {
-    delete loq_queue_proc_nodes;
+    delete[] loq_queue_proc_nodes;
     loq_queue_proc_nodes = 0;
   }
 
   if(logfile) logfile.Close();
+  if(stats_file) stats_file.Close();
 }
 
 unsigned LBconfig::NUM_NODES()
 {
+  // Num nodes already set
   if(num_nodes > 0) return num_nodes;
-  num_nodes_lock.MutexLock();
-  int num_try = 0;
-  while(num_nodes_is_locked != 0) {
-    if(++num_try < num_nodes_thread_retries) {
-      num_nodes_cond.ConditionWait(&num_nodes_lock);
-    }
-    else {
-      return num_nodes; // Could not update
-    }
-  }
 
-  num_nodes_is_locked = 1; 
-
-  // ********** Enter Critical Section ******************* //
   gxListNode<LBnode *> *ptr = nodes.GetHead();
   while(ptr) {
     num_nodes++;
     ptr = ptr->next;
   }
-  // ********** Leave Critical Section ******************* //
-
-  num_nodes_is_locked = 0; 
-  num_nodes_cond.ConditionSignal();
-  num_nodes_lock.MutexUnlock();
-
   return num_nodes;
 }
 
-unsigned LBconfig::NUM_CLIENT_THREADS(int inc, int dec, unsigned set_to)
+unsigned long LBconfig::CONNECTION_TOTAL(int val)
 {
-  num_client_threads_lock.MutexLock();
-  int num_try = 0;
-  while(num_client_threads_is_locked != 0) {
-    if(++num_try < num_client_threads_retries) {
-      num_client_threads_cond.ConditionWait(&num_client_threads_lock);
-    }
-    else {
-      return num_client_threads; // Could not update
-    }
-  }
-
-  num_client_threads_is_locked = 1; 
+  int has_mutex = 1;
+  if(connection_total_lock.MutexLock() != 0) has_mutex = 0;
+  if(connection_total_is_locked && !has_mutex) return connection_total;
+  connection_total_is_locked = 1;
 
   // ********** Enter Critical Section ******************* //
-  if(inc > 0) num_client_threads++;
-  if(dec > 0) {
-    num_client_threads--;
-    if(num_client_threads < 0) num_client_threads = 0;
-  }
-  if(set_to > 0) num_client_threads = set_to;
+  if(val > -1) connection_total += val;
+  unsigned long buf = connection_total;
   // ********** Leave Critical Section ******************* //
 
-  num_client_threads_is_locked = 0; 
-  num_client_threads_cond.ConditionSignal();
-  num_client_threads_lock.MutexUnlock();
-
-  return num_client_threads;
+  connection_total_is_locked = 0;
+  if(has_mutex) connection_total_lock.MutexUnlock();
+  return buf;
 }
 
 int LBconfig::QUEUE_NODE_COUNT()
 {
-  if(queue_node_count_lock.MutexTryLock() != 0) {
-    return -1; 
-  }
-  int num_try = 0;
-  while(queue_node_count_is_locked != 0) {
-    if(++num_try < queue_node_count_retries) {
-      queue_node_count_cond.ConditionTimedWait(&queue_node_count_lock, 1, 0);
-    }
-    else {
-      return -1;
-    }
-  }
+  int has_mutex = 1;
+  if(queue_node_count_lock.MutexLock() != 0) has_mutex = 0;
+  if(queue_node_count_is_locked && !has_mutex) return -1;
   queue_node_count_is_locked = 1; 
 
   // ********** Enter Critical Section ******************* //
   if(queue_node_count == log_queue_size) queue_node_count = 0; 
   queue_node_count++;
+  int buf = queue_node_count;
   // ********** Leave Critical Section ******************* //
 
   queue_node_count_is_locked = 0; 
-  queue_node_count_cond.ConditionSignal();
-
-  if(queue_node_count_lock.IsLocked()) {
-    queue_node_count_lock.MutexUnlock();
-  }
-
-  return queue_node_count;
+  if(has_mutex) queue_node_count_lock.MutexUnlock();
+  return buf;
 }
 
 int LBconfig::QUEUE_DEBUG_COUNT()
 {
-  if(queue_debug_count_lock.MutexTryLock() != 0) {
-    return -1; 
-  }
-  int num_try = 0;
-  while(queue_debug_count_is_locked != 0) {
-    if(++num_try < queue_debug_count_retries) {
-      queue_debug_count_cond.ConditionTimedWait(&queue_debug_count_lock, 1, 0);
-    }
-    else {
-      return -1;
-    }
-  }
-  queue_debug_count_is_locked = 1; 
+  int has_mutex = 1;
+  if(queue_debug_count_lock.MutexLock() != 0) has_mutex = 0;
+  if(queue_debug_count_is_locked && !has_mutex) return -1;
+  queue_debug_count_is_locked = 1;
 
   // ********** Enter Critical Section ******************* //
   if(queue_debug_count == log_queue_size) queue_debug_count = 0; 
   queue_debug_count++;
+  int buf = queue_debug_count;
   // ********** Leave Critical Section ******************* //
 
   queue_debug_count_is_locked = 0; 
-  queue_debug_count_cond.ConditionSignal();
-
-  if(queue_debug_count_lock.IsLocked()) {
-    queue_debug_count_lock.MutexUnlock();
-  }
-
-  return queue_debug_count;
+  if(has_mutex) queue_debug_count_lock.MutexUnlock();
+  return buf;
 }
 
 int LBconfig::QUEUE_PROC_COUNT()
 {
-  if(queue_proc_count_lock.MutexTryLock() != 0) {
-    return -1; 
-  }
-  int num_try = 0;
-  while(queue_proc_count_is_locked != 0) {
-    if(++num_try < queue_proc_count_retries) {
-      queue_proc_count_cond.ConditionTimedWait(&queue_proc_count_lock, 1, 0);
-    }
-    else {
-      return -1;
-    }
-  }
+  int has_mutex = 1;
+  if(queue_proc_count_lock.MutexLock() != 0) has_mutex = 0;
+  if(queue_proc_count_is_locked && !has_mutex) return -1;
   queue_proc_count_is_locked = 1; 
 
   // ********** Enter Critical Section ******************* //
   if(queue_proc_count == log_queue_size) queue_proc_count = 0; 
   queue_proc_count++;
+  int buf = queue_proc_count;
   // ********** Leave Critical Section ******************* //
 
   queue_proc_count_is_locked = 0; 
-  queue_proc_count_cond.ConditionSignal();
-
-  if(queue_proc_count_lock.IsLocked()) {
-    queue_proc_count_lock.MutexUnlock();
-  }
-
-  return queue_proc_count;
+  if(has_mutex) queue_proc_count_lock.MutexUnlock();
+  return buf;
 }
 
 LBnode::LBnode() 
@@ -355,10 +296,12 @@ LBnode::LBnode()
   buffer_size = 1555; // Default read/write buffer size
   num_connections = 0;
   num_connections_is_locked = 0;
-  num_connections_retries = 3;
   lb_flag_is_locked = 0;
-  lb_flag_retries = 3;
+  connection_total_is_locked = 0;
   active_ptr = this;
+
+  // Stat reporting members
+  connection_total = 0;
 }
 
 void LBnode::Copy(const LBnode &n) 
@@ -372,10 +315,10 @@ void LBnode::Copy(const LBnode &n)
   num_connections = n.num_connections;
   node_name = n.node_name;
   num_connections_is_locked = 0;
-  num_connections_retries = 3;
+  connection_total_is_locked = 0;
   lb_flag_is_locked = 0;
-  lb_flag_retries = 3;
   active_ptr = n.active_ptr;
+  connection_total = n.connection_total;
 }
 
 int operator==(const LBnode &a, const LBnode &b) 
@@ -400,45 +343,43 @@ int operator>(const LBnode &a, const LBnode &b)
 
 int LBnode::LB_FLAG(int flag) 
 {
-  lb_flag_lock.MutexLock();
-
-  int num_try = 0;
-  while(lb_flag_is_locked != 0) {
-    if(++num_try < lb_flag_retries) {
-      lb_flag_cond.ConditionWait(&lb_flag_lock);
-    }
-    else {
-      return lb_flag; // Could not update
-    }
-  }
-
+  int has_mutex = 1;
+  if(lb_flag_lock.MutexLock() != 0) has_mutex = 0;
+  if(lb_flag_is_locked && !has_mutex) return 0;
   lb_flag_is_locked = 1; 
 
   // ********** Enter Critical Section ******************* //
   if(flag != -1) lb_flag = flag;
+  int buf = lb_flag;
   // ********** Leave Critical Section ******************* //
 
   lb_flag_is_locked = 0; 
-  lb_flag_cond.ConditionSignal();
-  lb_flag_lock.MutexUnlock();
+  if(has_mutex) lb_flag_lock.MutexUnlock();
+  return buf;
+}
 
-  return lb_flag;
+unsigned long LBnode::CONNECTION_TOTAL(int val)
+{
+  int has_mutex = 1;
+  if(connection_total_lock.MutexLock() != 0) has_mutex = 0;
+  if(connection_total_is_locked && !has_mutex) return connection_total;
+  connection_total_is_locked = 1;
+
+  // ********** Enter Critical Section ******************* //
+  if(val > -1) connection_total += val;
+  unsigned long buf = connection_total;
+  // ********** Leave Critical Section ******************* //
+
+  connection_total_is_locked = 0;
+  if(has_mutex) connection_total_lock.MutexUnlock();
+  return buf;
 }
 
 unsigned LBnode::NUM_CONNECTIONS(int inc, int dec, unsigned set_to)
 {
-  num_connections_lock.MutexLock();
-
-  int num_try = 0;
-  while(num_connections_is_locked != 0) {
-    if(++num_try < num_connections_retries) {
-      num_connections_cond.ConditionWait(&num_connections_lock);
-    }
-    else {
-      return num_connections; // Could not update
-    }
-  }
-
+  int has_mutex = 1;
+  if(num_connections_lock.MutexLock() != 0) has_mutex = 0;
+  if(num_connections_is_locked && !has_mutex) return num_connections;
   num_connections_is_locked = 1; 
 
   // ********** Enter Critical Section ******************* //
@@ -449,13 +390,12 @@ unsigned LBnode::NUM_CONNECTIONS(int inc, int dec, unsigned set_to)
     if(num_connections < 0) num_connections = 0;
   }
   if(set_to > 0) num_connections = set_to;
+  unsigned buf = num_connections; 
   // ********** Leave Critical Section ******************* //
 
   num_connections_is_locked = 0; 
-  num_connections_cond.ConditionSignal();
-  num_connections_lock.MutexUnlock();
-
-  return num_connections;
+  if(has_mutex) num_connections_lock.MutexUnlock();
+  return buf;
 } 
 
 int ProcessDashDashArg(gxString &arg)
@@ -531,7 +471,12 @@ int ProcessDashDashArg(gxString &arg)
       has_arg = 1;
     }
   }
-
+  if(arg == "check-config") {
+    servercfg->check_config = 1;
+    servercfg->is_client = 1;
+    servercfg->is_client_interactive = 1;
+    has_arg = 1;
+  }
   if(arg == "config-file") {
     if(equal_arg.is_null()) { 
       servercfg->verbose = 1;
@@ -584,6 +529,25 @@ int ProcessDashDashArg(gxString &arg)
       if(servercfg->log_level < 0) servercfg->log_level = 0;
       has_arg = 1;
     }
+  }
+
+  if(arg == "stats-file") {
+    if(equal_arg.is_null()) { 
+      servercfg->verbose = 1;
+      NT_print("Error no STATS file name supplied with the --stats-file swtich");
+      has_arg_errors++;
+    }
+    else {
+      servercfg->has_stats_file_name_override = 1;
+      servercfg->stats_file_name = equal_arg;
+      servercfg->enable_stats = 1;
+      has_arg = 1;
+    }
+  }
+  if(arg == "stats-disable") {
+    servercfg->has_disable_stats_override = 1;
+    servercfg->enable_stats = 0;
+    has_arg = 1;
   }
 
   arg.Clear(); 
@@ -640,6 +604,17 @@ int ProcessArgs(int argc, char *argv[])
   return has_arg_errors;
 }
 
+// Get the parm name before the = sign
+void CfgGetParmName(const gxString &cfgline, gxString &parm_name)
+{
+  parm_name = cfgline;
+  parm_name.DeleteAfterIncluding("=");
+  parm_name.DeleteAfterIncluding("\n");
+  parm_name.TrimLeadingSpaces();
+  parm_name.TrimTrailingSpaces();
+}
+
+// Get the parm after = sign
 void CfgGetEqualToParm(const gxString &cfgline, gxString &parm)
 {
   parm = cfgline;
@@ -658,6 +633,7 @@ int CfgGetTrueFalseValue(const gxString &cfgline)
   if((parm == "FALSE") || (parm == "F") || (parm == "NO") || (parm == "N")) return 0;
   if(parm.Atoi() >= 1) return 1;
   if(parm.Atoi() <= 0) return 0;
+  return 0;
 }
 
 int CfgGetTrueFalseValue(const gxString &cfgline, gxString &parm) 
@@ -680,7 +656,7 @@ int CfgGetEqualToParm(const gxString &cfgline)
 
 char *CfgGetEqualToParm(const gxString &cfgline, char sbuf[255])
 {
-  memset(sbuf, 0, sizeof(sbuf));
+  memset(sbuf, 0, 255);
   gxString parm;
   CfgGetEqualToParm(cfgline, parm);
   strcpy(sbuf, parm.c_str());
@@ -689,21 +665,14 @@ char *CfgGetEqualToParm(const gxString &cfgline, char sbuf[255])
 
 int LoadOrBuildConfigFile()
 {
-  NT_print("Loading config file", servercfg->config_file.c_str());
+  NT_print("Loading or building config file", servercfg->config_file.c_str());
   
   if(!futils_exists(servercfg->config_file.c_str())) {
-    if(servercfg->user_config_file) {
-      NT_print("User specified config file not found");
-    }
-    else {
-      NT_print("Config file not found");
-    }
-    NT_print("Building default configuration file");
-
+    NT_print("DRLB configuration file not found. Building default file and exiting");
     DiskFileB dfile(servercfg->config_file.c_str(), DiskFileB::df_READWRITE, DiskFileB::df_CREATE); 
     if(!dfile) {
-      NT_print("Cannot write to config file", servercfg->config_file.c_str());
-      return 0;
+      NT_print("ERROR - Cannot write to config file", servercfg->config_file.c_str());
+      return 3;
     }
     dfile << "# " << GetProgramDescription() << " " << GetVersionString() << " configuration file" << "\n";
     dfile << "#" << "\n";
@@ -718,10 +687,12 @@ int LoadOrBuildConfigFile()
     dfile << "# A default rules config file will be build if specified file does not exist" << "\n";
     dfile << "##scheme = LB_ASSIGNED" << "\n";
     dfile << "##rules_config_file = drlb_server_rules.cfg" << "\n";
-    dfile << "##dynamic_rules_read = 1 # Read the rules config while LB server is running" << "\n";
-    dfile << "##assigned_default = LB_RR # Use round robin, distib or weighted, for node fail over" << "\n";
+    dfile << "##assigned_default = LB_RR # Use round robin for node fail over" << "\n";
+    dfile << "##assigned_default = LB_DISTRIB  # Use distib for node fail over" << "\n";
+    dfile << "##assigned_default = LB_WEIGHTED # Use weighted for node fail over" << "\n";
     dfile << "# Set assigned_default to LB_NONE to disable node fail over, meaning:" << "\n";
     dfile << "# If the assigned node is not available the client connection will fail" << "\n";
+    dfile << "##assigned_default = LB_NONE" << "\n";
     dfile << "#" << "\n";
     dfile << "##scheme = LB_DISTRIB" << "\n";
     dfile << "##scheme = LB_WEIGHTED" << "\n";
@@ -746,6 +717,16 @@ int LoadOrBuildConfigFile()
     dfile << "# Log levels 0-5, 0 lowest log level, 5 highest log level " << "\n";
     dfile << "##log_level = 0" << "\n";
     dfile << "##logfile_name = /var/log/drlb/drlb_server.log" << "\n";
+    dfile << "#" << "\n";
+    dfile << "# Stats settings" << "\n";
+    dfile << "# Keep stats file plus last 3. Disk space will be: (max_stats_size * (num_stats_to_keep +1))" << "\n";
+    dfile << "num_stats_to_keep = 3" << "\n";
+    dfile << "# Set max size per stats file, max is 2000000000" << "\n";
+    dfile << "max_stats_size = 5000000 # Default is 5M, max is 2G" << "\n";
+    dfile << "stats_min = 5 # Generate a stats report every 5 minutes" << "\n";
+    dfile << "stats_secs = 0 # If min=0 gen a stats report less than every min" << "\n";
+    dfile << "##enable_stats = 0" << "\n";
+    dfile << "##stats_file_name = /var/log/drlb/drlb_stats.log" << "\n";
     dfile << "#" << "\n";
     dfile << "# Set max number of back logged connections" << "\n";
     dfile << "# Should match: cat /proc/sys/net/core/somaxconn" << "\n";
@@ -830,7 +811,7 @@ int LoadOrBuildConfigFile()
 
   ifile.df_Open(servercfg->config_file.c_str());
   if(!ifile) {
-    NT_print("Cannot open config file for reading", servercfg->config_file.c_str());
+    NT_print("ERROR - Cannot open config file for reading", servercfg->config_file.c_str());
     NT_print(ifile.df_ExceptionMessage());
     return 1;
   }
@@ -875,6 +856,7 @@ int LoadOrBuildConfigFile()
   char pbuf[255];
   gxString parm;
   int has_scheme = 0;
+  gxString parm_name;
 
   while(ptr) {
     gxString strdup = ptr->data;
@@ -887,31 +869,85 @@ int LoadOrBuildConfigFile()
 	  ptr = ptr->prev;
 	  break;
 	}
-	// Add all server conifg reads here
+	if(ptr->data.IFind("verbose") != -1) { // Check verbose mode first
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "verbose") {
+	    if(!servercfg->has_verbose_override) servercfg->verbose = CfgGetTrueFalseValue(ptr->data);
+	  }
+	}
+	if(ptr->data.IFind("verbose_level") != -1) {
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "verbose_level") {
+	    if(!servercfg->has_verbose_level_override) servercfg->verbose_level = CfgGetEqualToParm(ptr->data);
+	  }
+	}
+	if(ptr->data.IFind("debug") != -1) { // Set the debug level second
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "debug") {
+	    if(!servercfg->has_debug_override) servercfg->debug = CfgGetTrueFalseValue(ptr->data);
+	  }
+	}
+	if(ptr->data.IFind("debug_level") != -1) {
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "debug_level") {
+	    if(!servercfg->has_debug_level_override) servercfg->debug_level = CfgGetEqualToParm(ptr->data);
+	  }
+	}
+	if(ptr->data.IFind("log_level") != -1) { // Set the log level and check log settings third
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "log_level") {
+	    if(!servercfg->has_log_level_override) servercfg->log_level = CfgGetEqualToParm(ptr->data);
+	  }
+	}
+	if(!servercfg->has_disable_logging_override) { 
+	  if(ptr->data.IFind("clear_log") != -1) {
+	    CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	    if(parm_name == "clear_log") {
+	      if(!servercfg->has_log_file_clear_override) servercfg->clear_log = CfgGetTrueFalseValue(ptr->data);
+	    }
+	  }
+	  if(ptr->data.IFind("logfile_name") != -1) {
+	    CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	    if(parm_name == "logfile_name") {
+	      if(!servercfg->has_log_file_name_override) servercfg->logfile_name = CfgGetEqualToParm(ptr->data, pbuf);
+	    }
+	  }
+	  if(ptr->data.IFind("enable_logging") != -1) {
+	    CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	    if(parm_name == "enable_logging") {
+	      if(!servercfg->has_enable_logging_override) servercfg->enable_logging = CfgGetTrueFalseValue(ptr->data);
+	    }
+	  }
+	}
+	//
+	// Add all other DRLB conifg reads here
+	//
 	if(ptr->data.IFind("scheme") != -1) {
-	  has_scheme++;
-	  CfgGetEqualToParm(ptr->data, parm);
-	  if(parm.IFind("LB_ASSIGNED") != -1) {
-	    servercfg->scheme = LB_ASSIGNED;
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "scheme") {
+	    has_scheme++;
+	    CfgGetEqualToParm(ptr->data, parm);
+	    if(parm.IFind("LB_ASSIGNED") != -1) {
+	      servercfg->scheme = LB_ASSIGNED;
+	    }
+	    else if(parm.IFind("LB_DISTRIB") != -1) {
+	      servercfg->scheme = LB_DISTRIB;
+	    }
+	    else if(parm.IFind("LB_RR") != -1) {
+	      servercfg->scheme = LB_RR;
+	    }
+	    else if(parm.IFind("LB_WEIGHTED") != -1) {
+	      servercfg->scheme = LB_WEIGHTED;
+	    }
+	    else {
+	      NT_print("Config file has bad scheme value", parm.c_str());
+	      error_level = 1;
+	    }
+	    if(has_scheme > 1) {
+	      NT_print("Config file has more than one scheme defined");
+	      error_level = 1;
+	    }
 	  }
-	  else if(parm.IFind("LB_DISTRIB") != -1) {
-	    servercfg->scheme = LB_DISTRIB;
-	  }
-	  else if(parm.IFind("LB_RR") != -1) {
-	    servercfg->scheme = LB_RR;
-	  }
-	  else if(parm.IFind("LB_WEIGHTED") != -1) {
-	    servercfg->scheme = LB_WEIGHTED;
-	  }
-	  else {
-	    NT_print("Config file has bad scheme value", parm.c_str());
-	    error_level = 1;
-	  }
-	  if(has_scheme > 1) {
-	    NT_print("Config file has more than one scheme defined");
-	    error_level = 1;
-	  }
-
 	}
 	if(ptr->data.IFind("use_buffer_cache") != -1) {
 	  servercfg->use_buffer_cache = CfgGetTrueFalseValue(ptr->data);
@@ -923,37 +959,52 @@ int LoadOrBuildConfigFile()
 	    error_level = 1;
 	  }
 	}
-	if(ptr->data.IFind("debug") != -1) {
-	  if(!servercfg->has_debug_override) servercfg->debug = CfgGetTrueFalseValue(ptr->data);
-	}
-	if(ptr->data.IFind("debug_level") != -1) {
-	  if(!servercfg->has_debug_level_override) servercfg->debug_level = CfgGetEqualToParm(ptr->data);
-	}
-	if(ptr->data.IFind("verbose") != -1) {
-	  if(!servercfg->has_verbose_override) servercfg->verbose = CfgGetTrueFalseValue(ptr->data);
-	}
-	if(ptr->data.IFind("verbose_level") != -1) {
-	  if(!servercfg->has_verbose_level_override) servercfg->verbose_level = CfgGetEqualToParm(ptr->data);
-	}
 	if(ptr->data.IFind("max_threads") != -1) {
 	  servercfg->max_threads = CfgGetEqualToParm(ptr->data);
 	}
 	if(ptr->data.IFind("max_connections") != -1) {
 	  servercfg->max_connections = CfgGetEqualToParm(ptr->data);
 	}
-	if(!servercfg->has_disable_logging_override) {
-	  if(ptr->data.IFind("clear_log") != -1) {
-	    if(!servercfg->has_log_file_clear_override) servercfg->clear_log = CfgGetTrueFalseValue(ptr->data);
+	if(!servercfg->has_disable_stats_override) {
+	  if(ptr->data.IFind("stats_file_name") != -1) {
+	    if(!servercfg->has_stats_file_name_override) servercfg->stats_file_name = CfgGetEqualToParm(ptr->data, pbuf);
 	  }
-	  if(ptr->data.IFind("logfile_name") != -1) {
-	    if(!servercfg->has_log_file_name_override) servercfg->logfile_name = CfgGetEqualToParm(ptr->data, pbuf);
-	  }
-	  if(ptr->data.IFind("enable_logging") != -1) {
-	    if(!servercfg->has_enable_logging_override) servercfg->enable_logging = CfgGetTrueFalseValue(ptr->data);
+	  if(ptr->data.IFind("enable_stats") != -1) {
+	    if(!servercfg->has_enable_stats_override) servercfg->enable_stats = CfgGetTrueFalseValue(ptr->data);
 	  }
 	}
-	if(ptr->data.IFind("log_level") != -1) {
-	  if(!servercfg->has_log_level_override) servercfg->log_level = CfgGetEqualToParm(ptr->data);
+	if(ptr->data.IFind("num_stats_to_keep") != -1) {
+	  servercfg->num_stats_to_keep = CfgGetEqualToParm(ptr->data);
+	  if(servercfg->num_stats_to_keep <= 0) {
+	    NT_print("Config file has bad num_stats_to_keep value");
+	    error_level = 1;
+	  }
+	}
+	if(ptr->data.IFind("max_stats_size") != -1) {
+	  gxString lsbuf = CfgGetEqualToParm(ptr->data, pbuf);
+	  servercfg->max_stats_size = lsbuf.Atol();
+	  if(servercfg->max_stats_size > 2000000000) {
+	    NT_print("Config max_stats_size is over 2GB");
+	    error_level =1;
+	  }
+	  if(servercfg->max_stats_size <= 0) {
+	    NT_print("Config file has bad max_ststs_size");
+	    error_level = 1;
+	  }
+	}
+	if(ptr->data.IFind("stats_min") != -1) {
+	  servercfg->stats_min = CfgGetEqualToParm(ptr->data);
+	  if(servercfg->stats_min < 0) {
+	    NT_print("Config file has bad stats_min value");
+	    error_level = 1;
+	  }
+	}
+	if(ptr->data.IFind("stats_secs") != -1) {
+	  servercfg->stats_secs = CfgGetEqualToParm(ptr->data);
+	  if(servercfg->stats_secs < 0) {
+	    NT_print("Config file has bad stats_secs value");
+	    error_level = 1;
+	  }
 	}
 	if(ptr->data.IFind("service_name") != -1) {
 	  servercfg->service_name = CfgGetEqualToParm(ptr->data, pbuf);
@@ -1009,10 +1060,13 @@ int LoadOrBuildConfigFile()
 	  }
 	}
 	if(ptr->data.IFind("retries") != -1) {
-	  servercfg->retries = CfgGetEqualToParm(ptr->data);
-	  if(servercfg->retries < 0) {
-	    NT_print("Config file has bad retries value");
-	    error_level = 1;
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "retries") {
+	    servercfg->retries = CfgGetEqualToParm(ptr->data);
+	    if(servercfg->retries < 0) {
+	      NT_print("Config file has bad retries value");
+	      error_level = 1;
+	    }
 	  }
 	}
 	if(ptr->data.IFind("retry_wait") != -1) {
@@ -1064,21 +1118,24 @@ int LoadOrBuildConfigFile()
 	  servercfg->use_timeout = CfgGetTrueFalseValue(ptr->data);
 	}
 	if(ptr->data.IFind("port") != -1) {
-	  servercfg->port = CfgGetEqualToParm(ptr->data);
-	  if(servercfg->port <= 0) {
-	    NT_print("Config file has bad server port value");
-	    error_level = 1;
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "port") {
+	    servercfg->port = CfgGetEqualToParm(ptr->data);
+	    if(servercfg->port <= 0) {
+	      NT_print("Config file has bad server port value");
+	      error_level = 1;
+	    }
 	  }
 	}
 	if(ptr->data.IFind("somaxconn") != -1) {
-	  servercfg->somaxconn = CfgGetEqualToParm(ptr->data);
-	  if(servercfg->somaxconn <= 0) {
-	    NT_print("Config file has bad somaxconn value");
-	    error_level = 1;
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "somaxconn") {
+	    servercfg->somaxconn = CfgGetEqualToParm(ptr->data);
+	    if(servercfg->somaxconn <= 0) {
+	      NT_print("Config file has bad somaxconn value");
+	      error_level = 1;
+	    }
 	  }
-	}
-	if(ptr->data.IFind("dynamic_rules_read") != -1) {
-	  servercfg->dynamic_rules_read = CfgGetTrueFalseValue(ptr->data);
 	}
 	if(ptr->data.IFind("assigned_default") != -1) {
 	  CfgGetEqualToParm(ptr->data, parm);
@@ -1136,12 +1193,18 @@ int LoadOrBuildConfigFile()
 	  }
 	}
 	if(ptr->data.IFind("hostname") != -1) {
-	  n->hostname = CfgGetEqualToParm(ptr->data, pbuf);
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "hostname") {
+	    n->hostname = CfgGetEqualToParm(ptr->data, pbuf);
+	  }
 	}
 	if(ptr->data.IFind("weight") != -1) {
-	  gxString wbuf = ptr->data;
-	  wbuf.FilterChar('%');
-	  n->weight = CfgGetEqualToParm(wbuf);
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "weight") {
+	    gxString wbuf = ptr->data;
+	    wbuf.FilterChar('%');
+	    n->weight = CfgGetEqualToParm(wbuf);
+	  }
 	}
 	if(ptr->data.IFind("max_connections") != -1) {
 	  n->max_connections = CfgGetEqualToParm(ptr->data);
@@ -1177,181 +1240,6 @@ int LoadOrBuildConfigFile()
   return error_level;
 }
 
-// Read the rules config
-// Return 0 if no errors
-// Return 1 if fatal error
-// Return 2 if bad rule line
-// Return 3 if bad regex
-int LBconfig::ReadRulesConfig()
-{
-  if(rules_config_file.is_null()) {
-    if(log_level >= 4 || debug) {
-	LogDebugMessage("WARNING - No rules_config_file specified in LB server config");
-    }
-    return 1;
-  }
-
-  rules_config_lock.MutexLock();
-  int num_try = 0;
-  while(rules_config_is_locked != 0) {
-    if(++num_try < rules_config_retries) {
-      rules_config_cond.ConditionWait(&rules_config_lock);
-    }
-    else {
-      return 1; // Could not update
-    }
-  }
-  rules_config_is_locked = 1; 
-
-  // ********** Enter Critical Section ******************* //
-  int error_level = 0;
-  gxString message;
-
-  if(!futils_exists(rules_config_file.c_str())) {
-    if(log_level >= 4 || debug) {
-      message << clear << "No rules cfg " << rules_config_file;
-      LogDebugMessage(message.c_str());
-      LogDebugMessage("Building default rules configuration file");
-    }
-
-    DiskFileB dfile(rules_config_file.c_str(), DiskFileB::df_READWRITE, DiskFileB::df_CREATE); 
-    if(!dfile) {
-      if(log_level >= 4 || debug) {
-	message << clear << "write error " << rules_config_file;
-	LogDebugMessage(message.c_str());
-      }
-      // ********** Leave Critical Section ******************* //
-      rules_config_is_locked = 0; 
-      rules_config_cond.ConditionSignal();
-      rules_config_lock.MutexUnlock();
-      return 1;
-    }
-
-    dfile << "#  " << GetProgramDescription() << " " << GetVersionString() << " rule set configuration file" << "\n";
-    dfile << "#" << "\n";
-    dfile << "\n";
-    dfile << "# Default LB rules config file" << "\n";
-    dfile << "\n";
-    dfile << "# ROUTE rule set for LB_ASSIGNED scheme" << "\n";
-    dfile << "# Route rule for assigned LB format: route IP node" << "\n"; 
-    dfile << "# IP = Frontend IP address in dotted notation or regular expression form" << "\n";
-    dfile << "# node = node name to route traffic too. node name must match server config" << "\n";
-    dfile << "# Route rule examples:" << "\n";
-    dfile << "##route 192.168.122.1 lbnode1" << "\n";
-    dfile << "##route ^192.* lbnode1" << "\n";
-    dfile << "\n";
-    dfile << "\n";
-    dfile.df_Close();
-  }
-  else {
-    char lbuf[1024];
-    DiskFileB ifile;
-    gxString rule;
-    unsigned num_arr;
-    gxString *vals = 0; 
-    regex_t regex;
-    int reti;
-    gxString info_line;
-    gxString delimiter = " ";
-
-    ifile.df_Open(rules_config_file.c_str());
-    if(!ifile) {
-      if(log_level >= 4 || debug) {
-	message << clear << "Cannot open" << rules_config_file;
-	LogDebugMessage(message.c_str());
-      }
-      // ********** Leave Critical Section ******************* //
-      rules_config_is_locked = 0; 
-      rules_config_cond.ConditionSignal();
-      rules_config_lock.MutexUnlock();
-      return 1;
-    }
-
-    // Clear the existing rule set
-    gxListNode<LB_rule *> *lptr = rules_config_list.GetHead();
-    while(lptr) {
-      delete lptr->data;
-      lptr->data = 0;
-      lptr = lptr->next;
-    }
-    rules_config_list.ClearList();
-
-    while(!ifile.df_EOF()) {
-      ifile.df_GetLine(lbuf, sizeof(lbuf), '\n');
-      if(ifile.df_GetError() != DiskFileB::df_NO_ERROR) {
-	if(log_level >= 4 || debug) {
-	  message << clear << "ERROR - read failed " << rules_config_file.c_str();
-	  LogDebugMessage(message.c_str());
-	}
-	error_level = 1;
-	break;
-      }
-      
-      info_line = lbuf;
-      info_line.FilterChar('\n');    
-      info_line.FilterChar('\r');    
-      info_line.TrimLeadingSpaces();
-      info_line.TrimTrailingSpaces();
-      
-      // Skip remark lines
-      if(info_line[0] == '#') continue; 
-      if(info_line[0] == ';') continue;
-      
-      // Filter inline remarks
-      info_line.DeleteAfterIncluding("#");
-      info_line.TrimTrailingSpaces();
-      
-      // Replace tabs with spaces
-      info_line.ReplaceString("\t", " ");
-      
-      // Replace multiple spaces with single space
-      while(info_line.IFind("  ") != -1) info_line.ReplaceString("  ", " ");
-      
-      rule = info_line;
-      rule.DeleteAfterIncluding(" ");
-      if(rule.IFind("route") != -1) {
-	num_arr = 0;
-	vals = ParseStrings(info_line, delimiter, num_arr);
-	if(num_arr != 3) {
-	  if(log_level >= 4 || debug) {
-	    message << clear << "ERROR - Bad ROUTE rule " << info_line;
-	    LogDebugMessage(message.c_str());
-	  }
-	  error_level = 2;
-	}
-	else {
-	  reti = regcomp(&regex, vals[1].c_str(), REG_EXTENDED|REG_NOSUB);
-	  if(reti) {
-	    if(log_level >= 4 || debug) {
-	      message << clear << "ERROR - Bad regex " << vals[1];
-	      LogDebugMessage(message.c_str());
-	    }
-	    error_level = 3;
-	  }
-	  else {
-	    LB_rule *p = new LB_rule;
-	    p->rule =  LB_ROUTE;
-	    p->front_end_client_ip = vals[1];
-	    p->node_name = vals[2];
-	    rules_config_list.Add(p);
-	    regfree(&regex);
-	  }
-	}
-	delete[] vals;
-	vals = 0; 
-      }
-    }
-    ifile.df_Close();
-  }
-  // ********** Leave Critical Section ******************* //
-
-  rules_config_is_locked = 0; 
-  rules_config_cond.ConditionSignal();
-  rules_config_lock.MutexUnlock();
-
-  return error_level;
-}
-
 int LBconfig::build_distributed_rr_node_list()
 {
   distributed_rr_node_list.ClearList();
@@ -1374,7 +1262,7 @@ int LBconfig::build_distributed_rr_node_list()
   
   gxListNode<LBnode> *wptr = distributed_list.GetTail();
 
-  int num_nodes;
+  int num_nodes = 0;
   while(wptr) {
     distributed_rr_node_list.Add(wptr->data.active_ptr);
     num_nodes++;
@@ -1384,7 +1272,7 @@ int LBconfig::build_distributed_rr_node_list()
   return num_nodes;
 }
 
-int LBconfig::get_num_server_connections()
+int LBconfig::get_num_node_connections()
 {
   int num_connections = 0;
 
@@ -1395,6 +1283,12 @@ int LBconfig::get_num_server_connections()
   }
 
   return num_connections;
+}
+
+int LBconfig::NUM_SERVER_CONNECTIONS(int num)
+{
+  if(num > 0) num_server_connections = num;
+  return num_server_connections;
 }
 
 int LBconfig::refactor_distribution_limits(gxList<limit_node> &limit_node_list, int num_connections)
@@ -1441,7 +1335,7 @@ int LBconfig::build_weighted_rr_node_list()
   
   gxListNode<LBnode> *wptr = weighted_list.GetTail();
 
-  int num_nodes;
+  int num_nodes = 0;
   while(wptr) {
     weighted_rr_node_list.Add(wptr->data.active_ptr);
     num_nodes++;
@@ -1472,17 +1366,9 @@ int LBconfig::refactor_weighted_limits(gxList<limit_node> &limit_node_list, int 
 
 int LBconfig::REFACTORED_CONNECTIONS(int inc, int dec, unsigned set_to)
 {
-  refactored_connections_lock.MutexLock();
-  int num_try = 0;
-  while(refactored_connections_is_locked != 0) {
-    if(++num_try < refactored_connections_retries) {
-      refactored_connections_cond.ConditionWait(&refactored_connections_lock);
-    }
-    else {
-      return refactored_connections; // Could not update
-    }
-  }
-
+  int has_mutex = 1;
+  if(refactored_connections_lock.MutexLock() != 0) has_mutex = 0;
+  if(refactored_connections_is_locked && !has_mutex) return refactored_connections;
   refactored_connections_is_locked = 1; 
 
   // ********** Enter Critical Section ******************* //
@@ -1492,28 +1378,19 @@ int LBconfig::REFACTORED_CONNECTIONS(int inc, int dec, unsigned set_to)
     if(refactored_connections < 0) refactored_connections = 0;
   }
   if(set_to > 0) refactored_connections = set_to;
+  int buf = refactored_connections;
   // ********** Leave Critical Section ******************* //
 
   refactored_connections_is_locked = 0; 
-  refactored_connections_cond.ConditionSignal();
-  refactored_connections_lock.MutexUnlock();
-
-  return refactored_connections;
+  if(has_mutex) refactored_connections_lock.MutexUnlock();
+  return buf;
 }
 
 int LBconfig::PREV_REFACTORED_CONNECTIONS(int inc, int dec, unsigned set_to)
 {
-  prev_refactored_connections_lock.MutexLock();
-  int num_try = 0;
-  while(prev_refactored_connections_is_locked != 0) {
-    if(++num_try < prev_refactored_connections_retries) {
-      prev_refactored_connections_cond.ConditionWait(&prev_refactored_connections_lock);
-    }
-    else {
-      return prev_refactored_connections; // Could not update
-    }
-  }
-
+  int has_mutex = 1;
+  if(prev_refactored_connections_lock.MutexLock() != 0) has_mutex = 0;
+  if(prev_refactored_connections_is_locked && !has_mutex) return  prev_refactored_connections;
   prev_refactored_connections_is_locked = 1; 
 
   // ********** Enter Critical Section ******************* //
@@ -1523,30 +1400,21 @@ int LBconfig::PREV_REFACTORED_CONNECTIONS(int inc, int dec, unsigned set_to)
     if(prev_refactored_connections < 0) prev_refactored_connections = 0;
   }
   if(set_to > 0) prev_refactored_connections = set_to;
+  int buf = prev_refactored_connections;
   // ********** Leave Critical Section ******************* //
 
   prev_refactored_connections_is_locked = 0; 
-  prev_refactored_connections_cond.ConditionSignal();
-  prev_refactored_connections_lock.MutexUnlock();
-
-  return prev_refactored_connections;
+  if(has_mutex) prev_refactored_connections_lock.MutexUnlock();
+  return buf;
 }
 
 int LBconfig::WEIGHT_SCALE(int inc, int dec, unsigned set_to)
 {
-  weight_scale_lock.MutexLock();
-  int num_try = 0;
-  while(weight_scale_is_locked != 0) {
-    if(++num_try < weight_scale_retries) {
-      weight_scale_cond.ConditionWait(&weight_scale_lock);
-    }
-    else {
-      return weight_scale; // Could not update
-    }
-  }
-
+  int has_mutex = 1;
+  if(weight_scale_lock.MutexLock() != 0) has_mutex = 0;
+  if(weight_scale_is_locked && !has_mutex) return weight_scale;
   weight_scale_is_locked = 1; 
-
+  
   // ********** Enter Critical Section ******************* //
   if(inc > 0) weight_scale++;
   if(dec > 0) {
@@ -1554,13 +1422,12 @@ int LBconfig::WEIGHT_SCALE(int inc, int dec, unsigned set_to)
     if(weight_scale <= 0) weight_scale = 1;
   }
   if(set_to > 0) weight_scale = set_to;
+  int buf = weight_scale;
   // ********** Leave Critical Section ******************* //
-
+  
   weight_scale_is_locked = 0; 
-  weight_scale_cond.ConditionSignal();
-  weight_scale_lock.MutexUnlock();
-
-  return weight_scale;
+  if(has_mutex) weight_scale_lock.MutexUnlock();
+  return buf;
 }
 
 int LBconfig::check_node_max_clients(LBnode *n, int seq_num)
@@ -1583,6 +1450,141 @@ int LBconfig::check_node_max_clients(LBnode *n, int seq_num)
   }
 
   return 0;
+}
+
+// Read the rules config
+// Return 0 if no errors
+// Return 1 if fatal error
+// Return 2 if bad rule line
+// Return 3 if bad regex
+int LBconfig::NT_ReadRulesConfig()
+{
+  if(rules_config_file.is_null()) {
+    NT_print("WARNING - No rules_config_file specified in LB server config");
+    return 1;
+  }
+
+  int error_level = 0;
+  gxString message;
+
+  if(!futils_exists(rules_config_file.c_str())) {
+    message << clear << "No rules cfg " << rules_config_file;
+    NT_print(message.c_str());
+    NT_print("Building default rules configuration file");
+
+    DiskFileB dfile(rules_config_file.c_str(), DiskFileB::df_READWRITE, DiskFileB::df_CREATE); 
+    if(!dfile) {
+      message << clear << "write error " << rules_config_file;
+      NT_print(message.c_str());
+      return 1;
+    }
+
+    dfile << "#  " << GetProgramDescription() << " " << GetVersionString() << " rule set configuration file" << "\n";
+    dfile << "#" << "\n";
+    dfile << "\n";
+    dfile << "# Default LB rules config file" << "\n";
+    dfile << "\n";
+    dfile << "# ROUTE rule set for LB_ASSIGNED scheme" << "\n";
+    dfile << "# Route rule for assigned LB format: route IP node" << "\n"; 
+    dfile << "# IP = Frontend IP address in dotted notation or regular expression form" << "\n";
+    dfile << "# node = node name to route traffic too. node name must match server config" << "\n";
+    dfile << "# Route rule examples:" << "\n";
+    dfile << "##route 192.168.122.1 lbnode1" << "\n";
+    dfile << "##route ^192.* lbnode1" << "\n";
+    dfile << "\n";
+    dfile << "\n";
+    dfile.df_Close();
+  }
+  else {
+    char lbuf[1024];
+    DiskFileB ifile;
+    gxString rule;
+    unsigned num_arr;
+    gxString *vals = 0; 
+    regex_t regex;
+    int reti;
+    gxString info_line;
+    gxString delimiter = " ";
+
+    ifile.df_Open(rules_config_file.c_str());
+    if(!ifile) {
+      message << clear << "Cannot open" << rules_config_file;
+      NT_print(message.c_str());
+      return 1;
+    }
+
+    // Clear the existing rule set
+    gxListNode<LB_rule *> *lptr = rules_config_list.GetHead();
+    while(lptr) {
+      delete lptr->data;
+      lptr->data = 0;
+      lptr = lptr->next;
+    }
+    rules_config_list.ClearList();
+
+    while(!ifile.df_EOF()) {
+      ifile.df_GetLine(lbuf, sizeof(lbuf), '\n');
+      if(ifile.df_GetError() != DiskFileB::df_NO_ERROR) {
+	message << clear << "ERROR - read failed " << rules_config_file.c_str();
+	NT_print(message.c_str());
+	error_level = 1;
+	break;
+      }
+      
+      info_line = lbuf;
+      info_line.FilterChar('\n');    
+      info_line.FilterChar('\r');    
+      info_line.TrimLeadingSpaces();
+      info_line.TrimTrailingSpaces();
+      
+      // Skip remark lines
+      if(info_line[0] == '#') continue; 
+      if(info_line[0] == ';') continue;
+      
+      // Filter inline remarks
+      info_line.DeleteAfterIncluding("#");
+      info_line.TrimTrailingSpaces();
+      
+      // Replace tabs with spaces
+      info_line.ReplaceString("\t", " ");
+      
+      // Replace multiple spaces with single space
+      while(info_line.IFind("  ") != -1) info_line.ReplaceString("  ", " ");
+      
+      rule = info_line;
+      rule.DeleteAfterIncluding(" ");
+      if(rule.IFind("route") != -1) {
+	num_arr = 0;
+	vals = ParseStrings(info_line, delimiter, num_arr);
+	if(num_arr != 3) {
+	  message << clear << "ERROR - Bad ROUTE rule " << info_line;
+	  NT_print(message.c_str());
+	  error_level = 2;
+	}
+	else {
+	  reti = regcomp(&regex, vals[1].c_str(), REG_EXTENDED|REG_NOSUB);
+	  if(reti) {
+	    message << clear << "ERROR - Bad regex " << vals[1];
+	    NT_print(message.c_str());
+	    error_level = 3;
+	  }
+	  else {
+	    LB_rule *p = new LB_rule;
+	    p->rule =  LB_ROUTE;
+	    p->front_end_client_ip = vals[1];
+	    p->node_name = vals[2];
+	    rules_config_list.Add(p);
+	    regfree(&regex);
+	  }
+	}
+	delete[] vals;
+	vals = 0; 
+      }
+    }
+    ifile.df_Close();
+  }
+
+  return error_level;
 }
 // ----------------------------------------------------------- // 
 // ------------------------------- //

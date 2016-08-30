@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/18/2016
+// Date Last Modified: 08/30/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -38,7 +38,7 @@ Help functions for Datareel load balancer.
 #include "m_help.h"
 
 // Version number, program  and publisher info
-const char *VersionString = "1.43";
+const char *VersionString = "1.53";
 const char *ProgramDescription = "Datareel Load Balancer";
 const char *ProducedBy = "http://datareel.com";
 
@@ -64,6 +64,7 @@ void HelpMessage(const char *ProgramName)
   cout << "args: " << "\n" << flush;
   cout << "     --help                      Print help message and exit" << "\n" << flush;
   cout << "     --version                   Print version number and exit" << "\n" << flush;
+  cout << "     --check-config              Check the LB config file and exit" << "\n" << flush;
   cout << "     --debug                     Enable debug mode default level --debug=1" << "\n" << flush;
   cout << "     --debug-level=1             Set debugging level, 1-5" << "\n" << flush;
   cout << "     --verbose                   Turn on verbose messaging to console" << "\n" << flush;
@@ -73,6 +74,8 @@ void HelpMessage(const char *ProgramName)
   cout << "     --log-level=1               Set logging level, 0-5" << "\n" << flush;
   cout << "     --log-file-clear            Clear the log file when program starts" << "\n" << flush;
   cout << "     --log-disable               Disable logging, override cfg setting" << "\n" << flush;
+  cout << "     --stats-file=\"stats.log\"    Write server stats to specified file " << "\n" << flush;
+  cout << "     --stats-disable             Disable server stats, override cfg setting" << "\n" << flush;
   cout << "\n" << flush;
 }
 

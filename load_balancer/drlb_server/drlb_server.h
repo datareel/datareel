@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/16/2016
+// Date Last Modified: 08/29/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -74,6 +74,8 @@ using namespace std; // Use unqualified names for Standard C++ library
 #include "m_help.h"
 #include "m_log.h"
 #include "m_stats.h"
+
+int run_server();
 
 #endif // __DRLB_SERVER_HPP__
 // ----------------------------------------------------------- // 

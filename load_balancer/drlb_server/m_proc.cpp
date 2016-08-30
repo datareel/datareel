@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/22/2016
+// Date Last Modified: 08/29/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -45,21 +45,29 @@ using namespace std; // Use unqualified names for Standard C++ library
 #include "m_proc.h"
 #include "m_log.h"
 
-int num_seg_violations = 0;
-
-void *ConsoleThread::ThreadEntryRoutine(gxThread_t *thread)
+void *ProcessThread::ThreadEntryRoutine(gxThread_t *thread)
 {
-  const int cmd_len = 255;
-  char sbuf[cmd_len];
-  
-  while(1) {
-    memset(sbuf, 0, 255);
-    cin >> sbuf;
-    if(strcmp(sbuf, "quit") == 0) break;
-    if(strcmp(sbuf, "exit") == 0) break;
-    cout << "Invalid command" << "\n" << flush;
-    cout << "Enter quit to exit" << "\n" << flush;
+  while(servercfg->process_loop) { 
+    if(servercfg->kill_server) break;
+    if(servercfg->restart_server) break;
+
+    servercfg->process_is_locked = 1;
+    if(servercfg->process_lock.MutexLock() != 0) {
+      LogProcMessage("ERROR - Process thread could not obtain a mutex lock");
+      servercfg->process_is_locked = 0;
+      break;
+    }
+    // Block this thread from its own execution 
+    servercfg->process_cond.ConditionWait(&servercfg->process_lock);
+    servercfg->process_lock.MutexUnlock();
+    servercfg->process_is_locked = 0;
+
+    if(servercfg->accept_clients == 0) {
+      // Server thread has stopped, end the process thread here
+      break;
+    }
   }
+  sSleep(1); // Allow for I/O recovery time before exiting the program
   return (void *)0;
 }
 
@@ -70,21 +78,19 @@ void signal_handler_IO(int status)
   // Add all signal I/O calls and variables here
 }
 
-int StopProc() 
+int StopThreads()
 {
-  if(servercfg->debug && servercfg->log_level == 0) servercfg->log_level = 1;
-  servercfg->server_retry = 0;
-  LogProcMessage("Disconnecting any open connections");
-  // Reset any global control variables here
-  servercfg->echo_loop = 0;
-  servercfg->accept_clients = 0;
+  if(servercfg->debug) LogProcMessage("Entering stop threads() function");
 
   unsigned num_threads = 0;
   gxString message;
-  ConsoleThread t;
+  LBServerThread t;
+  int error_level = 0;
+
+  if(servercfg->debug) LogProcMessage("Checking client request pool status");
   if(servercfg->client_request_pool) {
-    LogProcMessage("Closing all open client request threads");
     if(!servercfg->client_request_pool->IsEmpty()) {
+      LogProcMessage("Closing all open client request threads");
       thrPoolNode *ptr = servercfg->client_request_pool->GetHead();
       while(ptr) {
 	gxThread_t *thread = ptr->GetThreadPtr();
@@ -92,21 +98,20 @@ int StopProc()
 	  num_threads++;
 	  t.CancelThread(thread);
 	  LogProcMessage("Shutting down client thread");
-	  t.JoinThread(thread);
-	  if(thread->GetThreadState() == gxTHREAD_STATE_CANCELED) {
-	    LogProcMessage("Client thread was canceled");
+	  if(thread->GetThreadState() == gxTHREAD_STATE_RUNNING) {
+	    LogProcMessage("Client thread was not canceled");
+	    error_level++;
 	  }
 	  else {
-	    LogProcMessage("Client thread was not canceled");
-	    return 0;
+	    LogProcMessage("Client thread was canceled");
 	  }
 	}
 	ptr = ptr->GetNext();
       } 
       message << clear << "Found " << num_threads << " working client threads";
       LogProcMessage(message.c_str());
-      sSleep(1); // Allow I/O recovery time
-      t.DestroyThreadPool(servercfg->client_request_pool);
+      sSleep(1); // Allow all threads to finish clean up handler calls
+      t.DestroyThreadPool(servercfg->client_request_pool, 0);
       servercfg->client_request_pool = 0;
     }
     else {
@@ -114,22 +119,9 @@ int StopProc()
     }
   }
 
-  if(servercfg->console_thread) {
-    if(servercfg->console_thread->GetThreadState() == gxTHREAD_STATE_RUNNING) {
-      t.CancelThread(servercfg->console_thread);
-      t.JoinThread(servercfg->console_thread);
-      if(servercfg->console_thread->GetThreadState() == gxTHREAD_STATE_CANCELED) {
-	LogProcMessage("LB console thread was stopped");
-	delete servercfg->console_thread;
-	servercfg->client_request_pool = 0;
-      }
-      else {
-	LogProcMessage("LB console thread did not shutdown properly");
-	return 0;
-      }
-    }
-  }
+  if(error_level != 0) return error_level;
 
+  if(servercfg->debug) LogProcMessage("Checking LB server thread status");
   if(servercfg->server_thread) { 
     if(servercfg->server_thread->GetThreadState() == gxTHREAD_STATE_RUNNING) {
       LogProcMessage("Stopping LB server thread");
@@ -143,47 +135,93 @@ int StopProc()
       }
       else {
 	LogProcMessage("LB server thread did not shutdown properly");
-	return 0;
+	error_level++;
       }
+    }
+    else {
+      LogProcMessage("LB Server thread not running");
     }
   }
 
-  // Stop the log thread last
+  if(error_level != 0) return error_level;
+
+  if(servercfg->debug) LogProcMessage("Checking stats thread status");
+  if(servercfg->stats_thread) { 
+    StatsThread stats;
+    if(servercfg->stats_thread->GetThreadState() == gxTHREAD_STATE_RUNNING) {
+      LogProcMessage("Stopping stats thread");
+      stats.CancelThread(servercfg->stats_thread);
+      sSleep(1);
+      stats.JoinThread(servercfg->stats_thread);
+      if(servercfg->stats_thread->GetThreadState() == gxTHREAD_STATE_CANCELED) {
+	LogProcMessage("Stats thread was stopped");
+	delete servercfg->stats_thread;
+	servercfg->stats_thread = 0;
+      }
+      else {
+	LogProcMessage("LB stats thread did not shutdown properly");
+	error_level++;
+      }
+    }
+    else {
+      LogProcMessage("LB Stats thread not running");
+    }
+  }
+
+  if(error_level != 0) return error_level;
+  
+  if(servercfg->debug) LogProcMessage("Checking log thread status");
   if(servercfg->log_thread) { 
     LogThread log;
     if(servercfg->log_thread->GetThreadState() == gxTHREAD_STATE_RUNNING) {
-      NT_print("Stopping log thread");
+      LogProcMessage("Stopping log thread");
       log.CancelThread(servercfg->log_thread);
       sSleep(1);
       log.JoinThread(servercfg->log_thread);
       if(servercfg->log_thread->GetThreadState() == gxTHREAD_STATE_CANCELED) {
-	NT_print("Log thread was stopped");
+	LogProcMessage("Log thread was stopped");
 	delete servercfg->log_thread;
 	servercfg->log_thread = 0;
       }
       else {
-	NT_print("LB server thread did not shutdown properly");
-	return 0;
+	LogProcMessage("LB log thread did not shutdown properly");
+	error_level++;
       }
     }
     else {
-      NT_print("Log thread was stopped");
+      LogProcMessage("LB Log thread not running");
     }
   }
+  
+  if(servercfg->debug) LogProcMessage("Stop threads() call complete");
+  return error_level;
+}
 
+int StopProc() 
+{
+  if(servercfg->debug && servercfg->log_level == 0) servercfg->log_level = 1;
+  servercfg->accept_clients = 0;
+  servercfg->kill_server = 1;
+  servercfg->process_loop = 0;
+  servercfg->process_cond.ConditionSignal(); 
+
+  int retries = 3;
+  while(StopThreads() != 0 && retries--) sleep(1);
+ 
   LogThread log_t;
   log_t.flush_all_logs();
   if(servercfg->logfile) servercfg->logfile.Close();
+  if(servercfg->stats_file) servercfg->stats_file.Close();
 
   NT_print("Sending termination signal to end process");
-  sSleep(5);
+  sSleep(1);
 
   return 1;
 }
 
 void ExitProc()
 {
-  NT_print("Exiting process...");
+  NT_print("Exiting DRLB process...");
   exit(1);
 }
 
@@ -192,34 +230,32 @@ void termination_handler(int signum)
 {
   sigset_t mask_set;
   sigset_t old_set;
-  int retries = 3;
   gxString sbuf;
+  int retries = 3;
 
+#ifndef __DEBUG__
   if(signum == SIGSEGV) {
     signal(SIGSEGV, termination_handler); // Reset the signal handler again
     sigfillset(&mask_set); // Make any further signals while in handler
     sigprocmask(SIG_SETMASK, &mask_set, &old_set); 
     LogProcMessage("Process received segmentation violation");
-    num_seg_violations++;
-    if(num_seg_violations > 3) {
-      while(!StopProc() && --retries) sSleep(1);
-      ExitProc();
-    }
+    StopProc();
     sigprocmask(SIG_SETMASK, &old_set, NULL); // Restore the old signal mask2
+    ExitProc();
     return;
   }
+
   if(signum == SIGBUS) {
     signal(SIGBUS, termination_handler);
     sigfillset(&mask_set);
     sigprocmask(SIG_SETMASK, &mask_set, &old_set); 
     LogProcMessage("Process received bus violation");
-    num_seg_violations++;
-    if(num_seg_violations > 3) {
-      while(!StopProc() && --retries) sSleep(1);
-    }
+    StopProc();
     sigprocmask(SIG_SETMASK, &old_set, NULL);
     ExitProc();
   }
+#endif 
+
   if(signum == SIGINT) {
     signal(SIGINT, SIG_IGN); // Log first and ignore all others
     sigfillset(&mask_set);
@@ -332,18 +368,6 @@ void termination_handler(int signum)
     }
     sigprocmask(SIG_SETMASK, &old_set, NULL);
     return;
-  }
-}
-
-void SpwanChildProcess(const char *command, const char *switches, const char *arg) {
-  gxString sbuf;
-  sbuf << clear << command << " " << switches << " " << arg;
-  LogProcMessage("Starting child process");
-  LogProcMessage(sbuf.c_str());
-  if(execlp(command, command, switches, arg, (char *)0) < 0) {
-    if(servercfg->debug && servercfg->debug_level == 5) perror("execlp");
-    LogProcMessage("Child process failed");
-    servercfg->fatal_error = 1;
   }
 }
 

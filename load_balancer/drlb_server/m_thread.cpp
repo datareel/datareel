@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/18/2016
+// Date Last Modified: 08/30/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -105,40 +105,75 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
   gxString message, sbuf;
   int accept_retires = 5;
   int error_number = 0;
+  int num_start_threads = 4; // main + server_thread + log_thread + process_thread
+  if(servercfg->enable_stats) num_start_threads++;
+  int thread_count = 0;
+  int num_connections;
 
   while(servercfg->accept_clients) { 
     if(servercfg->debug && servercfg->debug_level == 5) {
       LogDebugMessage("LB server thread accept() call");
     }
-    // Block the server until a client requests service
-    if(Accept() < 0) {
+
+    memset(&remote_sin, 0, sizeof(gxsSocketAddress));
+    gxsSocketLength_t addr_size = (gxsSocketLength_t)sizeof(remote_sin); 
+    remote_socket = accept(gxsocket, (struct sockaddr *)&remote_sin, &addr_size);
+    if(remote_socket < 0) {
       if(servercfg->debug) {
-	gxString sbuf;
-	int error_number;
 	get_fd_error(error_number, sbuf);
 	message << clear << " ENUM: " << error_number << " Message: " << sbuf;
 	LogDebugMessage(message.c_str());
 	LogDebugMessage("ERROR - LB server thread accept() call failed");
       }
       sSleep(1); // Allow for recovery time
-      if(--accept_retires <= 0) break;
+      if(--accept_retires <= 0) {
+	get_fd_error(error_number, sbuf);
+	message << clear << "ERROR - accept() call failed, ENUM: " << error_number << " Message: " << sbuf;
+	LogMessage(message.c_str());
+	break;
+      }
       continue;
     }
     accept_retires = 5;
 
-    int num_threads = servercfg->NUM_CLIENT_THREADS();
-    if(servercfg->debug && servercfg->debug_level == 5) {
-      message << clear << num_threads << " client threads working";
-      LogDebugMessage(message.c_str());
-    }
+    servercfg->CONNECTION_TOTAL(1);
 
     char client_name[gxsMAX_NAME_LEN]; int r_port = -1;
     memset(client_name, 0, gxsMAX_NAME_LEN);
     GetClientInfo(client_name, r_port);
+    // NOTE: gxSocket library was updated to use code below:
+    // r_port = ntohs(remote_sin.sin_port);
+    // inet_ntop(AF_INET, &remote_sin.sin_addr, client_name, gxsMAX_NAME_LEN);
     int seq_num = r_port;
-    if(servercfg->log_level >= 1) {
+    if(servercfg->debug || servercfg->log_level >= 1) {
       message << clear << "[" << seq_num << "]: Frontend client connect: " << client_name;
       LogMessage(message.c_str());
+    }
+
+    thread_count = 0;
+    num_connections = 1; // Count this connection 
+    thrPoolNode *ptr = servercfg->client_request_pool->GetHead();
+    while(ptr) {
+      gxThread_t *thread = ptr->GetThreadPtr();
+      if(thread->GetThreadState() == gxTHREAD_STATE_RUNNING) {
+	thread_count++; // count all the running client threads
+	num_connections++; // count all the connected threads
+      }
+      ptr = ptr->GetNext();
+    }
+
+    servercfg->num_client_threads = thread_count;
+    int num_threads = num_start_threads + thread_count;
+    if(servercfg->debug && servercfg->debug_level == 5) {
+      message << clear << num_threads << " threads working";
+      LogDebugMessage(message.c_str());
+    }
+
+    servercfg->NUM_SERVER_CONNECTIONS(num_connections);
+
+    if(servercfg->debug && servercfg->debug_level == 5) {
+      message << clear <<  num_connections << " server connections";
+      LogDebugMessage(message.c_str());
     }
 
     if(servercfg->max_threads > 1) {
@@ -149,14 +184,12 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
       if(num_threads >= servercfg->max_threads) {
 	message << clear << "[" << seq_num << "]: Reached " << num_threads << " max thread limit. " << client_name << " connection denied";
 	LogMessage(message.c_str());
-	close(GetRemoteSocket());
+	close(remote_socket);
 	continue;
       }
     }
 
     if(servercfg->max_connections > 1) {
-      int num_connections = servercfg->get_num_server_connections();
-
       if(servercfg->debug && servercfg->debug_level == 5) {
 	message << clear << "Max frontend connection limit is set to " << servercfg->max_connections; 
 	LogDebugMessage(message.c_str());
@@ -165,7 +198,7 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
 	message << clear << "[" << seq_num << "]: Reached " << num_connections
 		<< " max frontend connection limit. " << client_name << " connection denied";
 	LogMessage(message.c_str());
-	close(GetRemoteSocket());
+	close(remote_socket);
 	continue;
       }
     }
@@ -177,11 +210,12 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
       LogMessage(message.c_str());
       message << clear << "[" << seq_num << "]: Fatal memory error ENUM: " << error_number << " Message: " << sbuf;
       LogProcMessage(message.c_str());
+      servercfg->accept_clients = 0;
       break;
     }
     
     // Record the file descriptor assigned by the Operating System
-    s->client_socket = GetRemoteSocket();
+    s->client_socket = remote_socket;
     s->seq_num = seq_num;
     s->client_name = client_name;
     s->r_port = r_port;
@@ -219,59 +253,60 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
       break;
     }
   }
+  servercfg->accept_clients = 0;
 
-  if(servercfg->debug && servercfg->debug_level > 1) NT_print("Main server thread has exited");
-  return (void *)0;
-}
-
-void LBServerThread::ThreadExitRoutine(gxThread_t *thread)
-// Thread exit function used to close the server thread.
-{
+  // Send notice that program is ending
+  NT_print("NOTICE - Main server thread has exited");
+  
   if(servercfg->debug && servercfg->debug_level == 5) { 
     LogDebugMessage("Server thread exit routine closing connections");
   }
   CloseSocket(); // Close the server side socket
+
+  // Fatal error, we need to tell the process thread to exit the process
+  servercfg->kill_server = 1;
+  servercfg->process_cond.ConditionSignal(); 
+  return (void *)0;
 }
 
 void LBServerThread::ThreadCleanupHandler(gxThread_t *thread)
 // Thread cleanup handler used in the event that the thread is
 // canceled.
 {
-  if(servercfg->debug && servercfg->debug_level == 5) { 
+  servercfg->accept_clients = 0;
+
+  if(servercfg->debug && servercfg->debug_level > 5) { // We should never log from exit/cancel call 
     LogDebugMessage("Server thread clean up handler closing connections");
   }
+
   CloseSocket(); // Close the server side socket
 }
 
 void *LBClientRequestThread::ThreadEntryRoutine(gxThread_t *thread)
 {
-  // Extract the client socket from the thread parameter
   ClientSocket_t *s = (ClientSocket_t *)thread->GetThreadParm();
-    
-  // Process the client request
-  HandleClientRequest(s);
-
-  return (void *)0;
-}
-
-void LBClientRequestThread::ThreadExitRoutine(gxThread_t *thread)
-// Thread exit function used to close the client thread.
-{
   gxString message;
-  servercfg->NUM_CLIENT_THREADS(0, 1);
 
-  ClientSocket_t *s = (ClientSocket_t *)thread->GetThreadParm();
   if(s) {
+
+    // TODO: Add throttling for all connections here 
+    // TODO: Throttle count or by load average
+
+    HandleClientRequest(s);
+
     if(servercfg->debug && servercfg->debug_level == 5) { 
       message << clear << "[" << s->seq_num 
 	      << "]: Client request thread exit routine closing connections";
       LogDebugMessage(message.c_str());
     }
-   if(s->node) s->node->NUM_CONNECTIONS(0, 1);
+
+    if(s->node) s->node->NUM_CONNECTIONS(0, 1);
     close(s->client_socket);
     close(s->client.GetSocket());
     delete s; s = 0;
   }
+
+  return (void *)0;
 }
 
 void LBClientRequestThread::ThreadCleanupHandler(gxThread_t *thread)
@@ -279,12 +314,10 @@ void LBClientRequestThread::ThreadCleanupHandler(gxThread_t *thread)
 // canceled.
 {
   gxString message;
-  servercfg->NUM_CLIENT_THREADS(0, 1);
   ClientSocket_t *s = (ClientSocket_t *)thread->GetThreadParm();
   if(s) {
-    if(servercfg->debug && servercfg->debug_level == 5) { 
-      message << clear << "[" << s->seq_num 
-	      << "]: Client request thread exit routine closing connections";
+    if(servercfg->debug && servercfg->debug_level > 5) { // We should never log from exit/cancel call  
+      message << clear << "[" << s->seq_num << "]: Client request thread exit routine closing connections";
       LogDebugMessage(message.c_str());
     }
     if(s->node) s->node->NUM_CONNECTIONS(0, 1);
@@ -303,8 +336,6 @@ int get_fd_error(int &error_number, gxString &sbuf)
 void LBClientRequestThread::HandleClientRequest(ClientSocket_t *s)
 // Function used to handle a client request.
 {
-  servercfg->NUM_CLIENT_THREADS(1);
-
   gxString sbuf;
   gxString message;
   unsigned seq_num = s->seq_num;
@@ -370,6 +401,7 @@ void LBClientRequestThread::HandleClientRequest(ClientSocket_t *s)
 
   s->node = n;
   n->NUM_CONNECTIONS(1);
+  n->CONNECTION_TOTAL(1);
 
   if(servercfg->debug && servercfg->debug_level == 5) {
     int num_connections = n->NUM_CONNECTIONS();
@@ -789,7 +821,6 @@ LBnode *LBClientRequestThread::round_robin(ClientSocket_t *s,  gxList<LBnode *> 
 {
   gxString sbuf;
   gxString message;
-  int error_number;
   unsigned seq_num = s->seq_num;
   gxListNode<LBnode *> *ptr = node_list.GetHead();
   unsigned count = 0;
@@ -808,6 +839,7 @@ LBnode *LBClientRequestThread::round_robin(ClientSocket_t *s,  gxList<LBnode *> 
 	LogMessage(sbuf.c_str());
       }
       client->Clear();
+      int init_error = 0;
       if(client->InitSocket(SOCK_STREAM, ptr->data->port_number,  ptr->data->hostname.c_str()) < 0) {
 	if(servercfg->log_level >= 1) {
 	  sbuf << clear << "[" << seq_num << "]: ERROR - " << ptr->data->node_name << " cannot open connection to backend host " << ptr->data->hostname 
@@ -817,21 +849,24 @@ LBnode *LBClientRequestThread::round_robin(ClientSocket_t *s,  gxList<LBnode *> 
 	}
 	ptr->data->LB_FLAG(0);
 	error_flag++;
+	init_error = 1;
       }
-      if(client->Connect() < 0) {
-	if(servercfg->log_level >= 1) {
-	  sbuf << clear << "[" << seq_num << "]: ERROR - " << ptr->data->node_name << " cannot connect to backend host " 
-	       << ptr->data->hostname << " port " << ptr->data->port_number;
-	  LogMessage(sbuf.c_str());
-	  CheckSocketError(client, seq_num);
+      if(init_error == 0) {
+	if(client->Connect() < 0) {
+	  if(servercfg->log_level >= 1) {
+	    sbuf << clear << "[" << seq_num << "]: ERROR - " << ptr->data->node_name << " cannot connect to backend host " 
+		 << ptr->data->hostname << " port " << ptr->data->port_number;
+	    LogMessage(sbuf.c_str());
+	    CheckSocketError(client, seq_num);
+	  }
+	  client->Close();
+	  ptr->data->LB_FLAG(0);
+	  error_flag++;
 	}
-	client->Close();
-	ptr->data->LB_FLAG(0);
-	error_flag++;
-      }
-      else {
-	num_connects++;
-	error_flag = 0;
+	else {
+	  num_connects++;
+	  error_flag = 0;
+	}
       }
 
       if(error_flag == 0) {
@@ -884,26 +919,10 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
 {
   gxString sbuf;
   gxString message;
-  int error_number;
   unsigned seq_num = s->seq_num;
-  unsigned count = 0;
-  unsigned retries = servercfg->retries;
-  unsigned retry_wait = servercfg->retry_wait;
   unsigned error_level = 0;
-  unsigned num_connects = 0;
-  unsigned num_nodes = servercfg->NUM_NODES();
   gxSocket *client = &s->client;
   gxString client_name = s->client_name;
-
-  if(servercfg->dynamic_rules_read) error_level = servercfg->ReadRulesConfig();
-  if(error_level == 1) {
-    if(servercfg->debug && servercfg->debug_level == 5) {
-      sbuf << clear << "[" << seq_num << "]: ERROR - Fatal error reading " << servercfg->rules_config_file;
-      LogDebugMessage(sbuf.c_str());
-    }
-    return 0;
-  }
-  
   regex_t regex;
   int reti;
   char mbuf[255];
@@ -1026,7 +1045,7 @@ LBnode *LBClientRequestThread::distrib(ClientSocket_t *s)
   gxList<limit_node> limit_node_list;
   gxListNode<limit_node> *limit_ptr_debug;
 
-  int num_connections = servercfg->get_num_server_connections();
+  int num_connections = servercfg->get_num_node_connections();
   if(num_connections == 0) num_connections = 1;
 
   if(servercfg->debug) {
@@ -1132,7 +1151,7 @@ LBnode *LBClientRequestThread::weighted(ClientSocket_t *s)
   gxList<limit_node> limit_node_list;
   gxListNode<limit_node> *limit_ptr_debug;
 
-  int num_connections = servercfg->get_num_server_connections();
+  int num_connections = servercfg->get_num_node_connections();
   if(num_connections == 0) num_connections = 1;
 
   if(servercfg->debug) {

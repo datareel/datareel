@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/18/2016
+// Date Last Modified: 08/30/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -34,6 +34,8 @@ Program config funcions for Datareel load balancer.
 // ----------------------------------------------------------- //   
 #ifndef __DRLB_CONFIG_HPP__
 #define __DRLB_CONFIG_HPP__
+
+#include <time.h>
 
 #include "gxdlcode.h"
 #include "drlb_server.h"
@@ -90,6 +92,7 @@ struct LBnode {
 
   int LB_FLAG(int flag = -1);
   unsigned NUM_CONNECTIONS(int inc = 0, int dec = 0, unsigned set_to = 0); 
+  unsigned long CONNECTION_TOTAL(int val = -1);
 
   gxString node_name;    // String name for this node
   gxsPort_t port_number; // Port number for service we are load balancing
@@ -106,13 +109,12 @@ private: // Cannot be accessed directly
 
 private: // Internal thread vars
   gxMutex num_connections_lock;
-  gxCondition num_connections_cond;
   int num_connections_is_locked;
-  int num_connections_retries;
   gxMutex lb_flag_lock;
-  gxCondition lb_flag_cond;
   int lb_flag_is_locked;
-  int lb_flag_retries;
+  unsigned long connection_total;
+  gxMutex connection_total_lock;
+  int connection_total_is_locked;
 };
 
 // Node type used to refactor distributed nodes
@@ -131,7 +133,7 @@ struct limit_node {
     limit = n.limit;
     active_ptr = n.active_ptr;
   }
-  int limit;
+  unsigned limit;
   LBnode *active_ptr;
 };
 
@@ -140,11 +142,12 @@ struct LBconfig {
   ~LBconfig();
 
   unsigned NUM_NODES(); // Get the number of LB nodes
-  unsigned NUM_CLIENT_THREADS(int inc = 0, int dec = 0, unsigned set_to = 0); 
   int QUEUE_NODE_COUNT();
   int QUEUE_DEBUG_COUNT();
   int QUEUE_PROC_COUNT();
-  int ReadRulesConfig();
+
+  // Read rules on start up only
+  int NT_ReadRulesConfig();
 
   LBschemes scheme;  // Type of load balancing
   gxList<LBnode *> nodes;
@@ -158,21 +161,19 @@ struct LBconfig {
   gxString config_file;
   gxList<LB_rule *> rules_config_list;
   gxString rules_config_file;
-  int dynamic_rules_read;
   LBschemes assigned_default;
   gxString service_name;
   gxString ProgramName;
   int user_config_file;
   gxsPort_t port;     // Server's port number
   int accept_clients; // Ture while accepting 
-  int echo_loop;      // True to keep all connection persistent
   thrPool *client_request_pool; // Worker threads processing client requests
   LogFile logfile; // Log file object  
   int fatal_error;
   gxThread_t *server_thread;
   gxThread_t *log_thread;
-  gxThread_t *console_thread;
-  unsigned buffer_overflow_size;
+  gxThread_t *stats_thread;
+  int buffer_overflow_size;
   int enable_buffer_overflow_detection;
   unsigned retries;
   unsigned retry_wait;
@@ -181,15 +182,16 @@ struct LBconfig {
   int use_timeout;
   int somaxconn;
   gxsSocket_t server_accept_socket;
-  int server_retry;
-  int max_connections;   // Max concurrent connections for this server
+  int max_connections; // Max concurrent connections for this server
   int is_client;
   int is_client_interactive;
+  int check_config;
   int log_file_err;
   int max_idle_count;
   int idle_wait_secs;
   int idle_wait_usecs;
   int use_nonblock_sockets;
+  int num_client_threads;
 
   // Log settings
   int clear_log;
@@ -206,6 +208,20 @@ struct LBconfig {
   LogQueueNode *loq_queue_debug_nodes;
   LogQueueNode *loq_queue_proc_nodes;
 
+  // Stats members
+  int enable_stats;
+  LogFile stats_file;
+  gxString stats_file_name;
+  long max_stats_size;
+  int num_stats_to_keep;
+  int last_stats;
+
+  time_t etime_server_start;
+  int stats_min;
+  int stats_secs;
+  gxMutex stats_lock;
+  gxCondition stats_cond;
+
   gxList<LBnode *> distributed_rr_node_list;
   gxList<LBnode *> weighted_rr_node_list;
   int refactor_scale;
@@ -213,11 +229,13 @@ struct LBconfig {
   int refactor_distribution_limits(gxList<limit_node> &limit_node_list, int num_connections);
   int build_weighted_rr_node_list();
   int refactor_weighted_limits(gxList<limit_node> &limit_node_list, int scale);
-  int get_num_server_connections();
+  int get_num_node_connections();
+  int NUM_SERVER_CONNECTIONS(int num = -1);
   int check_node_max_clients(LBnode *n, int seq_num);
   int WEIGHT_SCALE(int inc = 0, int dec = 0, unsigned set_to = 0);
   int PREV_REFACTORED_CONNECTIONS(int inc = 0, int dec = 0, unsigned set_to = 0);
   int REFACTORED_CONNECTIONS(int inc = 0, int dec = 0, unsigned set_to = 0);
+  unsigned long CONNECTION_TOTAL(int val = -1);
 
   // -- arg overrides when CFG file loaded
   int has_debug_override;
@@ -230,62 +248,46 @@ struct LBconfig {
   int has_log_file_clear_override;
   int has_enable_logging_override;
   int has_disable_logging_override;
+  int has_stats_file_name_override;
+  int has_enable_stats_override;
+  int has_disable_stats_override;
+
+  // Process variables
+  int kill_server;
+  int restart_server;
+  int process_loop;
+  int process_is_locked;
+  gxMutex process_lock;
+  gxCondition process_cond;
+  gxThread_t *process_thread;
 
 private: // Cannot be accessed directly
+  unsigned long connection_total;
+  int num_server_connections;
   int refactored_connections;
   int prev_refactored_connections; 
   int weight_scale;
-  int prev_refactored_connections_is_locked;
-  int prev_refactored_connections_retries;
   unsigned num_nodes;
-  int num_client_threads;
   int queue_node_count;
   int queue_debug_count;
   int queue_proc_count;
 
 private: // Internal thread vars
-  // Num nodes
-  gxMutex num_nodes_lock;
-  gxCondition num_nodes_cond;
-  int num_nodes_is_locked;
-  int num_nodes_thread_retries;
-
-  // Num client threads
-  gxMutex num_client_threads_lock;
-  gxCondition num_client_threads_cond;
-  int num_client_threads_is_locked;
-  int num_client_threads_retries;
-
-  // Assgined config
-  gxMutex rules_config_lock;
-  gxCondition rules_config_cond;
-  int rules_config_is_locked;
-  int rules_config_retries;
-
-  // Log queue
+  gxMutex connection_total_lock;
+  int connection_total_is_locked;
   gxMutex queue_node_count_lock;
-  gxCondition queue_node_count_cond;
   int queue_node_count_is_locked;
-  int queue_node_count_retries;
   gxMutex queue_debug_count_lock;
-  gxCondition queue_debug_count_cond;
   int queue_debug_count_is_locked;
-  int queue_debug_count_retries;
   gxMutex queue_proc_count_lock;
-  gxCondition queue_proc_count_cond;
   int queue_proc_count_is_locked;
-  int queue_proc_count_retries;
-
   gxMutex weight_scale_lock;
-  gxCondition weight_scale_cond;
   int weight_scale_is_locked;
-  int weight_scale_retries;
   gxMutex refactored_connections_lock;
-  gxCondition refactored_connections_cond;
   int refactored_connections_is_locked;
-  int refactored_connections_retries;
   gxMutex prev_refactored_connections_lock;
-  gxCondition prev_refactored_connections_cond;
+  int prev_refactored_connections_is_locked;
+
 };
 
 // Config functions
