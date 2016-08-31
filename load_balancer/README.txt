@@ -212,7 +212,19 @@ RHEL 6/CENTOS 6:
 
 Setting the listening port:
 --------------------------
-Author to complete this section, in progress 08/30/2016
+The DRLB server listens for incoming TCP connections on a port number
+specified in the global server configuration. The DRLB server
+distributes incoming TCP connections to back end server nodes. In
+the DRLB configuration you are setting up for a load balanced service
+you must specify the front and listening port in the global
+[LBSERVER] config section. For each back end node you must specify the
+back end listening port for each's node [LBNODE] config section. For
+example, if you created a configuration template named “http_lb.cfg”
+make the following entries to set the listening ports. NOTE: The
+port numbers used in the example below must be substituted with the
+port number you are actually using. The use of 4 LBNODE sections is
+just an example. Your setup can contain any number of LBNODE sections
+depending on how may back end server nodes you have available.     
 
 # vi /etc/drlb/http_lb.cfg
 
@@ -240,10 +252,24 @@ node_name = lbnode4
 port_number = 80
 ...
 
+NOTE: For developers, if your [LBSERVER] port is less than 1024 you
+will require root privileges to start the DRLB program for testing.
+
+NOTE: For system administrators, you are still required to adhere to
+all your required service security settings on each back end LB node.
 
 Round robin configuration: 
 -------------------------
-Author to complete this section, in progress 08/30/2016
+The round robin load balancing scheme distributes TCP connections
+equally to all back end server nodes. For round robin to work
+efficiently on bare metal servers, each back end server should have
+the same or very similar hardware specifications. For virtual machines
+each back end server should be setup with the same amount of CPU,
+memory, and disk image parameters. To select round robin, set the
+[LBSERVER] scheme to  LB_RR. The [LBNODE] sections require a node
+name, port number, and the node's IP address. For example:
+
+# vi /etc/drlb/http_lb.cfg
 
 [LBSERVER]
 scheme = LB_RR
@@ -268,9 +294,32 @@ node_name = lbnode4
 port_number = 80
 hostname = 192.168.122.114
 
+NOTE: The port numbers in the above example must be substituted
+with the port number you are actually using. The use of 4 LBNODE
+sections is just an example. Your setup may contain any number of
+LBNODE sections depending on how many back end server nodes you have
+available.  
+
 Weighted configuration:
 ----------------------
-Author to complete this section, in progress 08/30/2016
+The weighed round robin load balancing scheme distributes TCP
+connections based on a weight value you assign to each back end server
+node. Weighted round robin allows you to use servers with different
+hardware configurations, where one or more back end server cannot
+handle the same load as other servers. The DRLB weight value
+represents a number of connection per node. The nodes with the highest
+weight values will get the most connections. The nodes with the lowest
+weight values will get the lease number of connections. To select
+weighted round robin, set the [LBSERVER]  scheme to LB_WEIGHTED. The
+[LBNODE] sections require a node name, port number, the node's IP
+address, and a weight value. 
+
+In the example below, lbnode4 will carry 4 times the amount of
+connection than lbnode3, and lbnode1 and lbnode2. Lbnode3 will carry 3
+time the amount of connections than lbnode1 and lbnode2. Lbnode1 and
+lbnode2 will get the lease amount of connections. For example:
+
+# vi /etc/drlb/http_lb.cfg
 
 [LBSERVER]
 scheme = LB_WEIGHTED
@@ -299,9 +348,32 @@ port_number = 80
 hostname = 192.168.122.114
 weight = 3
 
+NOTE: The port numbers in the above example must be substituted
+with the port number you are actually using. The use of 4 LBNODE
+sections is just an example. Your setup may contain any number of
+LBNODE sections depending on how many back end server nodes you have
+available.  
+
 Distributed configuration:
 -------------------------
-Author to complete this section, in progress 08/30/2016
+The distributed load balancing scheme distributes TCP connections
+based on a percentage value you assign to each back end server
+node. Similar to weighted round robin, distributed load balancing
+allows you to use servers with different hardware configurations,
+where one or more back end server cannot handle the same load as other
+servers. The main difference is load distribution is based on a
+percentage rather then a weight value. To select distributed load
+balancing, set the [LBSERVER] scheme to LB_DISTRIB. The [LBNODE]
+sections require a node name, port number, the node's IP address, and
+a percentage value. The nodes with the highest percent values will get
+the most connections. The nodes with the lowest percent values will
+get the lease number of connections. 
+
+In the example below, lbnode4 will carry 40% of total
+connections. Lbnode3 will carry 30% of the total connections. Lbnode1
+and lbnode2 will carry 15% of the total connections. For example: 
+
+# vi /etc/drlb/http_lb.cfg
 
 [LBSERVER]
 scheme = LB_DISTRIB
@@ -330,16 +402,52 @@ port_number = 80
 hostname = 192.168.122.114
 weight = 40%
 
+NOTE: The port numbers in the above example must be substituted
+with the port number you are actually using. The use of 4 LBNODE
+sections is just an example. Your setup may contain any number of
+LBNODE sections depending on how many back end server nodes you have
+available.  
+
 Assigned configuration:
 ----------------------
-Author to complete this section, in progress 08/30/2016
-
-assigned_default can be set to:
+The assigned load balancing scheme allow you assign TCP connections to
+specific back end nodes based on the IP address of the incoming
+connection. Incoming connections that do not have assignment rules can
+be configured to use round robin, weighted, or distributed load
+balancing schemes. The same load balancing scheme used for unassigned
+connections will be applied to down server nodes handling connection
+assignment rules. To select assigned load balancing, set the
+[LBSERVER]  scheme to LB_ASSIGNED.  The [LBNODE] sections require a
+node name, port number, and the node's IP address.  In the  [LBSERVER]
+section, the assigned_default can be set to: 
 
 LB_RR
 LB_DISTRIB
 LB_WEIGHTED
 LB_NONE
+
+If you select LB_DISTRIB, each [LBNODE] section will require a
+percentage value set for the weight value. If you select LB_WEIGHTED,
+each  [LBNODE] section will require a weight value.  
+
+The LB_NONE setting will not connection assigned connections to
+another node if the node handling the assignment rules is down.
+LB_NONE will use round robin for all incoming connections with no
+assignment rules.  
+
+The assigned load balancing scheme requires a rules configuration
+file, set in the [LBSERVER] section's rules_config_file setting, for
+example:
+
+rules_config_file = /etc/drlb/http_lb_rules.cfg
+
+If the rules file does not exist, a default file will be created for
+you. 
+
+Below is a an assigned load balance configuration use round robin as
+the default for 4 back end server nodes:
+
+# vi /etc/drlb/http_lb.cfg
 
 [LBSERVER]
 scheme = LB_ASSIGNED
@@ -365,6 +473,23 @@ hostname = 192.168.122.113
 node_name = lbnode4
 port_number = 80
 hostname = 192.168.122.114
+
+After modifing the DRLB configuration, add your assignment rules to
+the rules configuration file. Each assignment rule is designated be
+the route key word followed by the IP address of the incoming
+conenction and the name of the back end server node handling the
+assignment. The IP address for the incoming connections can be an IP
+address value or a regular expression. To setup rules, edit the rules
+file:
+
+# vi /etc/drlb/http_lb_rules.cfg
+
+
+NOTE: The port numbers in the above example must be substituted
+with the port number you are actually using. The use of 4 LBNODE
+sections is just an example. Your setup may contain any number of
+LBNODE sections depending on how many back end server nodes you have
+available.  
 
 Throttling configuration:
 ------------------------
