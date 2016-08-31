@@ -1,6 +1,6 @@
 .\" DataReel Load Balancer (DRLB) 1.X Manpage
 .\" Copyright (c) 2016 DataReel Software Development
-.TH drlb_server 8 "16 Aug 2016" "1.39" "DataReel Load Balancer"
+.TH drlb_server 8 "30 Aug 2016" "1.54" "DataReel Load Balancer"
 .SH NAME
 drlb_server \- Start the DRLB service
 .SH SYNOPSIS
@@ -14,6 +14,8 @@ DataReel load balancer service.
      --help                      Print help message and exit
 .P
      --version                   Print version number and exit
+.P
+     --check-config              Check the LB config file and exit
 .P
      --debug                     Enable debug mode default level --debug=1
 .P
@@ -32,6 +34,10 @@ DataReel load balancer service.
      --log-file-clear            Clear the log file when program starts
 .P
      --log-disable               Disable logging, override cfg setting
+.P
+     --stats-file="stats.log"    Write server stats to specified file
+.P
+     --stats-disable             Disable server stats, override cfg setting
 
 .SH BUGS
 https://github.com/datareel/datareel/issues

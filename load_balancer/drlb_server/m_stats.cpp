@@ -157,20 +157,24 @@ void *StatsThread::ThreadEntryRoutine(gxThread_t *thread)
     memset(lbuf, 0, 255);
     sprintf(lbuf, "%lu", server_connection_avg);
     stats_message << "Connections per second: " << lbuf << "\n";
+    servercfg->CONNECTIONS_PER_SECOND(server_connection_avg);
     memset(lbuf, 0, 255);
     sprintf(lbuf, "%lu", node_current_connections);
     stats_message << "Current connections: " << lbuf << "\n";
     stats_message << node_message << "\n";
     stats_message << "END " << servercfg->service_name << " stats" << "\n"; 
-    if(!servercfg->stats_file) servercfg->stats_file.Open(servercfg->stats_file_name.c_str());
-    if(servercfg->stats_file) {
-      servercfg->stats_file << stats_message.c_str();
-      servercfg->stats_file.df_Flush();
-      rotate_stats_file();  
-    }
-    else { // Could not write to stats file
-      message << clear << "ERROR - Cannot write to stats file " << servercfg->stats_file_name;
-      LogMessage(message.c_str());
+
+    if(!servercfg->stats_file_name.is_null()) {
+      if(!servercfg->stats_file) servercfg->stats_file.Open(servercfg->stats_file_name.c_str());
+      if(servercfg->stats_file) {
+	servercfg->stats_file << stats_message.c_str();
+	servercfg->stats_file.df_Flush();
+	rotate_stats_file();  
+      }
+      else { // Could not write to stats file
+	message << clear << "ERROR - Cannot write to stats file " << servercfg->stats_file_name;
+	LogMessage(message.c_str());
+      }
     }
     prev_etime = etime;
     prev_total_connections = total_runtime_connections;

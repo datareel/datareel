@@ -236,6 +236,8 @@ struct LBconfig {
   int PREV_REFACTORED_CONNECTIONS(int inc = 0, int dec = 0, unsigned set_to = 0);
   int REFACTORED_CONNECTIONS(int inc = 0, int dec = 0, unsigned set_to = 0);
   unsigned long CONNECTION_TOTAL(int val = -1);
+  int THROTTLE_COUNT(int val = -1);
+  int CONNECTIONS_PER_SECOND(int val = -1);
 
   // -- arg overrides when CFG file loaded
   int has_debug_override;
@@ -261,7 +263,17 @@ struct LBconfig {
   gxCondition process_cond;
   gxThread_t *process_thread;
 
+  // Throttle variables
+  int enable_throttling;
+  int throttle_apply_by_load;
+  int throttle_every_connections;
+  int throttle_connections_per_sec;
+  int throttle_wait_secs;
+  int throttle_wait_usecs;
+
 private: // Cannot be accessed directly
+  int throttle_count;
+  int connections_per_second;
   unsigned long connection_total;
   int num_server_connections;
   int refactored_connections;
@@ -273,6 +285,10 @@ private: // Cannot be accessed directly
   int queue_proc_count;
 
 private: // Internal thread vars
+  gxMutex throttle_count_lock;
+  int throttle_count_is_locked;
+  gxMutex connections_per_second_lock;
+  int connections_per_second_is_locked;
   gxMutex connection_total_lock;
   int connection_total_is_locked;
   gxMutex queue_node_count_lock;

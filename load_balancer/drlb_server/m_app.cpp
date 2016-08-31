@@ -94,9 +94,6 @@ int check_config()
     }
   }
 
-  sbuf << clear << "Max queued connection requests " << servercfg->somaxconn;
-  NT_print(sbuf.c_str());
-   
   if(servercfg->use_buffer_cache == 1) {
     NT_print("Socket buffer cache enabled");
     if(servercfg->enable_buffer_overflow_detection) {
@@ -139,6 +136,8 @@ int check_config()
   else {
     NT_print("Socket read timeouts disabled");
   }
+  sbuf << clear << "Max queued connection requests " << servercfg->somaxconn;
+  NT_print(sbuf.c_str());
   sbuf << clear << servercfg->max_idle_count;
   NT_print("Idle count for blocking sockets", sbuf.c_str()); 
   sbuf << clear << servercfg->idle_wait_secs;
@@ -216,6 +215,38 @@ int check_config()
     NT_print("Stats collection is disabled");
   }
 
+  if(servercfg->enable_throttling) {
+    NT_print("Connection throttling is enabled");
+    sbuf << clear <<  "Number of connections to start throttling " << servercfg->throttle_every_connections;
+    NT_print(sbuf.c_str());
+    sbuf << clear <<  "Seconds to hold connection in the throttle queue " << servercfg->throttle_wait_secs;
+    NT_print(sbuf.c_str());
+    sbuf << clear <<  "Microseconds to hold connection in the throttle queue " << servercfg->throttle_wait_usecs;
+    NT_print(sbuf.c_str());
+    if(servercfg->throttle_apply_by_load) {
+      NT_print("Peak load throttling is enabled");
+      sbuf << clear << "Number of connection per second to start throttling " 
+	   << servercfg->throttle_connections_per_sec;
+      NT_print(sbuf.c_str());
+      if(!servercfg->enable_stats) {
+	NT_print("NOTICE - DRLB server config has stats collection is disabled");
+ 	NT_print("NOTICE - Stats will be enabled without logging for load throttling stat collection");
+	servercfg->stats_file_name.Clear();
+	servercfg->enable_stats = 1;
+	sbuf << clear << "Stats collection time is " << servercfg->stats_min << " minute(s) " 
+	     << servercfg->stats_secs << " second(s)";
+	NT_print(sbuf.c_str());
+	NT_print("To set faster stat collection times set the stats_min and/or stats_secs parms");
+      }
+    }
+    else {
+      NT_print("Peak load throttling is disabled");
+    }
+  }
+  else {
+    NT_print("Connection throttling is disabled");
+  }
+
   if(servercfg->debug)  {
     NT_print("Debug is enabled");
     sbuf << clear << servercfg->debug_level;
@@ -232,6 +263,9 @@ int check_config()
   else {
     NT_print("Verbose mode is disabled");
   }
+
+
+
 
   NT_print("LB node config"); 
   gxListNode<LBnode *> *ptr = servercfg->nodes.GetHead();

@@ -143,6 +143,17 @@ LBconfig::LBconfig()
   process_is_locked = 0;
   kill_server = 0;
   restart_server = 0;
+  enable_throttling = 0;
+  enable_throttling = 1;
+  throttle_apply_by_load = 0;
+  throttle_every_connections = 10;
+  throttle_connections_per_sec = 10;
+  throttle_wait_secs = 1;
+  throttle_wait_usecs = 0;
+  throttle_count_is_locked = 0;
+  throttle_count = 0;
+  connections_per_second = 0;
+  connections_per_second_is_locked = 0;
 }
 
 LBconfig::~LBconfig()
@@ -755,6 +766,24 @@ int LoadOrBuildConfigFile()
     dfile << "# Use non-blocking sockets" << "\n";
     dfile << "use_nonblock_sockets = 0" << "\n";
     dfile << "#" << "\n";
+    dfile << "# " << "\n";
+    dfile << "# Settings for throttling connections" << "\n";
+    dfile << "# Throttling is used to prevent backend server saturation during peak load events" << "\n";
+    dfile << "#" << "\n";
+    dfile << "# Enable throttling" << "\n";
+    dfile << "##enable_throttling = 0" << "\n";
+    dfile << "# Apply throttle control only when load reached a certain number of connection per second" << "\n";
+    dfile << "# If apply by load is set to 0, we will throttle based on the connection count" << "\n";
+    dfile << "##throttle_apply_by_load = 0" << "\n";
+    dfile << "# Set the number of connection per second to start throttling connections" << "\n";
+    dfile << "##throttle_connections_per_sec = 10" << "\n";
+    dfile << "# Set the number of connections to start throttling" << "\n";
+    dfile << "# A setting of 1 will throttle every connection" << "\n";
+    dfile << "##throttle_every_connections = 10" << "\n";
+    dfile << "# Set the time in seconds or microseconds to hold a connection in the throttle queue" << "\n";
+    dfile << "##throttle_wait_secs = 1" << "\n";
+    dfile << "##throttle_wait_usecs = 0" << "\n";
+    dfile << "#" << "\n";
     dfile << "# Values below can be set here or args when program is launched" << "\n";
     dfile << "# Debug and verbose modes used mainly for development and testing" << "\n";
     dfile << "# NOTE: Debug level 5 will greatly increase log file size" << "\n";
@@ -805,22 +834,24 @@ int LoadOrBuildConfigFile()
     dfile.df_Close();
     return 2;
   }
-
+    
+  
+  
   char sbuf[1024];
   DiskFileB ifile;
-
+  
   ifile.df_Open(servercfg->config_file.c_str());
   if(!ifile) {
     NT_print("ERROR - Cannot open config file for reading", servercfg->config_file.c_str());
     NT_print(ifile.df_ExceptionMessage());
     return 1;
   }
-
+  
   UString info_line;
   int error_level = 0;
-
+  
   gxList<gxString> list;
-
+  
   while(!ifile.df_EOF()) {
     ifile.df_GetLine(sbuf, sizeof(sbuf), '\n');
     if(ifile.df_GetError() != DiskFileB::df_NO_ERROR) {
@@ -829,26 +860,26 @@ int LoadOrBuildConfigFile()
       error_level = 1;
       break;
     }
-
+    
     info_line = sbuf;
     info_line.FilterChar('\n');    
     info_line.FilterChar('\r');    
     info_line.TrimLeadingSpaces();
     info_line.TrimTrailingSpaces();
-
+    
     // Skip remark lines
     if(info_line[0] == '#') continue; 
     if(info_line[0] == ';') continue;
-
+    
     // Filter inline remarks
     info_line.DeleteAfterIncluding("#");
     info_line.TrimTrailingSpaces();
-
+    
     info_line << "\n";
-
+    
     list.Add(info_line);
   }
-
+    
   gxListNode<gxString> *ptr;
   int has_lbserver = 0;
   int has_lbnode = 0;
@@ -857,7 +888,7 @@ int LoadOrBuildConfigFile()
   gxString parm;
   int has_scheme = 0;
   gxString parm_name;
-
+  
   while(ptr) {
     gxString strdup = ptr->data;
     strdup.FilterChar(' ');
@@ -1163,6 +1194,60 @@ int LoadOrBuildConfigFile()
 	if(ptr->data.IFind("rules_config_file") != -1) {
 	  servercfg->rules_config_file = CfgGetEqualToParm(ptr->data, pbuf);
 	}
+	
+	if(ptr->data.IFind("enable_throttling") != -1) {
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "enable_throttling") {
+	    servercfg->enable_throttling = CfgGetTrueFalseValue(ptr->data);
+	  }
+	}
+	if(ptr->data.IFind("throttle_apply_by_load") != -1) {
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "throttle_apply_by_load") {
+	    servercfg->throttle_apply_by_load = CfgGetTrueFalseValue(ptr->data);
+	  }
+	}
+	if(ptr->data.IFind("throttle_connections_per_sec") != -1) {
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "throttle_connections_per_sec") {
+	    servercfg->throttle_connections_per_sec = CfgGetEqualToParm(ptr->data);
+	    if(servercfg->throttle_connections_per_sec <= 0) {
+	      NT_print("Config file has bad throttle_connections_per_sec value");
+	      error_level = 1;
+	    }
+	  }
+	}
+	if(ptr->data.IFind("throttle_every_connections") != -1) {
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "throttle_every_connections") {
+	    servercfg->throttle_every_connections = CfgGetEqualToParm(ptr->data);
+	    if(servercfg->throttle_every_connections <= 0) {
+	      NT_print("Config file has bad throttle_every_connections value");
+	      error_level = 1;
+	    }
+	  }
+	}
+	
+	if(ptr->data.IFind("throttle_wait_secs") != -1) {
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "throttle_wait_secs") {
+	    servercfg->throttle_wait_secs = CfgGetEqualToParm(ptr->data);
+	    if(servercfg->throttle_wait_secs < 0) {
+	      NT_print("Config file has bad throttle_wait_secs value");
+	      error_level = 1;
+	    }
+	  }
+	}
+	if(ptr->data.IFind("throttle_wait_usecs") != -1) {
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "throttle_wait_usecs") {
+	    servercfg->throttle_wait_usecs = CfgGetEqualToParm(ptr->data);
+	    if(servercfg->throttle_wait_usecs < 0) {
+	      NT_print("Config file has bad throttle_wait_usecs value");
+	      error_level = 1;
+	    }
+	  }
+	}
 	ptr = ptr->next;
       }
     }
@@ -1173,7 +1258,7 @@ int LoadOrBuildConfigFile()
       LBnode *n = new LBnode;
       n->buffer_size = servercfg->buffer_size; // Set global buffer size
       ptr = ptr->next;
-
+      
       while(ptr) {
 	if(ptr->data[0] == '[') {
 	  // End of new node
@@ -1585,6 +1670,43 @@ int LBconfig::NT_ReadRulesConfig()
   }
 
   return error_level;
+}
+
+int LBconfig::THROTTLE_COUNT(int val)
+{
+  int has_mutex = 1;
+  if(throttle_count_lock.MutexLock() != 0) has_mutex = 0;
+  if(throttle_count_is_locked && !has_mutex) return throttle_count;
+  throttle_count_is_locked = 1;
+
+  // ********** Enter Critical Section ******************* //
+  if(val > -1) {
+    throttle_count += val;
+    if(throttle_count >= throttle_every_connections) throttle_count = 0;
+  }
+  int buf = throttle_count;
+  // ********** Leave Critical Section ******************* //
+
+  throttle_count_is_locked = 0;
+  if(has_mutex) throttle_count_lock.MutexUnlock();
+  return buf;
+}
+
+int LBconfig::CONNECTIONS_PER_SECOND(int val)
+{
+  int has_mutex = 1;
+  if(connections_per_second_lock.MutexLock() != 0) has_mutex = 0;
+  if(connections_per_second_is_locked && !has_mutex) return connections_per_second;
+  connections_per_second_is_locked = 1;
+
+  // ********** Enter Critical Section ******************* //
+  if(val > -1) connections_per_second = val;
+  int buf = connections_per_second;
+  // ********** Leave Critical Section ******************* //
+
+  connections_per_second_is_locked = 0;
+  if(has_mutex) connections_per_second_lock.MutexUnlock();
+  return buf;
 }
 // ----------------------------------------------------------- // 
 // ------------------------------- //

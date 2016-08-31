@@ -288,9 +288,28 @@ void *LBClientRequestThread::ThreadEntryRoutine(gxThread_t *thread)
   gxString message;
 
   if(s) {
-
-    // TODO: Add throttling for all connections here 
-    // TODO: Throttle count or by load average
+    if(servercfg->enable_throttling) {
+      int throttle_this_connection = 0;
+      int throttle_count = servercfg->THROTTLE_COUNT(1);
+      if(throttle_count == 0) {
+	if(servercfg->throttle_apply_by_load) {
+	  if(servercfg->CONNECTIONS_PER_SECOND() >= servercfg->throttle_connections_per_sec) {
+	    throttle_this_connection = 1;
+	  }
+	} 
+	else {
+	  throttle_this_connection = 1;
+	}
+	if(throttle_this_connection) {
+	  if(servercfg->debug && servercfg->debug_level == 5) { 
+	    message << clear << "[" << s->seq_num  << "]: Throttling connection";
+	    LogDebugMessage(message.c_str());
+	  }
+	  if(servercfg->throttle_wait_secs >= 1) sSleep(servercfg->throttle_wait_secs);
+	  if(servercfg->throttle_wait_usecs >= 1) sSleep(servercfg->throttle_wait_usecs);
+	}
+      }
+    }
 
     HandleClientRequest(s);
 

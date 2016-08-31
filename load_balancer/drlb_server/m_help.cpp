@@ -38,7 +38,7 @@ Help functions for Datareel load balancer.
 #include "m_help.h"
 
 // Version number, program  and publisher info
-const char *VersionString = "1.53";
+const char *VersionString = "1.54";
 const char *ProgramDescription = "Datareel Load Balancer";
 const char *ProducedBy = "http://datareel.com";
 
