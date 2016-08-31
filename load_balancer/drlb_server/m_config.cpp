@@ -144,7 +144,6 @@ LBconfig::LBconfig()
   kill_server = 0;
   restart_server = 0;
   enable_throttling = 0;
-  enable_throttling = 1;
   throttle_apply_by_load = 0;
   throttle_every_connections = 10;
   throttle_connections_per_sec = 10;

@@ -311,7 +311,7 @@ RHEL 7/CENTOS 7:
 
 RHEL 6/CENTOS 6:
 
-# chkconfig drsm_server on
+# chkconfig drcm_server on
 
 DRCM Resource Scripts:
 ---------------------
