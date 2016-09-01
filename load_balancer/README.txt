@@ -601,6 +601,10 @@ enabled. The proc queue size is used for process messages and does not
 need to be very large as process messages are written during server
 stops, starts, restarts, or process error conditions.  
 
+To watch the log in real time:
+
+# tail -f /var/log/drlb/http_lb.log
+
 Statistics collection:
 ---------------------
 DRLB server statistics collection is disabled by default. To enable
@@ -630,78 +634,165 @@ max_stats_size * (num_stats_to_keep +1)
 You can increase or decrease stat collection times by adjusting the
 stats_min and stats_secs values.
 
+To watch the stats in real time:
+
+# tail -f /var/log/drlb/http_lb_stats.log
+
 Setting connection and thread limits:
 ------------------------------------
-Author to complete this section, in progress 08/30/2016
+To protect low resource servers from saturation you set connection
+limits. Connection limits will stop serving connections when the
+maximum number connections are reached. Connection limits can be set
+for all back end server nodes or for individual back end server
+nodes. To set connection limits for all back end nodes edit your DRLB
+server configuration and add the following  to the [LBSERVER] section:
+
+# vi /etc/drlb/http_lb.cfg
 
 [LBSERVER]
-max_connections = -1 # Not set, if set will limit number of connections this server
-max_threads = -1 # Not set, if set will limit number of threads for this process
+...
+max_connections = 1000
+
+This will limit the total number of concurrent connections to
+1000. When the 1000 connection limit is reached the DRLB server will
+not allow any more connections until the total number of connection
+drops below 1000.
+
+To set the number of connections for individual back end nodes:
+
+# vi /etc/drlb/http_lb.cfg
 
 [LBNODE]
 node_name = lbnode1
-max_connections = -1 # Not set, if set will limit number of connection to this node
+max_connections = 1000
 
 [LBNODE]
 node_name = lbnode2
-max_connections = -1 # Not set, if set will limit number of connection to this node
+max_connections = 200
 
 [LBNODE]
 node_name = lbnode3
-max_connections = -1 # Not set, if set will limit number of connection to this node
+max_connections = 200
 
 [LBNODE]
 node_name = lbnode4
-max_connections = -1 # Not set, if set will limit number of connection to this node
+max_connections = 200
+
+The will limit lbnode1 to 1000 connections and lbnode2 through lbnode4
+to 200 connections each.
+
+To limit the number of threads the DRLB server process can generate
+you can set the max_threads limit in the [LBSERVER] section:
+
+# vi /etc/drlb/http_lb.cfg
+
+[LBSERVER]
+...
+max_threads = 1000
+
+Limiting the number of threads the process can generate will limit all
+server connection depending on how many client threads are
+active. Thread limit protects server resources when there is a large
+number of persistent client connections. 
 
 Setting buffer and caching options:
 ----------------------------------
-Author to complete this section, in progress 08/30/2016
+Caching is used by default to buffer incoming connections as data is
+read from TCP socket connections. In certain network environments it
+may be necessary to disable cache buffering or change the default
+buffer size. Lowing the buffer size will result in more reads per
+connection. Increasing the buffer size will decrease the number of
+reads per connection. To set the cache or buffer size settings for all
+nodes, edit your configuration file and modify the following
+parameters in the [LBSERVER] section:
+
+# vi /etc/drlb/http_lb.cfg
 
 [LBSERVER]
+...
 use_buffer_cache = 1
 buffer_size = 1500
 
+To set buffer size for individual nodes:
+
+# vi /etc/drlb/http_lb.cfg
+
 [LBNODE]
 node_name = lbnode1
-buffer_size = -1 # Use global size
+buffer_size = 1500
+...
 
 [LBNODE]
 node_name = lbnode2
-buffer_size = -1 # Use global size
+buffer_size = 1500
+...
 
 [LBNODE]
 node_name = lbnode3
-buffer_size = -1 # Use global size
+buffer_size = 1500
+...
 
 [LBNODE]
 node_name = lbnode4
-buffer_size = -1 # Use global size
+buffer_size = 1500
+...
 
 Dead node retry settings:
 ------------------------
-Author to complete this section, in progress 08/30/2016
+When a back end server node is down for maintenance or hardware
+failures you can change the number of retires and the wait time for
+retries. To change the retry values, edit your configuration file and
+modify the following parameters in the [LBSERVER] section:
 
 [LBSERVER]
+...
 retries = 3
 retry_wait = 1
 
 Buffer overflow settings:
 ------------------------
-Author to complete this section, in progress 08/30/2016
+When cache buffer is enable you can enable buffer overflow protection,
+provided you know the packet sizes your application uses. With buffer
+overflow protection enable, the DRLB server will deny a connection if
+the number of bytes read on a front end socket connection exceeds the
+buffer overflow size. To enable buffer overflow protection edit your
+configuration file and modify the following parameters in the
+[LBSERVER] section: 
 
-# Buffer overflow detection with using cached reads, disabled by default
-enable_buffer_overflow_detection = 0
-buffer_overflow_size = 6400000
+[LBSERVER]
+…
+enable_buffer_overflow_detection = 1
+buffer_overflow_size = 5000
+
+This will limit incoming socket reads to 5000 bytes per connection.
 
 Advanced socket settings:
 ------------------------
-Author to complete this section, in progress 08/30/2016
+Each of the setting below are set in the [LBSERVER] global section in
+your DRLB server configuration file.
 
-# Set max number of back logged connections
-# Should match: cat /proc/sys/net/core/somaxconn
-somaxconn = 128
+To change the maximum number of back logged connection, set the
+somaxconn parameter based on the  kernel setting:
 
+# cat  /proc/sys/net/core/somaxconn 
+
+Typically the default value 128 and the maximum value is 1024. If this
+value is higher on your server you can adjust your DRLB configuration:
+
+# vi /etc/drlb/http_lb.cfg
+
+[LBSERVER]
+...
+somaxconn = 1024
+
+Depending on your application you may need adjust the DRLB socket
+options to prevent CPU usage spikes. To adjust the socket options edit
+the following options in your configuration file:
+
+# vi /etc/drlb/http_lb.cfg
+
+[LBSERVER]
+...
 # Idle time for blocking sockets
 max_idle_count = 60000
 idle_wait_secs = 0
@@ -710,15 +801,32 @@ idle_wait_usecs = 500
 # Use non-blocking sockets
 use_nonblock_sockets = 0
 
-# Use timeout on blocking reads
+The idle time setting adjustment are most effective for a large number
+of persistent connections. For connections that stay open for long
+periods without transferring data, increasing the values will reduce
+CPU usage. Decreasing the idle times or using non-blocking sockets is
+most affective for connections that rapidly open and close.
+
+For applications that rely on timing for socket reads you can set your
+DRLB configuration to use blocking reads with timeout values:
+
+ # vi /etc/drlb/http_lb.cfg
+
+[LBSERVER]
+...
 use_buffer_cache = 0
-use_timeout = 0
+use_timeout = 1
 timeout_secs = 300
 timeout_usecs = 0
 
+This will disable the buffer cache and set the read timeout value to
+300 seconds. If the socket connection does not receive data within 300
+seconds the connection will close. 
+
 DRLB process monitoring:
 -----------------------
-Author to complete this section, in progress 08/30/2016
+Use the shell commands below to watch DRLB CPU, memory, file, and
+thread resources.
 
 Watch percentage of memory:
 
@@ -749,16 +857,80 @@ $ for p in $pids; do ls -l --color=none /proc/$p/fd; done
 
 Linux Kernel Tuning:
 -------------------
-Developers  and system administrators see the following document:
-
-$ less $HOME/git/datareel/load_balancer/docs/linux_kernel_tuning.txt
-
 Load balancing will require kernel tuning based the volume of traffic
 and type of TCP service you are load balancing. NOTE: The values in
-the "linux_kernel_tuning.txt" are based on extremely high
-volume. Depending on your application you may not need to set many of 
-the parameters listed. But please keep in mind that you will need to
-tune the kernel for any server acting as a load balancer.
+listed below are based on extremely high volume. Depending on your
+application you may not need to set many of the parameters listed. But
+please keep in mind that you will need to tune the kernel for any
+server acting as a load balancer.
+
+All setting listed below must be application tested and set based on
+the number of connections to your frontend LB and backend hosts. For
+each of the settings below use the sysctl command to backup the
+orginal changes before making any changes, for example:
+
+# sysctl fs.file-max | tee -a /root/sysctl_org_settings.txt
+
+To make the changes persistent, add the setting(s) to the sysctl.conf
+file:
+
+CENTOS 5/6 or RHEL 5/6:
+# vi /etc/sysctl.conf
+
+CENTOS 7 or RHEL 7:
+# vi /usr/lib/sysctl.d/00-system.conf
+
+To load changes CENTOS 5/6 or RHEL 5/6:
+# sysctl -p
+
+To load changes CENTOS 7 or RHEL 7:
+# sysctl -p /usr/lib/sysctl.d/00-system.conf 
+
+File Handle Limits:
+Increase the maximum number of open file descriptors:
+
+fs.file-max = 25000000
+
+IPv4 Socket Tuning:
+For a large numbers of concurent sessions:
+
+net.ipv4.ip_local_port_range = 1024 65535
+net.ipv4.tcp_tw_recycle = 1
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_fin_timeout = 60
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.ipv4.tcp_max_syn_backlog = 4096
+net.ipv4.tcp_syncookies = 1
+net.core.somaxconn = 1024
+
+IPv4 Settings:
+
+net.ipv4.ip_forward = 1
+net.ipv4.ipfrag_max_dist = 4096
+net.ipv4.ip_nonlocal_bind=1
+
+Process Scheduler:
+Increase time for process run time before the kernel will consider
+migrating it again to another core: 
+
+CENTOS 5/6 or RHEL 5/6:
+
+kernel.sched_migration_cost = 5000000
+
+CENTOS 7 or RHEL 7:
+
+kernel.sched_migration_cost_ns = 5000000
+
+kernel.sched_autogroup_enabled = 0
+
+Threads:
+Increase maximum number of threads that can be created by a process:
+
+kernel.threads-max = 5000000
+vm.max_map_count = 128000
+kernel.pid_max = 65536
+
 
 Testing with Apache:
 -------------------
@@ -790,7 +962,16 @@ $ wget -O loop1.txt http://192.168.122.1:8080
 
 NOTE: If you testing using Firefox, you will be limited to 6
 persistent session. By default Firefox only allow 6 simultaneous
-downloads.
+downloads. To increase this limit for testing, enter the following
+URL:
+
+about:config
+
+Search for:
+
+network.http.max-persistent-connections-per-server
+
+Change the default from 6 to a higher number. 
 
 Remaining work on this project:
 ------------------------------ 
