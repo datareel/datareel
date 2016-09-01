@@ -13,6 +13,7 @@ Contents:
 * Building a default configuration file
 * Test DRLB configurations files
 * Running DRLB as a service
+* Configuration Changes
 * Setting the listening port
 * Round robin configuration 
 * Weighted configuration
@@ -209,6 +210,34 @@ RHEL 6/CENTOS 6:
 # service drlb_server start
 # service drlb_server status
 # chkconfig drcm_server on
+
+Configuration Changes
+---------------------
+All changes to a DRCM configuration file or assignment rules will
+require a server restart:
+
+RHEL 7/CENTOS 7:
+
+# systemctl restart drlb_server
+
+RHEL 6/CENTOS 6:
+
+# service drlb_server restart
+
+For DRLB configurations running more than one LB server you can
+manually restart the each server instance:
+
+# ps -ef | grep drlb_server | grep -v grep
+
+root 17058 1 0 23:57 ? 00:00:00 /usr/sbin/drlb_server --config-file=/etc/drlb/http_rr_test.cfg
+root 17075 1 0 23:57 ? 00:00:00 /usr/sbin/drlb_server --config-file=/etc/drlb/ldm_cluster.cfg
+
+In the example above you can restart only the http_rr_test.cfg
+instance by manually stopping and starting process ID 17058:
+
+# kill  17058
+#  /usr/sbin/drlb_server –config-file=/etc/drlb/http_rr_test.cfg &
+# ps -ef | grep drlb_server | grep -v grep
 
 Setting the listening port:
 --------------------------
