@@ -474,6 +474,12 @@ node_name = lbnode4
 port_number = 80
 hostname = 192.168.122.114
 
+NOTE: The port numbers in the above example must be substituted
+with the port number you are actually using. The use of 4 LBNODE
+sections is just an example. Your setup may contain any number of
+LBNODE sections depending on how many back end server nodes you have
+available.  
+
 After modifing the DRLB configuration, add your assignment rules to
 the rules configuration file. Each assignment rule is designated be
 the route key word followed by the IP address of the incoming
@@ -484,67 +490,145 @@ file:
 
 # vi /etc/drlb/http_lb_rules.cfg
 
+route 192.168.122.1 lbnode1
+route ^10.* lbnode2
+route ^172\.31\.1.* lbnode3
 
-NOTE: The port numbers in the above example must be substituted
-with the port number you are actually using. The use of 4 LBNODE
-sections is just an example. Your setup may contain any number of
-LBNODE sections depending on how many back end server nodes you have
-available.  
+In the examples above, the first route rule directs all traffic from
+the 192.168.122.1 IP address to lbnode1. The second example directs
+all traffic from the 10.0.0.0/8 network to lbnode2. The third example
+directs all traffic from the 172.31.1.0/24 network to lbnode3. All
+other incoming traffic will use round robin connections to node 1
+through 4. 
+
+The assignment rules file is read when the DRLB server starts or is
+restarted. Changes to the rules file require a service restart to take
+affect.
 
 Throttling configuration:
 ------------------------
-Author to complete this section, in progress 08/30/2016
+Connection throttling can be used to prevent server saturation by
+placing incoming connection into a wait queue. Throttling can be base
+on a preset connection count or based on the number of incoming
+connections per second. 
 
-# Enable throttling                                                                                                       
-##enable_throttling = 0                                                                                                   
-# Apply throttle control only when load reached a certain number of
-#connection per second                                 
-# If apply by load is set to 0, we will throttle based on the
-#connection count                                            
-##throttle_apply_by_load = 0                                                                                              
-# Set the number of connection per second to start throttling
-#connections                                                 
-##throttle_connections_per_sec = 10                                                                                       
-# Set the number of connections to start throttling                                                                       
-# A setting of 1 will throttle every connection                                                                           
-##throttle_every_connections = 10                                                                                         
-# Set the time in seconds or microseconds to hold a connection in the
-#throttle queue                                      
-##throttle_wait_secs = 1                                                                                                  
-##throttle_wait_usecs = 0      
+To setup a preset connection throttle, edit your DRLB configuration
+file an add the following to the [LBSERVER] global configuration
+section: 
+
+# vi /etc/drlb/http_lb.cfg
+
+[LBSERVER]
+...
+enable_throttling = 1
+throttle_every_connections = 10
+throttle_wait_secs = 1
+throttle_wait_usecs = 0
+
+In the example above every 10 connections will be throttled with a
+wait queue time of 1 second. If throttle_every_connections is set to
+1, every incoming connection will be throttled. 
+
+To setup connection per second throttling, edit your DRLB configuration
+file an add the following to the [LBSERVER] global configuration
+section:
+
+# vi /etc/drlb/http_lb.cfg
+
+[LBSERVER]
+...
+enable_throttling = 1
+throttle_apply_by_load = 1
+throttle_connections_per_sec = 10
+throttle_every_connections = 10
+throttle_wait_secs = 1
+throttle_wait_usecs = 0
+
+In the example above every 10 connections will be throttled when the
+incoming server load reaches 10 connection per second. When the load
+drops below 10 connections per second, throttling will be disabled
+until the load spikes again to 10 per second. By default, statistics
+collection is every 5 minutes. You can increase or decrease stat
+collection time by setting the following global configuration values:
+
+stats_min = 5
+stats_secs = 0
 
 Log configuration: 
 -----------------
-Author to complete this section, in progress 08/30/2016
+DRLB server logging is disabled by default. To get maximum server
+performance under extreme load conditions you may want to leave
+logging disabled or set the log level to zero. To enable logging ,
+edit your DRLB configuration file an add the following to the
+[LBSERVER] global configuration
+section:
 
-# Log settings
-# Keep log file plus last 3. Disk space will be: (max_log_size * (num_logs_to_keep +1))
+# vi /etc/drlb/http_lb.cfg
+
+[LBSERVER]
+...
+enable_logging = 1
+logfile_name = /var/log/drlb/http_lb.log
 num_logs_to_keep = 3
-# Set max size per log file, max is 2000000000
-max_log_size = 5000000 # Default is 5M, max is 2G
-log_queue_size = 2048 # Max number of log or console messages to queue
-log_queue_debug_size = 4096 # Max number of debug messages to queue
-log_queue_proc_size = 255 # Max number of process messages to queue
-# Values below can be set here or args when program is launched
-##clear_log = 0
-##enable_logging = 0
-# Log levels 0-5, 0 lowest log level, 5 highest log level 
-##log_level = 0
-##logfile_name = /var/log/drlb/drlb_server.log
+max_log_size = 5000000
+clear_log = 0
+log_level = 0
+
+In the above example the DRLB server will log to http_lb.log file. The
+maximum log file size will be 5MB and we will the current log file and
+3 previous copies. The required disk space for log files is equal to:
+
+max_log_size * (num_logs_to_keep +1)
+
+The log_level can be set to 0 (lowest) level or 5 (highest) level. The
+higher the log level, the more messages will be logged.
+
+To increase server performance you have the option to adjust the
+advanced DRLB log setting: 
+
+log_queue_size = 2048
+log_queue_debug_size = 4096
+log_queue_proc_size = 255
+
+The log queue size equals the number of log messages the server will
+spool. Memory usage is equal to:
+
+log_queue_size * 255
+
+Spooling more messages to memory will decrease the consecutive number
+of log file writes. The debug queue size only applies if debugging is
+enabled. The proc queue size is used for process messages and does not
+need to be very large as process messages are written during server
+stops, starts, restarts, or process error conditions.  
 
 Statistics collection:
 ---------------------
-Author to complete this section, in progress 08/30/2016
+DRLB server statistics collection is disabled by default. To enable
+stat collection, edit your DRLB configuration file an add the
+following to the [LBSERVER] global configuration
+section:
 
-# Stats settings
-# Keep stats file plus last 3. Disk space will be: (max_stats_size * (num_stats_to_keep +1))
+# vi /etc/drlb/http_lb.cfg
+
+[LBSERVER]
+...
+enable_stats = 1
+stats_file_name = /var/log/drlb/http_lb_stats.log
+max_stats_size = 5000000
 num_stats_to_keep = 3
-# Set max size per stats file, max is 2000000000
-max_stats_size = 5000000 # Default is 5M, max is 2G
-stats_min = 5 # Generate a stats report every 5 minutes
-stats_secs = 0 # If min=0 gen a stats report less than every min
-##enable_stats = 0
-##stats_file_name = /var/log/drlb/drlb_stats.log
+stats_min = 5
+stats_secs = 0
+
+In the above example the DRLB server will collect server stats every 5
+minutes and write the stat messages to log to http_lb.log file. The
+maximum stat file size will be 5MB and we will the current stats file
+and 3 previous copies. The required disk space for stat files is equal
+to:
+
+max_stats_size * (num_stats_to_keep +1)
+
+You can increase or decrease stat collection times by adjusting the
+stats_min and stats_secs values.
 
 Setting connection and thread limits:
 ------------------------------------
