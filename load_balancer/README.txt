@@ -760,7 +760,7 @@ configuration file and modify the following parameters in the
 [LBSERVER] section: 
 
 [LBSERVER]
-…
+...
 enable_buffer_overflow_detection = 1
 buffer_overflow_size = 5000
 
