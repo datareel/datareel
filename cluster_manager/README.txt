@@ -282,7 +282,7 @@ RHEL 7/CENTOS 7:
 
 RHEL 6/CENTOS 6:
 
-# service drsm_server start
+# service drcm_server start
 # service drcm_server status
 
 View the cluster status monitor:
