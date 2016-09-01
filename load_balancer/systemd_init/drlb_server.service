@@ -3,6 +3,7 @@ Description=DR load balancer service
 After=network.target
 
 [Service]
+LimitNOFILE=65535
 Type=forking
 EnvironmentFile=/etc/sysconfig/drlb_server
 ExecStart=/etc/rc.d/init.d/drlb_server start
