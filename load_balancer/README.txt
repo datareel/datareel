@@ -866,24 +866,20 @@ numsecs=9999
 pids=$(ps -ef | grep drlb_server | grep -v grep | awk '{ print $2 }')
 
 echo "Watching:" | tee -a /tmp/watch_drlb_proc.log
-ps -ef | grep drlb_server | grep -v grep | tee -a
-/tmp/watch_drlb_proc.log
+ps -ef | grep drlb_server | grep -v grep | tee -a /tmp/watch_drlb_proc.log
 echo "" | tee -a /tmp/watch_drlb_proc.log
 
 i=0
 while [ $i -le $numsecs ]; do
     let i=i+1
     echo "Num open files:" | tee -a /tmp/watch_drlb_proc.log
-    for p in $pids; do ls -l --color=none /proc/$p/fd 2>/dev/null | wc
-    -l; done | tee -a /tmp/watch_drlb_proc.log
+    for p in $pids; do ls -l --color=none /proc/$p/fd 2>/dev/null | wc -l; done | tee -a /tmp/watch_drlb_proc.log
     echo "" | tee -a /tmp/watch_drlb_proc.log
     echo "Memory usage:" | tee -a /tmp/watch_drlb_proc.log
-    for p in $pids; do cat /proc/$p/status | grep -i vmsize; done |
-    tee -a /tmp/watch_drlb_proc.log
+    for p in $pids; do cat /proc/$p/status | grep -i vmsize; done | tee -a /tmp/watch_drlb_proc.log
     echo "" | tee -a /tmp/watch_drlb_proc.log
     echo "Num threads " | tee -a /tmp/watch_drlb_proc.log
-    for p in $pids; do cat /proc/$p/status | grep -i threads; done |
-    tee -a /tmp/watch_drlb_proc.log
+    for p in $pids; do cat /proc/$p/status | grep -i threads; done | tee -a /tmp/watch_drlb_proc.log
     echo "" | tee -a /tmp/watch_drlb_proc.log
     sleep 1
 done
