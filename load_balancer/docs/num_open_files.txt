@@ -1,5 +1,5 @@
-Setting open file limit
-Last modified: 08/23/2016
+Setting open file limits
+Last modified: 09/01/2016
 
 NOTICE: Any setting you make to change default kernel limits and/or
 user limits must be implemented with caution. All changes should be
@@ -9,7 +9,7 @@ inoperable.
 
 In RHEL6/CENTOS6 and RHEL7/CENTOS7 the default number of file,
 including sockets, is 1024. For load balancer applications with a high
-volume of connections you may need to increase the default value.
+volume of connections you will need to increase the default value.
 
 For RHEL7/CENTOS7, the global ulimit for nofiles is ignored for
 systemd services. The nofile limit is now set in the service file:
@@ -23,7 +23,7 @@ For RHEL7/CENTOS7 runtime testing you can change the nofile limit for
 a process using the prlimit command:
 
 # ps -ef | grep drlb_server | grep -v grep
-# prlimit --pid <pid> --nofile=32767:65535
+# prlimit --pid [pid] --nofile=32767:65535
 
 For RHEL6/CENTOS6, you can increase the max number of open files by
 increasing the ulimit value:
@@ -32,7 +32,6 @@ increasing the ulimit value:
 
 *    soft    nofile 32767
 *    hard    nofile 65535
-
 
 This change will require a reboot.
 

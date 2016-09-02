@@ -53,7 +53,7 @@ Documented Usage:
   executed from a user account or from a service account. 
 
 * All commands prefixed with the # prompt indicate the command is
-  execute as root. 
+  executed as root. 
 
 * In a configuration file example a ... symbol indicates omitted content
   for brevity.   
