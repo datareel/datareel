@@ -155,10 +155,8 @@ file:
 
 # /usr/sbin/drlb_server --check-config --config-file=/etc/drlb/http_lb.cfg
 
-Back to top
-
-Running DRLB as a service:
-
+Running DRLB as a service
+-------------------------
 DRLB is designed to run multiple load balancer configurations on
 single Linux server. When the drlb_server service is started, the
 service initialization script checks the following file for active
@@ -776,9 +774,8 @@ buffer_overflow_size = 5000
 
 This will limit incoming socket reads to 5000 bytes per socket read.
 
-Back to top
- Advanced socket settings:
-
+Advanced socket settings
+------------------------
 Each of the setting below are set in the [LBSERVER] global section in
 your DRLB server configuration file.
 
