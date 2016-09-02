@@ -250,7 +250,7 @@ DRLB configuration you are setting up for a load balanced service you
 must specify the front end listening port in the global [LBSERVER]
 config section. For each back end node you must specify the back end
 listening port for each's node [LBNODE] config section. For example,
-if you created a configuration template named “http_lb.cfg” make the
+if you created a configuration template named "http_lb.cfg" make the
 following entries to set the listening ports. NOTE: The port numbers
 used in the example below must be substituted with the port number you
 are actually using. The use of 4 LBNODE sections is just an
