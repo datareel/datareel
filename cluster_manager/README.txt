@@ -30,22 +30,27 @@ Overview:
 The DataReel cluster manager (DRCM) software is used to build high
 availability Linux server clusters. High availability clusters manage
 system resources with automatic fail over in event of one or more
-server failures. The DRCM project was designed to support multiple
-cluster nodes in a non-hierarchical arrangement. Cluster resources are
-distributed between the nodes with backup rolls assigned. The DRCM
-project requirements were based on the need to replace existing
-cluster software with multiple dependency issues and cluster software
-that did not scale well more than 2 cluster nodes. A  Linux server
-cluster is typically 2 servers with equal capacity, where one server
-provides primary services and the other server provides backup
-services. In the event of a primary server failure the secondary
-server automatically assumes all cluster resources. In data centers
-utilizing virtualization technology, services are distributed between
-many virtual machines (VMs). In a VM environment clustering multiple
-VM nodes running on multiple bare metal servers is a very effective
-way to manage services in the event of a bare metal server
-failure. The DRCM multiple node concept can scale between nodes in one
-or more data centers in the same or different geographical locations.
+server failures. 
+
+The DRCM project was designed to support multiple cluster nodes in a
+non-hierarchical arrangement. Cluster resources are distributed
+between the nodes with backup rolls assigned. The DRCM project
+requirements were based on the need to replace existing cluster
+software with multiple dependency issues and cluster software that did
+not scale well more than 2 cluster nodes. 
+
+A  Linux server cluster is typically 2 servers with equal capacity,
+where one server provides primary services and the other server
+provides backup services. In the event of a primary server failure the
+secondary server automatically assumes all cluster resources. In data
+centers utilizing virtualization technology, services are distributed
+between many virtual machines (VMs). In a VM environment clustering
+multiple VM nodes running on multiple bare metal servers is a very
+effective way to manage services in the event of a bare metal server 
+failure.
+
+The DRCM multiple node concept can scale between nodes in one or more
+data centers in the same or different geographical locations. 
 
 Documented Usage:
 ----------------
@@ -65,11 +70,16 @@ applications, and file systems. When you plan your cluster setup,
 consider the following: 
 
 * Number of nodes per cluster
+
 * Assigning crons based on CPU, memory, disk space and bandwidth requirements
 * Floating IP address requirements, where a service is accessed via one IP address 
+
 * System services: http, mysql, postgresql, etc. Which node(s) needs to run services
+
 * File systems: NFS, cifs, etc. Which node(s) require file system mounts
+
 * Applications: Programs not part of the OS with user programs and scripting
+
 * SSH keys: keyed authentication for file synchronization and automation
 
 Building and Installing From Source Code:
@@ -213,7 +223,7 @@ ldm, ldm:users, ~/util/ldm_ensure.sh, ldmadmin stop, ~/util/ldm_ensure.sh
 # CSV format: nickname, source, target, resource_script
 data, 192.168.122.1:/data, /data, /etc/drcm/resources/nfs.sh
 archive, 192.168.122.1:/archive, /archive, /etc/drcm/resources/nfs.sh
-webshare, //192.168.122.225/users/web, /home/users/web, /etc/drcm/resources/cifs.sh
+webshare, /192.168.122.225/users/web, /home/users/web, /etc/drcm/resources/cifs.sh
 
 Linking Global Cluster Resources to Nodes:
 -----------------------------------------
@@ -264,7 +274,7 @@ ONBOOT=yes
 
 Save changes and exit VI.
 
-IPADDR and PREFIX or NETMASK will be set by DRCM server when the node
+IPADDR and PREFIX or NETMASK will be set by the DRCM server when the node
 resource is activated.
 
 # ifup eth0:1
@@ -317,7 +327,7 @@ DRCM Resource Scripts:
 ---------------------
 The default DRCM resource script location is: /etc/drcm/resources
 
-The default installation include system resource script to manage
+The default installation includes system resource script to manage
 crontabs, floating IP addresses, system services, NFS and CIFS files
 systems. The NFS and CIFS file system resource script will check for
 stale mounts and automatically remount if a mount is stale.  
@@ -467,7 +477,7 @@ $ vi /etc/drcm/my_cluster_conf/testfs_sync_list.sh
 
 RsyncMirror /testfs
 
-NOTE: Mirroring replicated an exact copy of the /testfs file
+NOTE: Mirroring replicates an exact copy of the /testfs file
 system. This means files will be copied and deleted as new files are
 added or removed. If you want to keep copies of files removed on the
 backup system use the following line 
@@ -589,7 +599,7 @@ message, for example to send SMS messages to a Verizon number:
 
 By default the DRCM alerts are limited to send messages every 4 hours,
 once an the first message is sent. This is done to avoid a flood email
-and/or test messages during periods of server outages or server
+and/or text messages during periods of server outages or server
 maintenance.  
 
 If your clusters nodes do not have postfix mail configured, you need
@@ -631,15 +641,8 @@ mail as a smart host, search online for: "postfix smarthost setup"
 
 Remaining Work on This Project:
 ------------------------------ 
-The first DRCM release was successfully tested on VM and bare metal
-clusters. Implementation will continue on many data systems. All
-source code changes and bug fixes will be release in this open source
-distribution.    
-
-Remaining work to be added to this open source project:
 
 * RPM install for CENTOS/RHEL 6.X and 7.X
-* HTML Documentation
 * Add TCP cluster protocol for WAN based clusters
 
 Support and Bug Tracking:
