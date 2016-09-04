@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/30/2016
+// Date Last Modified: 09/03/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -153,10 +153,24 @@ LBconfig::LBconfig()
   throttle_count = 0;
   connections_per_second = 0;
   connections_per_second_is_locked = 0;
+
+  enable_http_forwarding = 0;
+  http_request_strings = "DELETE,GET,HEAD,PATCH,POST,PUT";
+  gxString delimiter = ",";
+  http_requests = ParseStrings(http_request_strings, delimiter, num_http_requests);
+  http_hdr_str = "HTTP/";
+  http_eol = "\r\n";
+  http_eoh = "\r\n\r\n";
+  http_forward_for_str = "X-Forwarded-For";
 }
 
 LBconfig::~LBconfig()
 {
+  if(http_requests) {
+    delete [] http_requests;
+    http_requests = 0;
+  }
+
   if(client_request_pool) {
     delete client_request_pool;
     client_request_pool = 0;
@@ -783,6 +797,9 @@ int LoadOrBuildConfigFile()
     dfile << "##throttle_wait_secs = 1" << "\n";
     dfile << "##throttle_wait_usecs = 0" << "\n";
     dfile << "#" << "\n";
+    dfile << "# HTTP IP address forwarding" << "\n";
+    dfile << "##enable_http_forwarding = 0" << "\n";
+    dfile << "#" << "\n";
     dfile << "# Values below can be set here or args when program is launched" << "\n";
     dfile << "# Debug and verbose modes used mainly for development and testing" << "\n";
     dfile << "# NOTE: Debug level 5 will greatly increase log file size" << "\n";
@@ -1245,6 +1262,12 @@ int LoadOrBuildConfigFile()
 	      NT_print("Config file has bad throttle_wait_usecs value");
 	      error_level = 1;
 	    }
+	  }
+	}
+	if(ptr->data.IFind("enable_http_forwarding") != -1) {
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "enable_http_forwarding") {
+	    servercfg->enable_http_forwarding = CfgGetTrueFalseValue(ptr->data);
 	  }
 	}
 	ptr = ptr->next;

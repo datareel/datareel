@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/30/2016
+// Date Last Modified: 09/03/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -270,6 +270,16 @@ struct LBconfig {
   int throttle_connections_per_sec;
   int throttle_wait_secs;
   int throttle_wait_usecs;
+
+  // HTTP header vars
+  int enable_http_forwarding;
+  gxString http_request_strings;
+  unsigned num_http_requests;
+  gxString *http_requests;
+  gxString http_hdr_str;
+  gxString http_eol;
+  gxString http_eoh;
+  gxString http_forward_for_str;
 
 private: // Cannot be accessed directly
   int throttle_count;

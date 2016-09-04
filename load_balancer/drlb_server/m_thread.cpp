@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/30/2016
+// Date Last Modified: 09/03/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -603,6 +603,7 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
   gxList<MemoryBuffer *> cache;
   gxListNode<MemoryBuffer *> *ptr = 0;
   int idle_count = 0;
+  unsigned i;
 
   while(servercfg->accept_clients) {
     ready = 1;
@@ -672,6 +673,25 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
       }
       ptr = cache.GetHead();
       while(ptr) {
+	// 09/03/2016: Added HTTP forwarding
+	if(servercfg->enable_http_forwarding) {
+	  for(i = 0; i < servercfg->num_http_requests; i++) {
+	    if(ptr->data->Find((char *)servercfg->http_requests[i].c_str(), servercfg->http_requests[i].length(), 0) != __MEMBUF_NO_MATCH__) {
+	      if((ptr->data->Find((char *)servercfg->http_hdr_str.c_str(), servercfg->http_hdr_str.length(), 0) != __MEMBUF_NO_MATCH__) &&
+		 (ptr->data->Find((char *)servercfg->http_eol.c_str(), servercfg->http_eol.length(), 0) != __MEMBUF_NO_MATCH__)) {
+		gxString ff;
+		ff << clear << servercfg->http_forward_for_str << ": " << s->client_name << "\r\n";
+		unsigned offset = ptr->data->Find((char *)servercfg->http_eoh.c_str(), servercfg->http_eoh.length(), 0);
+		if(offset == __MEMBUF_NO_MATCH__) {
+		  ptr->data->Cat((void *)ff.c_str(), ff.length());
+		}
+		else {
+		  ptr->data->InsertAt((offset+2), (void *)ff.c_str(), ff.length());
+		}
+	      }
+	    }
+	  }
+	}
 	bm = write(s->client.GetSocket(), ptr->data->m_buf(), ptr->data->length());
 	get_fd_error(error_number, sbuf);
 	if(servercfg->debug && servercfg->debug_level == 5) { 
