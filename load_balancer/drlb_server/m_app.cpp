@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/30/2016
+// Date Last Modified: 09/05/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -246,6 +246,36 @@ int check_config()
   else {
     NT_print("Connection throttling is disabled");
   }
+
+  if(servercfg->enable_http_forwarding) {
+    NT_print("HTTP IP address forwarding is enabled");
+    gxString delimiter = ",";
+    servercfg->http_request_strings.FilterChar(' ');
+    servercfg->http_request_strings.TrimLeading(',');
+    servercfg->http_request_strings.TrimTrailing(',');
+    while(servercfg->http_request_strings.Find(",,") != -1) {
+      servercfg->http_request_strings.ReplaceString(",,", ",");      
+    }
+    if(servercfg->http_request_strings.is_null()) {
+      NT_print("ERROR - Bad HTTP request strings", servercfg->http_request_strings.c_str());
+      return 1;
+    }
+    if(servercfg->http_request_strings.Find(",") == -1) {
+      servercfg->http_request_strings << ",";
+    }
+    servercfg->http_requests = ParseStrings(servercfg->http_request_strings, 
+					    delimiter, servercfg->num_http_requests);
+    if(servercfg->num_http_requests == 0) {
+      NT_print("ERROR - Bad HTTP request strings", servercfg->http_request_strings.c_str());
+      return 1;
+    }
+    NT_print("HTTP request string =", servercfg->http_request_strings.c_str());
+    NT_print("HTTP header string =", servercfg->http_hdr_str.c_str());
+    NT_print("HTTP forward string =", servercfg->http_forward_for_str.c_str());
+  }
+
+
+
 
   if(servercfg->debug)  {
     NT_print("Debug is enabled");

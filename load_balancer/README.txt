@@ -31,6 +31,7 @@ Contents:
 * Setting Open File Limits
 * Linux Kernel Tuning
 * Testing with Apache
+* HTTP IP address forwarding
 * Remaining work on this project
 * Support and Bug Tracking
 
@@ -1060,6 +1061,25 @@ Search for:
 network.http.max-persistent-connections-per-server
 
 Change the default from 6 to a higher number.
+
+HTTP IP address forwarding
+--------------------------
+Each of the setting below are set in the [LBSERVER] global section in
+your DRLB server configuration file. To enable HTTP IP address
+forwarding edit your configuration file and add the following:
+
+[LBSERVER]
+...
+enable_http_forwarding = 1
+http_request_strings = GET,HEAD,POST
+http_hdr_str = HTTP/
+http_forward_for_str = X-Forwarded-For
+
+NOTE: To see forwarded IP addresses in your Apache log entries you
+must add the following to your httpd conf:
+
+LogFormat "%h %l %u %t \"%r\" %>s %b %{X-Forwarded-For}i \"%{Referer}i\" \"%{User-Agent}i\"" combined
+LogFormat "%h %l %u %t \"%r\" %>s %b" %{X-Forwarded-For}i common
 
 Remaining work on this project
 ------------------------------

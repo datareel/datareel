@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/03/2016
+// Date Last Modified: 09/04/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -153,11 +153,9 @@ LBconfig::LBconfig()
   throttle_count = 0;
   connections_per_second = 0;
   connections_per_second_is_locked = 0;
-
   enable_http_forwarding = 0;
   http_request_strings = "DELETE,GET,HEAD,PATCH,POST,PUT";
-  gxString delimiter = ",";
-  http_requests = ParseStrings(http_request_strings, delimiter, num_http_requests);
+  http_requests = 0;
   http_hdr_str = "HTTP/";
   http_eol = "\r\n";
   http_eoh = "\r\n\r\n";
@@ -799,6 +797,9 @@ int LoadOrBuildConfigFile()
     dfile << "#" << "\n";
     dfile << "# HTTP IP address forwarding" << "\n";
     dfile << "##enable_http_forwarding = 0" << "\n";
+    dfile << "##http_request_strings = DELETE,GET,HEAD,PATCH,POST,PUT" << "\n";
+    dfile << "##http_hdr_str = HTTP/" << "\n";
+    dfile << "##http_forward_for_str = X-Forwarded-For" << "\n";
     dfile << "#" << "\n";
     dfile << "# Values below can be set here or args when program is launched" << "\n";
     dfile << "# Debug and verbose modes used mainly for development and testing" << "\n";
@@ -850,8 +851,6 @@ int LoadOrBuildConfigFile()
     dfile.df_Close();
     return 2;
   }
-    
-  
   
   char sbuf[1024];
   DiskFileB ifile;
@@ -1268,6 +1267,24 @@ int LoadOrBuildConfigFile()
 	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
 	  if(parm_name == "enable_http_forwarding") {
 	    servercfg->enable_http_forwarding = CfgGetTrueFalseValue(ptr->data);
+	  }
+	}
+	if(ptr->data.IFind("http_request_strings") != -1) {
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "http_request_strings") {
+	    servercfg->http_request_strings = CfgGetEqualToParm(ptr->data, pbuf);
+	  }
+	}
+	if(ptr->data.IFind("http_hdr_str") != -1) {
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "http_hdr_str") {
+	    servercfg->http_hdr_str = CfgGetEqualToParm(ptr->data, pbuf);
+	  }
+	}
+	if(ptr->data.IFind("http_forward_for_str") != -1) {
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "http_forward_for_str") {
+	    servercfg->http_forward_for_str = CfgGetEqualToParm(ptr->data, pbuf);
 	  }
 	}
 	ptr = ptr->next;
