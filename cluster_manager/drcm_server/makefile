@@ -5,6 +5,11 @@ all:
 clean:
 	make -f makedrcm.mak clean
 
+clean_lib:
+	rm -fv ../../lib/libdatareel.a
+	rm -fv ../../lib/libdatareel.so
+	rm -fv ../../lib/libdatareel.so.5.0
+
 install:
 	cp -fv drcm_server ../../bin/drcm_server
 	chmod 755 ../../bin/drcm_server
