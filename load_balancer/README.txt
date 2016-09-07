@@ -129,7 +129,7 @@ The development version can be installed on CENTOS6/RHEL6 or
 CENTOS7/RHEL7 from the makefile:
 
 $ cd $HOME/git/datareel/load_balancer/drlb_server
-$ sudo su -c 'make install_root'
+$ sudo su root -c 'make install_root'
 
 Building a default configuration file
 -------------------------------------
