@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 08/05/2016
+// Date Last Modified: 09/08/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -148,7 +148,6 @@ void PrintNodeConfig()
 
   NT_print("CM node config"); 
   gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
-  int node_cfg_error_level = 0;
   while(ptr) {
     NT_print("nodename =", ptr->data->nodename.c_str());
     NT_print("hostname =", ptr->data->hostname.c_str());
@@ -389,7 +388,6 @@ int check_config()
     int has_hostname = 0;
 
     ptr = servercfg->nodes.GetHead();
-    int node_cfg_error_level = 0;
     while(ptr) {
       if(ptr->data->hostname == servercfg->my_hostname) has_hostname = 1;
       ptr = ptr->next;
@@ -1067,7 +1065,6 @@ int ping_node(CMnode *node)
   }
 
   CM_MessageHeader cmhdr;
-  int hdr_size = sizeof(CM_MessageHeader);
   
   cmhdr.set_word(cmhdr.checkword, NET_CHECKWORD);
   memmove(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum));
@@ -1113,7 +1110,6 @@ int get_rstats(CMnode *node)
   }
 
   CM_MessageHeader cmhdr;
-  int hdr_size = sizeof(CM_MessageHeader);
   
   cmhdr.set_word(cmhdr.checkword, NET_CHECKWORD);
   memmove(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum));
@@ -1168,7 +1164,7 @@ int cm_stat()
   gxString *vals = 0; 
   gxString delimiter = "\n";
   gxString sbuf;
-  int i;
+  unsigned i;
   gxListNode <CMcrontabs> *cptr;
   gxListNode <CMipaddrs> *iptr;
   gxListNode <CMservices> *sptr;
@@ -1202,7 +1198,6 @@ int cm_stat()
     gxSocket client(SOCK_DGRAM, servercfg->udpport, statnode.node.keep_alive_ip.c_str());
     if(client) {
       CM_MessageHeader cmhdr;
-      int hdr_size = sizeof(cmhdr);
       cmhdr.set_word(cmhdr.checkword, NET_CHECKWORD);
       memmove(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum));
       cmhdr.set_word(cmhdr.cluster_command, CM_CMD_GETSTATS);
@@ -1619,7 +1614,6 @@ int get_node_stat_buffer(CMnode *node, gxString &buffer, gxString &error_message
   }
 
   CM_MessageHeader cmhdr;
-  int hdr_size = sizeof(CM_MessageHeader);
   
   cmhdr.set_word(cmhdr.checkword, NET_CHECKWORD);
   memmove(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum));

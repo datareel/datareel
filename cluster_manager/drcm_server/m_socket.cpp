@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 08/05/2016
+// Date Last Modified: 09/08/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -552,7 +552,6 @@ int send_keep_alive(CMnode *n, int &error_level, int timeout_secs, int timeout_u
   }
 
   CM_MessageHeader cmhdr;
-  int hdr_size = sizeof(CM_MessageHeader);
   
   cmhdr.set_word(cmhdr.checkword, NET_CHECKWORD);
   memmove(cmhdr.sha1sum, servercfg->sha1sum, sizeof(cmhdr.sha1sum));

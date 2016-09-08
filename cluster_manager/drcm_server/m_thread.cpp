@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 08/05/2016
+// Date Last Modified: 09/08/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -97,8 +97,6 @@ void *CM_UDP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
 {
   gxString message, sbuf;
   CM_MessageHeader cmhdr, cmhdr_dup;
-  int bytes_read = 0;
-  int hdr_size = sizeof(CM_MessageHeader);
   int err_count = 0;
   int recv_err_count = 0;
   int error_number = 0;
@@ -229,7 +227,7 @@ void *CM_UDP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
 	}
 	bytes_moved = RemoteRawWriteTo(stats_buf.c_str(), stats_buf.length());
 	get_fd_thread_error(error_number, sbuf);
-	if(bytes_moved !=  stats_buf.length()) {
+	if((unsigned)bytes_moved !=  stats_buf.length()) {
 	  if(servercfg->debug) {
 	    message << clear << "[" << seq_num << "]: ERROR - Error sending stats to " << client_name;
 	    LogDebugMessage(message.c_str());
@@ -253,6 +251,7 @@ void *CM_UDP_ServerThread::ThreadEntryRoutine(gxThread_t *thread)
     LogDebugMessage("CM UDP server exiting thread entry routine");
   }
 
+  Close();
   return (void *)0;
 }
 
@@ -272,7 +271,7 @@ void CM_UDP_ServerThread::ThreadCleanupHandler(gxThread_t *thread)
   if(servercfg->debug && servercfg->debug_level >= 5) {
     LogDebugMessage("CM UDP server thread cleanup handler called");
   }
-
+  Close();
 }
 
 void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
@@ -298,7 +297,6 @@ void *CM_KeepAliveThread::ThreadEntryRoutine(gxThread_t *thread)
     int num_nodes = 0;
     gxList<CMnode *> failed_nodes;
     gxList<CMnode *> prev_failed_nodes;
-    int rv;
     int in_active_node_count = 0;
     int num_active_nodes = 0;
 
@@ -493,7 +491,12 @@ void CM_CrontabsThread::ThreadCleanupHandler(gxThread_t *thread)
   if(servercfg->debug && servercfg->debug_level >= 5) {
     LogDebugMessage("CM crontabs thread cleanup handler called");
   }
+
   remove_all_crontabs();
+
+  if(servercfg->debug && servercfg->debug_level >= 5) {
+    LogDebugMessage("CM crontabs thread cleanup handler complete");
+  }
 }
 
 void *CM_CrontabsThread::ThreadEntryRoutine(gxThread_t *thread)

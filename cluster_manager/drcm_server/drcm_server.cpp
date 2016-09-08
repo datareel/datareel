@@ -6,7 +6,7 @@
 // Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 08/05/2016
+// Date Last Modified: 09/08/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -54,8 +54,10 @@ int main(int argc, char **argv)
   signal(SIGUSR2, termination_handler); // kill -USR2
     
   // Allow sockets to close before any core dumps    
+#ifndef __DEBUG__
   signal(SIGBUS, termination_handler);  // Misaligned memory access
   signal(SIGSEGV, termination_handler); // Illegal memory access
+#endif
 
  // Process command ling arguments and files 
   int narg;
@@ -201,7 +203,6 @@ int run_server()
 
   // Run node checks here, only check VARs that would cause server to crash
   gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
-  int node_cfg_error_level = 0;
   CMnode *this_node = 0;
   while(ptr) {
     if(ptr->data->hostname == servercfg->my_hostname) {
@@ -261,7 +262,6 @@ int run_server()
   CM_filesystemsThread filesystems_t;
 
   int rv;
-  int count = 0;
   int retries = 6;
   
   NT_print("Starting log server thread");

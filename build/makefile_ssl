@@ -6,3 +6,6 @@ install:
 
 clean:
 	make -f makefile USE_OPEN_SSL=YES clean
+
+clean_lib:
+	make -f makefile USE_OPEN_SSL=YES clean_lib

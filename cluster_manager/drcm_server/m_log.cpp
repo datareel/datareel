@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 08/22/2016
+// Date Last Modified: 09/08/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -43,7 +43,7 @@ void log_message(gxString &message, int is_proc_message, int is_debug);
 int LogThread::flush_all_logs()
 {
   int is_dirty = 0;
-  size_t i;
+  int i;
   char sbuf[255];
   memset(sbuf, 0, 255);
 

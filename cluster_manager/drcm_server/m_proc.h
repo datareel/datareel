@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 08/05/2016
+// Date Last Modified: 09/08/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -64,7 +64,6 @@ void termination_handler(int signum);
 int StopThreads();
 int StopProc();
 void ExitProc();
-void SpwanChildProcess(const char *command, const char *switches, const char *arg);
 int RunSystemCommand(const gxString &input_command);
 int RunSystemCommand(const gxString &input_command, const gxString &user, const gxString &group);
 

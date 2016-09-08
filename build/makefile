@@ -190,6 +190,11 @@ clean:
 	echo Removing static and shared libary files
 	rm -f $(PROJECT)$(LIB_EXT)
 	rm -f $(PROJECT)$(SHAREDLIB_EXT)
+
+clean_lib:
+	rm -fv ../lib/libdatareel.a
+	rm -fv ../lib/libdatareel.so
+	rm -fv ../lib/libdatareel.so.5.0
 # --------------------------------------------------------------- 
 #####################
 #### End of File ####

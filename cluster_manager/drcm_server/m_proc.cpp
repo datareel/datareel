@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 08/09/2016
+// Date Last Modified: 09/08/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -38,8 +38,6 @@ Process functions for Datareel cluster manager.
 #include "m_proc.h"
 #include "m_log.h"
 
-int num_seg_violations = 0;
-
 void *ProcessThread::ThreadEntryRoutine(gxThread_t *thread)
 {
   servercfg->process_lock.MutexLock();
@@ -68,7 +66,7 @@ int StopThreads()
   unsigned num_threads = 0;
   gxString message;
   ProcessThread t;
-  int error_level= 0;
+  int error_level = 0;
 
   // If client or non-interactive command stop the console thread
   if(servercfg->console_thread) { 
@@ -315,6 +313,7 @@ int StopThreads()
     LogProcMessage("CM filesystems_thread not active");
   }
 
+
   // Stop the log thread last
   if(servercfg->log_thread) { 
     LogProcMessage("Stopping log thread");
@@ -383,16 +382,14 @@ void termination_handler(int signum)
   int retries = 3;
   gxString sbuf;
 
+#ifndef __DEBUG__
   if(signum == SIGSEGV) {
     signal(SIGSEGV, termination_handler); // Reset the signal handler again
     sigfillset(&mask_set); // Make any further signals while in handler
     sigprocmask(SIG_SETMASK, &mask_set, &old_set); 
     LogProcMessage("Process received segmentation violation");
-    num_seg_violations++;
-    if(num_seg_violations > 3) {
-      while(!StopProc() && --retries) sSleep(1);
-      ExitProc();
-    }
+    StopProc();
+    ExitProc();
     sigprocmask(SIG_SETMASK, &old_set, NULL); // Restore the old signal mask2
     return;
   }
@@ -401,13 +398,12 @@ void termination_handler(int signum)
     sigfillset(&mask_set);
     sigprocmask(SIG_SETMASK, &mask_set, &old_set); 
     LogProcMessage("Process received bus violation");
-    num_seg_violations++;
-    if(num_seg_violations > 3) {
-      while(!StopProc() && --retries) sSleep(1);
-    }
+    StopProc();
     sigprocmask(SIG_SETMASK, &old_set, NULL);
     ExitProc();
   }
+#endif
+
   if(signum == SIGINT) {
     signal(SIGINT, SIG_IGN); // Log first and ignore all others
     sigfillset(&mask_set);
@@ -528,11 +524,9 @@ void sSleep(unsigned long seconds)
 {
   gxMutex t_mutex;
   gxCondition t_condition;
-  t_mutex.MutexLock();
-  while(1) {
-    t_condition.ConditionTimedWait(&t_mutex, seconds);
-    break;
-  }
+  if(t_mutex.MutexLock() != 0) return;
+  t_condition.ConditionTimedWait(&t_mutex, seconds);
+  t_mutex.MutexUnlock();
 }
 
 // Pauses for a specified number of nanoseconds. 
@@ -540,11 +534,9 @@ void nSleep(unsigned long nanoseconds)
 {
   gxMutex t_mutex;
   gxCondition t_condition;
-  t_mutex.MutexLock();
-  while(1) {
-    t_condition.ConditionTimedWait(&t_mutex, 0, nanoseconds);
-    break;
-  }
+  if(t_mutex.MutexLock() != 0) return;
+  t_condition.ConditionTimedWait(&t_mutex, 0, nanoseconds);
+  t_mutex.MutexUnlock();
 }
 
 // Pauses for a specified number of microseconds. 
@@ -608,18 +600,6 @@ int RunSystemCommand(const gxString &input_command, const gxString &user, const 
 
   return system(command.c_str());
 } 
-
-void SpwanChildProcess(const char *command, const char *switches, const char *arg) {
-  gxString sbuf;
-  sbuf << clear << command << " " << switches << " " << arg;
-  LogProcMessage("Starting child process");
-  LogProcMessage(sbuf.c_str());
-  if(execlp(command, command, switches, arg, (char *)0) < 0) {
-    if(servercfg->debug && servercfg->debug_level == 5) perror("execlp");
-    LogProcMessage("Child process failed");
-    servercfg->fatal_error = 1;
-  }
-}
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

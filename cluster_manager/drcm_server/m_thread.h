@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 08/05/2016
+// Date Last Modified: 09/08/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -80,7 +80,7 @@ class CM_CrontabsThread : public gxSocket, public gxThread
 {
 public:
   CM_CrontabsThread() { 
-    node_is_set == 0;
+    node_is_set = 0;
   }
   ~CM_CrontabsThread() { }
 
@@ -104,7 +104,7 @@ class CM_IPaddrsThread : public gxSocket, public gxThread
 {
 public:
   CM_IPaddrsThread() { 
-    node_is_set == 0;
+    node_is_set = 0;
   }
   ~CM_IPaddrsThread() { }
 
@@ -128,7 +128,7 @@ class CM_servicesThread : public gxSocket, public gxThread
 {
 public:
   CM_servicesThread() { 
-    node_is_set == 0;
+    node_is_set = 0;
   }
   ~CM_servicesThread() { }
 
@@ -153,7 +153,7 @@ class CM_applicationsThread : public gxSocket, public gxThread
 {
 public:
   CM_applicationsThread() { 
-    node_is_set == 0;
+    node_is_set = 0;
   }
   ~CM_applicationsThread() { }
 
@@ -178,7 +178,7 @@ class CM_filesystemsThread : public gxSocket, public gxThread
 {
 public:
   CM_filesystemsThread() { 
-    node_is_set == 0;
+    node_is_set = 0;
   }
   ~CM_filesystemsThread() { }
 

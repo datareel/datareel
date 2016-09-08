@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 08/09/2016
+// Date Last Modified: 09/08/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -639,6 +639,7 @@ int CfgGetTrueFalseValue(const gxString &cfgline)
   if((parm == "FALSE") || (parm == "F") || (parm == "NO") || (parm == "N")) return 0;
   if(parm.Atoi() >= 1) return 1;
   if(parm.Atoi() <= 0) return 0;
+  return 0;
 }
 
 int CfgGetTrueFalseValue(const gxString &cfgline, gxString &parm) 
@@ -661,7 +662,7 @@ int CfgGetEqualToParm(const gxString &cfgline)
 
 char *CfgGetEqualToParm(const gxString &cfgline, char sbuf[255])
 {
-  memset(sbuf, 0, sizeof(sbuf));
+  memset(sbuf, 0, 255);
   gxString parm;
   CfgGetEqualToParm(cfgline, parm);
   strcpy(sbuf, parm.c_str());
