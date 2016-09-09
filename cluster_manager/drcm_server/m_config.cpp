@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 09/08/2016
+// Date Last Modified: 09/09/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -225,15 +225,15 @@ CMconfig::~CMconfig()
 { 
 
   if(loq_queue_nodes) {
-    delete loq_queue_nodes;
+    delete[] loq_queue_nodes;
     loq_queue_nodes = 0;
   }
   if(loq_queue_debug_nodes) {
-    delete loq_queue_debug_nodes;
+    delete[] loq_queue_debug_nodes;
     loq_queue_debug_nodes = 0;
   }
   if(loq_queue_proc_nodes) {
-    delete loq_queue_proc_nodes;
+    delete[] loq_queue_proc_nodes;
     loq_queue_proc_nodes = 0;
   }
   if(process_thread) {
@@ -284,6 +284,14 @@ CMconfig::~CMconfig()
     delete console_thread;
     console_thread = 0;
   }
+
+  gxListNode<CMnode *> *ptr = nodes.GetHead();
+  while(ptr) {
+    delete ptr->data;
+    ptr->data = 0;
+    ptr = ptr->next;
+  }
+  nodes.ClearList();
 }
 
 int CMconfig::QUEUE_NODE_COUNT()
