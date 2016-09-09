@@ -55,37 +55,28 @@ CMnode::CMnode()
   cluster_take_over_flag = 0; 
   active_ptr = this;
   cluster_take_over_flag_is_locked = 0;
-  cluster_take_over_flag_retries = 3;
   keep_services = 0;
   keep_filesystems = 1;
   keep_applications = 0;
 }
 
-int CMnode::CLUSTER_TAKE_OVER_FLAG(int set, int unset) {
-  cluster_take_over_flag_lock.MutexLock();
-    
-  int num_try = 0;
-  while(cluster_take_over_flag_is_locked != 0) {
-    if(++num_try < cluster_take_over_flag_retries) {
-      cluster_take_over_flag_cond.ConditionWait(&cluster_take_over_flag_lock);
-    }
-    else {
-      return cluster_take_over_flag; // Could not update
-    }
-  }
-  
+int CMnode::CLUSTER_TAKE_OVER_FLAG(int set, int unset) 
+{
+  int has_mutex = 1;
+  if(cluster_take_over_flag_lock.MutexLock() != 0) has_mutex = 0;
+  if(cluster_take_over_flag_is_locked && !has_mutex) return cluster_take_over_flag;
   cluster_take_over_flag_is_locked = 1; 
   
   // ********** Enter Critical Section ******************* //
   if(set) cluster_take_over_flag = 1;
   if(unset) cluster_take_over_flag = 0;
+  int buf = cluster_take_over_flag;
   // ********** Leave Critical Section ******************* //
   
   cluster_take_over_flag_is_locked = 0; 
-  cluster_take_over_flag_cond.ConditionSignal();
-  cluster_take_over_flag_lock.MutexUnlock();
+  if(has_mutex) cluster_take_over_flag_lock.MutexUnlock();
   
-  return cluster_take_over_flag;
+  return buf;
 }
 
 void CMnode::Copy(const CMnode &n) {
@@ -112,7 +103,6 @@ void CMnode::Copy(const CMnode &n) {
   copy_list(n.backup_filesystems, backup_filesystems); 
   active_ptr = n.active_ptr;
   cluster_take_over_flag_is_locked = 0;
-  cluster_take_over_flag_retries = 3;
   keep_services = n.keep_services;
   keep_filesystems = n.keep_filesystems;
   keep_applications = n.keep_applications;
@@ -206,11 +196,8 @@ CMconfig::CMconfig()
   loq_queue_debug_nodes = 0;
   loq_queue_proc_nodes = 0;
   queue_node_count_is_locked = 0;
-  queue_node_count_retries = log_queue_size;
   queue_debug_count_is_locked = 0;
-  queue_debug_count_retries = log_queue_debug_size;
   queue_proc_count_is_locked = 0;
-  queue_proc_count_retries = log_queue_proc_size;
 
   auth_key_file = "/etc/drcm/.auth/authkey";
   sha1_file = "/etc/drcm/.auth/authkey.sha1";
@@ -301,95 +288,56 @@ CMconfig::~CMconfig()
 
 int CMconfig::QUEUE_NODE_COUNT()
 {
-  if(queue_node_count_lock.MutexTryLock() != 0) {
-    return -1; 
-  }
-  int num_try = 0;
-  while(queue_node_count_is_locked != 0) {
-    if(++num_try < queue_node_count_retries) {
-      queue_node_count_cond.ConditionTimedWait(&queue_node_count_lock, 1, 0);
-    }
-    else {
-      return -1;
-    }
-  }
+  int has_mutex = 1;
+  if(queue_node_count_lock.MutexLock() != 0) has_mutex = 0;
+  if(queue_node_count_is_locked && !has_mutex) return -1;
   queue_node_count_is_locked = 1; 
 
   // ********** Enter Critical Section ******************* //
   if(queue_node_count == log_queue_size) queue_node_count = 0; 
   queue_node_count++;
+  int buf = queue_node_count;
   // ********** Leave Critical Section ******************* //
 
   queue_node_count_is_locked = 0; 
-  queue_node_count_cond.ConditionSignal();
-
-  if(queue_node_count_lock.IsLocked()) {
-    queue_node_count_lock.MutexUnlock();
-  }
-
-  return queue_node_count;
+  if(has_mutex) queue_node_count_lock.MutexUnlock();
+  return buf;
 }
 
 int CMconfig::QUEUE_DEBUG_COUNT()
 {
-  if(queue_debug_count_lock.MutexTryLock() != 0) {
-    return -1; 
-  }
-  int num_try = 0;
-  while(queue_debug_count_is_locked != 0) {
-    if(++num_try < queue_debug_count_retries) {
-      queue_debug_count_cond.ConditionTimedWait(&queue_debug_count_lock, 1, 0);
-    }
-    else {
-      return -1;
-    }
-  }
-  queue_debug_count_is_locked = 1; 
+  int has_mutex = 1;
+  if(queue_debug_count_lock.MutexLock() != 0) has_mutex = 0;
+  if(queue_debug_count_is_locked && !has_mutex) return -1;
+  queue_debug_count_is_locked = 1;
 
   // ********** Enter Critical Section ******************* //
   if(queue_debug_count == log_queue_size) queue_debug_count = 0; 
   queue_debug_count++;
+  int buf = queue_debug_count;
   // ********** Leave Critical Section ******************* //
 
   queue_debug_count_is_locked = 0; 
-  queue_debug_count_cond.ConditionSignal();
-
-  if(queue_debug_count_lock.IsLocked()) {
-    queue_debug_count_lock.MutexUnlock();
-  }
-
-  return queue_debug_count;
+  if(has_mutex) queue_debug_count_lock.MutexUnlock();
+  return buf;
 }
 
 int CMconfig::QUEUE_PROC_COUNT()
 {
-  if(queue_proc_count_lock.MutexTryLock() != 0) {
-    return -1; 
-  }
-  int num_try = 0;
-  while(queue_proc_count_is_locked != 0) {
-    if(++num_try < queue_proc_count_retries) {
-      queue_proc_count_cond.ConditionTimedWait(&queue_proc_count_lock, 1, 0);
-    }
-    else {
-      return -1;
-    }
-  }
+  int has_mutex = 1;
+  if(queue_proc_count_lock.MutexLock() != 0) has_mutex = 0;
+  if(queue_proc_count_is_locked && !has_mutex) return -1;
   queue_proc_count_is_locked = 1; 
 
   // ********** Enter Critical Section ******************* //
   if(queue_proc_count == log_queue_size) queue_proc_count = 0; 
   queue_proc_count++;
+  int buf = queue_proc_count;
   // ********** Leave Critical Section ******************* //
 
   queue_proc_count_is_locked = 0; 
-  queue_proc_count_cond.ConditionSignal();
-
-  if(queue_proc_count_lock.IsLocked()) {
-    queue_proc_count_lock.MutexUnlock();
-  }
-
-  return queue_proc_count;
+  if(has_mutex) queue_proc_count_lock.MutexUnlock();
+  return buf;
 }
 
 int ProcessDashDashArg(gxString &arg)

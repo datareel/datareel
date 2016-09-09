@@ -198,9 +198,7 @@ struct CMnode {
 private:
   int cluster_take_over_flag; 
   gxMutex cluster_take_over_flag_lock;
-  gxCondition cluster_take_over_flag_cond;
   int cluster_take_over_flag_is_locked;
-  int cluster_take_over_flag_retries;
 };
 
 // Node info for detailed status reports
@@ -334,17 +332,11 @@ private:  // Cannot be accessed directly
 
 private: // Internal thread vars
   gxMutex queue_node_count_lock;
-  gxCondition queue_node_count_cond;
   int queue_node_count_is_locked;
-  int queue_node_count_retries;
   gxMutex queue_debug_count_lock;
-  gxCondition queue_debug_count_cond;
   int queue_debug_count_is_locked;
-  int queue_debug_count_retries;
   gxMutex queue_proc_count_lock;
-  gxCondition queue_proc_count_cond;
   int queue_proc_count_is_locked;
-  int queue_proc_count_retries;
 };
 
 // Config functions
