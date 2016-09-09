@@ -159,6 +159,7 @@ CMconfig::CMconfig()
   spool_dir = "/var/spool/drcm";
   etc_dir = "/etc/drcm";
   dead_node_count = 60;
+  bind_to_keep_alive_ip = 1;
 
   check_config = 0;
   config_file << clear << etc_dir << "/cm.cfg";
@@ -701,6 +702,7 @@ int LoadOrBuildConfigFile()
     dfile << "udpport = 53897" << "\n";
     dfile << "tcpport = 53897" << "\n";
     dfile << "dead_node_count = 60" << "\n";
+    dfile << "bind_to_keep_alive_ip = 1" << "\n";
     dfile << "" << "\n";
     dfile << "# Process DIR locations" << "\n";
     dfile << "run_dir = /var/run/drcm" << "\n";
@@ -1035,6 +1037,9 @@ int LoadOrBuildConfigFile()
 	}
 	if(ptr->data.Find("sudo_command") != -1) {
 	  servercfg->sudo_command = CfgGetEqualToParm(ptr->data, pbuf);
+	}
+	if(ptr->data.Find("bind_to_keep_alive_ip") != -1) {
+	  servercfg->bind_to_keep_alive_ip = CfgGetTrueFalseValue(ptr->data);
 	}
 	ptr = ptr->next;
       }

@@ -311,6 +311,7 @@ struct CMconfig {
   gxString logfile_name;
   int log_level;
   int log_file_err;
+  int bind_to_keep_alive_ip;
 
   // Log queue
   int log_queue_size;

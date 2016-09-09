@@ -82,6 +82,17 @@ int CM_UDP_ServerThread::InitServer()
   }
 #endif
 
+  if(servercfg->bind_to_keep_alive_ip) {
+    gxListNode<CMnode *> *ptr = servercfg->nodes.GetHead();
+    while(ptr) {
+      if(ptr->data->hostname == servercfg->my_hostname) {
+	break;
+      }
+      ptr = ptr->next;
+    }
+    if(ptr) inet_aton(ptr->data->keep_alive_ip.c_str(), &sin.sin_addr);
+  }
+
   // Bind the name to the socket
   if(Bind() < 0) {
     LogMessage("ERROR - Fatal bind() error initializing server");
