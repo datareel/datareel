@@ -169,7 +169,12 @@ the CM port number and host-based firewall rules:
 [CM_SERVER]
 udpport = 53897
 tcpport = 53897
+bind_to_keep_alive_ip = 1
 ...
+
+By default the DRCM server will only listen for cluster messages on
+each node's keep alive IP address. To listen on all interfaces change
+the bind_to_keep_alive_ip to 0. 
 
 Each cluster node must have host-based firewall rules allowing the
 DRCM server access to the TCP and UDP ports set in CM global
