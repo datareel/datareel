@@ -91,6 +91,8 @@ $ ssh username@cmnode1
 $ mkdir -pv ~/git
 $ cd ~/git
 $ git clone https://github.com/datareel/datareel.git
+$ cd ~/git/datareel/env
+$ source gnu_env.sh
 $ cd ~/git/datareel/cluster_manager/drcm_server
 $ make
 $ sudo su root -c 'make install_root'
