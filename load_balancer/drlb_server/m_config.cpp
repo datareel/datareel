@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/04/2016
+// Date Last Modified: 09/14/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -1632,7 +1632,7 @@ int LBconfig::NT_ReadRulesConfig()
 
     ifile.df_Open(rules_config_file.c_str());
     if(!ifile) {
-      message << clear << "Cannot open" << rules_config_file;
+      message << clear << "Cannot open " << rules_config_file;
       NT_print(message.c_str());
       return 1;
     }
