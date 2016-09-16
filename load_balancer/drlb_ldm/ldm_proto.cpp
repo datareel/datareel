@@ -111,11 +111,11 @@ int set_ldm_feed_type_strings(unsigned int ldm_feed_type, gxString &s)
       break;
 
     case FT0: // case PPS:
-	s = "FT0,PPS";
+	s = "PPS,FT0";
 	break;
       
     case FT1: // case DDS:
-      s = "FT1,DDS";
+      s = "DDS,FT1,DOMESTIC";
       break;
       
     case DDPLUS:
@@ -123,15 +123,15 @@ int set_ldm_feed_type_strings(unsigned int ldm_feed_type, gxString &s)
       break;
       
     case FT2: // case HDS: case HRS:
-      s = "FT2,HDS,HRS";
+      s = "HDS,FT2,HRS";
       break;
       
     case FT3: // case IDS: case INTNL:
-      s = "FT3,IDS,INTNL";
+      s = "IDS,FT3,INTNL";
       break;
       
     case FT4: // case SPARE:
-      s = "FT4,SPARE";
+      s = "SPARE,FT4";
       break;
       
     case WMO:
@@ -139,7 +139,7 @@ int set_ldm_feed_type_strings(unsigned int ldm_feed_type, gxString &s)
       break;
       
     case FT5: //case UNIWISC: case MCIDAS:
-      s = "FT5,UNIWISC,MCIDAS";
+      s = "UNIWISC,FT5,MCIDAS";
       break;
       
     case UNIDATA:
@@ -147,23 +147,23 @@ int set_ldm_feed_type_strings(unsigned int ldm_feed_type, gxString &s)
       break;
       
     case FT6: // case PCWS: case ACARS:
-      s = "FT6,PCWS,ACARS";
+      s = "PCWS,FT6,ACARS";
       break;
       
     case FT7: // case FSL2: case PROFILER:
-      s = "FT7,FSL2,PROFILER";
+      s = "FSL2,FT7,PROFILER";
       break;
       
     case FT8: // case FSL3:
-      s = "FT8,FSL3";
+      s = "FSL3,FT8";
       break;
       
     case FT9: // case FSL4:
-      s = "FT9,FSL4";
+      s = "FSL4,FT9";
       break;
       
     case FT10: // case FSL5:
-      s = "FT10,FSL5";
+      s = "FSL5,FT10";
       break;
       
     case FSL:
@@ -171,15 +171,15 @@ int set_ldm_feed_type_strings(unsigned int ldm_feed_type, gxString &s)
       break;
       
     case FT11: // case AFOS: case GPSSRC:
-      s = "FT11,AFOS,GPSSRC";
+      s = "GPSSRC,FT11,NMC1,AFOS";
       break;
       
     case FT12: // case NMC2: case NCEPH:
-      s = "FT12,NMC2,NCEPH";
+      s = "CONDUIT,FT12,NMC2,NCEPH";
       break;
       
     case FT13: // case NMC3: case FNEXRAD:
-      s = "FT13,NMC3,FNEXRAD";
+      s = "FNEXRAD,FT13,NMC3";
       break;
       
     case NMC:
@@ -187,55 +187,55 @@ int set_ldm_feed_type_strings(unsigned int ldm_feed_type, gxString &s)
       break;
       
     case FT14: // case NLDN:
-      s = "FT14,NLDN";
+      s = "LIGHTNING,FT14,NLDN";
       break;
       
     case FT15: // case WSI:
-      s = "FT15,WSI";
+      s = "WSI,FT15";
       break;
       
     case FT16: // case DIFAX:
-      s = "FT16,DIFAX";
+      s = "DIFAX,FT16";
       break;
       
     case FT17: // case FAA604:
-      s = "FT17,FAA604";
+      s = "FAA604,FT17,FAA,604";
       break;
       
     case FT18: // case GPS:
-      s = "FT18,GPS";
+      s = "GPS,FT18";
       break;
       
     case FT19: // case SEISMIC: case NOGAPS: case FNMOC:
-      s = "FT19,SEISMIC,NOGAPS,FNMOC";
+      s = "FNMOC,FT19,SEISMIC,NOGAPS";
       break;
       
     case FT20: // case CMC: case GEM:
-      s = "FT20,CMC,GEM";
+      s = "GEM,FT20,CMC";
       break;
       
     case FT21: // case NIMAGE: case IMAGE:
-      s = "FT21,NIMAGE,IMAGE";
+      s = "NIMAGE,FT21,IMAGE";
       break;
       
     case FT22: // case NTEXT: case TEXT:
-      s = "FT22,NTEXT,TEXT";
+      s = "NTEXT,FT22,TEXT";
       break;
       
     case FT23: // case NGRID: case GRID:
-      s = "FT23,NGRID,GRID";
+      s = "NGRID,FT23,GRID";
       break;
       
     case FT24: // case NPOINT: case POINT: case NBUFR: case BUFR:
-      s = "FT24,NPOINT,POINT,NBUFR,BUFR";
+      s = "NPOINT,FT24,POINT,NBUFR,BUFR";
       break;
       
     case FT25: // case NGRAPH: case GRAPH:
-      s = "FT25,NGRAPH,GRAPH";
+      s = "NGRAPH,FT25,GRAPH";
       break;
       
     case FT26: // case NOTHER: case OTHER:
-      s = "FT26,NOTHER,OTHER";
+      s = "NOTHER,FT26,OTHER";
       break;
       
     case NPORT:
@@ -243,15 +243,15 @@ int set_ldm_feed_type_strings(unsigned int ldm_feed_type, gxString &s)
       break;
       
     case FT27: // case NNEXRAD: case NEXRAD:
-      s = "FT27,NNEXRAD,NEXRAD";
+      s = "NEXRAD3,FT27,NNEXRAD,NEXRAD";
       break;
       
     case FT28: // case NEXRD2:
-      s = "FT28,NEXRD2";
+      s = "NEXRAD2,FT28,CRAFT,NEXRD2";
       break;
       
     case FT29: // case NXRDSRC:
-      s = "FT29,NXRDSRC";
+      s = "NXRDSRC,FT29";
       break;
       
     case EXP: // case FT30:
@@ -263,7 +263,7 @@ int set_ldm_feed_type_strings(unsigned int ldm_feed_type, gxString &s)
       break;
 
     default:
-	s = "UNKNOWN";
+      s = "UNKNOWN";
       error_level = -1;
       break;
   }

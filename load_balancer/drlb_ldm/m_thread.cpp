@@ -751,44 +751,44 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	  if(set_ldm_request_string(ldm_request.request, ldm_request.request_string) == 0) {
 	    if(servercfg->debug && servercfg->debug_level >= 2) { 
 	      message << clear << "[" << seq_num << "]: Received ldm rcp " 
-		      << ldm_request.request_string << " messsage from : " << s->client_name;
+		      << ldm_request.request_string << " messsage from " << s->client_name;
 	      LogDebugMessage(message.c_str());
 	    }
 	  }
 	  else {
 	    if(servercfg->debug && servercfg->debug_level >= 2) { 
-	      message << clear << "[" << seq_num << "]: ERROR Received unknown ldm rcp messsage number " 
-		      <<  ldm_request.request << " from : " << s->client_name;
+	      message << clear << "[" << seq_num << "]: ERROR Received unknown ldm request number " 
+		      <<  ldm_request.request << " from " << s->client_name;
 	      LogDebugMessage(message.c_str());
 	    }
-	  }
-	}
-
-
-	if(ldm_request.request == FEEDME) { // || ldm_request.request == HIYA) {
-	  if(ldm_request_hdr.length() >= 68) {
-	    memcpy(net_int, (ldm_request_hdr.m_buf()+64), 4);
-	  }
-	  else {
-	    // TODO: Log Error message, close and return
-
-	    message << clear << "[" << seq_num << "]: ALLOW DENIED - bad message length cannot read feed type " << s->client_name;  
+	    message << clear << "[" << seq_num << "]: ALLOW DENIED - unknown ldm request from " << s->client_name;  
 	    LogMessage(message.c_str());
 	    has_valid_ldm_request = 0;
 	    error_level = 1;
 	    break; // exit main loop
+	  }
+	}
 
-
+	if(ldm_request.request == FEEDME || ldm_request.request == HIYA) { 
+	  if(ldm_request_hdr.length() >= 68) {
+	    memcpy(net_int, (ldm_request_hdr.m_buf()+64), 4);
+	  }
+	  else {
+	    message << clear << "[" << seq_num << "]: ALLOW DENIED - bad message length cannot read feed type from " << s->client_name;  
+	    LogMessage(message.c_str());
+	    has_valid_ldm_request = 0;
+	    error_level = 1;
+	    break; // exit main loop
 	  }
 	  ldm_request.SetFeedType(net_int);
 	  if(set_ldm_feed_type_strings(ldm_request.feed_type, ldm_request.feed_type_strings) == 0) {
 	    if(servercfg->debug && servercfg->debug_level >= 2) { 
 	      message << clear << "[" << seq_num << "]: Received ldm " << ldm_request.request_string 
-		      << " for queue " << ldm_request.feed_type_strings << " from : " << s->client_name;
+		      << " for queue " << ldm_request.feed_type_strings << " from " << s->client_name;
 	      LogDebugMessage(message.c_str());
 	    }
 	    
-	    // Check to see if we have allow access to this queue
+	    // Check to see if we have allow access to this feed
 	    if(ldm_request.request == FEEDME) {
 	      int has_ip_allow = 0;
 	      int has_queue_allow = 0;
@@ -820,48 +820,59 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	      }
 	    }
 
-
-
+	    // Check to see if we have accept access to this queue
+	    if(ldm_request.request == HIYA) {
+	      int has_ip_accept = 0;
+	      int has_queue_accept = 0;
+	      gxString m_buf;
+	      // Check against ACCEPT list
+	      accept_ptr = ldmcfg->ldm_accept_list.GetHead();
+	      while(accept_ptr) {
+		reti = compare_ldm_hostere_to_hostip(accept_ptr->data.hostIdEre, s->client_name, 
+						     s->seq_num, has_ip_accept, ldmcfg->resolve_ldm_hostnames);
+		if(reti == 0) {
+		  ldm_check_queue_access(accept_ptr->data.feedtype, ldm_request.feed_type_strings, has_queue_accept, m_buf);
+		  if(has_queue_accept) break;
+		}
+		accept_ptr = accept_ptr->next;
+	      }
+	      if(!has_queue_accept) {
+		message << clear << "[" << seq_num << "]: ACCEPT DENIED - " << m_buf << " from " << s->client_name;  
+		LogMessage(message.c_str());
+		has_valid_ldm_request = 0;
+		error_level = 1;
+		break; // exit main loop
+	      }
+	      else {
+		has_valid_ldm_request = 1;
+		if(servercfg->debug && servercfg->debug_level >= 2) { 
+		  message << clear << "[" << seq_num << "]: ACCEPT GRANTED - " << m_buf;
+		  LogDebugMessage(message.c_str());
+		}
+	      }
+	    }
+	    
 	  }
 	  else {
 	    if(servercfg->debug && servercfg->debug_level >= 2) { 
 	      message << clear << "[" << seq_num << "]: ERROR Received ldm " << ldm_request.request_string << " for unknown feed type " 
 		      << ldm_request.feed_type << " from " << s->client_name;
 	      LogDebugMessage(message.c_str());
+
 	    }
-	    message << clear << "[" << seq_num << "]: ALLOW DENIED - unknown feed type from " << s->client_name;  
+	    if(ldm_request.request == FEEDME) {
+	      message << clear << "[" << seq_num << "]: ALLOW DENIED - unknown feed type from " << s->client_name;  
+	    }
+	    if(ldm_request.request == HIYA) {
+	      message << clear << "[" << seq_num << "]: ACCEPT DENIED - unknown feed type from " << s->client_name;  
+	    }
 	    LogMessage(message.c_str());
 	    has_valid_ldm_request = 0;
 	    error_level = 1;
 	    break; // exit main loop
 	  }
 	}
-	
-	if(ldm_request_hdr.length() >= 68) {
-	  memcpy(net_int, (ldm_request_hdr.m_buf()+64), 4);
-	  ldm_request.SetFeedType(net_int);
 
-	  
-	  if(set_ldm_feed_type_strings(ldm_request.feed_type, ldm_request.feed_type_strings) == 0) {
-	    if(servercfg->debug && servercfg->debug_level >= 2) { 
-	      message << clear << "[" << seq_num << "]: Received ldm " << ldm_request.request_string 
-		      << " for queue " << ldm_request.feed_type_strings << " from : " << s->client_name;
-	      LogDebugMessage(message.c_str());
-	    }
-	    
-	    // TODO: Check to see if we have access to this queue
-	    has_valid_ldm_request = 1;
-	    
-	  }
-	  else {
-	    if(servercfg->debug && servercfg->debug_level >= 2) { 
-	      message << clear << "[" << seq_num << "]: ERROR Received ldm " 
-		      << ldm_request.request_string << " for unknown queue number " 
-		      << ldm_request.feed_type << " from : " << s->client_name;
-	      LogDebugMessage(message.c_str());
-	    }
-	  }
-	}
 	ldm_request_hdr.Clear();
       }
 
