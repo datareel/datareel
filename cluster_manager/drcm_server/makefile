@@ -82,9 +82,13 @@ install_root:
 	if [ -d /etc/systemd/system ]; then chmod 644 /etc/systemd/system/drcm_server.service; fi
 	if [ -d /etc/systemd/system ]; then systemctl daemon-reload; fi
 	mkdir -p /usr/share/doc/drcm
+	chmod 755 /usr/share/doc/drcm
 	cp -fv ../README.txt /usr/share/doc/drcm/README.txt
+	chmod 644 /usr/share/doc/drcm/README.txt
 	cp -fv ../COPYING /usr/share/doc/drcm/COPYING
+	chmod 644 /usr/share/doc/drcm/COPYING
 	cp -fv ../version.txt /usr/share/doc/drcm/version.txt
+	chmod 644 /usr/share/doc/drcm/version.txt
 	gzip -c ../man/drcm_server.1 > /usr/share/man/man1/drcm_server.1.gz
 	gzip -c ../man/drcm_server.8 > /usr/share/man/man8/drcm_server.8.gz
 	chmod 644  /usr/share/man/man1/drcm_server.1.gz
