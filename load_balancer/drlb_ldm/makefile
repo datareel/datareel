@@ -40,7 +40,7 @@ install_root:
 	if [ -d /etc/systemd/system ]; then systemctl daemon-reload; fi
 	mkdir -p /usr/share/doc/drlb
 	cp -fv ../README.txt /usr/share/doc/drlb/README.txt
-	cp -fv README_ldm.txt /usr/share/doc/drlb/README_ldm.txt
+	cp -fv README.txt /usr/share/doc/drlb/README_ldm.txt
 	cp -fv ../COPYING /usr/share/doc/drlb/COPYING
 	cp -fv ../version.txt /usr/share/doc/drlb/version.txt
 	gzip -c ../man/drlb_ldm_server.8 > /usr/share/man/man8/drlb_ldm_server.8.gz
