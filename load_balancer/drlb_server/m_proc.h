@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/29/2016
+// Date Last Modified: 09/16/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -62,7 +62,7 @@ void termination_handler(int signum);
 
 // Main process functions
 int StopProc();
-void ExitProc();
+void ExitProc(int return_code);
 int StopThreads();
 
 // Timer functions

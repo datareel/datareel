@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/15/2016
+// Date Last Modified: 09/16/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -67,7 +67,7 @@ int LBServerThread::InitServer(int max_connections)
   if(LoadLDMConfig() != 0) {
     // We need to end process if LDM config is bad
     StopProc();
-    ExitProc();
+    ExitProc(1);
   }
 
   if(InitSocketLibrary() == 0) {
@@ -122,7 +122,7 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
   int num_connections;
 
   while(servercfg->accept_clients) { 
-    if(servercfg->debug && servercfg->debug_level == 5) {
+    if(servercfg->debug && servercfg->debug_level >= 5) {
       LogDebugMessage("LB server thread accept() call");
     }
 
@@ -175,20 +175,20 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
 
     servercfg->num_client_threads = thread_count;
     int num_threads = num_start_threads + thread_count;
-    if(servercfg->debug && servercfg->debug_level == 5) {
+    if(servercfg->debug && servercfg->debug_level >= 5) {
       message << clear << num_threads << " threads working";
       LogDebugMessage(message.c_str());
     }
 
     servercfg->NUM_SERVER_CONNECTIONS(num_connections);
 
-    if(servercfg->debug && servercfg->debug_level == 5) {
+    if(servercfg->debug && servercfg->debug_level >= 5) {
       message << clear <<  num_connections << " server connections";
       LogDebugMessage(message.c_str());
     }
 
     if(servercfg->max_threads > 1) {
-      if(servercfg->debug && servercfg->debug_level == 5) {
+      if(servercfg->debug && servercfg->debug_level >= 5) {
 	message << clear << "Max thread limit is set to " << servercfg->max_threads; 
 	LogDebugMessage(message.c_str());
       }
@@ -201,7 +201,7 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
     }
 
     if(servercfg->max_connections > 1) {
-      if(servercfg->debug && servercfg->debug_level == 5) {
+      if(servercfg->debug && servercfg->debug_level >= 5) {
 	message << clear << "Max frontend connection limit is set to " << servercfg->max_connections; 
 	LogDebugMessage(message.c_str());
       }
@@ -231,10 +231,10 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
     s->client_name = client_name;
     s->r_port = r_port;
 
-    if(servercfg->debug && servercfg->debug_level == 5) LogDebugMessage("LB server rebuilding thread pool");
+    if(servercfg->debug && servercfg->debug_level >= 5) LogDebugMessage("LB server rebuilding thread pool");
     RebuildThreadPool(servercfg->client_request_pool);
 
-    if(servercfg->debug && servercfg->debug_level == 5) LogDebugMessage("LB server starting client request thread");
+    if(servercfg->debug && servercfg->debug_level >= 5) LogDebugMessage("LB server starting client request thread");
 
     // 08/18/2016: Must set thread type to detached to free thread resources. To watch memory usage under high load:
     // $ watch -n 1 'ps -eo %mem,pid,user,args | grep drlb | grep -v grep'
@@ -269,7 +269,7 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
   // Send notice that program is ending
   NT_print("NOTICE - Main server thread has exited");
   
-  if(servercfg->debug && servercfg->debug_level == 5) { 
+  if(servercfg->debug && servercfg->debug_level >= 5) { 
     LogDebugMessage("Server thread exit routine closing connections");
   }
   CloseSocket(); // Close the server side socket
@@ -346,7 +346,7 @@ void *LBClientRequestThread::ThreadEntryRoutine(gxThread_t *thread)
 	  throttle_this_connection = 1;
 	}
 	if(throttle_this_connection) {
-	  if(servercfg->debug && servercfg->debug_level == 5) { 
+	  if(servercfg->debug && servercfg->debug_level >= 5) { 
 	    message << clear << "[" << s->seq_num  << "]: Throttling connection";
 	    LogDebugMessage(message.c_str());
 	  }
@@ -358,7 +358,7 @@ void *LBClientRequestThread::ThreadEntryRoutine(gxThread_t *thread)
 
     HandleClientRequest(s);
 
-    if(servercfg->debug && servercfg->debug_level == 5) { 
+    if(servercfg->debug && servercfg->debug_level >= 5) { 
       message << clear << "[" << s->seq_num 
 	      << "]: Client request thread exit routine closing connections";
       LogDebugMessage(message.c_str());
@@ -411,34 +411,34 @@ void LBClientRequestThread::HandleClientRequest(ClientSocket_t *s)
       if(!n) {
 	switch(servercfg->assigned_default) {
 	  case LB_RR:
-	    if(servercfg->debug && servercfg->debug_level == 5) {
+	    if(servercfg->debug && servercfg->debug_level >= 5) {
 	      sbuf << clear << "[" << seq_num << "]: LB assigned will default to round robin";
 	      LogDebugMessage(sbuf.c_str());
 	    }
 	    n = round_robin(s);
 	    break;
 	  case LB_DISTRIB:
-	    if(servercfg->debug && servercfg->debug_level == 5) {
+	    if(servercfg->debug && servercfg->debug_level >= 5) {
 	      sbuf << clear << "[" << seq_num << "]: LB assigned will fail over to distributed";
 	      LogDebugMessage(sbuf.c_str());
 	    }
 	    n = distrib(s);
 	    break;
 	  case LB_WEIGHTED:
-	    if(servercfg->debug && servercfg->debug_level == 5) {
+	    if(servercfg->debug && servercfg->debug_level >= 5) {
 	      sbuf << clear << "[" << seq_num << "]: LB assigned will fail over to weighted";
 	      LogDebugMessage(sbuf.c_str());
 	    }
 	    n = weighted(s);
 	    break;
 	  case LB_NONE:
-	    if(servercfg->debug && servercfg->debug_level == 5) {
+	    if(servercfg->debug && servercfg->debug_level >= 5) {
 	      sbuf << clear << "[" << seq_num << "]: LB assigned will not fail over to another node";
 	      LogDebugMessage(sbuf.c_str());
 	    }
 	    return;
 	  default:
-	    if(servercfg->debug && servercfg->debug_level == 5) {
+	    if(servercfg->debug && servercfg->debug_level >= 5) {
 	      sbuf << clear << "[" << seq_num << "]: LB assigned will default to round robin";
 	      LogDebugMessage(sbuf.c_str());
 	    }
@@ -467,7 +467,7 @@ void LBClientRequestThread::HandleClientRequest(ClientSocket_t *s)
   n->NUM_CONNECTIONS(1);
   n->CONNECTION_TOTAL(1);
 
-  if(servercfg->debug && servercfg->debug_level == 5) {
+  if(servercfg->debug && servercfg->debug_level >= 5) {
     int num_connections = n->NUM_CONNECTIONS();
     message << clear << "[" << seq_num << "]: " << n->node_name << " has " << num_connections << " client connections";
     LogDebugMessage(message.c_str());
@@ -483,7 +483,7 @@ void LBClientRequestThread::HandleClientRequest(ClientSocket_t *s)
   shutdown(s->client_socket, SHUT_RDWR);
   shutdown(s->client.GetSocket(), SHUT_RDWR);
 
-  if(servercfg->debug && servercfg->debug_level == 5) {
+  if(servercfg->debug && servercfg->debug_level >= 5) {
     message << clear << "[" << seq_num << "]: Client has disconnected, exiting client request thread";
     LogDebugMessage(message.c_str());
   }
@@ -525,13 +525,13 @@ int LBClientRequestThread::LB_ReadWrite(ClientSocket_t *s, int buffer_size)
     if(ready > 0) {
       idle_count = 0;
       br = read(s->client_socket, buffer, buffer_size);
-      if(servercfg->debug && servercfg->debug_level == 5) { 
+      if(servercfg->debug && servercfg->debug_level >= 5) { 
 	get_fd_error(error_number, sbuf);
 	message << clear << "[" << seq_num << "]: " << "Frontend read() Return: " << br << " ENUM: " << error_number << " Message: " << sbuf;
 	LogMessage(message.c_str());
       }
       if(br == 0) {
-	if(servercfg->debug && servercfg->debug_level == 5) { 
+	if(servercfg->debug && servercfg->debug_level >= 5) { 
 	  message << clear << "[" << seq_num << "]: " << "Frontend socket disconnected duing read()";
 	  LogMessage(message.c_str());
 	}
@@ -547,7 +547,7 @@ int LBClientRequestThread::LB_ReadWrite(ClientSocket_t *s, int buffer_size)
 	break;
       }
       bm = write(s->client.GetSocket(), buffer, br);
-      if(servercfg->debug && servercfg->debug_level == 5) { 
+      if(servercfg->debug && servercfg->debug_level >= 5) { 
 	get_fd_error(error_number, sbuf);
 	message << clear << "[" << seq_num << "]: " << "Backend write() Return: " << bm << " ENUM: " << error_number << " Message: " << sbuf;
 	LogDebugMessage(message.c_str());
@@ -589,13 +589,13 @@ int LBClientRequestThread::LB_ReadWrite(ClientSocket_t *s, int buffer_size)
     if(ready > 0) {
       idle_count = 0;
       br = read(s->client.GetSocket(), buffer, buffer_size);
-      if(servercfg->debug && servercfg->debug_level == 5) { 
+      if(servercfg->debug && servercfg->debug_level >= 5) { 
 	get_fd_error(error_number, sbuf);
 	message << clear << "[" << seq_num << "]: " << "Backend read() Return: " << br << " ENUM: " << error_number << " Message: " << sbuf;
 	LogMessage(message.c_str());
       }
       if(br == 0) {
-	if(servercfg->debug && servercfg->debug_level == 5) { 
+	if(servercfg->debug && servercfg->debug_level >= 5) { 
 	  message << clear << "[" << seq_num << "]: " << "Backend socket disconnected duing read()";
 	  LogMessage(message.c_str());
 	}
@@ -611,7 +611,7 @@ int LBClientRequestThread::LB_ReadWrite(ClientSocket_t *s, int buffer_size)
 	break;
       }
       bm = write(s->client_socket, buffer, br);
-      if(servercfg->debug && servercfg->debug_level == 5) { 
+      if(servercfg->debug && servercfg->debug_level >= 5) { 
 	get_fd_error(error_number, sbuf);
 	message << clear << "[" << seq_num << "]: " << "Frontend write() Return: " << bm << " ENUM: " << error_number << " Message: " << sbuf;
 	LogDebugMessage(message.c_str());
@@ -654,9 +654,12 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
   unsigned be_proto_capture_num = 0;
   DiskFileB fepcfile, bepcfile;
   gxString fepcfile_name, bepcfile_name;
-
   int has_valid_ldm_request = 0;
-
+  int reti = 0;
+  gxListNode<LDMallow> *allow_ptr = ldmcfg->ldm_allow_list.GetHead();
+  gxListNode<LDMaccept> *accept_ptr = ldmcfg->ldm_accept_list.GetHead();
+  char net_int[4];
+  memset(net_int, 0, 4);
 
   while(servercfg->accept_clients) {
     ready = 1;
@@ -676,13 +679,13 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
       if(ready > 0) {
 	idle_count = 0;
 	br = read(s->client_socket, buffer, buffer_size);
-	if(servercfg->debug && servercfg->debug_level == 5) { 
+	if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) { 
 	  get_fd_error(error_number, sbuf);
 	  message << clear << "[" << seq_num << "]: Cached Frondend read() Return: " << br << " ENUM: " << error_number << " Message: " << sbuf;
 	  LogDebugMessage(message.c_str());
 	}
 	if(br == 0) {
-	  if(servercfg->debug && servercfg->debug_level == 5) { 
+	  if(servercfg->debug && servercfg->debug_level >= 5) { 
 	    message << clear << "[" << seq_num << "]: Frontend socket disconnected duing a cached read()";
 	    LogMessage(message.c_str());
 	  }
@@ -720,7 +723,7 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
     if(error_level != 0) break;
 
     if(bytes_read > 0) {
-      if(servercfg->debug && servercfg->debug_level == 5) { 
+      if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) { 
 	message << clear << "[" << seq_num << "]: Cached Frondend bytes read: " << bytes_read;
 	LogDebugMessage(message.c_str());
       }
@@ -744,7 +747,7 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	
 	LDMrequest ldm_request;
 	if(ldm_request_hdr.length() >= 28) {
-	  ldm_request.request = (int)ldm_request_hdr[17];
+	  ldm_request.request = (int)ldm_request_hdr[27];
 	  if(set_ldm_request_string(ldm_request.request, ldm_request.request_string) == 0) {
 	    if(servercfg->debug && servercfg->debug_level >= 2) { 
 	      message << clear << "[" << seq_num << "]: Received ldm rcp " 
@@ -761,16 +764,83 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	  }
 	}
 
+
+	if(ldm_request.request == FEEDME) { // || ldm_request.request == HIYA) {
+	  if(ldm_request_hdr.length() >= 68) {
+	    memcpy(net_int, (ldm_request_hdr.m_buf()+64), 4);
+	  }
+	  else {
+	    // TODO: Log Error message, close and return
+
+	    message << clear << "[" << seq_num << "]: ALLOW DENIED - bad message length cannot read feed type " << s->client_name;  
+	    LogMessage(message.c_str());
+	    has_valid_ldm_request = 0;
+	    error_level = 1;
+	    break; // exit main loop
+
+
+	  }
+	  ldm_request.SetFeedType(net_int);
+	  if(set_ldm_feed_type_strings(ldm_request.feed_type, ldm_request.feed_type_strings) == 0) {
+	    if(servercfg->debug && servercfg->debug_level >= 2) { 
+	      message << clear << "[" << seq_num << "]: Received ldm " << ldm_request.request_string 
+		      << " for queue " << ldm_request.feed_type_strings << " from : " << s->client_name;
+	      LogDebugMessage(message.c_str());
+	    }
+	    
+	    // Check to see if we have allow access to this queue
+	    if(ldm_request.request == FEEDME) {
+	      int has_ip_allow = 0;
+	      int has_queue_allow = 0;
+	      gxString m_buf;
+	      // Check against ALLOW list
+	      allow_ptr = ldmcfg->ldm_allow_list.GetHead();
+	      while(allow_ptr) {
+		reti = compare_ldm_hostere_to_hostip(allow_ptr->data.hostIdEre, s->client_name, 
+						     s->seq_num, has_ip_allow, ldmcfg->resolve_ldm_hostnames);
+		if(reti == 0) {
+		  ldm_check_queue_access(allow_ptr->data.feedtype, ldm_request.feed_type_strings, has_queue_allow, m_buf);
+		  if(has_queue_allow) break;
+		}
+		allow_ptr = allow_ptr->next;
+	      }
+	      if(!has_queue_allow) {
+		message << clear << "[" << seq_num << "]: ALLOW DENIED - " << m_buf << " from " << s->client_name;  
+		LogMessage(message.c_str());
+		has_valid_ldm_request = 0;
+		error_level = 1;
+		break; // exit main loop
+	      }
+	      else {
+		has_valid_ldm_request = 1;
+		if(servercfg->debug && servercfg->debug_level >= 2) { 
+		  message << clear << "[" << seq_num << "]: ALLOW GRANTED - " << m_buf;
+		  LogDebugMessage(message.c_str());
+		}
+	      }
+	    }
+
+
+
+	  }
+	  else {
+	    if(servercfg->debug && servercfg->debug_level >= 2) { 
+	      message << clear << "[" << seq_num << "]: ERROR Received ldm " << ldm_request.request_string << " for unknown feed type " 
+		      << ldm_request.feed_type << " from " << s->client_name;
+	      LogDebugMessage(message.c_str());
+	    }
+	    message << clear << "[" << seq_num << "]: ALLOW DENIED - unknown feed type from " << s->client_name;  
+	    LogMessage(message.c_str());
+	    has_valid_ldm_request = 0;
+	    error_level = 1;
+	    break; // exit main loop
+	  }
+	}
+	
 	if(ldm_request_hdr.length() >= 68) {
-	  unsigned int d = (unsigned int)ldm_request_hdr[64];
-	  unsigned int c = (unsigned int)ldm_request_hdr[65];
-	  unsigned int b = (unsigned int)ldm_request_hdr[66];
-	  unsigned int a = (unsigned int)ldm_request_hdr[67];
-	  a = a & 0xFF;
-	  b = (b<<8) & 0xFF00;
-	  c = (c<<16) & 0xFF0000;
-	  d = (d<<24) & 0xFF000000;
-	  ldm_request.feed_type = a + b + c + d;
+	  memcpy(net_int, (ldm_request_hdr.m_buf()+64), 4);
+	  ldm_request.SetFeedType(net_int);
+
 	  
 	  if(set_ldm_feed_type_strings(ldm_request.feed_type, ldm_request.feed_type_strings) == 0) {
 	    if(servercfg->debug && servercfg->debug_level >= 2) { 
@@ -778,10 +848,10 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 		      << " for queue " << ldm_request.feed_type_strings << " from : " << s->client_name;
 	      LogDebugMessage(message.c_str());
 	    }
-
+	    
 	    // TODO: Check to see if we have access to this queue
 	    has_valid_ldm_request = 1;
-
+	    
 	  }
 	  else {
 	    if(servercfg->debug && servercfg->debug_level >= 2) { 
@@ -825,7 +895,7 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 
 	bm = write(s->client.GetSocket(), ptr->data->m_buf(), ptr->data->length());
 	get_fd_error(error_number, sbuf);
-	if(servercfg->debug && servercfg->debug_level == 5) { 
+	if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) { 
 	  message << clear << "[" << seq_num << "]: Backend cached write() Return: " << bm << " ENUM: " << error_number << " Message: " << sbuf;
 	  LogDebugMessage(message.c_str());
 	}
@@ -838,7 +908,7 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	  if(servercfg->log_level >= 3) {
 	    message << clear << "[" << seq_num << "]: Error writing to Backend socket";
 	    LogMessage(message.c_str());
-	    if(servercfg->debug && servercfg->debug_level == 5) { 
+	    if(servercfg->debug && servercfg->debug_level >= 5) { 
 	      message << clear << "[" << seq_num << "]: Backend write " << bm << " ERROR: " << error_number << ": " << sbuf;
 	      LogMessage(message.c_str());
 	    }
@@ -855,7 +925,7 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	}
       }
       if(error_level != 0) break;
-      if(servercfg->debug && servercfg->debug_level == 5) { 
+      if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) { 
 	message << clear << "[" << seq_num << "]: Cached Backend bytes moved: " << bytes_moved;
 	LogDebugMessage(message.c_str());
       }
@@ -883,13 +953,13 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
       if(ready > 0) {
 	idle_count = 0;
 	br = read(s->client.GetSocket(), buffer, buffer_size);
-	if(servercfg->debug && servercfg->debug_level == 5) { 
+	if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) { 
 	  get_fd_error(error_number, sbuf);
 	  message << clear << "[" << seq_num << "]: Cached Backend read() Return: " << br << " ENUM: " << error_number << " Message: " << sbuf;
 	  LogDebugMessage(message.c_str());
 	}
 	if(br == 0) {
-	  if(servercfg->debug && servercfg->debug_level == 5) { 
+	  if(servercfg->debug && servercfg->debug_level >= 5) { 
 	    message << clear << "[" << seq_num << "]: Backend socket disconnected duing a cached read()";
 	    LogMessage(message.c_str());
 	  }
@@ -927,7 +997,7 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
     if(error_level != 0) break;
 
     if(bytes_read > 0) {
-      if(servercfg->debug && servercfg->debug_level == 5) { 
+      if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) { 
 	message << clear << "[" << seq_num << "]: Cached Backend bytes read: " << bytes_read;
 	LogDebugMessage(message.c_str());
       }
@@ -950,7 +1020,7 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 
 	bm = write(s->client_socket, ptr->data->m_buf(), ptr->data->length());
 	get_fd_error(error_number, sbuf);
-	if(servercfg->debug && servercfg->debug_level == 5) { 
+	if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) { 
 	  message << clear << "[" << seq_num << "]: Frontend cached write() Return: " << bm << " ENUM: " << error_number << " Message: " << sbuf;
 	  LogDebugMessage(message.c_str());
 	}
@@ -963,7 +1033,7 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	  if(servercfg->log_level >= 3) {
 	    message << clear << "[" << seq_num << "]: Error writing to Frontend socket";
 	    LogMessage(message.c_str());
-	    if(servercfg->debug && servercfg->debug_level == 5) { 
+	    if(servercfg->debug && servercfg->debug_level >= 5) { 
 	      message << clear << "[" << seq_num << "]: Frontend write " << bm << " ERROR: " << error_number << ": " << sbuf;
 	      LogMessage(message.c_str());
 	    }
@@ -980,7 +1050,7 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	}
       }
       if(error_level != 0) break;
-      if(servercfg->debug && servercfg->debug_level == 5) { 
+      if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) { 
 	message << clear << "[" << seq_num << "]: Cached Frontend bytes moved: " << bytes_moved;
 	LogDebugMessage(message.c_str());
       }
@@ -1127,7 +1197,7 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
     if(lptr->data->rule == LB_ROUTE) {
       reti = regcomp(&regex, lptr->data->front_end_client_ip.c_str(), REG_EXTENDED|REG_NOSUB);
       if(reti != 0) { // This should have been checked in config read
-	if(servercfg->debug && servercfg->debug_level == 5) {
+	if(servercfg->debug && servercfg->debug_level >= 5) {
 	  sbuf << clear << "[" << seq_num << "]: ERROR - Bad regular expression in rules file: " << lptr->data->front_end_client_ip.c_str();
 	  LogDebugMessage(sbuf.c_str());
 	}
@@ -1136,7 +1206,7 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
 	reti = regexec(&regex, s->client_name.c_str(), 0, NULL, 0);
 	regfree(&regex);
 	if(reti == 0) {
-	  if(servercfg->debug && servercfg->debug_level == 5) {
+	  if(servercfg->debug && servercfg->debug_level >= 5) {
 	    sbuf << clear << "[" << seq_num << "]: INFO - Frontend IP matches regex: " << s->client_name << " match " << lptr->data->front_end_client_ip;
 	    LogDebugMessage(sbuf.c_str());
 	  }
@@ -1144,7 +1214,7 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
 	  break;
 	}
 	else if(reti == REG_NOMATCH) {
-	  if(servercfg->debug && servercfg->debug_level == 5) {
+	  if(servercfg->debug && servercfg->debug_level >= 5) {
 	    sbuf << clear << "[" << seq_num << "]: INFO - Frontend IP does not match regex: " << s->client_name << " no match " << lptr->data->front_end_client_ip;
 	    LogDebugMessage(sbuf.c_str());
 	  }
@@ -1152,7 +1222,7 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
 	}
 	else {
 	  regerror(reti, &regex, mbuf, sizeof(mbuf));
-	  if(servercfg->debug && servercfg->debug_level == 5) {
+	  if(servercfg->debug && servercfg->debug_level >= 5) {
 	    sbuf << clear << "[" << seq_num << "]: ERROR - Regex match failed: " << mbuf;
 	    LogDebugMessage(sbuf.c_str());
 	  }
@@ -1164,15 +1234,15 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
   }
 
   if(!lptr) {
-    if(servercfg->debug && servercfg->debug_level == 5) {
+    if(servercfg->debug && servercfg->debug_level >= 5) {
       if(error_level != 0) {
-	if(servercfg->debug && servercfg->debug_level == 5) {
+	if(servercfg->debug && servercfg->debug_level >= 5) {
 	  sbuf << clear << "[" << seq_num << "]: ERROR - Parsing errors reading " << servercfg->rules_config_file;
 	  LogDebugMessage(sbuf.c_str());
 	}
       }
       else {
-	if(servercfg->debug && servercfg->debug_level == 5) {
+	if(servercfg->debug && servercfg->debug_level >= 5) {
 	  sbuf << clear << "[" << seq_num << "]: INFO - No matching rules in config file " << servercfg->rules_config_file;
 	  LogDebugMessage(sbuf.c_str());
 	}
@@ -1184,7 +1254,7 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
   gxListNode<LBnode *> *ptr = servercfg->nodes.GetHead();
   while(ptr) {
     if(ptr->data->node_name == lptr->data->node_name) {
-      if(servercfg->debug && servercfg->debug_level == 5) {
+      if(servercfg->debug && servercfg->debug_level >= 5) {
 	sbuf << clear << "[" << seq_num << "]: Assigned node " << ptr->data->node_name << " matches rule " << lptr->data->front_end_client_ip;
 	LogDebugMessage(sbuf.c_str());
       }
@@ -1313,7 +1383,7 @@ LBnode *LBClientRequestThread::distrib(ClientSocket_t *s)
       LogMessage(sbuf.c_str());
       CheckSocketError(client, seq_num);
     }
-    if(servercfg->debug && servercfg->debug_level == 5) {
+    if(servercfg->debug && servercfg->debug_level >= 5) {
       sbuf << clear << "[" << seq_num << "]: Connection error will default to distributed round robin";
       LogMessage(sbuf.c_str());
     }
@@ -1325,7 +1395,7 @@ LBnode *LBClientRequestThread::distrib(ClientSocket_t *s)
     LogMessage(sbuf.c_str());
     CheckSocketError(client, seq_num);
     client->Close();
-    if(servercfg->debug && servercfg->debug_level == 5) {
+    if(servercfg->debug && servercfg->debug_level >= 5) {
       sbuf << clear << "[" << seq_num << "]: Connection error will default to distributed round robin";
       LogDebugMessage(sbuf.c_str());
     }
@@ -1420,7 +1490,7 @@ LBnode *LBClientRequestThread::weighted(ClientSocket_t *s)
       LogMessage(sbuf.c_str());
       CheckSocketError(client, seq_num);
     }
-    if(servercfg->debug && servercfg->debug_level == 5) {
+    if(servercfg->debug && servercfg->debug_level >= 5) {
       sbuf << clear << "[" << seq_num << "]: Connection error will default to weighted round robin";
       LogMessage(sbuf.c_str());
     }
@@ -1432,7 +1502,7 @@ LBnode *LBClientRequestThread::weighted(ClientSocket_t *s)
     LogMessage(sbuf.c_str());
     CheckSocketError(client, seq_num);
     client->Close();
-    if(servercfg->debug && servercfg->debug_level == 5) {
+    if(servercfg->debug && servercfg->debug_level >= 5) {
       sbuf << clear << "[" << seq_num << "]: Connection error will default to weighted round robin";
       LogDebugMessage(sbuf.c_str());
     }

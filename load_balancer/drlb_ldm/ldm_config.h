@@ -125,6 +125,11 @@ int ldm_ip_to_hosname(const gxString &ip_str, gxString &hostname_str, gxString &
 // Returns other non-zero value on error, will log message
 int compare_ldm_hostere_to_hostip(const gxString &hostIdEre, const gxString &hostip, int seq_num, int &has_match, int check_hostname = 1);
 
+// Return 0 if pass, non-zero if fail
+// If has match has_allow_accept == 1
+// If no match has_allow_accept == 0
+int ldm_check_queue_access(const gxString &accept_allow_feeds, const gxString &req_feeds, int &has_allow_accept, gxString &message);
+
 extern LDMconfig LDMConfigSruct;
 extern LDMconfig *ldmcfg;
 

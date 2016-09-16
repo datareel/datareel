@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/10/2016
+// Date Last Modified: 09/16/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -43,10 +43,22 @@ LDM protcol plug in for DR load balancer.
 
 
 struct LDMrequest {
+  LDMrequest() {
+    request = 0;
+    feed_type = 0;
+  }
+  ~LDMrequest() { }
+  
+  void SetFeedType(char net_int[4]);
+  unsigned int network_to_int(char net_int[4]);
 
   int request;
+
   gxString request_string;
-  int feed_type;
+  // HIYA requires ACCEPT entry, and feedtype entry 
+  // FEEDME requires ALLOW entry, and feedtype entry
+
+  unsigned int feed_type;
   gxString feed_type_strings;
   gxString client_ip;
   gxString client_host_names;

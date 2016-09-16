@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/29/2016
+// Date Last Modified: 09/16/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -219,10 +219,10 @@ int StopProc()
   return 1;
 }
 
-void ExitProc()
+void ExitProc(int return_code)
 {
   NT_print("Exiting DRLB process...");
-  exit(1);
+  exit(return_code);
 }
 
 void termination_handler(int signum)
@@ -241,7 +241,7 @@ void termination_handler(int signum)
     LogProcMessage("Process received segmentation violation");
     StopProc();
     sigprocmask(SIG_SETMASK, &old_set, NULL); // Restore the old signal mask2
-    ExitProc();
+    ExitProc(1);
     return;
   }
 
@@ -252,7 +252,7 @@ void termination_handler(int signum)
     LogProcMessage("Process received bus violation");
     StopProc();
     sigprocmask(SIG_SETMASK, &old_set, NULL);
-    ExitProc();
+    ExitProc(1);
   }
 #endif 
 
@@ -263,7 +263,8 @@ void termination_handler(int signum)
     LogProcMessage("Process interrupted with Ctrl-C");
     while(!StopProc() && --retries) sSleep(1);
     sigprocmask(SIG_SETMASK, &old_set, NULL);
-    ExitProc();
+    if(!retries) ExitProc(1);
+    ExitProc(0);
   }
   if(signum == SIGQUIT) {
     signal(SIGQUIT, SIG_IGN);
@@ -280,7 +281,8 @@ void termination_handler(int signum)
     LogProcMessage("Process terminated by kill command");
     while(!StopProc() && --retries) sSleep(1);
     sigprocmask(SIG_SETMASK, &old_set, NULL);
-    ExitProc();
+    if(!retries) ExitProc(1);
+    ExitProc(0);
   }
   if(signum == SIGHUP) {
     signal(SIGHUP, termination_handler);
@@ -297,7 +299,8 @@ void termination_handler(int signum)
     LogProcMessage("Process terminated by SIGKILL");
     while(!StopProc() && --retries) sSleep(1);
     sigprocmask(SIG_SETMASK, &old_set, NULL);
-    ExitProc();
+    if(!retries) ExitProc(1);
+    ExitProc(0);
   }
   if(signum == SIGTSTP) {
     signal(SIGTSTP, termination_handler);

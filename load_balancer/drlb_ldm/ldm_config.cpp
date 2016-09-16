@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/14/2016
+// Date Last Modified: 09/16/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -655,6 +655,69 @@ int compare_ldm_hostere_to_hostip(const gxString &hostIdEre, const gxString &hos
   }
 
   return reti;
+}
+
+int ldm_check_queue_access(const gxString &accept_allow_feeds, const gxString &req_feeds, int &has_allow_accept, gxString &message)
+{
+  int error_level = 0;
+  message.Clear();
+  has_allow_accept = 0;
+  
+  gxString aa_feeds = accept_allow_feeds;
+  aa_feeds.ToUpper();
+  while(aa_feeds.Find("||") != -1) aa_feeds.ReplaceString("||", "|");
+  aa_feeds.FilterChar(' '); aa_feeds.FilterChar('\t');
+  gxString r_feeds = req_feeds;
+  r_feeds.ToUpper();
+  while(r_feeds.Find(",,") != -1) r_feeds.ReplaceString("||", "|");
+  r_feeds.FilterChar(' '); r_feeds.FilterChar('\t');
+  
+  if(aa_feeds == "ANY") {
+    has_allow_accept = 1;
+    message << clear << "Requested feed is " << r_feeds << " opening access to " << aa_feeds;
+    return error_level;
+  }
+
+  unsigned ilist = 0;
+  gxString *listvars = 0;
+  unsigned num_list_arr = 0;
+  gxString list_delim = "|";
+  listvars = ParseStrings(aa_feeds, list_delim, num_list_arr);
+  if(num_list_arr == 0) {
+    listvars = new gxString[1];
+    listvars[0] = aa_feeds;
+    num_list_arr = 1;
+  }
+		  
+  unsigned ireq = 0;
+  gxString *reqvars = 0;
+  unsigned num_req_arr = 0;
+  gxString req_delim = ",";
+  reqvars = ParseStrings(r_feeds, req_delim, num_req_arr);
+  if(num_req_arr == 0) {
+    reqvars = new gxString[1];
+    reqvars[0] = r_feeds;
+    num_req_arr = 1;
+  }
+
+  for(ilist = 0; ilist < num_list_arr; ilist++) {
+    for(ireq = 0; ireq < num_req_arr; ireq++) {
+      if(listvars[ilist] == reqvars[ireq]) {
+	has_allow_accept = 1;
+	message << clear << "Requested feed is " << reqvars[ireq] << " opening access to " << listvars[ilist];
+	break;
+      }
+    }
+  }
+ 
+  delete[] listvars; listvars = 0;
+  delete[] reqvars; reqvars = 0;
+  
+  if(!has_allow_accept) {
+    message << clear << "Requested feed was " << r_feeds << " no match to " << aa_feeds;
+  }
+
+  return error_level;
 }
 // ----------------------------------------------------------- // 
 // ------------------------------- //

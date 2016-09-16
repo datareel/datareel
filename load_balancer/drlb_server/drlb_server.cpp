@@ -6,7 +6,7 @@
 // Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 08/29/2016
+// Date Last Modified: 09/16/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -130,9 +130,8 @@ int main(int argc, char **argv)
   retries = 3;
   while(!StopProc() && --retries) sSleep(1);
   NT_print("Exiting DRLB program...");
-  return error_level;
 
-  return 1;
+  return error_level;
 }
 
 int run_server()

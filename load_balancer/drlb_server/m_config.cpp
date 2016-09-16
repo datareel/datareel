@@ -442,15 +442,15 @@ int ProcessDashDashArg(gxString &arg)
   // Process all -- arguments here
   if(arg == "help") {
     HelpMessage(servercfg->ProgramName.c_str());
-    ExitProc(); // Signal program to exit
+    ExitProc(1); // Signal program to exit
   }
   if(arg == "?") {
     HelpMessage(servercfg->ProgramName.c_str());
-    ExitProc(); // Signal program to exit
+    ExitProc(1); // Signal program to exit
   }
   if((arg == "version") || (arg == "ver")) {
     VersionMessage();
-    ExitProc(); // Signal program to exit
+    ExitProc(1); // Signal program to exit
   }
 
   if(arg == "verbose") {
@@ -599,7 +599,7 @@ int ProcessArgs(int argc, char *argv[])
 
 	case '?':
 	  HelpMessage(servercfg->ProgramName.c_str());
-	  ExitProc(); // Signal program to exit
+	  ExitProc(1); // Signal program to exit
 	  break;
 	  
 	case 'v': case 'V': 
@@ -617,7 +617,7 @@ int ProcessArgs(int argc, char *argv[])
 	  sbuf << clear << "Unknown command line arg " << argv[i];
 	  NT_print(sbuf.c_str());
 	  NT_print("Exiting with errors");
-	  ExitProc(); // Signal program to exit
+	  ExitProc(1); // Signal program to exit
 	  break;
       }
     }

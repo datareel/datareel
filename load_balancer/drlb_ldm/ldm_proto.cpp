@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/16/2016
+// Date Last Modified: 09/16/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -36,6 +36,26 @@ LDM protcol plug in for DR load balancer.
 
 #include "../drlb_server/drlb_server.h"
 #include "ldm_proto.h"
+
+unsigned int LDMrequest::network_to_int(char net_int[4])
+{
+  unsigned int buf = 0;
+  unsigned int d = (unsigned int)net_int[0];
+  unsigned int c = (unsigned int)net_int[1];
+  unsigned int b = (unsigned int)net_int[2];
+  unsigned int a = (unsigned int)net_int[3];
+  a = a & 0xFF;
+  b = (b<<8) & 0xFF00;
+  c = (c<<16) & 0xFF0000;
+  d = (d<<24) & 0xFF000000;
+  buf = a + b + c + d;
+  return buf;
+}
+
+void LDMrequest::SetFeedType(char net_int[4]) 
+{
+  feed_type = network_to_int(net_int);
+}
 
 int set_ldm_request_string(int ldm_request, gxString &s)
 {
