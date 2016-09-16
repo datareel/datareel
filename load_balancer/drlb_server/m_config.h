@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/04/2016
+// Date Last Modified: 09/15/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -320,6 +320,12 @@ private: // Internal thread vars
 int LoadOrBuildConfigFile();
 int ProcessArgs(int argc, char *argv[]);
 int ProcessDashDashArg(gxString &arg);
+void CfgGetParmName(const gxString &cfgline, gxString &parm_name);
+void CfgGetEqualToParm(const gxString &cfgline, gxString &parm);
+int CfgGetTrueFalseValue(const gxString &cfgline);
+int CfgGetTrueFalseValue(const gxString &cfgline, gxString &parm);
+int CfgGetEqualToParm(const gxString &cfgline);
+char *CfgGetEqualToParm(const gxString &cfgline, char sbuf[255]);
 
 extern LBconfig ServerConfigSruct;
 extern LBconfig *servercfg;
