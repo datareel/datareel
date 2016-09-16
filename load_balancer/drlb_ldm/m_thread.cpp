@@ -742,11 +742,6 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	  ptr = ptr->next;
 	}
 	
-	// TODO: remove
-	//	for(unsigned x = 0; x < ldm_request_hdr.length(); x++) {
-	//  cout << "pos = " << x << " val = " << (int)ldm_request_hdr[x] << "\n" << flush;
-	//	}
-
 	LDMrequest ldm_request;
 	if(ldm_request_hdr.length() >= 28) {
 	  ldm_request.request = (int)ldm_request_hdr[17];
