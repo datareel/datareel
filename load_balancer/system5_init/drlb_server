@@ -6,7 +6,7 @@
 # description: DR TCP load balancer for software load balancing.
 #
 # processname: drlb_server
-# config: /etc/drlb_server/active_configs.list
+# config: /etc/drlb/active_configs.list
 
 ### BEGIN INIT INFO
 # Provides: drlb_server
@@ -33,7 +33,7 @@ ACTIVE_CONFIGS="/etc/drlb/active_configs.list"
 SINGLECONFIG="${2}"
 
 # System specific ENV overrides
-if [ -f /etc/sysconfig/drlb ]; then . /etc/sysconfig/drlb; fi
+if [ -f /etc/sysconfig/drlb_server ]; then . /etc/sysconfig/drlb_server; fi
 
 start_with_config() {
     CFGFILE="${1}"
