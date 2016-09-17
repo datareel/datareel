@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/15/2016
+// Date Last Modified: 09/17/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -166,6 +166,8 @@ struct LBconfig {
   gxString ProgramName;
   int user_config_file;
   gxsPort_t port;     // Server's port number
+  gxString listen_ip_addr;
+  int resolve_assigned_hostnames;
   int accept_clients; // Ture while accepting 
   thrPool *client_request_pool; // Worker threads processing client requests
   LogFile logfile; // Log file object  

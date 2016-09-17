@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/16/2016
+// Date Last Modified: 09/17/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -40,7 +40,6 @@ LDM protcol plug in for DR load balancer.
 
 #include "ldm_rpc_messages.h"
 #include "ldm_feed_types.h"
-
 
 struct LDMrequest {
   LDMrequest() {

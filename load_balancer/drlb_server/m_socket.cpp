@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 07/16/2016
+// Date Last Modified: 09/17/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -35,7 +35,36 @@ Extra socket functions for Datareel load balancer.
 #include "gxdlcode.h"
 
 #include <errno.h>
+
+#include "gxsocket.h"
 #include "m_socket.h"
+
+// Returns 0 for pass, with hostname set in hostname_str
+// Return non-zero value for fail, with error str returned in error_message
+int ip_to_hostname(const gxString &ip_str, gxString &hostname_str, gxString &error_message)
+{
+  struct addrinfo *result;
+  int gai_result;
+  char hostname[NI_MAXHOST];
+
+  memset(hostname, 0, NI_MAXHOST);
+  hostname_str.Clear();
+  error_message.Clear();
+
+  if((gai_result = getaddrinfo(ip_str.c_str(), 0, 0, &result)) != 0) {
+    error_message << clear << gai_strerror(gai_result);
+    return gai_result;
+  }
+  if((gai_result = getnameinfo(result->ai_addr, result->ai_addrlen, hostname, NI_MAXHOST, NULL, 0, 0)) != 0) {  
+    error_message << clear << gai_strerror(gai_result);
+    freeaddrinfo(result);
+    return gai_result;
+  }
+
+  if(*hostname != '\0') hostname_str << clear << hostname;
+  freeaddrinfo(result);
+  return 0;
+}
 
 // Map error number to a string. NOTE: This is not a 
 // redundent function. The errno values have different

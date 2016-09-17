@@ -3,7 +3,7 @@ m_proc.h m_help.h m_dbase.h m_app.h m_stats.h
 
 M_THREAD_DEP = $(PROJECT_DEP)
 
-M_SOCKET_DEP = m_socket.h
+M_SOCKET_DEP = $(PROJECT_DEP)
 
 M_LOG_DEP = $(PROJECT_DEP)
 

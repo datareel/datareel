@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/16/2016
+// Date Last Modified: 09/17/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -91,6 +91,14 @@ int LBServerThread::InitServer(int max_connections)
     }
   }
 #endif
+
+  if(!servercfg->listen_ip_addr.is_null()) {
+    if(servercfg->listen_ip_addr != "0.0.0.0") {
+      if(servercfg->listen_ip_addr != "::0") {
+	inet_aton(servercfg->listen_ip_addr.c_str(), &sin.sin_addr);
+      }
+    }
+  }
 
   // Bind the name to the socket
   if(Bind() < 0) {
@@ -704,6 +712,11 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	  error_level = 1;
 	  break;
 	}
+
+	MemoryBuffer *inbuf = new MemoryBuffer(buffer, br);
+	cache.Add(inbuf);
+	bytes_read += br;
+
 	if(servercfg->enable_buffer_overflow_detection) {
 	  if(bytes_read >= servercfg->buffer_overflow_size) {
 	    if(servercfg->log_level >= 3) {
@@ -716,9 +729,6 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	    break;
 	  }
 	}
-	MemoryBuffer *inbuf = new MemoryBuffer(buffer, br);
-	cache.Add(inbuf);
-	bytes_read += br;
       }
     }
 
@@ -1051,18 +1061,6 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	  error_level = 1;
 	  break;
 	}
-	if(servercfg->enable_buffer_overflow_detection) {
-	  if(bytes_read >= servercfg->buffer_overflow_size) {
-	    if(servercfg->log_level >= 3) {
-	      message << clear << "[" << seq_num << "]: Backend read " << bytes_read << " bytes from client";
-	      LogMessage(message.c_str());
-	      message << clear << "[" << seq_num << "]: Closing Backend connection due to buffer overflow";
-	      LogMessage(message.c_str());
-	    }
-	    error_level = 1;
-	    break;
-	  }
-	}
 	MemoryBuffer *inbuf = new MemoryBuffer(buffer, br);
 	cache.Add(inbuf);
 	bytes_read += br;
@@ -1287,6 +1285,46 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
 	  }
 	  error_level = 0;
 	  break;
+	}
+	else if(reti == REG_NOMATCH && servercfg->resolve_assigned_hostnames) {
+	  gxString hostname_str, error_message;
+	  if(ip_to_hostname(s->client_name, hostname_str, error_message) == 0) {
+	    if((s->client_name != hostname_str) && (!hostname_str.is_null())) { 
+	      regcomp(&regex, lptr->data->front_end_client_ip.c_str(), REG_EXTENDED|REG_NOSUB|REG_ICASE);
+	      reti = regexec(&regex, hostname_str.c_str(), 0, NULL, 0);
+	      regfree(&regex);
+	      if(reti == 0) {
+		if(servercfg->debug && servercfg->debug_level >= 5) {
+		  sbuf << clear << "[" << seq_num << "]: INFO - Frontend hostname matches regex: " << hostname_str << " match " << lptr->data->front_end_client_ip;
+		  LogDebugMessage(sbuf.c_str());
+		}
+		error_level = 0;
+		break;
+	      }
+	      else {
+		if(servercfg->debug && servercfg->debug_level >= 5) {
+		  sbuf << clear << "[" << seq_num << "]: INFO - Frontend IP/hostname does not match regex: " 
+		       << s->client_name << "/" << hostname_str << " no match " << lptr->data->front_end_client_ip;
+		  LogDebugMessage(sbuf.c_str());
+		}
+		error_level = 0;
+	      }
+	    }
+	    else {
+	      if(servercfg->debug && servercfg->debug_level >= 5) {
+		sbuf << clear << "[" << seq_num << "]: INFO - Frontend IP does not match regex: " << s->client_name << " no match " << lptr->data->front_end_client_ip;
+		LogDebugMessage(sbuf.c_str());
+	      }
+	      error_level = 0;
+	    }
+	  }
+	  else {
+	    if(servercfg->debug && servercfg->debug_level > 3) {
+	      sbuf << clear << "[" << seq_num << "]: ERROR - Get hostname error for IP " << s->client_name << " " << error_message;
+	      LogDebugMessage(sbuf.c_str());
+	    }
+	    error_level = 0;
+	  }
 	}
 	else if(reti == REG_NOMATCH) {
 	  if(servercfg->debug && servercfg->debug_level >= 5) {

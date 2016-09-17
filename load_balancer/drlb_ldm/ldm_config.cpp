@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/16/2016
+// Date Last Modified: 09/17/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -553,7 +553,7 @@ int read_ldm_config_file(const gxString &fname, gxList<gxString> &conf_lines, gx
 
 // Returns 0 for pass
 // Return non-zero value for fail, with error str returned in error_message
-int ldm_ip_to_hosname(const gxString &ip_str, gxString &hostname_str, gxString &error_message)
+int ldm_ip_to_hostname(const gxString &ip_str, gxString &hostname_str, gxString &error_message)
 {
   struct addrinfo *result;
   int gai_result;
@@ -634,7 +634,7 @@ int compare_ldm_hostere_to_hostip(const gxString &hostIdEre, const gxString &hos
     return 0;
   }
   if((reti == REG_NOMATCH) && (check_hostname == 1)) {
-    if(ldm_ip_to_hosname(hostip, hostname_str, error_message) != 0) {
+    if(ldm_ip_to_hostname(hostip, hostname_str, error_message) != 0) {
       sbuf << clear << "[" << seq_num << "]: ERROR - LDM get hostname error for IP " << hostip << " " << error_message;
       LogMessage(sbuf.c_str());
       return reti;

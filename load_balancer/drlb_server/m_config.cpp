@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/14/2016
+// Date Last Modified: 09/17/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -65,6 +65,8 @@ LBconfig::LBconfig()
   ProgramName = "drlb_server";  // Default program name
   user_config_file = 0;
   port = 8080;
+  listen_ip_addr.Clear();
+  resolve_assigned_hostnames = 1;
   accept_clients = 1;
   client_request_pool = new thrPool;
   fatal_error = 0;
@@ -705,10 +707,14 @@ int LoadOrBuildConfigFile()
     dfile << "[LBSERVER]" << "\n";
     dfile << "port = 8080 # All incoming traffic connections here" << "\n";
     dfile << "#" << "\n";
+    dfile << "# Set to accept clients on single interface" << "\n";
+    dfile << "##listen_ip_addr = 0.0.0.0" << "\n";
+    dfile << "#" << "\n";
     dfile << "# LB_ASSIGNED scheme requires a rules config file" << "\n";
     dfile << "# A default rules config file will be build if specified file does not exist" << "\n";
     dfile << "##scheme = LB_ASSIGNED" << "\n";
     dfile << "##rules_config_file = drlb_server_rules.cfg" << "\n";
+    dfile << "##resolve_assigned_hostnames = 1" << "\n";
     dfile << "##assigned_default = LB_RR # Use round robin for node fail over" << "\n";
     dfile << "##assigned_default = LB_DISTRIB  # Use distib for node fail over" << "\n";
     dfile << "##assigned_default = LB_WEIGHTED # Use weighted for node fail over" << "\n";
@@ -1173,6 +1179,12 @@ int LoadOrBuildConfigFile()
 	    }
 	  }
 	}
+	if(ptr->data.IFind("listen_ip_addr") != -1) {
+	    CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	    if(parm_name == "listen_ip_addr") {
+	      servercfg->listen_ip_addr = CfgGetEqualToParm(ptr->data, pbuf);
+	    }
+	}
 	if(ptr->data.IFind("somaxconn") != -1) {
 	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
 	  if(parm_name == "somaxconn") {
@@ -1181,6 +1193,12 @@ int LoadOrBuildConfigFile()
 	      NT_print("Config file has bad somaxconn value");
 	      error_level = 1;
 	    }
+	  }
+	}
+	if(ptr->data.IFind("resolve_assigned_hostnames") != -1) {
+	  CfgGetParmName(ptr->data, parm_name); parm_name.ToLower();
+	  if(parm_name == "resolve_assigned_hostnames") {
+	    servercfg->resolve_assigned_hostnames = CfgGetTrueFalseValue(ptr->data);
 	  }
 	}
 	if(ptr->data.IFind("assigned_default") != -1) {
@@ -1610,7 +1628,7 @@ int LBconfig::NT_ReadRulesConfig()
     dfile << "\n";
     dfile << "# ROUTE rule set for LB_ASSIGNED scheme" << "\n";
     dfile << "# Route rule for assigned LB format: route IP node" << "\n"; 
-    dfile << "# IP = Frontend IP address in dotted notation or regular expression form" << "\n";
+    dfile << "# IP = IP address or hostname, can be extended regular expression" << "\n";
     dfile << "# node = node name to route traffic too. node name must match server config" << "\n";
     dfile << "# Route rule examples:" << "\n";
     dfile << "##route 192.168.122.1 lbnode1" << "\n";
@@ -1686,6 +1704,17 @@ int LBconfig::NT_ReadRulesConfig()
 	  error_level = 2;
 	}
 	else {
+	  // Check for lead quotes and un-escaped trailing quotes
+	  vals[1].TrimLeading('"');
+	  if((vals[1][vals[1].length()-1] == '"') &&
+	     (vals[1][vals[1].length()-2] != '\\')) {
+	    vals[1].TrimTrailing('"');
+	  }
+	  vals[1].TrimLeading('\'');
+	  if((vals[1][vals[1].length()-1] == '\'') &&
+	     (vals[1][vals[1].length()-2] != '\\')) {
+	    vals[1].TrimTrailing('\'');
+	  }
 	  reti = regcomp(&regex, vals[1].c_str(), REG_EXTENDED|REG_NOSUB);
 	  if(reti) {
 	    message << clear << "ERROR - Bad regex " << vals[1];

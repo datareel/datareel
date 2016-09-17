@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/15/2016
+// Date Last Modified: 09/17/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -122,7 +122,7 @@ void fix_regex_quotes(gxString &regex_str);
 
 // Returns 0 for pass
 // Return non-zero value for fail, with error str returned in error_message
-int ldm_ip_to_hosname(const gxString &ip_str, gxString &hostname_str, gxString &error_message);
+int ldm_ip_to_hostname(const gxString &ip_str, gxString &hostname_str, gxString &error_message);
 
 // Returns 0 for a regex match to IP address, has_match set to 1
 // Returns REG_NOMATCH if no match to IP address, has_match set to 0
