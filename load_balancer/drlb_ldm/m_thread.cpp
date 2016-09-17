@@ -746,6 +746,24 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	fepcfile.df_Create(fepcfile_name.c_str());
       }
 
+      if(servercfg->debug && servercfg->debug_level >= 5) { 
+	ptr = cache.GetHead();
+	MemoryBuffer ldm_request_hdr;
+	while(ptr) {
+	  ldm_request_hdr.Cat(ptr->data->m_buf(),  ptr->data->length());
+	  ptr = ptr->next;
+	}
+	LDMrequest ldm_request;
+	if(ldm_request_hdr.length() >= 28) {
+	  ldm_request.request = (int)ldm_request_hdr[27];
+	  if(set_ldm_request_string(ldm_request.request, ldm_request.request_string) == 0) {
+	    message << clear << "[" << seq_num << "]: DEBUG - Received ldm rpc " 
+		    << ldm_request.request_string << " messsage from " << s->client_name;
+	    LogDebugMessage(message.c_str());
+	  }
+	}
+      }
+
       if(hereis_next) { // We have processed and ACCEPT for this client
 	ptr = cache.GetHead();
 	MemoryBuffer ldm_request_hdr;
