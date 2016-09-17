@@ -655,6 +655,8 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
   DiskFileB fepcfile, bepcfile;
   gxString fepcfile_name, bepcfile_name;
   int has_valid_ldm_request = 0;
+  int hereis_next = 0;
+  gxString hereis_next_prodIdEre;
   int reti = 0;
   gxListNode<LDMallow> *allow_ptr = ldmcfg->ldm_allow_list.GetHead();
   gxListNode<LDMaccept> *accept_ptr = ldmcfg->ldm_accept_list.GetHead();
@@ -734,13 +736,70 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	fepcfile.df_Create(fepcfile_name.c_str());
       }
 
+      if(hereis_next) { // We have processed and ACCEPT for this client
+	ptr = cache.GetHead();
+	MemoryBuffer ldm_request_hdr;
+	while(ptr) {
+	  ldm_request_hdr.Cat(ptr->data->m_buf(),  ptr->data->length());
+	  ptr = ptr->next;
+	}
+	LDMrequest ldm_request;
+	if(ldm_request_hdr.length() >= 28) {
+	  ldm_request.request = (int)ldm_request_hdr[27];
+	  if(set_ldm_request_string(ldm_request.request, ldm_request.request_string) == 0) {
+	    if(servercfg->debug && servercfg->debug_level >= 2) { 
+	      message << clear << "[" << seq_num << "]: Received ldm rpc " 
+		      << ldm_request.request_string << " messsage from " << s->client_name;
+	      LogDebugMessage(message.c_str());
+	    }
+
+	    if(ldm_request.request == HEREIS) { 
+	      int sizeof_file_name = 0;
+	      if(ldm_request_hdr.length() >= 112) {
+		sizeof_file_name = (int)ldm_request_hdr[111];
+		if(servercfg->debug && servercfg->debug_level >= 2) { 
+		  message << clear << "[" << seq_num << "]: Product file name length " << sizeof_file_name; 
+		  LogDebugMessage(message.c_str());
+		}
+		if(ldm_request_hdr.length() >= (112+sizeof_file_name)) {
+		  char *file_name = new char[sizeof_file_name+1]; 
+		  memset(file_name, 0, (sizeof_file_name+1));
+		  memcpy(file_name, (ldm_request_hdr.m_buf()+112), sizeof_file_name);
+		  if(servercfg->debug && servercfg->debug_level >= 2) { 
+		    message << clear << "[" << seq_num << "]: " << file_name; 
+		    LogDebugMessage(message.c_str());
+		  }
+		  gxString str = file_name;
+		  int rv_regex = compare_ldm_regex(hereis_next_prodIdEre, str);
+		  hereis_next = 0;
+		  delete file_name;
+		  if(rv_regex == 0) {
+		    if(servercfg->debug && servercfg->debug_level >= 2) { 
+		      message << clear << "[" << seq_num << "]: ACCEPT PROD GRANTED - prodIdEre from " << s->client_name << " matches " <<  hereis_next_prodIdEre;
+		      LogDebugMessage(message.c_str());
+		    }
+		    hereis_next_prodIdEre.Clear();
+		  }
+		  else {
+		    message << clear << "[" << seq_num << "]: ACCEPT PROD DENIED - prodIdEre from " << s->client_name << " does not match " <<  hereis_next_prodIdEre;
+		    LogMessage(message.c_str());
+		    has_valid_ldm_request = 0;
+		    error_level = 1;
+		    break; // exit main loop
+		  }
+		}
+	      }
+	    }
+	    ldm_request_hdr.Clear();
+	  }
+	}
+      }
+
       if(!has_valid_ldm_request) {
 	// Read the front-end LDM request coming from the remote client
 	ptr = cache.GetHead();
 	MemoryBuffer ldm_request_hdr;
-	unsigned ldm_hdr_size = 0;
 	while(ptr) {
-	  ldm_hdr_size +=  ptr->data->length();
 	  ldm_request_hdr.Cat(ptr->data->m_buf(),  ptr->data->length());
 	  ptr = ptr->next;
 	}
@@ -822,6 +881,7 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 
 	    // Check to see if we have accept access to this queue
 	    if(ldm_request.request == HIYA) {
+	      hereis_next_prodIdEre.Clear();
 	      int has_ip_accept = 0;
 	      int has_queue_accept = 0;
 	      gxString m_buf;
@@ -832,7 +892,10 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 						     s->seq_num, has_ip_accept, ldmcfg->resolve_ldm_hostnames);
 		if(reti == 0) {
 		  ldm_check_queue_access(accept_ptr->data.feedtype, ldm_request.feed_type_strings, has_queue_accept, m_buf);
-		  if(has_queue_accept) break;
+		  if(has_queue_accept) {
+		    hereis_next_prodIdEre = accept_ptr->data.prodIdEre;
+		    break;
+		  }
 		}
 		accept_ptr = accept_ptr->next;
 	      }
@@ -845,6 +908,7 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	      }
 	      else {
 		has_valid_ldm_request = 1;
+		hereis_next = 1;
 		if(servercfg->debug && servercfg->debug_level >= 2) { 
 		  message << clear << "[" << seq_num << "]: ACCEPT GRANTED - " << m_buf;
 		  LogDebugMessage(message.c_str());

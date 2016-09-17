@@ -410,8 +410,8 @@ int parse_ldm_config(gxList<gxString> &conf_lines)
       else {
 	LDMaccept ldm_accept;
 	ldm_accept.feedtype = vals[1];
-	ldm_accept.prodIdEre = vals[2];
-	ldm_accept.hostIdEre = vals[3];
+	ldm_accept.prodIdEre = vals[2];	fix_regex_quotes(ldm_accept.prodIdEre);
+	ldm_accept.hostIdEre = vals[3]; fix_regex_quotes(ldm_accept.hostIdEre);
 	reti = regcomp(&regex, ldm_accept.prodIdEre.c_str(), REG_EXTENDED|REG_NOSUB);
 	if(reti) {
 	  NT_print("ERROR - LDM conf ACCEPT bad product ID REGEX:", line.c_str());
@@ -444,7 +444,7 @@ int parse_ldm_config(gxList<gxString> &conf_lines)
       else {
 	LDMallow ldm_allow;
 	ldm_allow.feedtype = vals[1];
-	ldm_allow.hostIdEre = vals[2];
+	ldm_allow.hostIdEre = vals[2]; fix_regex_quotes(ldm_allow.hostIdEre);
 	reti = regcomp(&regex, ldm_allow.hostIdEre.c_str(), REG_EXTENDED|REG_NOSUB);
 	if(reti) {
 	  NT_print("ERROR - LDM conf ALLOW bad host ID REGEX:", line.c_str());
@@ -452,7 +452,7 @@ int parse_ldm_config(gxList<gxString> &conf_lines)
 	}
 	regfree(&regex);
 	if(num_arr >= 4) {
-	  ldm_allow.OK_pattern = vals[3];
+	  ldm_allow.OK_pattern = vals[3]; fix_regex_quotes(ldm_allow.OK_pattern);
 	  reti = regcomp(&regex, ldm_allow.OK_pattern.c_str(), REG_EXTENDED|REG_NOSUB);
 	  if(reti) {
 	    NT_print("ERROR - LDM conf ALLOW bad OK pattern REGEX:", line.c_str());
@@ -461,7 +461,7 @@ int parse_ldm_config(gxList<gxString> &conf_lines)
 	  regfree(&regex);
 	}
 	if(num_arr == 5) {
-	  ldm_allow.NOT_pattern = vals[4];
+	  ldm_allow.NOT_pattern = vals[4]; fix_regex_quotes(ldm_allow.NOT_pattern);
 	  reti = regcomp(&regex, ldm_allow.NOT_pattern.c_str(), REG_EXTENDED|REG_NOSUB);
 	  if(reti) {
 	    NT_print("ERROR - LDM conf ALLOW bad NOT pattern REGEX:", line.c_str());
@@ -476,6 +476,20 @@ int parse_ldm_config(gxList<gxString> &conf_lines)
   }
 
   return error_level;
+}
+
+void fix_regex_quotes(gxString &regex_str)
+{
+  regex_str.TrimLeading('"');
+  if((regex_str[regex_str.length()-1] == '"') &&
+     (regex_str[regex_str.length()-2] != '\\')) {
+    regex_str.TrimTrailing('"');
+  }
+  regex_str.TrimLeading('\'');
+  if((regex_str[regex_str.length()-1] == '\'') &&
+     (regex_str[regex_str.length()-2] != '\\')) {
+    regex_str.TrimTrailing('\'');
+  }
 }
 
 int read_ldm_config_file(const gxString &fname, gxList<gxString> &conf_lines, gxList<gxString> &includes_list)
@@ -562,6 +576,12 @@ int ldm_ip_to_hosname(const gxString &ip_str, gxString &hostname_str, gxString &
   if(*hostname != '\0') hostname_str << clear << hostname;
   freeaddrinfo(result);
   return 0;
+}
+
+int compare_ldm_regex(const gxString &regex_str, const gxString &str, int check_case)
+{
+  char message_buf[255];
+  return compare_ldm_regex(regex_str, str, message_buf, check_case);
 }
 
 // Returns 0 for a regex match to str

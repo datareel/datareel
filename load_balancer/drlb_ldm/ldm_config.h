@@ -115,6 +115,10 @@ int read_ldm_config_file(const gxString &fname, gxList<gxString> &conf_lines, gx
 // Returns REG_NOMATCH if no match to str
 // Returns other non-zero value on error, with error message in message_buf
 int compare_ldm_regex(const gxString &regex_str, const gxString &str, char message_buf[255], int check_case = 1);
+int compare_ldm_regex(const gxString &regex_str, const gxString &str, int check_case = 1);
+
+// Remove quotes from regex if not escaped with a back slash 
+void fix_regex_quotes(gxString &regex_str);
 
 // Returns 0 for pass
 // Return non-zero value for fail, with error str returned in error_message
