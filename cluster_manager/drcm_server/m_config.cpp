@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 09/09/2016
+// Date Last Modified: 09/17/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -372,15 +372,15 @@ int ProcessDashDashArg(gxString &arg)
   // Process all -- arguments here
   if(arg == "help") {
     HelpMessage(servercfg->ProgramName.c_str());
-    ExitProc(); // Signal program to exit
+    ExitProc(1); // Signal program to exit
   }
   if(arg == "?") {
     HelpMessage(servercfg->ProgramName.c_str());
-    ExitProc(); // Signal program to exit
+    ExitProc(1); // Signal program to exit
   }
   if((arg == "version") || (arg == "ver")) {
     VersionMessage();
-    ExitProc(); // Signal program to exit
+    ExitProc(1); // Signal program to exit
   }
 
   if(arg == "verbose") {
@@ -531,7 +531,7 @@ int ProcessArgs(int argc, char *argv[])
 	    sbuf << clear << "No count value supplied with arg " << argv[i];
 	    NT_print(sbuf.c_str());
 	    NT_print("Exiting with errors");
-	    ExitProc(); // Signal program to exit
+	    ExitProc(1); // Signal program to exit
 	  }
 	  servercfg->client_ping_count = sbuf.Atoi();
 	  if(servercfg->client_ping_count <= 0) servercfg->client_ping_count = 1;
@@ -544,14 +544,14 @@ int ProcessArgs(int argc, char *argv[])
 	    sbuf << clear << "No name or IP value supplied with arg " << argv[i];
 	    NT_print(sbuf.c_str());
 	    NT_print("Exiting with errors");
-	    ExitProc(); // Signal program to exit
+	    ExitProc(1); // Signal program to exit
 	  }
 	  servercfg->client_ping_nodename = sbuf;
 	  break;
 
 	case '?':
 	  HelpMessage(servercfg->ProgramName.c_str());
-	  ExitProc(); // Signal program to exit
+	  ExitProc(1); // Signal program to exit
 	  break;
 	  
 	case 'v': case 'V': 
@@ -569,7 +569,7 @@ int ProcessArgs(int argc, char *argv[])
 	  sbuf << clear << "Unknown command line arg " << argv[i];
 	  NT_print(sbuf.c_str());
 	  NT_print("Exiting with errors");
-	  ExitProc(); // Signal program to exit
+	  ExitProc(1); // Signal program to exit
 	  break;
       }
     }
