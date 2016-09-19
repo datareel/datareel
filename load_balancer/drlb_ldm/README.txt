@@ -1,33 +1,40 @@
 README file for DRLB LDM server
-Last Modified: 09/18/2016
+Last Modified: 09/19/2016
 
 Contents:
 --------
 * Overview
 * Building and Installing
+* Remaining work on this project
+* Support and Bug Tracking
 
 Overview
 --------
 The DRLB LDM service is a front-end load balancer for the Unidata LDM
-(Local Data Manager) protocol. The DRLB LDM service uses your existing
-ldmd.conf (plus include files) to allow or deny incoming client
-requests to LDM product feeds. The DRLB LDM server listening on port
-388 routes LDM requests and data to any number of back-end
-clients. Each back-end client runs an LDM server. The ldmd.conf ALLOW
-and ACCEPT rules are applied by the front-end load balancer. If the
-incoming client request does not have matching ALLOW or ACCEPT rule
-the front-end LB drops the client connection. If the client request
-for a feed type does not match any ALLOW rules, with optional OK and
-NOT patterns, the front-end LB drops the client connection. If a
-client sends a product and the incoming product does not match any
-ACCEPT rules the client connection is dropped. Client connections
-meeting the ALLOW and/or ACCEPT criteria are forward on to a back-end
-LDM server in accordance with the LB scheme. By using the front-end LB
-to process initial LDM client requests we conserve CPU, memory, and
-network resources on all back-end LDM servers. This methodology also
-allows you to run the latest version of LDM on back-end clients
-without having to delay upgrades due to clients running old versions
-of LDM.
+(Local Data Manager) protocol.
+
+The DRLB LDM service uses your existing ldmd.conf (plus include files)
+to allow or deny incoming client requests to LDM product feeds. The
+DRLB LDM server listening on port 388 routes LDM requests and data to
+any number of back-end clients. Each back-end client runs an LDM
+server. The ldmd.conf ALLOW and ACCEPT rules are applied by the
+front-end load balancer. If the incoming client request does not have
+matching ALLOW or ACCEPT rule the front-end LB drops the client
+connection. If the client request for a feed type does not match any
+ALLOW rules, with optional OK and NOT patterns, the front-end LB drops
+the client connection. If a client sends a product and the incoming
+product does not match any ACCEPT rules the client connection is
+dropped. Client connections meeting the ALLOW and/or ACCEPT criteria
+are forward on to a back-end LDM server in accordance with the LB
+scheme. By using the front-end LB to process initial LDM client
+requests we conserve CPU, memory, and network resources on all
+back-end LDM servers. This methodology also allows you to run the
+latest version of LDM on back-end clients without having to delay
+upgrades due to clients running old versions of LDM.
+
+DRLB source code is distributed as an open source project under the
+GNU general public license and can used by freely by commercial,
+Government, and academic institutions.
 
 Building and Installing
 -----------------------
@@ -79,7 +86,7 @@ assignment rules file is:
 
 /etc/drlb/ldm_cluster_rules.cfg
 
-The assignment rule allow you to route LDM requests to specific
+The assignment rules allow you to route LDM requests to specific
 back-end servers. This is done to isolate clients making excessive
 requests or manage clients with unique requirements. By default if the
 assigned back-end LDM server is down, the client request will be
@@ -104,10 +111,9 @@ To watch the log file:
 
 To watch LB stats:
 
-tail -n 25 -f /var/log/drlb/ldm_cluster_lb_stats.log
+# tail -n 25 -f /var/log/drlb/ldm_cluster_lb_stats.log
 
-After setting up your configuration and make the LB service
-persistent: 
+To make the LB service persistent: 
 
 RHEL 7/CENTOS 7:
 
@@ -117,4 +123,13 @@ RHEL 6/CENTOS 6:
 
 # chkconfig drlb_ldm_server on
 
- 
+Remaining work on this project
+------------------------------
+
+* RPM install for CENTOS/RHEL 6.X and 7.X
+
+Support and Bug Tracking
+------------------------
+
+https://github.com/datareel/datareel/issues
+
