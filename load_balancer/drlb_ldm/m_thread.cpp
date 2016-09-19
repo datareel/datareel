@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/17/2016
+// Date Last Modified: 09/18/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -785,7 +785,7 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	      int sizeof_file_name = 0;
 	      if(ldm_request_hdr.length() >= 112) {
 		sizeof_file_name = (int)ldm_request_hdr[111];
-		if(servercfg->debug && servercfg->debug_level >= 2) { 
+		if(servercfg->debug && servercfg->debug_level >= 5) { 
 		  message << clear << "[" << seq_num << "]: Product file name length " << sizeof_file_name; 
 		  LogDebugMessage(message.c_str());
 		}
@@ -793,7 +793,7 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 		  char *file_name = new char[sizeof_file_name+1]; 
 		  memset(file_name, 0, (sizeof_file_name+1));
 		  memcpy(file_name, (ldm_request_hdr.m_buf()+112), sizeof_file_name);
-		  if(servercfg->debug && servercfg->debug_level >= 2) { 
+		  if(servercfg->debug && servercfg->debug_level >= 5) { 
 		    message << clear << "[" << seq_num << "]: " << file_name; 
 		    LogDebugMessage(message.c_str());
 		  }
@@ -803,13 +803,15 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 		  delete file_name;
 		  if(rv_regex == 0) {
 		    if(servercfg->debug && servercfg->debug_level >= 2) { 
-		      message << clear << "[" << seq_num << "]: ACCEPT PROD GRANTED - prodIdEre from " << s->client_name << " matches " <<  hereis_next_prodIdEre;
+		      message << clear << "[" << seq_num << "]: ACCEPT PROD GRANTED - prodIdEre from " << s->client_name 
+			      << " matches " <<  hereis_next_prodIdEre;
 		      LogDebugMessage(message.c_str());
 		    }
 		    hereis_next_prodIdEre.Clear();
 		  }
 		  else {
-		    message << clear << "[" << seq_num << "]: ACCEPT PROD DENIED - prodIdEre from " << s->client_name << " does not match " <<  hereis_next_prodIdEre;
+		    message << clear << "[" << seq_num << "]: ACCEPT PROD DENIED - prodIdEre from " << s->client_name 
+			    << " does not match " <<  hereis_next_prodIdEre;
 		    LogMessage(message.c_str());
 		    has_valid_ldm_request = 0;
 		    error_level = 1;
@@ -844,11 +846,11 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	  }
 	  else {
 	    if(servercfg->debug && servercfg->debug_level >= 2) { 
-	      message << clear << "[" << seq_num << "]: ERROR Received unknown ldm request number " 
+	      message << clear << "[" << seq_num << "]: ERROR Received unknown ldm rpc message " 
 		      <<  ldm_request.request << " from " << s->client_name;
 	      LogDebugMessage(message.c_str());
 	    }
-	    message << clear << "[" << seq_num << "]: ALLOW DENIED - unknown ldm request from " << s->client_name;  
+	    message << clear << "[" << seq_num << "]: ALLOW DENIED - unknown ldm rpc message from " << s->client_name;  
 	    LogMessage(message.c_str());
 	    has_valid_ldm_request = 0;
 	    error_level = 1;
@@ -879,15 +881,29 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	    if(ldm_request.request == FEEDME) {
 	      int has_ip_allow = 0;
 	      int has_queue_allow = 0;
-	      gxString m_buf;
+	      int check_patterns = 0;
+	      gxString m_buf, OK_pattern, NOT_pattern, request_name_str;
+
 	      // Check against ALLOW list
 	      allow_ptr = ldmcfg->ldm_allow_list.GetHead();
+	      OK_pattern.Clear();
+	      NOT_pattern.Clear();
 	      while(allow_ptr) {
 		reti = compare_ldm_hostere_to_hostip(allow_ptr->data.hostIdEre, s->client_name, 
 						     s->seq_num, has_ip_allow, ldmcfg->resolve_ldm_hostnames);
 		if(reti == 0) {
 		  ldm_check_queue_access(allow_ptr->data.feedtype, ldm_request.feed_type_strings, has_queue_allow, m_buf);
-		  if(has_queue_allow) break;
+		  if(has_queue_allow) {
+		    if(!allow_ptr->data.OK_pattern.is_null()) {
+		      check_patterns = 1;
+		      OK_pattern = allow_ptr->data.OK_pattern;
+		    }
+		    if(!allow_ptr->data.NOT_pattern.is_null()) {
+		      if(!allow_ptr->data.OK_pattern.is_null()) check_patterns = 1;
+		      NOT_pattern = allow_ptr->data.NOT_pattern;
+		    }
+		    break;
+		  }
 		}
 		allow_ptr = allow_ptr->next;
 	      }
@@ -899,6 +915,64 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 		break; // exit main loop
 	      }
 	      else {
+		if(check_patterns) {
+		  int sizeof_request = 0;
+		  if(ldm_request_hdr.length() >= 72) {
+		    sizeof_request = (int)ldm_request_hdr[71];
+		    if(servercfg->debug && servercfg->debug_level >= 5) { 
+		      message << clear << "[" << seq_num << "]: Request length " << sizeof_request; 
+		      LogDebugMessage(message.c_str());
+		    }
+		    if(ldm_request_hdr.length() >= (72+sizeof_request)) {
+		      char *request_name = new char[sizeof_request+1]; 
+		      memset(request_name, 0, (sizeof_request+1));
+		      memcpy(request_name, (ldm_request_hdr.m_buf()+72), sizeof_request);
+		      request_name_str = request_name;
+		      delete request_name;
+		      if(servercfg->debug && servercfg->debug_level >= 5) { 
+			message << clear << "[" << seq_num << "]: " << request_name_str; 
+			LogDebugMessage(message.c_str());
+		      }
+		    }
+		    else {
+		      check_patterns = 0;
+		    }
+		  }
+		  else {
+		    check_patterns = 0;
+		  }
+		}
+		if(check_patterns) {
+		  if(servercfg->debug && servercfg->debug_level >= 2) { 
+		    message << clear << "[" << seq_num << "]: Checking OK and NOT patterns";
+		    LogDebugMessage(message.c_str());
+		  }
+		  if(compare_ldm_regex(OK_pattern, request_name_str) == 0) {
+		    if(servercfg->debug && servercfg->debug_level >= 2) { 
+		      message << clear << "[" << seq_num << "]: Request from " << s->client_name 
+			      << " matches OK pattern " << OK_pattern;
+		      LogDebugMessage(message.c_str());
+		    }
+		    if(!NOT_pattern.is_null()) {
+		      if(compare_ldm_regex(NOT_pattern, request_name_str) == 0) {
+			message << clear << "[" << seq_num << "]: ALLOW DENIED - request from " << s->client_name 
+				<< " matches NOT pattern " << NOT_pattern;
+			LogMessage(message.c_str());
+			has_valid_ldm_request = 0;
+			error_level = 1;
+			break; // exit main loop
+		      }
+		    }
+		  }
+		  else {
+		    message << clear << "[" << seq_num << "]: ALLOW DENIED - request from " << s->client_name 
+			    << " does not match OK pattern " << OK_pattern;
+		    LogMessage(message.c_str());
+		    has_valid_ldm_request = 0;
+		    error_level = 1;
+		    break; // exit main loop
+		  }
+		}
 		has_valid_ldm_request = 1;
 		if(servercfg->debug && servercfg->debug_level >= 2) { 
 		  message << clear << "[" << seq_num << "]: ALLOW GRANTED - " << m_buf;
