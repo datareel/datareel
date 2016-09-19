@@ -523,8 +523,8 @@ directs all traffic from the 172.31.1.0/24 network to lbnode3. All
 other incoming traffic will use round robin connections to node 1
 through 4.
 
-NOTE: Name looks for hostnames can cause performance issues. If you
-need to disable name look ups, edit your DRLB configuration file and
+NOTE: Name lookups for hostnames can cause performance issues. If you
+need to disable name lookups, edit your DRLB configuration file and
 change the following:
 
 [LBSERVER]
