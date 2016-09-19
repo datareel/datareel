@@ -507,8 +507,8 @@ the rules configuration file. Each assignment rule is designated be
 the route key word followed by the IP address of the incoming
 connection and the name of the back end server node handling the
 assignment. The IP address for the incoming connections can be an IP
-address value or a regular expression. To setup rules, edit the rules
-file:
+address or hostname as a single value or an extended regular
+expression. To setup rules, edit the rules file:
 
 # vi /etc/drlb/http_lb_rules.cfg
 
@@ -522,6 +522,17 @@ all traffic from the 10.0.0.0/8 network to lbnode2. The third example
 directs all traffic from the 172.31.1.0/24 network to lbnode3. All
 other incoming traffic will use round robin connections to node 1
 through 4.
+
+NOTE: Name looks for hostnames can cause performance issues. If you
+need to disable name look ups, edit your DRLB configuration file and
+change the following:
+
+[LBSERVER]
+...
+resolve_assigned_hostnames = 0
+
+Once disabled, the route rules will only use the IP address of the
+incoming connection.
 
 The assignment rules file is read when the DRLB server starts or is
 restarted. Changes to the rules file requires a service restart to
@@ -779,6 +790,14 @@ Advanced socket settings
 ------------------------
 Each of the setting below are set in the [LBSERVER] global section in
 your DRLB server configuration file.
+
+To listen on a single Ethernet interface:
+
+[LBSERVER]
+...
+listen_ip_addr = 192.168.122.1
+
+The default is to listen on all interfaces. 
 
 To change the maximum number of back logged connections, set the
 somaxconn parameter based on the kernel setting:
