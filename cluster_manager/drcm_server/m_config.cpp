@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 07/17/2016
-// Date Last Modified: 09/17/2016
+// Date Last Modified: 09/21/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -732,7 +732,7 @@ int LoadOrBuildConfigFile()
     dfile << "archive, 192.168.122.1:/archive, /archive, /etc/drcm/resources/nfs.sh" << "\n";
     dfile << "### webshare, //192.168.122.225/users/web, /mnt/dfs, /etc/drcm/resources/cifs.sh" << "\n";
     dfile << "" << "\n";
-    dfile << "# Global config" << "\n";
+    dfile << "# CM node configs" << "\n";
     dfile << "[CM_NODE]" << "\n";
     dfile << "nodename = cmnode1 # Your name for this cluster node " << "\n";
     dfile << "# Fully qualified hostname of this node" << "\n";
