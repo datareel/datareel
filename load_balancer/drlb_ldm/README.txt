@@ -1,9 +1,10 @@
 README file for DRLB LDM server
-Last Modified: 09/19/2016
+Last Modified: 10/02/2016
 
 Contents:
 --------
 * Overview
+* RPM Install
 * Building and Installing
 * Remaining work on this project
 * Support and Bug Tracking
@@ -35,6 +36,34 @@ upgrades due to clients running old versions of LDM.
 DRLB source code is distributed as an open source project under the
 GNU general public license and can used by freely by commercial,
 Government, and academic institutions.
+
+RPM Install
+-----------
+System administrators, follow the instructions below to build an RPM
+for distribution:
+
+$ cd $HOME; mkdir -pv git; cd $HOME/git
+$ git clone https://github.com/datareel/datareel
+$ cd ${HOME}/git/datareel/load_balancer/rpm_builder
+
+RHEL7/CENTOS7:
+$ ./make_ldm_rpm_package.sh rhel7
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drlb_ldm_server-1.57-1.el7.x86_64.x86_64.rpm"
+
+RHEL6/CENTOS6:
+$ ./make_ldm_rpm_package.sh rhel6
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drlb_ldm_server-1.57-1.el6.x86_64.x86_64.rpm"
+
+Useful RPM command to verify package contents:
+
+List package: rpm -qf /usr/sbin/drlb_ldm_server
+List files: rpm -ql drlb_ldm_server
+List configs: rpm -qc drlb_ldm_server
+List docs: rpm -qd drlb_ldm_server
+
+To remove package:
+
+$ sudo su root -c "yum -y remove drlb_ldm_server"
 
 Building and Installing
 -----------------------

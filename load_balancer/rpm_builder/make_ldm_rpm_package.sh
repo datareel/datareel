@@ -53,8 +53,8 @@ fi
 
 source ../../env/gnu_env.sh
 cd ../drlb_ldm
-#make clean_lib
-#make clean
+make clean_lib
+make clean
 make
 
 mkdir -p ${Build}/etc/drlb
