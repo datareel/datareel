@@ -101,5 +101,5 @@ fi
 /sbin/service drcm_server restart > /dev/null 2>&1 || :
 
 %changelog
-* Sat Oct 02 2016 Datareel <datareel.com>
+* Sun Oct 02 2016 Datareel <datareel.com>
 - Inital RPM build 
