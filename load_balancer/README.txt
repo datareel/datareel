@@ -9,7 +9,8 @@ Contents:
 * Features
 * Documented Usage
 * Building
-* Installing
+* RPM Install
+* Installing from src build
 * Building a default configuration file
 * Testing DRLB configurations files
 * Running DRLB as a service
@@ -123,8 +124,36 @@ enabled:
 
 $ ./drlb_server --verbose --debug --config-file=/tmp/lb_test_config.cfg --log-file=/tmp/lb_test.log
 
-Installing
-----------
+RPM Install
+-----------
+System administrators, follow the instructions below to build an RPM
+for distribution:
+
+$ cd $HOME; mkdir -pv git; cd $HOME/git
+$ git clone https://github.com/datareel/datareel
+$ cd ${HOME}/git/datareel/load_balancer/rpm_builder
+
+RHEL7/CENTOS7:
+$ ./make_rhel7_rpm.sh
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drlb_server-1.57-1.el7.x86_64.x86_64.rpm"
+
+RHEL6/CENTOS6:
+$ ./make_rhel6_rpm.sh
+sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drlb_server-1.57-1.el6.x86_64.x86_64.rpm"
+
+Useful RPM command to verify package contents:
+
+List package: rpm -qf /usr/sbin/drlb_server
+List files: rpm -ql drlb_server
+List configs: rpm -qc drlb_server
+List docs: rpm -qd drlb_server
+
+To remove package:
+
+$ sudo su root -c "yum -y remove drlb_server"
+
+Installing from src build
+-------------------------
 The development version can be installed on CENTOS6/RHEL6 or
 CENTOS7/RHEL7 from the makefile:
 
@@ -1103,8 +1132,6 @@ LogFormat "%h %l %u %t \"%r\" %>s %b" %{X-Forwarded-For}i common
 Remaining work on this project
 ------------------------------
 Remaining work for this open source project:
-
-    RPM install for CENTOS/RHEL 6.X and 7.X
 
 Support and Bug Tracking
 ------------------------

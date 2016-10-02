@@ -8,6 +8,7 @@ Contents:
 * Overview
 * Documented Usage
 * Prerequisites
+* RPM Install
 * Building and Installing From Source Code
 * DRCM Auth Tokens
 * Testing CM Configuration Files
@@ -81,6 +82,36 @@ consider the following:
 * Applications: Programs not part of the OS with user programs and scripting
 
 * SSH keys: keyed authentication for file synchronization and automation
+
+RPM Install
+-----------
+System administrators, follow the instructions below to build an RPM
+for distribution:
+
+$ cd $HOME; mkdir -pv git; cd $HOME/git
+$ git clone https://github.com/datareel/datareel
+$ cd ${HOME}/git/datareel/cluster_manager/rpm_builder
+
+RHEL7/CENTOS7:
+
+$ ./make_rhel7_rpm.sh
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.37-1.el7.x86_64.x86_64.rpm"
+
+RHEL6/CENTOS6:
+
+$ ./make_rhel6_rpm.sh
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drcm_server-1.37-1.el6.x86_64.x86_64.rpm"
+
+Useful RPM command to verify package contents:
+
+List package: rpm -qf /usr/sbin/drcm_server
+List files: rpm -ql drcm_server
+List configs: rpm -qc drcm_server
+List docs: rpm -qd drcm_server
+
+To remove package:
+
+$ sudo su root -c 'yum -y remove drcm_server'
 
 Building and Installing From Source Code:
 ----------------------------------------
@@ -649,8 +680,7 @@ mail as a smart host, search online for: "postfix smarthost setup"
 Remaining Work on This Project:
 ------------------------------ 
 
-* RPM install for CENTOS/RHEL 6.X and 7.X
-* Add TCP cluster protocol for WAN based clusters
+* Long term, add TCP cluster protocol for WAN based clusters
 
 Support and Bug Tracking:
 ------------------------

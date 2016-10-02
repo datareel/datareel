@@ -102,4 +102,4 @@ fi
 
 %changelog
 * Sun Oct 02 2016 Datareel <datareel.com>
-- Inital RPM build 
+- Initial RPM build 
