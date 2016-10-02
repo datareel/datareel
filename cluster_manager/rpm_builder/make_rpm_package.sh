@@ -98,6 +98,8 @@ mkdir -p ${Build}/var/log/drcm
 chmod 755 ${Build}/var/log/drcm
 mkdir -p ${Build}/var/spool/drcm
 chmod 755 ${Build}/var/spool/drcm
+mkdir -p ${Build}/var/run/drcm
+chmod 755 ${Build}/var/run/drcm
 mkdir -p ${Build}/usr/sbin
 chmod 755 ${Build}/usr/sbin
 cp -fv drcm_server ${Build}/usr/sbin/drcm_server

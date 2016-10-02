@@ -1,7 +1,7 @@
 BuildArch: x86_64
 Name: drcm_server
 Version: 1.37        
-Release: 1.el7.x86_64
+Release: 1.el6.x86_64
 Summary: Datareel Cluster Manager RPM        
 Group: System Environment/Daemons
 License: GPL       
@@ -14,7 +14,7 @@ Requires: libm.so.6()(64bit)
 Requires: libgcc_s.so.1()(64bit)
 Requires: libc.so.6()(64bit)
 Requires: ld-linux-x86-64.so.2()(64bit)
-Requires: systemd-units  
+Requires: chkconfig  
 Requires: /bin/sh  
 Requires: /bin/bash
 
@@ -86,31 +86,20 @@ tar xvf drcm_server.tar.gz -C $RPM_BUILD_ROOT
 %doc %attr(0644, root, root) "/usr/share/doc/drcm/version.txt"
 %doc %attr(0644, root, root) "/usr/share/man/man1/drcm_server.1.gz"
 %doc %attr(0644, root, root) "/usr/share/man/man8/drcm_server.8.gz"
-%config %attr(0644, root, root) "/etc/systemd/system/drcm_server.service" 
 
 %post -p /bin/sh
-
-if [ $1 -eq 1 ] ; then 
-    # Initial installation 
-    systemctl preset drcm_server.service >/dev/null 2>&1 || : 
-fi
+/sbin/chkconfig --add drcm_server
+/sbin/chkconfig drcm_server off
 
 %preun -p /bin/sh
-
-if [ $1 -eq 0 ] ; then 
-    # Package removal, not upgrade 
-    systemctl --no-reload disable drcm_server.service > /dev/null 2>&1 || : 
-    systemctl stop drcm_server.service > /dev/null 2>&1 || : 
+if [ "$1" = 0 ]
+then
+        /sbin/service drcm_server stop > /dev/null 2>&1 || :
+        /sbin/chkconfig --del drcm_server
 fi
-
 %postun -p /bin/sh
-
-systemctl daemon-reload >/dev/null 2>&1 || : 
-if [ $1 -ge 1 ] ; then 
-        # Package upgrade, not uninstall 
-        systemctl try-restart drcm_server.service >/dev/null 2>&1 || : 
-fi
+/sbin/service drcm_server restart > /dev/null 2>&1 || :
 
 %changelog
-* Sat Oct 01 2016 Datareel <datareel.com>
+* Sat Oct 02 2016 Datareel <datareel.com>
 - Inital RPM build 
