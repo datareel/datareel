@@ -40,7 +40,6 @@ tar xvf drlb_server.tar.gz -C $RPM_BUILD_ROOT
 %doc %attr(0644, root, root) "/usr/share/doc/drlb/COPYING"
 %doc %attr(0644, root, root) "/usr/share/doc/drlb/version.txt"
 %doc %attr(0644, root, root) "/usr/share/man/man8/drlb_server.8.gz"
-%config %attr(0644, root, root) "/etc/systemd/system/drlb_server.service"
 
 %post -p /bin/sh
 /sbin/chkconfig --add drlb_server
