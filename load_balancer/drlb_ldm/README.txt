@@ -155,8 +155,6 @@ RHEL 6/CENTOS 6:
 Remaining work on this project
 ------------------------------
 
-* RPM install for CENTOS/RHEL 6.X and 7.X
-
 Support and Bug Tracking
 ------------------------
 
