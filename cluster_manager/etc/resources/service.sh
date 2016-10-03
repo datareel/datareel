@@ -41,7 +41,7 @@ function IsActive() {
 
 function IsDead() {
     if [ $is_systemd -eq 1 ]; then
-	systemctl status ${servicename} | grep 'Active:' | grep ' inactive' &> /dev/null
+	systemctl status ${servicename} | grep 'Active:' | grep -E " inactive|failed" &> /dev/null
     else
 	service ${servicename} status | grep -i "is stopped" &> /dev/null
     fi
