@@ -1,0 +1,45 @@
+.\" DataReel Load Balancer (DRLB) for SSL 1.X Manpage
+.\" Copyright (c) 2016 DataReel Software Development
+.TH drlb_ssl_server 8 "09 Oct 2016" "1.57" "DataReel SSL Load Balancer"
+.SH NAME
+drlb_ssl_server \- Start the DRLB SSL bridge service
+.SH SYNOPSIS
+ drlb_ssl_server [OPTIONS...]
+.SH DESCRIPTION
+DataReel load balancer service for SSL.
+.SH OPTIONS
+.TP
+.B args: 
+.P
+     --help                      Print help message and exit
+.P
+     --version                   Print version number and exit
+.P
+     --check-config              Check the LB config file and exit
+.P
+     --debug                     Enable debug mode default level --debug=1
+.P
+     --debug-level=1             Set debugging level, 1-5
+.P
+     --verbose                   Turn on verbose messaging to console
+.P
+     --verbose-level=1           Set verbose level, 0-5
+.P
+     --config-file="config.cfg"  Specify configuration CFG file location
+.P
+     --log-file="logfile.log"    Use log file to log program output
+.P
+     --log-level=1               Set logging level, 0-5
+.P
+     --log-file-clear            Clear the log file when program starts
+.P
+     --log-disable               Disable logging, override cfg setting
+.P
+     --stats-file="stats.log"    Write server stats to specified file
+.P
+     --stats-disable             Disable server stats, override cfg setting
+
+.SH BUGS
+https://github.com/datareel/datareel/issues
+.SH AUTHOR
+ DataReel Software Development

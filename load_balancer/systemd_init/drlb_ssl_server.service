@@ -1,0 +1,17 @@
+[Unit]
+Description=DRLB SSL service
+After=network.target
+
+[Service]
+LimitNOFILE=65535
+Type=forking
+EnvironmentFile=/etc/sysconfig/drlb_ssl_server
+ExecStart=/etc/rc.d/init.d/drlb_ssl_server start
+ExecReload=/etc/rc.d/init.d/drlb_ssl_server reload
+ExecStop=/etc/rc.d/init.d/drlb_ssl_server stop
+
+StandardOutput=syslog
+StandardError=syslog
+
+[Install]
+WantedBy=multi-user.target

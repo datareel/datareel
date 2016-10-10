@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/17/2016
+// Date Last Modified: 10/09/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -45,6 +45,7 @@ Multi-threaded framework Datareel load balancer.
 #include "devcache.h"
 #include "memblock.h"
 #include "membuf.h"
+#include "gxssl.h"
 
 #include "drlb_server.h"
 #include "m_socket.h"
@@ -56,7 +57,11 @@ struct ClientSocket_t
     seq_num = 0;
     r_port = 1;
     node = 0;
+#if defined (__USE_GX_SSL_EXTENSIONS__)
+    openssl = 0;
+#endif
   }
+
   ~ClientSocket_t();
 
   gxsSocket_t client_socket; // Frontend client socket
@@ -65,7 +70,12 @@ struct ClientSocket_t
   gxString client_name;
   LBnode *node;
   int r_port;
-};
+
+#if defined (__USE_GX_SSL_EXTENSIONS__)
+  void FreeSSL();
+  gxSSL *openssl; // Open SSL object
+#endif
+}; 
 
 class LBClientRequestThread : public gxSocket, public gxThread
 {

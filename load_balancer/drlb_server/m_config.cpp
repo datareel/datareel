@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/17/2016
+// Date Last Modified: 10/09/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -819,7 +819,7 @@ int LoadOrBuildConfigFile()
     dfile << "# Node Configs, define a [LBNODE] section for each node" << "\n";
     dfile << "# The default config uses 4 nodes as an example" << "\n";
     dfile << "# Replace 192.168.122 address with the IP address or hostname of the backend node" << "\n";
-    dfile << "# running the service you wan to load balance." << "\n";
+    dfile << "# running the service you want to load balance." << "\n";
     dfile << "[LBNODE]" << "\n";
     dfile << "node_name = lbnode1" << "\n";
     dfile << "port_number = 80   # Port backend host is listening on " << "\n";

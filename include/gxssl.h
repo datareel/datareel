@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 06/17/2016
+// Date Last Modified: 10/08/2016
 // Copyright (c) 2001-2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -105,16 +105,23 @@ private:
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/rand.h>
+#include <openssl/opensslv.h>
 // --------------------------------------------------------------
 
 // --------------------------------------------------------------
 // Enumerations
 // --------------------------------------------------------------
 enum gxSSLMethod {
-  gxSSL_SSLv23,
-  gxSSL_SSLv2,
-  gxSSL_SSLv3,
-  gxSSL_TLSv1
+  gxSSL_SSLv23,  // Supported protocols are SSLv2, SSLv3, TLSv1, TLSv1.1 and TLSv1.2
+  gxSSL_SSLv2,   // Only understand SSLv2
+  gxSSL_SSLv3,   // Only understand SSLv3
+  gxSSL_TLSv1,   // Only understand TLSv1
+  gxSSL_TLS,     // Supported protocols SSLv3, TLSv1, TLSv1.1 and TLSv1.2
+  gxSSL_TLSv1_1, // Only understand TLSv1.1
+  gxSSL_TLSv1_2, // Only understand TLSv1.2
+  gxSSL_DTLS,  
+  gxSSL_DTLSv1,  
+  gxSSL_DTLSv1_2
 };
 
 enum gxSSLCertType {

@@ -743,6 +743,33 @@ SSL_CTX *gxSSL::InitCTX()
 	meth = SSLv23_method();
       }
       break;
+
+#if OPENSSL_VERSION_NUMBER >= 0x1000200fL
+    case gxSSL_TLS:
+      if(is_client) {
+	meth = TLS_client_method();
+      }
+      else if(is_server) {
+	meth = TLS_server_method();
+      }
+      else {
+	meth = TLS_method();
+      }
+      break;
+    case gxSSL_DTLS:
+      if(is_client) {
+	meth = DTLS_client_method();
+      }
+      else if(is_server) {
+	meth = DTLS_server_method();
+      }
+      else {
+	meth = DTLS_method();
+      }
+      break;
+#endif
+
+#ifndef OPENSSL_NO_SSL2
     case gxSSL_SSLv2:
       if(is_client) {
 	meth = SSLv2_client_method();
@@ -754,6 +781,8 @@ SSL_CTX *gxSSL::InitCTX()
 	meth = SSLv2_method();
       }
       break;
+#endif
+#ifndef OPENSSL_NO_SSL3_METHOD
     case gxSSL_SSLv3:
       if(is_client) {
 	meth = SSLv3_client_method();
@@ -765,6 +794,9 @@ SSL_CTX *gxSSL::InitCTX()
 	meth = SSLv3_method();
       }
       break;
+#endif
+
+#ifndef OPENSSL_NO_TLS1_METHOD
     case gxSSL_TLSv1:
       if(is_client) {
 	meth = TLSv1_client_method();
@@ -776,6 +808,66 @@ SSL_CTX *gxSSL::InitCTX()
 	meth = TLSv1_method();
       }
       break;
+#endif
+
+#ifndef OPENSSL_NO_TLS1_1_METHOD
+    case gxSSL_TLSv1_1:
+      if(is_client) {
+	meth = TLSv1_1_client_method();
+      }
+      else if(is_server) {
+	meth = TLSv1_1_server_method();
+      }
+      else {
+	meth = TLSv1_1_method();
+      }
+      break;
+#endif
+
+#ifndef OPENSSL_NO_TLS1_2_METHOD
+    case gxSSL_TLSv1_2:
+      if(is_client) {
+	meth = TLSv1_2_client_method();
+      }
+      else if(is_server) {
+	meth = TLSv1_2_server_method();
+      }
+      else {
+	meth = TLSv1_2_method();
+      }
+      break;
+
+#endif
+
+#ifndef OPENSSL_NO_DTLS1_METHOD
+    case gxSSL_DTLSv1:
+      if(is_client) {
+	meth = DTLSv1_client_method();
+      }
+      else if(is_server) {
+	meth = DTLSv1_server_method();
+      }
+      else {
+	meth = DTLSv1_method();
+      }
+      break;
+#endif
+
+#if OPENSSL_VERSION_NUMBER >= 0x1000200fL
+#ifndef OPENSSL_NO_DTLS1_2_METHOD
+    case gxSSL_DTLSv1_2:
+      if(is_client) {
+        meth = DTLSv1_2_client_method();
+      }
+      else if(is_server) {
+	meth = DTLSv1_2_server_method();
+      }
+      else {
+	meth = DTLSv1_2_method();
+      }
+      break;
+#endif
+#endif
     default:
       if(is_client) {
 	meth = SSLv23_client_method();
@@ -897,7 +989,7 @@ void gxSSL::init_data_members()
   ssl = 0;
   socket_bio = file_bio = memory_bio = 0;
   bytes_moved = bytes_read = 0;
-  ssl_proto = gxSSL_SSLv23;
+  ssl_proto = gxSSL_TLS;
   cert_type = gxSSL_PEM;
   ssl_error = gxSSL_NO_ERROR;
   verify_cert = 0;

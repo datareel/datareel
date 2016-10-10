@@ -1,0 +1,14 @@
+# /etc/sysconfig/drlb_ssl_server
+# File used to override the init script VARs
+
+# ARGS to pass to the drlb_ssl_server program
+##ARGS=""
+
+# LB config file to use, if not default config
+##CFGFILE="/etc/drlb/ssl_bridge.cfg"
+
+# Set to change the name of the server binary
+##LBPROCNAME="drlb_ssl_server"
+
+# Set to change the path to the server binary
+##LBPROC="/usr/sbin/${LBPROCNAME}"
