@@ -42,8 +42,8 @@ m_socket$(OBJ_EXT):	../drlb_server/m_socket.cpp $(M_SOCKET_DEP)
 m_log$(OBJ_EXT):	../drlb_server/m_log.cpp $(M_LOG_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) ../drlb_server/m_log.cpp
 
-m_help$(OBJ_EXT):	../drlb_server/m_help.cpp $(M_HELP_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) ../drlb_server/m_help.cpp
+m_help$(OBJ_EXT):	m_help.cpp $(M_HELP_DEP)
+	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) m_help.cpp
 
 m_proc$(OBJ_EXT):	../drlb_server/m_proc.cpp $(M_PROC_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) ../drlb_server/m_proc.cpp

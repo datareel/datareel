@@ -1,6 +1,6 @@
 BuildArch: x86_64
 Name: drlb_ldm_server
-Version: 1.57        
+Version: 1.58        
 Release: 1.el7.x86_64
 Summary: Datareel LDM Load Balancer RPM
 Group: System Environment/Daemons
