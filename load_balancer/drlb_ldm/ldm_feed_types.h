@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/17/2016
+// Date Last Modified: 10/12/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -118,14 +118,18 @@ LDM feed type for LDM load balancer
 #define	OTHER 67108864
 #define	NPORT 130023424
 #define	FT27 134217728
+#define NEXRAD3 134217728
 #define	NNEXRAD 134217728
 #define	NEXRAD 134217728
 #define	FT28 268435456
+#define CRAFT 268435456
 #define	NEXRD2 268435456
 #define	FT29 536870912
 #define	NXRDSRC 536870912
 #define	FT30 1073741824
 #define	EXP 0x40000000
+#define EXP2 0x40200000
+#define SBN_TYP_EXP 11
 #define	ANY 0xffffffff
 
 #endif // __LDM_FEED_TYPES_HPP__

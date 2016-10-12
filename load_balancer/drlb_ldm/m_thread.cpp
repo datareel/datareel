@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/18/2016
+// Date Last Modified: 10/12/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -330,7 +330,7 @@ void *LBClientRequestThread::ThreadEntryRoutine(gxThread_t *thread)
 
   if(!has_allow) {
     if(!has_accept) {
-      message << clear << "[" << s->seq_num << "]: Connection denied for " << s->client_name << " no ACCEPT ir ALLOW rule in LDMD conf";
+      message << clear << "[" << s->seq_num << "]: Connection denied for " << s->client_name << " no ACCEPT or ALLOW rule in LDMD conf";
       LogMessage(message.c_str());
       if(s->node) s->node->NUM_CONNECTIONS(0, 1);
       close(s->client_socket);
@@ -856,6 +856,10 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	    error_level = 1;
 	    break; // exit main loop
 	  }
+	}
+
+	if(ldm_request.request == NOTIFYME) {
+	  has_valid_ldm_request = 1;
 	}
 
 	if(ldm_request.request == FEEDME || ldm_request.request == HIYA) { 

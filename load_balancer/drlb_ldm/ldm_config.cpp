@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/17/2016
+// Date Last Modified: 10/12/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -395,9 +395,10 @@ int parse_ldm_config(gxList<gxString> &conf_lines)
     }
 
     if(is_accept) {
-      while(line.Find("\t\t") != -1) line.ReplaceString("\t\t", "\t");
       while(line.Find("  ") != -1) line.ReplaceString("  ", " ");
       line.ReplaceChar(' ', '\t');
+      while(line.Find("\t\t") != -1) line.ReplaceString("\t\t", "\t");
+      line.TrimLeading('\t'); line.TrimTrailing('\t');
       if(servercfg->debug && servercfg->debug_level >= 5) {
 	NT_print("Compiling:", line.c_str());
       }
@@ -409,6 +410,7 @@ int parse_ldm_config(gxList<gxString> &conf_lines)
       }
       else {
 	LDMaccept ldm_accept;
+	ldm_accept.Reset();
 	ldm_accept.feedtype = vals[1];
 	ldm_accept.prodIdEre = vals[2];	fix_regex_quotes(ldm_accept.prodIdEre);
 	ldm_accept.hostIdEre = vals[3]; fix_regex_quotes(ldm_accept.hostIdEre);
@@ -429,20 +431,27 @@ int parse_ldm_config(gxList<gxString> &conf_lines)
       if(vals) { delete[] vals; vals = 0; }
     }
     if(is_allow) {
-      while(line.Find("\t\t") != -1) line.ReplaceString("\t\t", "\t");
       while(line.Find("  ") != -1) line.ReplaceString("  ", " ");
       line.ReplaceChar(' ', '\t');
+      while(line.Find("\t\t") != -1) line.ReplaceString("\t\t", "\t");
+      line.TrimLeading('\t'); line.TrimTrailing('\t');
       if(servercfg->debug && servercfg->debug_level >= 5) {
 	NT_print("Compiling:", line.c_str());
       }
       num_arr = 0;
       vals = ParseStrings(line, delimiter, num_arr);
       if(num_arr < 3 || num_arr > 5) {
-	NT_print("ERROR - LDM conf ALLOW line error, too many or too few args:", line.c_str());
+	if(num_arr < 3)	{
+	  NT_print("ERROR - LDM conf ALLOW line error, too few args:", line.c_str());
+	}
+	else {
+	  NT_print("ERROR - LDM conf ALLOW line error, too many args:", line.c_str());
+	}
 	error_level = 2;
       }
       else {
 	LDMallow ldm_allow;
+	ldm_allow.Reset();
 	ldm_allow.feedtype = vals[1];
 	ldm_allow.hostIdEre = vals[2]; fix_regex_quotes(ldm_allow.hostIdEre);
 	reti = regcomp(&regex, ldm_allow.hostIdEre.c_str(), REG_EXTENDED|REG_NOSUB);
@@ -451,26 +460,35 @@ int parse_ldm_config(gxList<gxString> &conf_lines)
 	  error_level = 3;
 	}
 	regfree(&regex);
+	ldm_allow.OK_pattern.Clear();
+	ldm_allow.NOT_pattern.Clear();
 	if(num_arr >= 4) {
-	  ldm_allow.OK_pattern = vals[3]; fix_regex_quotes(ldm_allow.OK_pattern);
-	  reti = regcomp(&regex, ldm_allow.OK_pattern.c_str(), REG_EXTENDED|REG_NOSUB);
-	  if(reti) {
-	    NT_print("ERROR - LDM conf ALLOW bad OK pattern REGEX:", line.c_str());
-	    error_level = 3;
+	  if(!vals[3].is_null()) {
+	    ldm_allow.OK_pattern = vals[3]; fix_regex_quotes(ldm_allow.OK_pattern);
+	    reti = regcomp(&regex, ldm_allow.OK_pattern.c_str(), REG_EXTENDED|REG_NOSUB);
+	    if(reti) {
+	      NT_print("ERROR - LDM conf ALLOW bad OK pattern REGEX:", line.c_str());
+	      error_level = 3;
+	    }
+	    regfree(&regex);
 	  }
-	  regfree(&regex);
 	}
 	if(num_arr == 5) {
-	  ldm_allow.NOT_pattern = vals[4]; fix_regex_quotes(ldm_allow.NOT_pattern);
-	  reti = regcomp(&regex, ldm_allow.NOT_pattern.c_str(), REG_EXTENDED|REG_NOSUB);
-	  if(reti) {
-	    NT_print("ERROR - LDM conf ALLOW bad NOT pattern REGEX:", line.c_str());
-	    error_level = 3;
+	  if(!vals[3].is_null()) {
+	    if(!vals[4].is_null()) {
+	      ldm_allow.NOT_pattern = vals[4]; fix_regex_quotes(ldm_allow.NOT_pattern);
+	      reti = regcomp(&regex, ldm_allow.NOT_pattern.c_str(), REG_EXTENDED|REG_NOSUB);
+	      if(reti) {
+		NT_print("ERROR - LDM conf ALLOW bad NOT pattern REGEX:", line.c_str());
+		error_level = 3;
+	      }
+	      regfree(&regex);
+	    }
 	  }
-	  regfree(&regex);
 	}
 	ldmcfg->ldm_allow_list.Add(ldm_allow);
       }
+      if(vals) { delete[] vals; vals = 0; }
     }
     lptr = lptr->next;
   }

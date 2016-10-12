@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/17/2016
+// Date Last Modified: 10/12/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -44,7 +44,7 @@ LDM config for DR load balancer.
 #include "ldm_proto.h"
 
 struct LDMallow {
-  LDMallow() { }
+  LDMallow() { Reset(); }
   ~LDMallow() {  }
   LDMallow(const LDMallow &n) { Copy(n); }
   LDMallow operator=(const LDMallow &n) {
@@ -58,7 +58,13 @@ struct LDMallow {
     OK_pattern = n.OK_pattern;
     NOT_pattern = n.NOT_pattern;
   }
-  
+  void Reset() {
+    feedtype.Clear();
+    hostIdEre.Clear();
+    OK_pattern.Clear();
+    NOT_pattern.Clear();
+  }
+ 
   gxString feedtype;
   gxString hostIdEre;
   gxString OK_pattern;
@@ -66,7 +72,7 @@ struct LDMallow {
 };
 
 struct LDMaccept {
-  LDMaccept() { }
+  LDMaccept() { Reset(); }
   ~LDMaccept() { }
   LDMaccept(const LDMaccept &n) { Copy(n); }
   LDMaccept operator=(const LDMaccept &n) {
@@ -78,6 +84,11 @@ struct LDMaccept {
     feedtype = n.feedtype;
     prodIdEre = n.prodIdEre;
     hostIdEre = n.hostIdEre; 
+  }
+  void Reset() {
+    feedtype.Clear();
+    prodIdEre.Clear();
+    hostIdEre.Clear();
   }
 
   gxString feedtype;
