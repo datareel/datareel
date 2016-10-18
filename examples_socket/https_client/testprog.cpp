@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 06/17/2016
+// Date Last Modified: 10/17/2016
 // Copyright (c) 2001-2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -47,7 +47,7 @@ using namespace std; // Use unqualified names for Standard C++ library
 #endif
 
 // Version number and program name
-const double ProgramVersionNumber = 1.0;
+const double ProgramVersionNumber = 1.1;
 const char *ProgramName = "testprog";
 
 // Program globals
@@ -294,8 +294,10 @@ void DownloadFile(const char *URL)
   // client.openssl.SetCertFile("client_cert.pem");
   // client.openssl.SetKeyFile("client_key.pem");
   // client.openssl.SetPasswd("keypassphrase");
-  // client.openssl.SetCAList("ca_list.pem");
   // client.openssl.SetRandomFile("random_number_file");
+
+  // Cert verification, requires a trusted CA list 
+  // client.openssl.SetCAList("/etc/pki/tls/certs/ca-bundle.crt");
   // client.openssl.RequireVerifyCert();
 
   gxsHTTPHeader hdr;

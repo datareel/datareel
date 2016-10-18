@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 10/09/2016
+// Date Last Modified: 10/15/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -59,6 +59,7 @@ struct ClientSocket_t
     node = 0;
 #if defined (__USE_GX_SSL_EXTENSIONS__)
     openssl = 0;
+    openssl_client = 0;
 #endif
   }
 
@@ -74,6 +75,7 @@ struct ClientSocket_t
 #if defined (__USE_GX_SSL_EXTENSIONS__)
   void FreeSSL();
   gxSSL *openssl; // Open SSL object
+  gxSSL *openssl_client;
 #endif
 }; 
 
