@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 10/09/2016
+// Date Last Modified: 10/18/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -65,6 +65,10 @@ void ClientSocket_t::FreeSSL()
     openssl->ReleaseCTX(); // Do not free Context by ~gxSSL() call
     delete openssl; 
     openssl = 0;
+  }
+  if(openssl_client) {
+    delete openssl_client;
+    openssl_client = 0;
   }
 }
 
@@ -262,6 +266,19 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
       delete s;
       break;
     }
+    if(sslcfg->ssl_encrypt_backend) {
+      s->openssl_client = new gxSSL();
+      if(!s->openssl_client) {
+	message << clear << "[" << seq_num << "]: ERROR - A fatal memory allocation error occurred in main server thread";
+	LogMessage(message.c_str());
+	servercfg->accept_clients = 0;
+	delete s;
+	break;
+      }
+      if((sslcfg->ssl_verify_backend_cert) && (!sslcfg->ssl_backend_hostname.is_null())) {
+	s->openssl_client->SetCAList(sslcfg->ssl_backend_ca_list_file.c_str());
+      }
+    }
 
     if(servercfg->debug && servercfg->debug_level >= 5) LogDebugMessage("LB server rebuilding thread pool");
     RebuildThreadPool(servercfg->client_request_pool);
@@ -364,6 +381,7 @@ void *LBClientRequestThread::ThreadEntryRoutine(gxThread_t *thread)
 
     if(s->node) s->node->NUM_CONNECTIONS(0, 1);
     s->openssl->CloseSSLSocket();
+    if(sslcfg->ssl_encrypt_backend && s->openssl_client) s->openssl_client->CloseSSLSocket();
     close(s->client_socket);
     close(s->client.GetSocket());
     delete s; s = 0;
@@ -385,6 +403,7 @@ void LBClientRequestThread::ThreadCleanupHandler(gxThread_t *thread)
     }
     if(s->node) s->node->NUM_CONNECTIONS(0, 1);
     s->openssl->CloseSSLSocket();
+    if(sslcfg->ssl_encrypt_backend && s->openssl_client) s->openssl_client->CloseSSLSocket();
     close(s->client_socket);
     close(s->client.GetSocket());
     delete s; s = 0;
@@ -407,7 +426,7 @@ void LBClientRequestThread::HandleClientRequest(ClientSocket_t *s)
   
   if(s->openssl->OpenSSLSocket(s->client_socket) != gxSSL_NO_ERROR) {
     if(servercfg->log_level >= 3) {
-      sbuf << clear << "[" << seq_num << "]: Error opening SSL socket";
+      sbuf << clear << "[" << seq_num << "]: Error opening frontend SSL socket";
       LogMessage(sbuf.c_str());
       sbuf << clear << "[" << seq_num << "]: " << s->openssl->SSLErrorMessage();
       LogMessage(sbuf.c_str());
@@ -417,7 +436,7 @@ void LBClientRequestThread::HandleClientRequest(ClientSocket_t *s)
   
   if(s->openssl->AcceptSSLSocket() != gxSSL_NO_ERROR) {
     if(servercfg->log_level >= 3) {
-      sbuf << clear << "[" << seq_num << "]: Error accepting SSL socket";
+      sbuf << clear << "[" << seq_num << "]: Error accepting frontend SSL socket";
       LogMessage(sbuf.c_str());
       sbuf << clear << "[" << seq_num << "]: " << s->openssl->SSLErrorMessage();
       LogMessage(sbuf.c_str());
@@ -572,7 +591,22 @@ int LBClientRequestThread::LB_ReadWrite(ClientSocket_t *s, int buffer_size)
 	error_level = 1;
 	break;
       }
-      bm = write(s->client.GetSocket(), buffer, br);
+      if(sslcfg->ssl_encrypt_backend && s->openssl_client) {
+	bm = s->openssl_client->SendSSLSocket(buffer, br);
+	if(s->openssl_client->HasError()) {
+	  if(servercfg->log_level >= 3) {
+	    message << clear << "[" << seq_num << "]: Error writing to Backend SSL socket";
+	    LogMessage(message.c_str());
+	    message << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
+	    LogMessage(message.c_str());
+	  }
+	  error_level = 1;
+	  break;
+	}
+      }
+      else {
+	bm = write(s->client.GetSocket(), buffer, br);
+      }
       if(servercfg->debug && servercfg->debug_level >= 5) { 
 	get_fd_error(error_number, sbuf);
 	message << clear << "[" << seq_num << "]: " << "Backend write() Return: " << bm << " ENUM: " << error_number << " Message: " << sbuf;
@@ -614,7 +648,12 @@ int LBClientRequestThread::LB_ReadWrite(ClientSocket_t *s, int buffer_size)
     }
     if(ready > 0) {
       idle_count = 0;
-      br = read(s->client.GetSocket(), buffer, buffer_size);
+      if(sslcfg->ssl_encrypt_backend && s->openssl_client) {
+	br = s->openssl_client->RawReadSSLSocket(buffer, buffer_size);
+      }
+      else {
+	br = read(s->client.GetSocket(), buffer, buffer_size);
+      }
       if(servercfg->debug && servercfg->debug_level >= 5) { 
 	get_fd_error(error_number, sbuf);
 	message << clear << "[" << seq_num << "]: " << "Backend read() Return: " << br << " ENUM: " << error_number << " Message: " << sbuf;
@@ -716,7 +755,6 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
       if(ready > 0) {
 	idle_count = 0;
 	br = s->openssl->RawReadSSLSocket(buffer, buffer_size);
-
 	if(servercfg->debug && servercfg->debug_level >= 5) { 
 	  get_fd_error(error_number, sbuf);
 	  message << clear << "[" << seq_num << "]: Cached Frondend read() Return: " << br << " ENUM: " << error_number << " Message: " << sbuf;
@@ -789,7 +827,22 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	    }
 	  }
 	}
-	bm = write(s->client.GetSocket(), ptr->data->m_buf(), ptr->data->length());
+	if(sslcfg->ssl_encrypt_backend && s->openssl_client) {
+	  bm = s->openssl_client->SendSSLSocket(ptr->data->m_buf(), ptr->data->length());
+	  if(s->openssl_client->HasError()) {
+	    if(servercfg->log_level >= 3) {
+	      message << clear << "[" << seq_num << "]: Error writing to Backend SSL socket";
+	      LogMessage(message.c_str());
+	      message << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
+	      LogMessage(message.c_str());
+	    }
+	    error_level = 1;
+	    break;
+	  }
+	}
+	else {
+	  bm = write(s->client.GetSocket(), ptr->data->m_buf(), ptr->data->length());
+	}
 	get_fd_error(error_number, sbuf);
 	if(servercfg->debug && servercfg->debug_level >= 5) { 
 	  message << clear << "[" << seq_num << "]: Backend cached write() Return: " << bm << " ENUM: " << error_number << " Message: " << sbuf;
@@ -843,7 +896,12 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
       fcntl(s->client.GetSocket(), F_SETFL, flags1); // Set socket back to blocking read
       if(ready > 0) {
 	idle_count = 0;
-	br = read(s->client.GetSocket(), buffer, buffer_size);
+	if(sslcfg->ssl_encrypt_backend && s->openssl_client) {
+	  br = s->openssl_client->RawReadSSLSocket(buffer, buffer_size);
+	}
+	else {
+	  br = read(s->client.GetSocket(), buffer, buffer_size);
+	}
 	if(servercfg->debug && servercfg->debug_level >= 5) { 
 	  get_fd_error(error_number, sbuf);
 	  message << clear << "[" << seq_num << "]: Cached Backend read() Return: " << br << " ENUM: " << error_number << " Message: " << sbuf;
@@ -976,6 +1034,7 @@ LBnode *LBClientRequestThread::round_robin(ClientSocket_t *s,  gxList<LBnode *> 
   unsigned num_connects = 0;
   unsigned num_nodes = servercfg->NUM_NODES();
   gxSocket *client = &s->client;
+  int has_ssl_error = 0;
 
   while(ptr) {
     if(ptr->data->LB_FLAG() == 0 && servercfg->check_node_max_clients(ptr->data, seq_num) == 0) {
@@ -1010,11 +1069,56 @@ LBnode *LBClientRequestThread::round_robin(ClientSocket_t *s,  gxList<LBnode *> 
 	  error_flag++;
 	}
 	else {
-	  num_connects++;
-	  error_flag = 0;
+	  if(sslcfg->ssl_encrypt_backend && s->openssl_client) {
+	    has_ssl_error = 0;
+	    if(s->openssl_client->OpenSSLSocket(s->client.GetSocket()) != gxSSL_NO_ERROR) {
+	      if(servercfg->log_level >= 3) {
+		sbuf << clear << "[" << seq_num << "]: Error opening backend SSL socket";
+		LogMessage(sbuf.c_str());
+		sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
+		LogMessage(sbuf.c_str());
+	      }
+	      has_ssl_error = 1;
+	    }
+	    if(!has_ssl_error) {
+	      if(s->openssl_client->ConnectSSLSocket() != gxSSL_NO_ERROR) {
+		if(servercfg->log_level >= 3) {
+		  sbuf << clear << "[" << seq_num << "]: Error connecting to backend SSL socket";
+		  LogMessage(sbuf.c_str());
+		  sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
+		  LogMessage(sbuf.c_str());
+		}
+		has_ssl_error = 1;
+	      }
+	    }
+	    if(!has_ssl_error) {
+	      if((sslcfg->ssl_verify_backend_cert) && (!sslcfg->ssl_backend_hostname.is_null())) {
+		if(s->openssl_client->VerifyCert(sslcfg->ssl_backend_hostname.c_str()) != gxSSL_NO_ERROR) {
+		  sbuf << clear << "[" << seq_num << "]: SSL cert verify error for " << sslcfg->ssl_backend_hostname;
+		  LogMessage(sbuf.c_str());
+		  sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
+		  LogMessage(sbuf.c_str());
+		  has_ssl_error = 1;
+		}
+	      }
+	    }
+	    if(has_ssl_error) {
+	      s->openssl_client->CloseSSLSocket();
+	      client->Close();
+	      ptr->data->LB_FLAG(0);
+	      error_flag++;
+	    }
+	    else {
+	      num_connects++;
+	      error_flag = 0;
+	    }
+	  }
+	  else {
+	    num_connects++;
+	    error_flag = 0;
+	  }
 	}
       }
-
       if(error_flag == 0) {
 	ptr->data->LB_FLAG(1);
 	error_flag = 0;
@@ -1074,6 +1178,7 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
   char mbuf[255];
   gxListNode<LB_rule *> *lptr = servercfg->rules_config_list.GetHead();
   error_level = 0;
+
   while(lptr) {
     if(lptr->data->rule == LB_ROUTE) {
       reti = regcomp(&regex, lptr->data->front_end_client_ip.c_str(), REG_EXTENDED|REG_NOSUB);
@@ -1216,6 +1321,42 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
       client->Close();
       return 0;
     }
+    
+    if(sslcfg->ssl_encrypt_backend && s->openssl_client) {
+      if(s->openssl_client->OpenSSLSocket(s->client.GetSocket()) != gxSSL_NO_ERROR) {
+	if(servercfg->log_level >= 3) {
+	  sbuf << clear << "[" << seq_num << "]: Error opening backend SSL socket";
+	  LogMessage(sbuf.c_str());
+	  sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
+	  LogMessage(sbuf.c_str());
+	}
+	s->openssl_client->CloseSSLSocket();
+	client->Close();
+	return 0;
+      }
+      if(s->openssl_client->ConnectSSLSocket() != gxSSL_NO_ERROR) {
+	if(servercfg->log_level >= 3) {
+	  sbuf << clear << "[" << seq_num << "]: Error connecting to backend SSL socket";
+	  LogMessage(sbuf.c_str());
+	  sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
+	  LogMessage(sbuf.c_str());
+	}
+	s->openssl_client->CloseSSLSocket();
+	client->Close();
+	return 0;
+      }
+      if((sslcfg->ssl_verify_backend_cert) && (!sslcfg->ssl_backend_hostname.is_null())) {
+	if(s->openssl_client->VerifyCert(sslcfg->ssl_backend_hostname.c_str()) != gxSSL_NO_ERROR) {
+	  sbuf << clear << "[" << seq_num << "]: SSL cert verify error for " << sslcfg->ssl_backend_hostname;
+	  LogMessage(sbuf.c_str());
+	  sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
+	  LogMessage(sbuf.c_str());
+	  s->openssl_client->CloseSSLSocket();
+	  client->Close();
+	  return 0;
+	}
+      }
+    }
   }
 
   if(ptr) return ptr->data; 
@@ -1323,6 +1464,42 @@ LBnode *LBClientRequestThread::distrib(ClientSocket_t *s)
     return round_robin(s, servercfg->distributed_rr_node_list);
   }
 
+  if(sslcfg->ssl_encrypt_backend && s->openssl_client) {
+    if(s->openssl_client->OpenSSLSocket(s->client.GetSocket()) != gxSSL_NO_ERROR) {
+      if(servercfg->log_level >= 3) {
+	sbuf << clear << "[" << seq_num << "]: Error opening backend SSL socket";
+	LogMessage(sbuf.c_str());
+	sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
+	LogMessage(sbuf.c_str());
+      }
+      s->openssl_client->CloseSSLSocket();
+      client->Close();
+      return round_robin(s, servercfg->distributed_rr_node_list);
+    }
+    if(s->openssl_client->ConnectSSLSocket() != gxSSL_NO_ERROR) {
+      if(servercfg->log_level >= 3) {
+	sbuf << clear << "[" << seq_num << "]: Error connecting to backend SSL socket";
+	LogMessage(sbuf.c_str());
+	sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
+	LogMessage(sbuf.c_str());
+      }
+      s->openssl_client->CloseSSLSocket();
+      client->Close();
+      return round_robin(s, servercfg->distributed_rr_node_list);
+    }
+    if((sslcfg->ssl_verify_backend_cert) && (!sslcfg->ssl_backend_hostname.is_null())) {
+      if(s->openssl_client->VerifyCert(sslcfg->ssl_backend_hostname.c_str()) != gxSSL_NO_ERROR) {
+	sbuf << clear << "[" << seq_num << "]: SSL cert verify error for " << sslcfg->ssl_backend_hostname;
+	LogMessage(sbuf.c_str());
+	sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
+	LogMessage(sbuf.c_str());
+	s->openssl_client->CloseSSLSocket();
+	client->Close();
+	return round_robin(s, servercfg->distributed_rr_node_list);
+      }
+    }
+  }
+  
   return limit_ptr->data.active_ptr;
 }
 
@@ -1428,6 +1605,42 @@ LBnode *LBClientRequestThread::weighted(ClientSocket_t *s)
       LogDebugMessage(sbuf.c_str());
     }
     return round_robin(s, servercfg->weighted_rr_node_list);
+  }
+
+  if(sslcfg->ssl_encrypt_backend && s->openssl_client) {
+    if(s->openssl_client->OpenSSLSocket(s->client.GetSocket()) != gxSSL_NO_ERROR) {
+      if(servercfg->log_level >= 3) {
+	sbuf << clear << "[" << seq_num << "]: Error opening backend SSL socket";
+	LogMessage(sbuf.c_str());
+	sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
+	LogMessage(sbuf.c_str());
+      }
+      s->openssl_client->CloseSSLSocket();
+      client->Close();
+      return round_robin(s, servercfg->weighted_rr_node_list);
+    }
+    if(s->openssl_client->ConnectSSLSocket() != gxSSL_NO_ERROR) {
+      if(servercfg->log_level >= 3) {
+	sbuf << clear << "[" << seq_num << "]: Error connecting to backend SSL socket";
+	LogMessage(sbuf.c_str());
+	sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
+	LogMessage(sbuf.c_str());
+      }
+      s->openssl_client->CloseSSLSocket();
+      client->Close();
+      return round_robin(s, servercfg->weighted_rr_node_list);
+    }
+    if((sslcfg->ssl_verify_backend_cert) && (!sslcfg->ssl_backend_hostname.is_null())) {
+      if(s->openssl_client->VerifyCert(sslcfg->ssl_backend_hostname.c_str()) != gxSSL_NO_ERROR) {
+	sbuf << clear << "[" << seq_num << "]: SSL cert verify error for " << sslcfg->ssl_backend_hostname;
+	LogMessage(sbuf.c_str());
+	sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
+	LogMessage(sbuf.c_str());
+	s->openssl_client->CloseSSLSocket();
+	client->Close();
+	return round_robin(s, servercfg->weighted_rr_node_list);
+      }
+    }
   }
 
   return limit_ptr->data.active_ptr;

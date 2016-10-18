@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 10/08/2016
+// Date Last Modified: 10/17/2016
 // Copyright (c) 2001-2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -340,7 +340,7 @@ public:  // Key, cert, and passwd functions
   void SetPasswd(const char *s) { passwd = s; }
   void SetCertType(gxSSLCertType t) { cert_type = t; }
   gxSSLCertType CertType() { return cert_type; }
-  int VerifyCert(const char *hostname);
+  int VerifyCert(const char *hostname, long *X509_return_code = 0);
   int HasVerifyCert() { return verify_cert == 1; } 
   int RequireVerifyCert() { return verify_cert = 1; }
   int NoVerifyCert() { return verify_cert = 0; }

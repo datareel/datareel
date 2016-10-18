@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 10/09/2016
+// Date Last Modified: 10/18/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -114,6 +114,8 @@ int init_ssl_cert()
     if(servercfg->debug) NT_print(ssl->SSLExceptionMessage());
     return 1;
   }
+
+  if(!sslcfg->ssh_ca_list_file.is_null()) ssl->SetCAList(sslcfg->ssh_ca_list_file.c_str());
 
   NT_print("Loading SSL key and cert");
   if(!ssl->InitCTX(sslcfg-> ssl_cert_file.c_str(), sslcfg->ssl_key_file.c_str())) {

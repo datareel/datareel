@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 06/11/2016
+// Date Last Modified: 10/18/2016
 // Copyright (c) 2001-2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -1126,28 +1126,39 @@ const char *gxSSL::SSLExceptionMessage()
   return gxsOpenSSLExceptionMessages[error];
 }
 
-int gxSSL::VerifyCert(const char *hostname)
+int gxSSL::VerifyCert(const char *hostname, long *X509_return_code)
 // Function used to verify a certificate from the specified hostname. 
 // Returns 0 if successful. 
 // Returns a non-zero value if the function fails.
 {
   if(!hostname) return ssl_error = gxSSL_NULL_PTR_ERROR;
 
-  X509 *peer;
-  char peer_common_name[256];
-  memset(peer_common_name, 0, 256);
-
-  if(SSL_get_verify_result(ssl) != X509_V_OK) {
+  int is_valid = 0;
+  X509 *cert;
+  long rv;
+  
+  cert = SSL_get_peer_certificate(ssl);
+  if(cert) {
+    rv = SSL_get_verify_result(ssl);
+    // The caller requested the X509 return code
+    if(X509_return_code) *X509_return_code = rv;
+    if(rv == X509_V_OK) is_valid = 1;
+  }
+  else {
+    // No cert was presented by host
+    return ssl_error = gxSSL_PEERCERT_ERROR;
+  }
+  if(!is_valid) {
+    X509_free(cert);
     return ssl_error = gxSSL_CERT_VER_ERROR;
   }
 
-  // Check the common name
-  peer = SSL_get_peer_certificate(ssl);
-  if(!peer) {
-    return ssl_error = gxSSL_PEERCERT_ERROR;
-  }
-  X509_NAME_get_text_by_NID(X509_get_subject_name(peer), 
+  char peer_common_name[256];
+  memset(peer_common_name, 0, 256);
+  X509_NAME_get_text_by_NID(X509_get_subject_name(cert), 
 			    NID_commonName, peer_common_name, 256);
+
+  X509_free(cert);
   if(CaseICmp(peer_common_name, hostname) != 0) {
     return ssl_error = gxSSL_PEERCN_ERROR;
   }

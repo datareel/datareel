@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 10/09/2016
+// Date Last Modified: 10/18/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -45,6 +45,11 @@ SSLconfig::SSLconfig()
   ssl_key_file = "/etc/drlb/ssl/private/ca.key";
   ssl_cert_file =  "/etc/drlb/ssl/certs/ca.crt";
   ssl_dhparms_file =  "/etc/drlb/ssl/certs/dhparams.pem";
+  ssl_backend_ca_list_file = "/etc/pki/tls/certs/ca-bundle.crt";
+  ssl_encrypt_backend = 0;
+  ssl_backend_hostname.Clear();
+  ssl_verify_backend_cert = 0;
+  ssh_ca_list_file.Clear();
   ssl_use_dhparms = 0;
   meth =  gxSSL_SSLv23;
   ssl_protocol = "SSLv23";
@@ -142,10 +147,22 @@ int LoadSSLConfig()
     dfile << "# SSL cert file" << "\n";
     dfile << "ssl_cert_file =  /etc/drlb/ssl/certs/ca.crt" << "\n";
     dfile << "#" << "\n";
+    dfile << "# Certificate chain" << "\n";
+    dfile << "##ssh_ca_list_file = /etc/drlb/ssl/certs/ca_list.crt" << "\n";
+    dfile << "#" << "\n";
     dfile << "# Optional Diffie-Hellman parameters" << "\n";
     dfile << "##ssl_use_dhparms = 0" << "\n";
     dfile << "##ssl_dhparms_file =  /etc/drlb/ssl/certs/dhparams.pem" << "\n";
     dfile << "#" << "\n";
+    dfile << "# Client side settings for backend SSL encryption" << "\n";
+    dfile << "# Use SSL to connect to LB nodes" << "\n";
+    dfile << "##ssl_encrypt_backend = 0" << "\n";
+    dfile << "# The backend hostname must match the issuer's cert CN name" << "\n";
+    dfile << "##ssl_backend_hostname = www.example.com" << "\n";
+    dfile << "# If verify cert is set to 1 you will need to provide a trusted CA list" << "\n";
+    dfile << "##ssl_verify_backend_cert = 0" << "\n";
+    dfile << "##ssl_backend_ca_list_file = /etc/pki/tls/certs/ca-bundle.crt" << "\n";
+
     dfile << "\n";
     ptr = filelist.GetHead();
     while(ptr) {
@@ -202,6 +219,36 @@ int LoadSSLConfig()
 	    CfgGetParmName(info_line, parm_name); parm_name.ToLower();
 	    if(parm_name == "ssl_cert_file") {
 	      sslcfg->ssl_cert_file = CfgGetEqualToParm(info_line, pbuf);
+	    }
+	  }
+	  if(info_line.IFind("ssh_ca_list_file") != -1) {
+	    CfgGetParmName(info_line, parm_name); parm_name.ToLower();
+	    if(parm_name == "ssh_ca_list_file") {
+	      sslcfg->ssh_ca_list_file = CfgGetEqualToParm(info_line, pbuf);
+	    }
+	  }
+	  if(info_line.IFind("ssl_encrypt_backend") != -1) {
+	    CfgGetParmName(info_line, parm_name); parm_name.ToLower();
+	    if(parm_name == "ssl_encrypt_backend") {
+	      sslcfg->ssl_encrypt_backend = CfgGetTrueFalseValue(info_line);
+	    }
+	  }
+	  if(info_line.IFind("ssl_verify_backend_cert") != -1) {
+	    CfgGetParmName(info_line, parm_name); parm_name.ToLower();
+	    if(parm_name == "ssl_verify_backend_cert") {
+	      sslcfg->ssl_verify_backend_cert = CfgGetTrueFalseValue(info_line);
+	    }
+	  }
+	  if(info_line.IFind("ssl_backend_hostname") != -1) {
+	    CfgGetParmName(info_line, parm_name); parm_name.ToLower();
+	    if(parm_name == "ssl_backend_hostname") {
+	      sslcfg->ssl_backend_hostname = CfgGetEqualToParm(info_line, pbuf);
+	    }
+	  }
+	  if(info_line.IFind("ssl_backend_ca_list_file") != -1) {
+	    CfgGetParmName(info_line, parm_name); parm_name.ToLower();
+	    if(parm_name == "ssl_backend_ca_list_file") {
+	      sslcfg->ssl_backend_ca_list_file = CfgGetEqualToParm(info_line, pbuf);
 	    }
 	  }
 	  if(info_line.IFind("ssl_use_dhparms") != -1) {

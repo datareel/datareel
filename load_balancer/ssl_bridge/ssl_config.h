@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 10/09/2016
+// Date Last Modified: 10/18/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -46,6 +46,11 @@ struct SSLconfig {
   gxString ssl_key_file;
   gxString ssl_cert_file;
   gxString ssl_dhparms_file;
+  gxString ssh_ca_list_file;
+  int ssl_encrypt_backend;
+  gxString ssl_backend_hostname;
+  int ssl_verify_backend_cert;
+  gxString ssl_backend_ca_list_file;
   int ssl_use_dhparms;
   gxString ssl_protocol;
   gxSSLMethod meth;
