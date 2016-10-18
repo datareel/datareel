@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 10/12/2016
+// Date Last Modified: 10/18/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -38,7 +38,7 @@ Help functions for Datareel load balancer.
 #include "m_help.h"
 
 // Version number, program  and publisher info
-const char *VersionString = "1.58";
+const char *VersionString = "1.59";
 const char *ProgramDescription = "DR LDM Load Balancer";
 const char *ProducedBy = "http://datareel.com";
 
