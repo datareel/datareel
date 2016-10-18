@@ -1255,9 +1255,11 @@ int gxSSL::LoadDHParms(const char *fname)
   BIO_free(tmp_bio);
 
   if(SSL_CTX_set_tmp_dh(ctx, ret) <0) {
+    DH_free(ret);
     return ssl_error = gxSSL_DHPARMS_ERROR;
   }
 
+  DH_free(ret);
   return ssl_error = gxSSL_NO_ERROR;
 }
 
