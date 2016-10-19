@@ -1,5 +1,5 @@
 README file for DRLB SSL Bridge
-Last Modified: 10/18/2016
+Last Modified: 10/19/2016
 
 Contents:
 --------
@@ -105,10 +105,9 @@ back-end SSL certificates. The ssl_backend_hostname setting must match
 the CN name of the issuer’s certificate. You must also provide a
 trusted CA list using the ssl_backend_ca_list_file setting. 
 
-For all other DRLB setting please refer to the README file supplied
-with the DRLB server:
+For all other DRLB setting please refer to the DRLB README file:
 
-# more /usr/share/doc/drlb/README.txt 
+# more /usr/share/doc/drlb_ssl_bridge/README.txt 
 
 or online: 
 

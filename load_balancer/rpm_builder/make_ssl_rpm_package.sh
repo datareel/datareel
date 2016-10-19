@@ -81,16 +81,16 @@ mkdir -p ${Build}/etc/rc.d/init.d
 chmod 755 ${Build}/etc/rc.d/init.d
 cp -f ../system5_init/drlb_ssl_server ${Build}/etc/rc.d/init.d/drlb_ssl_server
 chmod 755 ${Build}/etc/rc.d/init.d/drlb_ssl_server
-mkdir -p ${Build}/usr/share/doc/drlb
-chmod 755 ${Build}/usr/share/doc/drlb
-cp -f ../README.txt ${Build}/usr/share/doc/drlb/README.txt
-chmod 644 ${Build}/usr/share/doc/drlb/README.txt
-cp -f ../ssl_bridge/README.txt ${Build}/usr/share/doc/drlb/README_ssl.txt
-chmod 644 ${Build}/usr/share/doc/drlb/README_ssl.txt
-cp -f ../COPYING ${Build}/usr/share/doc/drlb/COPYING
-chmod 644 ${Build}/usr/share/doc/drlb/COPYING
-cp -f ../version.txt ${Build}/usr/share/doc/drlb/version.txt
-chmod 644 ${Build}/usr/share/doc/drlb/version.txt
+mkdir -p ${Build}/usr/share/doc/drlb_ssl_bridge
+chmod 755 ${Build}/usr/share/doc/drlb_ssl_bridge
+cp -f ../README.txt ${Build}/usr/share/doc/drlb_ssl_bridge/README.txt
+chmod 644 ${Build}/usr/share/doc/drlb_ssl_bridge/README.txt
+cp -f ../ssl_bridge/README.txt ${Build}/usr/share/doc/drlb_ssl_bridge/README_ssl.txt
+chmod 644 ${Build}/usr/share/doc/drlb_ssl_bridge/README_ssl.txt
+cp -f ../COPYING ${Build}/usr/share/doc/drlb_ssl_bridge/COPYING
+chmod 644 ${Build}/usr/share/doc/drlb_ssl_bridge/COPYING
+cp -f ../ssl_bridge/version.txt ${Build}/usr/share/doc/drlb_ssl_bridge/version.txt
+chmod 644 ${Build}/usr/share/doc/drlb_ssl_bridge/version.txt
 mkdir -p ${Build}/usr/share/man/man8
 chmod 755 ${Build}/usr/share/man/man8
 gzip -c ../man/drlb_ssl_server.8 > ${Build}/usr/share/man/man8/drlb_ssl_server.8.gz

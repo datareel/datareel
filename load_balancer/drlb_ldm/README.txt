@@ -1,5 +1,5 @@
 README file for DRLB LDM server
-Last Modified: 10/18/2016
+Last Modified: 10/19/2016
 
 Contents:
 --------
@@ -101,10 +101,9 @@ ldm_etc_dir = /usr/local/ldm/etc
 ldmd_conf_file = ldmd.conf
 resolve_ldm_hostnames = 1
 
-For all other DRLB setting please refer to the README file supplied
-with the DRLB server:
+For all other DRLB setting please refer to the DRLB README file:
 
-# more /usr/share/doc/drlb/README.txt 
+# more /usr/share/doc/drlb_ldm/README.txt 
 
 or online: 
 

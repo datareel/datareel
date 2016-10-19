@@ -79,16 +79,16 @@ mkdir -p ${Build}/etc/rc.d/init.d
 chmod 755 ${Build}/etc/rc.d/init.d
 cp -f ../system5_init/drlb_ldm_server ${Build}/etc/rc.d/init.d/drlb_ldm_server
 chmod 755 ${Build}/etc/rc.d/init.d/drlb_ldm_server
-mkdir -p ${Build}/usr/share/doc/drlb
-chmod 755 ${Build}/usr/share/doc/drlb
-cp -f ../README.txt ${Build}/usr/share/doc/drlb/README.txt
-chmod 644 ${Build}/usr/share/doc/drlb/README.txt
-cp -f ../drlb_ldm/README.txt ${Build}/usr/share/doc/drlb/README_ldm.txt
-chmod 644 ${Build}/usr/share/doc/drlb/README_ldm.txt
-cp -f ../COPYING ${Build}/usr/share/doc/drlb/COPYING
-chmod 644 ${Build}/usr/share/doc/drlb/COPYING
-cp -f ../version.txt ${Build}/usr/share/doc/drlb/version.txt
-chmod 644 ${Build}/usr/share/doc/drlb/version.txt
+mkdir -p ${Build}/usr/share/doc/drlb_ldm
+chmod 755 ${Build}/usr/share/doc/drlb_ldm
+cp -f ../README.txt ${Build}/usr/share/doc/drlb_ldm/README.txt
+chmod 644 ${Build}/usr/share/doc/drlb_ldm/README.txt
+cp -f ../drlb_ldm/README.txt ${Build}/usr/share/doc/drlb_ldm/README_ldm.txt
+chmod 644 ${Build}/usr/share/doc/drlb_ldm/README_ldm.txt
+cp -f ../COPYING ${Build}/usr/share/doc/drlb_ldm/COPYING
+chmod 644 ${Build}/usr/share/doc/drlb_ldm/COPYING
+cp -f ../drlb_ldm/version.txt ${Build}/usr/share/doc/drlb_ldm/version.txt
+chmod 644 ${Build}/usr/share/doc/drlb_ldm/version.txt
 mkdir -p ${Build}/usr/share/man/man8
 chmod 755 ${Build}/usr/share/man/man8
 gzip -c ../man/drlb_ldm_server.8 > ${Build}/usr/share/man/man8/drlb_ldm_server.8.gz

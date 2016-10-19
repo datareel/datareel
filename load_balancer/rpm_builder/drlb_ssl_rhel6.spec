@@ -49,10 +49,10 @@ tar xvf drlb_ssl_server.tar.gz -C $RPM_BUILD_ROOT
 %config(noreplace) %attr(0644, root, root) "/etc/drlb/ssl_bridge.cfg"
 %config %attr(0644, root, root) "/etc/sysconfig/drlb_ssl_server"
 %config %attr(0755, root, root) "/etc/rc.d/init.d/drlb_ssl_server"
-%doc %attr(0644, root, root) "/usr/share/doc/drlb/README.txt"
-%doc %attr(0644, root, root) "/usr/share/doc/drlb/README_ssl.txt"
-%doc %attr(0644, root, root) "/usr/share/doc/drlb/COPYING"
-%doc %attr(0644, root, root) "/usr/share/doc/drlb/version.txt"
+%doc %attr(0644, root, root) "/usr/share/doc/drlb_ssl_bridge/README.txt"
+%doc %attr(0644, root, root) "/usr/share/doc/drlb_ssl_bridge/README_ssl.txt"
+%doc %attr(0644, root, root) "/usr/share/doc/drlb_ssl_bridge/COPYING"
+%doc %attr(0644, root, root) "/usr/share/doc/drlb_ssl_bridge/version.txt"
 %doc %attr(0644, root, root) "/usr/share/man/man8/drlb_ssl_server.8.gz"
 
 %post -p /bin/sh

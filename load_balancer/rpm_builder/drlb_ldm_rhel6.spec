@@ -34,10 +34,10 @@ tar xvf drlb_ldm_server.tar.gz -C $RPM_BUILD_ROOT
 %config(noreplace) %attr(0644, root, root) "/etc/drlb/ldm_cluster_rules.cfg"
 %config %attr(0644, root, root) "/etc/sysconfig/drlb_ldm_server"
 %config %attr(0755, root, root) "/etc/rc.d/init.d/drlb_ldm_server"
-%doc %attr(0644, root, root) "/usr/share/doc/drlb/README.txt"
-%doc %attr(0644, root, root) "/usr/share/doc/drlb/README_ldm.txt"
-%doc %attr(0644, root, root) "/usr/share/doc/drlb/COPYING"
-%doc %attr(0644, root, root) "/usr/share/doc/drlb/version.txt"
+%doc %attr(0644, root, root) "/usr/share/doc/drlb_ldm/README.txt"
+%doc %attr(0644, root, root) "/usr/share/doc/drlb_ldm/README_ldm.txt"
+%doc %attr(0644, root, root) "/usr/share/doc/drlb_ldm/COPYING"
+%doc %attr(0644, root, root) "/usr/share/doc/drlb_ldm/version.txt"
 %doc %attr(0644, root, root) "/usr/share/man/man8/drlb_ldm_server.8.gz"
 
 %post -p /bin/sh
