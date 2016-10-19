@@ -66,7 +66,7 @@ if [ $1 -ge 1 ] ; then
 fi
 
 %changelog
-* Sun Oct 02 2016 Datareel <datareel.com>
-- Initial RPM build 
 * Wed Oct 19 2016 Datareel <datareel.com>
 - Fix for potential ABRT exit from safe_close call on closed file descriptor
+* Sun Oct 02 2016 Datareel <datareel.com>
+- Initial RPM build 
