@@ -1,6 +1,6 @@
 BuildArch: x86_64
 Name: drlb_server
-Version: 1.57        
+Version: 1.58        
 Release: 1.el7.x86_64
 Summary: Datareel Load Balancer RPM
 Group: System Environment/Daemons
@@ -68,3 +68,5 @@ fi
 %changelog
 * Sun Oct 02 2016 Datareel <datareel.com>
 - Initial RPM build 
+* Wed Oct 19 2016 Datareel <datareel.com>
+- Fix for potential ABRT exit from safe_close call on closed file descriptor

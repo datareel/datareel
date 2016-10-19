@@ -85,3 +85,5 @@ fi
 %changelog
 * Sun Oct 10 2016 Datareel <datareel.com>
 - Initial RPM build 
+* Wed Oct 19 2016 Datareel <datareel.com>
+- Fix for potential ABRT exit from safe_close call on closed file descriptor

@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 10/18/2016
+// Date Last Modified: 10/19/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -220,7 +220,7 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
       if(num_threads >= servercfg->max_threads) {
 	message << clear << "[" << seq_num << "]: Reached " << num_threads << " max thread limit. " << client_name << " connection denied";
 	LogMessage(message.c_str());
-	close(remote_socket);
+	close(remote_socket); remote_socket = -1;
 	continue;
       }
     }
@@ -234,7 +234,7 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
 	message << clear << "[" << seq_num << "]: Reached " << num_connections
 		<< " max frontend connection limit. " << client_name << " connection denied";
 	LogMessage(message.c_str());
-	close(remote_socket);
+	close(remote_socket); remote_socket = -1;
 	continue;
       }
     }
@@ -382,8 +382,8 @@ void *LBClientRequestThread::ThreadEntryRoutine(gxThread_t *thread)
     if(s->node) s->node->NUM_CONNECTIONS(0, 1);
     s->openssl->CloseSSLSocket();
     if(sslcfg->ssl_encrypt_backend && s->openssl_client) s->openssl_client->CloseSSLSocket();
-    close(s->client_socket);
-    close(s->client.GetSocket());
+    if(s->client_socket > 0) { close(s->client_socket); s->client_socket = -1; }
+    if(s->client.GetSocket() > 0) { close(s->client.GetSocket()); s->client.SetSocket(-1); }
     delete s; s = 0;
   }
 
@@ -404,8 +404,8 @@ void LBClientRequestThread::ThreadCleanupHandler(gxThread_t *thread)
     if(s->node) s->node->NUM_CONNECTIONS(0, 1);
     s->openssl->CloseSSLSocket();
     if(sslcfg->ssl_encrypt_backend && s->openssl_client) s->openssl_client->CloseSSLSocket();
-    close(s->client_socket);
-    close(s->client.GetSocket());
+    if(s->client_socket > 0) { close(s->client_socket); s->client_socket = -1; }
+    if(s->client.GetSocket() > 0) { close(s->client.GetSocket()); s->client.SetSocket(-1); }
     delete s; s = 0;
   }
 }
@@ -1064,7 +1064,7 @@ LBnode *LBClientRequestThread::round_robin(ClientSocket_t *s,  gxList<LBnode *> 
 	    LogMessage(sbuf.c_str());
 	    CheckSocketError(client, seq_num);
 	  }
-	  client->Close();
+	  if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
 	  ptr->data->LB_FLAG(0);
 	  error_flag++;
 	}
@@ -1104,7 +1104,7 @@ LBnode *LBClientRequestThread::round_robin(ClientSocket_t *s,  gxList<LBnode *> 
 	    }
 	    if(has_ssl_error) {
 	      s->openssl_client->CloseSSLSocket();
-	      client->Close();
+	      if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
 	      ptr->data->LB_FLAG(0);
 	      error_flag++;
 	    }
@@ -1318,7 +1318,7 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
 	   << ptr->data->hostname << " port " << ptr->data->port_number;
       LogMessage(sbuf.c_str());
       CheckSocketError(client, seq_num);
-      client->Close();
+      if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
       return 0;
     }
     
@@ -1331,7 +1331,7 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
 	  LogMessage(sbuf.c_str());
 	}
 	s->openssl_client->CloseSSLSocket();
-	client->Close();
+	if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
 	return 0;
       }
       if(s->openssl_client->ConnectSSLSocket() != gxSSL_NO_ERROR) {
@@ -1342,7 +1342,7 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
 	  LogMessage(sbuf.c_str());
 	}
 	s->openssl_client->CloseSSLSocket();
-	client->Close();
+	if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
 	return 0;
       }
       if((sslcfg->ssl_verify_backend_cert) && (!sslcfg->ssl_backend_hostname.is_null())) {
@@ -1352,7 +1352,7 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
 	  sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
 	  LogMessage(sbuf.c_str());
 	  s->openssl_client->CloseSSLSocket();
-	  client->Close();
+	  if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
 	  return 0;
 	}
       }
@@ -1456,7 +1456,7 @@ LBnode *LBClientRequestThread::distrib(ClientSocket_t *s)
 	 << limit_ptr->data.active_ptr->hostname << " port " << limit_ptr->data.active_ptr->port_number;
     LogMessage(sbuf.c_str());
     CheckSocketError(client, seq_num);
-    client->Close();
+    if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
     if(servercfg->debug && servercfg->debug_level >= 5) {
       sbuf << clear << "[" << seq_num << "]: Connection error will default to distributed round robin";
       LogDebugMessage(sbuf.c_str());
@@ -1473,7 +1473,7 @@ LBnode *LBClientRequestThread::distrib(ClientSocket_t *s)
 	LogMessage(sbuf.c_str());
       }
       s->openssl_client->CloseSSLSocket();
-      client->Close();
+      if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
       return round_robin(s, servercfg->distributed_rr_node_list);
     }
     if(s->openssl_client->ConnectSSLSocket() != gxSSL_NO_ERROR) {
@@ -1484,7 +1484,7 @@ LBnode *LBClientRequestThread::distrib(ClientSocket_t *s)
 	LogMessage(sbuf.c_str());
       }
       s->openssl_client->CloseSSLSocket();
-      client->Close();
+      if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
       return round_robin(s, servercfg->distributed_rr_node_list);
     }
     if((sslcfg->ssl_verify_backend_cert) && (!sslcfg->ssl_backend_hostname.is_null())) {
@@ -1494,7 +1494,7 @@ LBnode *LBClientRequestThread::distrib(ClientSocket_t *s)
 	sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
 	LogMessage(sbuf.c_str());
 	s->openssl_client->CloseSSLSocket();
-	client->Close();
+	if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
 	return round_robin(s, servercfg->distributed_rr_node_list);
       }
     }
@@ -1599,7 +1599,7 @@ LBnode *LBClientRequestThread::weighted(ClientSocket_t *s)
 	 << limit_ptr->data.active_ptr->hostname << " port " << limit_ptr->data.active_ptr->port_number;
     LogMessage(sbuf.c_str());
     CheckSocketError(client, seq_num);
-    client->Close();
+    if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
     if(servercfg->debug && servercfg->debug_level >= 5) {
       sbuf << clear << "[" << seq_num << "]: Connection error will default to weighted round robin";
       LogDebugMessage(sbuf.c_str());
@@ -1616,7 +1616,7 @@ LBnode *LBClientRequestThread::weighted(ClientSocket_t *s)
 	LogMessage(sbuf.c_str());
       }
       s->openssl_client->CloseSSLSocket();
-      client->Close();
+      if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
       return round_robin(s, servercfg->weighted_rr_node_list);
     }
     if(s->openssl_client->ConnectSSLSocket() != gxSSL_NO_ERROR) {
@@ -1627,7 +1627,7 @@ LBnode *LBClientRequestThread::weighted(ClientSocket_t *s)
 	LogMessage(sbuf.c_str());
       }
       s->openssl_client->CloseSSLSocket();
-      client->Close();
+      if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
       return round_robin(s, servercfg->weighted_rr_node_list);
     }
     if((sslcfg->ssl_verify_backend_cert) && (!sslcfg->ssl_backend_hostname.is_null())) {
@@ -1637,7 +1637,7 @@ LBnode *LBClientRequestThread::weighted(ClientSocket_t *s)
 	sbuf << clear << "[" << seq_num << "]: " << s->openssl_client->SSLErrorMessage();
 	LogMessage(sbuf.c_str());
 	s->openssl_client->CloseSSLSocket();
-	client->Close();
+	if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
 	return round_robin(s, servercfg->weighted_rr_node_list);
       }
     }

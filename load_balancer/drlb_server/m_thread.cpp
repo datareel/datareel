@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 09/17/2016
+// Date Last Modified: 10/19/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -192,7 +192,7 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
       if(num_threads >= servercfg->max_threads) {
 	message << clear << "[" << seq_num << "]: Reached " << num_threads << " max thread limit. " << client_name << " connection denied";
 	LogMessage(message.c_str());
-	close(remote_socket);
+	close(remote_socket); remote_socket = -1;
 	continue;
       }
     }
@@ -206,7 +206,7 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
 	message << clear << "[" << seq_num << "]: Reached " << num_connections
 		<< " max frontend connection limit. " << client_name << " connection denied";
 	LogMessage(message.c_str());
-	close(remote_socket);
+	close(remote_socket); remote_socket = -1;
 	continue;
       }
     }
@@ -328,8 +328,8 @@ void *LBClientRequestThread::ThreadEntryRoutine(gxThread_t *thread)
     }
 
     if(s->node) s->node->NUM_CONNECTIONS(0, 1);
-    close(s->client_socket);
-    close(s->client.GetSocket());
+    if(s->client_socket > 0) { close(s->client_socket); s->client_socket = -1; }
+    if(s->client.GetSocket() > 0) { close(s->client.GetSocket()); s->client.SetSocket(-1); }
     delete s; s = 0;
   }
 
@@ -348,8 +348,8 @@ void LBClientRequestThread::ThreadCleanupHandler(gxThread_t *thread)
       LogDebugMessage(message.c_str());
     }
     if(s->node) s->node->NUM_CONNECTIONS(0, 1);
-    close(s->client_socket);
-    close(s->client.GetSocket());
+    if(s->client_socket > 0) { close(s->client_socket); s->client_socket = -1; }
+    if(s->client.GetSocket() > 0) { close(s->client.GetSocket()); s->client.SetSocket(-1); }
     delete s; s = 0;
   }
 }
@@ -895,7 +895,7 @@ LBnode *LBClientRequestThread::round_robin(ClientSocket_t *s,  gxList<LBnode *> 
 	    LogMessage(sbuf.c_str());
 	    CheckSocketError(client, seq_num);
 	  }
-	  client->Close();
+	  if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
 	  ptr->data->LB_FLAG(0);
 	  error_flag++;
 	}
@@ -1103,7 +1103,7 @@ LBnode *LBClientRequestThread::assigned(ClientSocket_t *s)
 	   << ptr->data->hostname << " port " << ptr->data->port_number;
       LogMessage(sbuf.c_str());
       CheckSocketError(client, seq_num);
-      client->Close();
+      if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
       return 0;
     }
   }
@@ -1205,7 +1205,7 @@ LBnode *LBClientRequestThread::distrib(ClientSocket_t *s)
 	 << limit_ptr->data.active_ptr->hostname << " port " << limit_ptr->data.active_ptr->port_number;
     LogMessage(sbuf.c_str());
     CheckSocketError(client, seq_num);
-    client->Close();
+    if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
     if(servercfg->debug && servercfg->debug_level >= 5) {
       sbuf << clear << "[" << seq_num << "]: Connection error will default to distributed round robin";
       LogDebugMessage(sbuf.c_str());
@@ -1312,7 +1312,7 @@ LBnode *LBClientRequestThread::weighted(ClientSocket_t *s)
 	 << limit_ptr->data.active_ptr->hostname << " port " << limit_ptr->data.active_ptr->port_number;
     LogMessage(sbuf.c_str());
     CheckSocketError(client, seq_num);
-    client->Close();
+    if(client->GetSocket() > 0) { client->Close(); client->SetSocket(-1); }
     if(servercfg->debug && servercfg->debug_level >= 5) {
       sbuf << clear << "[" << seq_num << "]: Connection error will default to weighted round robin";
       LogDebugMessage(sbuf.c_str());
