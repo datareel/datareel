@@ -1,5 +1,5 @@
 README file for DRLB SSL Bridge
-Last Modified: 10/10/2016
+Last Modified: 10/18/2016
 
 Contents:
 --------
@@ -8,6 +8,7 @@ Contents:
 * Building and installing from source
 * Setting up the SSL bridge service
 * SSL certificates
+* SSL encryption protocol
 * Self-signed SSL certificates
 * Remaining work on this project
 * Support and Bug Tracking
@@ -15,8 +16,25 @@ Contents:
 Overview
 --------
 The DRLB SSL bridge is used to decrypt incoming SSL traffic on TCP
-port 443 and send unencrypted traffic on port 80 to back and web
+port 443 and send encrypted or unencrypted traffic to backend web
 servers. 
+
+Load balancing SSL connections cannot forward IP address information
+HTTP headers unless the SSL traffic is decrypted and re-encrypted with
+the connection information inserted into the HTTP headers. The DRLB
+SSL bridge has options to load balance front end connections as an
+HTTPS server and distribute web traffic to backend HTTP or HTTPS
+servers.
+
+Decrypting front-end SSL traffic and re-encrypting allows you to
+forward IP address information to backend HTTPS servers. Both the
+front-end and back-end web traffing remains encrypted during
+transport.     
+
+Sending decrypted SSL to back-end web servers over TCP port 80 allows
+you to use existing back-end HTTP web services. The load balanced
+front-end remains encrypted. The back-end web services can utilize
+existing web configurations with having to be reconfigured to run SSL.  
 
 RPM Install
 -----------
@@ -74,8 +92,18 @@ settings specific to the SSL config:
 ssl_protocol = SSLv23  
 ssl_key_file = /etc/drlb/ssl/private/ca.key
 ssl_cert_file =  /etc/drlb/ssl/certs/ca.crt
-ssl_use_dhparms = 1
-ssl_dhparms_file =  /etc/drlb/ssl/certs/dhparams.pem
+#ssl_use_dhparms = 0
+#ssl_dhparms_file =  /etc/drlb/ssl/certs/dhparams.pem
+#ssl_encrypt_backend = 0
+#ssl_backend_hostname = www.example.com
+#ssl_verify_backend_cert = 0
+#ssl_backend_ca_list_file = /etc/pki/tls/certs/ca-bundle.crt
+
+By default back-end traffic is set to unencrypted, HTTP. If you
+encrypt back-end traffic for HTTPS you have the option to verify the
+back-end SSL certificates. The ssl_backend_hostname setting must match
+the CN name of the issuer’s certificate. You must also provide a
+trusted CA list using the ssl_backend_ca_list_file setting. 
 
 For all other DRLB setting please refer to the README file supplied
 with the DRLB server:
@@ -167,6 +195,24 @@ ssl_key_file = /etc/drlb/ssl/private/ca.key
 ssl_cert_file =  /etc/drlb/ssl/certs/ca.crt
 ssl_use_dhparms = 1
 ssl_dhparms_file =  /etc/drlb/ssl/certs/dhparams.pem
+
+SSL encryption protocol
+-----------------------
+The SSL encryption protocol is set by the ssl_protocol setting in the
+SSLCONFIG section in the LB configuration file: 
+
+[SSLCONFIG]
+...
+ssl_protocol = SSLv23
+
+The SSLv23 default setting uses SSL protocols SSLv2, SSLv3, TLSv1,
+TLSv1.1 and TLSv1.2. Other protocol options are: 
+
+SSLv2 - SSL version 2 
+SSLv3 - SSL version 3  
+TLSv1 - TLS version 1 
+TLSv1_1 - TLS version 1.1
+TLSv1_2 - TLS version 1.2
 
 Remaining work on this project
 ------------------------------

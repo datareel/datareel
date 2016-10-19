@@ -133,13 +133,6 @@ int LoadSSLConfig()
     dfile << "# TLSv1 - TLS version 1" << "\n";
     dfile << "# TLSv1_1 - TLS version 1.1" << "\n";
     dfile << "# TLSv1_2 - TLS version 1.2" << "\n";
-#if OPENSSL_VERSION_NUMBER >= 0x1000200fL
-    dfile << "# DTLS - multiple DTLS methods" << "\n";
-#endif
-    dfile << "# DTLSv1 - DTLS version 1" << "\n";
-#if OPENSSL_VERSION_NUMBER >= 0x1000200fL
-    dfile << "# DTLSv1_2 - DTLS version 1.2" << "\n";
-#endif
     dfile << "#" << "\n";
     dfile << "# Private key file" << "\n";
     dfile << "ssl_key_file = /etc/drlb/ssl/private/ca.key" << "\n";
