@@ -8,26 +8,26 @@ Contents:
 * Building and installing from source
 * Setting up the SSL bridge service
 * SSL certificates
-* SSL encryption protocol
 * Self-signed SSL certificates
+* SSL encryption protocol
 * Remaining work on this project
 * Support and Bug Tracking
 
 Overview
 --------
 The DRLB SSL bridge is used to decrypt incoming SSL traffic on TCP
-port 443 and send encrypted or unencrypted traffic to backend web
+port 443 and send encrypted or unencrypted traffic to back-end web
 servers. 
 
 Load balancing SSL connections cannot forward IP address information
 HTTP headers unless the SSL traffic is decrypted and re-encrypted with
 the connection information inserted into the HTTP headers. The DRLB
-SSL bridge has options to load balance front end connections as an
-HTTPS server and distribute web traffic to backend HTTP or HTTPS
+SSL bridge has options to load balance front-end connections as an
+HTTPS server and distribute web traffic to back-end HTTP or HTTPS
 servers.
 
 Decrypting front-end SSL traffic and re-encrypting allows you to
-forward IP address information to backend HTTPS servers. Both the
+forward IP address information to back-end HTTPS servers. Both the
 front-end and back-end web traffing remains encrypted during
 transport.     
 
@@ -47,11 +47,11 @@ $ cd ${HOME}/git/datareel/load_balancer/rpm_builder
 
 RHEL7/CENTOS7:
 $ ./make_ssl_rpm_package.sh rhel7
-$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drlb_ssl_server-1.57-1.el7.x86_64.x86_64.rpm"
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drlb_ssl_server-1.58-1.el7.x86_64.x86_64.rpm"
 
 RHEL6/CENTOS6:
 $ ./make_ssl_rpm_package.sh rhel6
-$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drlb_ssl_server-1.57-1.el6.x86_64.x86_64.rpm"
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drlb_ssl_server-1.58-1.el6.x86_64.x86_64.rpm"
 
 Useful RPM command to verify package contents:
 
