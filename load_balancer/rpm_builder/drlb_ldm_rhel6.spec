@@ -59,4 +59,4 @@ fi
 * Wed Oct 12 2016 Datareel <datareel.com>
 - Fix for notifyme closing connection before completing
 * Sun Oct 02 2016 Datareel <datareel.com>
-- Inital RPM build 
+- Initial RPM build 
