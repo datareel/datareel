@@ -38,16 +38,16 @@ install_root:
 	if [ -d /etc/systemd/system ]; then cp -fv ../systemd_init/drlb_ldm_server.service  /etc/systemd/system/drlb_ldm_server.service; fi
 	if [ -d /etc/systemd/system ]; then chmod 644 /etc/systemd/system/drlb_ldm_server.service; fi
 	if [ -d /etc/systemd/system ]; then systemctl daemon-reload; fi
-	mkdir -p /usr/share/doc/drlb
-	chmod 755 /usr/share/doc/drlb
-	cp -fv ../README.txt /usr/share/doc/drlb/README.txt
-	chmod 644 /usr/share/doc/drlb/README.txt
-	cp -fv README.txt /usr/share/doc/drlb/README_ldm.txt
-	chmod 644 /usr/share/doc/drlb/README_ldm.txt
-	cp -fv ../COPYING /usr/share/doc/drlb/COPYING
-	chmod 644 /usr/share/doc/drlb/COPYING
-	cp -fv ../version.txt /usr/share/doc/drlb/version.txt
-	chmod 644 /usr/share/doc/drlb/version.txt
+	mkdir -p /usr/share/doc/drlb_ldm
+	chmod 755 /usr/share/doc/drlb_ldm
+	cp -fv ../README.txt /usr/share/doc/drlb_ldm/README.txt
+	chmod 644 /usr/share/doc/drlb_ldm/README.txt
+	cp -fv README.txt /usr/share/doc/drlb_ldm/README_ldm.txt
+	chmod 644 /usr/share/doc/drlb_ldm/README_ldm.txt
+	cp -fv ../COPYING /usr/share/doc/drlb_ldm/COPYING
+	chmod 644 /usr/share/doc/drlb_ldm/COPYING
+	cp -fv version.txt /usr/share/doc/drlb_ldm/version.txt
+	chmod 644 /usr/share/doc/drlb_ldm/version.txt
 	gzip -c ../man/drlb_ldm_server.8 > /usr/share/man/man8/drlb_ldm_server.8.gz
 	chmod 644  /usr/share/man/man8/drlb_ldm_server.8.gz
 

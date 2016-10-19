@@ -38,15 +38,15 @@ install_root:
 	if [ -d /etc/systemd/system ]; then cp -fv ../systemd_init/drlb_ssl_server.service  /etc/systemd/system/drlb_ssl_server.service; fi
 	if [ -d /etc/systemd/system ]; then chmod 644 /etc/systemd/system/drlb_ssl_server.service; fi
 	if [ -d /etc/systemd/system ]; then systemctl daemon-reload; fi
-	mkdir -p /usr/share/doc/drlb
-	chmod 755 /usr/share/doc/drlb
-	cp -fv ../README.txt /usr/share/doc/drlb/README.txt
-	chmod 644 /usr/share/doc/drlb/README.txt
-	cp -fv README.txt /usr/share/doc/drlb/README_ssl.txt
-	chmod 644 /usr/share/doc/drlb/README_ssl.txt
-	cp -fv ../COPYING /usr/share/doc/drlb/COPYING
-	chmod 644 /usr/share/doc/drlb/COPYING
-	cp -fv ../version.txt /usr/share/doc/drlb/version.txt
-	chmod 644 /usr/share/doc/drlb/version.txt
+	mkdir -p /usr/share/doc/drlb_ssl_bridge
+	chmod 755 /usr/share/doc/drlb_ssl_bridge
+	cp -fv ../README.txt /usr/share/doc/drlb_ssl_bridge/README.txt
+	chmod 644 /usr/share/doc/drlb_ssl_bridge/README.txt
+	cp -fv README.txt /usr/share/doc/drlb_ssl_bridge/README_ssl.txt
+	chmod 644 /usr/share/doc/drlb_ssl_bridge/README_ssl.txt
+	cp -fv ../COPYING /usr/share/doc/drlb_ssl_bridge/COPYING
+	chmod 644 /usr/share/doc/drlb_ssl_bridge/COPYING
+	cp -fv version.txt /usr/share/doc/drlb_ssl_bridge/version.txt
+	chmod 644 /usr/share/doc/drlb_ssl_bridge/version.txt
 	gzip -c ../man/drlb_ssl_server.8 > /usr/share/man/man8/drlb_ssl_server.8.gz
 	chmod 644  /usr/share/man/man8/drlb_ssl_server.8.gz
