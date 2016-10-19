@@ -54,9 +54,9 @@ fi
 /sbin/service drlb_ldm_server restart > /dev/null 2>&1 || :
 
 %changelog
-* Sun Oct 02 2016 Datareel <datareel.com>
-- Inital RPM build 
-* Wed Oct 12 2016 Datareel <datareel.com>
-- Fix for notifyme closing connection before completing
 * Wed Oct 19 2016 Datareel <datareel.com>
 - Fix for ABRT exit from safe_close call on closed file descriptor 
+* Wed Oct 12 2016 Datareel <datareel.com>
+- Fix for notifyme closing connection before completing
+* Sun Oct 02 2016 Datareel <datareel.com>
+- Inital RPM build 
