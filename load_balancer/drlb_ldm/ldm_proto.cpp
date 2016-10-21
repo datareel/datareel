@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 10/12/2016
+// Date Last Modified: 10/20/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -254,7 +254,7 @@ int set_ldm_feed_type_strings(unsigned int ldm_feed_type, gxString &s)
       s = "NXRDSRC,FT29";
       break;
       
-    case EXP: case SBN_TYP_EXP: case EXP2: // case FT30:
+    case EXP: case SBN_TYP_EXP: case EXP2: case 1140850688: case 1297: case 14: // case FT30:
       s = "EXP,FT30,SBN_TYP_EXP";
       break;
       

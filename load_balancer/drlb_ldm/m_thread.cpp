@@ -782,40 +782,51 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	    }
 
 	    if(ldm_request.request == HEREIS) { 
-	      int sizeof_file_name = 0;
-	      if(ldm_request_hdr.length() >= 112) {
-		sizeof_file_name = (int)ldm_request_hdr[111];
-		if(servercfg->debug && servercfg->debug_level >= 5) { 
-		  message << clear << "[" << seq_num << "]: Product file name length " << sizeof_file_name; 
+	      if(hereis_next_prodIdEre == "." || hereis_next_prodIdEre == ".*") {
+		if(servercfg->debug && servercfg->debug_level >= 2) { 
+		  message << clear << "[" << seq_num << "]: ACCEPT PROD GRANTED - prodIdEre from " << s->client_name 
+			  << " matches all pattern " <<  hereis_next_prodIdEre;
 		  LogDebugMessage(message.c_str());
 		}
-		if(ldm_request_hdr.length() >= (112+sizeof_file_name)) {
-		  char *file_name = new char[sizeof_file_name+1]; 
-		  memset(file_name, 0, (sizeof_file_name+1));
-		  memcpy(file_name, (ldm_request_hdr.m_buf()+112), sizeof_file_name);
+		hereis_next_prodIdEre.Clear();
+		hereis_next = 0;
+	      }
+	      else {
+		int sizeof_file_name = 0;
+		if(ldm_request_hdr.length() >= 112) {
+		  sizeof_file_name = (int)ldm_request_hdr[111];
 		  if(servercfg->debug && servercfg->debug_level >= 5) { 
-		    message << clear << "[" << seq_num << "]: " << file_name; 
+		    message << clear << "[" << seq_num << "]: Product file name length " << sizeof_file_name; 
 		    LogDebugMessage(message.c_str());
 		  }
-		  gxString str = file_name;
-		  int rv_regex = compare_ldm_regex(hereis_next_prodIdEre, str);
-		  hereis_next = 0;
-		  delete file_name;
-		  if(rv_regex == 0) {
-		    if(servercfg->debug && servercfg->debug_level >= 2) { 
-		      message << clear << "[" << seq_num << "]: ACCEPT PROD GRANTED - prodIdEre from " << s->client_name 
-			      << " matches " <<  hereis_next_prodIdEre;
+		  if(ldm_request_hdr.length() >= (112+sizeof_file_name)) {
+		    char *file_name = new char[sizeof_file_name+1]; 
+		    memset(file_name, 0, (sizeof_file_name+1));
+		    memcpy(file_name, (ldm_request_hdr.m_buf()+112), sizeof_file_name);
+		    if(servercfg->debug && servercfg->debug_level >= 5) { 
+		      message << clear << "[" << seq_num << "]: " << file_name; 
 		      LogDebugMessage(message.c_str());
 		    }
-		    hereis_next_prodIdEre.Clear();
-		  }
-		  else {
-		    message << clear << "[" << seq_num << "]: ACCEPT PROD DENIED - prodIdEre from " << s->client_name 
-			    << " does not match " <<  hereis_next_prodIdEre;
-		    LogMessage(message.c_str());
-		    has_valid_ldm_request = 0;
-		    error_level = 1;
-		    break; // exit main loop
+		    gxString str = file_name;
+		    int rv_regex = compare_ldm_regex(hereis_next_prodIdEre, str);
+		    hereis_next = 0;
+		    delete file_name;
+		    if(rv_regex == 0) {
+		      if(servercfg->debug && servercfg->debug_level >= 2) { 
+			message << clear << "[" << seq_num << "]: ACCEPT PROD GRANTED - prodIdEre from " << s->client_name 
+				<< " matches " <<  hereis_next_prodIdEre;
+			LogDebugMessage(message.c_str());
+		      }
+		      hereis_next_prodIdEre.Clear();
+		    }
+		    else {
+		      message << clear << "[" << seq_num << "]: ACCEPT PROD DENIED - prodIdEre from " << s->client_name 
+			      << " does not match " <<  hereis_next_prodIdEre;
+		      LogMessage(message.c_str());
+		      has_valid_ldm_request = 0;
+		      error_level = 1;
+		      break; // exit main loop
+		    }
 		  }
 		}
 	      }
