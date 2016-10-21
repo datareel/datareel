@@ -1,6 +1,6 @@
 BuildArch: x86_64
 Name: drlb_ldm_server
-Version: 1.59        
+Version: 1.60        
 Release: 1.el6.x86_64
 Summary: Datareel LDM Load Balancer RPM
 Group: System Environment/Daemons
@@ -54,6 +54,8 @@ fi
 /sbin/service drlb_ldm_server restart > /dev/null 2>&1 || :
 
 %changelog
+* Thu Oct 20 2016 Datareel <datareel.com>
+- Fix LDM 6.5 compatibility
 * Wed Oct 19 2016 Datareel <datareel.com>
 - Fix for ABRT exit from safe_close call on closed file descriptor 
 * Wed Oct 12 2016 Datareel <datareel.com>
