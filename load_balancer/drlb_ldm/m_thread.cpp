@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 10/18/2016
+// Date Last Modified: 10/21/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -792,17 +792,44 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 		hereis_next = 0;
 	      }
 	      else {
+		int sizeof_host_name = -1;
+                if(ldm_request_hdr.length() >= 72) {
+                  sizeof_host_name = (int)ldm_request_hdr[71];
+                  if(servercfg->debug && servercfg->debug_level >= 5) {
+                    message << clear << "[" << seq_num << "]: Hostname length " << sizeof_host_name;
+                    LogDebugMessage(message.c_str());
+                  }
+                  if(ldm_request_hdr.length() >= (72+sizeof_host_name)) {
+                    char *host_name = new char[sizeof_host_name+1];
+                    memset(host_name, 0, (sizeof_host_name+1));
+                    memcpy(host_name, (ldm_request_hdr.m_buf()+72), sizeof_host_name);
+                    if(servercfg->debug && servercfg->debug_level >= 5) {
+                      message << clear << "[" << seq_num << "]: Originating host " << host_name;
+                      LogDebugMessage(message.c_str());
+                    }
+                    delete host_name;
+		  }
+		}
+		int offset1 = (72+sizeof_host_name) + 13;
+		int offset = -1;
+		if(ldm_request_hdr.length() >= offset1 && sizeof_host_name != -1) {
+		  offset = 72+sizeof_host_name;
+		  int count = 72+sizeof_host_name;
+		  int offset2 = 0;
+		  while((char)ldm_request_hdr[count++] != '@' && count < offset1) offset2++;
+		  if(count < offset1) offset = count + 11;
+		}
 		int sizeof_file_name = 0;
-		if(ldm_request_hdr.length() >= 112) {
-		  sizeof_file_name = (int)ldm_request_hdr[111];
+		if(offset != -1 && ldm_request_hdr.length() >= offset && sizeof_host_name) {
+		  sizeof_file_name = (int)ldm_request_hdr[offset-1];
 		  if(servercfg->debug && servercfg->debug_level >= 5) { 
 		    message << clear << "[" << seq_num << "]: Product file name length " << sizeof_file_name; 
 		    LogDebugMessage(message.c_str());
 		  }
-		  if(ldm_request_hdr.length() >= (112+sizeof_file_name)) {
+		  if(ldm_request_hdr.length() >= (offset+sizeof_file_name)) {
 		    char *file_name = new char[sizeof_file_name+1]; 
 		    memset(file_name, 0, (sizeof_file_name+1));
-		    memcpy(file_name, (ldm_request_hdr.m_buf()+112), sizeof_file_name);
+		    memcpy(file_name, (ldm_request_hdr.m_buf()+offset), sizeof_file_name);
 		    if(servercfg->debug && servercfg->debug_level >= 5) { 
 		      message << clear << "[" << seq_num << "]: " << file_name; 
 		      LogDebugMessage(message.c_str());
