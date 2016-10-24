@@ -1,5 +1,5 @@
 README file for DRLB LDM server
-Last Modified: 10/20/2016
+Last Modified: 10/24/2016
 
 Contents:
 --------
@@ -48,11 +48,11 @@ $ cd ${HOME}/git/datareel/load_balancer/rpm_builder
 
 RHEL7/CENTOS7:
 $ ./make_ldm_rpm_package.sh rhel7
-$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drlb_ldm_server-1.60-1.el7.x86_64.x86_64.rpm"
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drlb_ldm_server-1.61-1.el7.x86_64.x86_64.rpm"
 
 RHEL6/CENTOS6:
 $ ./make_ldm_rpm_package.sh rhel6
-$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drlb_ldm_server-1.60-1.el6.x86_64.x86_64.rpm"
+$ sudo su root -c "yum -y install ${HOME}/rpmbuild/RPMS/x86_64/drlb_ldm_server-1.61-1.el6.x86_64.x86_64.rpm"
 
 Useful RPM command to verify package contents:
 

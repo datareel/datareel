@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 10/21/2016
+// Date Last Modified: 10/24/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -171,15 +171,12 @@ void *LBServerThread::ThreadEntryRoutine(gxThread_t *thread)
 
     thread_count = 0;
     num_connections = 1; // Count this connection 
-    thrPoolNode *ptr = servercfg->client_request_pool->GetHead();
+    gxListNode<LBnode *> *ptr = servercfg->nodes.GetHead();
     while(ptr) {
-      gxThread_t *thread = ptr->GetThreadPtr();
-      if(thread->GetThreadState() == gxTHREAD_STATE_RUNNING) {
-	thread_count++; // count all the running client threads
-	num_connections++; // count all the connected threads
-      }
-      ptr = ptr->GetNext();
+      num_connections += ptr->data->NUM_CONNECTIONS();
+      ptr = ptr->next;
     }
+    thread_count = num_connections - 1;
 
     servercfg->num_client_threads = thread_count;
     int num_threads = num_start_threads + thread_count;
@@ -1112,8 +1109,14 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	  }
 	}
 
-	bm = write(s->client.GetSocket(), ptr->data->m_buf(), ptr->data->length());
-	get_fd_error(error_number, sbuf);
+	if(ptr->data->length() > 0) {
+	  bm = write(s->client.GetSocket(), ptr->data->m_buf(), ptr->data->length());
+	  get_fd_error(error_number, sbuf);
+	}
+	else {
+	  bm = 0;
+	  fd_error_to_string(0, sbuf);	  
+	}
 	if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) { 
 	  message << clear << "[" << seq_num << "]: Backend cached write() Return: " << bm << " ENUM: " << error_number << " Message: " << sbuf;
 	  LogDebugMessage(message.c_str());
@@ -1225,8 +1228,14 @@ int LBClientRequestThread::LB_CachedReadWrite(ClientSocket_t *s, int buffer_size
 	  }
 	}
 
-	bm = write(s->client_socket, ptr->data->m_buf(), ptr->data->length());
-	get_fd_error(error_number, sbuf);
+	if(ptr->data->length() > 0) {
+	  bm = write(s->client_socket, ptr->data->m_buf(), ptr->data->length());
+	  get_fd_error(error_number, sbuf);
+	}
+	else {
+	  bm = 0;
+	  fd_error_to_string(0, sbuf);	  
+	}
 	if(servercfg->debug && servercfg->debug_level >= 5 && servercfg->verbose_level >= 5) { 
 	  message << clear << "[" << seq_num << "]: Frontend cached write() Return: " << bm << " ENUM: " << error_number << " Message: " << sbuf;
 	  LogDebugMessage(message.c_str());
