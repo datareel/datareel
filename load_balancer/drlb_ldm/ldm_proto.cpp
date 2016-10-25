@@ -6,7 +6,7 @@
 // C++ Compiler Used: GNU, Intel
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 10/20/2016
+// Date Last Modified: 10/25/2016
 // Copyright (c) 2016 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -103,169 +103,391 @@ int set_ldm_feed_type_strings(unsigned int ldm_feed_type, gxString &s)
 {
   s.Clear();
   int error_level = 0;
-  
-  switch(ldm_feed_type) {
-    
-    case NONE:
-      s = "NONE";
-      break;
+  int has_feed_type = 0;
 
-    case FT0: // case PPS:
-	s = "PPS,FT0";
-	break;
-      
-    case FT1: // case DDS:
+  if(ldm_feed_type == 0) {
+    s = "NONE";
+    return 1; // Cannot have NONE as a feed type
+  }
+
+  if(ldm_feed_type == ANY) {
+    s = "ANY";
+    return 0;
+  }
+
+  if((FT0 & ldm_feed_type) == FT0) {
+    if(!has_feed_type) {
+      s = "PPS,FT0";
+    }
+    else {
+      s << "," << "PPS,FT0";
+    }
+    has_feed_type = 1;
+  }
+
+  if((FT1 & ldm_feed_type) == FT1) {
+    if(!has_feed_type) {
       s = "DDS,FT1,DOMESTIC";
-      break;
-      
-    case DDPLUS:
-      s = "DDPLUS";
-      break;
-      
-    case FT2: // case HDS: case HRS:
-      s = "HDS,FT2,HRS";
-      break;
-      
-    case FT3: // case IDS: case INTNL:
-      s = "IDS,FT3,INTNL";
-      break;
-      
-    case FT4: // case SPARE:
-      s = "SPARE,FT4";
-      break;
-      
-    case WMO:
-      s = "WMO";
-      break;
-      
-    case FT5: //case UNIWISC: case MCIDAS:
-      s = "UNIWISC,FT5,MCIDAS";
-      break;
-      
-    case UNIDATA:
-      s = "UNIDATA";
-      break;
-      
-    case FT6: // case PCWS: case ACARS:
-      s = "PCWS,FT6,ACARS";
-      break;
-      
-    case FT7: // case FSL2: case PROFILER:
-      s = "FSL2,FT7,PROFILER";
-      break;
-      
-    case FT8: // case FSL3:
-      s = "FSL3,FT8";
-      break;
-      
-    case FT9: // case FSL4:
-      s = "FSL4,FT9";
-      break;
-      
-    case FT10: // case FSL5:
-      s = "FSL5,FT10";
-      break;
-      
-    case FSL:
-      s = "FSL";
-      break;
-      
-    case FT11: // case AFOS: case GPSSRC:
-      s = "GPSSRC,FT11,NMC1,AFOS";
-      break;
-      
-    case FT12: // case NMC2: case NCEPH:
-      s = "CONDUIT,FT12,NMC2,NCEPH";
-      break;
-      
-    case FT13: // case NMC3: case FNEXRAD:
-      s = "FNEXRAD,FT13,NMC3";
-      break;
-      
-    case NMC:
-      s = "NMC";
-      break;
-      
-    case FT14: // case NLDN:
-      s = "LIGHTNING,FT14,NLDN";
-      break;
-      
-    case FT15: // case WSI:
-      s = "WSI,FT15";
-      break;
-      
-    case FT16: // case DIFAX:
-      s = "DIFAX,FT16";
-      break;
-      
-    case FT17: // case FAA604:
-      s = "FAA604,FT17,FAA,604";
-      break;
-      
-    case FT18: // case GPS:
-      s = "GPS,FT18";
-      break;
-      
-    case FT19: // case SEISMIC: case NOGAPS: case FNMOC:
-      s = "FNMOC,FT19,SEISMIC,NOGAPS";
-      break;
-      
-    case FT20: // case CMC: case GEM:
-      s = "GEM,FT20,CMC";
-      break;
-      
-    case FT21: // case NIMAGE: case IMAGE:
-      s = "NIMAGE,FT21,IMAGE";
-      break;
-      
-    case FT22: // case NTEXT: case TEXT:
-      s = "NTEXT,FT22,TEXT";
-      break;
-      
-    case FT23: // case NGRID: case GRID:
-      s = "NGRID,FT23,GRID";
-      break;
-      
-    case FT24: // case NPOINT: case POINT: case NBUFR: case BUFR:
-      s = "NPOINT,FT24,POINT,NBUFR,BUFR";
-      break;
-      
-    case FT25: // case NGRAPH: case GRAPH:
-      s = "NGRAPH,FT25,GRAPH";
-      break;
-      
-    case FT26: // case NOTHER: case OTHER:
-      s = "NOTHER,FT26,OTHER";
-      break;
-      
-    case NPORT:
-      s = "NPORT";
-      break;
-      
-    case FT27: // case NNEXRAD: case NEXRAD:
-      s = "NEXRAD3,FT27,NNEXRAD,NEXRAD";
-      break;
-      
-    case FT28: // case NEXRD2:
-      s = "NEXRAD2,FT28,CRAFT,NEXRD2";
-      break;
-      
-    case FT29: // case NXRDSRC:
-      s = "NXRDSRC,FT29";
-      break;
-      
-    case EXP: case SBN_TYP_EXP: case EXP2: case 1140850688: case 1297: case 14: // case FT30:
-      s = "EXP,FT30,SBN_TYP_EXP";
-      break;
-      
-    case ANY:
-      s = "ANY";
-      break;
+    }
+    else {
+      s << "," << "DDS,FT1,DOMESTIC";
+    }
+    has_feed_type = 1;
+  }
 
-    default:
-      s = "UNKNOWN";
-      error_level = -1;
-      break;
+  if((DDPLUS & ldm_feed_type) == DDPLUS) {
+    if(!has_feed_type) {
+      s = "DDPLUS";
+    }
+    else {
+      s << "," << "DDPLUS";
+    }
+    has_feed_type = 1;
+  }
+  
+  if((FT2 & ldm_feed_type) == FT2) {
+    if(!has_feed_type) {
+      s = "HDS,FT2,HRS";
+    }
+    else {
+      s << "," << "HDS,FT2,HRS";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT3 & ldm_feed_type) == FT3) {
+    if(!has_feed_type) {
+      s = "IDS,FT3,INTNL";
+    }
+    else {
+      s << "," << "IDS,FT3,INTNL";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT4 & ldm_feed_type) == FT4) {
+    if(!has_feed_type) {
+      s = "SPARE,FT4";
+    }
+    else {
+      s << "," << "SPARE,FT4";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((WMO & ldm_feed_type) == WMO) {
+    if(!has_feed_type) {
+      s = "WMO";
+    }
+    else {
+      s << "," << "WMO";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT5 & ldm_feed_type) == FT5) {
+    if(!has_feed_type) {
+      s = "UNIWISC,FT5,MCIDAS";
+    }
+    else {
+      s << "," << "UNIWISC,FT5,MCIDAS";
+    }
+    has_feed_type = 1;
+  }
+  
+  if((UNIDATA & ldm_feed_type) == UNIDATA) {
+    if(!has_feed_type) {
+      s = "UNIDATA";
+    }
+    else {
+      s << "," << "UNIDATA";
+    }
+    has_feed_type = 1;
+  }
+
+  if((FT6 & ldm_feed_type) == FT6) {
+    if(!has_feed_type) {
+      s = "PCWS,FT6,ACARS";
+    }
+    else {
+      s << "," << "PCWS,FT6,ACARS";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT7 & ldm_feed_type) == FT7) {
+    if(!has_feed_type) {
+      s = "FSL2,FT7,PROFILER";
+    }
+    else {
+      s << "," << "FSL2,FT7,PROFILER";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT8 & ldm_feed_type) == FT8) {
+    if(!has_feed_type) {
+      s = "FSL3,FT8";
+    }
+    else {
+      s << "," << "FSL3,FT8";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT9 & ldm_feed_type) == FT9) {
+    if(!has_feed_type) {
+      s = "FSL4,FT9";
+    }
+    else {
+      s << "," << "FSL4,FT9";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT10 & ldm_feed_type) == FT10) {
+    if(!has_feed_type) {
+      s = "FSL5,FT10";
+    }
+    else {
+      s << "," << "FSL5,FT10";
+    }
+    has_feed_type = 1;
+  }
+  
+  if((FSL & ldm_feed_type) == FSL) {
+    if(!has_feed_type) {
+      s = "FSL";
+    }
+    else {
+      s << "," << "FSL";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT11 & ldm_feed_type) == FT11) {
+    if(!has_feed_type) {
+      s = "GPSSRC,FT11,NMC1,AFOS";
+    }
+    else {
+      s << "," << "GPSSRC,FT11,NMC1,AFOS";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT12 & ldm_feed_type) == FT12) {
+    if(!has_feed_type) {
+      s = "CONDUIT,FT12,NMC2,NCEPH";
+    }
+    else {
+      s << "," << "CONDUIT,FT12,NMC2,NCEPH";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT13 & ldm_feed_type) == FT13) {
+    if(!has_feed_type) {
+      s = "FNEXRAD,FT13,NMC3";
+    }
+    else {
+      s << "," << "FNEXRAD,FT13,NMC3";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((NMC & ldm_feed_type) == NMC) {
+    if(!has_feed_type) {
+      s = "NMC";
+    }
+    else {
+      s << "," << "NMC";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT14 & ldm_feed_type) == FT14) {
+    if(!has_feed_type) {
+      s = "LIGHTNING,FT14,NLDN";
+    }
+    else {
+      s << "," << "LIGHTNING,FT14,NLDN";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT15 & ldm_feed_type) == FT15) {
+    if(!has_feed_type) {
+      s = "WSI,FT15";
+    }
+    else {
+      s << "," << "WSI,FT15";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT16 & ldm_feed_type) == FT16) {
+    if(!has_feed_type) {
+      s = "DIFAX,FT16";
+    }
+    else {
+      s << "," << "DIFAX,FT16";
+    }
+    has_feed_type = 1;
+  }
+  
+  if((FT17 & ldm_feed_type) == FT17) {
+    if(!has_feed_type) {
+      s = "FAA604,FT17,FAA,604";
+    }
+    else {
+      s << "," << "FAA604,FT17,FAA,604";
+    }
+    has_feed_type = 1;
+  }
+  
+  if((FT18 & ldm_feed_type) == FT18) {
+    if(!has_feed_type) {
+      s = "GPS,FT18";
+    }
+    else {
+      s << "," << "GPS,FT18";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT19 & ldm_feed_type) == FT19) {
+    if(!has_feed_type) {
+      s = "FNMOC,FT19,SEISMIC,NOGAPS";
+    }
+    else {
+      s << "," << "FNMOC,FT19,SEISMIC,NOGAPS";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT20 & ldm_feed_type) == FT20) {
+    if(!has_feed_type) {
+      s = "GEM,FT20,CMC";
+    }
+    else {
+      s << "," << "GEM,FT20,CMC";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT21 & ldm_feed_type) == FT21) {
+    if(!has_feed_type) {
+      s = "NIMAGE,FT21,IMAGE";
+    }
+    else {
+      s << "," << "NIMAGE,FT21,IMAGE";
+    }
+    has_feed_type = 1;
+  }
+  
+  if((FT22 & ldm_feed_type) == FT22) {
+    if(!has_feed_type) {
+      s = "NTEXT,FT22,TEXT";
+    }
+    else {
+      s << "," << "NTEXT,FT22,TEXT";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT23 & ldm_feed_type) == FT23) {
+    if(!has_feed_type) {
+      s = "NGRID,FT23,GRID";
+    }
+    else {
+      s << "," << "NGRID,FT23,GRID";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT24 & ldm_feed_type) == FT24) {
+    if(!has_feed_type) {
+      s = "NPOINT,FT24,POINT,NBUFR,BUFR";
+    }
+    else {
+      s << "," << "NPOINT,FT24,POINT,NBUFR,BUFR";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT25 & ldm_feed_type) == FT25) {
+    if(!has_feed_type) {
+      s = "NGRAPH,FT25,GRAPH";
+    }
+    else {
+      s << "," << "NGRAPH,FT25,GRAPH";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT26 & ldm_feed_type) == FT26) {
+    if(!has_feed_type) {
+      s = "NOTHER,FT26,OTHER";
+    }
+    else {
+      s << "," << "NOTHER,FT26,OTHER";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((NPORT & ldm_feed_type) == NPORT) {
+    if(!has_feed_type) {
+      s = "NPORT";
+    }
+    else {
+      s << "," << "NPORT";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT27 & ldm_feed_type) == FT27) {
+    if(!has_feed_type) {
+      s = "NEXRAD3,FT27,NNEXRAD,NEXRAD";
+    }
+    else {
+      s << "," << "NEXRAD3,FT27,NNEXRAD,NEXRAD";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((FT28 & ldm_feed_type) == FT28) {
+    if(!has_feed_type) {
+      s = "NEXRAD2,FT28,CRAFT,NEXRD2";
+    }
+    else {
+      s << "," << "NEXRAD2,FT28,CRAFT,NEXRD2";
+    }
+    has_feed_type = 1;
+  }
+  
+  if((FT29 & ldm_feed_type) == FT29) { 
+    if(!has_feed_type) {
+      s = "NXRDSRC,FT29";
+    }
+    else {
+      s << "," << "NXRDSRC,FT29";
+    }
+    has_feed_type = 1;
+  }
+      
+  if((EXP & ldm_feed_type) == EXP) { 
+    if(!has_feed_type) {
+      s = "EXP,FT30";
+    }
+    else {
+      s << "," << "EXP,FT30";
+    }
+    has_feed_type = 1;
+  }
+      
+  if(!has_feed_type) {
+    s = "UNKNOWN";
+    error_level = -1;
   }
 
   return error_level;

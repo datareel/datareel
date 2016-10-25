@@ -1,0 +1,18 @@
+[Unit]
+Description=DRLB LDM service
+After=network.target
+
+[Service]
+LimitCORE=infinity
+LimitNOFILE=65535
+Type=forking
+EnvironmentFile=/etc/sysconfig/drlb_ldm_server
+ExecStart=/etc/rc.d/init.d/drlb_ldm_server start
+ExecReload=/etc/rc.d/init.d/drlb_ldm_server reload
+ExecStop=/etc/rc.d/init.d/drlb_ldm_server stop
+
+StandardOutput=syslog
+StandardError=syslog
+
+[Install]
+WantedBy=multi-user.target
