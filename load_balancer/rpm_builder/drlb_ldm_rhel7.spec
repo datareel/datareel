@@ -1,6 +1,6 @@
 BuildArch: x86_64
 Name: drlb_ldm_server
-Version: 1.61        
+Version: 1.62        
 Release: 1.el7.x86_64
 Summary: Datareel LDM Load Balancer RPM
 Group: System Environment/Daemons
@@ -65,6 +65,8 @@ if [ $1 -ge 1 ] ; then
 fi
 
 %changelog
+* Tue Oct 24 2016 Datareel <datareel.com>
+- Fix for joined feed types
 * Mon Oct 24 2016 Datareel <datareel.com>
 - Fix to reduce zero byte disconnects
 - Thread Connection count fix
