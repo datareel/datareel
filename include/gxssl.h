@@ -6,8 +6,8 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 10/17/2016
-// Copyright (c) 2001-2016 DataReel Software Development
+// Date Last Modified: 07/31/2021
+// Copyright (c) 2001-2021 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
 // ----------------------------------------------------------- // 
@@ -107,6 +107,12 @@ private:
 #include <openssl/rand.h>
 #include <openssl/opensslv.h>
 // --------------------------------------------------------------
+
+// 07/31/2021: Include support for openssl 1.0.1
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#define OBJ_get0_data(o) ((o)->data)
+#define OBJ_length(o) ((o)->length)
+#endif
 
 // --------------------------------------------------------------
 // Enumerations

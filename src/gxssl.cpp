@@ -6,8 +6,8 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 10/18/2016
-// Copyright (c) 2001-2016 DataReel Software Development
+// Date Last Modified: 07/31/2021
+// Copyright (c) 2001-2021 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -528,6 +528,7 @@ int gxSSL::AcceptSSLSocket()
   return ssl_error = gxSSL_NO_ERROR;
 }
 
+// 07/31/2021: Include support for openssl 1.0.1
 int gxSSL::CloseSSLSocket(int destroy_ssl)
 // Function used to close an SSL socket connection.
 // Returns 0 if successful. 
@@ -537,7 +538,11 @@ int gxSSL::CloseSSLSocket(int destroy_ssl)
   int rv = SSL_shutdown(ssl);
   if(!rv) {
     int open_socket;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     BIO_get_fd(ssl->rbio, &open_socket);
+#else
+    BIO_get_fd(SSL_get_rbio(ssl), &open_socket);
+#endif
     shutdown(open_socket, 1);
     rv = SSL_shutdown(ssl);
   }
@@ -647,6 +652,7 @@ int gxSSL::RecvSSLSocket(void *buf, int bytes, int seconds, int useconds)
   return RecvSSLSocket(buf, bytes, 1, seconds, useconds);
 }
 
+// 07/31/2021: Include support for openssl 1.0.1
 int gxSSL::RecvSSLSocket(void *buf, int bytes, int useTimeout, int seconds,
 			 int useconds)
 // Receive a block of data from a specified socket and do not return
@@ -664,7 +670,12 @@ int gxSSL::RecvSSLSocket(void *buf, int bytes, int useTimeout, int seconds,
   char *p = (char *)buf; // Pointer to the buffer
 
   int open_socket;
-  BIO_get_fd(ssl->rbio, &open_socket);
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+    BIO_get_fd(ssl->rbio, &open_socket);
+#else
+    BIO_get_fd(SSL_get_rbio(ssl), &open_socket);
+#endif
+  
   gxSocket gxsocket_object;
   
   while(bytes_read < bytes) { // Loop until the buffer is full
@@ -721,6 +732,7 @@ SSL_CTX *gxSSL::InitCTX(const char *cert_fname, const char *key_fname,
   return InitCTX();
 } 
 
+// 07/31/2021: Include support for openssl 1.0.1
 SSL_CTX *gxSSL::InitCTX() 
 // Function used to initialize an SSL context object. 
 // Returns a pointer to the context object or a null value 
@@ -772,13 +784,25 @@ SSL_CTX *gxSSL::InitCTX()
 #ifndef OPENSSL_NO_SSL2
     case gxSSL_SSLv2:
       if(is_client) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = SSLv2_client_method();
+#else
+	meth = SSLv23_client_method();
+#endif
       }
       else if(is_server) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = SSLv2_server_method();
+#else
+	meth = SSLv23_server_method();
+#endif
       }
       else {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = SSLv2_method();
+#else
+	meth = SSLv23_method();
+#endif
       }
       break;
 #endif
@@ -957,6 +981,7 @@ void gxSSL::DestroySSL()
   ssl = 0;
 }
 
+// 07/31/2021: Include support for openssl 1.0.1
 int gxSSL::InitSSLibrary()
 // Function used to initialize the SSL library. 
 // Returns true after initialization or if the 
@@ -966,7 +991,12 @@ int gxSSL::InitSSLibrary()
   if(!gxSSL::lib_init) {
     SSL_library_init();       // Initialize SSL library
     SSL_load_error_strings(); // Map SSL error numbers to strings
+
+    // This is no longer needed as OpenSSL 1.1.0 as this is done automatically.
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     SSLeay_add_all_algorithms ();
+#endif
+    
     SSLeay_add_ssl_algorithms ();
     gxSSL::lib_init = 1;
   }
@@ -1166,6 +1196,7 @@ int gxSSL::VerifyCert(const char *hostname, long *X509_return_code)
   return ssl_error = gxSSL_NO_ERROR;
 }
 
+// 07/31/2021: Include support for openssl 1.0.1
 int gxSSL::MakeDHParms(const char *dh_fname, 
 		       unsigned char *dh1024_p, int dh1024_p_len,  
 		       unsigned char *dh1024_g, int dh1024_g_len)
@@ -1192,6 +1223,8 @@ int gxSSL::MakeDHParms(const char *dh_fname,
   if(!dh) {
     return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
   }
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
   if(dh1024_p) {
     if(dh1024_p_len <= 0) {
       DH_free(dh);
@@ -1217,7 +1250,37 @@ int gxSSL::MakeDHParms(const char *dh_fname,
     DH_free(dh);
     return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
   }
-    
+#else
+  BIGNUM* p = 0;
+  BIGNUM* g = 0;
+
+  if(dh1024_p) {
+    if(dh1024_p_len <= 0) {
+      DH_free(dh);
+      return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
+    }
+    p = BN_bin2bn(dh1024_p, dh1024_p_len, 0);
+  }
+  else {
+    p = BN_bin2bn(dh1024_p_default, sizeof(dh1024_p_default), 0);
+  }
+  if(dh1024_g) {
+    if(dh1024_g_len <= 0) {
+      DH_free(dh);
+      return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
+    }
+    g = BN_bin2bn(dh1024_g, dh1024_g_len, 0);
+  }
+  else {
+    g = BN_bin2bn(dh1024_g_default, sizeof(dh1024_g_default), 0);
+  }
+  
+  if(DH_set0_pqg(dh, p, NULL, g) == 0) {
+    DH_free(dh);
+    return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
+  }
+#endif
+  
   FILE *fp = fopen(dh_fname, "w+b");
   if(!fp) {
     app_err_str << clear << "SSL exception: Can't write DH parms file " 
