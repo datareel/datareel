@@ -1,3 +1,0 @@
-#!/bin/bash
-
-/usr/sbin/drcm_server --client --command=cm_stat
