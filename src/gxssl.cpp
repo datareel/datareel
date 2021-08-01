@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 07/31/2021
+// Date Last Modified: 08/01/2021
 // Copyright (c) 2001-2021 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -823,13 +823,25 @@ SSL_CTX *gxSSL::InitCTX()
 #ifndef OPENSSL_NO_TLS1_METHOD
     case gxSSL_TLSv1:
       if(is_client) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = TLSv1_client_method();
+#else
+	meth = TLS_client_method();
+#endif
       }
       else if(is_server) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = TLSv1_server_method();
+#else
+	meth = TLS_server_method();
+#endif
       }
       else {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = TLSv1_method();
+#else
+	meth = TLS_method();
+#endif
       }
       break;
 #endif
@@ -837,13 +849,25 @@ SSL_CTX *gxSSL::InitCTX()
 #ifndef OPENSSL_NO_TLS1_1_METHOD
     case gxSSL_TLSv1_1:
       if(is_client) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = TLSv1_1_client_method();
+#else
+	meth = TLS_client_method();
+#endif
       }
       else if(is_server) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = TLSv1_1_server_method();
+#else
+	meth = TLS_server_method();
+#endif
       }
       else {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = TLSv1_1_method();
+#else
+	meth = TLS_method();
+#endif
       }
       break;
 #endif
@@ -851,13 +875,25 @@ SSL_CTX *gxSSL::InitCTX()
 #ifndef OPENSSL_NO_TLS1_2_METHOD
     case gxSSL_TLSv1_2:
       if(is_client) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = TLSv1_2_client_method();
+#else
+	meth = TLS_client_method();
+#endif
       }
       else if(is_server) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = TLSv1_2_server_method();
+#else
+	meth = TLS_server_method();
+#endif
       }
       else {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = TLSv1_2_method();
+#else
+	meth = TLS_method();
+#endif
       }
       break;
 
@@ -866,13 +902,25 @@ SSL_CTX *gxSSL::InitCTX()
 #ifndef OPENSSL_NO_DTLS1_METHOD
     case gxSSL_DTLSv1:
       if(is_client) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = DTLSv1_client_method();
+#else
+	meth = DTLS_client_method();
+#endif
       }
       else if(is_server) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = DTLSv1_server_method();
+#else
+	meth = DTLS_server_method();
+#endif
       }
       else {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = DTLSv1_method();
+#else
+	meth = DTLS_method();
+#endif
       }
       break;
 #endif
@@ -881,13 +929,25 @@ SSL_CTX *gxSSL::InitCTX()
 #ifndef OPENSSL_NO_DTLS1_2_METHOD
     case gxSSL_DTLSv1_2:
       if(is_client) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         meth = DTLSv1_2_client_method();
+#else
+	meth = DTLS_client_method();
+#endif
       }
       else if(is_server) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = DTLSv1_2_server_method();
+#else
+	meth = DTLS_server_method();
+#endif
       }
       else {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	meth = DTLSv1_2_method();
+#else
+	meth = DTLS_method();
+#endif
       }
       break;
 #endif
@@ -1333,6 +1393,7 @@ int gxSSL::MakeRSAEphKey(int key_len)
 {
   if(InitPRNG() != gxSSL_NO_ERROR) return ssl_error;
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
   if(key_len < 512) key_len = 512;
   RSA *rsa = RSA_generate_key(key_len, RSA_F4, 0, 0);
   if(!rsa) {
@@ -1342,7 +1403,34 @@ int gxSSL::MakeRSAEphKey(int key_len)
     return ssl_error = gxSSL_RSAGEN_ERROR;
   }
   RSA_free(rsa);
+#else
+  if(key_len < 512) key_len = 512;
+  RSA *rsa = 0;
+  BIGNUM *bne = 0;
+    
+  bne = BN_new();
+  if(BN_set_word(bne, RSA_F4) != 1) {
+    BN_free(bne);
+    return ssl_error = gxSSL_RSAGEN_ERROR;
+  }
 
+  rsa = RSA_new();
+  if(RSA_generate_key_ex(rsa, key_len, bne, 0) != 1) {
+    RSA_free(rsa);
+    BN_free(bne);
+    return ssl_error = gxSSL_RSAGEN_ERROR;
+  }
+
+  if(!SSL_CTX_set_tmp_rsa(ctx, rsa)) {
+    RSA_free(rsa);
+    BN_free(bne);
+    return ssl_error = gxSSL_RSAGEN_ERROR;
+  }
+  
+  RSA_free(rsa);
+  BN_free(bne);
+#endif
+  
   return ssl_error = gxSSL_NO_ERROR;
 }
 
@@ -1444,7 +1532,6 @@ int gxSSL::InitPRNG(int check_prng_init)
 
   return ssl_error = gxSSL_NO_ERROR;
 }
-
 int gxSSL::MakeRSAPrivateKey(const char *key_fname, int key_len,
 			     KeyGenCallbackFunc cb_func, void *cb_arg)
 // Function used to write a private RSA (Rivest, Shamir, Adleman) key to 
@@ -1470,12 +1557,43 @@ int gxSSL::MakeRSAPrivateKey(const char *key_fname, int key_len,
   
   if(InitPRNG(1) != gxSSL_NO_ERROR) return ssl_error;
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
   RSA *rsa = RSA_generate_key(key_len, RSA_F4, cb_func, cb_arg);
   if(!EVP_PKEY_assign_RSA(private_key, rsa)) {
     return ssl_error = gxSSL_RSAGEN_ERROR;
   }
   rsa=0;
+#else
+  RSA *rsa = 0;
+  BIGNUM *bne = 0;
+  BN_GENCB *pcb;
+  
+  bne = BN_new();
+  if(BN_set_word(bne, RSA_F4) != 1) {
+    BN_free(bne);
+    return ssl_error = gxSSL_RSAGEN_ERROR;
+  }
 
+  pcb = BN_GENCB_new();
+  BN_GENCB_set_old(pcb, cb_func, cb_arg);
+
+  rsa = RSA_new();
+  if(RSA_generate_key_ex(rsa, key_len, bne, pcb) != 1) {
+    RSA_free(rsa);
+    BN_free(bne);
+    BN_GENCB_free(pcb);
+    return ssl_error = gxSSL_RSAGEN_ERROR;
+  }
+
+  if(!EVP_PKEY_assign_RSA(private_key, rsa)) {
+    RSA_free(rsa);
+    BN_free(bne);
+    BN_GENCB_free(pcb);
+    return ssl_error = gxSSL_RSAGEN_ERROR;
+  }
+  // The RSA structure will be automatically freed when the EVP_PKEY structure is freed
+#endif
+  
   if(!PEM_write_PrivateKey(fp, private_key, 0, 0, 0, 0, 0)) {
     return ssl_error = gxSSL_RSAGEN_ERROR;
   }
