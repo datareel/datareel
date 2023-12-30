@@ -1,5 +1,5 @@
 DataReel 5.X Readme File
-DataReel Copyright (c) 2001-2023 DataReel Software Development
+DataReel Copyright (c) 2001-2024 DataReel Software Development
 
 https://github.com/datareel
 
@@ -281,5 +281,5 @@ To build utility programs
 > cd hexdump
 > make
 
-DataReel Copyright (c) 2001-2023 DataReel Software Development
+DataReel Copyright (c) 2001-2024 DataReel Software Development
 

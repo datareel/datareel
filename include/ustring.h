@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/29/1996
-// Date Last Modified: 06/17/2016
-// Copyright (c) 2001-2016 DataReel Software Development
+// Date Last Modified: 12/28/2023
+// Copyright (c) 2001-2024 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
 // ----------------------------------------------------------- // 
@@ -136,6 +136,10 @@ insert comma separated whole numbers into a string.
 07/03/2003: Added the FindMatch() function used to find matching 
 string elements separated by a single "*" character placed at the 
 beginning, middle, or end of a string.
+
+12/28/2023: Added ParseCVSLine() function used to read comma 
+seperated values from data file where double quotes are used 
+to escape values with commas.
 ==============================================================
 */
 // ----------------------------------------------------------- //   
@@ -743,7 +747,10 @@ GXDLCODE_API UString *ParseStrings(const UString &input_str, const UString &deli
 				   int trim_spaces = 0, int trim_quotes = 0);
 GXDLCODE_API UStringw *ParseStrings(const UStringw &input_str, const UStringw &delimiter, unsigned &num_arr, 
 				    int trim_spaces = 0, int trim_quotes = 0);
-
+GXDLCODE_API UString *ParseCVSLine(const UString &input_str, unsigned &num_arr,
+				   int trim_spaces = 1, int trim_quotes = 1);
+GXDLCODE_API UStringw *ParseCVSLine(const UStringw &input_str, unsigned &num_arr,
+				   int trim_spaces = 1, int trim_quotes = 1);
 
 #if defined (__USE_CPP_IOSTREAM__)
 GXDLCODE_API GXSTD::ostream &operator<<(GXSTD::ostream &os, const UString &s);

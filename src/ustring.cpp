@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/29/1996
-// Date Last Modified: 06/17/2016
-// Copyright (c) 2001-2016 DataReel Software Development
+// Date Last Modified: 12/28/2023
+// Copyright (c) 2001-2024 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -4008,6 +4008,238 @@ GXDLCODE_API UStringw *ParseStrings(const UStringw &input_str, const UStringw &d
     strbuf.ReplaceString(replacement, delimiter);
     output_arr[num_arr-1] = strbuf; 
   }
+  return output_arr;
+}
+
+GXDLCODE_API UString *ParseCVSLine(const UString &input_str, unsigned &num_arr,
+				   int trim_spaces, int trim_quotes)
+// Function used to read comma seperated values from data file where double
+// quotes are used to escape values with commas
+{
+  UString *output_arr = 0;
+  int skip = 0;
+  UString value;
+  unsigned i;
+  
+  // We have no delimiter
+  if(input_str.Find(",") == -1) {
+    output_arr = new UString[1];
+    num_arr = 1;
+    output_arr[0] = input_str;
+    return output_arr;
+  }
+
+  // Find the number of "," delimiters
+  skip = 0;
+  num_arr = 0;
+  for(i = 0; i < input_str.length(); i++) {
+    if(skip == 1) {
+      if(i < input_str.length()) {
+	if(input_str[i+1] == '"') {
+	  skip = 0;
+	  num_arr++;
+	}
+      }
+    }
+    
+    if((input_str[i] == ',') && (skip == 0))  {
+      if(i < input_str.length()) {
+	if(input_str[i+1] == '"') {
+	  skip = 1;
+	}
+      }
+      if(skip == 0) {
+	num_arr++;
+      }
+    }
+  }
+  // Account for the last value
+  num_arr++;
+  
+  // Collect all the comma delimited strings
+  output_arr = new UString[num_arr];
+  skip = 0;
+  unsigned pos = 0;
+  for(i = 0; i < input_str.length(); i++) {
+    
+    if(skip == 1) {
+      if(i < input_str.length()) {
+	if(input_str[i+1] == '\"') {
+	  skip = 0;
+	  pos++;
+	}
+      }
+    }
+ 
+    value << input_str[i];
+    if((input_str[i] == ',') && (skip == 0))  {
+      if(i < input_str.length()) {
+	if(input_str[i+1] == '\"') {
+	  value.TrimTrailing(',');
+	  if(trim_spaces) {
+	    value.TrimLeadingSpaces();
+	    value.TrimTrailingSpaces();
+	  }
+	  if(trim_quotes) {
+	    value.TrimLeading('\'');
+	    value.TrimTrailing('\'');
+	    value.TrimLeading('\"');
+	    value.TrimTrailing('\"');
+	  }
+	  output_arr[pos] = value;
+	  value.Clear();
+	  skip = 1;
+	}
+      }
+      if(skip == 0) {
+	value.TrimTrailing(',');
+	if(trim_spaces) {
+	  value.TrimLeadingSpaces();
+	  value.TrimTrailingSpaces();
+	}
+	if(trim_quotes) {
+	  value.TrimLeading('\'');
+	  value.TrimTrailing('\'');
+	  value.TrimLeading('\"');
+	  value.TrimTrailing('\"');
+	}
+	output_arr[pos] = value;
+	value.Clear();
+	pos++;
+      }
+    }
+  }
+
+  // Account for the last delimiter value
+  value.TrimTrailing(',');
+  if(trim_spaces) {
+    value.TrimLeadingSpaces();
+    value.TrimTrailingSpaces();
+  }
+  if(trim_quotes) {
+    value.TrimLeading('\'');
+    value.TrimTrailing('\'');
+    value.TrimLeading('\"');
+    value.TrimTrailing('\"');
+  }
+  output_arr[pos] = value;
+
+  return output_arr;
+}
+
+GXDLCODE_API UStringw *ParseCVSLine(const UStringw &input_str, unsigned &num_arr,
+				   int trim_spaces, int trim_quotes)
+// Function used to read comma seperated values from data file where double
+// quotes are used to escape values with commas
+{
+  UStringw *output_arr = 0;
+  int skip = 0;
+  UStringw value;
+  unsigned i;
+  
+  // We have no delimiter
+  if(input_str.Find(",") == -1) {
+    output_arr = new UStringw[1];
+    num_arr = 1;
+    output_arr[0] = input_str;
+    return output_arr;
+  }
+
+  // Find the number of "," delimiters
+  skip = 0;
+  num_arr = 0;
+  for(i = 0; i < input_str.length(); i++) {
+    if(skip == 1) {
+      if(i < input_str.length()) {
+	if(input_str[i+1] == '"') {
+	  skip = 0;
+	  num_arr++;
+	}
+      }
+    }
+    
+    if((input_str[i] == ',') && (skip == 0))  {
+      if(i < input_str.length()) {
+	if(input_str[i+1] == '"') {
+	  skip = 1;
+	}
+      }
+      if(skip == 0) {
+	num_arr++;
+      }
+    }
+  }
+  // Account for the last value
+  num_arr++;
+  
+  // Collect all the comma delimited strings
+  output_arr = new UStringw[num_arr];
+  skip = 0;
+  unsigned pos = 0;
+  for(i = 0; i < input_str.length(); i++) {
+    
+    if(skip == 1) {
+      if(i < input_str.length()) {
+	if(input_str[i+1] == '\"') {
+	  skip = 0;
+	  pos++;
+	}
+      }
+    }
+ 
+    value << input_str[i];
+    if((input_str[i] == ',') && (skip == 0))  {
+      if(i < input_str.length()) {
+	if(input_str[i+1] == '\"') {
+	  value.TrimTrailing(',');
+	  if(trim_spaces) {
+	    value.TrimLeadingSpaces();
+	    value.TrimTrailingSpaces();
+	  }
+	  if(trim_quotes) {
+	    value.TrimLeading('\'');
+	    value.TrimTrailing('\'');
+	    value.TrimLeading('\"');
+	    value.TrimTrailing('\"');
+	  }
+	  output_arr[pos] = value;
+	  value.Clear();
+	  skip = 1;
+	}
+      }
+      if(skip == 0) {
+	value.TrimTrailing(',');
+	if(trim_spaces) {
+	  value.TrimLeadingSpaces();
+	  value.TrimTrailingSpaces();
+	}
+	if(trim_quotes) {
+	  value.TrimLeading('\'');
+	  value.TrimTrailing('\'');
+	  value.TrimLeading('\"');
+	  value.TrimTrailing('\"');
+	}
+	output_arr[pos] = value;
+	value.Clear();
+	pos++;
+      }
+    }
+  }
+
+  // Account for the last delimiter value
+  value.TrimTrailing(',');
+  if(trim_spaces) {
+    value.TrimLeadingSpaces();
+    value.TrimTrailingSpaces();
+  }
+  if(trim_quotes) {
+    value.TrimLeading('\'');
+    value.TrimTrailing('\'');
+    value.TrimLeading('\"');
+    value.TrimTrailing('\"');
+  }
+  output_arr[pos] = value;
+
   return output_arr;
 }
 
