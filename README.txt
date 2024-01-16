@@ -151,7 +151,7 @@ General
 LICENSE
 -------
 The DataReel open source library is copyrighted by DataReel Software
-Development, Copyright (C) 2001-2016, all rights reserved. DataReel
+Development, Copyright (C) 2001-2024, all rights reserved. DataReel
 open source is available to non-profit, commercial, individual, and
 academic developers. The open-source archive is distributed under the
 GNU Lesser General Public License (LGPL) with provisions for use in
