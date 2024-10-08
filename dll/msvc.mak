@@ -3,10 +3,10 @@
 #######################
 # --------------------------------------------------------------- 
 # Makefile Contents: Makefile for the MSVC gxcode dynamic link library
-# C/C++ Compiler Used: MSVC 6.0 SP5 and Visual C++ .NET
+# C/C++ Compiler Used: MSVC 6.0 SP5, Visual C++ .NET, and VS 2022
 # Produced By: DataReel Software Development Team
 # File Creation Date: 05/25/2001
-# Date Last Modified: 10/17/2005
+# Date Last Modified: 10/08/2024
 # --------------------------------------------------------------- 
 
 # Compile the object files and build the DLL, .exp, .pch, .lib files

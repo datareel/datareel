@@ -43,3 +43,45 @@ Compile and run the program
 > cl testprog.c
 > testprog.exe
 
+To build the datareel library start with the static library build:
+
+> cd %USERPROFILE%\datareel
+> env\msvc.bat
+> cd winslib 
+> nmake -f msvc.mak
+
+The utility programs and examples programs will link to the static
+library. To build the utils:
+
+> cd %USERPROFILE%\datareel\utils
+> cd hexdump
+> nmake -f msvc.mak
+
+To build the examples:
+
+> cd %USERPROFILE%\datareel\examples_database
+> cd simple
+> nmake -f msvc.mak
+
+> cd %USERPROFILE%\datareel\examples_general
+> cd string_class
+> nmake -f msvc.mak
+
+> cd %USERPROFILE%\datareel\examples_socket
+> cd simple
+> nmake -f msvc.mak
+
+> cd %USERPROFILE%\datareel\examples_threads
+> cd simple
+> nmake -f msvc.mak
+
+To build the datareel library as a DLL:
+
+> cd %USERPROFILE%\datareel
+> env\msvc.bat
+> cd dll
+> nmake -f msvc.mak
+
+
+
+
