@@ -22,6 +22,11 @@ FINAL = 0 # Default to debug configuration
 # Setup my path to the gxcode library
 GCODE_LIB_DIR = ..
 
+!IF "$(USESSL)" == "1"
+!MESSAGE Using OpenSSL ENV to set path to OpenSSL LIB
+!include openssl.env
+!ENDIF
+
 !include msvc.env
 
 # Define a name for the static library

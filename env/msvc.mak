@@ -27,6 +27,11 @@ FINAL = 1 # Default to release configuration
 !MESSAGE No 64-bit configuration specified. Defaulting to 32-bit configuration.
 !ENDIF
 
+!IF "$(USESSL)" == "1"
+!MESSAGE Using OpenSSL ENV to set path to OpenSSL LIB
+!include $(GCODE_LIB_PATH)/env/openssl_windows.env
+!ENDIF
+
 !include $(GCODE_LIB_PATH)/winslib/msvc.env
 
 # Define a name for the executable
