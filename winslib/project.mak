@@ -102,8 +102,8 @@ GLIB_SOCKET_EX_OBJECTS = gxshttp$(OBJ_EXT) \
 	gxtelnet$(OBJ_EXT) \
 	wserror$(OBJ_EXT) \
 	gxsrss$(OBJ_EXT) \
-	gxsxml$(OBJ_EXT)
-
+	gxsxml$(OBJ_EXT) \
+	gxssl$(OBJ_EXT)
 
 # Database socket library components
 GLIB_SOCKET_DB_OBJECTS = gxdatagm$(OBJ_EXT) \
