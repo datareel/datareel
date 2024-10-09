@@ -12,20 +12,20 @@
 # Compile the object files and build the DLL, .exp, .pch, .lib files
 # ===============================================================
 all:
-	nmake -f project.mak all FINAL=0 64BITCFG=0 USESSL=0
-	nmake -f project.mak all FINAL=1 64BITCFG=0 USESSL=0
+	nmake -f project.mak all FINAL=0 64BITCFG=0 USESSL=1
+	nmake -f project.mak all FINAL=1 64BITCFG=0 USESSL=1
 
 # install the library files
 # ===============================================================
 install:
-	nmake -f project.mak install FINAL=0 64BITCFG=0 USESSL=0
-	nmake -f project.mak install FINAL=1 64BITCFG=0 USESSL=0
+	nmake -f project.mak install FINAL=0 64BITCFG=0 USESSL=1
+	nmake -f project.mak install FINAL=1 64BITCFG=0 USESSL=1
 
 # Remove library and object files
 # ===============================================================
 clean:
-	nmake -f project.mak clean FINAL=0 64BITCFG=0 USESSL=0
-	nmake -f project.mak clean FINAL=1 64BITCFG=0 USESSL=0
+	nmake -f project.mak clean FINAL=0 64BITCFG=0 USESSL=1
+	nmake -f project.mak clean FINAL=1 64BITCFG=0 USESSL=1
 # --------------------------------------------------------------- 
 #####################
 #### End of File ####

@@ -25,6 +25,11 @@ GCODE_LIB_DIR = $(GCODE_LIB_PATH)
 GLIB_INCLUDE_PATH = ..$(PATHSEP)include$(PATHSEP)
 GLIB_SRC_PATH = ..$(PATHSEP)src$(PATHSEP)
 
+!IF "$(USESSL)" == "1"
+!MESSAGE Using OpenSSL ENV to set path to OpenSSL LIB
+!include openssl.env
+!ENDIF
+
 !include msvc.env
 
 # Define a name for the static library
@@ -392,6 +397,10 @@ $(OUTDIR)\wserror$(OBJ_EXT):	$(GLIB_SRC_PATH)wserror.cpp $(WSERROR_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)wserror.cpp
 
+$(OUTDIR)\gxssl$(OBJ_EXT):	$(GLIB_SRC_PATH)gxssl.cpp $(GXSSL_DEP)
+	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
+	$(GLIB_SRC_PATH)gxssl.cpp
+
 # DLL entry point objects
 GLIB_DLL_OBJECTS = $(OUTDIR)\stdafx$(OBJ_EXT) \
 	$(OUTDIR)\gxdlcode$(OBJ_EXT)
@@ -444,7 +453,8 @@ GLIB_SOCKET_EX_OBJECTS = $(OUTDIR)\gxshttp$(OBJ_EXT) \
 	$(OUTDIR)\gxtelnet$(OBJ_EXT) \
 	$(OUTDIR)\wserror$(OBJ_EXT) \
 	$(OUTDIR)\gxsrss$(OBJ_EXT) \
-	$(OUTDIR)\gxsxml$(OBJ_EXT)
+	$(OUTDIR)\gxsxml$(OBJ_EXT) \
+	$(OUTDIR)\gxssl$(OBJ_EXT)
 
 # Database socket library components
 GLIB_SOCKET_DB_OBJECTS = $(OUTDIR)\gxdatagm$(OBJ_EXT) \
