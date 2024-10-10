@@ -57,6 +57,10 @@ NOTE: Set "--prefix=" to match your installation location.
 
 For the 64-bit build run: perl Configure VC-WIN64A
 
+NOTE: If your applicaion has to be FIPS compliant download an
+openssl version that is FIPS certified. To build a FIPS
+compliant version: perl Configure enable-fips
+
 Start the build:
 
 > nmake
