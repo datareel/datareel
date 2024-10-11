@@ -40,7 +40,8 @@ Unpack the distribution in your home folder:
 
 %USERPROFILE%\3plisbs\openssl-3.3.2
 
-To build setup the Visual Studio environment. Open a command prompt by running the CMD command in a run dialog. At the command prompt run:
+To build setup the Visual Studio environment. Open a command prompt by
+running the CMD command in a run dialog. At the command prompt run: 
 
 > "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
 
@@ -51,15 +52,40 @@ Setup the perl environment:
 Run the openssl configure script:
 
 > cd %USERPROFILE%\3plisbs\openssl-3.3.2
-> perl Configure VC-WIN32 --prefix=c:\openssl -static
+> perl Configure VC-WIN32 --prefix=c:\openssl --openssldir=c:\openssl
 
-NOTE: Set "--prefix=" to match your installation location. 
+NOTE: Set "--prefix=" and "--openssldir" to match your installation location. 
+
+For a Windows 32-bit static build run:
+> perl Configure no-shared VC-WIN32 --prefix=c:\openssl --openssldir=c:\openssl
 
 For the 64-bit build run: perl Configure VC-WIN64A
 
-NOTE: If your applicaion has to be FIPS compliant download an
-openssl version that is FIPS certified. To build a FIPS
-compliant version: perl Configure enable-fips
+NOTE: If your applicaion has to be FIPS compliant download an openssl
+version that is FIPS certified.
+To build a FIPS compliant version: perl Configure enable-fips 
+
+OpenSSL configure options:
+
+Usage: Configure 
+[no-<feature> ...] 
+[enable-<feature> ...] 
+[-Dxxx] [-lxxx] [-Lxxx] [-fxxx] [-Kxxx] [no-hw-xxx|no-hw] 
+[[no-]threads] [[no-]thread-pool] [[no-]default-thread-pool] 
+[[no-]shared] 
+[[no-]zlib|zlib-dynamic] 
+[no-asm] 
+[no-egd] 
+[sctp] 
+[386] 
+[--prefix=DIR] 
+[--openssldir=OPENSSLDIR] 
+[--with-xxx[=vvv]] 
+[--config=FILE] os/compiler[:flags]
+
+Before starting the build check your build configuration:
+
+>  perl configdata.pm --dump
 
 Start the build:
 
