@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 10/18/2016
+// Date Last Modified: 10/15/2024
 // Copyright (c) 2001-2024 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -61,13 +61,21 @@ int main(int argc, char **argv)
   hostname.DeleteAfterLastIncluding("/");
 
   // We must supply a trusted CA list for client-side cert verification
-  openssl_client.SetCAList("/etc/pki/tls/certs/ca-bundle.crt");
+  openssl_client.SetCAList("ca-bundle.crt");
 
-  if(client.InitSocket(SOCK_STREAM, port_number,  hostname.c_str()) < 0) {
-    cout << "ERROR - Cannot open connection to " << hostname.c_str() <<  " TCP port " << port_number << "\n";
-    cout << client.SocketExceptionMessage() << "\n";
-    return 1;
+  if(client.InitSocketLibrary() == 0) {
+    if(client.InitSocket(SOCK_STREAM, port_number,  hostname.c_str()) < 0) {
+      cout << "ERROR - Cannot open connection to " << hostname.c_str() <<  " TCP port " << port_number << "\n";
+      cout << client.SocketExceptionMessage() << "\n";
+      return 1;
+    }
   }
+  else {
+   cout << "ERROR - Cannot init socket library" << "\n";
+   cout << client.SocketExceptionMessage() << "\n";
+   return 1;
+  }
+  
   if(client.Connect() < 0) {
     cout << "ERROR - Cannot connect to " << hostname.c_str() <<  " TCP port " << port_number << "\n";
     cout << client.SocketExceptionMessage() << "\n";
