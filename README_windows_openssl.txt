@@ -110,7 +110,7 @@ To build the datareel library with SSL enabled start with the static library bui
 > cd winslib 
 > notepad openssl.env
 
-Set the path to your openssl installation directory.
+In the openssl.env file set the path to your openssl installation directory.
 
 > nmake -f msvc_ssl.mak
 
@@ -122,12 +122,21 @@ ENV file:
 > cd %USERPROFILE%\datareel\env
 > notepad openssl_windows.env
 
+In the openssl_windows.env  set the path to your openssl installation directory.
+
+--
 To build the example programs:
 
 > cd %USERPROFILE%\datareel\examples_socket
 > cd https_client
 > nmake -f msvc.mak
 
+Before running the example program in you user environment add the
+openssl\bin dir to you PATH:
+
+> set PATH=%PATH%;c:\openssl\bin
+
+--
 To build the datareel library as a DLL with SSL enabled:
 
 > cd %USERPROFILE%\datareel
@@ -135,7 +144,7 @@ To build the datareel library as a DLL with SSL enabled:
 > cd dll
 > notepad openssl.env
 
-Set the path to your openssl installation directory.
+In the openssl.env file set the path to your openssl installation directory.
 
 > nmake -f msvc.mak
 
