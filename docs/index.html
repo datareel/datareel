@@ -46,7 +46,10 @@
 <a href="#SupportedCompilers">Supported Compilers</a><br />
 <a href="#PackageMap">Package Map</a><br />
 <a href="#ExamplePrograms">Example Programs</a><br />
-<a href="#UNIXLIB">Building</a></p>
+<a href="#UNIXLIB">Linux Builds</a><br />
+<a href="#WINLIB">Windows Builds</a><br />
+<a href="README_windows_setup.html">Setup For Windows 11 desktop or Windows server 2025 development system</a></p>
+
 <!-- Begin Title Bar -->
 
 <table border="0" cellpadding="0" width="100%">
@@ -187,7 +190,7 @@ The DataReel project accepts bug fixes, enhancements, and additions
 </table>
 <!-- End Title Bar -->
 
-<p>The DataReel open source library is copyrighted by DataReel Software Development, Copyright &copy; 2001-2024, all rights reserved. DataReel open source is available to non-profit, commercial, individual, and academic developers. The open-source archive is distributed under the <a href="https://www.gnu.org">GNU</a> Lesser General Public License (LGPL) with provisions for use in commercial and non-commercial applications under the terms of the LGPL.</p>
+<p>The DataReel open source library is copyrighted by DataReel Software Development, Copyright &copy; 2001-2025, all rights reserved. DataReel open source is available to non-profit, commercial, individual, and academic developers. The open-source archive is distributed under the <a href="https://www.gnu.org">GNU</a> Lesser General Public License (LGPL) with provisions for use in commercial and non-commercial applications under the terms of the LGPL.</p>
 
 <p>Under the terms of the LGPL you can use the open source code in commercial applications as a static or dynamically linked library. This allows commercial developers to compile the library and link to it without making any changes to the DataReel source code.</p>
 
@@ -210,18 +213,32 @@ gnu.org Website:<br /><br /><a href="https://www.gnu.org/licenses/lgpl.html">htt
 	</tbody>
 </table>
 <!-- End Title Bar -->
+</p>
+The current Datareel release was developed and tested on Red Hat
+Enterprise Linux 8/9/10, Windows 10/11, and Windows 2025 server.
+</p>
 
-<p>The current Datareel release was developed and tested on Red Hat Enterprise Linux 7.2 using GNU g++ 4.8.5 and Intel Parallel Studio XE 2016 update 3. Datareel library can be compiled on any Linux variant with the GNU compiler.&nbsp;</p>
+<p>
+The datareel library can be compiled on any Linux variant with the
+GNU compiler. 
+</p>
 
-<div>The Datareel code base is cross platform and can be compiled using Microsoft&#39;s Visual C++.&nbsp;</div>
+<p>
+The datareel library can be compiled for Windows using Microsoft&#39;s
+Visual Sudio.
+</p>
 
-<div>&nbsp;</div>
+<p>
+Legacy platforms in the code base include HPUX and Solaris but make
+files for legacy platforms are no longer distributed. 
+</p>
 
-<div>Legacy platforms in the code base include HPUX and Solaris.</div>
+<p>
+Datareel has been compiled for use in 16-bit, 32-bit, and 64-bit
+applications. The code base still supports 32-bit applications but
+current development is mainly for use in 64-bit applications.
+</p>
 
-<div>&nbsp;</div>
-
-<div>Datareel has been compiled for use in 16-bit, 32-bit, and 64-bit application. The code base still supports 32-bit applications but current development is mainly for use in 64-bit applications.</div>
 <!-- Begin Title Bar -->
 
 <table border="0" cellpadding="0" width="100%">
@@ -233,15 +250,21 @@ gnu.org Website:<br /><br /><a href="https://www.gnu.org/licenses/lgpl.html">htt
 </table>
 <!-- End Title Bar -->
 
-<div>&nbsp;</div>
+<p>
+For UNIX the current Datareel release supports GNU and Intel compiler
+builds. The code base has been used in super computer applications
+compiled with Cray C++ compilers.
+</p>
 
-<div>The current Datareel release fully supports GNU and Intel compiler builds. The code base has been used in super computer applications compiled with Cray C++ compilers.</div>
+<p>
+For Windows the current Datareel release supports Microsoft
+Visual Sudio 2022 or 2025.
+</p>
 
-<div>&nbsp;</div>
-
-<div>Previous releases supported cross platform Windows builds using MSVC, Visual C++, BCC, and DJGPP. The code will still compile on Windows platforms but the distribution no longer includes the Windows makefiles and Visual Studio project files. &nbsp;</div>
-
-<div>&nbsp;</div>
+<p>
+Previous releases supported cross platform Windows builds using MSVC,
+Visual C++, BCC, and DJGPP. 
+</p>
 
 <table border="0" cellpadding="0" width="100%">
 	<tbody>
@@ -285,7 +308,8 @@ gnu.org Website:<br /><br /><a href="https://www.gnu.org/licenses/lgpl.html">htt
 <table border="0" cellpadding="0" width="100%">
 	<tbody>
 		<tr>
-			<td bgcolor="A0CCFF"><font face="Arial,Helvetica,Sans-serif"><b>&nbsp;<a name="UNIXLIB">Building&nbsp;</a></b></font></td>
+			<td bgcolor="A0CCFF"><font face="Arial,Helvetica,Sans-serif"><b>&nbsp;<a name="UNIXLIB">Linux
+			Builds&nbsp;</a></b></font></td>
 		</tr>
 	</tbody>
 </table>
@@ -367,7 +391,195 @@ gnu.org Website:<br /><br /><a href="https://www.gnu.org/licenses/lgpl.html">htt
 
 <div>&nbsp;</div>
 
+
+<table border="0" cellpadding="0" width="100%">
+	<tbody>
+		<tr>
+			<td bgcolor="A0CCFF"><font face="Arial,Helvetica,Sans-serif"><b>&nbsp;<a name="WINLIB">Windows
+			Builds&nbsp;</a></b></font></td>
+		</tr>
+	</tbody>
+</table>
+<!-- End Title Bar -->
+
+<p style="margin-bottom: 0in; line-height: 100%">In the example build
+below we will assume you are working with a copy</p>
+<p style="margin-bottom: 0in; line-height: 100%">of the datareel
+library unpacked to the &quot;%USERPROFILE%\datareel&quot;</p>
+<p style="margin-bottom: 0in; line-height: 100%">location. 
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">In this document we
+will assume you have installed Visual Studio 2026</p>
+<p style="margin-bottom: 0in; line-height: 100%">and will be working
+on the command line.</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">To setup a command
+line build open a Run dialog and enter cmd to open</p>
+<p style="margin-bottom: 0in; line-height: 100%">a command prompt.</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">To setup the VS 2026
+environment the msvc.bat file is provided in the</p>
+<p style="margin-bottom: 0in; line-height: 100%">env directory. 
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">To build the
+datareel static library without SSL enabled:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; cd
+%USERPROFILE%\datareel</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; env\msvc.bat</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; cd winslib 
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; nmake -f
+msvc.mak</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">The utility programs
+and examples programs will link to the static</p>
+<p style="margin-bottom: 0in; line-height: 100%">library. 
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">To build the example
+programs:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; cd
+%USERPROFILE%\datareel\examples_general</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; cd string_class</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; nmake -f
+msvc.mak</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">To build the
+datareel library as a DLL without SSL enabled:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; cd
+%USERPROFILE%\datareel</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; env\msvc.bat</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; cd dll</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; nmake -f
+msvc.mak</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">To build the
+datareel static library with SSL enabled:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; cd
+%USERPROFILE%\datareel</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; env\msvc.bat</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; cd winslib 
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; notepad
+openssl.env</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">In the openssl.env
+file set the path to your openssl installation directory.</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; nmake -f
+msvc_ssl.mak</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">The utility programs
+and examples programs will link to the static</p>
+<p style="margin-bottom: 0in; line-height: 100%">library. Before you
+can build the utils or example programs with SSL</p>
+<p style="margin-bottom: 0in; line-height: 100%">enabled you must set
+the path to your openssl install in the following</p>
+<p style="margin-bottom: 0in; line-height: 100%">ENV file: 
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; cd
+%USERPROFILE%\datareel\env</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; notepad
+openssl_windows.env</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">In the
+openssl_windows.env  set the path to your openssl installation</p>
+<p style="margin-bottom: 0in; line-height: 100%">directory.</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">To build the example
+programs:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; cd
+%USERPROFILE%\datareel\examples_socket</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; cd https_client</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; nmake -f
+msvc.mak</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Before running the
+example program in you user environment add the</p>
+<p style="margin-bottom: 0in; line-height: 100%">openssl\bin dir to
+your PATH:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; set
+PATH=%PATH%;e:\3plibs\openssl\bin</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">To build the
+datareel library as a DLL with SSL enabled:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; cd
+%USERPROFILE%\datareel</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; env\msvc.bat</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; cd dll</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; notepad
+openssl.env</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">In the openssl.env
+file set the path to your openssl installation directory.</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; nmake -f
+msvc.mak</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+
 <hr color="#000000" noshade="noshade" size="1" /><!-- Start Copyright Information -->
-<p><font color="000000">DataReel Copyright &copy; 2001-2024&nbsp;DataReel Software Development</font></p>
+<p><font color="000000">DataReel Copyright &copy; 2001-2025&nbsp;DataReel Software Development</font></p>
 </body>
 </html>

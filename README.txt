@@ -286,10 +286,43 @@ To build utility programs
 
 BUILDING WINDOWS STATIC LIBRARY and DLL
 ---------------------------------------
-In the example build below we will assume you are working with a copy of the datareel
-library unpacked to the "%USERPROFILE%\datareel" location.
+In the example build below we will assume you are working with a copy
+of the datareel library unpacked to the "%USERPROFILE%\datareel"
+location. 
 
-To build the datareel library with SSL enabled start with the static library build:
+In this document we will assume you have installed Visual Studio 2026
+and will be working on the command line.
+
+To setup a command line build open a Run dialog and enter cmd to open
+a command prompt.
+
+To setup the VS 2026 environment the msvc.bat file is provided in the
+env directory. 
+
+To build the datareel static library without SSL enabled:
+
+> cd %USERPROFILE%\datareel
+> env\msvc.bat
+> cd winslib 
+> nmake -f msvc.mak
+
+The utility programs and examples programs will link to the static
+library. 
+
+To build the example programs:
+
+> cd %USERPROFILE%\datareel\examples_general
+> cd string_class
+> nmake -f msvc.mak
+
+To build the datareel library as a DLL without SSL enabled:
+
+> cd %USERPROFILE%\datareel
+> env\msvc.bat
+> cd dll
+> nmake -f msvc.mak
+
+To build the datareel static library with SSL enabled:
 
 > cd %USERPROFILE%\datareel
 > env\msvc.bat
@@ -322,7 +355,6 @@ openssl\bin dir to your PATH:
 
 > set PATH=%PATH%;e:\3plibs\openssl\bin
 
---
 To build the datareel library as a DLL with SSL enabled:
 
 > cd %USERPROFILE%\datareel
@@ -335,4 +367,3 @@ In the openssl.env file set the path to your openssl installation directory.
 > nmake -f msvc.mak
 
 DataReel Copyright (c) 2001-2025 DataReel Software Development
-

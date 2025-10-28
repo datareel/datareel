@@ -1,0 +1,498 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html>
+<head>
+	<meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+	<title></title>
+	<meta name="generator" content="LibreOffice 6.4.7.2 (Linux)"/>
+	<meta name="created" content="00:00:00"/>
+	<meta name="changed" content="00:00:00"/>
+	<style type="text/css">
+		@page { size: 8.5in 11in; margin: 1in }
+		p { margin-bottom: 0.1in; direction: ltr; line-height: 115%; text-align: left; orphans: 2; widows: 2; background: transparent }
+		a:link { color: #000080; so-language: zxx; text-decoration: underline }
+	</style>
+</head>
+<body lang="en" link="#000080" vlink="#800000" dir="ltr"><p style="margin-bottom: 0in; line-height: 100%">
+Setup For Windows 11 desktop or Windows server 2025 development
+system as a Linux KVM virtual machine</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">On the Linux KVM
+host:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; sudo -i</p>
+<p style="margin-bottom: 0in; line-height: 100%"># cd
+/var/lib/libvirt/images</p>
+<p style="margin-bottom: 0in; line-height: 100%"># qemu-img create -f
+qcow2 win11_dev_system.qcow2 500G</p>
+<p style="margin-bottom: 0in; line-height: 100%"># qemu-img create -f
+qcow2 win11_dev_system_data_drive.qcow2 500G</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"># virt-manager</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">CPUs = 8</p>
+<p style="margin-bottom: 0in; line-height: 100%">Memory = 16384</p>
+<p style="margin-bottom: 0in; line-height: 100%">SATA disk = 
+var/lib/libvirt/images/win11_dev_system.qcow2</p>
+<p style="margin-bottom: 0in; line-height: 100%">NIC=e1000e</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">NOTE: Before
+building change BOOT from BIOS to UEFI</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">NOTE: For Window 11
+TPM is required</p>
+<p style="margin-bottom: 0in; line-height: 100%">Add Hardware = TPM
+(default settings)</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Start install from
+ISO image mounted to SATA CDROM</p>
+<p style="margin-bottom: 0in; line-height: 100%">The installation ISO
+images can be downloaded from:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><a href="https://www.microsoft.com/en-us/software-download/windows11"><font color="#1155cc"><u>https://www.microsoft.com/en-us/software-download/windows11</u></font></a>
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><a href="https://www.microsoft.com/en-us/evalcenter/download-windows-server-2025"><font color="#1155cc"><u>https://www.microsoft.com/en-us/evalcenter/download-windows-server-2025</u></font></a></p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">After the install
+completes setup your username and password on the Windows 11 VM.</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Set the computer
+name:</p>
+<p style="margin-bottom: 0in; line-height: 100%">System-&gt;About-&gt;Rename
+this PC</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Set up the automatic
+updates to download and install patches when Available.</p>
+<p style="margin-bottom: 0in; line-height: 100%">Control
+Panel-&gt;System-&gt;Windows Update</p>
+<p style="margin-bottom: 0in; line-height: 100%">Install latest
+patches and reboot. 
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">For Windows 2025
+server:</p>
+<p style="margin-bottom: 0in; line-height: 100%">To add services,
+programs and features go to Server Manager and click on Add roles and
+features.</p>
+<p style="margin-bottom: 0in; line-height: 100%">Server
+Manager-&gt;Dashboard-&gt;Add roles and features</p>
+<p style="margin-bottom: 0in; line-height: 100%">Role-based or
+feature-based installation</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Check all the roles
+needed:</p>
+<p style="margin-bottom: 0in; line-height: 100%">Active Directory
+(all services except rights management)</p>
+<p style="margin-bottom: 0in; line-height: 100%">File and Storage
+Service (expand and install all other file services)</p>
+<p style="margin-bottom: 0in; line-height: 100%">Network Policy 
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Print and
+Documentation Services 
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Remote Desktop
+Services</p>
+<p style="margin-bottom: 0in; line-height: 100%">Volume Activation
+Services</p>
+<p style="margin-bottom: 0in; line-height: 100%">Windows Deployment
+Services</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">After the initial
+setup is complete shutdown the VM and add the second hard drive:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">SATA disk = 
+var/lib/libvirt/images/win11_dev_system_data_drive.qcow2</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Unmount the ISO
+image from the SATA CDROM and start the Windows 11 VM.</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">System drive = C:</p>
+<p style="margin-bottom: 0in; line-height: 100%">Optical drive = D:</p>
+<p style="margin-bottom: 0in; line-height: 100%">Data drive = E:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Using a separate
+data drive for all git repos and build so the drive can be copied and
+used on other development VMs.</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">On the Window VM
+install the virtualization guest tools. The latest Virtio drivers can
+be downloaded from:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><a href="https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/latest-virtio"><font color="#1155cc"><u>https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/latest-virtio</u></font></a>
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Download and install
+the following:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">virtio-win-guest-tools.exe</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">On the Windows VM
+install the following applications need for development work:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">7zip</p>
+<p style="margin-bottom: 0in; line-height: 100%"><a href="https://www.7-zip.org/"><font color="#1155cc"><u>https://www.7-zip.org/</u></font></a></p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Emacs</p>
+<p style="margin-bottom: 0in; line-height: 100%"><a href="https://ftp.gnu.org/gnu/emacs/windows/"><font color="#1155cc"><u>https://ftp.gnu.org/gnu/emacs/windows/</u></font></a></p>
+<p style="margin-bottom: 0in; line-height: 100%">EMACS profile per
+user: %USERPROFILE%\AppData\Roaming\.emacs</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">GIT</p>
+<p style="margin-bottom: 0in; line-height: 100%"><a href="https://git-scm.com/install/windows"><font color="#1155cc"><u>https://git-scm.com/install/windows</u></font></a></p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Firefox</p>
+<p style="margin-bottom: 0in; line-height: 100%"><a href="https://www.firefox.com/en-US/"><font color="#1155cc"><u>https://www.firefox.com/en-US/</u></font></a></p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Chrome</p>
+<p style="margin-bottom: 0in; line-height: 100%"><a href="https://www.google.com/chrome/dr/download/"><font color="#1155cc"><u>https://www.google.com/chrome/dr/download/</u></font></a></p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">On the Windows VM if
+you need to add any additional ENV paths:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Search-&gt;Edit
+environment variables for your account</p>
+<p style="margin-bottom: 0in; line-height: 100%">User variables for
+username-&gt;Path-&gt;Edit-&gt;New</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Or 
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Search-&gt;Edit the
+system environment variables</p>
+<p style="margin-bottom: 0in; line-height: 100%">System
+Properties-&gt;User Profiles-&gt;Environment Variables</p>
+<p style="margin-bottom: 0in; line-height: 100%">System
+Variables-&gt;Path-&gt;Edit-&gt;New</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Microsoft Visual
+Studio Install</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">OpenSSL Build for
+Windows 
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">For the OpenSSL
+build you will need to install Perl for Windows and NASM if you build
+OpenSSL with machine language optimizations. 
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">To install Perl for
+Windows:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Download the latest
+portable version strawberry Perl:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><a href="https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases"><font color="#1155cc"><u>https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases</u></font></a>
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Unzip the 64-bit
+portable package to C:\strawberry-perl</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">To setup the perl
+environment in a command prompt window run:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">C:\strawberry-perl\portableshell.bat</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Install NASM for
+Windows:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Download the latest
+release version:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">https://www.nasm.us/pub/nasm/releasebuilds/2.16.03</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Copy the binary EXE
+files to:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">C:\nasm\bin</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Add the NASM bin
+path to the path for your account:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">Search-&gt;Edit
+environment variables for your account</p>
+<p style="margin-bottom: 0in; line-height: 100%">User variables for
+username-&gt;Path-&gt;Edit-&gt;New-&gt;C:\nasm\bin</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">For the OpenSSL
+build you will need to build the ZLIB compression library:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><a href="https://zlib.net/"><font color="#1155cc"><u>https://zlib.net/</u></font></a></p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">For all the build
+examples this document will reference E:\3plibs\distrib for the
+location of source code download packages and reference E:\3plibs as
+the build location.</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">The examples use a
+command line version of unzip.exe to unpack the zip archives.</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">To build ZLIB from a
+Windows command prompt:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\&gt;cd 3plibs</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs&gt;cd
+distrib</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\distrib&gt;unzip
+-d e:\3plibs zlib131.zip</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\distrib&gt;cd
+e:\3plibs</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs&gt;move
+zlib-1.3.1 zlib32-1.3.1</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs&gt;cd
+zlib32-1.3.1</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\zlib32-1.3.1&gt;
+&quot;C:\Program Files\Microsoft Visual
+Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat&quot;</p>
+<p style="margin-bottom: 0in; line-height: 100%"> &quot;C:\Program
+Files\Microsoft Visual
+Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat&quot;</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\zlib32-1.3.1&gt;nmake
+-f win32\Makefile.msc</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">For the OpenSSL
+build you will need to download the release you wish to use from:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><a href="https://github.com/openssl/openssl"><font color="#1155cc"><u>https://github.com/openssl/openssl</u></font></a></p>
+<p style="margin-bottom: 0in; line-height: 100%"><a href="https://github.com/openssl/openssl/releases"><font color="#1155cc"><u>https://github.com/openssl/openssl/releases</u></font></a>
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">In this document we
+will be using version 3.2.2 to match the RHEL 9 and 10 version.</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">To build OpenSSL
+from a Windows command prompt:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\&gt;cd e:\3plibs</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\distrib&gt;unzip
+-d e:\3plibs openssl-openssl-3.2.2.zip</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\distrib&gt;cd
+e:\3plibs</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs&gt;move
+openssl-openssl-3.2.2 openssl32-openssl-3.2.2</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs&gt;cd
+openssl32-openssl-3.2.2</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\openssl32-openssl-3.2.2&gt;&quot;C:\Program
+Files\Microsoft Visual
+Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat&quot;</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\openssl32-openssl-3.2.2&gt;C:\strawberry-perl\portableshell.bat</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\openssl32-openssl-3.2.2&gt;perl
+Configure VC-WIN32 --prefix=e:\3plibs\openssl
+--openssldir=e:\3plibs\openssl
+--with-zlib-include=e:\3plibs\zlib32-1.3.1
+--with-zlib-lib=e:\3plibs\zlib32-1.3.1 enable-fips no-shared</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\openssl32-openssl-3.2.2&gt;perl
+configdata.pm --dump</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\openssl32-openssl-3.2.2&gt;nmake</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\openssl32-openssl-3.2.2&gt;nmake
+test</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">All tests
+successful.</p>
+<p style="margin-bottom: 0in; line-height: 100%">Files=298,
+Tests=3164, 978 wallclock secs ( 7.58 usr +  1.17 sys =  8.75 CPU)</p>
+<p style="margin-bottom: 0in; line-height: 100%">Result: PASS</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\openssl32-openssl-3.2.2&gt;nmake
+install</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\openssl32-openssl-3.2.2&gt;move
+e:\3plibs\openssl e:\3plibs\openssl32</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\openssl32-openssl-3.2.2&gt;e:\3plibs\openssl32\bin\openssl.exe
+version</p>
+<p style="margin-bottom: 0in; line-height: 100%">OpenSSL 3.2.2 4 Jun
+2024 (Library: OpenSSL 3.2.2 4 Jun 2024)</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">NOTE: To build a
+debug version of OpenSSL run the perl configure script with the
+following option:</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt;perl Configure
+debug-VC-WIN32</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">For the cross
+platform GUI library we will be using wxWidgets.</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">For the wxWidgets
+build you will need to download the release you with to use from:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><a href="https://github.com/wxWidgets/wxWidgets"><font color="#1155cc"><u>https://github.com/wxWidgets/wxWidgets</u></font></a></p>
+<p style="margin-bottom: 0in; line-height: 100%"><a href="https://github.com/wxWidgets/wxWidgets/releases"><font color="#1155cc"><u>https://github.com/wxWidgets/wxWidgets/releases</u></font></a></p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">In this document we
+will be using version 3.2.4</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\&gt;cd 3plibs</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs&gt;mkdir
+e:\3plibs\wxWidgets32-3.2.4</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs&gt;cd
+e:\3plibs\distrib</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\distrib&gt;unzip
+-d e:\3plibs\wxWidgets32-3.2.4 wxWidgets-3.2.4.zip</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\distrib&gt;cd
+e:\3plibs\wxWidgets32-3.2.4\build\msw</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\wxWidgets32-3.2.4\build\msw&gt;&quot;C:\Program
+Files\Microsoft Visual
+Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat&quot;</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\wxWidgets32-3.2.4\build\msw&gt;nmake
+-f makefile.vc BUILD=release SHARED=0 UNICODE=1</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">To test the build:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\wxWidgets32-3.2.4\build\msw&gt;cd
+..\..\samples\minimal</p>
+<p style="margin-bottom: 0in; line-height: 100%">E:\3plibs\wxWidgets32-3.2.4\samples\minimal&gt;nmake
+-f makefile.vc BUILD=release SHARED=0 UNICODE=1</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">NOTE: To build a
+debug version of wxWigets use the following options:</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+<p style="margin-bottom: 0in; line-height: 100%">&gt; nmake -f
+makefile.vc BUILD=debug SHARED=0 UNICODE=1</p>
+<p style="margin-bottom: 0in; line-height: 100%"><br/>
+
+</p>
+</body>
+</html>
