@@ -45,12 +45,14 @@ functions to account for tags using the ; character inside < > tags.
 #include "gxshtml.h"
 #include "gxstring.h"
 
+#if defined (__LINUX__)
 #if defined (__wxWIN201__) || (__wxWIN291__)
 #include "wx2incs.h"  // Include files for wxWindows version 2.X
 #endif
 
 #if defined (__wxWIN302__)
 #include "wx2incs.h"  // Include files for wxWindows version 3.X
+#endif
 #endif
 
 #ifdef __BCC32__

@@ -60,13 +60,16 @@ and EHandler::Terminate() functions.
 #include <string.h>
 #include "ehandler.h"
 
-#if defined (__wxWIN168B__)
+#if defined (__wxWIN168B__) && defined (__LINUX__)
 #include "wxincs.h"
 
-#elif defined (__wxWIN201__) || (__wxWIN291__)
+#elif defined (__wxWIN201__) && defined (__LINUX__)
 #include "wx2incs.h"
 
-#elif defined (__wxWIN302__)
+#elif defined (__wxWIN291__) && defined (__LINUX__)
+#include "wx2incs.h"
+
+#elif defined (__wxWIN302__) && defined (__LINUX__)
 #include "wx3incs.h"
 
 #elif defined (__CONSOLE__)

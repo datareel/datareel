@@ -159,13 +159,14 @@ to escape values with commas.
 #endif // __USE_ANSI_CPP__
 #endif // __USE_CPP_IOSTREAM__
 
+#if defined (__LINUX__)
 #if defined (__wxWIN201__) || (__wxWIN291__)
 // 10/13/2002: Added support for the wxString class
 #include "wx2incs.h"
 #endif
-
 #if defined (__wxWIN302__)
 #include "wx3incs.h"
+#endif
 #endif
 
 // Null string class used to reserve address space for null strings

@@ -6,8 +6,8 @@
 // Compiler Used: MSVC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997 
-// Date Last Modified: 06/17/2016
-// Copyright (c) 2001-2024 DataReel Software Development
+// Date Last Modified: 10/21/2025
+// Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
 // ----------------------------------------------------------- // 
@@ -85,6 +85,21 @@ GXDLCODE_API gxdFPTR64 *gxdFPTR64Create(const char *fname)
 #if defined (__WIN32__)
 
 #ifdef _UNICODE
+
+#ifdef __VS2026__
+  const char* narrowString = fname;
+  wchar_t wideBuffer[1024];
+  MultiByteToWideChar(CP_ACP, 0, narrowString, -1, wideBuffer, 1024);
+
+  stream->fptr = CreateFile(wideBuffer, 
+			    GENERIC_READ|GENERIC_WRITE, 
+			    FILE_SHARE_READ|FILE_SHARE_WRITE, 
+			    NULL, // No security
+			    CREATE_ALWAYS, 
+			    FILE_ATTRIBUTE_NORMAL|FILE_FLAG_RANDOM_ACCESS,
+			    NULL // No attr. template 
+			    );
+#else
   USES_CONVERSION;
   stream->fptr = CreateFile(A2T((char*)fname), 
 			    GENERIC_READ|GENERIC_WRITE, 
@@ -94,6 +109,7 @@ GXDLCODE_API gxdFPTR64 *gxdFPTR64Create(const char *fname)
 			    FILE_ATTRIBUTE_NORMAL|FILE_FLAG_RANDOM_ACCESS,
 			    NULL // No attr. template 
 			    );
+#endif
 #else
   stream->fptr = CreateFile(fname, 
 			    GENERIC_READ|GENERIC_WRITE, 
@@ -133,12 +149,29 @@ GXDLCODE_API gxdFPTR64 *gxdFPTR64Open(const char *fname,
   gxdFPTR64 *stream = new gxdFPTR64;
   if(!stream) return 0;
 #if defined (__WIN32__) && defined (_UNICODE)
+#ifndef __VS2026__
   USES_CONVERSION;
+#endif
 #endif
 
   if(mode == gxDBASE_READONLY) { // Open for read only access
 #if defined (__WIN32__)
 #ifdef _UNICODE
+
+#ifdef __VS2026__    
+    const char* narrowString = fname;
+    wchar_t wideBuffer[1024];
+    MultiByteToWideChar(CP_ACP, 0, narrowString, -1, wideBuffer, 1024);
+
+    stream->fptr = CreateFile(wideBuffer,
+			      GENERIC_READ,
+			      FILE_SHARE_READ|FILE_SHARE_WRITE, 
+			      NULL, // No security
+			      OPEN_EXISTING, 
+			      FILE_ATTRIBUTE_NORMAL|FILE_FLAG_RANDOM_ACCESS, 
+			      NULL // No attr. template 
+			      );
+#else
     stream->fptr = CreateFile(A2T((char*)fname), 
 			      GENERIC_READ,
 			      FILE_SHARE_READ|FILE_SHARE_WRITE, 
@@ -147,6 +180,7 @@ GXDLCODE_API gxdFPTR64 *gxdFPTR64Open(const char *fname,
 			      FILE_ATTRIBUTE_NORMAL|FILE_FLAG_RANDOM_ACCESS, 
 			      NULL // No attr. template 
 			      );
+#endif
 #else
     stream->fptr = CreateFile(fname, 
 			      GENERIC_READ,
@@ -177,6 +211,20 @@ GXDLCODE_API gxdFPTR64 *gxdFPTR64Open(const char *fname,
   else { // Open for read/write access
 #if defined (__WIN32__)
 #ifdef _UNICODE
+#ifdef __VS2026__
+    const char* narrowString = fname;
+    wchar_t wideBuffer[1024];
+    MultiByteToWideChar(CP_ACP, 0, narrowString, -1, wideBuffer, 1024);
+
+    stream->fptr = CreateFile(wideBuffer,
+			      GENERIC_READ|GENERIC_WRITE, 
+			      FILE_SHARE_READ|FILE_SHARE_WRITE, 
+			      NULL, // No security 
+			      OPEN_EXISTING, 
+			      FILE_ATTRIBUTE_NORMAL|FILE_FLAG_RANDOM_ACCESS, 
+			      NULL // No attr. template 
+			      );
+#else
     stream->fptr = CreateFile(A2T((char*)fname), 
 			      GENERIC_READ|GENERIC_WRITE, 
 			      FILE_SHARE_READ|FILE_SHARE_WRITE, 
@@ -185,6 +233,7 @@ GXDLCODE_API gxdFPTR64 *gxdFPTR64Open(const char *fname,
 			      FILE_ATTRIBUTE_NORMAL|FILE_FLAG_RANDOM_ACCESS, 
 			      NULL // No attr. template 
 			      );
+#endif
 #else
     stream->fptr = CreateFile(fname, 
 			      GENERIC_READ|GENERIC_WRITE, 
@@ -381,6 +430,20 @@ GXDLCODE_API int gxdFPTR64Exists(const char *fname)
 {
 #if defined (__WIN32__)
 #ifdef _UNICODE
+#ifdef __VS2026__
+  const char* narrowString = fname;
+  wchar_t wideBuffer[1024];
+  MultiByteToWideChar(CP_ACP, 0, narrowString, -1, wideBuffer, 1024);
+
+  HANDLE hFile = CreateFile(wideBuffer, 
+			    GENERIC_READ,
+			    FILE_SHARE_READ|FILE_SHARE_WRITE, 
+			    NULL, // No security
+			    OPEN_EXISTING, 
+			    FILE_ATTRIBUTE_NORMAL, 
+			    NULL // No attr. template
+			    );
+#else
   USES_CONVERSION;
   HANDLE hFile = CreateFile(A2T((char*)fname), 
 			    GENERIC_READ,
@@ -390,6 +453,7 @@ GXDLCODE_API int gxdFPTR64Exists(const char *fname)
 			    FILE_ATTRIBUTE_NORMAL, 
 			    NULL // No attr. template
 			    );
+#endif
 #else
   HANDLE hFile = CreateFile(fname, 
 			    GENERIC_READ,
@@ -423,6 +487,20 @@ GXDLCODE_API __LLWORD__ gxdFPTR64FileSize(const char *fname)
 {
 #if defined (__WIN32__)
 #ifdef _UNICODE
+#ifdef __VS2026__
+  const char* narrowString = fname;
+  wchar_t wideBuffer[1024];
+  MultiByteToWideChar(CP_ACP, 0, narrowString, -1, wideBuffer, 1024);
+
+  HANDLE hFile = CreateFile(wideBuffer, 
+			    GENERIC_READ,
+			    FILE_SHARE_READ|FILE_SHARE_WRITE, 
+			    NULL, // No security
+			    OPEN_EXISTING, 
+			    FILE_ATTRIBUTE_NORMAL, 
+			    NULL // No attr. template 
+			    );
+#else
   USES_CONVERSION;
   HANDLE hFile = CreateFile(A2T((char*)fname), 
 			    GENERIC_READ,
@@ -432,6 +510,7 @@ GXDLCODE_API __LLWORD__ gxdFPTR64FileSize(const char *fname)
 			    FILE_ATTRIBUTE_NORMAL, 
 			    NULL // No attr. template 
 			    );
+#endif
 #else
   HANDLE hFile = CreateFile(fname, 
 			    GENERIC_READ,

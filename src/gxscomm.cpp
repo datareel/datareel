@@ -274,6 +274,30 @@ int gxSerialComm::OpenSerialPort(char *device_name)
 #if defined (__WIN32__)
   // Open com ports 1 through 9 for read/write access.
   // Valid device names for Windows are: COM1, COM2, etc.
+
+#ifdef _UNICODE
+#ifdef __VS2026__
+  const char* narrowString = device_name;
+  wchar_t wideBuffer[1024];
+  MultiByteToWideChar(CP_ACP, 0, narrowString, -1, wideBuffer, 1024);
+  device_handle = CreateFile(wideBuffer,
+			     GENERIC_READ | GENERIC_WRITE,
+			     FILE_SHARE_READ | FILE_SHARE_WRITE,
+			     NULL,
+			     OPEN_EXISTING,
+			     FILE_FLAG_OVERLAPPED,
+			     NULL);
+#else
+  USES_CONVERSION;
+  device_handle = CreateFile(A2T(device_name),
+			     GENERIC_READ | GENERIC_WRITE,
+			     FILE_SHARE_READ | FILE_SHARE_WRITE,
+			     NULL,
+			     OPEN_EXISTING,
+			     FILE_FLAG_OVERLAPPED,
+			     NULL);
+#endif
+#else
   device_handle = CreateFile(device_name,
 			     GENERIC_READ | GENERIC_WRITE,
 			     FILE_SHARE_READ | FILE_SHARE_WRITE,
@@ -281,7 +305,8 @@ int gxSerialComm::OpenSerialPort(char *device_name)
 			     OPEN_EXISTING,
 			     FILE_FLAG_OVERLAPPED,
 			     NULL);
-  
+#endif
+
   if(device_handle == INVALID_HANDLE_VALUE) {
     scomm_error = gxSerialComm::scomm_OPEN_ERROR;
     return -1;

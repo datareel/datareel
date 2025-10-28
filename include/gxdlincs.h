@@ -132,9 +132,12 @@ static library code bases.
 #include "thrtypes.h"
 #include "ustring.h"
 #include "wserror.h"
+#if defined (__LINUX__)
 #include "wx3incs.h"
 #include "wx2incs.h"
 #include "wxincs.h"
+#endif
+
 
 #endif // __MSVC_DLL__
 

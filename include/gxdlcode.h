@@ -88,6 +88,17 @@ library.
 #define __WINCE__
 #endif // Windows CE macros
 
+// 10/21/2025: Moved the wxWidgets includes here for Windows builds
+// the wx included must be delcared before windows.h when using VS2026
+#if defined (__WIN32__)
+#if defined (__wxWIN201__) || (__wxWIN291__)
+#include "wx2incs.h"
+#endif
+#if defined (__wxWIN302__)
+#include "wx3incs.h"
+#endif
+#endif
+
 #endif // __GX_DLL_CODE_HPP__
 // ----------------------------------------------------------- //
 // ------------------------------- //
