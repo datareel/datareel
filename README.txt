@@ -1,5 +1,5 @@
 DataReel 5.X Readme File
-DataReel Copyright (c) 2001-2024 DataReel Software Development
+DataReel Copyright (c) 2001-2025 DataReel Software Development
 
 https://github.com/datareel
 
@@ -183,28 +183,32 @@ https://www.gnu.org/licenses/lgpl.html
 SUPPORTED PLATFORMS
 -------------------
 The current Datareel release was developed and tested on Red Hat
-Enterprise Linux 7.2 using GNU g++ 4.8.5 and Intel Parallel Studio XE
-2016 update 3. Datareel library can be compiled on any Linux variant
-with the GNU compiler. 
-The Datareel code base is cross platform and can be compiled using
-Microsoft's Visual C++. 
- 
-Legacy platforms in the code base include HPUX and Solaris.
+Enterprise Linux 8/9/10, Windows 10/11, and Windows 2025 server.
+
+The datareel library can be compiled on any Linux variant with the
+GNU compiler. 
+
+The datareel library can be compiled for Windows using Microsoft
+Visual Sudio.
+
+Legacy platforms in the code base include HPUX and Solaris but make
+files are no longer distributed. 
  
 Datareel has been compiled for use in 16-bit, 32-bit, and 64-bit
-application. The code base still supports 32-bit applications but
+applications. The code base still supports 32-bit applications but
 current development is mainly for use in 64-bit applications.
       
 SUPPORTED COMPILERS
 -------------------
-The current Datareel release fully supports GNU and Intel compiler
+For UNIX the current Datareel release supports GNU and Intel compiler
 builds. The code base has been used in super computer applications
 compiled with Cray C++ compilers.
- 
+
+For Windows the current Datareel release supports Microsoft
+Visual Sudio 2022 or 2025.
+
 Previous releases supported cross platform Windows builds using MSVC,
-Visual C++, BCC, and DJGPP. The code will still compile on Windows
-platforms but the distribution no longer includes the Windows
-makefiles and Visual Studio project files.  
+Visual C++, BCC, and DJGPP. 
 
 PACKAGE MAP
 -----------
@@ -221,7 +225,6 @@ DataReel Directory Structure
     lib - Empty directory used to install library files
     src - DataReel source code files
     utils - DataReel utility programs
-
 
 EXAMPLE PROGRAMS
 ----------------
@@ -240,8 +243,8 @@ DOCUMENTATION
 All documentation is included in the docs sub directory in an HTML
 format, viewable in any Web browser. 
 
-BUILDING UNIX SHARE AND STATIC LIBRARIES
-----------------------------------------
+BUILDING UNIX SHARED AND STATIC LIBRARIES
+--------------------__-------------------
 Example install and build:
 
 > mkdir -pv ~/git
@@ -281,5 +284,55 @@ To build utility programs
 > cd hexdump
 > make
 
-DataReel Copyright (c) 2001-2024 DataReel Software Development
+BUILDING WINDOWS STATIC LIBRARY and DLL
+---------------------------------------
+In the example build below we will assume you are working with a copy of the datareel
+library unpacked to the "%USERPROFILE%\datareel" location.
+
+To build the datareel library with SSL enabled start with the static library build:
+
+> cd %USERPROFILE%\datareel
+> env\msvc.bat
+> cd winslib 
+> notepad openssl.env
+
+In the openssl.env file set the path to your openssl installation directory.
+
+> nmake -f msvc_ssl.mak
+
+The utility programs and examples programs will link to the static
+library. Before you can build the utils or example programs with SSL
+enabled you must set the path to your openssl install in the following
+ENV file: 
+
+> cd %USERPROFILE%\datareel\env
+> notepad openssl_windows.env
+
+In the openssl_windows.env  set the path to your openssl installation
+directory.
+
+To build the example programs:
+
+> cd %USERPROFILE%\datareel\examples_socket
+> cd https_client
+> nmake -f msvc.mak
+
+Before running the example program in you user environment add the
+openssl\bin dir to your PATH:
+
+> set PATH=%PATH%;e:\3plibs\openssl\bin
+
+--
+To build the datareel library as a DLL with SSL enabled:
+
+> cd %USERPROFILE%\datareel
+> env\msvc.bat
+> cd dll
+> notepad openssl.env
+
+In the openssl.env file set the path to your openssl installation directory.
+
+> nmake -f msvc.mak
+
+DataReel Copyright (c) 2001-2025 DataReel Software Development
 

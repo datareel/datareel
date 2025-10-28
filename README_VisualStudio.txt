@@ -1,34 +1,45 @@
 Microsoft Visual Studio install and testing for Windows
 
-On a Windows sytem install visual studio, free version (VS Community 2022)
+On a Windows sytem install visual studio, free version (VS Community 2026)
+
+Reference links:
+https://visualstudio.microsoft.com/downloads/
+https://visualstudio.microsoft.com/free-developer-offers/ 
+
+Download the Visual Studio 2026 Insiders installer from:
+
+https://visualstudio.microsoft.com/insiders/ 
+
 Run the VS installer and select:
 
 Desktop development with C++
 Under installation details select all options
 
-Windows allocation development
+WinUI application development
 Under installation details select all options
 
-Following the install instrucitons to use the ENVs setup BAT file:
+After installation with the above options there will be 4 command
+prompts you can open with all the C/C++ environmental variables set: 
 
-https://learn.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=msvc-170 
+%comspec% /k "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat"
+%comspec% /k "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvarsamd64_x86.bat"
+%comspec% /k "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat"
+%comspec% /k "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvarsx86_amd64.bat"
 
-Open a command prompt by running the CMD command. At the command line
-look for the latest batch file used to setup the compiler ENV:
+To test the installation:
 
-> cd \Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools
-> dir *.bat
+In a Run dialog paste the vcvars32.bat command prompt to start a build
+environment: 
 
-VsDevCmd.bat
+Search->Run
+%comspec% /k "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat"
 
-Run the ENV script to setup the compiler ENV:
-
-> cd %USERPROFILE%\Desktop
-> "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
+C:\Windows\System32>mkdir c:\tmp
+C:\Windows\System32>cd \tmp
 
 Create a test program for compiler testing:
 
-> notepad testprog.c
+C:\tmp>notepad testprog.c
 
 #include <stdio.h>
 
@@ -38,10 +49,8 @@ int main()
   return 0;
 }
 
-Compile and run the program
-
-> cl testprog.c
-> testprog.exe
+C:\tmp>cl testprog.c
+C:\tmp>testprog.exe
 
 To build the datareel library start with the static library build:
 
@@ -81,7 +90,3 @@ To build the datareel library as a DLL:
 > env\msvc.bat
 > cd dll
 > nmake -f msvc.mak
-
-
-
-

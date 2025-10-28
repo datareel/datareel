@@ -2,106 +2,101 @@
 OpenSSL Build for Windows
 -------------------------
 
-Must install a Perl interpreter:
+For the OpenSSL build you will need to install Perl for Windows and
+NASM if you build OpenSSL with machine language optimizations.  
 
-https://strawberryperl.com/releases.html
+To install Perl for Windows:
 
-Download the lasted version:
+Download the latest portable version strawberry Perl:
 
-https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases/download/SP_53822_64bit/strawberry-perl-5.38.2.2-64bit-portable.zip
+https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases 
 
-Unzip the package to:
+Unzip the 64-bit portable package to C:\strawberry-perl
 
-C:\strawberry-perl
+To setup the perl environment in a command prompt window run:
 
-Must install a machine language compiler:
+C:\strawberry-perl\portableshell.bat
 
-https://www.nasm.us/
+Install NASM for Windows:
 
-Download the latest version:
+Download the latest release version:
 
-https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip
+https://www.nasm.us/pub/nasm/releasebuilds/2.16.03
 
-Unpack and copy the .exe files to:
+Copy the binary EXE files to:
 
 C:\nasm\bin
 
-Edit environment variables for your account
+Add the NASM bin path to the path for your account:
 
-Edit the PATH variable and add C:\nasm\bin
+Search->Edit environment variables for your account
+User variables for username->Path->Edit->New->C:\nasm\bin
 
-Download the latest version of openssl or an earlier version starting with the 3.0 releases:
+For the OpenSSL build you will need to build the ZLIB compression library:
 
-https://openssl-library.org/source/index.html
+https://zlib.net/
 
-https://github.com/openssl/openssl/archive/refs/tags/openssl-3.3.2.zip
+For all the build examples below this document will reference
+E:\3plibs\distrib for the location of source code download packages
+and reference E:\3plibs as the build location for 3rd party libs. 
 
-Unpack the distribution in your home folder:
+The examples use a command line version of unzip.exe to unpack the zip
+archives. 
 
-%USERPROFILE%\3plisbs\openssl-3.3.2
+To build ZLIB from a Windows command prompt:
 
-To build setup the Visual Studio environment. Open a command prompt by
-running the CMD command in a run dialog. At the command prompt run: 
+E:
+E:\>cd 3plibs
+E:\3plibs>cd distrib
+E:\3plibs\distrib>unzip -d e:\3plibs zlib131.zip
+E:\3plibs\distrib>cd e:\3plibs
+E:\3plibs>move zlib-1.3.1 zlib32-1.3.1
+E:\3plibs>cd zlib32-1.3.1
+E:\3plibs\zlib32-1.3.1> "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat"
+ "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat"
+E:\3plibs\zlib32-1.3.1>nmake -f win32\Makefile.msc
 
-> "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
+For the OpenSSL build you will need to download the release you wish
+to use from: 
 
-Setup the perl environment:
+https://github.com/openssl/openssl
+https://github.com/openssl/openssl/releases 
 
-> "C:\strawberry-perl\portableshell.bat"
+In this document we will be using version 3.2.2 to match the RHEL 9
+and 10 version. 
 
-Run the openssl configure script:
+To build OpenSSL from a Windows command prompt:
 
-> cd %USERPROFILE%\3plisbs\openssl-3.3.2
-> perl Configure VC-WIN32 --prefix=c:\openssl --openssldir=c:\openssl
+E:
+E:\>cd e:\3plibs
+E:\3plibs\distrib>unzip -d e:\3plibs openssl-openssl-3.2.2.zip
+E:\3plibs\distrib>cd e:\3plibs
+E:\3plibs>move openssl-openssl-3.2.2 openssl32-openssl-3.2.2
+E:\3plibs>cd openssl32-openssl-3.2.2
+E:\3plibs\openssl32-openssl-3.2.2>"C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat"
+E:\3plibs\openssl32-openssl-3.2.2>C:\strawberry-perl\portableshell.bat
+E:\3plibs\openssl32-openssl-3.2.2>perl Configure VC-WIN32 --prefix=e:\3plibs\openssl --openssldir=e:\3plibs\openssl --with-zlib-include=e:\3plibs\zlib32-1.3.1 --with-zlib-lib=e:\3plibs\zlib32-1.3.1 enable-fips no-shared
+E:\3plibs\openssl32-openssl-3.2.2>perl configdata.pm --dump
+E:\3plibs\openssl32-openssl-3.2.2>nmake
+E:\3plibs\openssl32-openssl-3.2.2>nmake test
 
-NOTE: Set "--prefix=" and "--openssldir" to match your installation location. 
+All tests successful.
+Files=298, Tests=3164, 978 wallclock secs ( 7.58 usr +  1.17 sys =  8.75 CPU)
+Result: PASS
 
-For a Windows 32-bit static build run:
-> perl Configure no-shared VC-WIN32 --prefix=c:\openssl --openssldir=c:\openssl
+E:\3plibs\openssl32-openssl-3.2.2>nmake install
+E:\3plibs\openssl32-openssl-3.2.2>move e:\3plibs\openssl e:\3plibs\openssl32
+E:\3plibs\openssl32-openssl-3.2.2>e:\3plibs\openssl32\bin\openssl.exe version
+OpenSSL 3.2.2 4 Jun 2024 (Library: OpenSSL 3.2.2 4 Jun 2024)
 
-For the 64-bit build run: perl Configure VC-WIN64A
-
-NOTE: If your applicaion has to be FIPS compliant download an openssl
-version that is FIPS certified.
-To build a FIPS compliant version: perl Configure enable-fips 
-
-OpenSSL configure options:
-
-Usage: Configure 
-[no-<feature> ...] 
-[enable-<feature> ...] 
-[-Dxxx] [-lxxx] [-Lxxx] [-fxxx] [-Kxxx] [no-hw-xxx|no-hw] 
-[[no-]threads] [[no-]thread-pool] [[no-]default-thread-pool] 
-[[no-]shared] 
-[[no-]zlib|zlib-dynamic] 
-[no-asm] 
-[no-egd] 
-[sctp] 
-[386] 
-[--prefix=DIR] 
-[--openssldir=OPENSSLDIR] 
-[--with-xxx[=vvv]] 
-[--config=FILE] os/compiler[:flags]
-
-Before starting the build check your build configuration:
-
->  perl configdata.pm --dump
-
-Start the build:
-
-> nmake
-
-Once complete test the build:
-
-> nmake test
-
-Install:
-
-> nmake install
+NOTE: To build a debug version of OpenSSL run the perl configure script with the following option: 
+>perl Configure debug-VC-WIN32
 
 -----------------------------------
 DataReel Build with OpenSSL Enabled
 -----------------------------------
+In the example build below we will assume you are working with a copy of the datareel
+library unpacked to the "%USERPROFILE%\datareel" location.
 
 To build the datareel library with SSL enabled start with the static library build:
 
@@ -132,9 +127,9 @@ To build the example programs:
 > nmake -f msvc.mak
 
 Before running the example program in you user environment add the
-openssl\bin dir to you PATH:
+openssl\bin dir to your PATH:
 
-> set PATH=%PATH%;c:\openssl\bin
+> set PATH=%PATH%;e:\3plibs\openssl\bin
 
 --
 To build the datareel library as a DLL with SSL enabled:
@@ -147,27 +142,3 @@ To build the datareel library as a DLL with SSL enabled:
 In the openssl.env file set the path to your openssl installation directory.
 
 > nmake -f msvc.mak
-
-----------------------
-ZLIB Build for Windows
-----------------------
-
-Download the latest version of ZLIB
-
-https://zlib.net/
-
-https://zlib.net/zlib131.zip
-
-Unpack the distribution in your home folder:
-
-%USERPROFILE%\3plisbs\zlib-1.3.1
-
-To build setup the Visual Studio environment. Open a command prompt by
-running the CMD command in a run dialog. At the command prompt run: 
-
-> "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
-
-Build ZLIB using the MSC makefile:
-
-> cd %USERPROFILE%\3plisbs\zlib-1.3.1
-> nmake -f win32\Makefile.msc
