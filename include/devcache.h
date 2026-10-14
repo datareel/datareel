@@ -100,7 +100,7 @@ public:
   ~gxDeviceBucket() { }
 
 private: // Disallow copying and assignment
-  gxDeviceBucket(const gxDeviceBucket &ob) { }
+  gxDeviceBucket(const gxDeviceBucket &ob) : MemoryBuffer() { }
   void operator=(const gxDeviceBucket &ob) { }
   
 public: // Cache functions
@@ -137,7 +137,8 @@ class GXDLCODE_API gxDeviceBucketCache
 {
 public:
   gxDeviceBucketCache(unsigned num) {
-    if(num == 0) num = 1; devptr = 0; buckets = 0; ConstructCache(num);
+    if(num == 0) num = 1;
+    devptr = 0; buckets = 0; ConstructCache(num);
   }
   ~gxDeviceBucketCache() { DestroyCache(); }
 

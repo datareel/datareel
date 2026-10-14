@@ -438,13 +438,18 @@ int gxConfig::ChangeConfigLine(const gxString &string_to_replace,
     }
         
     // Filter each line of text
-    for(i = 0, j = 0; i < MAX_LINE; i++) {
+    // 10/14/2026: Stop one short of the end so LineBuffer is always null
+    // terminated, and check for an empty line before looking at the last
+    // character (strlen()-1 read before the buffer on blank lines).
+    for(i = 0, j = 0; i < (MAX_LINE-1); i++) {
       if((rawLineBuffer[i] == '\r') || (rawLineBuffer[i] == '\n')) break;
       LineBuffer[j++] = rawLineBuffer[i];
     }
 
     // Detect backslashes used to mark the continuation of a line
-    if((LineBuffer[strlen(LineBuffer)-1] == '\\') && (append_lines == 1)) {
+    size_t line_len = strlen(LineBuffer);
+    if((line_len > 0) && (LineBuffer[line_len-1] == '\\') &&
+       (append_lines == 1)) {
       appendLineBuffer += LineBuffer;
       appendLineBuffer += '\n'; // Insert LF after the backslash 
       continue;  // Goto the top of loop and append next line
@@ -499,7 +504,7 @@ int gxConfig::ChangeConfigLine(const gxString &string_to_replace,
   // If any strings were replaced in the file, rewrite the file
   // ----------------------------------------------------------- 
   if(num_processed > 0) {
-    char *EndOfLineSequence;
+    const char *EndOfLineSequence;
     
     DiskFileB outfile(FileName.c_str(), DiskFileB::df_READWRITE, 
 		    DiskFileB::df_CREATE);

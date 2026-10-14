@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>dbcache1 example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: testprog.cpp</FONT>
-<FONT COLOR="#ff0000">// Compiler Used: MSVC, BCC32, GCC HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 02/04/2002</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>dbcache1 example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>DB Cache Example</h1>
+<p class="dr-listing-meta">Source file: <code>testprog.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: testprog.cpp</span>
+<span class="cm">// Compiler Used: MSVC, BCC32, GCC HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 02/04/2002</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -86,22 +92,22 @@ USA
 
 Database cache test program used to test the database file 
 cache classes.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
 #include "gxdlcode.h"
 
 #if !defined (__USE_DATABASE_CACHE__)
 int main() { return 0; }
 #else
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
 #include &lt;iomanip&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
 #include &lt;iomanip.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include &lt;string.h&gt;
 #include &lt;time.h&gt;
@@ -115,24 +121,24 @@ using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard
 #include "leaktest.h"
 #endif
 
-<FONT COLOR="#ff0000">// Various static data area sizes used to test large files</FONT>
+<span class="cm">// Various static data area sizes used to test large files</span>
 const FAU_t STATIC_AREA_SIZE = 0;
 
-<FONT COLOR="#ff0000">// 1 GIG file test                              </FONT>
-<FONT COLOR="#ff0000">// WARNING: This test requires 1.1 GIG of free disk space</FONT>
-<FONT COLOR="#ff0000">// const FAU_t STATIC_AREA_SIZE = (FAU_t)1100000000;</FONT>
+<span class="cm">// 1 GIG file test                              </span>
+<span class="cm">// WARNING: This test requires 1.1 GIG of free disk space</span>
+<span class="cm">// const FAU_t STATIC_AREA_SIZE = (FAU_t)1100000000;</span>
 
-<FONT COLOR="#ff0000">// 2.1 GIG file test                              </FONT>
-<FONT COLOR="#ff0000">// WARNING: This test requires 2.1 GIG of free disk space</FONT>
-<FONT COLOR="#ff0000">// const FAU_t STATIC_AREA_SIZE = (FAU_t)2100000000;</FONT>
+<span class="cm">// 2.1 GIG file test                              </span>
+<span class="cm">// WARNING: This test requires 2.1 GIG of free disk space</span>
+<span class="cm">// const FAU_t STATIC_AREA_SIZE = (FAU_t)2100000000;</span>
                                                    
-<FONT COLOR="#ff0000">// 2.3 GIG file test                              </FONT>
-<FONT COLOR="#ff0000">// WARNING: This test requires 2.3 GIG of free disk space</FONT>
-<FONT COLOR="#ff0000">// const __LLWORD__ STATIC_AREA_SIZE = (__LLWORD__)2147483647;</FONT>
+<span class="cm">// 2.3 GIG file test                              </span>
+<span class="cm">// WARNING: This test requires 2.3 GIG of free disk space</span>
+<span class="cm">// const __LLWORD__ STATIC_AREA_SIZE = (__LLWORD__)2147483647;</span>
 
-<FONT COLOR="#ff0000">// 4 GIG file test</FONT>
-<FONT COLOR="#ff0000">// WARNING: This test requires 4.3 GIG of free disk space</FONT>
-<FONT COLOR="#ff0000">// const __LLWORD__ STATIC_AREA_SIZE = (__LLWORD__)4294967290;</FONT>
+<span class="cm">// 4 GIG file test</span>
+<span class="cm">// WARNING: This test requires 4.3 GIG of free disk space</span>
+<span class="cm">// const __LLWORD__ STATIC_AREA_SIZE = (__LLWORD__)4294967290;</span>
 
 const int NAME_LENGTH = 64;
 
@@ -145,15 +151,15 @@ public:
 public:
   void DisplayObject();
   
-public: <FONT COLOR="#ff0000">// Platform independent data members</FONT>
-  char name[NAME_LENGTH]; <FONT COLOR="#ff0000">// Fixed string type</FONT>
-  FAU oid;                <FONT COLOR="#ff0000">// Integer type</FONT>
-  gxFLOAT64 cid;          <FONT COLOR="#ff0000">// Floating point type</FONT>
+public: <span class="cm">// Platform independent data members</span>
+  char name[NAME_LENGTH]; <span class="cm">// Fixed string type</span>
+  FAU oid;                <span class="cm">// Integer type</span>
+  gxFLOAT64 cid;          <span class="cm">// Floating point type</span>
 };
 
 DatabaseObject::DatabaseObject(const char *s, long i, double d)
 {
-  for(int j = 0; j &lt; NAME_LENGTH; j++) name[j] = 0; <FONT COLOR="#ff0000">// Clear the name string</FONT>
+  for(int j = 0; j &lt; NAME_LENGTH; j++) name[j] = 0; <span class="cm">// Clear the name string</span>
   strcpy(name, s);
   oid = i;  
   cid = d;
@@ -181,14 +187,14 @@ int main()
   InitLeakTest();
 #endif
 
-  <FONT COLOR="#ff0000">// Adjust this number to set the number of insertions</FONT>
-  const unsigned long INSERTIONS = 1 * 1000;       <FONT COLOR="#ff0000">// 1K test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 10 * 1000;      // 10K test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 100 * 1000;     // 100K test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 1000 * 1000;    // 1MEG test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 10000 * 1000;   // 10MEG test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 100000 * 1000;  // 100MEG test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 1000000 * 1000; // 1GIG test</FONT>
+  <span class="cm">// Adjust this number to set the number of insertions</span>
+  const unsigned long INSERTIONS = 1 * 1000;       <span class="cm">// 1K test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 10 * 1000;      // 10K test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 100 * 1000;     // 100K test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 1000 * 1000;    // 1MEG test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 10000 * 1000;   // 10MEG test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 100000 * 1000;  // 100MEG test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 1000000 * 1000; // 1GIG test</span>
 
   gxDatabase *f = new gxDatabase(); 
   const char *fname = "testfile.gxd";
@@ -225,25 +231,25 @@ int main()
   unsigned long curr_count = 0;
   double insert_time = 0;
   
-  <FONT COLOR="#ff0000">// Get CPU clock cycles before entering loop</FONT>
+  <span class="cm">// Get CPU clock cycles before entering loop</span>
   clock_t begin = clock();
 
   for(i = 0; i &lt; INSERTIONS; i++) {
-    <FONT COLOR="#ff0000">// Construct the database object</FONT>
+    <span class="cm">// Construct the database object</span>
     char name[NAME_LENGTH];
     sprintf(name, "Mouse %i", i);
     DatabaseObject ob(name, (FAU_t)i, 5000.101);
 
     clock_t begin_insert = clock();  
 
-    <FONT COLOR="#ff0000">// Allocate room for the object in the data file</FONT>
+    <span class="cm">// Allocate room for the object in the data file</span>
     FAU_t object_address = f-&gt;Alloc(sizeof(DatabaseObject));
     if(CheckError(f) != 0) {
       delete f;
       return 1;
     }
 
-    <FONT COLOR="#ff0000">// Write the object to the database file cache</FONT>
+    <span class="cm">// Write the object to the database file cache</span>
     ds = p.CachedWrite(&amp;ob, sizeof(DatabaseObject), object_address);
   
     intbuf &lt;&lt; clear &lt;&lt; object_address;
@@ -270,10 +276,10 @@ int main()
     }
   }
   
-  <FONT COLOR="#ff0000">// Get CPU clock cycles after loop is completed </FONT>
+  <span class="cm">// Get CPU clock cycles after loop is completed </span>
   clock_t end = clock();
 
-  <FONT COLOR="#ff0000">// Calculate the elapsed time in seconds. </FONT>
+  <span class="cm">// Calculate the elapsed time in seconds. </span>
   double elapsed_time = (double)(end - begin) / CLOCKS_PER_SEC;
   cout.precision(3); 
   cout &lt;&lt; "Inserted " &lt;&lt; i &lt;&lt; " values in " 
@@ -283,8 +289,8 @@ int main()
        &lt;&lt; "\n"; 
   
 
-  <FONT COLOR="#ff0000">// Testing flush functions after a batch insert</FONT>
-  <FONT COLOR="#ff0000">//  cache.Flush();</FONT>
+  <span class="cm">// Testing flush functions after a batch insert</span>
+  <span class="cm">//  cache.Flush();</span>
 
   PausePrg();
 
@@ -295,14 +301,14 @@ int main()
   double search_time = 0;  
   curr_count = 0;
 
-  <FONT COLOR="#ff0000">// Obtain the offset to the first object in the database file</FONT>
+  <span class="cm">// Obtain the offset to the first object in the database file</span>
   FAU offset = (f-&gt;GetHeapStart() + f-&gt;BlockHeaderSize());
   begin = clock();
 
   for(i = 0; i &lt; INSERTIONS; i++) {
     clock_t begin_search = clock();
 
-    <FONT COLOR="#ff0000">// Read the object from the database file cache</FONT>
+    <span class="cm">// Read the object from the database file cache</span>
     ds = p.CachedRead(offset, sizeof(DatabaseObject));
     if(ds) {
       memmove(&amp;buf, p-&gt;ds.m_buf(), sizeof(DatabaseObject));
@@ -344,34 +350,33 @@ int main()
 
   cout &lt;&lt; "Exiting..." &lt;&lt; "\n";
 
-  <FONT COLOR="#ff0000">// Flush the cache and release file the cache is bound to </FONT>
-  <FONT COLOR="#ff0000">// before closing the file.</FONT>
+  <span class="cm">// Flush the cache and release file the cache is bound to </span>
+  <span class="cm">// before closing the file.</span>
   cache.Flush(); 
   cache.ReleaseFile();
 
-  <FONT COLOR="#ff0000">// Close the file and check for any errors</FONT>
+  <span class="cm">// Close the file and check for any errors</span>
   f-&gt;Close();
   if(CheckError(f) != 0) {
     delete f;
     return 1;
   }
-  delete f; <FONT COLOR="#ff0000">// Prevent any memory leaks</FONT>
+  delete f; <span class="cm">// Prevent any memory leaks</span>
 
   return 0; 
 }
 
-#endif <FONT COLOR="#ff0000">// __USE_DATABASE_CACHE__</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+#endif <span class="cm">// __USE_DATABASE_CACHE__</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

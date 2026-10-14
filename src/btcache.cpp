@@ -146,6 +146,11 @@ void BtreeCache::InitCache(BtreeSize_t dbkey_size, BtreeNodeOrder_t order)
   // PC-lint 04/20/2004: Possible use of null pointer
   if(!buckets) return;
 
+  // 10/14/2026: Use the same minimum node order as the BtreeNode
+  // constructor. Buckets for orders below 5 had fewer key slots than
+  // the uncached B-tree nodes written to the same file.
+  if(order < (BtreeNodeOrder_t)5) order = (BtreeNodeOrder_t)5;
+
   // Organize the buckets in a circularly linked-list. 
   for(int i = 0; i < num_buckets; i++) {
     BtreeBucket *p = (BtreeBucket *)((char *)buckets + (i * bucket_size)); 
@@ -331,6 +336,11 @@ BtreeBucket *BtreeCache::FindEmptyBucket()
       return 0;
     }
   }
+  else if(bucket->IsDirty()) {
+    // 10/14/2026: A dirty bucket was reused when the cache was not
+    // connected to a file, silently discarding the modified node.
+    return 0; // Cannot flush the bucket without a database file
+  }
 
   PromoteBucket(bucket);
   return bucket;
@@ -434,11 +444,20 @@ BtreeBucket *BtreeCache::AllocBucket(FAU_t node_address, int load_bucket)
     uncached_reads++;
     bucket = FindEmptyBucket();
     if(bucket) {
+      // 10/14/2026: A reused bucket kept the key count and left child of
+      // the node it held before. A new node reserved without loading it
+      // (such as a new root node) started with the old node's keys.
+      bucket->ResetBucket();
+      bucket->left_child = (FAU_t)0;
       bucket->node_address = node_address;
       if((load_bucket == 1) && (node_address != (FAU_t)0)) {
-	if(!f) return 0; // Not connected to a database file	
-        if(bucket->ReadNode(f) != gxDBASE_NO_ERROR) {
-	  return 0; // Error reading the node from disk
+	// 10/14/2026: On failure the bucket kept the new node address, so
+	// the next request for this node returned the unread bucket as a
+	// cache hit. Reset the bucket and move it to the end of the list.
+	if((!f) || (bucket->ReadNode(f) != gxDBASE_NO_ERROR)) {
+	  bucket->ResetBucket();
+	  DemoteBucket(bucket);
+	  return 0; // Not connected or error reading the node from disk
 	}
       }
     }
@@ -497,8 +516,12 @@ int BtreeCacheNode::Alloc(BtreeNode *node, FAU_t address)
     // Set the database error code here to ensure that an exception 
     // is properly signaled in the gxBtree cached insert, delete, 
     // and find functions.
-    if(cache->gxDatabasePtr()->GetDatabaseError() == gxDBASE_NO_ERROR) {
-      cache->gxDatabasePtr()->SetDatabaseError(gxDBASE_CACHE_ERROR);
+    // 10/14/2026: Test for a null database pointer before using it
+    gxDatabase *f = cache->gxDatabasePtr();
+    if(f) {
+      if(f->GetDatabaseError() == gxDBASE_NO_ERROR) {
+	f->SetDatabaseError(gxDBASE_CACHE_ERROR);
+      }
     }
     return 0;
   }
@@ -506,6 +529,9 @@ int BtreeCacheNode::Alloc(BtreeNode *node, FAU_t address)
   bucket->left_child = node->left_child;
   memmove(bucket->key_entries, node->key_entries, 
           (bucket->key_size * bucket->key_count));
+  // 10/14/2026: The copied node was never marked dirty so it was
+  // not written to disk when the bucket was flushed or reused.
+  bucket->SetDirty();
   return 1;
 }
 
@@ -540,8 +566,12 @@ BtreeBucket *BtreeCacheNode::Alloc(size_t node_size, FAU_t address)
     // Set the database error code here to ensure that an exception 
     // is properly signaled in the gxBtree cached insert, delete, 
     // and find functions.
-    if(cache->gxDatabasePtr()->GetDatabaseError() == gxDBASE_NO_ERROR) {
-      cache->gxDatabasePtr()->SetDatabaseError(gxDBASE_CACHE_ERROR);
+    // 10/14/2026: Test for a null database pointer before using it
+    gxDatabase *f = cache->gxDatabasePtr();
+    if(f) {
+      if(f->GetDatabaseError() == gxDBASE_NO_ERROR) {
+	f->SetDatabaseError(gxDBASE_CACHE_ERROR);
+      }
     }
   }
   return bucket;
@@ -552,6 +582,9 @@ int BtreeCacheNode::Delete()
 // connected to. Returns true if the node was deleted or false
 // if an error occurs.
 {
+  // 10/14/2026: Test for a null database pointer before using it.
+  // The pointer was used before the test when no bucket was bound.
+  if(!cache->gxDatabasePtr()) return 0; // Not connected to a database file
   if(!bucket) { // Not pointing to a valid bucket
     // Set the database error code here to ensure that an exception 
     // is properly signaled in the gxBtree cached insert, delete, 
@@ -559,7 +592,6 @@ int BtreeCacheNode::Delete()
     cache->gxDatabasePtr()->SetDatabaseError(gxDBASE_CACHE_ERROR);
     return 0; 
   }
-  if(!cache->gxDatabasePtr()) return 0; // Not connected to a database file
 
   if(bucket->node_address == node_address) { // Pointing to valid bucket
     bucket->ResetBucket();   // Reset the B-tree node and bucket
@@ -597,9 +629,13 @@ BtreeBucket *BtreeCacheNode::Bind()
     // has not been assigned. This allows the application to test
     // node address before using this cache pointer.
     node_address = (FAU_t)0; 
-    if(cache->gxDatabasePtr()->GetDatabaseError() == gxDBASE_NO_ERROR) {
-      cache->gxDatabasePtr()->SetDatabaseError(gxDBASE_CACHE_ERROR);
-    }	
+    // 10/14/2026: Test for a null database pointer before using it
+    gxDatabase *f = cache->gxDatabasePtr();
+    if(f) {
+      if(f->GetDatabaseError() == gxDBASE_NO_ERROR) {
+	f->SetDatabaseError(gxDBASE_CACHE_ERROR);
+      }
+    }
   }
 
   // Return a pointer to this nodes bucket

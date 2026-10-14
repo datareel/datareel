@@ -38,16 +38,60 @@ DataReel RSS classes.
 #pragma warn -8080
 #endif
 
+// 10/14/2026: Helper added to encode a field for output. The old code
+// only encoded the description fields, so a title, link or other field
+// containing a &, < or > character made the feed invalid XML.
+static gxString gxRSS_encode(gxRSSfeed *feed, const gxString &s)
+{
+  gxString buf;
+  feed->encode_xhtml(s, buf);
+  return buf;
+}
+
 void gxRSSfeed::Clear()
 {
   xml_version = "1.0";
   rss_version = "2.0";
   encoding.Clear();
+
+  // 10/14/2026: Clear() did not clear the channel data or its item
+  // list, so a cleared feed still wrote the old channel and items.
+  channel.title.Clear();
+  channel.link.Clear();
+  channel.description.Clear();
+  channel.language.Clear();
+  channel.copyright.Clear();
+  channel.managingeditor.Clear();
+  channel.webmaster.Clear();
+  channel.pubdate.Clear();
+  channel.lastbuilddate.Clear();
+  channel.category.Clear();
+  channel.generator.Clear();
+  channel.docs.Clear();
+  channel.cloud.Clear();
+  channel.ttl.Clear();
+  channel.rating.Clear();
+  channel.skiphours.Clear();
+  channel.skipdays.Clear();
+  channel.items.ClearList();
+  channel.image.url.Clear();
+  channel.image.link.Clear();
+  channel.image.title.Clear();
+  channel.image.description.Clear();
+  channel.image.width.Clear();
+  channel.image.height.Clear();
+  channel.textinput.title.Clear();
+  channel.textinput.description.Clear();
+  channel.textinput.name.Clear();
+  channel.textinput.link.Clear();
 }
 
 int gxRSSfeed::WriteFeed(gxString &feed) 
 {
-  if(rss_version.Atoi() < 2) {
+  // 10/14/2026: Only version 1.x uses the RSS 1.0 (RDF) format. The old
+  // test (version < 2) also sent versions 0.91 and 0.92, which use the
+  // same <rss> format as version 2.0, to the RDF writer.
+  if(rss_version.Atoi() == 1) {
     return write_rss1_feed(feed);
   }
 
@@ -70,71 +114,89 @@ int gxRSSfeed::write_rss2_feed(gxString &feed)
   feed.Clear();
   gxString xhtml_description;
 
-  feed << "<?xml version=\"" << xml_version << "\""; 
-  if(!encoding.is_null()) feed << " encoding=\"" << encoding << "\"";
+  // 10/14/2026: All text fields are now encoded with gxRSS_encode().
+  feed << "<?xml version=\"" << gxRSS_encode(this, xml_version) << "\""; 
+  if(!encoding.is_null()) feed << " encoding=\"" << gxRSS_encode(this, encoding) << "\"";
   feed << "?>" << "\n";
   feed << "\n";
-  feed << "<rss version=\"" << rss_version << "\">" << "\n";
+  feed << "<rss version=\"" << gxRSS_encode(this, rss_version) << "\">" << "\n";
 
   feed << "  " << "<channel>" << "\n";
-  feed << "    " << "<title>" << channel.title << "</title>" << "\n";
-  feed << "    " << "<link>" << channel.link << "</link>" << "\n";
+  feed << "    " << "<title>" << gxRSS_encode(this, channel.title) << "</title>" << "\n";
+  feed << "    " << "<link>" << gxRSS_encode(this, channel.link) << "</link>" << "\n";
   encode_xhtml(channel.description, xhtml_description); 
   feed << "    " << "<description>" << "\n";
   feed << "      " << xhtml_description << "\n"; 
-  feed << "    " << " </description>" << "\n";
+  feed << "    " << "</description>" << "\n";
   
   if(!channel.language.is_null()) {
-    feed << "    " << "<language>" << channel.language << "</language>" << "\n";
+    feed << "    " << "<language>" << gxRSS_encode(this, channel.language) << "</language>" << "\n";
   }
   if(!channel.copyright.is_null()) {
-    feed << "    " << "<copyright>" << channel.copyright << "</copyright>" << "\n"; 
+    feed << "    " << "<copyright>" << gxRSS_encode(this, channel.copyright) << "</copyright>" << "\n"; 
   }
   if(!channel.managingeditor.is_null()) {
-    feed << "    " << "<managingEditor>" << channel.managingeditor << "</managingEditor>" << "\n";
+    feed << "    " << "<managingEditor>" << gxRSS_encode(this, channel.managingeditor) << "</managingEditor>" << "\n";
   }
   if(!channel.webmaster.is_null()) {
-    feed << "    " << "<webMaster>" << channel.webmaster << "</webMaster>" << "\n";
+    feed << "    " << "<webMaster>" << gxRSS_encode(this, channel.webmaster) << "</webMaster>" << "\n";
   }
   if(!channel.pubdate.is_null()) {
-    feed << "    " << "<pubDate>" << channel.pubdate << "</pubDate>" << "\n";
+    feed << "    " << "<pubDate>" << gxRSS_encode(this, channel.pubdate) << "</pubDate>" << "\n";
   }
   if(!channel.lastbuilddate.is_null()) {
-    feed << "    " << "<lastBuildDate>" << channel.lastbuilddate << "</lastBuildDate>" << "\n";
+    feed << "    " << "<lastBuildDate>" << gxRSS_encode(this, channel.lastbuilddate) << "</lastBuildDate>" << "\n";
   }
   if(!channel.category.is_null()) {
-    feed << "    " << "<category>" << channel.category << "</category>" << "\n";
+    feed << "    " << "<category>" << gxRSS_encode(this, channel.category) << "</category>" << "\n";
   }
   if(!channel.generator.is_null()) {
-    feed << "    " << "<generator>" << channel.generator << "</generator>" << "\n";
+    feed << "    " << "<generator>" << gxRSS_encode(this, channel.generator) << "</generator>" << "\n";
   }
   if(!channel.docs.is_null()) {
-    feed << "    " << "<docs>" << channel.docs << "</docs>" << "\n";
+    feed << "    " << "<docs>" << gxRSS_encode(this, channel.docs) << "</docs>" << "\n";
   }
   if(!channel.cloud.is_null()) {
-    feed << "    " << "<cloud>" << channel.cloud << "<channel>" << "\n";
+    // 10/14/2026: The end tag was written as <channel> instead of </cloud>
+    feed << "    " << "<cloud>" << gxRSS_encode(this, channel.cloud) << "</cloud>" << "\n";
   }
   if(!channel.ttl.is_null()) {
-    feed << "    " << "<ttl>" << channel.ttl << "</ttl>" << "\n";
+    feed << "    " << "<ttl>" << gxRSS_encode(this, channel.ttl) << "</ttl>" << "\n";
+  }
+  // 10/14/2026: The rating, skipHours and skipDays elements were never 
+  // written. skipHours and skipDays hold <hour> and <day> elements, so 
+  // their text is written as given.
+  if(!channel.rating.is_null()) {
+    feed << "    " << "<rating>" << gxRSS_encode(this, channel.rating) << "</rating>" << "\n";
+  }
+  if(!channel.skiphours.is_null()) {
+    feed << "    " << "<skipHours>" << channel.skiphours << "</skipHours>" << "\n";
+  }
+  if(!channel.skipdays.is_null()) {
+    feed << "    " << "<skipDays>" << channel.skipdays << "</skipDays>" << "\n";
   }
  
   feed << "\n";
 
+  // 10/14/2026: The image description is optional. The old code did not
+  // write the image unless the description was set.
   if((!channel.image.url.is_null()) && (!channel.image.link.is_null()) &&
-     (!channel.image.title.is_null()) && (!channel.image.description.is_null())) {
+     (!channel.image.title.is_null())) {
     feed << "    " << "<image>" << "\n";
-    feed << "      " << "<url>" << channel.image.url << "</url>" << "\n";
-    feed << "      " << "<link>" << channel.image.link << "</link>" << "\n";
-    encode_xhtml(channel.image.description, xhtml_description); 
-    feed << "      " << "<description>" << "\n";
-    feed << "        " << xhtml_description << "\n";
-    feed << "      " << "</description>" << "\n";
-    feed << "      " << "<title>" << channel.image.title << "</title>" << "\n";
+    feed << "      " << "<url>" << gxRSS_encode(this, channel.image.url) << "</url>" << "\n";
+    feed << "      " << "<link>" << gxRSS_encode(this, channel.image.link) << "</link>" << "\n";
+    if(!channel.image.description.is_null()) {
+      encode_xhtml(channel.image.description, xhtml_description); 
+      feed << "      " << "<description>" << "\n";
+      feed << "        " << xhtml_description << "\n";
+      feed << "      " << "</description>" << "\n";
+    }
+    feed << "      " << "<title>" << gxRSS_encode(this, channel.image.title) << "</title>" << "\n";
     if(!channel.image.width.is_null()) {
-      feed << "      " << "<width>" << channel.image.width << "</width>" << "\n";
+      feed << "      " << "<width>" << gxRSS_encode(this, channel.image.width) << "</width>" << "\n";
     }
     if(!channel.image.height.is_null()) {
-      feed << "      " << "<height>" << channel.image.height << "</height>" << "\n";
+      feed << "      " << "<height>" << gxRSS_encode(this, channel.image.height) << "</height>" << "\n";
     }
     feed << "    " << "</image>" << "\n";
     feed << "\n";
@@ -142,47 +204,48 @@ int gxRSSfeed::write_rss2_feed(gxString &feed)
 
   if((!channel.textinput.title.is_null()) && (!channel.textinput.description.is_null()) &&
      (!channel.textinput.name.is_null()) && (!channel.textinput.link.is_null())) {
-    feed << "    " << "<textinput>" << "\n";
-    feed << "      " << "<title>" << channel.textinput.title << "</title>" << "\n";
+    // 10/14/2026: RSS 2.0 names this element <textInput>
+    feed << "    " << "<textInput>" << "\n";
+    feed << "      " << "<title>" << gxRSS_encode(this, channel.textinput.title) << "</title>" << "\n";
     encode_xhtml(channel.textinput.description, xhtml_description); 
     feed << "      " << "<description>" << "\n";
     feed << "        " << xhtml_description << "\n";
     feed << "      " << "</description>" << "\n";
-    feed << "      " << "<name>" << channel.textinput.name << "</name>" << "\n";
-    feed << "      " << "<link>" << channel.textinput.link << "</link>" << "\n";
-    feed << "    " << "</textinput>" << "\n";
+    feed << "      " << "<name>" << gxRSS_encode(this, channel.textinput.name) << "</name>" << "\n";
+    feed << "      " << "<link>" << gxRSS_encode(this, channel.textinput.link) << "</link>" << "\n";
+    feed << "    " << "</textInput>" << "\n";
     feed << "\n";
   }
 
   gxListNode<gxRSSitem> *iptr = channel.items.GetHead();
   while(iptr) {
     feed << "    " << "<item>" << "\n";
-    feed << "      " << "<title>" << iptr->data.title << "</title>" << "\n";
-    feed << "      " << "<link>" << iptr->data.link << "</link>" << "\n";
+    feed << "      " << "<title>" << gxRSS_encode(this, iptr->data.title) << "</title>" << "\n";
+    feed << "      " << "<link>" << gxRSS_encode(this, iptr->data.link) << "</link>" << "\n";
     encode_xhtml(iptr->data.description, xhtml_description); 
     feed << "      " << "<description>" << "\n";
     feed << "        " << xhtml_description << "\n";    
     feed << "      " << "</description>" << "\n";
     if(!iptr->data.pubdate.is_null()) {
-      feed << "      " << "<pubDate>" << iptr->data.pubdate << "</pubDate>" << "\n";
+      feed << "      " << "<pubDate>" << gxRSS_encode(this, iptr->data.pubdate) << "</pubDate>" << "\n";
     }
     if(!iptr->data.guid.is_null()) {
-      feed << "      " << "<guid>" << iptr->data.guid << "</guid>" << "\n";
+      feed << "      " << "<guid>" << gxRSS_encode(this, iptr->data.guid) << "</guid>" << "\n";
     }
     if(!iptr->data.author.is_null()) {
-      feed << "      " << "<author>" << iptr->data.author << "</author>" << "\n";
+      feed << "      " << "<author>" << gxRSS_encode(this, iptr->data.author) << "</author>" << "\n";
     }
     if(!iptr->data.category.is_null()) {
-      feed << "      " << "<category>" << iptr->data.category << "</category>" << "\n";
+      feed << "      " << "<category>" << gxRSS_encode(this, iptr->data.category) << "</category>" << "\n";
     }
     if(!iptr->data.comments.is_null()) {
-      feed << "      " << "<comments>" << iptr->data.comments << "</comments>" << "\n";
+      feed << "      " << "<comments>" << gxRSS_encode(this, iptr->data.comments) << "</comments>" << "\n";
     }
     if(!iptr->data.enclosure.is_null()) {
-      feed << "      " << "<enclosure>" << iptr->data.enclosure << "</enclosure>" << "\n";
+      feed << "      " << "<enclosure>" << gxRSS_encode(this, iptr->data.enclosure) << "</enclosure>" << "\n";
     }
     if(!iptr->data.source.is_null()) {
-      feed << "      " << "<source>" << iptr->data.source << "</source>" << "\n";
+      feed << "      " << "<source>" << gxRSS_encode(this, iptr->data.source) << "</source>" << "\n";
     }
 
     feed << "    " << "</item>" << "\n";
@@ -201,9 +264,22 @@ int gxRSSfeed::write_rss1_feed(gxString &feed)
 {
   feed.Clear();
   gxString xhtml_description;
+
+  // 10/14/2026: The rdf:about and rdf:resource values were fixed sample
+  // addresses from xml.com and the <items> list always held the same two
+  // sample entries. They are now taken from the channel link, the image
+  // URL, the text input link and the link of each item. All text fields
+  // are now encoded with gxRSS_encode().
+  int has_image = ((!channel.image.url.is_null()) && 
+		   (!channel.image.link.is_null()) &&
+		   (!channel.image.title.is_null()));
+  int has_textinput = ((!channel.textinput.title.is_null()) && 
+		       (!channel.textinput.description.is_null()) &&
+		       (!channel.textinput.name.is_null()) && 
+		       (!channel.textinput.link.is_null()));
   
-  feed << "<?xml version=\"" << xml_version << "\""; 
-  if(!encoding.is_null()) feed << " encoding=\"" << encoding << "\"";
+  feed << "<?xml version=\"" << gxRSS_encode(this, xml_version) << "\""; 
+  if(!encoding.is_null()) feed << " encoding=\"" << gxRSS_encode(this, encoding) << "\"";
   feed << "?>" << "\n";
   
   feed << "\n";
@@ -214,62 +290,65 @@ int gxRSSfeed::write_rss1_feed(gxString &feed)
 
   feed << "\n";
 
-  feed << "<channel rdf:about=\"http://www.xml.com/xml/news.rss\">" << "\n";
-  feed << "  " << "<title>" << channel.title << "</title>" << "\n";
-  feed << "  " << "<link>" << channel.link << "</link>" << "\n";
+  feed << "<channel rdf:about=\"" << gxRSS_encode(this, channel.link) << "\">" << "\n";
+  feed << "  " << "<title>" << gxRSS_encode(this, channel.title) << "</title>" << "\n";
+  feed << "  " << "<link>" << gxRSS_encode(this, channel.link) << "</link>" << "\n";
   encode_xhtml(channel.description, xhtml_description); 
   feed << "  " << "<description>" << "\n";
   feed << "    " << xhtml_description << "\n"; 
-  feed << "  " << " </description>" << "\n";
-  feed << "  " << "<image rdf:resource=\"http://xml.com/universal/images/xml_tiny.gif\" />" << "\n";
+  feed << "  " << "</description>" << "\n";
+  if(has_image) {
+    feed << "  " << "<image rdf:resource=\"" << gxRSS_encode(this, channel.image.url) << "\" />" << "\n";
+  }
   feed << "\n";
   feed << "  " << "<items>" << "\n";
   feed << "    " << "<rdf:Seq>" << "\n";
-  feed << "    " << "<rdf:li rdf:resource=\"http://xml.com/pub/2000/08/09/xslt/xslt.html\" />" << "\n";
-  feed << "    " << "<rdf:li rdf:resource=\"http://xml.com/pub/2000/08/09/rdfdb/index.html\" />" << "\n";
+  gxListNode<gxRSSitem> *iptr = channel.items.GetHead();
+  while(iptr) {
+    feed << "    " << "<rdf:li rdf:resource=\"" << gxRSS_encode(this, iptr->data.link) << "\" />" << "\n";
+    iptr = iptr->next;
+  }
   feed << "    " << "</rdf:Seq>" << "\n";
   feed << "  " << "</items>" << "\n";
-  feed << "  " << "<textinput rdf:resource=\"http://search.xml.com\" />" << "\n";
+  if(has_textinput) {
+    feed << "  " << "<textinput rdf:resource=\"" << gxRSS_encode(this, channel.textinput.link) << "\" />" << "\n";
+  }
   feed << "  " << "</channel>" << "\n";
 
   feed << "\n";
 
-  if((!channel.image.url.is_null()) && (!channel.image.link.is_null()) &&
-     (!channel.image.title.is_null())) {
-    feed << "<image  rdf:about=\"http://xml.com/universal/images/xml_tiny.gif\">" << "\n";
-    feed << "  " << "<title>" << channel.image.title << "</title>" << "\n";
-    feed << "  " << "<link>" << channel.image.link << "</link>" << "\n";
-    feed << "  " << "<url>" << channel.image.url << "</url>" << "\n";
+  if(has_image) {
+    feed << "<image rdf:about=\"" << gxRSS_encode(this, channel.image.url) << "\">" << "\n";
+    feed << "  " << "<title>" << gxRSS_encode(this, channel.image.title) << "</title>" << "\n";
+    feed << "  " << "<link>" << gxRSS_encode(this, channel.image.link) << "</link>" << "\n";
+    feed << "  " << "<url>" << gxRSS_encode(this, channel.image.url) << "</url>" << "\n";
     feed << "</image>" << "\n";
     feed << "\n";
   }
 
-  gxListNode<gxRSSitem> *iptr = channel.items.GetHead();
+  iptr = channel.items.GetHead();
   while(iptr) {
-    feed << "<item rdf:about=\"http://xml.com/pub/2000/08/09/xslt/xslt.html\">" << "\n";
-    feed << "  " << "<title>" << iptr->data.title << "</title>" << "\n";
-    feed << "  " << "<link>" << iptr->data.link << "</link>" << "\n";
+    feed << "<item rdf:about=\"" << gxRSS_encode(this, iptr->data.link) << "\">" << "\n";
+    feed << "  " << "<title>" << gxRSS_encode(this, iptr->data.title) << "</title>" << "\n";
+    feed << "  " << "<link>" << gxRSS_encode(this, iptr->data.link) << "</link>" << "\n";
     encode_xhtml(iptr->data.description, xhtml_description); 
     feed << "  " << "<description>" << "\n";
     feed << "    " << xhtml_description << "\n";    
     feed << "  " << "</description>" << "\n";
-
-
     feed << "</item>" << "\n";
     feed << "\n";
     iptr = iptr->next;
   }
 
-  if((!channel.textinput.title.is_null()) && (!channel.textinput.description.is_null()) &&
-     (!channel.textinput.name.is_null()) && (!channel.textinput.link.is_null())) {
-    feed << "<textinput  rdf:about=\"http://search.xml.com\">" << "\n";
-    feed << "  " << "<title>" << channel.textinput.title << "</title>" << "\n";
+  if(has_textinput) {
+    feed << "<textinput rdf:about=\"" << gxRSS_encode(this, channel.textinput.link) << "\">" << "\n";
+    feed << "  " << "<title>" << gxRSS_encode(this, channel.textinput.title) << "</title>" << "\n";
     encode_xhtml(channel.textinput.description, xhtml_description); 
     feed << "  " << "<description>" << "\n";
     feed << "    " << xhtml_description << "\n";
     feed << "  " << "</description>" << "\n";
-    feed << "  " << "<name>" << channel.textinput.name << "</name>" << "\n";
-    feed << "  " << "<link>" << channel.textinput.link << "</link>" << "\n";
+    feed << "  " << "<name>" << gxRSS_encode(this, channel.textinput.name) << "</name>" << "\n";
+    feed << "  " << "<link>" << gxRSS_encode(this, channel.textinput.link) << "</link>" << "\n";
     feed << "</textinput>" << "\n";
     feed << "\n";
   }

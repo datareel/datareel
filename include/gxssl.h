@@ -106,6 +106,12 @@ private:
 #include <openssl/pem.h>
 #include <openssl/rand.h>
 #include <openssl/opensslv.h>
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+// 10/14/2026: OpenSSL 3 key and parameter interfaces
+#include <openssl/core_names.h>
+#include <openssl/param_build.h>
+#include <openssl/evp.h>
+#endif
 // --------------------------------------------------------------
 
 // 07/31/2021: Include support for openssl 1.0.1
@@ -362,7 +368,11 @@ public:  // Key, cert, and passwd functions
 		  unsigned char *dh1024_g = 0, int dh1024_g_len = 0);
 
 public: // Thread functions
-  void Relase() { ctx = 0; ssl = 0; socket_bio = file_bio = memory_bio; }
+  // 10/14/2026: Release() clears every pointer without freeing it. The
+  // misspelled Relase() is kept for existing code; it used to copy
+  // memory_bio into socket_bio and file_bio instead of clearing them.
+  void Release() { ctx = 0; ssl = 0; socket_bio = file_bio = memory_bio = 0; }
+  void Relase() { Release(); }
   void ReleaseCTX() { ctx = 0; }
   void ReleaseSSL() { ssl = 0; }
   void ReleaseSBIO() { socket_bio = 0; }

@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>pod example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: testprog.cpp</FONT>
-<FONT COLOR="#ff0000">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 09/18/1997</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>pod example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>POD Manager</h1>
+<p class="dr-listing-meta">Source file: <code>testprog.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: testprog.cpp</span>
+<span class="cm">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 09/18/1997</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -85,16 +91,16 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 This is a test program for the POD class.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //   </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //   </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include "pod.h"
 #include "gxbtree.h"
@@ -115,14 +121,14 @@ public:
   DatabaseObject();
   DatabaseObject(const char *name, FAU oid);
 
-public: <FONT COLOR="#ff0000">// Base class interface</FONT>
+public: <span class="cm">// Base class interface</span>
   size_t KeySize() { return sizeof(primary_key); }
   int operator==(const DatabaseKeyB&amp; key) const;
   int operator&gt;(const DatabaseKeyB&amp; key) const;
   
-  <FONT COLOR="#ff0000">// NOTE: This comparison function is only used if the </FONT>
-  <FONT COLOR="#ff0000">// __USE_SINGLE_COMPARE__ preprocessor directive is </FONT>
-  <FONT COLOR="#ff0000">// defined when the program is compiled.</FONT>
+  <span class="cm">// NOTE: This comparison function is only used if the </span>
+  <span class="cm">// __USE_SINGLE_COMPARE__ preprocessor directive is </span>
+  <span class="cm">// defined when the program is compiled.</span>
   int CompareKey(const DatabaseKeyB&amp; key) const;
 
 public:
@@ -140,7 +146,7 @@ DatabaseObject::DatabaseObject(const char *name, FAU oid) :
   DatabaseKeyB((char *)&amp;primary_key)
 {
   strncpy(primary_key.object_name, name,  NAME_LENGTH);
-  primary_key.object_name[NAME_LENGTH-1] = 0; <FONT COLOR="#ff0000">// Ensure null termination</FONT>
+  primary_key.object_name[NAME_LENGTH-1] = 0; <span class="cm">// Ensure null termination</span>
   primary_key.object_id = oid;
 }
 
@@ -159,9 +165,9 @@ int DatabaseObject::operator&gt;(const DatabaseKeyB&amp; key) const
 }
 
 int DatabaseObject::CompareKey(const DatabaseKeyB&amp; key) const
-<FONT COLOR="#ff0000">// NOTE: This comparison function is only used if the </FONT>
-<FONT COLOR="#ff0000">// __USE_SINGLE_COMPARE__ preprocessor directive is </FONT>
-<FONT COLOR="#ff0000">// defined when the program is compiled.</FONT>
+<span class="cm">// NOTE: This comparison function is only used if the </span>
+<span class="cm">// __USE_SINGLE_COMPARE__ preprocessor directive is </span>
+<span class="cm">// defined when the program is compiled.</span>
 {
   const DatabaseObject *kptr = (const DatabaseObject *)(&amp;key);
   int rv = strcmp(primary_key.object_name, kptr-&gt;primary_key.object_name);
@@ -181,30 +187,30 @@ void PausePrg()
     
 int main(int argv, char **argc)
 {
-  char rev_letter = gxDatabaseRevisionLetter; <FONT COLOR="#ff0000">// Set the default rev letter</FONT>
-  if(argv == 2) { <FONT COLOR="#ff0000">// Set a specified revision letter</FONT>
+  char rev_letter = gxDatabaseRevisionLetter; <span class="cm">// Set the default rev letter</span>
+  if(argv == 2) { <span class="cm">// Set a specified revision letter</span>
     rev_letter = *argc[1];
     if(rev_letter == '0') rev_letter = '\0';
-    <FONT COLOR="#ff0000">// Valid rev letters are:</FONT>
-    <FONT COLOR="#ff0000">// Rev 0</FONT>
-    <FONT COLOR="#ff0000">// Rev 'A' or 'a'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'B' or 'b'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'C' or 'c'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'D' or 'd'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'E' or 'e'</FONT>
-    <FONT COLOR="#ff0000">// NOTE: The gxDatabase class will set invalid revision letters</FONT>
-    <FONT COLOR="#ff0000">// to the version set by the gxDatabaseRevisionLetter constant.  </FONT>
+    <span class="cm">// Valid rev letters are:</span>
+    <span class="cm">// Rev 0</span>
+    <span class="cm">// Rev 'A' or 'a'</span>
+    <span class="cm">// Rev 'B' or 'b'</span>
+    <span class="cm">// Rev 'C' or 'c'</span>
+    <span class="cm">// Rev 'D' or 'd'</span>
+    <span class="cm">// Rev 'E' or 'e'</span>
+    <span class="cm">// NOTE: The gxDatabase class will set invalid revision letters</span>
+    <span class="cm">// to the version set by the gxDatabaseRevisionLetter constant.  </span>
   }
 
   const char *data_file1 = "testfile.gxd";
   const char *index_file1 = "testfile.btx";
   DatabaseObject key_type;
 
-  <FONT COLOR="#ff0000">// Open the POD database using a single index file and check for any errors</FONT>
+  <span class="cm">// Open the POD database using a single index file and check for any errors</span>
   POD pod;
   cout &lt;&lt; "Opening a POD database using a single index file" &lt;&lt; "\n";
   gxDatabaseAccessMode mode = gxDBASE_READWRITE;
-  int num_trees = 1; <FONT COLOR="#ff0000">// Number of trees per index file</FONT>
+  int num_trees = 1; <span class="cm">// Number of trees per index file</span>
   int use_index = 1;
   FAU_t static_size = (FAU_t)0;
   __SBYTE__ df_rev_letter = rev_letter;
@@ -212,13 +218,13 @@ int main(int argv, char **argc)
   gxDatabaseError err = pod.Open(data_file1, index_file1, key_type,
 				 NODE_ORDER, mode, use_index, static_size,
 				 num_trees, df_rev_letter, if_rev_letter);
-  if(CheckError(err) != 0) return 1; <FONT COLOR="#ff0000">// See the src/gxdstats.cpp file</FONT>
+  if(CheckError(err) != 0) return 1; <span class="cm">// See the src/gxdstats.cpp file</span>
 
-  <FONT COLOR="#ff0000">// Multiple index file test using the same key type and node order</FONT>
+  <span class="cm">// Multiple index file test using the same key type and node order</span>
   const unsigned num_indexes = 5;
   unsigned index_number;
 
-  <FONT COLOR="#ff0000">// Construct and initialize an index file name array</FONT>
+  <span class="cm">// Construct and initialize an index file name array</span>
   char *index_file2[POD_MAX_INDEX] = { 
     "idx0.btx", "idx1.btx", "idx2.btx", "idx3.btx", "idx4.btx" 
   };
@@ -230,9 +236,9 @@ same key type" &lt;&lt; "\n";
 		 mode, static_size, num_trees, df_rev_letter, if_rev_letter);
   if(CheckError(err) != 0) return 1;
   
-  <FONT COLOR="#ff0000">// Multiple index file test using varying node orders.</FONT>
-  <FONT COLOR="#ff0000">// NOTE: In this example varying node orders were used in place of</FONT>
-  <FONT COLOR="#ff0000">// multiple key types because only one key class is defined.</FONT>
+  <span class="cm">// Multiple index file test using varying node orders.</span>
+  <span class="cm">// NOTE: In this example varying node orders were used in place of</span>
+  <span class="cm">// multiple key types because only one key class is defined.</span>
   cout &lt;&lt; "Opening a database using multiple index files with varying \
 node order" &lt;&lt; "\n";
   const char *index_file3[num_indexes] = { 
@@ -240,10 +246,10 @@ node order" &lt;&lt; "\n";
   };
   const char *data_file3 = "testdat3.gxd";
   PODIndexFile *openindexfile = new PODIndexFile(num_indexes);
-  <FONT COLOR="#ff0000">// NOTE: The memory allocated for the openindexfile variable </FONT>
-  <FONT COLOR="#ff0000">// will be freed when the POD opject is destroyed for the POD</FONT>
-  <FONT COLOR="#ff0000">// file is closed. Following a Close() call you must allocate </FONT>
-  <FONT COLOR="#ff0000">// new memory if the openindexfile varaible is reused.</FONT>
+  <span class="cm">// NOTE: The memory allocated for the openindexfile variable </span>
+  <span class="cm">// will be freed when the POD opject is destroyed for the POD</span>
+  <span class="cm">// file is closed. Following a Close() call you must allocate </span>
+  <span class="cm">// new memory if the openindexfile varaible is reused.</span>
 
   for(index_number = 0; index_number &lt; num_indexes; index_number++) {
     err = openindexfile-&gt;Open(index_file3[index_number], index_number,
@@ -256,21 +262,20 @@ node order" &lt;&lt; "\n";
   if(CheckError(err) != 0) return 1;
   cout &lt;&lt; "\n";
   
-  <FONT COLOR="#ff0000">// NOTE: The POD destructor will automatically delete the dynamically</FONT>
-  <FONT COLOR="#ff0000">// allocated PODIndexFile file object.</FONT>
+  <span class="cm">// NOTE: The POD destructor will automatically delete the dynamically</span>
+  <span class="cm">// allocated PODIndexFile file object.</span>
   return 0; 
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

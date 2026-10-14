@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>gxbstree example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: testprog.cpp</FONT>
-<FONT COLOR="#ff0000">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 11/07/1996</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program description and details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>gxbstree example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>Binary Search Tree Example</h1>
+<p class="dr-listing-meta">Source file: <code>testprog.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: testprog.cpp</span>
+<span class="cm">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 11/07/1996</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program description and details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -85,16 +91,16 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 Test program for the generic binary search tree class.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include &lt;stdio.h&gt;
 #include &lt;time.h&gt;
@@ -108,7 +114,7 @@ using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard
 #endif
 
 void InputData(UString &amp;sbuf)
-<FONT COLOR="#ff0000">// Input a line of text from the console</FONT>
+<span class="cm">// Input a line of text from the console</span>
 {
   char buf[255];
   cout &lt;&lt; "Input Data: ";
@@ -117,7 +123,7 @@ void InputData(UString &amp;sbuf)
 }
 
 void ClearInputStream(istream &amp;s)
-<FONT COLOR="#ff0000">// Used to clear istream</FONT>
+<span class="cm">// Used to clear istream</span>
 {
   char c;
   s.clear();
@@ -125,14 +131,14 @@ void ClearInputStream(istream &amp;s)
 }
 
 int Quit()
-<FONT COLOR="#ff0000">// Terminate the program</FONT>
+<span class="cm">// Terminate the program</span>
 {
   cout &lt;&lt; "Exiting..." &lt;&lt; "\n";
   return 0;
 }
 
 void PausePrg()
-<FONT COLOR="#ff0000">// Pause the program </FONT>
+<span class="cm">// Pause the program </span>
 {
   cout &lt;&lt; "\n";
   cout &lt;&lt; "Press enter to continue..." &lt;&lt; "\n";
@@ -140,7 +146,7 @@ void PausePrg()
 }
 
 void Menu(void)
-<FONT COLOR="#ff0000">// List the program options</FONT>
+<span class="cm">// List the program options</span>
 {
   cout &lt;&lt; "(A, a)    Add an item to the tree" &lt;&lt; "\n";
   cout &lt;&lt; "(B, b)    Build a tree of strings" &lt;&lt; "\n";
@@ -158,8 +164,8 @@ void Menu(void)
 }
 
 unsigned TreeHeight(gxBStreeNode_t *node)
-<FONT COLOR="#ff0000">// Recursive function used to calculate the tree height based</FONT>
-<FONT COLOR="#ff0000">// on the maximum of the height of right and left subtrees.</FONT>
+<span class="cm">// Recursive function used to calculate the tree height based</span>
+<span class="cm">// on the maximum of the height of right and left subtrees.</span>
 {
   unsigned height = 0;
   if(node != 0) {
@@ -176,7 +182,7 @@ unsigned TreeHeight(gxBStreeNode_t *node)
 }
 
 void NumNodes(gxBStreeNode_t *node, unsigned &amp;num_nodes)
-<FONT COLOR="#ff0000">// Recursive function used to calculate the total number of nodes.</FONT>
+<span class="cm">// Recursive function used to calculate the total number of nodes.</span>
 {
   while(node) {
     NumNodes(node-&gt;left, num_nodes);
@@ -216,14 +222,14 @@ void TreeStats(gxBStree&lt;UString&gt; &amp;tree)
 }
 
 void ImportDictionaryFile(gxBStree&lt;UString&gt; &amp;tree)
-<FONT COLOR="#ff0000">// Import a list of words in sort order. This function demonstrates</FONT>
-<FONT COLOR="#ff0000">// how unbalanced trees are degenerated when a sort ordered list of</FONT>
-<FONT COLOR="#ff0000">// items are inserted into the tree.</FONT>
+<span class="cm">// Import a list of words in sort order. This function demonstrates</span>
+<span class="cm">// how unbalanced trees are degenerated when a sort ordered list of</span>
+<span class="cm">// items are inserted into the tree.</span>
 {
   cout &lt;&lt; "\n";
   cout &lt;&lt; "Importing a dictionary file." &lt;&lt; "\n";
 
-  tree.Clear(); <FONT COLOR="#ff0000">// Clear the tree before importing the file</FONT>
+  tree.Clear(); <span class="cm">// Clear the tree before importing the file</span>
   
   char LineBuffer[df_MAX_LINE_LENGTH];
   int status, key_count = 0;
@@ -235,20 +241,20 @@ void ImportDictionaryFile(gxBStree&lt;UString&gt; &amp;tree)
   InputData(FileName);
 
   DiskFileB infile(FileName.c_str());
-  if(!infile) { <FONT COLOR="#ff0000">// Could not open the istream</FONT>
+  if(!infile) { <span class="cm">// Could not open the istream</span>
     cout &lt;&lt; "Could not open file: " &lt;&lt; FileName &lt;&lt; "\n";
     return;
   } 
   
   cout &lt;&lt; "Adding words..." &lt;&lt; "\n";
 
-  <FONT COLOR="#ff0000">// Get CPU clock cycles before entering loop</FONT>
+  <span class="cm">// Get CPU clock cycles before entering loop</span>
   clock_t begin = clock();
 
   while(!infile.df_EOF()) {
     if(infile.df_GetLine(LineBuffer, df_MAX_LINE_LENGTH, '\n', 1) != 
        DiskFileB::df_NO_ERROR) {
-      break; <FONT COLOR="#ff0000">// Error reading from the disk file</FONT>
+      break; <span class="cm">// Error reading from the disk file</span>
     }
     if(strcmp(LineBuffer, "") == 0) continue;
     key = LineBuffer;
@@ -263,16 +269,16 @@ void ImportDictionaryFile(gxBStree&lt;UString&gt; &amp;tree)
     }
   }
   
-  <FONT COLOR="#ff0000">// Get CPU clock cycles after loop is completed </FONT>
+  <span class="cm">// Get CPU clock cycles after loop is completed </span>
   clock_t end =clock();
   
-  <FONT COLOR="#ff0000">// Calculate the elapsed time in seconds. </FONT>
+  <span class="cm">// Calculate the elapsed time in seconds. </span>
   double elapsed_time = (double)(end - begin) / CLOCKS_PER_SEC;
   cout.precision(3); 
   cout &lt;&lt; "Added " &lt;&lt; key_count &lt;&lt; " words in " 
        &lt;&lt; elapsed_time &lt;&lt; " seconds" &lt;&lt; "\n";
 
-  <FONT COLOR="#ff0000">// Rewind the file</FONT>
+  <span class="cm">// Rewind the file</span>
   infile.df_Rewind();
 
   cout &lt;&lt; "Verifying the entries..." &lt;&lt; "\n";
@@ -283,7 +289,7 @@ void ImportDictionaryFile(gxBStree&lt;UString&gt; &amp;tree)
   while(!infile.df_EOF()) {
     if(infile.df_GetLine(LineBuffer, df_MAX_LINE_LENGTH, '\n', 1) != 
        DiskFileB::df_NO_ERROR) {
-      break; <FONT COLOR="#ff0000">// Error reading from the disk file</FONT>
+      break; <span class="cm">// Error reading from the disk file</span>
     }
     if(strcmp(LineBuffer, "") == 0) continue;
 
@@ -312,7 +318,7 @@ void ImportDictionaryFile(gxBStree&lt;UString&gt; &amp;tree)
        &lt;&lt; "\n";
   PausePrg();
 
-  <FONT COLOR="#ff0000">// Rewind the file</FONT>
+  <span class="cm">// Rewind the file</span>
   infile.df_Rewind();
 
   cout &lt;&lt; "Deleting the entries..." &lt;&lt; "\n";
@@ -321,7 +327,7 @@ void ImportDictionaryFile(gxBStree&lt;UString&gt; &amp;tree)
   while(!infile.df_EOF()) {
     if(infile.df_GetLine(LineBuffer, df_MAX_LINE_LENGTH, '\n', 1) != 
        DiskFileB::df_NO_ERROR) {
-      break; <FONT COLOR="#ff0000">// Error reading from the disk file</FONT>
+      break; <span class="cm">// Error reading from the disk file</span>
     }
     if(strcmp(LineBuffer, "") == 0) continue;
 
@@ -343,7 +349,7 @@ void ImportDictionaryFile(gxBStree&lt;UString&gt; &amp;tree)
   cout &lt;&lt; "Deleted " &lt;&lt; key_count &lt;&lt; " words in " 
        &lt;&lt; elapsed_time &lt;&lt; " seconds" &lt;&lt; "\n";
 
-  <FONT COLOR="#ff0000">// Rewind the file</FONT>
+  <span class="cm">// Rewind the file</span>
   infile.df_Rewind();
 
   cout &lt;&lt; "Re-inserting all the words..." &lt;&lt; "\n";
@@ -353,7 +359,7 @@ void ImportDictionaryFile(gxBStree&lt;UString&gt; &amp;tree)
   while(!infile.df_EOF()) {
     if(infile.df_GetLine(LineBuffer, df_MAX_LINE_LENGTH, '\n', 1) != 
        DiskFileB::df_NO_ERROR) {
-      break; <FONT COLOR="#ff0000">// Error reading from the disk file</FONT>
+      break; <span class="cm">// Error reading from the disk file</span>
     }
     if(strcmp(LineBuffer, "") == 0) continue;
 
@@ -380,7 +386,7 @@ void ImportDictionaryFile(gxBStree&lt;UString&gt; &amp;tree)
 }
 
 void BuildTree(gxBStree&lt;UString&gt; &amp;tree)
-<FONT COLOR="#ff0000">// Build a tree of strings.</FONT>
+<span class="cm">// Build a tree of strings.</span>
 {
   char *aa1 = "dog";
   char *bb1 = "cat";
@@ -413,7 +419,7 @@ void BuildTree(gxBStree&lt;UString&gt; &amp;tree)
 		     kk1, ll1, mm1, nn1, oo1, pp1, qq1, rr1, ss1, tt1,
 		     uu1, vv1, ww1, xx1, yy1, zz1 };
   
-  const int INSERTIONS = 26; <FONT COLOR="#ff0000">// Number of keys to insert</FONT>
+  const int INSERTIONS = 26; <span class="cm">// Number of keys to insert</span>
   UString key;
   int i, status;
 
@@ -434,28 +440,28 @@ void BuildTree(gxBStree&lt;UString&gt; &amp;tree)
 }
 
 void TestTree(gxBStree&lt;UString&gt; &amp;tree)
-<FONT COLOR="#ff0000">// Test the tree insertion and deletion times.</FONT>
+<span class="cm">// Test the tree insertion and deletion times.</span>
 {
-  <FONT COLOR="#ff0000">// Adjust this number to set the number of insertions</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 1 * 1000;       // 1K test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 10 * 1000;      // 10K test</FONT>
-  const unsigned long INSERTIONS = 100 * 1000;     <FONT COLOR="#ff0000">// 100K test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 1000 * 1000;    // 1MEG test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 10000 * 1000;   // 10MEG test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 100000 * 1000;  // 100MEG test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 1000000 * 1000; // 1GIG test</FONT>
+  <span class="cm">// Adjust this number to set the number of insertions</span>
+  <span class="cm">// const unsigned long INSERTIONS = 1 * 1000;       // 1K test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 10 * 1000;      // 10K test</span>
+  const unsigned long INSERTIONS = 100 * 1000;     <span class="cm">// 100K test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 1000 * 1000;    // 1MEG test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 10000 * 1000;   // 10MEG test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 100000 * 1000;  // 100MEG test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 1000000 * 1000; // 1GIG test</span>
 
   cout &lt;&lt; "Inserting " &lt;&lt; INSERTIONS &lt;&lt; " keys..." &lt;&lt; "\n";
   unsigned long i, key_count = 0;
   unsigned long curr_count = 0;
   int status;
-  int verify_deletions = 0; <FONT COLOR="#ff0000">// Set to ture to verify all deletions</FONT>
+  int verify_deletions = 0; <span class="cm">// Set to ture to verify all deletions</span>
   double insert_time = 0;
   const char *name = "Item";
   char sbuf[255];
   UString key;
   
-  <FONT COLOR="#ff0000">// Get CPU clock cycles before entering loop</FONT>
+  <span class="cm">// Get CPU clock cycles before entering loop</span>
   clock_t begin = clock();
 
   for(i = 0; i &lt; INSERTIONS; i++) {
@@ -480,10 +486,10 @@ void TestTree(gxBStree&lt;UString&gt; &amp;tree)
 
   }
 
-  <FONT COLOR="#ff0000">// Get CPU clock cycles after loop is completed </FONT>
+  <span class="cm">// Get CPU clock cycles after loop is completed </span>
   clock_t end =clock();
 
-  <FONT COLOR="#ff0000">// Calculate the elapsed time in seconds. </FONT>
+  <span class="cm">// Calculate the elapsed time in seconds. </span>
   double elapsed_time = (double)(end - begin) / CLOCKS_PER_SEC;
   cout.precision(3); 
   cout &lt;&lt; "Inserted " &lt;&lt; key_count &lt;&lt; " values in " 
@@ -537,7 +543,7 @@ void TestTree(gxBStree&lt;UString&gt; &amp;tree)
       return;
     }
 
-    if(verify_deletions) { <FONT COLOR="#ff0000">// Verify the remaining key locations</FONT>
+    if(verify_deletions) { <span class="cm">// Verify the remaining key locations</span>
       for(unsigned long j = INSERTIONS-1; j != i; j--) {
 	sprintf(sbuf, "%s %d", name, (int)j);
 	key = sbuf;
@@ -590,7 +596,7 @@ void TestTree(gxBStree&lt;UString&gt; &amp;tree)
 }
 
 void ListInOrder(gxBStree&lt;UString&gt; &amp;tree)
-<FONT COLOR="#ff0000">// List all the tree nodes using a tree iterator object.</FONT>
+<span class="cm">// List all the tree nodes using a tree iterator object.</span>
 {
   gxBStreeNode&lt;UString&gt; *node = tree.GetRoot();
   gxBStreeIterator tree_iterator(node);
@@ -601,7 +607,7 @@ void ListInOrder(gxBStree&lt;UString&gt; &amp;tree)
 }
 
 void ExtractInOrder(gxBStree&lt;UString&gt; &amp;tree)
-<FONT COLOR="#ff0000">// Extract all the tree nodes in sort order.</FONT>
+<span class="cm">// Extract all the tree nodes in sort order.</span>
 {
   UString key;
   while(!tree.IsEmpty()) {
@@ -611,7 +617,7 @@ void ExtractInOrder(gxBStree&lt;UString&gt; &amp;tree)
 }
 
 void ExtractInReverseOrder(gxBStree&lt;UString&gt; &amp;tree)
-<FONT COLOR="#ff0000">// Extract all the tree nodes in reverse order.</FONT>
+<span class="cm">// Extract all the tree nodes in reverse order.</span>
 {
   UString key;
   while(!tree.IsEmpty()) {
@@ -621,13 +627,13 @@ void ExtractInReverseOrder(gxBStree&lt;UString&gt; &amp;tree)
 }
 
 int main()
-<FONT COLOR="#ff0000">// Test program's main thread of execution</FONT>
+<span class="cm">// Test program's main thread of execution</span>
 {
 #ifdef __MSVC_DEBUG__
   InitLeakTest();
 #endif
 
-  Menu(); <FONT COLOR="#ff0000">// Display the options menu</FONT>
+  Menu(); <span class="cm">// Display the options menu</span>
   
   char key;
   UString key_buf;
@@ -734,17 +740,16 @@ int main()
   
   return 0;
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

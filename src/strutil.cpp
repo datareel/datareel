@@ -508,7 +508,7 @@ GXDLCODE_API gxwchar_t *ASCII2gxwchar_t(const char *s, unsigned nchars,
     nsptr = new gxwchar_t[nchars+1];
     if(!nsptr) return 0;
   }
-  memset(nsptr, 0, ((nchars*cs)+cs));
+  memset((void *)nsptr, 0, ((nchars*cs)+cs));
   for(unsigned i = 0; i < nchars; i++) {
     // PC-lint 04/26/2005: Warning suspicious cast
     nsptr[i] = gxwchar_t((unsigned long)s[i]);
@@ -526,7 +526,7 @@ GXDLCODE_API gxwchar_t *Unicode2gxwchar_t(const wchar_t *s, unsigned nchars,
     nsptr = new gxwchar_t[nchars+1];
     if(!nsptr) return 0;
   }
-  memset(nsptr, 0, ((nchars*cs)+cs));
+  memset((void *)nsptr, 0, ((nchars*cs)+cs));
   for(unsigned i = 0; i < nchars; i++) 
     nsptr[i] = gxwchar_t((unsigned long)s[i]);
   return nsptr;
@@ -942,7 +942,7 @@ GXDLCODE_API unsigned long StringToULWORD(const wchar_t *str)
   char *asbuf = Unicode2ASCII(str);
   if(!asbuf) return i;
   i = StringToULWORD(asbuf);
-  delete asbuf;
+  delete[] asbuf; // 10/14/2026: Was a scalar delete of new[]
   return i;
 }
 
@@ -960,7 +960,7 @@ GXDLCODE_API wchar_t *ULLWORDToString(wchar_t *sbuf, __ULLWORD__ val,
   ULLWORDToString(asbuf, val, radix);
   wchar_t *wsbuf = ASCII2Unicode(asbuf);
   gxstrcpy(sbuf, wsbuf);
-  delete wsbuf;
+  delete[] wsbuf; // 10/14/2026: Was a scalar delete of new[]
   return sbuf;
 }
 
@@ -1015,7 +1015,7 @@ GXDLCODE_API wchar_t *LLWORDToString(wchar_t *sbuf, __ULLWORD__ val,
   LLWORDToString(asbuf, val, radix);
   wchar_t *wsbuf = ASCII2Unicode(asbuf);
   gxstrcpy(sbuf, wsbuf);
-  delete wsbuf;
+  delete[] wsbuf; // 10/14/2026: Was a scalar delete of new[]
   return sbuf;
 }
 
@@ -1068,7 +1068,7 @@ GXDLCODE_API __LLWORD__ StringToLLWORD(const wchar_t *str)
   char *asbuf = Unicode2ASCII(str);
   if(!asbuf) return i;
   i = StringToLLWORD(asbuf);
-  delete asbuf;
+  delete[] asbuf; // 10/14/2026: Was a scalar delete of new[]
   return i;
 }
 
@@ -1101,7 +1101,7 @@ GXDLCODE_API __ULLWORD__ StringToULLWORD(const wchar_t *str)
   char *asbuf = Unicode2ASCII(str);
   if(!asbuf) return i;
   i = StringToULLWORD(asbuf);
-  delete asbuf;
+  delete[] asbuf; // 10/14/2026: Was a scalar delete of new[]
   return i;
 }
 

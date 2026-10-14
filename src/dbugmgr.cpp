@@ -35,10 +35,37 @@ and repair damaged or corrupt database files.
 
 #include "dbugmgr.h"
 
+#if defined (__USE_ANSI_CPP__)
+#include <new>
+#endif
+
 #ifdef __BCC32__
 #pragma warn -8066
 #pragma warn -8080
 #endif
+
+// 10/14/2026: Internal helper used by the rebuild function. The memory
+// allocation checks after each new[] call could never be reached
+// because new[] throws on failure. Use the nothrow form when it is
+// available so a failed allocation is reported in the status message.
+static char *gxdDebugAlloc(__ULWORD__ bytes)
+{
+#if defined (__USE_ANSI_CPP__)
+  return new(std::nothrow) char[bytes];
+#else
+  return new char[bytes];
+#endif
+}
+
+// 10/14/2026: Internal helper used to restore the static gxDatabase
+// version information changed by the rebuild function.
+static void gxdRestoreVersionInfo(const __SBYTE__ *sig, FAU ver,
+				  gxUINT32 check_word)
+{
+  memmove(gxDatabase::gxSignature, sig, gxSignatureSize);
+  gxDatabase::gxVersion = ver;
+  gxDatabase::gxInternalCheckWord = check_word;
+}
 
 gxDatabaseError gxDatabaseDebugManager::BlindOpen(const char *fname,
 						  __SBYTE__ last_rev)
@@ -52,6 +79,13 @@ gxDatabaseError gxDatabaseDebugManager::BlindOpen(const char *fname,
 
   if(!CheckFileSize(fname)) {
     gxd_error = gxDBASE_INVALID_FILE;
+    return gxd_error;
+  }
+
+  // 10/14/2026: The name was copied into the fixed size file_name
+  // buffer without a length check.
+  if(strlen(fname) >= (size_t)gxMaxNameLength) {
+    gxd_error = gxDBASE_FILE_OPEN_ERROR;
     return gxd_error;
   }
 
@@ -186,6 +220,17 @@ gxDatabaseError gxDatabaseDebugManager::AnalyzeHeader(const char *sig,
   gxBlockHeader blk;
   int errors = 0;
 
+  // 10/14/2026: Record the first header error and any mismatch warning.
+  // Later successful reads reset gxd_error, so the function could
+  // return gxDBASE_NO_ERROR for a header with errors.
+  gxDatabaseError header_error = gxDBASE_NO_ERROR;
+  gxDatabaseError header_warning = gxDBASE_NO_ERROR;
+
+  // 10/14/2026: Keep the signature length inside the file header
+  // signature. A longer length read past the end of fh.gxd_sig.
+  if(sig_len > gxSignatureSize) sig_len = gxSignatureSize;
+  if((sig == 0) || (sig_len < 1)) return gxd_error = gxDBASE_BAD_HEADER;
+
   // Record the EOF mark
   FAU_t StaticEOF = FileSize(DatabaseName());
 
@@ -216,10 +261,12 @@ gxDatabaseError gxDatabaseDebugManager::AnalyzeHeader(const char *sig,
     return gxd_error = gxDBASE_BAD_HEADER;
   }
   
-  char curr_rev = gxDatabase::gxSignature[gxSignatureSize-1];
+  // 10/14/2026: Compare with the revision letter in the specified
+  // signature. The static library signature was used in all cases.
+  char curr_rev = sig[sig_len-1];
   if(rev != curr_rev) {
     if(test_rev) { // Report rev mismatch warning
-      gxd_error = gxDBASE_REV_MISMATCH;
+      gxd_error = header_warning = gxDBASE_REV_MISMATCH;
       status_message << "NOTE: The database file revision letters do \
 not match." << "\n";
       if(curr_rev == 0)
@@ -245,10 +292,11 @@ not match." << "\n";
 
   if(fh.gxd_ver != ver) {
     if(test_ver) { // Report ver mismatch warning
-      gxd_error = gxDBASE_VER_MISMATCH;
+      gxd_error = header_warning = gxDBASE_VER_MISMATCH;
       status_message << "NOTE: The version numbers do not match." << "\n";
+      // 10/14/2026: Report the version being tested, not the static version
       status_message << "Current database File Version = " 
-		     << gxDatabase::gxVersion << "\n";
+		     << ver << "\n";
       status_message << "The file reads: " << fh.gxd_ver << "\n";
       status_message << "Backward compatibility rules will be enforced." 
 		     << "\n";
@@ -261,6 +309,7 @@ not match." << "\n";
     status_message << "Bad end of file mark in file: " << DatabaseName() 
 		   << "\n";
     errors++;
+    if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
   }
   else if(StaticEOF > fh.gxd_eof) {
     gxd_error = gxDBASE_DBEOF_ERROR;
@@ -268,26 +317,33 @@ not match." << "\n";
     status_message << "The actual length is longer then the allocated length!" 
 		   << "\n";
     errors++;
+    if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
   }
 
   status_message << "Checking the heap start value" << "\n";
-  if(fh.gxd_hb_fptr < (FAU_t)0) {
+  // 10/14/2026: The heap start checks tested the highest block
+  // pointer (gxd_hb_fptr) in place of the heap start (gxd_hs_fptr).
+  // The highest block is still used to detect a file with no blocks.
+  if((fh.gxd_hs_fptr < (FAU_t)FileHeaderSize()) || 
+     (fh.gxd_hs_fptr > StaticEOF)) {
     gxd_error = gxDBASE_HEAPSTART_ERROR;
-      status_message << "Bad heap start value in file: " << DatabaseName() 
-		     << "\n";
-      errors++;
+    status_message << "Bad heap start value in file: " << DatabaseName() 
+		   << "\n";
+    errors++;
+    if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
   }
   else {
     if(fh.gxd_hb_fptr == (FAU_t)0) {  // This is a new file
       status_message << "No database blocks allocated" << "\n";
     }
     else {
-      if((FAU_t)(fh.gxd_hb_fptr + sizeof(gxBlockHeader)) > StaticEOF) {
+      if((FAU_t)(fh.gxd_hs_fptr + sizeof(gxBlockHeader)) > StaticEOF) {
 	gxd_error = gxDBASE_HEAPSTART_ERROR;
 	status_message << "Bad heap start value in file: " << DatabaseName() 
 		       << "\n";
 	status_message << "The heap start is past the end of file" << "\n";
 	errors++;
+	if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
       }
       else {
 	Read(&blk, sizeof(gxBlockHeader), fh.gxd_hs_fptr);
@@ -296,6 +352,7 @@ not match." << "\n";
 			 << "\n";
 	  status_message << DatabaseExceptionMessage() << "\n";
 	  errors++;
+	  if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
 	}
 	else {
 	  if(!VerifyBlockHeader(blk)) { 
@@ -305,6 +362,7 @@ not match." << "\n";
 	    status_message << "No database block found at file address: "
 			   << fh.gxd_hs_fptr << "\n";
 	    errors++;
+	    if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
 	  }
 	}
       }
@@ -320,12 +378,14 @@ not match." << "\n";
     status_message << "Bad free space list in file: " << DatabaseName() 
 		   << "\n";
     errors++;
+    if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
   }
   else if(fh.gxd_fs_fptr < (FAU_t)0) {
     gxd_error = gxDBASE_FREESPACE_ERROR;
     status_message << "Bad free space value in file: " << DatabaseName() 
 		   << "\n";
     errors++;
+    if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
   }
   else if(fh.gxd_fs_fptr != (FAU_t)0) {
     if((FAU_t)(fh.gxd_fs_fptr + sizeof(gxBlockHeader)) > StaticEOF) {
@@ -334,6 +394,7 @@ not match." << "\n";
 		     << "\n";
       status_message << "Free space is past the end of file"<< "\n";
       errors++;
+      if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
     }
     else {
       Read(&blk, sizeof(gxBlockHeader), fh.gxd_fs_fptr);
@@ -342,6 +403,7 @@ not match." << "\n";
 		       << "\n";
 	status_message << DatabaseExceptionMessage() << "\n";
 	errors++;
+	if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
       }
       else {
 	if(!VerifyBlockHeader(blk)) { 
@@ -351,6 +413,7 @@ not match." << "\n";
 	  status_message << "No database block found at file address: "
 			 << fh.gxd_fs_fptr << "\n";
 	  errors++;
+	  if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
 	}
       }
     }
@@ -362,6 +425,7 @@ not match." << "\n";
     status_message << "Bad highest block value in file: " << DatabaseName() 
 		   << "\n";
     errors++;
+    if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
     
   }
   else {
@@ -376,6 +440,7 @@ not match." << "\n";
 		       << DatabaseName() << "\n";
 	status_message << "The highest block is past the end of file" << "\n";
 	errors++;
+	if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
       }
       else {
 	Read(&blk, sizeof(gxBlockHeader), fh.gxd_hb_fptr);
@@ -384,6 +449,7 @@ not match." << "\n";
 address" << "\n";
 	  status_message << DatabaseExceptionMessage() << "\n";
 	  errors++;
+	  if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
 	}
 	else {
 	  if(!VerifyBlockHeader(blk)) { 
@@ -393,6 +459,7 @@ address" << "\n";
 	    status_message << "No database block found at file address: "
 			   << fh.gxd_hb_fptr << "\n";
 	    errors++;
+	    if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
 	  }
 	}
       }
@@ -401,9 +468,11 @@ address" << "\n";
 
   if(errors) {
     status_message << "Database file header has errors!" << "\n";
+    gxd_error = header_error;
   }
   else {
     status_message << "Database file header checks good." << "\n";
+    gxd_error = header_warning;
   }
 
   return gxd_error;
@@ -467,6 +536,14 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
   // Save the previous state of all the version specific information
   gxUINT32 prev_check_word = gxDatabase::gxInternalCheckWord;
   FAU prev_ver = gxDatabase::gxVersion;
+  // 10/14/2026: Also save the signature so it can be restored. The
+  // static signature was left set to "sig" after a rebuild.
+  __SBYTE__ prev_sig[gxSignatureSize];
+  memmove(prev_sig, gxDatabase::gxSignature, gxSignatureSize);
+
+  // 10/14/2026: Count errors found after the header checks. The
+  // function returned true even when blocks could not be recovered.
+  int rebuild_errors = 0;
   
   // Analyze the database file header to determine if the file has
   // a pre-allocated static area. The debug manager constructor will 
@@ -489,13 +566,17 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
     }
 
     if(!errors) { // Check the heap start value 
-      if(fh.gxd_hb_fptr < (FAU_t)0) {
+      // 10/14/2026: The heap start checks tested the highest block
+      // pointer (gxd_hb_fptr) in place of the heap start (gxd_hs_fptr).
+      // The highest block is still used to detect a file with no blocks.
+      if((fh.gxd_hs_fptr < (FAU_t)FileHeaderSize()) ||
+	 (fh.gxd_hs_fptr > StaticEOF)) {
 	gxd_error = gxDBASE_HEAPSTART_ERROR; 
 	status_message << "Database has a bad heap start value" << "\n";
 	errors++;
       }
-      if(fh.gxd_hb_fptr != (FAU_t)0) {
-	if((FAU_t)(fh.gxd_hb_fptr + sizeof(gxBlockHeader)) > StaticEOF) {
+      else if(fh.gxd_hb_fptr != (FAU_t)0) {
+	if((FAU_t)(fh.gxd_hs_fptr + sizeof(gxBlockHeader)) > StaticEOF) {
 	  gxd_error = gxDBASE_HEAPSTART_ERROR;
 	  status_message << "Database has a bad heap start value" << "\n";
 	  status_message << "The heap start is past the end of file" << "\n";
@@ -530,7 +611,7 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
   gxDatabase::gxVersion = ver;
   gxDatabase::gxInternalCheckWord = check_word;
   if(sig_len > gxSignatureSize) sig_len = gxSignatureSize;
-  memmove(gxDatabase::gxSignature, sig, sig_len);
+  if((sig) && (sig_len > 0)) memmove(gxDatabase::gxSignature, sig, sig_len);
 
   if(addr == (FAU_t)0) {
     status_message << "No database blocks found in file: "
@@ -543,6 +624,16 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
       status_message << "Error creating new database file" << "\n";
       status_message << NewFile.DatabaseExceptionMessage() << "\n";
       gxd_error = NewFile.gxd_error;
+      // 10/14/2026: Restore the static version information
+      gxdRestoreVersionInfo(prev_sig, prev_ver, prev_check_word);
+      return 0;
+    }
+    NewFile.Close();
+    // 10/14/2026: Restore the static version information. Return false
+    // if the file header was damaged, as the full rebuild does.
+    gxdRestoreVersionInfo(prev_sig, prev_ver, prev_check_word);
+    if(errors) {
+      status_message << DatabaseName() << " file header is damaged!" << "\n";
       return 0;
     }
     return 1;
@@ -555,6 +646,8 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
     status_message << "Error creating new database file" << "\n";
     status_message << NewFile.DatabaseExceptionMessage() << "\n";
     gxd_error = NewFile.gxd_error;
+    // 10/14/2026: Restore the static version information
+    gxdRestoreVersionInfo(prev_sig, prev_ver, prev_check_word);
     return 0;
   }
   
@@ -566,8 +659,9 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
   // copied into the rebuilt file.
   if((static_area != (FAU_t)0) && (copy_static_data)) { 
    // Write the static area data
-    v = new char[(__ULWORD__)static_area];
+    v = gxdDebugAlloc((__ULWORD__)static_area); // 10/14/2026: See gxdDebugAlloc()
     if(!v) {
+      rebuild_errors++; // 10/14/2026: Count the error
       gxd_error = gxDBASE_MEM_ALLOC_ERROR;
       status_message << "Error copying static data area" << "\n";
       status_message << DatabaseExceptionMessage() << "\n";
@@ -580,6 +674,7 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	status_message << "Error copying static data area" << "\n";
 	status_message << "Static data area is past the end of file" << "\n";
 	status_message << "No static data copied" << "\n";
+	rebuild_errors++; // 10/14/2026: Count the error
 	static_area = (FAU_t)0;
 	// PC-lint 09/08/2005: Inappropriate deallocation delete for new[]
 	delete[] v;
@@ -590,16 +685,22 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	  status_message << "Error copying static data area" << "\n";
 	  status_message << DatabaseExceptionMessage() << "\n";
 	  status_message << "No static data copied" << "\n";
+	  rebuild_errors++; // 10/14/2026: Count the error
 	  static_area = (FAU_t)0;
 	  // PC-lint 09/08/2005: Inappropriate deallocation delete for new[]
 	  delete[] v;
 	}
 	else {
-	  NewFile.Write(v, (__ULWORD__)static_area, (FAU_t)FileHeaderSize());
+	  // 10/14/2026: Write the static data after the new file's header.
+	  // The old file's header size was used, which put the data in the
+	  // wrong place when the new revision has a different header size.
+	  NewFile.Write(v, (__ULWORD__)static_area, 
+			(FAU_t)NewFile.FileHeaderSize());
 	  if(NewFile.gxd_error != gxDBASE_NO_ERROR) {
 	    status_message << "Error copying static data area" << "\n";
 	    status_message << NewFile.DatabaseExceptionMessage() << "\n";
 	    status_message << "No static data copied" << "\n";
+	    rebuild_errors++; // 10/14/2026: Count the error
 	    // PC-lint 09/08/2005: Inappropriate deallocation delete for new[]
 	    delete[] v;
 	    gxd_error = NewFile.gxd_error;
@@ -645,6 +746,19 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
       if(addr == (FAU_t)0) break; 
       continue;
     }
+    // 10/14/2026: Treat a block whose length is shorter than its header
+    // or runs past the end of file as a bad block. A zero length looped
+    // forever and a short length gave a negative object length.
+    if((TestBlockHeader(blk)) && 
+       (((FAU_t)blk.block_length < (FAU_t)BlockHeaderSize()) ||
+	((FAU_t)(addr + blk.block_length) > StaticEOF))) {
+      status_message << "Bad block length found at file address: "
+	     << addr << "\n";
+      badgx++;
+      addr = BlockSearch(curr_addr); // Search for the next good block
+      if(addr == (FAU_t)0) break; 
+      continue;
+    }
     if(TestBlockHeader(blk)) { // This is a valid database block 
       if(blk.block_status == gxNormalBlock) { // Only copy normal blocks
 	switch(rev_letter) {
@@ -654,6 +768,14 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	  default:
 	    object_length = (blk.block_length-(BlockHeaderSize()+sizeof(gxChecksum)));
 	    break;
+	}
+	if(object_length < (FAU_t)0) { // 10/14/2026: See above
+	  status_message << "Bad block length found at file address: "
+			 << addr << "\n";
+	  badgx++;
+	  addr = BlockSearch(curr_addr); // Search for the next good block
+	  if(addr == (FAU_t)0) break; 
+	  continue;
 	}
 
 	// Check for record locks
@@ -679,10 +801,13 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	  }
 	}
 
-	v = new char[(int)object_length];
+	// 10/14/2026: The length was cast to int, which truncated object
+	// lengths over 2GB in the 64-bit engine. See gxdDebugAlloc().
+	v = gxdDebugAlloc((__ULWORD__)object_length);
 	if(!v) {
 	  status_message << "Memory allocation error rebuild stopped" << "\n";
 	  gxd_error = gxDBASE_MEM_ALLOC_ERROR;
+	  rebuild_errors++; // 10/14/2026: Count the error
 	  break;
 	}
 	
@@ -728,6 +853,10 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	  delete[] v;
 	  gxd_error = NewFile.gxd_error;
 	  badgx++;
+	  // 10/14/2026: Search the old file with the old check word. The
+	  // new check word was still set here.
+	  gxDatabase::gxVersion = prev_ver;
+	  gxDatabase::gxInternalCheckWord = prev_check_word;
 	  addr = BlockSearch(curr_addr); // Search for the next good block
 	  if(addr == (FAU_t)0) break; 
 	  continue;
@@ -743,8 +872,12 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 			   << "\n";
 	    status_message << NewFile.DatabaseExceptionMessage() << "\n";
 	    gxd_error = NewFile.gxd_error;
+	    rebuild_errors++; // 10/14/2026: Count the error
 	  }
 	}
+	// 10/14/2026: Use the old version information for the old file
+	gxDatabase::gxVersion = prev_ver;
+	gxDatabase::gxInternalCheckWord = prev_check_word;
 	count++; // Increment the database block count
 	// PC-lint 09/08/2005: Inappropriate deallocation delete for new[]
 	delete[] v;
@@ -768,6 +901,10 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
     status_message << "Wrote " << static_area << " bytes of Static area data."
 		   << "\n";
   }
+  if(rebuild_errors) { // 10/14/2026: Report errors found during the rebuild
+    status_message << "Found " << rebuild_errors 
+	   << " errors during the rebuild" << "\n";
+  }
   if(badgx) {
     gxd_error = gxDBASE_BADBLOCK_ERROR;
     status_message << "Did not write " << badgx 
@@ -781,8 +918,15 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 		   << NewFile.DatabaseName() << "\n";
   }
 
+  // 10/14/2026: Close the new file with its version information set,
+  // then restore the static version information. The static signature
+  // was never restored and the function always returned true.
+  gxDatabase::gxVersion = ver;
+  gxDatabase::gxInternalCheckWord = check_word;
   NewFile.Close();
+  gxdRestoreVersionInfo(prev_sig, prev_ver, prev_check_word);
 
+  if((errors) || (badgx) || (rebuild_errors)) return 0;
   return 1;
 }
 
@@ -808,7 +952,10 @@ int gxDatabaseDebugManager::VerifyBlockHeader(const gxBlockHeader &hdr)
   __ULWORD__ block_status = hdr.block_status;
   __SBYTE__ unused_1 = __SBYTE__((block_status & 0xFF000000)>>24);
   __SBYTE__ unused_2 = __SBYTE__((block_status & 0xFF0000)>>16);
-  if((unused_1 != 0) && (unused_2 != 0)) {
+  // 10/14/2026: Both reserved status bytes must be zero (was &&, which
+  // accepted a header when only one of them was set). The library never
+  // writes these bytes, so every block it created still passes.
+  if((unused_1 != 0) || (unused_2 != 0)) {
     return 0; // This is not a valid block
   }
   
@@ -889,42 +1036,18 @@ int gxDatabaseDebugManager::VerifyFileHeader(const gxFileHeader &fh)
 }
 
 int gxDatabaseDebugManager::VerifyVersion(long ver)
+// Returns true if the version number is in the range of versions 
+// written by this library or false if the version is out of range.
+// 10/14/2026: The function listed known version numbers but returned
+// true for every version in the range, so the list was never used. 
+// The gxDatabase engine does not check the version number when it 
+// opens a file, and the library has written versions that are not in
+// the list (such as the versions between 4400 and the current one), 
+// so only the range is tested. The list was removed.
 {
   // Test the version ranges
-  if(ver < 1024) return 0;
+  if(ver < 1024) return 0; // Lowest version written by the library
   if(ver > gxDatabaseVersionNumber) return 0;
-
-  // Test for specific version
-  switch(ver) {
-    case 1024 : case 1025 : case 1027 : case 1029 : case 1031 : case 1033 :
-    case 1034 : case 1035 :
-      return 1;
-
-    case 2000 : case 2001 : case 2002 :
-      return 1;
-
-    case 3000 : case 3001 : case 3002 :
-      return 1;
-      
-    case 4000 : case 4100 : case 4200 : case 4210 :
-      return 1;
-      
-    case 4220 : case 4400 :
-      return 1;
-
-    case gxDatabaseVersionNumber :
-      return 1;
-
-    default: // Unknown version number
-      break;
-  }
-
-  // Check the previous version
-  if(ver == 4400) return 1;
-
-  // Check the version currently in use
-  if(ver == gxDatabase::gxVersion) return 1;
-  
   return 1;
 }
 
@@ -951,8 +1074,14 @@ int gxDatabaseDebugManager::VerifyRevLetter(__SBYTE__ rev)
 
 void gxDatabaseDebugManager::ResetFileHeader(gxFileHeader &fh)
 {
+  // 10/14/2026: The end of file was set from this object's header in
+  // place of "fh", and a heap start of zero (an unread header) gave a
+  // negative static area. Use the smallest valid heap start in that case.
+  if(fh.gxd_hs_fptr < (FAU_t)FileHeaderSize()) {
+    fh.gxd_hs_fptr = (FAU_t)FileHeaderSize();
+  }
   fh.gxd_fs_fptr = (FAU_t)0;
-  fh.gxd_eof = file_header.gxd_hs_fptr;
+  fh.gxd_eof = fh.gxd_hs_fptr;
   fh.gxd_hb_fptr = (FAU_t)0; 
   memcpy(fh.gxd_sig, gxDatabase::gxSignature, (gxSignatureSize-1)); 
   fh.gxd_ver = gxDatabase::gxVersion;

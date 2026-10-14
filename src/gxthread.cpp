@@ -482,7 +482,10 @@ void gxThread::RebuildThreadPool(thrPool *thread_pool)
 	if(next->GetNext() == 0) { // This is the last node in the pool
 	  thread = thread_pool->RemoveNode(curr);
 	  if(thread) DestroyThread(thread, 0);
-	  thread_pool->MakeEmpty(); // The pool is now empty
+	  // 10/14/2026: Removed a MakeEmpty() call here. It dropped every
+	  // node still in the pool when the last node had exited, losing
+	  // the running threads and leaking their nodes. RemoveNode()
+	  // already updates the head and tail pointers.
 	  return;
 	}
 	else { // We are somewhere in the middle of the list

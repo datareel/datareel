@@ -125,7 +125,11 @@ void gxrdRecordHeader::Copy(const gxrdRecordHeader &ob)
 
 void gxrdRecordHeader::SetTableID(const gxString &table_name) 
 {
-  if(table_name.is_null()) table_id = (gxUINT32)0;
+  // 10/14/2026: The null name test set zero and then fell through
+  if(table_name.is_null()) {
+    table_id = (gxUINT32)0;
+    return;
+  }
   table_id = calcCRC32(table_name.c_str(), table_name.length());
 }
 
@@ -353,11 +357,18 @@ void gxrdTableHeader::Copy(const gxrdTableHeader &ob)
   memmove(key_def, ob.key_def, tableDEF_LEN);  
   memmove(form_def, ob.form_def, tableDEF_LEN);  
   memmove(fkey_def, ob.fkey_def, tableDEF_LEN);
-  // 12/19/2005: Corrected statement with no effect
-  memmove(app_space, ob.app_space, tableAPPLICATION_SPACE);
   DestroyHeader();
+  // 10/14/2026: A header with no field array was copied by allocating
+  // one field and reading ob.fields[0] through a null pointer
+  if((!ob.fields) || (ob.num_fields == (gxUINT32)0)) {
+    memmove(app_space, ob.app_space, tableAPPLICATION_SPACE);
+    return;
+  }
   num_fields = ob.num_fields;
   AllocHeader(num_fields);
+  // 10/14/2026: The application space was copied before AllocHeader(),
+  // which clears it, so every copy lost the application space
+  memmove(app_space, ob.app_space, tableAPPLICATION_SPACE);
   if(!fields) {
     num_fields = (gxUINT32)0;
     return;
@@ -540,7 +551,7 @@ int gxrdTableHeader::SetField(char field_type_id, char format_specifier,
   fields[nfield].format_specifier = format_specifier;
   fields[nfield].column_length = column_length;
   fields[nfield].array_length = array_length;
-  strncpy(fields[nfield].field_name, field_name, tableFIELD_NAME_LEN);
+  strncpy(fields[nfield].field_name, field_name, tableFIELD_NAME_LEN-1);
   fields[nfield].field_name[tableFIELD_NAME_LEN-1] = 0;
   return 1;
 }
@@ -768,8 +779,12 @@ int gxrdDatabaseKey::operator>(const DatabaseKeyB& k) const
     return key.k > kptr->key.k;
   }
   else { // Allow duplicate names by comparing the object ID  
-    return ((key.k > kptr->key.k) && \
-	    (key.kid > kptr->key.kid));
+    // 10/14/2026: Was "(k > k) && (kid > kid)", which did not give the
+    // B-tree a consistent order. Keys are now ordered by key and then by
+    // object ID, the same order used by CompareKey().
+    if(key.k > kptr->key.k) return 1;
+    if(key.k < kptr->key.k) return 0;
+    return key.kid > kptr->key.kid;
   }
 }
 
@@ -815,7 +830,7 @@ __ULWORD__ gxrdDatabaseRecord::SizeOf() const
 
   for(i = 0; i < num_fields; i++) {
     total_size += (sizeof(num_bytes)+field_type_size);
-    memmove(&num_bytes, (db_record[i].m_buf()+field_type_size), 
+    memmove((void *)&num_bytes, (const void *)(db_record[i].m_buf()+field_type_size), 
 	    sizeof(num_bytes));
     total_size += num_bytes;
   }
@@ -845,7 +860,7 @@ __ULWORD__ gxrdDatabaseRecord::SizeOfField(__ULWORD__ col_number) const
   gxUINT32 num_bytes;
 
   total_size += (sizeof(num_bytes)+field_type_size);
-  memmove(&num_bytes, (db_record[col_number].m_buf()+field_type_size), 
+  memmove((void *)&num_bytes, (const void *)(db_record[col_number].m_buf()+field_type_size), 
 	  sizeof(num_bytes));
   return (total_size + num_bytes);
 }
@@ -908,7 +923,7 @@ void *gxrdDatabaseRecord::FieldData(__ULWORD__ col_number, char &field_type_id,
   memmove(&field_type_id, (db_record[col_number].m_buf()+offset), 
 	  sizeof(field_type_id));
   offset += sizeof(field_type_id);
-  memmove(&num_bytes, (db_record[col_number].m_buf()+offset), 
+  memmove((void *)&num_bytes, (const void *)(db_record[col_number].m_buf()+offset), 
 	  sizeof(num_bytes));
   offset += sizeof(num_bytes);
   return (void *)(db_record[col_number].m_buf()+offset);
@@ -944,7 +959,7 @@ gxDatabaseError gxrdDatabaseRecord::FieldDiskOffset(__ULWORD__ &offset,
 
   for(__ULWORD__ i = 0; i < col_number; i++) {
     offset += 1; // Field type ID
-    memmove(&num_bytes, (db_record[i].m_buf()+1), 
+    memmove((void *)&num_bytes, (const void *)(db_record[i].m_buf()+1), 
 	    sizeof(num_bytes));
     offset += sizeof(num_bytes);
     offset += num_bytes;
@@ -963,7 +978,7 @@ gxDatabaseError gxrdDatabaseRecord::GetField(void *data,
   gxUINT32 num_bytes;
   __ULWORD__ offset = 1; // One byte field ID
 
-  memmove(&num_bytes, (db_record[col_number].m_buf()+offset), 
+  memmove((void *)&num_bytes, (const void *)(db_record[col_number].m_buf()+offset), 
 	  sizeof(num_bytes));
   offset += sizeof(num_bytes);
 
@@ -1007,7 +1022,7 @@ void *gxrdDatabaseRecord::GetField(__ULWORD__ col_number, __ULWORD__ &bytes,
   gxUINT32 num_bytes;
   __ULWORD__ offset = 1; // One byte field ID
 
-  memmove(&num_bytes, (db_record[col_number].m_buf()+offset), 
+  memmove((void *)&num_bytes, (const void *)(db_record[col_number].m_buf()+offset), 
 	  sizeof(num_bytes));
   offset += sizeof(num_bytes);
 
@@ -1025,7 +1040,7 @@ gxDatabaseError gxrdDatabaseRecord::SetField(const void *data,
   if(col_number > (num_fields-1)) return gxDBASE_BUFFER_OVERFLOW;
   gxUINT32 num_bytes, nsize;
   __ULWORD__ offset = 1; // One byte field ID
-  memmove(&num_bytes, (db_record[col_number].m_buf()+offset), 
+  memmove((void *)&num_bytes, (const void *)(db_record[col_number].m_buf()+offset), 
 	  sizeof(num_bytes));
   offset += sizeof(num_bytes);
 
@@ -1217,9 +1232,12 @@ void gxrdDatabaseRecord::Copy(const gxrdDatabaseRecord &ob)
 
   table_name = ob.table_name;
   record_def = ob.record_def;
-  num_fields = ob.num_fields;
   compare_field = ob.compare_field;
+  compare_case = ob.compare_case; // 10/14/2026: Was not copied
   compare_alpha = ob.compare_alpha;
+
+  // Copy the exclude fields
+  exclude_fields = ob.exclude_fields;
 
   // The object does not have any record space
   if(!ob.db_record) {
@@ -1227,8 +1245,11 @@ void gxrdDatabaseRecord::Copy(const gxrdDatabaseRecord &ob)
     return;
   }
   
-  // Alloc space for record field array
-  AllocArray(num_fields);
+  // Alloc space for record field array. 10/14/2026: num_fields was set
+  // to ob.num_fields before this call, so AllocArray() kept a smaller
+  // existing array and the loop below wrote past its end. AllocArray()
+  // now sees the current size and sets num_fields itself.
+  if(!AllocArray(ob.num_fields)) return;
   
   if(!db_record) return;
 
@@ -1236,9 +1257,6 @@ void gxrdDatabaseRecord::Copy(const gxrdDatabaseRecord &ob)
   for(__ULWORD__ i = 0; i < num_fields; i++) {
     db_record[i] = ob.db_record[i];
   }
-
-  // Copy the exclude fields
-  exclude_fields = ob.exclude_fields;
 }
 
 gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field, 
@@ -1248,7 +1266,9 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 
   int compare_all = 0;
   if(field == (__ULWORD__)-1) compare_all = 1;
-  if(field > num_fields) compare_all = 1;
+  // 10/14/2026: Was "> num_fields", so a field equal to the number of
+  // fields made a key from no data
+  if(field >= num_fields) compare_all = 1;
 
   char field_type_id;
   gxUINT32 num_bytes;
@@ -1290,7 +1310,7 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
     memmove(&field_type_id, (db_record[i].m_buf()+offset), 
 	    sizeof(field_type_id));
     offset += sizeof(field_type_id);
-    memmove(&num_bytes, (db_record[i].m_buf()+offset), 
+    memmove((void *)&num_bytes, (const void *)(db_record[i].m_buf()+offset), 
 	    sizeof(num_bytes));
     offset += sizeof(num_bytes);
     type = (int)field_type_id;
@@ -1355,7 +1375,7 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 	if(num_bytes < sizeof(gxINT16)) return (gxrdKeyType_t)0;
 	buf_size += sizeof(gxINT16);
 	if(buf.length() < buf_size) buf.resize(buf_size);
-	memmove(&i16buf, p, sizeof(gxINT16));
+	memmove((void *)&i16buf, (const void *)p, sizeof(gxINT16));
 	memmove((buf.m_buf()+buf_offset), &i16buf, sizeof(gxINT16));
 	buf_offset += sizeof(gxINT16);
 	break;
@@ -1364,7 +1384,7 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 	if(num_bytes < sizeof(gxINT32)) return (gxrdKeyType_t)0;
 	buf_size += sizeof(gxINT32);
 	if(buf.length() < buf_size) buf.resize(buf_size);
-	memmove(&i32buf, p, sizeof(gxINT32));
+	memmove((void *)&i32buf, (const void *)p, sizeof(gxINT32));
 	memmove((buf.m_buf()+buf_offset), &i32buf, sizeof(gxINT32));
 	buf_offset += sizeof(gxINT32);
 	break;
@@ -1374,7 +1394,7 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 	buf_size += 8;
 	if(buf.length() < buf_size) buf.resize(buf_size);
 #if defined (__64_BIT_DATABASE_ENGINE__)
-	memmove(&i64buf, p, sizeof(gxINT64));
+	memmove((void *)&i64buf, (const void *)p, sizeof(gxINT64));
 	memmove((buf.m_buf()+buf_offset), &i64buf, sizeof(gxINT64));
 	buf_offset += sizeof(gxINT64);
 #else
@@ -1391,7 +1411,7 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 	if(num_bytes < sizeof(gxFLOAT64)) return (gxrdKeyType_t)0;
 	buf_size += sizeof(gxFLOAT64);
 	if(buf.length() < buf_size) buf.resize(buf_size);
-	memmove(&f64buf, p, sizeof(gxFLOAT64));
+	memmove((void *)&f64buf, (const void *)p, sizeof(gxFLOAT64));
 	memmove((buf.m_buf()+buf_offset), &f64buf, sizeof(gxFLOAT64));
 	buf_offset += sizeof(gxFLOAT64);
 	break;
@@ -1400,7 +1420,7 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 	if(num_bytes < sizeof(CDate)) return (gxrdKeyType_t)0;
 	buf_size += sizeof(CDate);
 	if(buf.length() < buf_size) buf.resize(buf_size);
-	memmove(&date_buf, p, sizeof(CDate));
+	memmove((void *)&date_buf, (const void *)p, sizeof(CDate));
 	memmove((buf.m_buf()+buf_offset), &date_buf, sizeof(CDate));
 	buf_offset += sizeof(CDate);
 	break;
@@ -1418,7 +1438,6 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
 				int alpha_cmp, int find_match) const
 {
   int result = -1;
-  gxString result_buf;
   if((!db_record) || (!ob.db_record)) return result;
   if(table_name != ob.table_name) return result;
   if(record_def != ob.record_def) return result;
@@ -1426,7 +1445,9 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
 
   int compare_all = 0;
   if(field == (__ULWORD__)-1) compare_all = 1;
-  if((field > num_fields) || (field > ob.num_fields)) compare_all = 1;
+  // 10/14/2026: Was "> num_fields", so a field equal to the number of
+  // fields compared nothing and returned 0 (equal)
+  if((field >= num_fields) || (field >= ob.num_fields)) compare_all = 1;
 
   char field_type_id1, field_type_id2;
   gxUINT32 num_bytes1, num_bytes2 ;
@@ -1462,14 +1483,14 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
     memmove(&field_type_id1, (db_record[i].m_buf()+offset1), 
 	    sizeof(field_type_id1));
     offset1 += sizeof(field_type_id1);
-    memmove(&num_bytes1, (db_record[i].m_buf()+offset1), 
+    memmove((void *)&num_bytes1, (const void *)(db_record[i].m_buf()+offset1), 
 	    sizeof(num_bytes1));
     offset1 += sizeof(num_bytes1);
 
     memmove(&field_type_id2, (ob.db_record[i].m_buf()+offset2), 
 	    sizeof(field_type_id2));
     offset2 += sizeof(field_type_id2);
-    memmove(&num_bytes2, (ob.db_record[i].m_buf()+offset2), 
+    memmove((void *)&num_bytes2, (const void *)(ob.db_record[i].m_buf()+offset2), 
 	    sizeof(num_bytes2));
     offset2 += sizeof(num_bytes2);
 
@@ -1546,7 +1567,11 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
 	break;
 
       case gxrdBLOB : // BLOB types cannot be indexed
-	result = -1;
+	// 10/14/2026: BLOB fields are skipped when all fields are compared,
+	// the same way CreateKey() skips them. Before, any record with a
+	// BLOB field could never compare equal to another record.
+	if(compare_all) result = 0;
+	else result = -1;
 	break;
 	
       case gxrdBINARY : // User defined types and small binary objects
@@ -1581,8 +1606,8 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
 	    break; 
 	  }
 	}
-	memmove(&i16buf1, p1, sizeof(gxINT16));
-	memmove(&i16buf2, p2, sizeof(gxINT16));
+	memmove((void *)&i16buf1, (const void *)p1, sizeof(gxINT16));
+	memmove((void *)&i16buf2, (const void *)p2, sizeof(gxINT16));
 	if(i16buf1 == i16buf2) result = 0;
 	if(i16buf1 < i16buf2) result = -1;
 	if(i16buf1 > i16buf2) result = 1;
@@ -1601,8 +1626,8 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
 	    break; 
 	  }
 	}
-	memmove(&i32buf1, p1, sizeof(gxINT32));
-	memmove(&i32buf2, p2, sizeof(gxINT32));
+	memmove((void *)&i32buf1, (const void *)p1, sizeof(gxINT32));
+	memmove((void *)&i32buf2, (const void *)p2, sizeof(gxINT32));
 	if(i32buf1 == i32buf2) result = 0;
 	if(i32buf1 < i32buf2) result = -1;
 	if(i32buf1 > i32buf2) result = 1;
@@ -1622,8 +1647,8 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
 	  }
 	}
 #if defined (__64_BIT_DATABASE_ENGINE__)
-	memmove(&i64buf1, p1, sizeof(gxINT64));
-	memmove(&i64buf2, p2, sizeof(gxINT64));
+	memmove((void *)&i64buf1, (const void *)p1, sizeof(gxINT64));
+	memmove((void *)&i64buf2, (const void *)p2, sizeof(gxINT64));
 	if(i64buf1 == i64buf2) result = 0;
 	if(i64buf1 < i64buf2) result = -1;
 	if(i64buf1 > i64buf2) result = 1;
@@ -1664,8 +1689,8 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
 	    break; 
 	  }
 	}
-	memmove(&f64buf1, p1, sizeof(gxFLOAT64));
-	memmove(&f64buf2, p2, sizeof(gxFLOAT64));
+	memmove((void *)&f64buf1, (const void *)p1, sizeof(gxFLOAT64));
+	memmove((void *)&f64buf2, (const void *)p2, sizeof(gxFLOAT64));
 	if(f64buf1 == f64buf2) result = 0;
 	if(f64buf1 < f64buf2) result = -1;
 	if(f64buf1 > f64buf2) result = 1;
@@ -1684,8 +1709,8 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
 	    break; 
 	  }
 	}
-	memmove(&date_buf1, p1, sizeof(CDate));
-	memmove(&date_buf2, p2, sizeof(CDate));
+	memmove((void *)&date_buf1, (const void *)p1, sizeof(CDate));
+	memmove((void *)&date_buf2, (const void *)p2, sizeof(CDate));
 	if(date_buf1 == date_buf2) result = 0;
 	if(date_buf1 < date_buf2) result = -1;
 	if(date_buf1 > date_buf2) result = 1;
@@ -1694,19 +1719,13 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
       default:
 	return -1;
     }
-    if(compare_all) { // Record each result
-      result_buf << result << " ";
-    }
-    else { // Compare a single field and exit
-      return result;
-    }
+    // 10/14/2026: When all fields were compared the results were stored
+    // in a string and tested with "if(result_buf.Find(...))". Find()
+    // returns -1 when nothing is found, so the function returned -1 even
+    // when every field was equal. The first field that is not equal now
+    // decides the result.
+    if((!compare_all) || (result != 0)) return result;
   }
-
-  // A record field is less then the total weight
-  if(result_buf.Find("-1")) return -1;
-  
-  // A record field is greater then the total weight
-  if(result_buf.Find("1")) return -1;
 
   return 0; // All fields are equal 
 }
@@ -1762,7 +1781,10 @@ gxDatabaseError gxrdDatabaseRecord::CreateRecord(const gxString &def, int clear_
   __ULWORD__ size = 0;
   __ULWORD__ overhead = 0;
   
-  num_fields = num_words - 1;
+  // 10/14/2026: num_fields was set here, before AllocArray(). A record
+  // that already had a smaller field array kept it and InitRecord() wrote
+  // past its end. AllocArray() now sets num_fields.
+  __ULWORD__ nfields = (__ULWORD__)(num_words - 1);
 
   for(i = 1; i < num_words; i++) {
     if(*words[i]) {
@@ -1812,7 +1834,7 @@ gxDatabaseError gxrdDatabaseRecord::CreateRecord(const gxString &def, int clear_
     }
   }
   
-  if(!AllocArray(num_fields)) {
+  if(!AllocArray(nfields)) {
     if(clear_rec) Clear();
     return gxDBASE_MEM_ALLOC_ERROR;
   }
@@ -1863,7 +1885,7 @@ gxDatabaseError gxrdDatabaseRecord::CreateDiskRecord(MemoryBuffer &disk_record)
     memmove(&field_type_id, (db_record[i].m_buf()+rec_offset),
 	    sizeof(field_type_id));
     rec_offset += sizeof(field_type_id);
-    memmove(&num_bytes, (db_record[i].m_buf()+rec_offset),
+    memmove((void *)&num_bytes, (const void *)(db_record[i].m_buf()+rec_offset),
 	    sizeof(num_bytes));
     rec_offset += sizeof(num_bytes);
 
@@ -1907,9 +1929,14 @@ gxDatabaseError gxrdDatabaseRecord::LoadDiskRecord(\
   gxrdRecordHeader rh;
 
   // Read the record header
-  memmove(&rh, disk_record.m_buf(), rh.SizeOf());
+  memmove((void *)&rh, (const void *)disk_record.m_buf(), rh.SizeOf());
   if(!rh.TestTableID(table_name)) {
     return gxDBASE_BAD_TABLE_ID;
+  }
+  // 10/14/2026: The field count stored on disk was not checked, so a disk
+  // record with more fields than this record wrote past the field array
+  if(rh.num_fields > (gxUINT32)num_fields) {
+    return gxDBASE_BAD_RECORD;
   }
 
   char field_type_id;
@@ -1931,7 +1958,7 @@ gxDatabaseError gxrdDatabaseRecord::LoadDiskRecord(\
     if(byte_count > disk_record.length()) {
       return gxDBASE_BAD_RECORD;
     }
-    memmove(&num_bytes, (disk_record.m_buf()+buf_offset), 
+    memmove((void *)&num_bytes, (const void *)(disk_record.m_buf()+buf_offset), 
 	    sizeof(num_bytes));
     buf_offset += sizeof(num_bytes);
 
@@ -2007,7 +2034,7 @@ void gxrdExcludeFields::SetNumFields(gxUINT32 nfields)
 {
   if(nfields < tableMIN_FIELDS) nfields = tableMIN_FIELDS;
   if(nfields > tableMAX_FIELDS) nfields = tableMAX_FIELDS;
-  if(fields) delete fields;
+  if(fields) delete[] fields; // 10/14/2026: Was a scalar delete of new[]
   num_fields = nfields;
   fields = new gxUINT32[num_fields];
   if(!fields) {
@@ -2035,11 +2062,19 @@ __ULWORD__ gxrdExcludeFields::SizeOf()
 
 void gxrdExcludeFields::Copy(const gxrdExcludeFields &ob) 
 {
+  if(this == &ob) return; // Prevent self assignment
   if(fields) delete[] fields;
-  num_fields = ob.num_fields;
-  if(ob.fields) {
-    fields = new gxUINT32[num_fields];
-    memmove(fields, ob.fields, num_fields);
+  // 10/14/2026: The pointer was left set after the delete when ob had
+  // no array, and only num_fields bytes (not num_fields entries) were
+  // copied
+  fields = 0;
+  num_fields = 0;
+  if((ob.fields) && (ob.num_fields > (gxUINT32)0)) {
+    fields = new gxUINT32[ob.num_fields];
+    if(!fields) return;
+    num_fields = ob.num_fields;
+    memmove((void *)fields, (const void *)ob.fields, 
+	    (__ULWORD__)num_fields * sizeof(gxUINT32));
   }
 }
 

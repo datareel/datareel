@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>dcache2 example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: testprog.cpp</FONT>
-<FONT COLOR="#ff0000">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 09/20/1999</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>dcache2 example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>Device Cache Example 2</h1>
+<p class="dr-listing-meta">Source file: <code>testprog.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: testprog.cpp</span>
+<span class="cm">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 09/20/1999</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -85,16 +91,16 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 This is a test program for the device cache classes.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include &lt;sys/types.h&gt;
 #include &lt;sys/stat.h&gt;
@@ -107,7 +113,7 @@ using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard
 #include "leaktest.h"
 #endif
 
-<FONT COLOR="#ff0000">// Example class used to create the device cache</FONT>
+<span class="cm">// Example class used to create the device cache</span>
 class gxFileCache : public gxDeviceCache
 {
 public:
@@ -115,7 +121,7 @@ public:
   ~gxFileCache() { }
 
 public:
-  void Flush() { cache.Flush(); } <FONT COLOR="#ff0000">// Flush the cache buckets</FONT>
+  void Flush() { cache.Flush(); } <span class="cm">// Flush the cache buckets</span>
   unsigned BucketsInUse() { return cache.BucketsInUse(); }
   void CloseOutputFile() { infile.df_Close(); }
   void CloseInputFile() { outfile.df_Close(); }
@@ -124,18 +130,18 @@ public:
   unsigned LoadFile(gxDeviceCachePtr p);
   int CopyFileToFile(const char *in, const char *out, int *bc = 0);
 
-private: <FONT COLOR="#ff0000">// Base class interface</FONT>
+private: <span class="cm">// Base class interface</span>
   void Read(void *buf, unsigned Bytes, gxDeviceTypes dev);
   void Write(const void *buf, unsigned Bytes, gxDeviceTypes dev);
 
-private: <FONT COLOR="#ff0000">// Device objects</FONT>
-  DiskFileB outfile; <FONT COLOR="#ff0000">// File used to output data</FONT>
-  DiskFileB infile;  <FONT COLOR="#ff0000">// File used to input data</FONT>
+private: <span class="cm">// Device objects</span>
+  DiskFileB outfile; <span class="cm">// File used to output data</span>
+  DiskFileB infile;  <span class="cm">// File used to input data</span>
   
-private: <FONT COLOR="#ff0000">// Device cache</FONT>
+private: <span class="cm">// Device cache</span>
   gxDeviceBucketCache cache;
 
-public: <FONT COLOR="#ff0000">// Functions used to get the current device cache</FONT>
+public: <span class="cm">// Functions used to get the current device cache</span>
   gxDeviceBucketCache *GetCache() { return &amp;cache; }
 };
 
@@ -185,21 +191,21 @@ int gxFileCache::CopyFileToFile(const char *in, const char *out, int *bc)
 
   if(!cache) return 0;
   
-  gxDeviceTypes o_device = gxDEVICE_DISK_FILE; <FONT COLOR="#ff0000">// Output device</FONT>
-  gxDeviceTypes i_device = gxDEVICE_NULL;      <FONT COLOR="#ff0000">// No input buffering</FONT>
+  gxDeviceTypes o_device = gxDEVICE_DISK_FILE; <span class="cm">// Output device</span>
+  gxDeviceTypes i_device = gxDEVICE_NULL;      <span class="cm">// No input buffering</span>
 
-  <FONT COLOR="#ff0000">// Setup a pointer to the cache buckets</FONT>
+  <span class="cm">// Setup a pointer to the cache buckets</span>
   gxDeviceCachePtr p(cache, o_device, i_device); 
-  *bc = LoadFile(p); <FONT COLOR="#ff0000">// Load the file into the cache </FONT>
-  cache.Flush(); <FONT COLOR="#ff0000">// Ensure all the buckets a written to the output device</FONT>
+  *bc = LoadFile(p); <span class="cm">// Load the file into the cache </span>
+  cache.Flush(); <span class="cm">// Ensure all the buckets a written to the output device</span>
   infile.df_Close();
   outfile.df_Close();
   return 1;
 }
 
 unsigned gxFileCache::LoadFile(gxDeviceCachePtr p)
-<FONT COLOR="#ff0000">// Load a file from disk into the device cache. Returns the</FONT>
-<FONT COLOR="#ff0000">// number bytes read from the file.</FONT>
+<span class="cm">// Load a file from disk into the device cache. Returns the</span>
+<span class="cm">// number bytes read from the file.</span>
 {
   unsigned byte_count = 0;
   char sbuf[MEMORY_BLOCK_SIZE];
@@ -220,9 +226,9 @@ unsigned gxFileCache::LoadFile(gxDeviceCachePtr p)
 }
 
 int gxFileCache::OpenInputFile(const char *in)
-<FONT COLOR="#ff0000">// Open the file if it exists. Returns false</FONT>
-<FONT COLOR="#ff0000">// it the file cannot be opened or if it does</FONT>
-<FONT COLOR="#ff0000">// not exist.</FONT>
+<span class="cm">// Open the file if it exists. Returns false</span>
+<span class="cm">// it the file cannot be opened or if it does</span>
+<span class="cm">// not exist.</span>
 {
   infile.df_Open(in);
   if(!infile) return 0;
@@ -230,8 +236,8 @@ int gxFileCache::OpenInputFile(const char *in)
 }
 
 int gxFileCache::OpenOutputFile(const char *out)
-<FONT COLOR="#ff0000">// Open the specified file for writing and truncate</FONT>
-<FONT COLOR="#ff0000">// it. Returns false if the file cannot be opened.</FONT>
+<span class="cm">// Open the specified file for writing and truncate</span>
+<span class="cm">// it. Returns false if the file cannot be opened.</span>
 {
   outfile.df_Create(out);
   if(!outfile) return 0;
@@ -255,7 +261,7 @@ int main(int argc, char **argv)
   char *out = argv[2];
 
   int cache_size = 1024;
-  gxFileCache dev(cache_size); <FONT COLOR="#ff0000">// Device cache used to process a file</FONT>
+  gxFileCache dev(cache_size); <span class="cm">// Device cache used to process a file</span>
 
   cout &lt;&lt; "Creating a device cache using " &lt;&lt; cache_size 
        &lt;&lt; " cache buckets." &lt;&lt; "\n";
@@ -274,17 +280,16 @@ int main(int argc, char **argv)
 
   return 0;
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

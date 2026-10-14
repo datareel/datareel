@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>sslcli example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: server.cpp</FONT>
-<FONT COLOR="#ff0000">// Compiler Used: MSVC, GCC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 10/17/2001</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>sslcli example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>SSL Client</h1>
+<p class="dr-listing-meta">Source file: <code>server.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: server.cpp</span>
+<span class="cm">// Compiler Used: MSVC, GCC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 10/17/2001</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -85,16 +91,16 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 HTTPS client example program using the gxSSL class.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include "gxshttpc.h"
 #include "dfileb.h"
@@ -103,13 +109,13 @@ using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard
 #include "leaktest.h"
 #endif
 
-<FONT COLOR="#ff0000">// Version number and program name</FONT>
+<span class="cm">// Version number and program name</span>
 const double ProgramVersionNumber = 1.0;
 const char *ProgramName = "https testprog";
 
-<FONT COLOR="#ff0000">// Program globals</FONT>
-int get_doc_header = 0; <FONT COLOR="#ff0000">// True if request a document header only</FONT>
-int get_document = 0;   <FONT COLOR="#ff0000">// True if requesting a document </FONT>
+<span class="cm">// Program globals</span>
+int get_doc_header = 0; <span class="cm">// True if request a document header only</span>
+int get_document = 0;   <span class="cm">// True if requesting a document </span>
 
 void HelpMessage(const char *program_name, const double version_number)
 {
@@ -119,7 +125,7 @@ void HelpMessage(const char *program_name, const double version_number)
   cout &lt;&lt; "\n";
   cout &lt;&lt; program_name &lt;&lt; " version " &lt;&lt; version_number  &lt;&lt; "\n";
   cout &lt;&lt; "Usage: " &lt;&lt; program_name &lt;&lt; " [switches] URL" &lt;&lt; "\n";
-  cout &lt;&lt; "Example: " &lt;&lt; program_name &lt;&lt; " -h https:<FONT COLOR="#ff0000">//www.xyz.com/index.html"</FONT>
+  cout &lt;&lt; "Example: " &lt;&lt; program_name &lt;&lt; " -h https:<span class="cm">//www.xyz.com/index.html"</span>
        &lt;&lt; "\n";
   cout &lt;&lt; "Switches: " &lt;&lt; "\n";
   cout &lt;&lt; "          -d = Download the specified file only (default)." &lt;&lt; "\n";
@@ -149,7 +155,7 @@ int ProcessArgs(char *arg)
   }
   arg[0] = '\0';
 
-  return 1; <FONT COLOR="#ff0000">// All command line arguments were valid</FONT>
+  return 1; <span class="cm">// All command line arguments were valid</span>
 }
 
 void PrintHTTPHeader(const gxsHTTPHeader &amp;hdr)
@@ -326,9 +332,9 @@ void DownloadFile(const char *URL)
     cout &lt;&lt; "Error parsing URL" &lt;&lt; "\n";
   }
 
-  <FONT COLOR="#ff0000">// Construct the local file name based on the URL information</FONT>
+  <span class="cm">// Construct the local file name based on the URL information</span>
   gxString sbuf(u.dir);
-  if(u.file == "?") { <FONT COLOR="#ff0000">// Is this a file or directory</FONT>
+  if(u.file == "?") { <span class="cm">// Is this a file or directory</span>
     while(sbuf.DeleteBeforeIncluding("/")) ;
     u.file = sbuf;
     u.dir.DeleteAfterIncluding(sbuf.c_str());
@@ -337,7 +343,7 @@ void DownloadFile(const char *URL)
     u.file = "index.html";
   }
 
-  <FONT COLOR="#ff0000">// Open the local file</FONT>
+  <span class="cm">// Open the local file</span>
   DiskFileB outfile(u.file.c_str(), DiskFileB::df_WRITEONLY,
 		    DiskFileB::df_CREATE);
   if(!outfile) {
@@ -348,12 +354,12 @@ void DownloadFile(const char *URL)
   cout &lt;&lt; "Connecting to: " &lt;&lt; u.host &lt;&lt; "\n";
   cout &lt;&lt; "Downloading: " &lt;&lt; u.path &lt;&lt; "\n";
 
-  <FONT COLOR="#ff0000">// client.openssl.SetCertFile("client_cert.pem");</FONT>
-  <FONT COLOR="#ff0000">// client.openssl.SetKeyFile("client_key.pem");</FONT>
-  <FONT COLOR="#ff0000">// client.openssl.SetPasswd("keypassphrase");</FONT>
-  <FONT COLOR="#ff0000">// client.openssl.SetCAList("ca_list.pem");</FONT>
-  <FONT COLOR="#ff0000">// client.openssl.SetRandomFile("random_number_file");</FONT>
-  <FONT COLOR="#ff0000">// client.openssl.RequireVerifyCert();</FONT>
+  <span class="cm">// client.openssl.SetCertFile("client_cert.pem");</span>
+  <span class="cm">// client.openssl.SetKeyFile("client_key.pem");</span>
+  <span class="cm">// client.openssl.SetPasswd("keypassphrase");</span>
+  <span class="cm">// client.openssl.SetCAList("ca_list.pem");</span>
+  <span class="cm">// client.openssl.SetRandomFile("random_number_file");</span>
+  <span class="cm">// client.openssl.RequireVerifyCert();</span>
 
   gxsHTTPHeader hdr;
   if(client.Request(u, hdr, outfile.df_FileStream()) != 0) {
@@ -365,8 +371,8 @@ void DownloadFile(const char *URL)
   client.Flush();
 }
 
-<FONT COLOR="#ff0000">// Program's main thread of execution.</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- </FONT>
+<span class="cm">// Program's main thread of execution.</span>
+<span class="cm">// ----------------------------------------------------------- </span>
 int main(int argc, char **argv)
 {
 #ifdef __MSVC_DEBUG__
@@ -378,13 +384,13 @@ int main(int argc, char **argv)
     return 0;
   }
   
-  <FONT COLOR="#ff0000">// Process command ling arguments and files </FONT>
+  <span class="cm">// Process command ling arguments and files </span>
   int narg;
   char *arg = argv[narg = 1];
   while (narg &lt; argc) {
     if (arg[0] != '\0') {
-      if (arg[0] == '-') { <FONT COLOR="#ff0000">// Look for command line arguments</FONT>
-	if(!ProcessArgs(arg)) return 0; <FONT COLOR="#ff0000">// Exit if argument is not valid</FONT>
+      if (arg[0] == '-') { <span class="cm">// Look for command line arguments</span>
+	if(!ProcessArgs(arg)) return 0; <span class="cm">// Exit if argument is not valid</span>
       }
       else { 
 	if(get_document) {
@@ -397,7 +403,7 @@ int main(int argc, char **argv)
 	  cout &lt;&lt; "Requesting document header: " &lt;&lt; arg &lt;&lt; "\n";
 	  GetDocumentHeader(arg);
 	}
-	else { <FONT COLOR="#ff0000">// Default if no argument is specifed</FONT>
+	else { <span class="cm">// Default if no argument is specifed</span>
 	  cout &lt;&lt; "\n";
 	  cout &lt;&lt; "Downloading: " &lt;&lt; arg &lt;&lt; "\n";
 	  DownloadFile((const char *)arg);
@@ -409,17 +415,16 @@ int main(int argc, char **argv)
   
   return 0;
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

@@ -60,7 +60,7 @@ gxRandom::gxRandom(unsigned max_seeds)
 gxRandom::~gxRandom() 
 {
   if(seed_table) {
-    delete seed_table;
+    delete[] seed_table; // 10/14/2026: Was a scalar delete of new[]
     seed_table = 0;
   }
 }
@@ -148,7 +148,7 @@ void gxRandom::SeedTable(unsigned max_seeds, unsigned long r_seed)
       gen_prng_table(seed_table, max_seeds, r_seed);
       return;
     }
-    delete seed_table;
+    delete[] seed_table; // 10/14/2026: Was a scalar delete of new[]
     seed_table = 0;
   }
   if(!r_seed) r_seed = entropy_number();
@@ -257,7 +257,7 @@ unsigned *gxRandom::PRNGTable(unsigned *table1, unsigned table_size,
   unsigned *table2 = gen_prng_table(table_size, RandomNumber(r_seed));
   if(!table2) return 0;
   test_tables(table1, table2, table_size);
-  delete table2;
+  delete[] table2; // 10/14/2026: Was a scalar delete of new[]
 
   return table1;
 }
@@ -307,11 +307,11 @@ unsigned *gxRandom::PRNGTable(unsigned table_size, unsigned long r_seed)
   if(!table1) return 0;
   unsigned *table2 = gen_prng_table(table_size, RandomNumber(r_seed));
   if(!table2) {
-    delete table1;
+    delete[] table1; // 10/14/2026: Was a scalar delete of new[]
     return 0;
   }
   test_tables(table1, table2, table_size);  
-  delete table2;
+  delete[] table2; // 10/14/2026: Was a scalar delete of new[]
 
   return table1;
 }
@@ -1264,61 +1264,42 @@ int gxSSL::MakeDHParms(const char *dh_fname,
 // Returns 0 if successful. 
 // Returns a non-zero value if the function fails.
 {
-  unsigned char dh1024_p_default[128] = {
-    0xD9,0x80,0x9D,0xF9,0x04,0x4E,0xE2,0x87,0x38,0x25,0x9A,0x13,
-    0xE5,0xBE,0x17,0x79,0x0C,0xFD,0xEE,0xF3,0xE4,0x0F,0x21,0x65,
-    0xBE,0xCE,0xAB,0x01,0x8C,0x42,0xB5,0x0E,0x68,0x11,0x00,0xAF,
-    0x80,0x56,0x79,0x90,0x67,0x1B,0xFF,0x3B,0x86,0x1C,0x19,0x80,
-    0xD3,0xFA,0xF7,0xF2,0x94,0x72,0x19,0xBB,0xD7,0x8A,0x9D,0xFC,
-    0xFA,0x4E,0xB2,0x90,0x9A,0x50,0x9D,0xB4,0xC7,0xA3,0xDC,0x98,
-    0xAB,0xA3,0xA4,0x08,0x1C,0x6B,0xF7,0xF5,0xF4,0x71,0x8C,0x06,
-    0x34,0x5A,0xC1,0x03,0x24,0x47,0xDA,0x1A,0x07,0x06,0xB3,0xB9,
-    0x04,0xF4,0x97,0x4A,0xD3,0x4C,0xA9,0xAF,0xA4,0xC1,0x1C,0xAD,
-    0x04,0x08,0x71,0x55,0xA2,0x8B,0x70,0x99,0x23,0x9E,0x88,0xE7,
-    0xAA,0x2A,0x17,0xC6,0xE2,0x18,0xF0,0xFB
+  // 10/14/2026: The default group is now the RFC 7919 ffdhe2048 group
+  // (2048-bit prime, generator 2). The previous 1024-bit default prime is
+  // rejected by OpenSSL 3 at its default security level ("dh key too
+  // small") and is too weak to use (Logjam).
+  unsigned char dh1024_p_default[256] = {
+    0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xAD,0xF8,0x54,0x58,
+    0xA2,0xBB,0x4A,0x9A,0xAF,0xDC,0x56,0x20,0x27,0x3D,0x3C,0xF1,
+    0xD8,0xB9,0xC5,0x83,0xCE,0x2D,0x36,0x95,0xA9,0xE1,0x36,0x41,
+    0x14,0x64,0x33,0xFB,0xCC,0x93,0x9D,0xCE,0x24,0x9B,0x3E,0xF9,
+    0x7D,0x2F,0xE3,0x63,0x63,0x0C,0x75,0xD8,0xF6,0x81,0xB2,0x02,
+    0xAE,0xC4,0x61,0x7A,0xD3,0xDF,0x1E,0xD5,0xD5,0xFD,0x65,0x61,
+    0x24,0x33,0xF5,0x1F,0x5F,0x06,0x6E,0xD0,0x85,0x63,0x65,0x55,
+    0x3D,0xED,0x1A,0xF3,0xB5,0x57,0x13,0x5E,0x7F,0x57,0xC9,0x35,
+    0x98,0x4F,0x0C,0x70,0xE0,0xE6,0x8B,0x77,0xE2,0xA6,0x89,0xDA,
+    0xF3,0xEF,0xE8,0x72,0x1D,0xF1,0x58,0xA1,0x36,0xAD,0xE7,0x35,
+    0x30,0xAC,0xCA,0x4F,0x48,0x3A,0x79,0x7A,0xBC,0x0A,0xB1,0x82,
+    0xB3,0x24,0xFB,0x61,0xD1,0x08,0xA9,0x4B,0xB2,0xC8,0xE3,0xFB,
+    0xB9,0x6A,0xDA,0xB7,0x60,0xD7,0xF4,0x68,0x1D,0x4F,0x42,0xA3,
+    0xDE,0x39,0x4D,0xF4,0xAE,0x56,0xED,0xE7,0x63,0x72,0xBB,0x19,
+    0x0B,0x07,0xA7,0xC8,0xEE,0x0A,0x6D,0x70,0x9E,0x02,0xFC,0xE1,
+    0xCD,0xF7,0xE2,0xEC,0xC0,0x34,0x04,0xCD,0x28,0x34,0x2F,0x61,
+    0x91,0x72,0xFE,0x9C,0xE9,0x85,0x83,0xFF,0x8E,0x4F,0x12,0x32,
+    0xEE,0xF2,0x81,0x83,0xC3,0xFE,0x3B,0x1B,0x4C,0x6F,0xAD,0x73,
+    0x3B,0xB5,0xFC,0xBC,0x2E,0xC2,0x20,0x05,0xC5,0x8E,0xF1,0x83,
+    0x7D,0x16,0x83,0xB2,0xC6,0xF3,0x4A,0x26,0xC1,0xB2,0xEF,0xFA,
+    0x88,0x6B,0x42,0x38,0x61,0x28,0x5C,0x97,0xFF,0xFF,0xFF,0xFF,
+    0xFF,0xFF,0xFF,0xFF
   };
   unsigned char dh1024_g_default[1] = { 0x02 };
   
-  DH *dh = DH_new();
-  if(!dh) {
-    return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
-  }
-
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+  // 10/14/2026: Uses the OpenSSL 3 EVP_PKEY interface when available (the
+  // DH_* functions are deprecated), checks every allocation and frees
+  // the prime and generator numbers on every error path.
+  BIGNUM *p = 0, *g = 0;
   if(dh1024_p) {
-    if(dh1024_p_len <= 0) {
-      DH_free(dh);
-      return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
-    }
-    dh->p = BN_bin2bn(dh1024_p, dh1024_p_len, 0);
-  }
-  else {
-    dh->p = BN_bin2bn(dh1024_p_default, sizeof(dh1024_p_default), 0);
-  }
-  if(dh1024_g) {
-    if(dh1024_g_len <= 0) {
-      DH_free(dh);
-      return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
-    }
-    dh->g = BN_bin2bn(dh1024_g, dh1024_g_len, 0);
-  }
-  else {
-    dh->g = BN_bin2bn(dh1024_g_default, sizeof(dh1024_g_default), 0);
-  }
-  
-  if((dh->p == 0) || (dh->g == 0)) {
-    DH_free(dh);
-    return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
-  }
-#else
-  BIGNUM* p = 0;
-  BIGNUM* g = 0;
-
-  if(dh1024_p) {
-    if(dh1024_p_len <= 0) {
-      DH_free(dh);
-      return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
-    }
+    if(dh1024_p_len <= 0) return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
     p = BN_bin2bn(dh1024_p, dh1024_p_len, 0);
   }
   else {
@@ -1326,7 +1307,7 @@ int gxSSL::MakeDHParms(const char *dh_fname,
   }
   if(dh1024_g) {
     if(dh1024_g_len <= 0) {
-      DH_free(dh);
+      BN_free(p);
       return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
     }
     g = BN_bin2bn(dh1024_g, dh1024_g_len, 0);
@@ -1334,29 +1315,63 @@ int gxSSL::MakeDHParms(const char *dh_fname,
   else {
     g = BN_bin2bn(dh1024_g_default, sizeof(dh1024_g_default), 0);
   }
-  
-  if(DH_set0_pqg(dh, p, NULL, g) == 0) {
-    DH_free(dh);
+  if((p == 0) || (g == 0)) {
+    BN_free(p); BN_free(g);
     return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
   }
-#endif
-  
+
   FILE *fp = fopen(dh_fname, "w+b");
   if(!fp) {
     app_err_str << clear << "SSL exception: Can't write DH parms file " 
 		<< dh_fname;
-    DH_free(dh);
+    BN_free(p); BN_free(g);
     return ssl_error = gxSSL_APPDEF_ERROR;
   }
 
-  if(!PEM_write_DHparams(fp, dh)) {
-    fclose(fp);
-    DH_free(dh);
-    return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
+  int written = 0;
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  OSSL_PARAM_BLD *bld = OSSL_PARAM_BLD_new();
+  OSSL_PARAM *params = 0;
+  EVP_PKEY_CTX *pctx = 0;
+  EVP_PKEY *dh_key = 0;
+  BIO *out = 0;
+  if(bld &&
+     OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_FFC_P, p) &&
+     OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_FFC_G, g) &&
+     (params = OSSL_PARAM_BLD_to_param(bld)) != 0 &&
+     (pctx = EVP_PKEY_CTX_new_from_name(0, "DH", 0)) != 0 &&
+     EVP_PKEY_fromdata_init(pctx) == 1 &&
+     EVP_PKEY_fromdata(pctx, &dh_key, EVP_PKEY_KEY_PARAMETERS, params) == 1 &&
+     (out = BIO_new_fp(fp, BIO_NOCLOSE)) != 0) {
+    written = PEM_write_bio_Parameters(out, dh_key);
   }
+  BIO_free(out);
+  EVP_PKEY_free(dh_key);
+  EVP_PKEY_CTX_free(pctx);
+  OSSL_PARAM_free(params);
+  OSSL_PARAM_BLD_free(bld);
+  BN_free(p); BN_free(g);
+#elif OPENSSL_VERSION_NUMBER >= 0x10100000L
+  DH *dh = DH_new();
+  if(dh && DH_set0_pqg(dh, p, 0, g) == 1) {
+    p = g = 0; // Now owned by dh
+    written = PEM_write_DHparams(fp, dh);
+  }
+  BN_free(p); BN_free(g);
+  if(dh) DH_free(dh);
+#else
+  DH *dh = DH_new();
+  if(dh) {
+    dh->p = p; dh->g = g;
+    p = g = 0; // Now owned by dh
+    written = PEM_write_DHparams(fp, dh);
+    DH_free(dh);
+  }
+  BN_free(p); BN_free(g);
+#endif
 
   fclose(fp);
-  DH_free(dh);
+  if(!written) return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
   return ssl_error = gxSSL_NO_ERROR;
 }
 
@@ -1365,24 +1380,34 @@ int gxSSL::LoadDHParms(const char *fname)
 // Returns 0 if successful. 
 // Returns a non-zero value if the function fails.
 {
-  DH *ret = 0;
-  BIO *tmp_bio;
-  
-  if((tmp_bio = BIO_new_file(fname, "r")) == 0) { 
+  // 10/14/2026: Frees the file BIO on every path, treats any result other than
+  // 1 as a failure (the old "< 0" test never failed) and uses the
+  // OpenSSL 3 EVP_PKEY interface when available.
+  if(!ctx) return ssl_error = gxSSL_DHPARMS_ERROR;
+  BIO *tmp_bio = BIO_new_file(fname, "r");
+  if(tmp_bio == 0) { 
     return ssl_error = gxSSL_DHPARMS_ERROR;
   }
-  ret = PEM_read_bio_DHparams(tmp_bio, 0, 0, 0);
-  if(!ret) {
-    return ssl_error = gxSSL_DHPARMS_ERROR;
-  }
-  BIO_free(tmp_bio);
 
-  if(SSL_CTX_set_tmp_dh(ctx, ret) <0) {
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  EVP_PKEY *dh_key = PEM_read_bio_Parameters(tmp_bio, 0);
+  BIO_free(tmp_bio);
+  if(!dh_key) return ssl_error = gxSSL_DHPARMS_ERROR;
+  if(SSL_CTX_set0_tmp_dh_pkey(ctx, dh_key) != 1) { // ctx owns dh_key on success
+    EVP_PKEY_free(dh_key);
+    return ssl_error = gxSSL_DHPARMS_ERROR;
+  }
+#else
+  DH *ret = PEM_read_bio_DHparams(tmp_bio, 0, 0, 0);
+  BIO_free(tmp_bio);
+  if(!ret) return ssl_error = gxSSL_DHPARMS_ERROR;
+  if(SSL_CTX_set_tmp_dh(ctx, ret) != 1) {
     DH_free(ret);
     return ssl_error = gxSSL_DHPARMS_ERROR;
   }
-
   DH_free(ret);
+#endif
+
   return ssl_error = gxSSL_NO_ERROR;
 }
 
@@ -1404,31 +1429,9 @@ int gxSSL::MakeRSAEphKey(int key_len)
   }
   RSA_free(rsa);
 #else
-  if(key_len < 512) key_len = 512;
-  RSA *rsa = 0;
-  BIGNUM *bne = 0;
-    
-  bne = BN_new();
-  if(BN_set_word(bne, RSA_F4) != 1) {
-    BN_free(bne);
-    return ssl_error = gxSSL_RSAGEN_ERROR;
-  }
-
-  rsa = RSA_new();
-  if(RSA_generate_key_ex(rsa, key_len, bne, 0) != 1) {
-    RSA_free(rsa);
-    BN_free(bne);
-    return ssl_error = gxSSL_RSAGEN_ERROR;
-  }
-
-  if(!SSL_CTX_set_tmp_rsa(ctx, rsa)) {
-    RSA_free(rsa);
-    BN_free(bne);
-    return ssl_error = gxSSL_RSAGEN_ERROR;
-  }
-  
-  RSA_free(rsa);
-  BN_free(bne);
+  // 10/14/2026: Since OpenSSL 1.1.0 SSL_CTX_set_tmp_rsa() does nothing (TLS no
+  // longer uses ephemeral RSA keys), so no key is generated here.
+  (void)key_len;
 #endif
   
   return ssl_error = gxSSL_NO_ERROR;
@@ -1482,7 +1485,7 @@ int gxSSL::InitPRNG(int check_prng_init)
   for(i = 0; i < 16; i++) {
     mbuf1.Cat(rand_table, (max_rand*sizeof(unsigned)));
     if(!prng1.PRNGTable(rand_table, max_rand)) {
-      delete rand_table;
+      delete[] rand_table; // 10/14/2026: Was a scalar delete of new[]
       return ssl_error = gxSSL_PRNG_ERROR;
     }
   }
@@ -1508,7 +1511,7 @@ int gxSSL::InitPRNG(int check_prng_init)
 
   gxRandom prng2(max_rand);  
   if(!prng2.PRNGTable(rand_table, max_rand)) {
-    delete rand_table;
+    delete[] rand_table; // 10/14/2026: Was a scalar delete of new[]
     return ssl_error = gxSSL_PRNG_ERROR;
   }
 
@@ -1516,12 +1519,12 @@ int gxSSL::InitPRNG(int check_prng_init)
   for(i = 0; i < 16; i++) {
     mbuf2.Cat(rand_table, (max_rand*sizeof(unsigned)));
     if(!prng2.PRNGTable(rand_table, max_rand)) {
-      delete rand_table;
+      delete[] rand_table; // 10/14/2026: Was a scalar delete of new[]
       return ssl_error = gxSSL_PRNG_ERROR;
     }
   }
 
-  delete rand_table;
+  delete[] rand_table; // 10/14/2026: Was a scalar delete of new[]
   a = b = c = d = 0;
   RAND_add(mbuf2.m_buf(), mbuf2.length(), 
 	   (double)prng2.Seed(a, b, c, d));
@@ -1532,6 +1535,23 @@ int gxSSL::InitPRNG(int check_prng_init)
 
   return ssl_error = gxSSL_NO_ERROR;
 }
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+// Passes OpenSSL 3 key generation progress to a KeyGenCallbackFunc
+struct gxsslKeyGenCallbackData {
+  KeyGenCallbackFunc cb_func;
+  void *cb_arg;
+};
+
+static int gxssl_keygen_cb(EVP_PKEY_CTX *kctx)
+{
+  gxsslKeyGenCallbackData *d = (gxsslKeyGenCallbackData *)EVP_PKEY_CTX_get_app_data(kctx);
+  if(d && d->cb_func) {
+    d->cb_func(EVP_PKEY_CTX_get_keygen_info(kctx, 0), EVP_PKEY_CTX_get_keygen_info(kctx, 1), d->cb_arg);
+  }
+  return 1; // Continue key generation
+}
+#endif
+
 int gxSSL::MakeRSAPrivateKey(const char *key_fname, int key_len,
 			     KeyGenCallbackFunc cb_func, void *cb_arg)
 // Function used to write a private RSA (Rivest, Shamir, Adleman) key to 
@@ -1542,65 +1562,77 @@ int gxSSL::MakeRSAPrivateKey(const char *key_fname, int key_len,
 // Returns 0 if successful. 
 // Returns a non-zero value if the function fails
 {
+  // 10/14/2026: Generates the key before opening the file, closes the file and
+  // frees the key, exponent and callback objects on every path, and uses
+  // the OpenSSL 3 EVP_PKEY interface when available (RSA_* is deprecated).
   if(key_len < 512) key_len = 512;
+  if(InitPRNG(1) != gxSSL_NO_ERROR) return ssl_error;
+
+  EVP_PKEY *private_key = 0;
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  gxsslKeyGenCallbackData cb_data;
+  cb_data.cb_func = cb_func;
+  cb_data.cb_arg = cb_arg;
+  EVP_PKEY_CTX *kctx = EVP_PKEY_CTX_new_from_name(0, "RSA", 0);
+  if(kctx && EVP_PKEY_keygen_init(kctx) == 1 &&
+     EVP_PKEY_CTX_set_rsa_keygen_bits(kctx, key_len) == 1) {
+    if(cb_func) {
+      EVP_PKEY_CTX_set_app_data(kctx, &cb_data);
+      EVP_PKEY_CTX_set_cb(kctx, gxssl_keygen_cb);
+    }
+    if(EVP_PKEY_keygen(kctx, &private_key) != 1) private_key = 0;
+  }
+  EVP_PKEY_CTX_free(kctx);
+#elif OPENSSL_VERSION_NUMBER >= 0x10100000L
+  BIGNUM *bne = BN_new();
+  BN_GENCB *pcb = BN_GENCB_new();
+  RSA *rsa = RSA_new();
+  private_key = EVP_PKEY_new();
+  if(bne && pcb && rsa && private_key && BN_set_word(bne, RSA_F4) == 1) {
+    BN_GENCB_set_old(pcb, cb_func, cb_arg);
+    if(RSA_generate_key_ex(rsa, key_len, bne, pcb) == 1 &&
+       EVP_PKEY_assign_RSA(private_key, rsa)) {
+      rsa = 0; // Now owned by private_key
+    }
+    else {
+      EVP_PKEY_free(private_key);
+      private_key = 0;
+    }
+  }
+  else if(private_key) {
+    EVP_PKEY_free(private_key);
+    private_key = 0;
+  }
+  if(rsa) RSA_free(rsa);
+  if(pcb) BN_GENCB_free(pcb);
+  if(bne) BN_free(bne);
+#else
+  private_key = EVP_PKEY_new();
+  if(private_key) {
+    RSA *rsa = RSA_generate_key(key_len, RSA_F4, cb_func, cb_arg);
+    if(!rsa || !EVP_PKEY_assign_RSA(private_key, rsa)) {
+      if(rsa) RSA_free(rsa);
+      EVP_PKEY_free(private_key);
+      private_key = 0;
+    }
+  }
+#endif
+
+  if(!private_key) return ssl_error = gxSSL_RSAGEN_ERROR;
+
   FILE *fp = fopen(key_fname, "w+b");
   if(!fp) {
     app_err_str << clear << "SSL exception: Can't write RSA private key file " 
 		<< key_fname;
+    EVP_PKEY_free(private_key);
     return ssl_error = gxSSL_APPDEF_ERROR;
   }
 
-  EVP_PKEY *private_key = EVP_PKEY_new();
-  if(!private_key) {
-    return ssl_error = gxSSL_RSAGEN_ERROR;
-  }
-  
-  if(InitPRNG(1) != gxSSL_NO_ERROR) return ssl_error;
-
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-  RSA *rsa = RSA_generate_key(key_len, RSA_F4, cb_func, cb_arg);
-  if(!EVP_PKEY_assign_RSA(private_key, rsa)) {
-    return ssl_error = gxSSL_RSAGEN_ERROR;
-  }
-  rsa=0;
-#else
-  RSA *rsa = 0;
-  BIGNUM *bne = 0;
-  BN_GENCB *pcb;
-  
-  bne = BN_new();
-  if(BN_set_word(bne, RSA_F4) != 1) {
-    BN_free(bne);
-    return ssl_error = gxSSL_RSAGEN_ERROR;
-  }
-
-  pcb = BN_GENCB_new();
-  BN_GENCB_set_old(pcb, cb_func, cb_arg);
-
-  rsa = RSA_new();
-  if(RSA_generate_key_ex(rsa, key_len, bne, pcb) != 1) {
-    RSA_free(rsa);
-    BN_free(bne);
-    BN_GENCB_free(pcb);
-    return ssl_error = gxSSL_RSAGEN_ERROR;
-  }
-
-  if(!EVP_PKEY_assign_RSA(private_key, rsa)) {
-    RSA_free(rsa);
-    BN_free(bne);
-    BN_GENCB_free(pcb);
-    return ssl_error = gxSSL_RSAGEN_ERROR;
-  }
-  // The RSA structure will be automatically freed when the EVP_PKEY structure is freed
-#endif
-  
-  if(!PEM_write_PrivateKey(fp, private_key, 0, 0, 0, 0, 0)) {
-    return ssl_error = gxSSL_RSAGEN_ERROR;
-  }
-
-  EVP_PKEY_free(private_key);
+  int written = PEM_write_PrivateKey(fp, private_key, 0, 0, 0, 0, 0);
   fclose(fp);
-
+  EVP_PKEY_free(private_key);
+  if(!written) return ssl_error = gxSSL_RSAGEN_ERROR;
   return ssl_error = gxSSL_NO_ERROR;
 }
 
@@ -1651,7 +1683,7 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
   }
   fclose(fp);
 
-  X509 *x = x=X509_new();
+  X509 *x = X509_new(); // 10/14/2026: Was "x = x=X509_new()" (undefined order)
   if(!x) {
     EVP_PKEY_free(private_key);
     return ssl_error = gxSSL_X509_GEN_ERROR;

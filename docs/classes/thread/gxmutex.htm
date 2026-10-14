@@ -43,30 +43,33 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>gxmutex class</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm" aria-current="page">Library</a><a href="../../examples/examples.htm">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<H1>Mutex Class</H1>
 
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>gxmutex class</title>
-    </head>
-    <body>
-
-
-
-
-<H1 ALIGN="CENTER">Mutex Class</H1>
-<P><HR></P>
-<B><U><FONT SIZE=4><P>Topics</B></U></FONT>:</P>
-<P><A HREF="#Overview">Overview</A><BR>
+<div class="dr-toc-title">Contents</div>
+<P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
 <A HREF="#Enum">Enumerations</A><BR>
 <A HREF="#Functions">Mutex Functions</A><BR>
 <A HREF="#Ehandler">Error Handling</A></P>
-<P><HR></P>
-<B><FONT SIZE=4><P><A NAME="Overview">Overview</A></B></FONT> </P>
+
+<h2 id="Overview">Overview</h2>
 <P>The mutual exclusion class provides simple lock primitives that can be used to control access to a shared resource. A mutex is used to cause other threads to wait while the thread holding the mutex executes code in a critical section.</P>
-<P><HR></P>
-<B><FONT SIZE=4><P><A NAME="Enum">Enumerations</A></P>
+
+<h2 id="Enum">Enumerations</h2><B><FONT>
 </B></FONT><P>The following enumeration is used define integer constants used with the gxMutex class:</P>
 <PRE>enum <A NAME="gxMutexError"><B>gxMutexError</A></B> { // Mutex error codes
   <B>gxMUTEX_NO_ERROR</B> = 0, // No errors reported
@@ -81,9 +84,9 @@
   <B>gxMUTEX_TRY_LOCK_ERROR</B>,     // Error trying to lock the mutex
   <B>gxMUTEX_UNLOCK_ERROR</B>        // Error unlocking the mutex
 };</PRE>
-<P><HR></P>
-<B><FONT SIZE=4><P><A NAME="Functions">Mutex Functions</A></P>
-</B></FONT><P><A HREF="#GetMutex">gxMutex::GetMutex</A><BR>
+
+<h2 id="Functions">Mutex Functions</h2><B><FONT>
+</B></FONT><P class="dr-fnlist"><A HREF="#GetMutex">gxMutex::GetMutex</A><BR>
 <A HREF="#GetMutexError">gxMutex::GetMutexError</A><BR>
 <A HREF="#GetMutexProcessType">gxMutex::GetMutexProcessType</A><BR>
 <A HREF="#IsLocked">gxMutex::IsLocked</A><BR>
@@ -94,35 +97,32 @@
 <A HREF="#MutexTryLock">gxMutex::MutexTryLock</A><BR>
 <A HREF="#MutexUnlock">gxMutex::MutexUnlock</A><BR>
 <A HREF="#NumLocks">gxMutex::NumLocks</A></P>
-<B><FONT COLOR="#000080"><P>gxMutex_t * gxMutex::<A NAME="GetMutex">GetMutex</A>()</B></FONT> - Returns a pointer to the gxMutex_t data structure, which contains platform specific variables. <B>NOTE</B>: This function is provided for debugging and testing purposes only. The gxMutex_t data structure and the helper functions that operate on gxMutex_t types should not be used directly.</P>
-<B><FONT COLOR="#000080"><P>gxMutexError gxMutex::<A NAME="GetMutexError">GetMutexError</A>()</B></FONT> - Returns the last reported mutex error. The return value will match one of the integer constants defined in <A HREF="#gxMutexError">gxMutexError</A> enumeration.</P>
-<B><FONT COLOR="#000080"><P>gxProcessType gxMutex::<A NAME="GetMutexProcessType">GetMutexProcessType</A>()</B></FONT> - Returns the process type for this mutex. The return value will match one of the integer constants defined in <A NAME="gxProcessType"><A HREF="gxthread.htm#gxProcessType">gxProcessType</A></A> enumeration.</P>
-<B><FONT COLOR="#000080"><P>int gxMutex::<A NAME="IsLocked">IsLocked</A>()</B></FONT> - Returns true if the mutex is locked.</P>
-<B><FONT COLOR="#000080"><P>int gxMutex::<A NAME="MutexDestroy">MutexDestroy</A>()</B></FONT> - Function used by the gxMutex destructor to destroy the mutex and free its resources. Returns a non-zero value if the mutex cannot be destroyed or if any errors occur.</P>
-<B><FONT COLOR="#000080"><P>const char * gxMutex::<A NAME="MutexExceptionMessage">MutexExceptionMessage</A>()</B></FONT> - Returns a null terminated string that can be used to log or print a mutex exception.</P>
-<B><FONT COLOR="#000080"><P>int gxMutex::<A NAME="MutexInit">MutexInit</A>(gxProcessType type = gxPROCESS_PRIVATE)</B></FONT> - Function used by the gxMutex constructor to initialize the mutex. By default the process type is set to private meaning that this mutex can only be shared by threads of the same process. If a <B>gxPROCESS_SHARED</B> process type is specified the mutex can be shared across multiple processes. Returns a non-zero value if the mutex cannot be initialized or if any errors occur.</P>
-<B><FONT COLOR="#000080"><P>int gxMutex::<A NAME="MutexLock">MutexLock</A>()</B></FONT> - Lock the mutex. If the mutex is already locked, the calling thread blocks until the mutex becomes available. Returns a non-zero value if the mutex cannot be locked or if any errors occur.</P>
-<B><FONT COLOR="#000080"><P>int gxMutex::<A NAME="MutexTryLock">MutexTryLock</A>()</B></FONT> - Test the mutex state before locking it. Returns a non-zero if any errors occur.</P>
-<B><FONT COLOR="#000080"><P>int gxMutex::<A NAME="MutexUnlock">MutexUnlock</A>()</B></FONT> - Unlock the mutex. Returns a non-zero value if the mutex cannot be unlocked or if any errors occur.</P>
-<B><FONT COLOR="#000080"><P>int gxMutex::<A NAME="NumLocks">NumLocks</A>() </B></FONT>- Returns the total number of locks.</P>
-<P><HR></P>
-<B><FONT SIZE=4><P><A NAME="Ehandler">Error Handling</A></P>
+<div class="dr-fn" id="GetMutex"><code class="dr-sig">gxMutex_t * gxMutex::GetMutex()</code><p class="dr-desc">Returns a pointer to the gxMutex_t data structure, which contains platform specific variables. <B>NOTE</B>: This function is provided for debugging and testing purposes only. The gxMutex_t data structure and the helper functions that operate on gxMutex_t types should not be used directly.</p></div>
+<div class="dr-fn" id="GetMutexError"><code class="dr-sig">gxMutexError gxMutex::GetMutexError()</code><p class="dr-desc">Returns the last reported mutex error. The return value will match one of the integer constants defined in <A HREF="#gxMutexError">gxMutexError</A> enumeration.</p></div>
+<div class="dr-fn" id="GetMutexProcessType"><code class="dr-sig">gxProcessType gxMutex::GetMutexProcessType()</code><p class="dr-desc">Returns the process type for this mutex. The return value will match one of the integer constants defined in <A NAME="gxProcessType"><A HREF="gxthread.htm#gxProcessType">gxProcessType</A></A> enumeration.</p></div>
+<div class="dr-fn" id="IsLocked"><code class="dr-sig">int gxMutex::IsLocked()</code><p class="dr-desc">Returns true if the mutex is locked.</p></div>
+<div class="dr-fn" id="MutexDestroy"><code class="dr-sig">int gxMutex::MutexDestroy()</code><p class="dr-desc">Function used by the gxMutex destructor to destroy the mutex and free its resources. Returns a non-zero value if the mutex cannot be destroyed or if any errors occur.</p></div>
+<div class="dr-fn" id="MutexExceptionMessage"><code class="dr-sig">const char * gxMutex::MutexExceptionMessage()</code><p class="dr-desc">Returns a null terminated string that can be used to log or print a mutex exception.</p></div>
+<div class="dr-fn" id="MutexInit"><code class="dr-sig">int gxMutex::MutexInit(gxProcessType type = gxPROCESS_PRIVATE)</code><p class="dr-desc">Function used by the gxMutex constructor to initialize the mutex. By default the process type is set to private meaning that this mutex can only be shared by threads of the same process. If a <B>gxPROCESS_SHARED</B> process type is specified the mutex can be shared across multiple processes. Returns a non-zero value if the mutex cannot be initialized or if any errors occur.</p></div>
+<div class="dr-fn" id="MutexLock"><code class="dr-sig">int gxMutex::MutexLock()</code><p class="dr-desc">Lock the mutex. If the mutex is already locked, the calling thread blocks until the mutex becomes available. Returns a non-zero value if the mutex cannot be locked or if any errors occur.</p></div>
+<div class="dr-fn" id="MutexTryLock"><code class="dr-sig">int gxMutex::MutexTryLock()</code><p class="dr-desc">Test the mutex state before locking it. Returns a non-zero if any errors occur.</p></div>
+<div class="dr-fn" id="MutexUnlock"><code class="dr-sig">int gxMutex::MutexUnlock()</code><p class="dr-desc">Unlock the mutex. Returns a non-zero value if the mutex cannot be unlocked or if any errors occur.</p></div>
+<div class="dr-fn" id="NumLocks"><code class="dr-sig">int gxMutex::NumLocks()</code><p class="dr-desc">Returns the total number of locks.</p></div>
+
+<h2 id="Ehandler">Error Handling</h2><B><FONT>
 </B></FONT><P>The application is responsible for monitoring and handling any mutex errors that occur following a mutex operation. An error condition is reported to the application by any mutex function returning a non-zero value. If any value other then 0 is returned the application must generate the appropriate exception to handle the error condition. </P>
 <P>Mutex errors are recorded by the gxMutex_t helper functions and stored in the gxMutex_t::mutex_error variable. The mutex error variable is accessible to the application though the <A HREF="#GetMutexError">gxMutex::GetMutexError</A> function. A mutex error is a numeric value corresponding to one of the integer constants defined in the <A HREF="#gxMutexError">gxMutexError</A> enumeration. The <A HREF="#MutexExceptionMessage">gxMutex::MutexExceptionMessage</A> function can be used to log or print a mutex exception.</P>
-<P><HR></P>
-<P ALIGN="CENTER"><CENTER><TABLE BORDER CELLSPACING=1 BORDERCOLOR="#000000">
+
+<P ALIGN="CENTER"><CENTER><div class="dr-tablewrap"><TABLE BORDER CELLSPACING=1 BORDERCOLOR="#000000">
 <TR><TD VALIGN="MIDDLE">
 <P ALIGN="CENTER">End Of Document</TD>
 </TR>
-</TABLE>
+</TABLE></div>
 </CENTER></P>
-
-<P>&nbsp;</P>
-
-
-  </body>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

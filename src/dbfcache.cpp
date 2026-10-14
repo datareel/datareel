@@ -320,7 +320,10 @@ gxDatabaseSegment *gxDatabaseCache::FindEmptySegment()
     }
   }  
 
-  return segment;
+  // 10/14/2026: The empty segment was returned without being promoted
+  // to the front of the list, so a newly loaded segment stayed near the
+  // tail and was the first to be reused.
+  return PromoteSegment(segment);
 }
 
 gxDatabaseSegment *gxDatabaseCache::FindSegment(FAU_t ds_address)
@@ -422,11 +425,19 @@ gxDatabaseSegment *gxDatabaseCache::AllocSegment(FAU_t ds_address,
     uncached_reads++;
     segment = FindEmptySegment();
     if(segment) {
+      // 10/14/2026: Clear any data left from the segment's previous use.
+      // A reused segment kept its old data, so a read of zero bytes or a
+      // failed read returned stale data for the new address.
+      segment->ResetSegment();
       segment->ds_address = ds_address;
       if((bytes > (__ULWORD__)0) && (ds_address != (FAU_t)-1)) {
-	if(!f) return 0; // Not connected to a database file	
-	if(segment->Read(f, bytes) != gxDBASE_NO_ERROR) {
-	  return 0; // Error reading the node from disk
+	// 10/14/2026: On failure the segment kept the new address, so the
+	// next request for this address returned the unread segment as a
+	// cache hit. Reset the segment and move it to the end of the list.
+	if((!f) || (segment->Read(f, bytes) != gxDBASE_NO_ERROR)) {
+	  segment->ResetSegment();
+	  DemoteSegment(segment);
+	  return 0; // Not connected or error reading the node from disk
 	}
       }
     }
@@ -471,8 +482,16 @@ gxDatabaseSegment *gxDBCacheNode::CachedWrite(const void *buf,
 {
   segment = cache->AllocSegment(address, (__ULWORD__)0); 
   if(segment) {
+    // 10/14/2026: The return value of Load() was ignored, so a failed
+    // memory allocation still marked the segment dirty.
+    if(!segment->ds.Load(buf, bytes)) {
+      segment->ResetSegment();
+      cache->DemoteSegment(segment);
+      segment = 0;
+      ds_address = (FAU_t)-1;
+      return 0;
+    }
     ds_address = address;
-    segment->ds.Load(buf, bytes);
     segment->SetDirty();
   }
   else {

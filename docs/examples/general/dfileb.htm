@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>dfileb example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: testprog.cpp</FONT>
-<FONT COLOR="#ff0000">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 01/25/2000</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>dfileb example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>Disk File Base Class Example</h1>
+<p class="dr-listing-meta">Source file: <code>testprog.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: testprog.cpp</span>
+<span class="cm">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 01/25/2000</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -85,18 +91,18 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 This is a test program for the DiskFileB class.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
 #include &lt;iomanip&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
 #include &lt;iomanip.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include &lt;string.h&gt;
 #include &lt;stdio.h&gt;
@@ -118,9 +124,9 @@ void DirectoryTest()
   cout &lt;&lt; "Testing general purpose directory functions" 
        &lt;&lt; "\n";
 
-  const char *dirname = "testdir"; <FONT COLOR="#ff0000">// Directory to be created</FONT>
+  const char *dirname = "testdir"; <span class="cm">// Directory to be created</span>
 
-  <FONT COLOR="#ff0000">// Directory immediately above the current directory position</FONT>
+  <span class="cm">// Directory immediately above the current directory position</span>
   const char *parentdir = "..";    
   
   DiskFileB dir;
@@ -234,8 +240,8 @@ void FileTest()
     return;
   }
 
-  <FONT COLOR="#ff0000">// Add routine to change file attributes/permissions here</FONT>
-  <FONT COLOR="#ff0000">// ------------------------------------------------------</FONT>
+  <span class="cm">// Add routine to change file attributes/permissions here</span>
+  <span class="cm">// ------------------------------------------------------</span>
 }
 
 void RandomSeekTest()
@@ -373,7 +379,7 @@ void GetLineTest()
   PausePrg();
   char sbuf[255];
   int line_number = 1;
-  f1.df_Rewind(); <FONT COLOR="#ff0000">// Reset the file pointer to the beginning of the stream</FONT>
+  f1.df_Rewind(); <span class="cm">// Reset the file pointer to the beginning of the stream</span>
   while(!f1.df_EOF()) {
     f1.df_GetLine(sbuf, sizeof(sbuf));
     if(f1.df_GetError() != DiskFileB::df_NO_ERROR) {
@@ -389,8 +395,8 @@ void GetLineTest()
   PausePrg();
 
   line_number = 1;
-  f2.df_Rewind(); <FONT COLOR="#ff0000">// Reset the file pointer to the beginning of the stream</FONT>
-  while(!f2.df_EOF()) { <FONT COLOR="#ff0000">// Loop until EOF error</FONT>
+  f2.df_Rewind(); <span class="cm">// Reset the file pointer to the beginning of the stream</span>
+  while(!f2.df_EOF()) { <span class="cm">// Loop until EOF error</span>
     f2.df_GetLine(sbuf, sizeof(sbuf));
     if(f2.df_GetError() != DiskFileB::df_NO_ERROR) {
       cout &lt;&lt; "Error reading from the text file" &lt;&lt; "\n";
@@ -400,7 +406,7 @@ void GetLineTest()
     cout &lt;&lt; line_number++ &lt;&lt; ' ' &lt;&lt; sbuf &lt;&lt; "\n";
   }
 
-  <FONT COLOR="#ff0000">// Close and remove the text files</FONT>
+  <span class="cm">// Close and remove the text files</span>
   f1.df_Close(); f2.df_Close();
   f1.df_remove(fname1); f2.df_remove(fname2);
 }
@@ -428,7 +434,6 @@ void OverLoadTest()
   stream &lt;&lt; s1 &lt;&lt; ' ' &lt;&lt; s2 &lt;&lt; "\n";
   stream &lt;&lt; c1 &lt;&lt; ' ' &lt;&lt; c2 &lt;&lt; "\n";
 
-
   cout &lt;&lt; "Reading back the text from the stream" &lt;&lt; "\n";
   stream.df_Rewind();
   char sbuf1[df_MAX_LINE_LENGTH]; char sbuf2[df_MAX_LINE_LENGTH];
@@ -436,12 +441,12 @@ void OverLoadTest()
   stream &gt;&gt; sbuf1;
   stream &gt;&gt; ch1; stream &gt;&gt; ch2; stream &gt;&gt; ch3;
 
-  <FONT COLOR="#ff0000">// Echo the text to the console</FONT>
+  <span class="cm">// Echo the text to the console</span>
   cout &lt;&lt; sbuf1;
   cout &lt;&lt; ch1 &lt;&lt; ch2 &lt;&lt; ch3 &lt;&lt; "\n";
 
   cout &lt;&lt; "Writing some integer values to the stream in binary" &lt;&lt; "\n";
-  FAU_t stream_pos = stream.df_Tell(); <FONT COLOR="#ff0000">// Record the current position</FONT>
+  FAU_t stream_pos = stream.df_Tell(); <span class="cm">// Record the current position</span>
   const short i1 = 1; short i2 = 2;
   const unsigned short i3 = 3; unsigned short i4 = 4;
   const int i5 = 5; int i6 = 6;
@@ -453,7 +458,7 @@ void OverLoadTest()
 	 &lt;&lt; i10 &lt;&lt; i11 &lt;&lt; i12;
 
   cout &lt;&lt; "Reading the binary integer values from the stream" &lt;&lt; "\n";
-  stream.df_Seek(stream_pos); <FONT COLOR="#ff0000">// Reset the stream position to the first value</FONT>
+  stream.df_Seek(stream_pos); <span class="cm">// Reset the stream position to the first value</span>
   short in1, in2; unsigned short in3, in4;
   int in5, in6; unsigned int in7, in8;
   long in9, in10; unsigned long in11, in12;
@@ -461,15 +466,15 @@ void OverLoadTest()
   stream &gt;&gt; in1 &gt;&gt; in2 &gt;&gt; in3 &gt;&gt; in4 &gt;&gt; in5 &gt;&gt; in6 &gt;&gt; in7 &gt;&gt; in8 &gt;&gt; in9
 	 &gt;&gt; in10 &gt;&gt; in11 &gt;&gt; in12;
 
-  <FONT COLOR="#ff0000">// Echo the values to the console</FONT>
+  <span class="cm">// Echo the values to the console</span>
   cout &lt;&lt; in1 &lt;&lt; " " &lt;&lt; in2 &lt;&lt; " " &lt;&lt; in3 &lt;&lt; " " &lt;&lt; in4 &lt;&lt; " " &lt;&lt; in5 
        &lt;&lt; " " &lt;&lt; in6 &lt;&lt; " " &lt;&lt; in7 &lt;&lt; " " &lt;&lt; in8 &lt;&lt; " " &lt;&lt; in9 
        &lt;&lt; " " &lt;&lt; in10 &lt;&lt; " " &lt;&lt; in11 &lt;&lt; " " &lt;&lt; in12 &lt;&lt; "\n";
   
   cout &lt;&lt; "Writing some integer values to the stream in text mode" &lt;&lt; "\n";
-  stream_pos = stream.df_Tell(); <FONT COLOR="#ff0000">// Record the current position</FONT>
+  stream_pos = stream.df_Tell(); <span class="cm">// Record the current position</span>
 
-  <FONT COLOR="#ff0000">// Use decimal and hex text modes </FONT>
+  <span class="cm">// Use decimal and hex text modes </span>
   stream &lt;&lt; text &lt;&lt; i1 &lt;&lt; " " &lt;&lt; i2 &lt;&lt; " " &lt;&lt; i3 &lt;&lt; " " &lt;&lt; i4 &lt;&lt; " " 
 	 &lt;&lt; i5 &lt;&lt; " " &lt;&lt; i6 &lt;&lt; " " &lt;&lt; i7 &lt;&lt; " " &lt;&lt; i8 &lt;&lt; " " &lt;&lt; i9 &lt;&lt; " "
 	 &lt;&lt; i10 &lt;&lt; " " &lt;&lt; i11 &lt;&lt; " " &lt;&lt; i12 &lt;&lt; "\n" &lt;&lt; flush;
@@ -480,51 +485,51 @@ void OverLoadTest()
 	 &lt;&lt; i10 &lt;&lt; " " &lt;&lt; i11 &lt;&lt; " " &lt;&lt; i12 &lt;&lt; "\n" &lt;&lt; clear;
 
   cout &lt;&lt; "Reading the text strings from the stream" &lt;&lt; "\n";
-  stream.df_Seek(stream_pos); <FONT COLOR="#ff0000">// Reset the stream position to the first value</FONT>
+  stream.df_Seek(stream_pos); <span class="cm">// Reset the stream position to the first value</span>
 
   stream &gt;&gt; sbuf1 &gt;&gt; sbuf2;
 
-  <FONT COLOR="#ff0000">// Echo the text to the console</FONT>
+  <span class="cm">// Echo the text to the console</span>
   cout &lt;&lt; sbuf1 &lt;&lt; "\n" &lt;&lt; sbuf2 &lt;&lt; "\n";
 
   cout &lt;&lt; "Writing some floating point values to the stream in binary" &lt;&lt; "\n";
-  stream_pos = stream.df_Tell(); <FONT COLOR="#ff0000">// Record the current position</FONT>
+  stream_pos = stream.df_Tell(); <span class="cm">// Record the current position</span>
   float f1 = 1.1011; const float f2 = 2.2022;
   double f3 = 3.3033; const double f4 = 4.4044;
 
   stream &lt;&lt; f1 &lt;&lt; f2 &lt;&lt; f3 &lt;&lt; f4;
 
   cout &lt;&lt; "Reading the binary floating point values from the stream" &lt;&lt; "\n";
-  stream.df_Seek(stream_pos); <FONT COLOR="#ff0000">// Reset the stream position to the first value</FONT>
+  stream.df_Seek(stream_pos); <span class="cm">// Reset the stream position to the first value</span>
   float fn1, fn2;
   double fn3, fn4;
 
   stream &gt;&gt; fn1 &gt;&gt; fn2 &gt;&gt; fn3 &gt;&gt; fn4;
 
-  <FONT COLOR="#ff0000">// Echo the values to the console</FONT>
+  <span class="cm">// Echo the values to the console</span>
   cout &lt;&lt; fn1 &lt;&lt; " " &lt;&lt; fn2 &lt;&lt; " " &lt;&lt; fn3 &lt;&lt; " " &lt;&lt; fn4 &lt;&lt; "\n";
 
   cout &lt;&lt; "Writing some floating point values to the stream in text mode" 
        &lt;&lt; "\n";
-  stream_pos = stream.df_Tell(); <FONT COLOR="#ff0000">// Record the current position</FONT>
+  stream_pos = stream.df_Tell(); <span class="cm">// Record the current position</span>
 
   stream &lt;&lt; text &lt;&lt; f1 &lt;&lt; " " &lt;&lt; f2 &lt;&lt; " " &lt;&lt; f3 &lt;&lt; " " &lt;&lt; f4 &lt;&lt; "\n";
   stream.df_Precision(4);
   stream &lt;&lt; f1 &lt;&lt; " " &lt;&lt; f2 &lt;&lt; " " &lt;&lt; f3 &lt;&lt; " " &lt;&lt; f4 &lt;&lt; "\n"&lt;&lt; clear;
 
   cout &lt;&lt; "Reading the text strings from the stream" &lt;&lt; "\n";
-  stream.df_Seek(stream_pos); <FONT COLOR="#ff0000">// Reset the stream position to the first value</FONT>
+  stream.df_Seek(stream_pos); <span class="cm">// Reset the stream position to the first value</span>
 
   stream &gt;&gt; sbuf1 &gt;&gt; sbuf2;
 
-  <FONT COLOR="#ff0000">// Echo the text to the console</FONT>
+  <span class="cm">// Echo the text to the console</span>
   cout &lt;&lt; sbuf1 &lt;&lt; "\n" &lt;&lt; sbuf2 &lt;&lt; "\n";
 
 #if defined (__64_BIT_DATABASE_ENGINE__)
   PausePrg();
 
   cout &lt;&lt; "Writing some 64-bit integer values to the stream in binary" &lt;&lt; "\n";
-  stream_pos = stream.df_Tell(); <FONT COLOR="#ff0000">// Record the current position</FONT>
+  stream_pos = stream.df_Tell(); <span class="cm">// Record the current position</span>
   __LLWORD__ LL1 = (__LLWORD__)1; const __LLWORD__ LL2 = (__LLWORD__)2;
   __ULLWORD__ LL3 = (__ULLWORD__)3; const __ULLWORD__ LL4 = (__LLWORD__)4;
 
@@ -532,21 +537,21 @@ void OverLoadTest()
 
   cout &lt;&lt; "Reading the binary 64-bit integer point values from the stream" 
        &lt;&lt; "\n";
-  stream.df_Seek(stream_pos); <FONT COLOR="#ff0000">// Reset the stream position to the first value</FONT>
+  stream.df_Seek(stream_pos); <span class="cm">// Reset the stream position to the first value</span>
   __LLWORD__ LLn1, LLn2;
   __ULLWORD__ LLn3, LLn4;
 
   stream &gt;&gt; LLn1 &gt;&gt; LLn2 &gt;&gt; LLn3 &gt;&gt; LLn4;
 
-  <FONT COLOR="#ff0000">// Echo the values to the console</FONT>
+  <span class="cm">// Echo the values to the console</span>
   cout &lt;&lt; (int)LLn1 &lt;&lt; " " &lt;&lt; (int)LLn2 &lt;&lt; " " &lt;&lt; (int)LLn3 &lt;&lt; " " 
        &lt;&lt; (int) LLn4 &lt;&lt; "\n";
 
   cout &lt;&lt; "Writing some 64-bit integer values to the stream in text mode" 
        &lt;&lt; "\n";
-  stream_pos = stream.df_Tell(); <FONT COLOR="#ff0000">// Record the current position</FONT>
+  stream_pos = stream.df_Tell(); <span class="cm">// Record the current position</span>
 
-  <FONT COLOR="#ff0000">// Use decimal and hex text modes </FONT>
+  <span class="cm">// Use decimal and hex text modes </span>
   LL1 = __LLWORD__(9223372036854775808);
   LL3 = __ULLWORD__(18446744073709551615);
 
@@ -557,15 +562,15 @@ void OverLoadTest()
 	 &lt;&lt; clear;
 
   cout &lt;&lt; "Reading the text strings from the stream" &lt;&lt; "\n";
-  stream.df_Seek(stream_pos); <FONT COLOR="#ff0000">// Reset the stream position to the first value</FONT>
+  stream.df_Seek(stream_pos); <span class="cm">// Reset the stream position to the first value</span>
 
   stream &gt;&gt; sbuf1 &gt;&gt; sbuf2;
 
-  <FONT COLOR="#ff0000">// Echo the text to the console</FONT>
+  <span class="cm">// Echo the text to the console</span>
   cout &lt;&lt; sbuf1 &lt;&lt; "\n" &lt;&lt; sbuf2 &lt;&lt; "\n";
-#endif <FONT COLOR="#ff0000">// __64_BIT_DATABASE_ENGINE__</FONT>
+#endif <span class="cm">// __64_BIT_DATABASE_ENGINE__</span>
 
-  <FONT COLOR="#ff0000">// Close and remove the text files</FONT>
+  <span class="cm">// Close and remove the text files</span>
   stream.df_Close();
   stream.df_remove(fname);
 }
@@ -597,17 +602,16 @@ int main()
   cout &lt;&lt; "\n";
   return 0;
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

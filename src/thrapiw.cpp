@@ -724,7 +724,7 @@ void *gxThreadAPIWrapper::apiExitThread(gxThread_t *thread, int exit_code)
 #endif // __WIN32__ directives
 	     
 #elif defined (__POSIX__)
-  pthread_exit((void *)exit_code);
+  pthread_exit((void *)(intptr_t)exit_code); // 10/14/2026: Widen before the pointer cast
 	     
 #else
 #error You must define a native API: __WIN32__ or __UNIX__

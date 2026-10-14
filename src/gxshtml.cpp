@@ -437,7 +437,6 @@ int gxsHTML::CollectHTMLTags()
   char prev_tag = 0;
   int start_of_comment = 0;
   // int end_of_comment = 0;
-  FAU_t curr_pos = (FAU_t)0;
   err_string.Clear();
   char curr_open_tag;
   gxString sbuf;
@@ -535,7 +534,6 @@ int gxsHTML::CollectHTMLTags()
 	  }
 	}
 	if(start_of_comment) {
-	  curr_pos = df_Tell();
 	  rv = df_Get(c);
 	  if(rv != DiskFileB::df_NO_ERROR) return rv;
 	  if(c == '-') rv = df_Get(c);
@@ -2319,7 +2317,6 @@ int gxsHTML::CollectHTMLTags(const MemoryBuffer &membuf)
   char prev_tag = 0;
   int start_of_comment = 0;
   // int end_of_comment = 0;
-  FAU_t curr_pos = (FAU_t)0;
   err_string.Clear();
   char curr_open_tag;
   gxString sbuf;
@@ -2407,7 +2404,6 @@ int gxsHTML::CollectHTMLTags(const MemoryBuffer &membuf)
 	  }
 	}
 	if(start_of_comment) {
-	  curr_pos = pos;
 	  pos++;
 	  if(pos >= len) break;
 	  start++;

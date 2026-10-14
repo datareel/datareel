@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>btree3 example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: testprog.cpp</FONT>
-<FONT COLOR="#ff0000">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 08/22/2000 </FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>btree3 example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>B-tree Benchmark</h1>
+<p class="dr-listing-meta">Source file: <code>testprog.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: testprog.cpp</span>
+<span class="cm">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 08/22/2000 </span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -86,30 +92,30 @@ USA
 
 gxBtree class test program used to test the insertion and 
 deletion time of a large number of keys.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include &lt;time.h&gt;
 #include "gxdstats.h"
 #include "gxbtree.h"
 #include "ustring.h"
 
-<FONT COLOR="#ff0000">// Set the Btree order</FONT>
-<FONT COLOR="#ff0000">// const BtreeNodeOrder_t MyKeyClassOrder = 8;</FONT>
-<FONT COLOR="#ff0000">// const BtreeNodeOrder_t MyKeyClassOrder = 16;</FONT>
-<FONT COLOR="#ff0000">// const BtreeNodeOrder_t MyKeyClassOrder = 32;</FONT>
-<FONT COLOR="#ff0000">// const BtreeNodeOrder_t MyKeyClassOrder = 64;</FONT>
+<span class="cm">// Set the Btree order</span>
+<span class="cm">// const BtreeNodeOrder_t MyKeyClassOrder = 8;</span>
+<span class="cm">// const BtreeNodeOrder_t MyKeyClassOrder = 16;</span>
+<span class="cm">// const BtreeNodeOrder_t MyKeyClassOrder = 32;</span>
+<span class="cm">// const BtreeNodeOrder_t MyKeyClassOrder = 64;</span>
 const BtreeNodeOrder_t MyKeyClassOrder = 128;
-<FONT COLOR="#ff0000">// const BtreeNodeOrder_t MyKeyClassOrder = 256;</FONT>
-<FONT COLOR="#ff0000">// const BtreeNodeOrder_t MyKeyClassOrder = 1024;</FONT>
+<span class="cm">// const BtreeNodeOrder_t MyKeyClassOrder = 256;</span>
+<span class="cm">// const BtreeNodeOrder_t MyKeyClassOrder = 1024;</span>
 
 class MyKeyClass : public DatabaseKeyB
 {
@@ -117,17 +123,17 @@ public:
   MyKeyClass() : DatabaseKeyB((char *)&amp;data) { }
   MyKeyClass(gxUINT32 i) : DatabaseKeyB((char *)&amp;data) { data = i; }
 
-public: <FONT COLOR="#ff0000">// Base class interface</FONT>
+public: <span class="cm">// Base class interface</span>
   size_t KeySize() { return sizeof(data); }
   int operator==(const DatabaseKeyB&amp; key) const;
   int operator&gt;(const DatabaseKeyB&amp; key) const;
   
-  <FONT COLOR="#ff0000">// NOTE: This comparison function is only used if the </FONT>
-  <FONT COLOR="#ff0000">// __USE_SINGLE_COMPARE__ preprocessor directive is </FONT>
-  <FONT COLOR="#ff0000">// defined when the program is compiled.</FONT>
+  <span class="cm">// NOTE: This comparison function is only used if the </span>
+  <span class="cm">// __USE_SINGLE_COMPARE__ preprocessor directive is </span>
+  <span class="cm">// defined when the program is compiled.</span>
   int CompareKey(const DatabaseKeyB&amp; key) const;
 
-public: <FONT COLOR="#ff0000">// Persistent data member</FONT>
+public: <span class="cm">// Persistent data member</span>
   gxUINT32 data;
 };
 
@@ -144,9 +150,9 @@ int MyKeyClass::operator&gt;(const DatabaseKeyB&amp; key) const
 }
 
 int MyKeyClass::CompareKey(const DatabaseKeyB&amp; key) const
-<FONT COLOR="#ff0000">// NOTE: This comparison function is only used if the </FONT>
-<FONT COLOR="#ff0000">// __USE_SINGLE_COMPARE__ preprocessor directive is </FONT>
-<FONT COLOR="#ff0000">// defined when the program is compiled.</FONT>
+<span class="cm">// NOTE: This comparison function is only used if the </span>
+<span class="cm">// __USE_SINGLE_COMPARE__ preprocessor directive is </span>
+<span class="cm">// defined when the program is compiled.</span>
 {
   const MyKeyClass *kptr = (const MyKeyClass *)(&amp;key);
   if(data == *((gxUINT32 *)kptr-&gt;db_key)) return 0;
@@ -176,14 +182,14 @@ void BtreeStatus(gxBtree &amp;btx)
 
 void BuildTree(gxBtree &amp;btx)
 {
-  <FONT COLOR="#ff0000">// Adjust this number to set the number of insertions</FONT>
-  const unsigned long INSERTIONS = 1 * 1000;       <FONT COLOR="#ff0000">// 1K test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 10 * 1000;      // 10K test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 100 * 1000;     // 100K test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 1000 * 1000;    // 1MEG test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 10000 * 1000;   // 10MEG test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 100000 * 1000;  // 100MEG test</FONT>
-  <FONT COLOR="#ff0000">// const unsigned long INSERTIONS = 1000000 * 1000; // 1GIG test</FONT>
+  <span class="cm">// Adjust this number to set the number of insertions</span>
+  const unsigned long INSERTIONS = 1 * 1000;       <span class="cm">// 1K test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 10 * 1000;      // 10K test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 100 * 1000;     // 100K test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 1000 * 1000;    // 1MEG test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 10000 * 1000;   // 10MEG test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 100000 * 1000;  // 100MEG test</span>
+  <span class="cm">// const unsigned long INSERTIONS = 1000000 * 1000; // 1GIG test</span>
 
   MyKeyClass key;
   MyKeyClass compare_key;
@@ -192,10 +198,10 @@ void BuildTree(gxBtree &amp;btx)
   unsigned long i, key_count = 0;
   unsigned long curr_count = 0;
   int rv;
-  int verify_deletions = 0; <FONT COLOR="#ff0000">// Set to ture to verify all deletions</FONT>
+  int verify_deletions = 0; <span class="cm">// Set to ture to verify all deletions</span>
   double insert_time = 0;
   
-  <FONT COLOR="#ff0000">// Get CPU clock cycles before entering loop</FONT>
+  <span class="cm">// Get CPU clock cycles before entering loop</span>
   clock_t begin = clock();
 
   for(i = 0; i &lt; INSERTIONS; i++) {
@@ -218,10 +224,10 @@ void BuildTree(gxBtree &amp;btx)
     }
 
   }
-  <FONT COLOR="#ff0000">// Get CPU clock cycles after loop is completed </FONT>
+  <span class="cm">// Get CPU clock cycles after loop is completed </span>
   clock_t end =clock();
 
-  <FONT COLOR="#ff0000">// Calculate the elapsed time in seconds. </FONT>
+  <span class="cm">// Calculate the elapsed time in seconds. </span>
   double elapsed_time = (double)(end - begin) / CLOCKS_PER_SEC;
   cout.precision(3); 
   cout &lt;&lt; "Inserted " &lt;&lt; key_count &lt;&lt; " values in " 
@@ -274,7 +280,7 @@ void BuildTree(gxBtree &amp;btx)
       return;
     }
 
-    if(verify_deletions) { <FONT COLOR="#ff0000">// Verify the remaining key locations</FONT>
+    if(verify_deletions) { <span class="cm">// Verify the remaining key locations</span>
       for(unsigned long j = INSERTIONS-1; j != i; j--) {
 	key.data = j;
 	rv = btx.Find(key, compare_key, 0);
@@ -326,46 +332,45 @@ void BuildTree(gxBtree &amp;btx)
 
 int main(int argv, char **argc)
 {
-  const char *fname = "testfile.btx"; <FONT COLOR="#ff0000">// File name of this database</FONT>
-  char rev_letter = gxDatabaseRevisionLetter; <FONT COLOR="#ff0000">// Set the default rev letter</FONT>
-  if(argv == 2) { <FONT COLOR="#ff0000">// Set a specified revision letter</FONT>
+  const char *fname = "testfile.btx"; <span class="cm">// File name of this database</span>
+  char rev_letter = gxDatabaseRevisionLetter; <span class="cm">// Set the default rev letter</span>
+  if(argv == 2) { <span class="cm">// Set a specified revision letter</span>
     rev_letter = *argc[1];
     if(rev_letter == '0') rev_letter = '\0';
-    <FONT COLOR="#ff0000">// Valid rev letters are:</FONT>
-    <FONT COLOR="#ff0000">// Rev 0</FONT>
-    <FONT COLOR="#ff0000">// Rev 'A' or 'a'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'B' or 'b'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'C' or 'c'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'D' or 'd'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'E' or 'e'</FONT>
-    <FONT COLOR="#ff0000">// NOTE: The gxDatabase class will set invalid revision letters</FONT>
-    <FONT COLOR="#ff0000">// to the version set by the gxDatabaseRevisionLetter constant.  </FONT>
+    <span class="cm">// Valid rev letters are:</span>
+    <span class="cm">// Rev 0</span>
+    <span class="cm">// Rev 'A' or 'a'</span>
+    <span class="cm">// Rev 'B' or 'b'</span>
+    <span class="cm">// Rev 'C' or 'c'</span>
+    <span class="cm">// Rev 'D' or 'd'</span>
+    <span class="cm">// Rev 'E' or 'e'</span>
+    <span class="cm">// NOTE: The gxDatabase class will set invalid revision letters</span>
+    <span class="cm">// to the version set by the gxDatabaseRevisionLetter constant.  </span>
   }
 
   MyKeyClass key, compare_key;
   gxBtree btx(key, MyKeyClassOrder);
 
-  <FONT COLOR="#ff0000">// Create a new B-tree index file with one tree</FONT>
+  <span class="cm">// Create a new B-tree index file with one tree</span>
   btx.Create(fname, rev_letter);
   if(CheckError(btx.gxDatabasePtr()) != 0) return 1;
   
-  <FONT COLOR="#ff0000">// Build the B-tree index</FONT>
+  <span class="cm">// Build the B-tree index</span>
   BuildTree(btx);
   
   cout &lt;&lt; "Exiting..." &lt;&lt; "\n";
   return 0;
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>btnode example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: testprog.cpp</FONT>
-<FONT COLOR="#ff0000">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 08/22/2000 </FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>btnode example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>B-tree Node Example</h1>
+<p class="dr-listing-meta">Source file: <code>testprog.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: testprog.cpp</span>
+<span class="cm">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 08/22/2000 </span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -85,25 +91,25 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 This is a test program for the B-tree node class.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include "btnode.h"
 #include "gxdbase.h"
 
-<FONT COLOR="#ff0000">// Set the node order and maximum key size for this key class</FONT>
+<span class="cm">// Set the node order and maximum key size for this key class</span>
 const BtreeNodeOrder_t MyKeyClassOrder = 8;
 const __WORD__ MyKeyNameSize = 26;
 
-<FONT COLOR="#ff0000">// Key class for this database</FONT>
+<span class="cm">// Key class for this database</span>
 class MyKeyClass : public DatabaseKeyB
 {
 public:
@@ -112,17 +118,17 @@ public:
   void operator=(const char *name);
   ~MyKeyClass() { }
 
-public: <FONT COLOR="#ff0000">// Base class interface</FONT>
+public: <span class="cm">// Base class interface</span>
   size_t KeySize() { return sizeof(key_name); }
   int operator==(const DatabaseKeyB&amp; key) const;
   int operator&gt;(const DatabaseKeyB&amp; key) const;
   
-  <FONT COLOR="#ff0000">// NOTE: This comparison function is only used if the </FONT>
-  <FONT COLOR="#ff0000">// __USE_SINGLE_COMPARE__ preprocessor directive is </FONT>
-  <FONT COLOR="#ff0000">// defined when the program is compiled.</FONT>
+  <span class="cm">// NOTE: This comparison function is only used if the </span>
+  <span class="cm">// __USE_SINGLE_COMPARE__ preprocessor directive is </span>
+  <span class="cm">// defined when the program is compiled.</span>
   int CompareKey(const DatabaseKeyB&amp; key) const;
 
-public: <FONT COLOR="#ff0000">// Persistent data member</FONT>
+public: <span class="cm">// Persistent data member</span>
   char key_name[MyKeyNameSize];
 };
 
@@ -156,34 +162,34 @@ int MyKeyClass::operator&gt;(const DatabaseKeyB&amp; key) const
 }
 
 int MyKeyClass::CompareKey(const DatabaseKeyB&amp; key) const
-<FONT COLOR="#ff0000">// NOTE: This comparison function is only used if the </FONT>
-<FONT COLOR="#ff0000">// __USE_SINGLE_COMPARE__ preprocessor directive is </FONT>
-<FONT COLOR="#ff0000">// defined when the program is compiled.</FONT>
+<span class="cm">// NOTE: This comparison function is only used if the </span>
+<span class="cm">// __USE_SINGLE_COMPARE__ preprocessor directive is </span>
+<span class="cm">// defined when the program is compiled.</span>
 {
   const MyKeyClass *kptr = (const MyKeyClass *)(&amp;key);
   return strcmp(key_name, (char *)kptr-&gt;db_key);
 }
 
 void PrintNode(BtreeNode &amp;n)
-<FONT COLOR="#ff0000">// Print a Btree node.</FONT>
+<span class="cm">// Print a Btree node.</span>
 {
   MyKeyClass kbuf;
   BtreeKeyLocation_t key_location = (BtreeKeyLocation_t)0;
   for(BtreeKeyCount_t i = (BtreeKeyCount_t)0; i &lt; n.key_count; i++) {
     n.LoadKey(kbuf, key_location++);
     cout &lt;&lt; (char *)kbuf.key_name &lt;&lt; ' ' &lt;&lt; (long)kbuf.right_child &lt;&lt; ' ';
-    <FONT COLOR="#ff0000">// NOTE: The right child FAU is cast to a long for compilers</FONT>
-    <FONT COLOR="#ff0000">// with native 64-bit int ostream overloads</FONT>
+    <span class="cm">// NOTE: The right child FAU is cast to a long for compilers</span>
+    <span class="cm">// with native 64-bit int ostream overloads</span>
   }
   cout &lt;&lt; "\n";
   cout &lt;&lt; "Key count = " &lt;&lt; n.key_count &lt;&lt; "\n";
   cout &lt;&lt; "Left child = " &lt;&lt; (long)n.left_child &lt;&lt; "\n";
-  <FONT COLOR="#ff0000">// NOTE: The left child FAU is cast to a long for compilers</FONT>
-  <FONT COLOR="#ff0000">// with native 64-bit int ostream overloads</FONT>
+  <span class="cm">// NOTE: The left child FAU is cast to a long for compilers</span>
+  <span class="cm">// with native 64-bit int ostream overloads</span>
 }
 
 void PausePrg()
-<FONT COLOR="#ff0000">// Pause the program.</FONT>
+<span class="cm">// Pause the program.</span>
 {
   cout &lt;&lt; "\n";
   cout &lt;&lt; "Press enter to continue..." &lt;&lt; "\n";
@@ -191,9 +197,9 @@ void PausePrg()
 }
 
 gxDatabaseError WriteNode(gxDatabase *f, const BtreeNode &amp;n, FAU_t na)
-<FONT COLOR="#ff0000">// Function used to write a Btree node to an open database file.</FONT>
-<FONT COLOR="#ff0000">// Returns zero if successful or a non-zero value to indicate a</FONT>
-<FONT COLOR="#ff0000">// failure. </FONT>
+<span class="cm">// Function used to write a Btree node to an open database file.</span>
+<span class="cm">// Returns zero if successful or a non-zero value to indicate a</span>
+<span class="cm">// failure. </span>
 {
   gxDatabaseError rv;
   rv = f-&gt;Write(&amp;n.key_count, sizeof(n.key_count), na);
@@ -206,9 +212,9 @@ gxDatabaseError WriteNode(gxDatabase *f, const BtreeNode &amp;n, FAU_t na)
 }
 
 gxDatabaseError ReadNode(gxDatabase *f, BtreeNode &amp;n, FAU_t na)
-<FONT COLOR="#ff0000">// Function used to read a Btree node from an open database file.</FONT>
-<FONT COLOR="#ff0000">// Returns zero if successful or a non-zero value to indicate a</FONT>
-<FONT COLOR="#ff0000">// failure. </FONT>
+<span class="cm">// Function used to read a Btree node from an open database file.</span>
+<span class="cm">// Returns zero if successful or a non-zero value to indicate a</span>
+<span class="cm">// failure. </span>
 {
   gxDatabaseError rv;
   rv = f-&gt;Read(&amp;n.key_count, sizeof(n.key_count), na);
@@ -237,7 +243,7 @@ int main()
   
   BtreeKeyLocation_t key_location = (BtreeKeyLocation_t)0;
   int i, rv;
-  const char *strings[7] = { <FONT COLOR="#ff0000">// Array matching the Btree order</FONT>
+  const char *strings[7] = { <span class="cm">// Array matching the Btree order</span>
     "DOG", "CAT", "PIG", "COW", "FISH", "ZEBRA", "HORSE" 
   };
 
@@ -248,7 +254,7 @@ int main()
 
     rv = n.FindKeyLocation(key, compare_key, key_location);
 
-    <FONT COLOR="#ff0000">// Do not insert duplicate keys</FONT>
+    <span class="cm">// Do not insert duplicate keys</span>
     if(rv != 0) {
       key_location++;
       n.InsertDatabaseKey(key, key_location);
@@ -289,17 +295,16 @@ int main()
   cout &lt;&lt; "Exiting..." &lt;&lt; "\n";
   return 0;
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

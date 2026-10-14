@@ -331,7 +331,6 @@ int ProcessArgs(char *arg)
   char line_buf[1024];
   gxString dash_arg, dash_option, line;
   int has_dash_arg = 0;
-  int num_lines = 0;
   DiskFileB infile;
 
   switch(arg[1]) {

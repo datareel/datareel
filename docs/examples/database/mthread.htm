@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>mthread example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: testprog.cpp</FONT>
-<FONT COLOR="#ff0000">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 05/17/2000</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>mthread example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>Multi-Thread Example</h1>
+<p class="dr-listing-meta">Source file: <code>testprog.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: testprog.cpp</span>
+<span class="cm">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 05/17/2000</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -99,16 +105,16 @@ multi-process thread or remote process is responsible for
 reading the lock and acting accordingly. Single process threads
 can omit persistent locks thorough the use of mutex locks and
 condition variables.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //   </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //   </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include &lt;string.h&gt;
 #include "gxthread.h"
@@ -117,7 +123,7 @@ using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard
 #include "gxdbase.h"
 #include "gxdstats.h"
 
-<FONT COLOR="#ff0000">// Constants</FONT>
+<span class="cm">// Constants</span>
 const int NUM_THREADS = 26;
 const int MAX_NUM_TRY = 3;
 const int name_length = 16;
@@ -128,41 +134,41 @@ struct DatabaseObject {
   int id;
 };
 
-<FONT COLOR="#ff0000">// Class used to perform multi-threaded reads</FONT>
+<span class="cm">// Class used to perform multi-threaded reads</span>
 class gxdReadThread : public gxThread
 {
 public:
   gxdReadThread(gxDatabase *gxdfile) { f = gxdfile; curr_offset = (FAU_t)0; }
   ~gxdReadThread() { }
 
-private: <FONT COLOR="#ff0000">// Base class interface</FONT>
+private: <span class="cm">// Base class interface</span>
   void *ThreadEntryRoutine(gxThread_t *thread);
 
 private:
-  gxDatabase *f;       <FONT COLOR="#ff0000">// Pointer to the open database file</FONT>
-  gxMutex offset_lock; <FONT COLOR="#ff0000">// Mutex used to serialize access to curr_offset</FONT>
-  FAU_t curr_offset;   <FONT COLOR="#ff0000">// Current file position following a file read</FONT>
+  gxDatabase *f;       <span class="cm">// Pointer to the open database file</span>
+  gxMutex offset_lock; <span class="cm">// Mutex used to serialize access to curr_offset</span>
+  FAU_t curr_offset;   <span class="cm">// Current file position following a file read</span>
 };
 
-<FONT COLOR="#ff0000">// Class used to perform multi-threaded writes</FONT>
+<span class="cm">// Class used to perform multi-threaded writes</span>
 class gxdWriteThread : public gxThread
 {
 public:
   gxdWriteThread(gxDatabase *gxdfile) { f = gxdfile; }
   ~gxdWriteThread() { }
 
-private: <FONT COLOR="#ff0000">// Base class interface</FONT>
+private: <span class="cm">// Base class interface</span>
   void *ThreadEntryRoutine(gxThread_t *thread);
 
 private:
-  gxMutex write_lock;     <FONT COLOR="#ff0000">// Mutex object used to lock the file</FONT>
-  gxCondition write_cond; <FONT COLOR="#ff0000">// Condition variable used to block other threads</FONT>
-  gxDatabase *f;          <FONT COLOR="#ff0000">// Pointer to the open database file</FONT>
+  gxMutex write_lock;     <span class="cm">// Mutex object used to lock the file</span>
+  gxCondition write_cond; <span class="cm">// Condition variable used to block other threads</span>
+  gxDatabase *f;          <span class="cm">// Pointer to the open database file</span>
 };
 
 void *gxdReadThread::ThreadEntryRoutine(gxThread_t *thread)
 {
-  offset_lock.MutexLock(); <FONT COLOR="#ff0000">// Serialize access to curr_offset</FONT>
+  offset_lock.MutexLock(); <span class="cm">// Serialize access to curr_offset</span>
   curr_offset = f-&gt;FindFirstObject(curr_offset);
   FAU_t block_address = curr_offset - f-&gt;BlockHeaderSize();
   if(curr_offset) {
@@ -179,18 +185,18 @@ void *gxdReadThread::ThreadEntryRoutine(gxThread_t *thread)
 }
 
 void *gxdWriteThread::ThreadEntryRoutine(gxThread_t *thread)
-<FONT COLOR="#ff0000">// Thread safe write function that will not allow access to</FONT>
-<FONT COLOR="#ff0000">// the critical section until the write operation is complete.</FONT>
+<span class="cm">// Thread safe write function that will not allow access to</span>
+<span class="cm">// the critical section until the write operation is complete.</span>
 {
   DatabaseObject *ob = (DatabaseObject *)thread-&gt;GetThreadParm();
 
   write_lock.MutexLock();
 
-  <FONT COLOR="#ff0000">// Tell other threads to wait until this write is complete</FONT>
+  <span class="cm">// Tell other threads to wait until this write is complete</span>
   int num_try = 0;
   while(f-&gt;LockFile() != 0) {
-    <FONT COLOR="#ff0000">// Block this thread from its own execution if a another thread</FONT>
-    <FONT COLOR="#ff0000">// is writing to the file</FONT>
+    <span class="cm">// Block this thread from its own execution if a another thread</span>
+    <span class="cm">// is writing to the file</span>
     if(++num_try &lt; MAX_NUM_TRY) {
       write_cond.ConditionWait(&amp;write_lock);
     }
@@ -200,13 +206,13 @@ void *gxdWriteThread::ThreadEntryRoutine(gxThread_t *thread)
     }
   }
 
-  <FONT COLOR="#ff0000">// ********** Enter Critical Section ******************* //</FONT>
+  <span class="cm">// ********** Enter Critical Section ******************* //</span>
   f-&gt;Write(ob, sizeof(DatabaseObject), f-&gt;Alloc(sizeof(DatabaseObject)));
-  <FONT COLOR="#ff0000">// ********** Leave Critical Section ******************* //</FONT>
+  <span class="cm">// ********** Leave Critical Section ******************* //</span>
 
-  f-&gt;UnlockFile(); <FONT COLOR="#ff0000">// Tell other threads that this write is complete</FONT>
+  f-&gt;UnlockFile(); <span class="cm">// Tell other threads that this write is complete</span>
  
-  <FONT COLOR="#ff0000">// Wake up the next thread waiting on this condition</FONT>
+  <span class="cm">// Wake up the next thread waiting on this condition</span>
   write_cond.ConditionSignal();
   write_lock.MutexUnlock();
 
@@ -215,28 +221,28 @@ void *gxdWriteThread::ThreadEntryRoutine(gxThread_t *thread)
 
 int main(int argv, char **argc)
 {
-  char rev_letter = 'D'; <FONT COLOR="#ff0000">// Set the revision letter</FONT>
-  if(argv == 2) { <FONT COLOR="#ff0000">// Set a specified revision letter</FONT>
+  char rev_letter = 'D'; <span class="cm">// Set the revision letter</span>
+  if(argv == 2) { <span class="cm">// Set a specified revision letter</span>
     rev_letter = *argc[1];
     if(rev_letter == '0') rev_letter = 0;
-    <FONT COLOR="#ff0000">// Valid persistent record lock rev letters are:</FONT>
-    <FONT COLOR="#ff0000">// Rev 'C' or 'c'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'D' or 'd'</FONT>
+    <span class="cm">// Valid persistent record lock rev letters are:</span>
+    <span class="cm">// Rev 'C' or 'c'</span>
+    <span class="cm">// Rev 'D' or 'd'</span>
   }
 
   gxDatabase *f = new gxDatabase; 
   const char *fname = "testfile.gxd";
-  f-&gt;Create(fname, (FAU_t)0, rev_letter); <FONT COLOR="#ff0000">// Persistent lock revision</FONT>
+  f-&gt;Create(fname, (FAU_t)0, rev_letter); <span class="cm">// Persistent lock revision</span>
   if(CheckError(f) != 0) {
     delete f;
     return 1;
   }
 
-  <FONT COLOR="#ff0000">// Initialize the multi-threaded database objects</FONT>
+  <span class="cm">// Initialize the multi-threaded database objects</span>
   gxdReadThread *read_thread = new gxdReadThread(f);
   gxdWriteThread *write_thread = new gxdWriteThread(f);
 
-  <FONT COLOR="#ff0000">// Arrays used to hold the read and write threads</FONT>
+  <span class="cm">// Arrays used to hold the read and write threads</span>
   gxThread_t *wthreads[NUM_THREADS];
   gxThread_t *rthreads[NUM_THREADS];
 
@@ -246,7 +252,7 @@ int main(int argv, char **argc)
   DatabaseObject *ob_ptr[NUM_THREADS];
 
   for(i = 0; i &lt; NUM_THREADS; i++) {
-    DatabaseObject *ob = new DatabaseObject; <FONT COLOR="#ff0000">// Persistent object</FONT>
+    DatabaseObject *ob = new DatabaseObject; <span class="cm">// Persistent object</span>
     ob-&gt;id = 65+i;
     for(j = 0; j &lt; name_length; j++) ob-&gt;name[j] = 0;
     memmove(ob-&gt;name, name_string, strlen(name_string));
@@ -263,44 +269,43 @@ int main(int argv, char **argc)
   cin.get();
   for(i = 0; i &lt; NUM_THREADS; i++) {
     rthreads[i] = read_thread-&gt;CreateThread();
-    read_thread-&gt;sSleep(1); <FONT COLOR="#ff0000">// Allow each thread time to print its message</FONT>
+    read_thread-&gt;sSleep(1); <span class="cm">// Allow each thread time to print its message</span>
   }
 
-  <FONT COLOR="#ff0000">// Wait for the read threads to complete</FONT>
+  <span class="cm">// Wait for the read threads to complete</span>
   for(i = 0; i &lt; NUM_THREADS; i++) read_thread-&gt;JoinThread(rthreads[i]);
 
-  <FONT COLOR="#ff0000">// Cleanup and release all the thread resources</FONT>
+  <span class="cm">// Cleanup and release all the thread resources</span>
   for(i = 0; i &lt; NUM_THREADS; i++) write_thread-&gt;DestroyThread(wthreads[i]);
   for(i = 0; i &lt; NUM_THREADS; i++) read_thread-&gt;DestroyThread(rthreads[i]);
 
-  delete write_thread; <FONT COLOR="#ff0000">// Release the write object's file pointer</FONT>
-  delete read_thread;  <FONT COLOR="#ff0000">// Release the read object's file pointer</FONT>
+  delete write_thread; <span class="cm">// Release the write object's file pointer</span>
+  delete read_thread;  <span class="cm">// Release the read object's file pointer</span>
 
-  f-&gt;Close(); <FONT COLOR="#ff0000">// Close the file </FONT>
+  f-&gt;Close(); <span class="cm">// Close the file </span>
   if(CheckError(f) != 0) {
     delete f;
     return 1;
   }
   
-  <FONT COLOR="#ff0000">// Free the memory allocated for the file pointer</FONT>
+  <span class="cm">// Free the memory allocated for the file pointer</span>
   delete f;
 
-  <FONT COLOR="#ff0000">// Free the memory allocated for each database object pointer</FONT>
+  <span class="cm">// Free the memory allocated for each database object pointer</span>
   for(i = 0; i &lt; NUM_THREADS; i++) delete ob_ptr[i];
 
   return 0;
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

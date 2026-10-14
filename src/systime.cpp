@@ -299,7 +299,7 @@ void SysTime::FormatTime(int Format)
       break;
       
     default: {               
-	char *mesg = "Invalid time format";
+	const char *mesg = "Invalid time format";
 	SBuffer = mesg;
 	IntTimeFormat = InvalidTimeFormat;
 	return;

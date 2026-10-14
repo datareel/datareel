@@ -89,7 +89,11 @@ thrPoolNode *thrPool::AddThread(gxThread_t *thread)
 	break;
       }
       else {
-	ptr = head;
+	// 10/14/2026: The search started at the head and inserted the
+	// node after the first high priority node found, so high priority
+	// threads did not keep the order they were added. Search from
+	// the tail to find the last high priority node.
+	ptr = tail;
 	while(ptr) { // Start searching from the end of the pool
 	  if(ptr->GetThreadPtr()->GetThreadPriority() ==
 	     gxTHREAD_PRIORITY_HIGH) {
@@ -98,7 +102,7 @@ thrPoolNode *thrPool::AddThread(gxThread_t *thread)
 	    inserted_node = 1;
 	    break;
 	  }
-	  ptr = ptr->next;
+	  ptr = ptr->prev;
 	} 
       }
       if(!inserted_node) { // This is the first high priority node in the pool
@@ -259,6 +263,8 @@ void thrPool::DetachNode(thrPoolNode *n)
   if((IsEmpty()) || (!n)) return;
 
   if(head == tail) { // There is only one node in the pool
+    // 10/14/2026: The pool was emptied even when "n" was not its node
+    if(n != head) return;
     MakeEmpty();
   }
   else if(n == head) { // This is the head node
@@ -285,12 +291,18 @@ void thrPool::DetachNode(thrPoolNode *n)
     n->prev->next = n->next;
     n->next->prev = n->prev;
   }
+
+  // 10/14/2026: Clear the links of the detached node. They used to
+  // keep pointing into the pool.
+  n->next = n->prev = 0;
 }
 
 void thrPool::MoveBefore(thrPoolNode *pos, thrPoolNode *n)
 // Move an existing node before the node residing at
 // the specified position.
 {
+  // 10/14/2026: Moving a node next to itself corrupted the links
+  if(pos == n) return;
   DetachNode(n);
   InsertBefore(pos, n);
 }
@@ -299,6 +311,8 @@ void thrPool::MoveAfter(thrPoolNode *pos, thrPoolNode *n)
 // Move an existing node after the node residing at
 // the specified position.
 {
+  // 10/14/2026: Moving a node next to itself corrupted the links
+  if(pos == n) return;
   DetachNode(n);
   InsertAfter(pos, n);
 }
@@ -310,6 +324,8 @@ void thrPool::InsertBefore(thrPoolNode *pos, thrPoolNode *n)
   // The pool is empty so this will be the first node
   if(IsEmpty()) { 
     tail = head = n; // First node in the pool
+    // 10/14/2026: Old links of the node were kept
+    n->next = n->prev = 0;
     return;
   }
   
@@ -341,6 +357,8 @@ void thrPool::InsertAfter(thrPoolNode *pos, thrPoolNode *n)
   // The pool is empty so this will be the first node
   if(IsEmpty()) {
     tail = head = n; // First node in the pool
+    // 10/14/2026: Old links of the node were kept
+    n->next = n->prev = 0;
     return;
   }
 

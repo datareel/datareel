@@ -63,6 +63,10 @@ release counts before decrementing.
 #include <errno.h>
 #endif
 
+#if defined (__POSIX__) && !defined (__WIN32__)
+#include <sys/time.h> // 10/14/2026: gettimeofday() for timed waits
+#endif
+
 #include <string.h>
 #include "thelpers.h"
 
@@ -260,7 +264,15 @@ GXDLCODE_API int gxThreadMutexInit(gxMutex_t *m, gxProcessType type)
     }
 
     // 08/26/2016: Using robust mutex for Linux builds
-    pthread_mutexattr_setrobust_np(&m->mutex_attribute, PTHREAD_MUTEX_ROBUST_NP);
+    // 10/14/2026: Standard name, was pthread_mutexattr_setrobust_np
+    // 10/14/2026: The return value was ignored. Fail if it cannot be set.
+    rv = pthread_mutexattr_setrobust(&m->mutex_attribute, PTHREAD_MUTEX_ROBUST);
+    if(rv != 0) {
+      m->is_initialized = 0;
+      gxThreadMutexAttributeDestroy(&m->mutex_attribute);
+      m->mutex_error = gxMUTEX_ATTR_INIT_ERROR;
+      return rv;
+    }
 
     rv = pthread_mutex_init(&m->mutex, &m->mutex_attribute);
     if(rv != 0) {
@@ -301,7 +313,15 @@ GXDLCODE_API int gxThreadMutexInit(gxMutex_t *m, gxProcessType type)
     }
     
     // 08/26/2016: Using robust mutex for Linux builds
-    pthread_mutexattr_setrobust_np(&m->mutex_attribute, PTHREAD_MUTEX_ROBUST_NP);
+    // 10/14/2026: Standard name, was pthread_mutexattr_setrobust_np
+    // 10/14/2026: The return value was ignored. Fail if it cannot be set.
+    rv = pthread_mutexattr_setrobust(&m->mutex_attribute, PTHREAD_MUTEX_ROBUST);
+    if(rv != 0) {
+      m->is_initialized = 0;
+      gxThreadMutexAttributeDestroy(&m->mutex_attribute);
+      m->mutex_error = gxMUTEX_ATTR_INIT_ERROR;
+      return rv;
+    }
     
     rv = pthread_mutex_init(&m->mutex, &m->mutex_attribute);
     if(rv != 0) {
@@ -323,6 +343,11 @@ GXDLCODE_API int gxThreadMutexInit(gxMutex_t *m, gxProcessType type)
 #error You must define an API: __WIN32__ or __POSIX__
 #endif
 
+  // 10/14/2026: The mutex was never marked as initialized, so the
+  // destroy function never released it and a second init call was
+  // not skipped.
+  m->is_initialized = 1;
+
   if(m->mutex_error != gxMUTEX_NO_ERROR) return 1;
   return 0;
 }
@@ -333,6 +358,10 @@ GXDLCODE_API int gxThreadMutexDestroy(gxMutex_t *m)
 {
   // The mutex was never initialized so lets avoid any undefined behavior
   if(!m->is_initialized) return 0;
+
+  // 10/14/2026: Clear any error left by an earlier call. A stale error
+  // made this function report a failure after a successful destroy.
+  m->mutex_error = gxMUTEX_NO_ERROR;
   
 #if defined (__WIN32__)
   if(m->process_type == gxPROCESS_SHARED) {
@@ -348,11 +377,19 @@ GXDLCODE_API int gxThreadMutexDestroy(gxMutex_t *m)
     DeleteCriticalSection(&m->mutex); 
   }
 #elif defined (__POSIX__)
+#if defined(__LINUX__)
+  // 10/14/2026: Linux builds create an attribute for private mutexes
+  // too, but it was only destroyed for shared mutexes.
+  if(gxThreadMutexAttributeDestroy(&m->mutex_attribute) != 0) {
+    m->mutex_error = gxMUTEX_ATTR_DESTROY_ERROR;
+  }
+#else
   if(m->process_type == gxPROCESS_SHARED) {
     if(gxThreadMutexAttributeDestroy(&m->mutex_attribute) != 0) {
       m->mutex_error = gxMUTEX_ATTR_DESTROY_ERROR;
     }
   }
+#endif
 
   pthread_mutex_unlock(&m->mutex);
   int rv = pthread_mutex_destroy(&m->mutex);
@@ -445,9 +482,13 @@ GXDLCODE_API int gxThreadMutexLock(gxMutex_t *m)
       case EOWNERDEAD:
 	m->mutex_error = gxMUTEX_OWNERDEAD_ERROR;
 	break;
-      case gxMUTEX_NOTRECOVERABLE_ERROR:
+#if defined(ENOTRECOVERABLE)
+      // 10/14/2026: Was compared with the gxMUTEX_NOTRECOVERABLE_ERROR
+      // enum value instead of the ENOTRECOVERABLE error code.
+      case ENOTRECOVERABLE:
 	m->mutex_error = gxMUTEX_NOTRECOVERABLE_ERROR;
 	break;
+#endif
       default:
 	m->mutex_error = gxMUTEX_LOCK_ERROR;
 	break;
@@ -457,6 +498,9 @@ GXDLCODE_API int gxThreadMutexLock(gxMutex_t *m)
 #else
 #error You must define an API: __WIN32__ or __POSIX__
 #endif
+  // 10/14/2026: Clear any error left by an earlier call. The lock
+  // is held here so no other thread is writing this field.
+  if(m->mutex_error != gxMUTEX_NO_ERROR) m->mutex_error = gxMUTEX_NO_ERROR;
   return 0;
 }
 
@@ -464,6 +508,12 @@ GXDLCODE_API int gxThreadMutexUnlock(gxMutex_t *m)
 // Unlock the specified mutex. Returns a non-zero value if the
 // mutex cannot be unlocked.
 {
+  // 10/14/2026: Clear any error left by an earlier call while the
+  // calling thread still holds the lock. An error from this unlock
+  // call is stored below.
+  gxMutexError prev_error = m->mutex_error;
+  if(prev_error != gxMUTEX_NO_ERROR) m->mutex_error = gxMUTEX_NO_ERROR;
+
 #if defined (__WIN32__)  
   if(m->process_type == gxPROCESS_SHARED) {
     // The ReleaseMutex function fails if the calling thread 
@@ -504,7 +554,7 @@ GXDLCODE_API int gxThreadMutexUnlock(gxMutex_t *m)
 GXDLCODE_API int gxThreadMutexMakeConsistent(gxMutex_t *m)
 {
 #if defined(__POSIX__) && defined(__LINUX__)
-  int rv = pthread_mutex_consistent_np(&m->mutex);
+  int rv = pthread_mutex_consistent(&m->mutex); // 10/14/2026: Was pthread_mutex_consistent_np
   if(rv == EINVAL) {
     m->mutex_error = gxMUTEX_INVAL_ERROR;
   }
@@ -523,13 +573,21 @@ GXDLCODE_API int gxThreadMutexTryLock(gxMutex_t *m)
   if(m->process_type == gxPROCESS_SHARED) {
     // Test the object's state and return immediately
     DWORD rv = WaitForSingleObject(m->shared_mutex, 0);
-    if(rv == WAIT_TIMEOUT || rv == WAIT_ABANDONED) {
+    // 10/14/2026: WAIT_ABANDONED gives the lock to the caller, so it
+    // is a success as in gxThreadMutexLock(). WAIT_FAILED was treated
+    // as a success.
+    if(rv == WAIT_TIMEOUT || rv == WAIT_FAILED) {
       m->mutex_error = gxMUTEX_TRY_LOCK_ERROR;
       return 1;
     }
   }
   else {
-    LeaveCriticalSection(&m->mutex);
+    // 10/14/2026: Was LeaveCriticalSection(), which released the lock
+    // instead of trying to take it.
+    if(!TryEnterCriticalSection(&m->mutex)) {
+      m->mutex_error = gxMUTEX_TRY_LOCK_ERROR;
+      return 1;
+    }
   }
 #elif defined (__POSIX__)
   int rv = pthread_mutex_trylock(&m->mutex);
@@ -538,9 +596,13 @@ GXDLCODE_API int gxThreadMutexTryLock(gxMutex_t *m)
       case EOWNERDEAD:
         m->mutex_error = gxMUTEX_OWNERDEAD_ERROR;
         break;
-      case gxMUTEX_NOTRECOVERABLE_ERROR:
+#if defined(ENOTRECOVERABLE)
+      // 10/14/2026: Was compared with the gxMUTEX_NOTRECOVERABLE_ERROR
+      // enum value instead of the ENOTRECOVERABLE error code.
+      case ENOTRECOVERABLE:
         m->mutex_error = gxMUTEX_NOTRECOVERABLE_ERROR;
 	break;
+#endif
       case EBUSY:
         m->mutex_error = gxMUTEX_BUSY_ERROR;
         break;
@@ -553,6 +615,9 @@ GXDLCODE_API int gxThreadMutexTryLock(gxMutex_t *m)
 #else
 #error You must define an API: __WIN32__ or __POSIX__
 #endif
+  // 10/14/2026: Clear any error left by an earlier call. The lock
+  // is held here so no other thread is writing this field.
+  if(m->mutex_error != gxMUTEX_NO_ERROR) m->mutex_error = gxMUTEX_NO_ERROR;
   return 0;
 }
 
@@ -616,7 +681,9 @@ GXDLCODE_API int gxThreadConditionInit(gxCondition_t *c, gxProcessType type)
 #elif defined (__POSIX__)
   int rv; // Return value variable
   if(c->process_type == gxPROCESS_SHARED) {
-#if defined(PTHREAD_PROCESS_SHARED) && !defined(__LINUX__)
+    // 10/14/2026: Linux was excluded here, so shared condition variables
+    // fell back to private ones even though Linux supports them.
+#if defined(PTHREAD_PROCESS_SHARED) || defined(__LINUX__)
     rv = gxThreadConditionAttributeInit(&c->condition_attribute);
     if(rv != 0) {
       c->is_initialized = 0;
@@ -663,6 +730,12 @@ GXDLCODE_API int gxThreadConditionInit(gxCondition_t *c, gxProcessType type)
 #else
 #error You must define an API: __WIN32__ or __POSIX__
 #endif
+
+  // 10/14/2026: The condition was never marked as initialized, so the
+  // destroy function never released it and a second init call was
+  // not skipped.
+  c->is_initialized = 1;
+
   if(c->condition_error != gxCONDITION_NO_ERROR) return 1;
   return 0;
 }
@@ -673,6 +746,10 @@ GXDLCODE_API int gxThreadConditionDestroy(gxCondition_t *c)
 {
   // The condition was never initialized so avoid any undefined behavior
   if(!c->is_initialized) return 0;
+
+  // 10/14/2026: Clear any error left by an earlier call. A stale error
+  // made this function report a failure after a successful destroy.
+  c->condition_error = gxCONDITION_NO_ERROR;
   
 #if defined (__WIN32__)
   if(gxThreadConditionAttributeDestroy(&c->condition_attribute) != 0) {
@@ -719,10 +796,15 @@ GXDLCODE_API int gxThreadConditionWait(gxCondition_t *c, gxMutex_t *external_mut
 // Standalone function used to block a thread from its own execution.
 // Returns a non-zero value if any errors occur.
 {
+  // 10/14/2026: Errors from this call are kept in a local variable.
+  // The function used to return 1 for any error stored by an earlier
+  // call, and that error was never cleared.
+  gxConditionError error = gxCONDITION_NO_ERROR;
+
 #if defined (__WIN32__)
   // Avoid race conditions.
   if(gxThreadMutexLock(&c->waiters_count_lock) != 0)
-    c->condition_error = gxCONDITION_INTERNAL_ERROR;
+    error = gxCONDITION_INTERNAL_ERROR;
 
   // Increment count of waiters.
   c->waiters_count++;
@@ -731,58 +813,65 @@ GXDLCODE_API int gxThreadConditionWait(gxCondition_t *c, gxMutex_t *external_mut
   int my_generation = c->wait_generation_count;
 
   if(gxThreadMutexUnlock(&c->waiters_count_lock) != 0)
-    c->condition_error = gxCONDITION_INTERNAL_ERROR;
+    error = gxCONDITION_INTERNAL_ERROR;
 
-  if(external_mutex->process_type == gxPROCESS_SHARED) {
-    if(gxThreadMutexUnlock(external_mutex) != 0) {
-      c->condition_error = gxCONDITION_EXTERNAL_ERROR;
-    }
+  // 10/14/2026: The external mutex was only released for shared
+  // mutexes. A private mutex stayed locked during the wait, so a
+  // thread that locked it before signaling could never get it.
+  if(gxThreadMutexUnlock(external_mutex) != 0) {
+    error = gxCONDITION_EXTERNAL_ERROR;
   }
 
+  int wait_failed = 0;
   for(;;) {
     // Wait until the event is signaled.
     DWORD rv = WaitForSingleObject(c->event, INFINITE);
     if(rv == WAIT_FAILED) {
-      c->condition_error = gxCONDITION_WAIT_ERROR;
-      return 1;
+      // 10/14/2026: Used to return here without locking the external
+      // mutex again and without lowering the waiter count.
+      wait_failed = 1;
+      break;
     }
     
     if(gxThreadMutexLock(&c->waiters_count_lock) != 0)
-      c->condition_error = gxCONDITION_INTERNAL_ERROR;
+      error = gxCONDITION_INTERNAL_ERROR;
     // Exit the loop when the event is signaled and
     // there are still waiting threads from this wait_generation
     // that haven't been released from this wait yet.
     int wait_done = c->release_count > 0
                     && c->wait_generation_count != my_generation;
     if(gxThreadMutexUnlock(&c->waiters_count_lock) != 0)
-      c->condition_error = gxCONDITION_INTERNAL_ERROR;
+      error = gxCONDITION_INTERNAL_ERROR;
 
     if(wait_done) break;
   }
 
-  if(external_mutex->process_type == gxPROCESS_SHARED) {
-    if(gxThreadMutexLock(external_mutex) != 0) {
-      c->condition_error = gxCONDITION_EXTERNAL_ERROR;
-    }
+  if(gxThreadMutexLock(external_mutex) != 0) {
+    error = gxCONDITION_EXTERNAL_ERROR;
   }
 
   if(gxThreadMutexLock(&c->waiters_count_lock) != 0)
-    c->condition_error = gxCONDITION_INTERNAL_ERROR;
+    error = gxCONDITION_INTERNAL_ERROR;
 
   // 09/22/2005: Test before decrement
   if(c->waiters_count > 0) c->waiters_count--;
-  if(c->release_count > 0) c->release_count--;
+  int last_waiter = 0;
+  if(!wait_failed) {
+    if(c->release_count > 0) c->release_count--;
+    // 10/14/2026: Test the release count while the lock is held
+    last_waiter = (c->release_count == 0);
+  }
 
   if(gxThreadMutexUnlock(&c->waiters_count_lock) != 0)
-    c->condition_error = gxCONDITION_INTERNAL_ERROR;
+    error = gxCONDITION_INTERNAL_ERROR;
 
-  if(c->release_count == 0) {
+  if(last_waiter) {
     // Last waiter to be notified, so reset the manual event.
     if(!ResetEvent(c->event)) {
-      c->condition_error = gxCONDITION_WAIT_ERROR;
-      return 1;
+      error = gxCONDITION_WAIT_ERROR;
     }
   }
+  if(wait_failed) error = gxCONDITION_WAIT_ERROR;
 #elif defined (__POSIX__)
   int rv = pthread_cond_wait(&c->condition, &external_mutex->mutex);
   if(rv != 0) {
@@ -793,7 +882,13 @@ GXDLCODE_API int gxThreadConditionWait(gxCondition_t *c, gxMutex_t *external_mut
 #error You must define an API: __WIN32__ or __POSIX__
 #endif
 
-  if(c->condition_error != gxCONDITION_NO_ERROR) return 1;
+  if(error != gxCONDITION_NO_ERROR) {
+    c->condition_error = error;
+    return 1;
+  }
+  // 10/14/2026: A successful call clears the stored error
+  if(c->condition_error != gxCONDITION_NO_ERROR) 
+    c->condition_error = gxCONDITION_NO_ERROR;
   return 0;
 }
 
@@ -802,20 +897,27 @@ GXDLCODE_API int gxThreadConditionSignal(gxCondition_t *c)
 // specified condition. Returns a non-zero value if any errors
 // occur.
 {
+  // 10/14/2026: Errors from this call are kept in a local variable.
+  // The function used to return 1 for any error stored by an earlier
+  // call, and that error was never cleared.
+  gxConditionError error = gxCONDITION_NO_ERROR;
+
 #if defined (__WIN32__)
   if(gxThreadMutexLock(&c->waiters_count_lock) != 0)
-    c->condition_error = gxCONDITION_INTERNAL_ERROR;
+    error = gxCONDITION_INTERNAL_ERROR;
   if(c->waiters_count > c->release_count) {
     // Signal the manual-reset event
     if(!SetEvent(c->event)) {
-      c->condition_error = gxCONDITION_SIGNAL_ERROR;
-      return 1;
+      // 10/14/2026: Used to return here with waiters_count_lock locked
+      error = gxCONDITION_SIGNAL_ERROR;
     } 
-    c->release_count++;
-    c->wait_generation_count++;
+    else {
+      c->release_count++;
+      c->wait_generation_count++;
+    }
   }
   if(gxThreadMutexUnlock(&c->waiters_count_lock) != 0)
-    c->condition_error = gxCONDITION_INTERNAL_ERROR;
+    error = gxCONDITION_INTERNAL_ERROR;
 #elif defined (__POSIX__)
   int rv = pthread_cond_signal(&c->condition);
   if(rv != 0) {
@@ -826,7 +928,13 @@ GXDLCODE_API int gxThreadConditionSignal(gxCondition_t *c)
 #error You must define an API: __WIN32__ or __POSIX__
 #endif
 
-  if(c->condition_error != gxCONDITION_NO_ERROR) return 1;
+  if(error != gxCONDITION_NO_ERROR) {
+    c->condition_error = error;
+    return 1;
+  }
+  // 10/14/2026: A successful call clears the stored error
+  if(c->condition_error != gxCONDITION_NO_ERROR) 
+    c->condition_error = gxCONDITION_NO_ERROR;
   return 0;
 }
 
@@ -835,23 +943,29 @@ GXDLCODE_API int gxThreadConditionBroadcast(gxCondition_t *c)
 // specified condition. Returns a non-zero value if any errors
 // occur.
 {
+  // 10/14/2026: Errors from this call are kept in a local variable.
+  // The function used to return 1 for any error stored by an earlier
+  // call, and that error was never cleared.
+  gxConditionError error = gxCONDITION_NO_ERROR;
+
 #if defined (__WIN32__)
   if(gxThreadMutexLock(&c->waiters_count_lock) != 0)
-    c->condition_error = gxCONDITION_INTERNAL_ERROR;
+    error = gxCONDITION_INTERNAL_ERROR;
   if(c->waiters_count > 0) {  
     if(!SetEvent(c->event)) {
-      c->condition_error = gxCONDITION_BROADCAST_ERROR;
-      return 1;
+      // 10/14/2026: Used to return here with waiters_count_lock locked
+      error = gxCONDITION_BROADCAST_ERROR;
     } 
+    else {
+      // Release all the threads in this generation.
+      c->release_count = c->waiters_count;
 
-    // Release all the threads in this generation.
-    c->release_count = c->waiters_count;
-
-    // Start a new generation.
-    c->wait_generation_count++;
+      // Start a new generation.
+      c->wait_generation_count++;
+    }
   }
   if(gxThreadMutexUnlock(&c->waiters_count_lock) != 0)
-    c->condition_error = gxCONDITION_INTERNAL_ERROR;
+    error = gxCONDITION_INTERNAL_ERROR;
 #elif defined (__POSIX__)
   int rv = pthread_cond_broadcast(&c->condition);
   if(rv != 0) {
@@ -861,7 +975,14 @@ GXDLCODE_API int gxThreadConditionBroadcast(gxCondition_t *c)
 #else
 #error You must define an API: __WIN32__ or __POSIX__
 #endif
-  if(c->condition_error != gxCONDITION_NO_ERROR) return 1;
+
+  if(error != gxCONDITION_NO_ERROR) {
+    c->condition_error = error;
+    return 1;
+  }
+  // 10/14/2026: A successful call clears the stored error
+  if(c->condition_error != gxCONDITION_NO_ERROR) 
+    c->condition_error = gxCONDITION_NO_ERROR;
   return 0;
 }
 
@@ -871,14 +992,23 @@ GXDLCODE_API int gxThreadConditionTimedWait(gxCondition_t *c,
 					    unsigned long nsec)
 // Standalone function used to block a thread from its own execution until a 
 // signal is raised or the timeout value elapses. Returns a non-zero value if 
-// any errors occur.
+// any errors occur or the timeout value elapses.
 {
+  // 10/14/2026: Errors from this call are kept in a local variable.
+  // The function used to return 1 for any error stored by an earlier
+  // call, and that error was never cleared.
+  gxConditionError error = gxCONDITION_NO_ERROR;
+
 #if defined (__WIN32__)
   // Avoid race conditions.
   if(gxThreadMutexLock(&c->waiters_count_lock) != 0)
-    c->condition_error = gxCONDITION_INTERNAL_ERROR;
+    error = gxCONDITION_INTERNAL_ERROR;
 
   DWORD delay = (DWORD)(sec*1000 + nsec/1000000);
+
+  // 10/14/2026: Measure the time already waited. The full delay used
+  // to restart each time the thread woke up without being released.
+  DWORD start_time = GetTickCount();
 
   // Increment count of waiters.
   c->waiters_count++;
@@ -887,77 +1017,94 @@ GXDLCODE_API int gxThreadConditionTimedWait(gxCondition_t *c,
   int my_generation = c->wait_generation_count;
 
   if(gxThreadMutexUnlock(&c->waiters_count_lock) != 0)
-    c->condition_error = gxCONDITION_INTERNAL_ERROR;
+    error = gxCONDITION_INTERNAL_ERROR;
 
-  if(external_mutex->process_type == gxPROCESS_SHARED) {
-    if(gxThreadMutexUnlock(external_mutex) != 0)
-      c->condition_error = gxCONDITION_EXTERNAL_ERROR;
-  }
+  // 10/14/2026: The external mutex was only released for shared
+  // mutexes. A private mutex stayed locked during the wait.
+  if(gxThreadMutexUnlock(external_mutex) != 0)
+    error = gxCONDITION_EXTERNAL_ERROR;
 
+  int wait_failed = 0;
+  int timed_out = 0;
   for(;;) {
+    DWORD elapsed = GetTickCount() - start_time;
+    DWORD remaining = (elapsed >= delay) ? 0 : (delay - elapsed);
+
     // Wait until the event is signaled.
-    DWORD rv = WaitForSingleObject(c->event, delay);
+    DWORD rv = WaitForSingleObject(c->event, remaining);
     if(rv == WAIT_FAILED) {
-      c->condition_error = gxCONDITION_TIMED_WAIT_ERROR;
-      return 1;
-    }
-    else if(rv == WAIT_TIMEOUT || rv == WAIT_ABANDONED) {
-      // WAIT_TIMEOUT indicates that the  time-out interval elapsed, 
-      // and the object's state is nonsignaled.
-
-      // WAIT_ABANDONED	indicated that the specified object is a mutex
-      // object that was not released by the thread that owned the mutex
-      // object before the owning thread terminated. Ownership of the mutex
-      // object is granted to the calling thread, and the mutex is set to
-      // nonsignaled.
-
-      // WAIT_OBJECT_0 indicated that the state of the specified object is
-      // signaled.
-
+      // 10/14/2026: Used to return here without locking the external
+      // mutex again and without lowering the waiter count.
+      wait_failed = 1;
       break;
     }
     
     if(gxThreadMutexLock(&c->waiters_count_lock) != 0)
-      c->condition_error = gxCONDITION_INTERNAL_ERROR;
+      error = gxCONDITION_INTERNAL_ERROR;
     // Exit the loop when the event is signaled and
     // there are still waiting threads from this wait_generation
     // that haven't been released from this wait yet.
     int wait_done = c->release_count > 0
                     && c->wait_generation_count != my_generation;
     if(gxThreadMutexUnlock(&c->waiters_count_lock) != 0)
-      c->condition_error = gxCONDITION_INTERNAL_ERROR;
+      error = gxCONDITION_INTERNAL_ERROR;
 
     if(wait_done) break;
-  }
 
-  if(external_mutex->process_type == gxPROCESS_SHARED) {
-    if(gxThreadMutexLock(external_mutex) != 0)
-      c->condition_error = gxCONDITION_EXTERNAL_ERROR;
-  }
-
-  if(gxThreadMutexLock(&c->waiters_count_lock) != 0)
-    c->condition_error = gxCONDITION_INTERNAL_ERROR;
-
-  // 09/22/2005: Test before decrement
-  if(c->waiters_count > 0) c->waiters_count--;
-  if(c->release_count > 0) c->release_count--;
-
-  if(gxThreadMutexUnlock(&c->waiters_count_lock) != 0)
-    c->condition_error = gxCONDITION_INTERNAL_ERROR;
-
-  if(c->release_count == 0) {
-    // Last waiter to be notified, so reset the manual event.
-    if(!ResetEvent(c->event)) {
-      c->condition_error = gxCONDITION_TIMED_WAIT_ERROR;
-      return 1;
+    // WAIT_TIMEOUT indicates that the time-out interval elapsed, 
+    // and the object's state is nonsignaled.
+    if(rv == WAIT_TIMEOUT || remaining == 0) {
+      // 10/14/2026: A thread that timed out used to take one of the
+      // releases meant for a signaled thread.
+      timed_out = 1;
+      break;
     }
   }
 
+  if(gxThreadMutexLock(external_mutex) != 0)
+    error = gxCONDITION_EXTERNAL_ERROR;
+
+  if(gxThreadMutexLock(&c->waiters_count_lock) != 0)
+    error = gxCONDITION_INTERNAL_ERROR;
+
+  // 09/22/2005: Test before decrement
+  if(c->waiters_count > 0) c->waiters_count--;
+  int last_waiter = 0;
+  if(!wait_failed && !timed_out) {
+    if(c->release_count > 0) c->release_count--;
+    // 10/14/2026: Test the release count while the lock is held
+    last_waiter = (c->release_count == 0);
+  }
+
+  if(gxThreadMutexUnlock(&c->waiters_count_lock) != 0)
+    error = gxCONDITION_INTERNAL_ERROR;
+
+  if(last_waiter) {
+    // Last waiter to be notified, so reset the manual event.
+    if(!ResetEvent(c->event)) {
+      error = gxCONDITION_TIMED_WAIT_ERROR;
+    }
+  }
+
+  // 10/14/2026: A timeout used to return 0, so the caller could not
+  // tell it from a signal. It is now reported as under POSIX.
+  if(wait_failed || timed_out) error = gxCONDITION_TIMED_WAIT_ERROR;
+
 #elif defined (__POSIX__)
+  // 10/14/2026: The deadline was time(0)+sec seconds with "nsec" used
+  // as the absolute nanosecond field. The wait could end up to one
+  // second early, and an nsec value of one second or more failed with
+  // EINVAL without waiting. The deadline is now the current time plus
+  // sec seconds plus nsec nanoseconds.
+  struct timeval now;
+  gettimeofday(&now, 0);
+  unsigned long total_nsec = ((unsigned long)now.tv_usec * 1000UL) + 
+    (nsec % 1000000000UL);
   timespec delay;
   memset(&delay, 0, sizeof(delay));
-  delay.tv_sec = time(0)+sec;
-  delay.tv_nsec = nsec;
+  delay.tv_sec = now.tv_sec + (time_t)sec + (time_t)(nsec / 1000000000UL) +
+    (time_t)(total_nsec / 1000000000UL);
+  delay.tv_nsec = (long)(total_nsec % 1000000000UL);
   int rv = pthread_cond_timedwait(&c->condition,
 				  &external_mutex->mutex,
 				  &delay);
@@ -968,7 +1115,14 @@ GXDLCODE_API int gxThreadConditionTimedWait(gxCondition_t *c,
 #else
 #error You must define an API: __WIN32__ or __POSIX__
 #endif
-  if(c->condition_error != gxCONDITION_NO_ERROR) return 1;
+
+  if(error != gxCONDITION_NO_ERROR) {
+    c->condition_error = error;
+    return 1;
+  }
+  // 10/14/2026: A successful call clears the stored error
+  if(c->condition_error != gxCONDITION_NO_ERROR) 
+    c->condition_error = gxCONDITION_NO_ERROR;
   return 0;
 }
 
@@ -1031,6 +1185,12 @@ GXDLCODE_API int gxThreadSemaphoreInit(gxSemaphore_t *s, gxProcessType type)
   // lets avoid any undefined behavior.
   if(s->is_initialized) return 0;
 
+  // 10/14/2026: Clear any error left by an earlier call and record the
+  // process type, which was never set.
+  s->semaphore_error = gxSEMAPHORE_NO_ERROR;
+  if(type == gxPROCESS_SHARED) s->process_type = gxPROCESS_SHARED;
+  else s->process_type = gxPROCESS_PRIVATE;
+
   int rv = gxThreadConditionInit(&s->semaphore, type);
   if(rv != 0) {
     s->semaphore_error = gxSEMAPHORE_INIT_ERROR;
@@ -1052,6 +1212,10 @@ GXDLCODE_API int gxThreadSemaphoreInit(gxSemaphore_t *s, gxProcessType type)
 
   s->is_initialized = 1;
   s->value = 1; // All semaphores are initialized with a value of one
+
+  // 10/14/2026: Was not set, so gxThreadSemaphoreValue() returned an
+  // uninitialized value until the first operation.
+  s->value_after_operation = s->value;
   return 0;
 }
 
@@ -1062,6 +1226,10 @@ GXDLCODE_API int gxThreadSemaphoreDestroy(gxSemaphore_t *s)
   // The semaphore was never initialized so
   // lets avoid any undefined behavior.
   if(!s->is_initialized) return 0;
+
+  // 10/14/2026: Clear any error left by an earlier call. A stale error
+  // made this function report a failure after a successful destroy.
+  s->semaphore_error = gxSEMAPHORE_NO_ERROR;
 
   int rv = gxThreadConditionDestroy(&s->semaphore);
   if(rv != 0) {
@@ -1076,6 +1244,8 @@ GXDLCODE_API int gxThreadSemaphoreDestroy(gxSemaphore_t *s)
 
   s->is_initialized = 0;
   s->value = 1;
+  s->value_after_operation = s->value;
+  s->process_type = gxPROCESS_PRIVATE;
 
   if(s->semaphore_error != gxSEMAPHORE_NO_ERROR) return 1;
   return 0;
@@ -1090,28 +1260,39 @@ GXDLCODE_API int gxThreadSemaphoreValue(gxSemaphore_t *s)
   return s->value_after_operation;
 }
 
+// 10/14/2026: In the semaphore functions below, errors from the current
+// call are kept in a local variable and stored while the semaphore lock
+// is held. A successful call now clears the stored error. These functions
+// used to return 1 for any error stored by an earlier call.
+
 GXDLCODE_API int gxThreadSemaphoreWait(gxSemaphore_t *s)
 // Decrements the semaphore and blocks if the semaphore
 // value is zero until another thread signals a change.
 // Returns a non-zero value if any errors occur.
 {
+  gxSemaphoreError error = gxSEMAPHORE_NO_ERROR;
   if(gxThreadMutexLock(&s->mutex) != 0)
-    s->semaphore_error = gxSEMAPHORE_INTERNAL_ERROR;
+    error = gxSEMAPHORE_INTERNAL_ERROR;
 
   while(s->value <= 0 ) {
     int rv = gxThreadConditionWait(&s->semaphore, &s->mutex);
     if(rv != 0) {
       s->semaphore_error = gxSEMAPHORE_WAIT_ERROR;
+      // 10/14/2026: Used to return with the semaphore mutex locked
+      gxThreadMutexUnlock(&s->mutex);
       return rv;
     }
   }
   s->value--;
   s->value_after_operation = s->value;
+  s->semaphore_error = error;
 
-  if(gxThreadMutexUnlock(&s->mutex) != 0)
-    s->semaphore_error = gxSEMAPHORE_INTERNAL_ERROR;
+  if(gxThreadMutexUnlock(&s->mutex) != 0) {
+    error = gxSEMAPHORE_INTERNAL_ERROR;
+    s->semaphore_error = error;
+  }
 
-  if(s->semaphore_error != gxSEMAPHORE_NO_ERROR) return 1;
+  if(error != gxSEMAPHORE_NO_ERROR) return 1;
   return 0;
 }
 
@@ -1119,12 +1300,16 @@ GXDLCODE_API int gxThreadSemaphorePost(gxSemaphore_t *s)
 // Increments the semaphore and signals any threads that are blocked.
 // Returns a non-zero value if any errors occur.
 {
+  gxSemaphoreError error = gxSEMAPHORE_NO_ERROR;
   if(gxThreadMutexLock(&s->mutex) != 0)
-    s->semaphore_error = gxSEMAPHORE_INTERNAL_ERROR;
+    error = gxSEMAPHORE_INTERNAL_ERROR;
   s->value++;
   s->value_after_operation = s->value;
-  if(gxThreadMutexUnlock(&s->mutex) != 0)
-    s->semaphore_error = gxSEMAPHORE_INTERNAL_ERROR;
+  s->semaphore_error = error;
+  if(gxThreadMutexUnlock(&s->mutex) != 0) {
+    error = gxSEMAPHORE_INTERNAL_ERROR;
+    s->semaphore_error = error;
+  }
 
   int rv = gxThreadConditionSignal(&s->semaphore);
   if(rv != 0) {
@@ -1132,7 +1317,7 @@ GXDLCODE_API int gxThreadSemaphorePost(gxSemaphore_t *s)
     return rv;
   }
 
-  if(s->semaphore_error != gxSEMAPHORE_NO_ERROR) return 1;
+  if(error != gxSEMAPHORE_NO_ERROR) return 1;
   return 0;
 }
 
@@ -1143,30 +1328,46 @@ GXDLCODE_API int gxThreadSemaphoreDecrement(gxSemaphore_t *s)
 // allow multiple threads to move up on a semaphore before another
 // thread can go down. Returns a non-zero value if an error occurs.
 {
+  gxSemaphoreError error = gxSEMAPHORE_NO_ERROR;
   if(gxThreadMutexLock(&s->mutex) != 0)
-    s->semaphore_error = gxSEMAPHORE_INTERNAL_ERROR;
+    error = gxSEMAPHORE_INTERNAL_ERROR;
   s->value--;
   s->value_after_operation = s->value;
-  if(gxThreadMutexUnlock(&s->mutex) != 0)
-    s->semaphore_error = gxSEMAPHORE_INTERNAL_ERROR;
+  s->semaphore_error = error;
+  if(gxThreadMutexUnlock(&s->mutex) != 0) {
+    error = gxSEMAPHORE_INTERNAL_ERROR;
+    s->semaphore_error = error;
+  }
 
-  if(s->semaphore_error != gxSEMAPHORE_NO_ERROR) return 1;
+  if(error != gxSEMAPHORE_NO_ERROR) return 1;
   return 0;
 }
 
 GXDLCODE_API int gxThreadSemaphoreIncrement(gxSemaphore_t *s)
-// This is a non-blocking function that increments
-// the value of the semaphore. Returns a non-zero
-// value if an errors occur.
+// This is a non-blocking function that increments the value of
+// the semaphore and wakes a thread waiting on the semaphore.
+// Returns a non-zero value if an errors occur.
 {
+  gxSemaphoreError error = gxSEMAPHORE_NO_ERROR;
   if(gxThreadMutexLock(&s->mutex) != 0)
-    s->semaphore_error = gxSEMAPHORE_INTERNAL_ERROR;
+    error = gxSEMAPHORE_INTERNAL_ERROR;
   s->value++;
   s->value_after_operation = s->value;
-  if(gxThreadMutexUnlock(&s->mutex) != 0)
-    s->semaphore_error = gxSEMAPHORE_INTERNAL_ERROR;
+  s->semaphore_error = error;
+  if(gxThreadMutexUnlock(&s->mutex) != 0) {
+    error = gxSEMAPHORE_INTERNAL_ERROR;
+    s->semaphore_error = error;
+  }
 
-  if(s->semaphore_error != gxSEMAPHORE_NO_ERROR) return 1;
+  // 10/14/2026: Waiting threads were not signaled, so a thread blocked
+  // in gxThreadSemaphoreWait() stayed blocked after the value went up.
+  int rv = gxThreadConditionSignal(&s->semaphore);
+  if(rv != 0) {
+    s->semaphore_error = gxSEMAPHORE_POST_ERROR;
+    return rv;
+  }
+
+  if(error != gxSEMAPHORE_NO_ERROR) return 1;
   return 0;
 }
 // ----------------------------------------------------------- // 

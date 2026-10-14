@@ -182,9 +182,9 @@ void ProcessArgs(int argc, char *argv[])
 	case 'x' : {
 	  sbuf = &argv[i][2];
 	  GXSTD::cout << "\n";
-	  sscanf(sbuf, "%x", &ulbuf);
+	  sscanf(sbuf, "%lx", &ulbuf); // 10/14/2026: %lx for unsigned long (was %x)
 	  GXSTD::cout.setf(GXSTD::ios::uppercase);
-	  GXSTD::cout << "0x" << hex << ulbuf << " = " << dec << ulbuf << "\n";
+	  GXSTD::cout << "0x" << GXSTD::hex << ulbuf << " = " << GXSTD::dec << ulbuf << "\n"; // 10/14/2026: GXSTD::hex/dec (hex/dec named DiskFileB manipulators and printed 1)
 	  GXSTD::cout << "\n";
 	  exit(0);
 	  break;
@@ -193,9 +193,9 @@ void ProcessArgs(int argc, char *argv[])
 	case 'X' : {
 	  sbuf = &argv[i][2];
 	  GXSTD::cout << "\n";
-	  sscanf(sbuf, "%x", &lbuf);
+	  sscanf(sbuf, "%lx", (unsigned long *)&lbuf); // 10/14/2026: %lx for long (was %x)
 	  GXSTD::cout.setf(GXSTD::ios::uppercase);
-	  GXSTD::cout << "0x" << hex << lbuf << " = " << dec << lbuf << "\n";
+	  GXSTD::cout << "0x" << GXSTD::hex << lbuf << " = " << GXSTD::dec << lbuf << "\n";
 	  GXSTD::cout << "\n";
 	  exit(0);
 	  break;
@@ -204,9 +204,9 @@ void ProcessArgs(int argc, char *argv[])
 	case 'D' : {
 	  sbuf = &argv[i][2];
 	  GXSTD::cout << "\n";
-	  sscanf(sbuf, "%u", &ulbuf);
+	  sscanf(sbuf, "%lu", &ulbuf); // 10/14/2026: %lu for unsigned long (was %u)
 	  GXSTD::cout.setf(GXSTD::ios::uppercase);
-	  GXSTD::cout << ulbuf << " = " << "0x" << hex << ulbuf << "\n";
+	  GXSTD::cout << ulbuf << " = " << "0x" << GXSTD::hex << ulbuf << "\n";
 	  GXSTD::cout << "\n";
 	  exit(0);
 	  break;
@@ -215,9 +215,9 @@ void ProcessArgs(int argc, char *argv[])
 	case 'B' : {
 	  sbuf = &argv[i][2];
 	  GXSTD::cout << "\n";
-	  sscanf(sbuf, "%x", &ulbuf);
+	  sscanf(sbuf, "%lx", &ulbuf); // 10/14/2026: %lx for unsigned long (was %x)
 	  GXSTD::cout.setf(GXSTD::ios::uppercase);
-	  GXSTD::cout << "0x" << hex << ulbuf << " = ";
+	  GXSTD::cout << "0x" << GXSTD::hex << ulbuf << " = ";
 	  bbuf = (ulbuf & 0xf0000000)>>28;
 	  GXSTD::cout << bintab[bbuf] << ' ';
 	  bbuf = (ulbuf & 0xf000000)>>24;
@@ -262,8 +262,7 @@ void ProcessArgs(int argc, char *argv[])
 
 int CArrayDump(DiskFileB &infile, GXSTD::ostream &stream)
 {
-  register int i, j;
-  int count = 0;
+  int i, j;
   char c[hxBuffSize];
 
   long len = infile.df_Length();
@@ -314,7 +313,7 @@ int CArrayDump(DiskFileB &infile, GXSTD::ostream &stream)
 
 int HexFileDump(DiskFileB &infile, GXSTD::ostream &stream)
 {
-  register int i, j;
+  int i, j;
   int count = 0;
   char c[hxBuffSize];
 
@@ -376,7 +375,7 @@ int HexFileDump(DiskFileB &infile, GXSTD::ostream &stream)
 
 int DecFileDump(DiskFileB &infile, GXSTD::ostream &stream)
 {
-  register int i, j;
+  int i, j;
   int count = 0;
   char c[decBuffSize];
   
@@ -448,7 +447,7 @@ void BuildBinaryFile(char *ifname, char *ofname)
   }
 
   // Default output file name if none specified on command line
-  if(ofname[0] == 0) ofname = "outfile.bin";
+  if(ofname[0] == 0) ofname = (char *)"outfile.bin";
 
   DiskFileB infile(ifname);
   if(!infile) {
@@ -490,8 +489,8 @@ void BuildBinaryFile(char *ifname, char *ofname)
 
     // Write the hex values in the text file to a binary file
     for(i = 0; i < num; i++) {
-      if(words[i] != 0 && (strlen(words[i]) == 2)) {
-	sscanf(words[i], "%x", &word_val);
+      if(words[i][0] != 0 && (strlen(words[i]) == 2)) { // 10/14/2026: Test the word, not the array address
+	sscanf(words[i], "%lx", (unsigned long *)&word_val); // 10/14/2026: %lx for long (was %x)
 	word_val &= 0xFF; // Reset the first 24 bits
 	byte_val = (unsigned char) word_val;
 

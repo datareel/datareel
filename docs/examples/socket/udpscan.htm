@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>udpscan example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: udpscan.cpp</FONT>
-<FONT COLOR="#ff0000">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 09/20/1999</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>udpscan example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>udpscan.cpp</h1>
+<p class="dr-listing-meta">Source file: <code>udpscan.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: udpscan.cpp</span>
+<span class="cm">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 09/20/1999</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -99,16 +105,16 @@ if the service is not active.
 This program and any derivatives are solely intended to detect open ports 
 for informational and statistical purposes on systems you are authorized 
 to access.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include &lt;string.h&gt;
 #include &lt;stdlib.h&gt;
@@ -127,7 +133,7 @@ int FindServiceByPort(const char *fname, int port_num)
   if(!infile) {
     cout &lt;&lt; "\n";
     cout &lt;&lt; "Cannot open the " &lt;&lt; fname &lt;&lt; " file" &lt;&lt; "\n";
-    return 1; <FONT COLOR="#ff0000">// Do not generate an error in main function</FONT>
+    return 1; <span class="cm">// Do not generate an error in main function</span>
   }
 
   int found_service = 0;
@@ -135,7 +141,7 @@ int FindServiceByPort(const char *fname, int port_num)
   while(!infile.df_EOF()) {
     if(infile.df_GetLine(entry, df_MAX_LINE_LENGTH, '\n', 1) != 
        DiskFileB::df_NO_ERROR) {
-      break; <FONT COLOR="#ff0000">// Error reading from the disk file</FONT>
+      break; <span class="cm">// Error reading from the disk file</span>
     }
     if(strcmp(entry, "") == 0) continue;
     char service[df_MAX_LINE_LENGTH];
@@ -197,21 +203,21 @@ void PrintHostInfo(const char *hostname, gxSocket *sock_lib)
 int PingHost(const char *hostname, int *status)
 {
 #ifdef __UNIX__
-  <FONT COLOR="#ff0000">// Raw sockets require root access on all UNIX platforms. Programs</FONT>
-  <FONT COLOR="#ff0000">// that use raw sockets can be executed by non-root users if the</FONT>
-  <FONT COLOR="#ff0000">// effective user ID of the executing process is set to the same as</FONT>
-  <FONT COLOR="#ff0000">// the file's owner. In the case root must own the executable and</FONT>
-  <FONT COLOR="#ff0000">// the effective User-ID or Group-ID on execution bit must be set</FONT>
-  <FONT COLOR="#ff0000">// by root using the chmod command: "chmod u+s" or "chmod 4755"</FONT>
-  <FONT COLOR="#ff0000">// Now the effective user ID of the executing process will be set to </FONT>
-  <FONT COLOR="#ff0000">// the same user ID of the file's owner. </FONT>
+  <span class="cm">// Raw sockets require root access on all UNIX platforms. Programs</span>
+  <span class="cm">// that use raw sockets can be executed by non-root users if the</span>
+  <span class="cm">// effective user ID of the executing process is set to the same as</span>
+  <span class="cm">// the file's owner. In the case root must own the executable and</span>
+  <span class="cm">// the effective User-ID or Group-ID on execution bit must be set</span>
+  <span class="cm">// by root using the chmod command: "chmod u+s" or "chmod 4755"</span>
+  <span class="cm">// Now the effective user ID of the executing process will be set to </span>
+  <span class="cm">// the same user ID of the file's owner. </span>
   if(geteuid() != 0) {
     cout &lt;&lt; "You must be root to run this program" &lt;&lt; "\n";
     return 0;
   }
 #endif
 
-  <FONT COLOR="#ff0000">// Construct a raw socket;</FONT>
+  <span class="cm">// Construct a raw socket;</span>
   gxSocket raw_socket(AF_INET, SOCK_RAW, IPPROTO_ICMP, 0, 
 		      (char *)hostname);
   if(!raw_socket) {
@@ -221,10 +227,10 @@ int PingHost(const char *hostname, int *status)
 
   gxsPing ping(&amp;raw_socket);
 
-  <FONT COLOR="#ff0000">// Ping with a timeout value of one second</FONT>
+  <span class="cm">// Ping with a timeout value of one second</span>
   if(ping.Ping(1) != gxSOCKET_NO_ERROR) {
     if(raw_socket.GetSocketError() == gxSOCKET_REQUEST_TIMEOUT) {
-      *status = 0; <FONT COLOR="#ff0000">// This host is not responding</FONT>
+      *status = 0; <span class="cm">// This host is not responding</span>
       return 1; 
     }
     cout &lt;&lt; raw_socket.SocketExceptionMessage() &lt;&lt; "\n";
@@ -240,7 +246,7 @@ int main(int argc, char **argv)
   InitLeakTest();
 #endif
   
-  <FONT COLOR="#ff0000">// Check the command line arguments</FONT>
+  <span class="cm">// Check the command line arguments</span>
   if(argc &lt; 3) {
     cout &lt;&lt; "\n";
     cout &lt;&lt; "Usage 1: " &lt;&lt; argv[0] &lt;&lt; " hostname port" &lt;&lt; "\n";
@@ -253,9 +259,9 @@ int main(int argc, char **argv)
   int timeout_secs = 1;
 
 #if defined (__WIN32__)
-  <FONT COLOR="#ff0000">// char *fname = "c:\\windows\\services"; // WIN95/98</FONT>
-  <FONT COLOR="#ff0000">// char *fname = "c:\\winnt\\system32\\drivers\\etc\\services"; // WINNT</FONT>
-  char *fname = "c:\\windows\\system32\\drivers\\etc\\services"; <FONT COLOR="#ff0000">// WINXP</FONT>
+  <span class="cm">// char *fname = "c:\\windows\\services"; // WIN95/98</span>
+  <span class="cm">// char *fname = "c:\\winnt\\system32\\drivers\\etc\\services"; // WINNT</span>
+  char *fname = "c:\\windows\\system32\\drivers\\etc\\services"; <span class="cm">// WINXP</span>
 #else
   char *fname = "/etc/services";
 #endif
@@ -276,7 +282,7 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  <FONT COLOR="#ff0000">// Set up the send and receive buffers</FONT>
+  <span class="cm">// Set up the send and receive buffers</span>
   const int datagram_size = 1;
   char datagram[datagram_size];
   memset(datagram, 0, datagram_size); 
@@ -284,10 +290,9 @@ int main(int argc, char **argv)
   char rxbuf[rxbuf_size];
   memset(rxbuf, 0, rxbuf_size);  
 
-
   cout &lt;&lt; "Scanning UDP port " &lt;&lt; port &lt;&lt; "\n";
 
-  <FONT COLOR="#ff0000">// Use connect to ensure that the unreachable packet is received</FONT>
+  <span class="cm">// Use connect to ensure that the unreachable packet is received</span>
   client.Connect();
       
   int rv = client.SendTo((char *)datagram, datagram_size);
@@ -302,14 +307,14 @@ int main(int argc, char **argv)
     cout &lt;&lt; "UDP port " &lt;&lt; port &lt;&lt; " closed" &lt;&lt; "\n";
   }
   else {
-    if(rxbuf[0] != 0) { <FONT COLOR="#ff0000">// The server sent back an error message</FONT>
+    if(rxbuf[0] != 0) { <span class="cm">// The server sent back an error message</span>
       port_open = 1;
     }
     if(client.GetSocketError() == gxSOCKET_REQUEST_TIMEOUT) {
-      <FONT COLOR="#ff0000">// The request timed out but the port may be closed if the </FONT>
-      <FONT COLOR="#ff0000">// ICMP port unreachable packet is not received before this </FONT>
-      <FONT COLOR="#ff0000">// error condition is reached.</FONT>
-      port_open = 1; <FONT COLOR="#ff0000">// Assume the port is open</FONT>
+      <span class="cm">// The request timed out but the port may be closed if the </span>
+      <span class="cm">// ICMP port unreachable packet is not received before this </span>
+      <span class="cm">// error condition is reached.</span>
+      port_open = 1; <span class="cm">// Assume the port is open</span>
     }
     if(port_open) {
       cout &lt;&lt; "UDP port " &lt;&lt; port &lt;&lt; " open" &lt;&lt; "\n";
@@ -324,22 +329,20 @@ int main(int argc, char **argv)
     }
   }
  
-  client.Close(); <FONT COLOR="#ff0000">// Close the socket connection</FONT>
+  client.Close(); <span class="cm">// Close the socket connection</span>
   client.ReleaseSocketLibrary();
   return 0;
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

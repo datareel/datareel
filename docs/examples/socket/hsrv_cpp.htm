@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>hsrv_cpp example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: httpserv.cpp</FONT>
-<FONT COLOR="#ff0000">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 09/20/1999</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>hsrv_cpp example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>Multithread HTTP Server Source</h1>
+<p class="dr-listing-meta">Source file: <code>httpserv.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: httpserv.cpp</span>
+<span class="cm">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 09/20/1999</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -86,37 +92,37 @@ USA
 
 Multi-threaded server framework using the gxSocket and gxThread 
 libraries.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include &lt;string.h&gt;
 #include "httpserv.h"
 
-<FONT COLOR="#ff0000">// --------------------------------------------------------------</FONT>
-<FONT COLOR="#ff0000">// Globals variable initialzation</FONT>
-<FONT COLOR="#ff0000">// --------------------------------------------------------------</FONT>
+<span class="cm">// --------------------------------------------------------------</span>
+<span class="cm">// Globals variable initialzation</span>
+<span class="cm">// --------------------------------------------------------------</span>
 ServerConfig ServerConfigSruct;
 ServerConfig *servercfg = &amp;ServerConfigSruct;
-<FONT COLOR="#ff0000">// --------------------------------------------------------------</FONT>
+<span class="cm">// --------------------------------------------------------------</span>
 
 int CheckSocketError(gxSocket *s, const char *mesg, int report_error)
-<FONT COLOR="#ff0000">// Test the socket for an error condition and report the message</FONT>
-<FONT COLOR="#ff0000">// if the "report_error" variable is true. The "mesg" string is used</FONT>
-<FONT COLOR="#ff0000">// display a message with the reported error. Returns true if an</FONT>
-<FONT COLOR="#ff0000">// error was detected for false of no errors where detected. </FONT>
+<span class="cm">// Test the socket for an error condition and report the message</span>
+<span class="cm">// if the "report_error" variable is true. The "mesg" string is used</span>
+<span class="cm">// display a message with the reported error. Returns true if an</span>
+<span class="cm">// error was detected for false of no errors where detected. </span>
 {
   if(s-&gt;GetSocketError() == gxSOCKET_NO_ERROR) {
-    <FONT COLOR="#ff0000">// No socket errors reported</FONT>
+    <span class="cm">// No socket errors reported</span>
     return 0;
   }
-  if(report_error) { <FONT COLOR="#ff0000">// Reporting the error to an output device</FONT>
+  if(report_error) { <span class="cm">// Reporting the error to an output device</span>
     if(mesg) {
       PrintMessage(mesg, "\n", s-&gt;SocketExceptionMessage());
     }
@@ -128,16 +134,16 @@ int CheckSocketError(gxSocket *s, const char *mesg, int report_error)
 }
 
 int CheckThreadError(gxThread_t *thread, const char *mesg, int report_error)
-<FONT COLOR="#ff0000">// Test the thread for an error condition and report the message</FONT>
-<FONT COLOR="#ff0000">// if the "report_error" variable is true. The "mesg" string is used</FONT>
-<FONT COLOR="#ff0000">// display a message with the reported error. Returns true if an</FONT>
-<FONT COLOR="#ff0000">// error was detected for false of no errors where detected. </FONT>
+<span class="cm">// Test the thread for an error condition and report the message</span>
+<span class="cm">// if the "report_error" variable is true. The "mesg" string is used</span>
+<span class="cm">// display a message with the reported error. Returns true if an</span>
+<span class="cm">// error was detected for false of no errors where detected. </span>
 {
   if(thread-&gt;GetThreadError() == gxTHREAD_NO_ERROR) {
-    <FONT COLOR="#ff0000">// No thread errors reported</FONT>
+    <span class="cm">// No thread errors reported</span>
     return 0;
   }
-  if(report_error) { <FONT COLOR="#ff0000">// Reporting the error to an output device</FONT>
+  if(report_error) { <span class="cm">// Reporting the error to an output device</span>
     if(mesg) {
       PrintMessage(mesg, "\n", thread-&gt;ThreadExceptionMessage()); 
     }
@@ -149,46 +155,46 @@ int CheckThreadError(gxThread_t *thread, const char *mesg, int report_error)
 }
 
 void ReportError(const char *s1, const char *s2, const char *s3)
-<FONT COLOR="#ff0000">// Thread safe error reporting function.</FONT>
+<span class="cm">// Thread safe error reporting function.</span>
 {
   PrintMessage(s1, s2, s3);
 }
 
 void PrintMessage(const char *s1, const char *s2, const char *s3)
-<FONT COLOR="#ff0000">// Thread safe write function that will not allow access to</FONT>
-<FONT COLOR="#ff0000">// the critical section until the write operation is complete.</FONT>
+<span class="cm">// Thread safe write function that will not allow access to</span>
+<span class="cm">// the critical section until the write operation is complete.</span>
 {
   servercfg-&gt;display_lock.MutexLock();
 
-  <FONT COLOR="#ff0000">// Ensure that all threads have finished writing to the device</FONT>
+  <span class="cm">// Ensure that all threads have finished writing to the device</span>
   int num_try = 0;
   while(servercfg-&gt;display_is_locked != 0) {
-    <FONT COLOR="#ff0000">// Block this thread from its own execution if a another thread</FONT>
-    <FONT COLOR="#ff0000">// is writing to the device</FONT>
+    <span class="cm">// Block this thread from its own execution if a another thread</span>
+    <span class="cm">// is writing to the device</span>
     if(++num_try &lt; DISPLAY_THREAD_RETRIES) {
       servercfg-&gt;display_cond.ConditionWait(&amp;servercfg-&gt;display_lock);
     }
     else {
-      return; <FONT COLOR="#ff0000">// Could not write string to the device</FONT>
+      return; <span class="cm">// Could not write string to the device</span>
     }
   }
 
-  <FONT COLOR="#ff0000">// Tell other threads to wait until write is complete</FONT>
+  <span class="cm">// Tell other threads to wait until write is complete</span>
   servercfg-&gt;display_is_locked = 1; 
 
-  <FONT COLOR="#ff0000">// ********** Enter Critical Section ******************* //</FONT>
+  <span class="cm">// ********** Enter Critical Section ******************* //</span>
   GXSTD::cout &lt;&lt; "\n";
   if(s1) GXSTD::cout &lt;&lt; s1;
   if(s2) GXSTD::cout &lt;&lt; s2;
   if(s3) GXSTD::cout &lt;&lt; s3;
   GXSTD::cout &lt;&lt; "\n";
-  GXSTD::cout.flush(); <FONT COLOR="#ff0000">// Flush the ostream buffer to the stdio</FONT>
-  <FONT COLOR="#ff0000">// ********** Leave Critical Section ******************* //</FONT>
+  GXSTD::cout.flush(); <span class="cm">// Flush the ostream buffer to the stdio</span>
+  <span class="cm">// ********** Leave Critical Section ******************* //</span>
 
-  <FONT COLOR="#ff0000">// Tell other threads that this write is complete</FONT>
+  <span class="cm">// Tell other threads that this write is complete</span>
   servercfg-&gt;display_is_locked = 0; 
  
-  <FONT COLOR="#ff0000">// Wake up the next thread waiting on this condition</FONT>
+  <span class="cm">// Wake up the next thread waiting on this condition</span>
   servercfg-&gt;display_cond.ConditionSignal();
   servercfg-&gt;display_lock.MutexUnlock();
 }
@@ -207,8 +213,8 @@ ServerConfig::~ServerConfig()
 }
 
 int ServerThread::InitServer(int max_connections)
-<FONT COLOR="#ff0000">// Initialize the server. Returns a non-zero value if any</FONT>
-<FONT COLOR="#ff0000">// errors ocurr.</FONT>
+<span class="cm">// Initialize the server. Returns a non-zero value if any</span>
+<span class="cm">// errors ocurr.</span>
 {
   if(InitSocketLibrary() == 0) {
     if(InitSocket(SOCK_STREAM, servercfg-&gt;port) &lt; 0) return 1;
@@ -217,14 +223,14 @@ int ServerThread::InitServer(int max_connections)
     return 1;
   }
 
-  <FONT COLOR="#ff0000">// Bind the name to the socket</FONT>
+  <span class="cm">// Bind the name to the socket</span>
   if(Bind() &lt; 0) {
     CheckSocketError((gxSocket *)this, "Error initializing server"); 
     Close();
     return 1;
   }
     
-  <FONT COLOR="#ff0000">// Listen for connections with a specified backlog</FONT>
+  <span class="cm">// Listen for connections with a specified backlog</span>
   if(Listen(max_connections) &lt; 0) {
     CheckSocketError((gxSocket *)this, "Error initializing server");
     Close();
@@ -236,12 +242,12 @@ int ServerThread::InitServer(int max_connections)
 
 void *ServerThread::ThreadEntryRoutine(gxThread_t *thread)
 {
-  while(servercfg-&gt;accept_clients) { <FONT COLOR="#ff0000">// Loop accepting client connections</FONT>
+  while(servercfg-&gt;accept_clients) { <span class="cm">// Loop accepting client connections</span>
 
-    <FONT COLOR="#ff0000">// Block the server until a client requests service</FONT>
+    <span class="cm">// Block the server until a client requests service</span>
     if(Accept() &lt; 0) continue;
 
-    <FONT COLOR="#ff0000">// NOTE: Getting client info for statistical purposes only</FONT>
+    <span class="cm">// NOTE: Getting client info for statistical purposes only</span>
     char client_name[gxsMAX_NAME_LEN]; int r_port = -1;
     GetClientInfo(client_name, r_port);
     PrintMessage("Received client request from ", client_name);
@@ -254,13 +260,13 @@ Shutting down the server");
       return (void *)0;
     }
     
-    <FONT COLOR="#ff0000">// Record the file descriptor assigned by the Operating System</FONT>
+    <span class="cm">// Record the file descriptor assigned by the Operating System</span>
     s-&gt;client_socket = GetRemoteSocket();
 
-    <FONT COLOR="#ff0000">// Destroy all the client threads that have exited</FONT>
+    <span class="cm">// Destroy all the client threads that have exited</span>
     RebuildThreadPool(servercfg-&gt;client_request_pool);
 
-    <FONT COLOR="#ff0000">// Create thread per cleint</FONT>
+    <span class="cm">// Create thread per cleint</span>
     gxThread_t *rthread = \
       request_thread.CreateThread(servercfg-&gt;client_request_pool, (void *)s);
     if(CheckThreadError(rthread, "Error starting client request thread")) {
@@ -273,94 +279,93 @@ Shutting down the server");
 }
 
 void ServerThread::ThreadExitRoutine(gxThread_t *thread)
-<FONT COLOR="#ff0000">// Thread exit function used to close the server thread.</FONT>
+<span class="cm">// Thread exit function used to close the server thread.</span>
 {
-  CloseSocket(); <FONT COLOR="#ff0000">// Close the server side socket</FONT>
+  CloseSocket(); <span class="cm">// Close the server side socket</span>
 }
 
 void ServerThread::ThreadCleanupHandler(gxThread_t *thread)
-<FONT COLOR="#ff0000">// Thread cleanup handler used in the event that the thread is</FONT>
-<FONT COLOR="#ff0000">// canceled.</FONT>
+<span class="cm">// Thread cleanup handler used in the event that the thread is</span>
+<span class="cm">// canceled.</span>
 {
-  CloseSocket(); <FONT COLOR="#ff0000">// Close the server side socket</FONT>
+  CloseSocket(); <span class="cm">// Close the server side socket</span>
 }
 
 void *ClientRequestThread::ThreadEntryRoutine(gxThread_t *thread)
 {
-  <FONT COLOR="#ff0000">// Extract the client socket from the thread parameter</FONT>
+  <span class="cm">// Extract the client socket from the thread parameter</span>
   ClientSocket_t *s = (ClientSocket_t *)thread-&gt;GetThreadParm();
   
-  <FONT COLOR="#ff0000">// Process the client request</FONT>
+  <span class="cm">// Process the client request</span>
   HandleClientRequest(s);
 
   return (void *)0;
 }
 
 void ClientRequestThread::ThreadExitRoutine(gxThread_t *thread)
-<FONT COLOR="#ff0000">// Thread exit function used to close the client thread.</FONT>
+<span class="cm">// Thread exit function used to close the client thread.</span>
 {
-  <FONT COLOR="#ff0000">// Extract the client socket from the thread parameter</FONT>
+  <span class="cm">// Extract the client socket from the thread parameter</span>
   ClientSocket_t *s = (ClientSocket_t *)thread-&gt;GetThreadParm();
 
-  <FONT COLOR="#ff0000">// Close the client socket and free its resources</FONT>
+  <span class="cm">// Close the client socket and free its resources</span>
   Close(s-&gt;client_socket);
   delete s;
 }
 
 void ClientRequestThread::ThreadCleanupHandler(gxThread_t *thread)
-<FONT COLOR="#ff0000">// Thread cleanup handler used in the event that the thread is</FONT>
-<FONT COLOR="#ff0000">// canceled.</FONT>
+<span class="cm">// Thread cleanup handler used in the event that the thread is</span>
+<span class="cm">// canceled.</span>
 {
-  <FONT COLOR="#ff0000">// Extract the client socket from the thread parameter</FONT>
+  <span class="cm">// Extract the client socket from the thread parameter</span>
   ClientSocket_t *s = (ClientSocket_t *)thread-&gt;GetThreadParm();
 
-  <FONT COLOR="#ff0000">// Close the client socket and free its resources</FONT>
+  <span class="cm">// Close the client socket and free its resources</span>
   Close(s-&gt;client_socket);
   delete s;
 }
 
 void ClientRequestThread::HandleClientRequest(ClientSocket_t *s)
-<FONT COLOR="#ff0000">// Function used to handle a client request.</FONT>
+<span class="cm">// Function used to handle a client request.</span>
 {
-  <FONT COLOR="#ff0000">// NOTE: The demo processes a single HTTP GET request per client</FONT>
+  <span class="cm">// NOTE: The demo processes a single HTTP GET request per client</span>
   const int rxbuf = 1024;
   char request[rxbuf];
 
-  <FONT COLOR="#ff0000">// Block until the client sends some data</FONT>
+  <span class="cm">// Block until the client sends some data</span>
   int rv = RawRead(s-&gt;client_socket, request, rxbuf);
   if(CheckSocketError((gxSocket *)this, "Error reading client request")) {
     return;
   }
 
-  request[rv] = 0; <FONT COLOR="#ff0000">// Null terminate the request string</FONT>
+  request[rv] = 0; <span class="cm">// Null terminate the request string</span>
 
-  <FONT COLOR="#ff0000">// At this point we need to parse the client request and process it.</FONT>
-  <FONT COLOR="#ff0000">// For simplicity sake these operations have been omitted.</FONT>
-  <FONT COLOR="#ff0000">// ... (parsing operation)</FONT>
-  <FONT COLOR="#ff0000">// ... (processing operation)</FONT>
+  <span class="cm">// At this point we need to parse the client request and process it.</span>
+  <span class="cm">// For simplicity sake these operations have been omitted.</span>
+  <span class="cm">// ... (parsing operation)</span>
+  <span class="cm">// ... (processing operation)</span>
 
-  <FONT COLOR="#ff0000">// Simply send a test page (with a header) back to the client.</FONT>
+  <span class="cm">// Simply send a test page (with a header) back to the client.</span>
   const char *test_page = "HTTP/1.0 200 OK\r\nServer: gxThread\r\nConnection: \
 close\r\n\r\n&lt;HTML&gt;\n&lt;HEAD&gt;\n&lt;TITLE&gt; gxThread Test Page &lt;/TITLE&gt;\n&lt;/HEAD&gt;\
 &lt;BODY&gt;&lt;CENTER&gt;&lt;H1&gt;gxThread Test Page&lt;/H1&gt;&lt;/CENTER&gt;&lt;HR&gt;&lt;PRE&gt;Response from the \
 multi-threaded HTTP server&lt;/PRE&gt;&lt;HR&gt;&lt;CENTER&gt;End of document&lt;/CENTER&gt;\n&lt;/BODY&gt;\
 \n&lt;/HTML&gt;";
 
-  <FONT COLOR="#ff0000">// Blocking send that will not return until all bytes are written  </FONT>
+  <span class="cm">// Blocking send that will not return until all bytes are written  </span>
   Send(s-&gt;client_socket, test_page, strlen(test_page));
   CheckSocketError((gxSocket *)this, "Error sending page to client");
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

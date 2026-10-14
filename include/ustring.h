@@ -472,7 +472,7 @@ public:
   UString() { reset_all(); }
   UString(unsigned nchars);
   ~UString() { }
-  UString(const UString &s) {
+  UString(const UString &s) : UStringB() {
     reset_all(); SetString((char *)s.sptr, s.s_length);
   }
   UString(const char *s, unsigned nchars = 0) {
@@ -585,7 +585,7 @@ public:
   UStringw() { reset_all(); }
   UStringw(unsigned nchars);
   ~UStringw() { }
-  UStringw(const UStringw &s) {
+  UStringw(const UStringw &s) : UStringB() {
     reset_all(); SetString((wchar_t *)s.sptr, s.s_length); 
   }
   UStringw(const char *s, unsigned nchars = 0) {

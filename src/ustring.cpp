@@ -478,9 +478,10 @@ void UStringB::delete_sptr()
 // Internal function used to free heap space memory  
 // previously allocated for this string.
 {
-  // Cast sptr to unsigned char * type so that the delete 
-  // operator will reference a type other than void *.
-  if(sptr) delete (unsigned char *)sptr;
+  // Every string buffer is allocated as an unsigned char array (see
+  // allocate()), so it is released with the matching array delete.
+  // 10/14/2026: Was a scalar delete, which mismatched new[].
+  if(sptr) delete[] (unsigned char *)sptr;
 
   // Null the pointer and reset the length variables
   sptr = 0;
@@ -507,20 +508,16 @@ void *UStringB::allocate(unsigned &bytes, gxStringType st, unsigned cs,
   if(bytes % cs) nchars++; // Allocate extra character in place of remainder 
   bytes = nchars * cs;
 
-  if(st == gxASCII_STRING) {
-    // Allocate memory for the string plus a null terminator
-    char *aptr = new char[nchars+1];
-    if(!aptr) return (void *)0;  // Allocation failed
-    memset(aptr, 0, (bytes+cs)); // Zero out the memory
-    return (void *)aptr;
-  }
-  else { // This is a Unicode string type
-    // Allocate memory for the string plus a null terminator
-    wchar_t *uptr = new wchar_t[nchars+1];
-    if(!uptr) return (void *)0;  // Allocation failed
-    memset(uptr, 0, (bytes+cs)); // Zero out the memory
-    return (void *)uptr;
-  }
+  // Allocate memory for the string plus a null terminator. ASCII and
+  // Unicode strings both use an unsigned char array so delete_sptr()
+  // can always release it with delete[]. Array new returns memory
+  // aligned for any fundamental type, so wchar_t access is safe.
+  // 10/14/2026: Was new char[] or new wchar_t[] freed with scalar delete.
+  (void)st;
+  unsigned char *ptr = new unsigned char[bytes+cs];
+  if(!ptr) return (void *)0;  // Allocation failed
+  memset(ptr, 0, (bytes+cs)); // Zero out the memory
+  return (void *)ptr;
 }
 
 void UStringB::null_terminate(gxStringType st) 
@@ -748,7 +745,9 @@ int UStringB::Find(const char *s, unsigned c_offset) const
 int UStringB::Find(const char *s, unsigned nchars, unsigned c_offset) const
 {
   if((!s) || !(sptr)) return -1; // Check for null pointers
-  if(nchars == 0) nchars = gxstrlen(s);
+  // 10/14/2026: Never read past the end of the pattern string
+  unsigned s_len = gxstrlen(s);
+  if((nchars == 0) || (nchars > s_len)) nchars = s_len;
   if(!is_unicode()) {
       return gxfind_pattern(sptr, s_length, s, nchars, 
 			    c_offset, gxASCII_STRING, 1);
@@ -774,7 +773,9 @@ int UStringB::Find(const wchar_t *s, unsigned c_offset) const
 int UStringB::Find(const wchar_t *s, unsigned nchars, unsigned c_offset) const
 {
   if((!s) || !(sptr)) return -1; // Check for null pointers
-  if(nchars == 0) nchars = gxstrlen(s);
+  // 10/14/2026: Never read past the end of the pattern string
+  unsigned s_len = gxstrlen(s);
+  if((nchars == 0) || (nchars > s_len)) nchars = s_len;
   if(!is_unicode()) {
     char *nsptr = Unicode2ASCII(s, nchars);
     if(!nsptr) return 0;
@@ -840,7 +841,9 @@ int UStringB::IFind(const char *s, unsigned c_offset) const
 int UStringB::IFind(const char *s, unsigned nchars, unsigned c_offset) const
 {
   if((!s) || !(sptr)) return -1; // Check for null pointers
-  if(nchars == 0) nchars = gxstrlen(s);
+  // 10/14/2026: Never read past the end of the pattern string
+  unsigned s_len = gxstrlen(s);
+  if((nchars == 0) || (nchars > s_len)) nchars = s_len;
   if(!is_unicode()) {
       return gxifind_pattern(sptr, s_length, s, nchars, 
 			     c_offset, gxASCII_STRING, 1);
@@ -866,7 +869,9 @@ int UStringB::IFind(const wchar_t *s, unsigned c_offset) const
 int UStringB::IFind(const wchar_t *s, unsigned nchars, unsigned c_offset) const
 {
   if((!s) || !(sptr)) return -1; // Check for null pointers
-  if(nchars == 0) nchars = gxstrlen(s);
+  // 10/14/2026: Never read past the end of the pattern string
+  unsigned s_len = gxstrlen(s);
+  if((nchars == 0) || (nchars > s_len)) nchars = s_len;
   if(!is_unicode()) {
     char *nsptr = Unicode2ASCII(s, nchars);
     if(!nsptr) return 0;
@@ -2350,7 +2355,7 @@ void UStringB::SHN(__ULLWORD__ bytes)
       ULLWORDToString(hbuf, llval, 10);
       ULLWORDToString(rbuf, rlval, 10);
       rbuf[3] = 0;
-      sprintf(sbuf, "%s.%s", hbuf, rbuf);
+      snprintf(sbuf, sizeof(sbuf), "%.20s.%.3s", hbuf, rbuf); // 10/14/2026: Was sprintf; 64-bit values have at most 20 digits
       shn_c[0] = 'G';
     }
     else { // 1T or greater
@@ -2359,7 +2364,7 @@ void UStringB::SHN(__ULLWORD__ bytes)
       ULLWORDToString(hbuf, llval, 10);
       ULLWORDToString(rbuf, rlval, 10);
       rbuf[3] = 0;
-      sprintf(sbuf, "%s.%s", hbuf, rbuf);
+      snprintf(sbuf, sizeof(sbuf), "%.20s.%.3s", hbuf, rbuf); // 10/14/2026: Was sprintf; 64-bit values have at most 20 digits
       shn_c[0] = 'T';
     }
   }
@@ -2572,7 +2577,7 @@ char *UStringB::c_str(char *sbuf)
   else {
     char *nsptr = Unicode2ASCII((wchar_t *)sptr, s_length);
     gxstrcpy(sbuf, nsptr);
-    delete nsptr;
+    delete[] nsptr; // 10/14/2026: Was a scalar delete of new[]
     return sbuf;
   }
 }
@@ -2594,7 +2599,7 @@ const char *UStringB::c_str(char *sbuf) const
   else {
     char *nsptr = Unicode2ASCII((wchar_t *)sptr, s_length);
     gxstrcpy(sbuf, nsptr);
-    delete nsptr;
+    delete[] nsptr; // 10/14/2026: Was a scalar delete of new[]
     return sbuf;
   }
 }
@@ -2612,7 +2617,7 @@ wchar_t *UStringB::c_wstr(wchar_t *sbuf)
   if(!is_unicode()) {
     wchar_t *nsptr = ASCII2Unicode((char *)sptr, s_length);
     gxstrcpy(sbuf, nsptr);
-    delete nsptr;
+    delete[] nsptr; // 10/14/2026: Was a scalar delete of new[]
     return sbuf;
   }
   else {
@@ -2634,7 +2639,7 @@ const wchar_t *UStringB::c_wstr(wchar_t *sbuf) const
   if(!is_unicode()) {
     wchar_t *nsptr = ASCII2Unicode((char *)sptr, s_length);
     gxstrcpy(sbuf, nsptr);
-    delete nsptr;
+    delete[] nsptr; // 10/14/2026: Was a scalar delete of new[]
     return sbuf;
   }
   else {
@@ -2651,7 +2656,7 @@ UString::UString(unsigned nchars)
 // in addition to the number of characters specified.
 {
   reset_all(); // Reset all the string class members
-  sptr = new char[nchars+1];
+  sptr = new unsigned char[nchars+1]; // Released by delete_sptr()
   if(sptr) {
     memset(sptr, 0, (nchars+1)); // Zero out the memory
     s_length = 0; // No string has been set at this point
@@ -2781,7 +2786,7 @@ UStringw::UStringw(unsigned nchars)
   reset_all(); // Reset all the string class members
   unsigned cs = sizeof(wchar_t);
   unsigned bytes = nchars * cs;
-  sptr = new wchar_t[nchars+1];
+  sptr = new unsigned char[bytes+cs]; // Released by delete_sptr()
   if(sptr) {
     memset(sptr, 0, (bytes+cs)); // Zero out the memory
     s_length = 0; // No string has been set at this point

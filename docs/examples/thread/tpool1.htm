@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>tpool1 example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: testprog.cpp</FONT>
-<FONT COLOR="#ff0000">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 03/25/2000</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>tpool1 example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>Thread Pool Example 1</h1>
+<p class="dr-listing-meta">Source file: <code>testprog.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: testprog.cpp</span>
+<span class="cm">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 03/25/2000</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or 
 modify it under the terms of the GNU Lesser General Public 
 License as published by the Free Software Foundation; either
@@ -86,16 +92,16 @@ USA
 
 Test program used to the basic functionality of the Thread Pool
 class.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //   </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //   </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include "thrpool.h"
 #include "gthreadt.h"
@@ -105,9 +111,9 @@ using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard
 #endif
 
 void PausePrg()
-<FONT COLOR="#ff0000">// Pause the program and wait for the user to press enter.</FONT>
+<span class="cm">// Pause the program and wait for the user to press enter.</span>
 {
-  <FONT COLOR="#ff0000">// Pause the program until enter is pressed</FONT>
+  <span class="cm">// Pause the program until enter is pressed</span>
   cout &lt;&lt; "\n" &lt;&lt; flush;
   cout &lt;&lt; "Press Enter to continue..." &lt;&lt; "\n" &lt;&lt; flush;
   cin.get();
@@ -130,7 +136,7 @@ void RewindPool(thrPool &amp;pool)
        &lt;&lt; "\n" &lt;&lt; flush;
   thrPoolNode *ptr = pool.GetTail();
 
-  <FONT COLOR="#ff0000">// Walk through the pool in a backward direction</FONT>
+  <span class="cm">// Walk through the pool in a backward direction</span>
   while(ptr) {
     cout &lt;&lt; (char)ptr-&gt;GetThreadPtr()-&gt;GetObjectID() &lt;&lt; ' ';
     ptr = ptr-&gt;GetPrev();
@@ -158,13 +164,13 @@ int main()
   thrPoolNode *n3 = new thrPoolNode;
   thrPoolNode *n4 = new thrPoolNode;
 
-  <FONT COLOR="#ff0000">// Allocating some memory buffers</FONT>
+  <span class="cm">// Allocating some memory buffers</span>
   const unsigned num_blocks = 9;
   gxThread_t *buf[num_blocks];
   unsigned i;
   for(i = 0; i &lt; num_blocks; i++) {
     buf[i] = new gxThread_t;
-    <FONT COLOR="#ff0000">// Set an arbitary object ID stating starting with ASCII character 'A'</FONT>
+    <span class="cm">// Set an arbitary object ID stating starting with ASCII character 'A'</span>
     buf[i]-&gt;SetObjectID(65+i);
   }
   
@@ -173,7 +179,7 @@ int main()
   nc-&gt;SetThreadPtr(buf[2]);
   nd-&gt;SetThreadPtr(buf[3]);
 
-  <FONT COLOR="#ff0000">// Load some pool elements</FONT>
+  <span class="cm">// Load some pool elements</span>
   pool.InsertAfter(pool.GetHead(), na);
   pool.InsertAfter(na, nb);
   pool.InsertAfter(nb, nc);
@@ -184,13 +190,13 @@ int main()
   n3-&gt;SetThreadPtr(buf[6]);
   n4-&gt;SetThreadPtr(buf[7]);
   
-  <FONT COLOR="#ff0000">// Testing insert functions</FONT>
+  <span class="cm">// Testing insert functions</span>
   pool.InsertBefore(na, n1);
   pool.InsertBefore(nc, n2);
   pool.InsertAfter(nb, n3);
   pool.InsertAfter(nd, n4);
 
-  <FONT COLOR="#ff0000">// Reordering the pool</FONT>
+  <span class="cm">// Reordering the pool</span>
   pool.MoveToBack(na);
   pool.MoveAfter(na, nc);
   pool.MoveBefore(nc, nb);
@@ -224,23 +230,23 @@ int main()
   cout &lt;&lt; "Removing the head of the pool..." &lt;&lt; "\n" &lt;&lt; flush;
   ptr = pool.GetHead();
   gxThread_t *tptr = pool.RemoveNode(ptr);
-  if(tptr) delete tptr; <FONT COLOR="#ff0000">// Prevent memory leaks</FONT>
+  if(tptr) delete tptr; <span class="cm">// Prevent memory leaks</span>
   ScrollForward(pool);
 
   cout &lt;&lt; "Removing the tail of the pool..." &lt;&lt; "\n" &lt;&lt; flush;
   ptr = pool.GetTail();
   tptr = pool.RemoveNode(ptr);
-  if(tptr) delete tptr; <FONT COLOR="#ff0000">// Prevent memory leaks</FONT>
+  if(tptr) delete tptr; <span class="cm">// Prevent memory leaks</span>
   ScrollForward(pool);
 
   PausePrg();
   cout &lt;&lt; "Testing for memory leaks..." &lt;&lt; "\n" &lt;&lt; flush;
   unsigned len = sizeof(gxThread_t);
-  const unsigned num_to_allocate = 1000; <FONT COLOR="#ff0000">// 1000 * 1000;</FONT>
+  const unsigned num_to_allocate = 1000; <span class="cm">// 1000 * 1000;</span>
   const unsigned mem_bufs = (sizeof(thrPoolNode) + len) * num_to_allocate;
   cout &lt;&lt; "Allocating " &lt;&lt; mem_bufs &lt;&lt; " bytes..." &lt;&lt; "\n" &lt;&lt; flush;
 
-  <FONT COLOR="#ff0000">// Clear the thread pool without checking the status of each thread</FONT>
+  <span class="cm">// Clear the thread pool without checking the status of each thread</span>
   pool.ClearPool();
 
   unsigned count1 = 0;
@@ -267,16 +273,16 @@ int main()
   cout &lt;&lt; "Releasing memory allocated back to the heap..." &lt;&lt; "\n" &lt;&lt; flush;
 
   while(!pool.IsEmpty()) {
-    <FONT COLOR="#ff0000">// Clear the pool, giving the application a chance to check the</FONT>
-    <FONT COLOR="#ff0000">// status of each thread.</FONT>
+    <span class="cm">// Clear the pool, giving the application a chance to check the</span>
+    <span class="cm">// status of each thread.</span>
     gxThread_t *t = pool.RemoveTail();
     if(t) {
-      <FONT COLOR="#ff0000">// Process the thread and release any memory the thread is holding</FONT>
-      <FONT COLOR="#ff0000">// ...</FONT>
+      <span class="cm">// Process the thread and release any memory the thread is holding</span>
+      <span class="cm">// ...</span>
       delete t;
     }
   }
-  pool.MakeEmpty(); <FONT COLOR="#ff0000">// The thread pool is no empty</FONT>
+  pool.MakeEmpty(); <span class="cm">// The thread pool is no empty</span>
   
   PausePrg();
   
@@ -284,19 +290,16 @@ int main()
   cout &lt;&lt; "\n" &lt;&lt; flush;
   return 0;
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-
-
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

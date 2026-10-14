@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>infohog1 example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: testprog.cpp</FONT>
-<FONT COLOR="#ff0000">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 09/18/1997</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>infohog1 example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>InfoHog Example</h1>
+<p class="dr-listing-meta">Source file: <code>testprog.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: testprog.cpp</span>
+<span class="cm">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 09/18/1997</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -85,16 +91,16 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 Test program for the InfoHog database API.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //   </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //   </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include "fstring.h"
 #include "infohog.h"
@@ -105,13 +111,13 @@ using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard
 #include "leaktest.h"
 #endif
 
-<FONT COLOR="#ff0000">// Type definitions</FONT>
-typedef FString Name_t;        <FONT COLOR="#ff0000">// String type</FONT>
-typedef gxFLOAT64 Price_t;     <FONT COLOR="#ff0000">// Floating point type         </FONT>
-typedef gxINT32 StockNumber_t; <FONT COLOR="#ff0000">// Integer type</FONT>
+<span class="cm">// Type definitions</span>
+typedef FString Name_t;        <span class="cm">// String type</span>
+typedef gxFLOAT64 Price_t;     <span class="cm">// Floating point type         </span>
+typedef gxINT32 StockNumber_t; <span class="cm">// Integer type</span>
 
 void PausePrg()
-<FONT COLOR="#ff0000">// Function used to pause the program.</FONT>
+<span class="cm">// Function used to pause the program.</span>
 {
   cout &lt;&lt; "\n";
   cout &lt;&lt; "Press enter to continue..." &lt;&lt; "\n";
@@ -119,7 +125,7 @@ void PausePrg()
 }
 
 void ClearInputStream(istream &amp;s)
-<FONT COLOR="#ff0000">// Function used to clear the input stream.</FONT>
+<span class="cm">// Function used to clear the input stream.</span>
 {
   char c;
   s.clear();
@@ -133,14 +139,14 @@ int Quit()
 }
 
 void InputData(Name_t &amp;key)
-<FONT COLOR="#ff0000">// Function used to read a string from the input stream.</FONT>
+<span class="cm">// Function used to read a string from the input stream.</span>
 {
   cout &lt;&lt; "Item name: ";
   cin &gt;&gt; key;
 }
 
 void DisplayItem(InfoHog&lt;Name_t&gt; &amp;infohog, int full = 1)
-<FONT COLOR="#ff0000">// Function used to print a infohog list object to the stdout.</FONT>
+<span class="cm">// Function used to print a infohog list object to the stdout.</span>
 {
   cout &lt;&lt; "\n";
   if(infohog.GetMember(0)) {
@@ -178,7 +184,7 @@ void PrintBtreeHeader(POD *DB, unsigned index_number)
 }
 
 void Menu()
-<FONT COLOR="#ff0000">// Console based user menu.</FONT>
+<span class="cm">// Console based user menu.</span>
 {
   cout &lt;&lt; "(A, a)    Add object to the database" &lt;&lt; "\n";
   cout &lt;&lt; "(B, b)    Build a test database" &lt;&lt; "\n";
@@ -196,10 +202,10 @@ void Menu()
 }
 
 void BuildDatabase(POD *DB)
-<FONT COLOR="#ff0000">// Function used to build a test database.</FONT>
+<span class="cm">// Function used to build a test database.</span>
 {
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   const int NUM_OBJECTS = 1000;
@@ -235,22 +241,22 @@ void BuildDatabase(POD *DB)
     }
   }
 
-  <FONT COLOR="#ff0000">// Flush the database files after a batch insert</FONT>
+  <span class="cm">// Flush the database files after a batch insert</span>
   DB-&gt;Flush();
 }
 
 void ListInOrder(POD *DB, unsigned index_number)
-<FONT COLOR="#ff0000">// List the contents of the database using the index file.</FONT>
+<span class="cm">// List the contents of the database using the index file.</span>
 {
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   InfoHog&lt;Name_t&gt; infohog(DB);
   InfoHogKey&lt;Name_t&gt;key, compare_key;
   gxBtree *btx = DB-&gt;Index(index_number);
  
-  <FONT COLOR="#ff0000">// Walk through the tree starting at the first key</FONT>
+  <span class="cm">// Walk through the tree starting at the first key</span>
   if(btx-&gt;FindFirst(key)) {
     if(!infohog.ReadObject(key.ObjectID())) {
       cout &lt;&lt; "Error reading the object" &lt;&lt; "\n";
@@ -269,16 +275,16 @@ void ListInOrder(POD *DB, unsigned index_number)
 }
 
 void ListInOrder(POD *DB)
-<FONT COLOR="#ff0000">// List contents of the database without using the index file.</FONT>
+<span class="cm">// List contents of the database without using the index file.</span>
 {
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   FAU_t addr = (FAU_t)0;
   InfoHog&lt;Name_t&gt; infohog(DB);
   unsigned count = 0;
-  ClearInputStream(cin); <FONT COLOR="#ff0000">// Clear input stream</FONT>
+  ClearInputStream(cin); <span class="cm">// Clear input stream</span>
   while(1) {
     addr = DB-&gt;OpenDataFile()-&gt;FindFirstObject(addr);
     if(!addr) break;
@@ -296,10 +302,10 @@ void ListInOrder(POD *DB)
 }
 
 void AddItem(POD *DB)
-<FONT COLOR="#ff0000">// Function used to add an object to the database.</FONT>
+<span class="cm">// Function used to add an object to the database.</span>
 {
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   Name_t key;
@@ -345,14 +351,14 @@ void AddItem(POD *DB)
     cout &lt;&lt; "Could not add object to the database" &lt;&lt; "\n";
   }
 
-  DB-&gt;Flush(); <FONT COLOR="#ff0000">// Flushing the database buffers following manual insertion</FONT>
+  DB-&gt;Flush(); <span class="cm">// Flushing the database buffers following manual insertion</span>
 }
 
 void DeleteItem(POD *DB)
-<FONT COLOR="#ff0000">// Function used to delete an object from the database.</FONT>
+<span class="cm">// Function used to delete an object from the database.</span>
 {
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   Name_t key;
@@ -367,14 +373,14 @@ void DeleteItem(POD *DB)
 
   cout &lt;&lt; "Deleted item: " &lt;&lt; key &lt;&lt; "\n";
 
-  DB-&gt;Flush(); <FONT COLOR="#ff0000">// Flushing the database buffers following manual deletion</FONT>
+  DB-&gt;Flush(); <span class="cm">// Flushing the database buffers following manual deletion</span>
 }
 
 void FindItem(POD *DB)
-<FONT COLOR="#ff0000">// Function used to find an object in the database.</FONT>
+<span class="cm">// Function used to find an object in the database.</span>
 {
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   Name_t key;
@@ -399,16 +405,16 @@ void FindItem(POD *DB)
 }
 
 void Compare(POD *DB)
-<FONT COLOR="#ff0000">// Function used to compare the contents of the data file to the</FONT>
-<FONT COLOR="#ff0000">// index file.</FONT>
+<span class="cm">// Function used to compare the contents of the data file to the</span>
+<span class="cm">// index file.</span>
 {
   if(!DB-&gt;UsingIndex()) {
     cout &lt;&lt; "This database is not using the indexing sub-system" &lt;&lt; "\n";
     return;
   }
   
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   InfoHog&lt;Name_t&gt; infohog(DB);
@@ -427,20 +433,20 @@ void Compare(POD *DB)
 }
 
 void Rebuild(POD *DB, const char *fname)
-<FONT COLOR="#ff0000">// Function used to rebuild the index file if the index file</FONT>
-<FONT COLOR="#ff0000">// entries no longer match the data file entries.</FONT>
+<span class="cm">// Function used to rebuild the index file if the index file</span>
+<span class="cm">// entries no longer match the data file entries.</span>
 {
   if(!DB-&gt;UsingIndex()) return;
   
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   InfoHog&lt;Name_t&gt; infohog(DB);
   cout &lt;&lt; "\n";
   cout &lt;&lt; "Rebuilding the index file..." &lt;&lt; "\n";
 
-  <FONT COLOR="#ff0000">// Rebuild index number 0</FONT>
+  <span class="cm">// Rebuild index number 0</span>
   int rv = infohog.RebuildIndexFile(fname, 0, 
 				    InfoHogNumTrees, InfoHogNodeOrder);
   if(!rv) {
@@ -511,7 +517,7 @@ void ChangeItem(POD *DB, int change_object = 1)
   ClearInputStream(cin);
   int find = 0;
 
-  if(change_object) { <FONT COLOR="#ff0000">// Change the object</FONT>
+  if(change_object) { <span class="cm">// Change the object</span>
     if(!infohog.ChangeObject(infohog_new, find)) {
       cout &lt;&lt; "Could not change this object" &lt;&lt; "\n";
       return;
@@ -519,7 +525,7 @@ void ChangeItem(POD *DB, int change_object = 1)
     return;
   }
   
-  <FONT COLOR="#ff0000">// Change the object member by member</FONT>
+  <span class="cm">// Change the object member by member</span>
   if(!infohog.ChangeMember(infohog_new.GetMember(0), 
   			   infohog_new.GetMemberLen(0), 0, find)) {
     cout &lt;&lt; "Could not change key member" &lt;&lt; "\n";
@@ -543,28 +549,28 @@ int main(int argv, char **argc)
   InitLeakTest();
 #endif
 
-  char rev_letter = gxDatabaseRevisionLetter; <FONT COLOR="#ff0000">// Set the default rev letter</FONT>
-  if(argv == 2) { <FONT COLOR="#ff0000">// Set a specified revision letter</FONT>
+  char rev_letter = gxDatabaseRevisionLetter; <span class="cm">// Set the default rev letter</span>
+  if(argv == 2) { <span class="cm">// Set a specified revision letter</span>
     rev_letter = *argc[1];
     if(rev_letter == '0') rev_letter = '\0';
-    <FONT COLOR="#ff0000">// Valid rev letters are:</FONT>
-    <FONT COLOR="#ff0000">// Rev 0</FONT>
-    <FONT COLOR="#ff0000">// Rev 'A' or 'a'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'B' or 'b'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'C' or 'c'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'D' or 'd'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'E' or 'e'</FONT>
-    <FONT COLOR="#ff0000">// NOTE: The gxDatabase class will set invalid revision letters</FONT>
-    <FONT COLOR="#ff0000">// to the version set by the gxDatabaseRevisionLetter constant.  </FONT>
+    <span class="cm">// Valid rev letters are:</span>
+    <span class="cm">// Rev 0</span>
+    <span class="cm">// Rev 'A' or 'a'</span>
+    <span class="cm">// Rev 'B' or 'b'</span>
+    <span class="cm">// Rev 'C' or 'c'</span>
+    <span class="cm">// Rev 'D' or 'd'</span>
+    <span class="cm">// Rev 'E' or 'e'</span>
+    <span class="cm">// NOTE: The gxDatabase class will set invalid revision letters</span>
+    <span class="cm">// to the version set by the gxDatabaseRevisionLetter constant.  </span>
   }
 
   InfoHogKey&lt;Name_t&gt; key_type;
-  FStringCaseCompare = 0; <FONT COLOR="#ff0000">// Do not compare the case of FString objects</FONT>
+  FStringCaseCompare = 0; <span class="cm">// Do not compare the case of FString objects</span>
 
   const char *data_file = "grocery.ihd";
   const char *index_file = "grocery.ihx";
 
-  <FONT COLOR="#ff0000">// Create or open an existing database using a single index file</FONT>
+  <span class="cm">// Create or open an existing database using a single index file</span>
   gxDatabaseAccessMode mode = gxDBASE_READWRITE;
   BtreeNodeOrder_t order = InfoHogNodeOrder;
   int num_trees = InfoHogNumTrees;
@@ -579,7 +585,7 @@ int main(int argv, char **argc)
 				 static_size, num_trees, df_rev_letter, 
 				 if_rev_letter);
 
-  <FONT COLOR="#ff0000">// Test for any errors</FONT>
+  <span class="cm">// Test for any errors</span>
   if(err != gxDBASE_NO_ERROR) {
     cout &lt;&lt; gxDatabaseExceptionMessage(err) &lt;&lt; "\n";
     return 1;
@@ -639,17 +645,16 @@ int main(int argv, char **argc)
 
   return 0;
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

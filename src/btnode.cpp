@@ -95,7 +95,7 @@ FAU BtreeNode::GetBranch(BtreeKeyLocation_t key_location)
   // from the 0th branch on.
   char *ptr = key_entries + (key_size * key_location);
   FAU right_child;
-  memmove(&right_child, ptr, sizeof(FAU));
+  memmove((void *)&right_child, (const void *)ptr, sizeof(FAU));
   return right_child;
 }
 
@@ -157,7 +157,7 @@ int BtreeNode::FindKeyLocation(const DatabaseKeyB &key,
 
   while(key_location >= (BtreeKeyLocation_t)0) {
     char *ptr = key_entries + (key_size * key_location);
-    memmove(&compare_key.right_child, ptr, sizeof(FAU));
+    memmove((void *)&compare_key.right_child, (const void *)ptr, sizeof(FAU));
     memmove(compare_key.db_key, ptr+sizeof(FAU), compare_key.KeySize());
 #ifndef __USE_SINGLE_COMPARE__ // Use dual compare by default
     if(key > compare_key) return 1;
@@ -176,7 +176,7 @@ void BtreeNode::LoadKey(DatabaseKeyB &key, BtreeKeyLocation_t key_location)
 // Copies the key at the specified location into the "key" variable.
 {
   char *ptr = key_entries + (key_size * key_location);
-  memmove(&key.right_child, (void *)ptr, sizeof(FAU));
+  memmove((void *)&key.right_child, (const void *)(void *)ptr, sizeof(FAU));
   memmove(key.db_key, ptr+sizeof(FAU), key.KeySize());
 }
 

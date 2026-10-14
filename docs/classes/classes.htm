@@ -1,31 +1,126 @@
-<HTML>
+<!doctype html>
+<html lang="en">
 <head>
-<title> DataReel Class Library </title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel Class Library</title>
+<link rel="stylesheet" href="../css/datareel.css">
+<script src="../js/datareel.js"></script>
 </head>
-
-<!-- Start frame set -->
-<FRAMESET COLS="30%,70%">
-
-<!-- ID the left and right child frames -->
-<FRAME SRC="p_lchild.htm" NAME="PLEFTCHILD">
-<FRAME SRC="p_rchild.htm" NAME="PRIGHTCHILD">
-
-</FRAMESET>
-<!-- End frame set -->
-
-<!-- Support for browsers that do not support frames -->
-<NOFRAMES>
-<BODY>
-<FONT SIZE="+2">
-Warning! This document cannot be viewed without a frames-capable
-browser. We regret the inconvenience.
-</FONT>
-<P>
-<!-- Link to Non-frames version -->
-Click on this <a href="p_lchild.htm">link</a> for the non-frames version.
-<P>
-</BODY>
-</NOFRAMES>
-<!-- End support for browsers that do not support frames -->
-
-</HTML> 
+<body class="dr-browser-page">
+<header class="dr-header">
+  <a class="dr-brand" href="../index.html"><img src="../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../index.html">Readme</a><a href="../classes/classes.htm" aria-current="page">Library</a><a href="../examples/examples.htm">Examples</a><a href="../utils/utils.htm">Utilities</a><a href="../code_review_fixes.html">Code Review</a></nav>
+</header>
+<div class="dr-browser">
+<aside class="dr-sidebar" aria-label="Class Library pages">
+  <input class="dr-search" type="search" placeholder="Filter class library..." aria-label="Filter class library">
+  <details class="dr-group" open>
+    <summary>Interoperable Data Types</summary>
+    <a href="database/idtypes.htm" target="PRIGHTCHILD">Interoperable Data Types</a>
+    <a href="database/gxint16.htm" target="PRIGHTCHILD">INT16 Integer Type</a>
+    <a href="database/gxint32.htm" target="PRIGHTCHILD">INT32 Integer Type</a>
+    <a href="database/gxint64.htm" target="PRIGHTCHILD">INT64 Integer Type</a>
+    <a href="database/gxuint16.htm" target="PRIGHTCHILD">UINT16 Integer Type</a>
+    <a href="database/gxuint32.htm" target="PRIGHTCHILD">UINT32 Integer Type</a>
+    <a href="database/gxuint64.htm" target="PRIGHTCHILD">UINT64 Integer Type</a>
+    <a href="database/gxfloat.htm" target="PRIGHTCHILD">Floating Point Type</a>
+    <a href="socket/gxip32.htm" target="PRIGHTCHILD">IP32 Type</a>
+    <a href="socket/gxmac48.htm" target="PRIGHTCHILD">MAC48 Type</a>
+    <a href="general/cdate.htm" target="PRIGHTCHILD">CDate Type</a>
+  </details>
+  <details class="dr-group" open>
+    <summary>Database Classes</summary>
+    <a href="database/ediagram.htm" target="PRIGHTCHILD">32/64 Database Model</a>
+    <a href="database/gxdbase.htm" target="PRIGHTCHILD">Database Engine</a>
+    <a href="database/gxheader.htm" target="PRIGHTCHILD">Database Headers</a>
+    <a href="database/gxdfptr.htm" target="PRIGHTCHILD">Database File System API</a>
+    <a href="database/gxderror.htm" target="PRIGHTCHILD">Exception Handling</a>
+    <a href="database/gxcrc32.htm" target="PRIGHTCHILD">CRC Functions</a>
+    <a href="database/gxbtree.htm" target="PRIGHTCHILD">B-tree Class</a>
+    <a href="database/dbasekey.htm" target="PRIGHTCHILD">Database Key Class</a>
+    <a href="database/btnode.htm" target="PRIGHTCHILD">B-tree Node Class</a>
+    <a href="database/btstack.htm" target="PRIGHTCHILD">B-tree Stack Class</a>
+    <a href="database/btcache.htm" target="PRIGHTCHILD">B-tree Cache</a>
+    <a href="database/dbfcache.htm" target="PRIGHTCHILD">Database File Cache</a>
+    <a href="database/dbugmgr.htm" target="PRIGHTCHILD">Database Debug Manager</a>
+    <a href="database/gxrdbms.htm" target="PRIGHTCHILD">Relational Database (RDBMS)</a>
+    <a href="database/pdiagram.htm" target="PRIGHTCHILD">DataReel OODB Model</a>
+    <a href="database/gpersist.htm" target="PRIGHTCHILD">Persistent Base Class</a>
+    <a href="database/pod.htm" target="PRIGHTCHILD">Persistent Database Manager</a>
+    <a href="database/infohog.htm" target="PRIGHTCHILD">InfoHog Database</a>
+  </details>
+  <details class="dr-group" open>
+    <summary>Socket Classes</summary>
+    <a href="socket/sdiagram.htm" target="PRIGHTCHILD">Socket Model</a>
+    <a href="socket/gxsocket.htm" target="PRIGHTCHILD">Socket Class</a>
+    <a href="socket/gxsutils.htm" target="PRIGHTCHILD">Socket Utilities</a>
+    <a href="socket/gxssl.htm" target="PRIGHTCHILD">SSL/TLS Class</a>
+    <a href="socket/gxsping.htm" target="PRIGHTCHILD">Embedded Ping</a>
+    <a href="socket/gxshtml.htm" target="PRIGHTCHILD">HTML Parser</a>
+    <a href="socket/gxsxml.htm" target="PRIGHTCHILD">XML Parser</a>
+    <a href="socket/gxsrss.htm" target="PRIGHTCHILD">RSS Feed Writer</a>
+    <a href="socket/gxshttp.htm" target="PRIGHTCHILD">HTTP Classes</a>
+    <a href="socket/gxshttpc.htm" target="PRIGHTCHILD">HTTP Client</a>
+    <a href="socket/gxsurl.htm" target="PRIGHTCHILD">URL Parser</a>
+    <a href="socket/gxs_b64.htm" target="PRIGHTCHILD">Base 64 Functions</a>
+    <a href="socket/gxsftp.htm" target="PRIGHTCHILD">FTP Client</a>
+    <a href="socket/gxtelnet.htm" target="PRIGHTCHILD">Telnet Client</a>
+    <a href="socket/gxsmtp.htm" target="PRIGHTCHILD">SMTP Client</a>
+    <a href="socket/gxspop3.htm" target="PRIGHTCHILD">POP3 Client</a>
+    <a href="socket/gxscomm.htm" target="PRIGHTCHILD">Serial Comm Class</a>
+  </details>
+  <details class="dr-group" open>
+    <summary>NETDB Classes</summary>
+    <a href="socket/gxstream.htm" target="PRIGHTCHILD">TCP Stream Class</a>
+    <a href="socket/gxdatagm.htm" target="PRIGHTCHILD">Datagram Class</a>
+    <a href="socket/scomserv.htm" target="PRIGHTCHILD">Serial Comm</a>
+  </details>
+  <details class="dr-group" open>
+    <summary>Thread Classes</summary>
+    <a href="thread/tdiagram.htm" target="PRIGHTCHILD">Thread Model</a>
+    <a href="thread/gxthread.htm" target="PRIGHTCHILD">Thread Class</a>
+    <a href="thread/gthreadt.htm" target="PRIGHTCHILD">Thread Variable Class</a>
+    <a href="thread/gxmutex.htm" target="PRIGHTCHILD">Mutex Class</a>
+    <a href="thread/gxcond.htm" target="PRIGHTCHILD">Conditional Variable Class</a>
+    <a href="thread/gxsema.htm" target="PRIGHTCHILD">Semaphore Class</a>
+    <a href="thread/thrpool.htm" target="PRIGHTCHILD">Thread Pool</a>
+    <a href="thread/thelpers.htm" target="PRIGHTCHILD">Thread Helper Functions</a>
+  </details>
+  <details class="dr-group" open>
+    <summary>General Support Classes</summary>
+    <a href="general/ddiagram.htm" target="PRIGHTCHILD">Device Cache Model</a>
+    <a href="general/devcache.htm" target="PRIGHTCHILD">Device Cache</a>
+    <a href="general/memblock.htm" target="PRIGHTCHILD">Memory Block Class</a>
+    <a href="general/membuf.htm" target="PRIGHTCHILD">Memory Buffer Class</a>
+    <a href="general/gxstring.htm" target="PRIGHTCHILD">String Class</a>
+    <a href="general/fstring.htm" target="PRIGHTCHILD">Fixed String Class</a>
+    <a href="general/strutil.htm" target="PRIGHTCHILD">String Utilities</a>
+    <a href="general/futils.htm" target="PRIGHTCHILD">File/Directory Utilities</a>
+    <a href="general/dfileb.htm" target="PRIGHTCHILD">Disk File Base Class</a>
+    <a href="general/gxconfig.htm" target="PRIGHTCHILD">Text Configuration Manager</a>
+    <a href="general/logfile.htm" target="PRIGHTCHILD">Log File Class</a>
+    <a href="general/ostrbase.htm" target="PRIGHTCHILD">OStream Base Class</a>
+    <a href="general/gxlist.htm" target="PRIGHTCHILD">Linked-List Class</a>
+    <a href="general/gxlistb.htm" target="PRIGHTCHILD">Non-template Linked List</a>
+    <a href="general/gxlist.htm#QueueFunctions" target="PRIGHTCHILD">Queue Class</a>
+    <a href="general/gxlist.htm#StackFunctions" target="PRIGHTCHILD">Stack Class</a>
+    <a href="general/gxbstree.htm" target="PRIGHTCHILD">Binary Search Tree</a>
+    <a href="general/systime.htm" target="PRIGHTCHILD">System Time Class</a>
+    <a href="general/terminal.htm" target="PRIGHTCHILD">Terminal Class</a>
+    <a href="general/ehandler.htm" target="PRIGHTCHILD">Exception Handler Class</a>
+    <a href="general/htmldrv.htm" target="PRIGHTCHILD">HTML Driver</a>
+    <a href="general/pscript.htm" target="PRIGHTCHILD">Postscript Driver</a>
+    <a href="general/asprint.htm" target="PRIGHTCHILD">ACSII Print Driver</a>
+  </details>
+  <details class="dr-group" open>
+    <summary>References</summary>
+    <a href="refs.htm" target="PRIGHTCHILD">Hardcopy</a>
+    <a href="irefs.htm" target="PRIGHTCHILD">Internet</a>
+  </details>
+</aside>
+<iframe class="dr-frame" name="PRIGHTCHILD" src="p_rchild.htm" title="Class Library content"></iframe>
+</div>
+</body>
+</html>

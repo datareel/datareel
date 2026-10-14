@@ -73,21 +73,16 @@ gxINT32::operator __LWORD__() const
   return PackBits();
 }
 
+// 10/14/2026: Combine the bytes in unsigned arithmetic. Shifting the
+// sign-extended signed bytes was undefined behavior for negative bytes
+// and for values that overflow the signed type.
 __LWORD__ gxINT32::PackBits() const
 {
-  __LWORD__ a, b, c, d;
-  
-  a = (__LWORD__)byte[0];
-  b = (__LWORD__)byte[1];
-  c = (__LWORD__)byte[2];
-  d = (__LWORD__)byte[3];
-
-  a = a & 0xFF;
-  b = (b<<8) & 0xFF00;
-  c = (c<<16) & 0xFF0000;
-  d = (d<<24) & 0xFF000000;
-
-  return a + b + c + d;
+  __ULWORD__ val = 0;
+  for(int i = 3; i >= 0; i--) {
+    val = (__ULWORD__)((val << 8) | (__ULWORD__)(__UBYTE__)byte[i]);
+  }
+  return (__LWORD__)val;
 }
 
 void gxINT32::UnPackBits(__LWORD__ val)

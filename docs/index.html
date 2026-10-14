@@ -1,65 +1,33 @@
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-	<title>DataReel Open Source Readme File</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel Open Source Readme File</title>
+<link rel="stylesheet" href="css/datareel.css">
+<script src="js/datareel.js"></script>
 </head>
-<body bgcolor="#ffffff" link="#0000ff" vlink="#800080">
-<p>&nbsp;</p>
-<!-- Start company logo -->
-
-<center><img src="images/drlogo1.jpg" /></center>
-<!-- End company logo --><!-- Start Menu -->
-
-<table bgcolor="black" border="0" cellpadding="0" cellspacing="0" width="100%">
-	<tbody>
-		<tr>
-			<td>
-			<table border="0" cellpadding="2" cellspacing="1" width="100%">
-				<tbody>
-					<tr align="center" bgcolor="eeeeee">
-						<td bgcolor="A0CCFF" width="11%"><font face="arial" size="-1"><b>Readme</b></font></td>
-						<td width="11%"><font face="arial" size="-1"><a href="classes/classes.htm">Library</a></font></td>
-						<td width="11%"><font face="arial" size="-1"><a href="examples/examples.htm">Examples</a></font></td>
-						<td width="11%"><font face="arial" size="-1"><a href="utils/utils.htm">Utilities</a></font></td>
-					</tr>
-				</tbody>
-			</table>
-			</td>
-		</tr>
-	</tbody>
-</table>
-<!-- End Menu -->
-
-<hr color="#000000" noshade="noshade" size="1" /><!-- Begin Title Bar -->
-<table border="0" cellpadding="0" width="100%">
-	<tbody>
-		<tr>
-			<td bgcolor="A0CCFF"><font face="Arial,Helvetica,Sans-serif"><b>&nbsp;Contents</b></font></td>
-		</tr>
-	</tbody>
-</table>
-<!-- End Title Bar -->
-
-<p><a href="#Overview">Overview</a><br />
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img src="images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html" aria-current="page">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>DataReel Open Source Readme File</h1>
+<div class="dr-toc-title">Contents</div><p class="dr-toc"><a href="#Overview">Overview</a><br />
 <a href="#Features">Features</a><br />
 <a href="#License">License</a><br />
 <a href="#SupportedPlatforms">Supported Platforms</a><br />
 <a href="#SupportedCompilers">Supported Compilers</a><br />
 <a href="#PackageMap">Package Map</a><br />
 <a href="#ExamplePrograms">Example Programs</a><br />
+<a href="#CodeReview">Code Review and Fixes</a><br />
 <a href="#UNIXLIB">Linux Builds</a><br />
 <a href="#WINLIB">Windows Builds</a><br />
 <a href="README_windows_setup.html">Setup For Windows 11 desktop or Windows server 2025 development system</a></p>
 
-<!-- Begin Title Bar -->
-
-<table border="0" cellpadding="0" width="100%">
-	<tbody>
-		<tr>
-			<td bgcolor="A0CCFF"><font face="Arial,Helvetica,Sans-serif"><b>&nbsp;<a name="Overview">Overview</a></b></font></td>
-		</tr>
-	</tbody>
-</table>
-<!-- End Title Bar -->
+<h2 id="Overview">Overview</h2>
 
 <p><b>What is DataReel?</b><br />
 Datareel is a comprehensive cross-platform C++ development kit used to build multi-threaded database and communication applications. C++ is a programming language that produces fast executing compiled programs and offers very powerful programming capabilities. Unlike interpreted languages such as JAVA and PERL the C++ language by itself does not contain built-in programming interfaces for database, communications, and multi-threaded programming. By using DataReel you can extend the power of the C++ programming language by using high-level programming interfaces for database, communications, and multi-threaded programming.</p>
@@ -79,116 +47,11 @@ The DataReel project accepts bug fixes, enhancements, and additions
   from all developers. Project git
   repo:<br /><br /><a href="https://github.com/datareel/datareel">https://github.com/datareel/datareel</a>.
 </p>
-<!-- Begin Title Bar -->
 
-<table border="0" cellpadding="0" width="100%">
-	<tbody>
-		<tr>
-			<td bgcolor="A0CCFF"><font face="Arial,Helvetica,Sans-serif"><b>&nbsp;<a name="Features">Features</a></b></font></td>
-		</tr>
-	</tbody>
-</table>
+<h2 id="Features">Features</h2>
+<div class="dr-features"><section><h3>Database</h3><ul><li>WIN32/UNIX Interoperability</li><li>32-Bit DB Engine</li><li>64-Bit DB Engine</li><li>Large file support</li><li>CRC Checking</li><li>Portable File Locking</li><li>Portable Record Locking</li><li>B-tree Indexing</li><li>Persistent Objects</li><li>Supports OODM Design</li><li>Supports RDBMS Design</li><li>Supports Multi-threading</li><li>Supports Client/Server Apps</li><li>Built-in Network Database</li><li>Real-time TCP Streaming</li><li>Real-time UDP Streaming</li><li>RS232 streaming</li></ul></section><section><h3>Sockets</h3><ul><li>WIN32/UNIX Interoperability</li><li>Winsock/BSD Wrappers</li><li>Object-Oriented Design</li><li>Stream Sockets</li><li>Datagram Sockets</li><li>RS232 Support</li><li>Supports Multi-threading</li><li>Embedded Ping</li><li>Embedded FTP</li><li>Embedded Telnet</li><li>Embedded SMTP</li><li>Embedded POP3</li><li>Embedded HTTP</li><li>URL Parsing</li><li>HTML Parsing</li><li>HTML Generator</li><li>Embedded SSL</li><li>XML Parsing</li></ul></section><section><h3>Threads</h3><ul><li>WIN32/UNIX Interoperability</li><li>Windows/POSIX Wrappers</li><li>Object-Oriented Design</li><li>Thread Creation/Construction</li><li>Thread Destruction</li><li>Cancellation</li><li>Exit</li><li>Join</li><li>Suspend</li><li>Resume</li><li>Sleep</li><li>Priority Functions</li><li>Thread Specific Storage</li><li>Thread Pooling</li><li>Mutex Locks</li><li>Conditional Variables</li><li>Semaphore Synchronization</li></ul></section><section><h3>General</h3><ul><li>String Classes</li><li>Memory Buffers</li><li>Device Caching</li><li>Linked List Classes</li><li>Binary Search Tree</li><li>Stack Classes</li><li>Queue Classes</li><li>Date/Time Classes</li><li>Configuration Manager</li><li>Log Generator</li><li>Postscript Text Generator</li><li>Portable TERM I/O</li><li>Text Utilities</li><li>String Utilities</li><li>Portable Directory Funcitons</li><li>Portable File Functions</li></ul></section></div>
 
-<table border="1" cellpadding="0" width="100%">
-	<tbody>
-		<tr>
-			<td bgcolor="FFFFFF" width="25%">
-			<center><b>Database</b></center>
-			</td>
-			<td bgcolor="FFFFFF" width="25%">
-			<center><b>Sockets</b></center>
-			</td>
-			<td bgcolor="FFFFFF" width="25%">
-			<center><b>Threads</b></center>
-			</td>
-			<td bgcolor="FFFFFF" width="25%">
-			<center><b>General</b></center>
-			</td>
-		</tr>
-		<tr>
-			<td bgcolor="FFFFFF" width="25%"><font face="arial" size="-1">&nbsp;WIN32/UNIX Interoperability<br />
-			&nbsp;32-Bit DB Engine<br />
-			&nbsp;64-Bit DB Engine<br />
-			&nbsp;Large file support<br />
-			&nbsp;CRC Checking<br />
-			&nbsp;Portable File Locking<br />
-			&nbsp;Portable Record Locking<br />
-			&nbsp;B-tree Indexing<br />
-			&nbsp;Persistent Objects<br />
-			&nbsp;Supports OODM Design<br />
-			&nbsp;Supports RDBMS Design<br />
-			&nbsp;Supports Multi-threading<br />
-			&nbsp;Supports Client/Server Apps<br />
-			&nbsp;Built-in Network Database<br />
-			&nbsp;Real-time TCP Streaming<br />
-			&nbsp;Real-time UDP Streaming<br />
-			&nbsp;RS232 streaming</font></td>
-			<td bgcolor="FFFFFF" width="25%"><font face="arial" size="-1">&nbsp;WIN32/UNIX Interoperability<br />
-			&nbsp;Winsock/BSD Wrappers<br />
-			&nbsp;Object-Oriented Design<br />
-			&nbsp;Stream Sockets<br />
-			&nbsp;Datagram Sockets<br />
-			&nbsp;RS232 Support<br />
-			&nbsp;Supports Multi-threading<br />
-			&nbsp;Embedded Ping<br />
-			&nbsp;Embedded FTP<br />
-			&nbsp;Embedded Telnet<br />
-			&nbsp;Embedded SMTP<br />
-			&nbsp;Embedded POP3<br />
-			&nbsp;Embedded HTTP<br />
-			&nbsp;URL Parsing<br />
-			&nbsp;HTML Parsing<br />
-			&nbsp;HTML Generator<br />
-			&nbsp;Embedded SSL<br />
-			&nbsp;XML Parsing</font></td>
-			<td bgcolor="FFFFFF" width="25%"><font face="arial" size="-1">&nbsp;WIN32/UNIX Interoperability<br />
-			&nbsp;Windows/POSIX Wrappers<br />
-			&nbsp;Object-Oriented Design<br />
-			&nbsp;Thread Creation/Construction<br />
-			&nbsp;Thread Destruction<br />
-			&nbsp;Cancellation<br />
-			&nbsp;Exit<br />
-			&nbsp;Join<br />
-			&nbsp;Suspend<br />
-			&nbsp;Resume<br />
-			&nbsp;Sleep<br />
-			&nbsp;Priority Functions<br />
-			&nbsp;Thread Specific Storage<br />
-			&nbsp;Thread Pooling<br />
-			&nbsp;Mutex Locks<br />
-			&nbsp;Conditional Variables<br />
-			&nbsp;Semaphore Synchronization</font></td>
-			<td bgcolor="FFFFFF" width="25%"><font face="arial" size="-1">&nbsp;String Classes<br />
-			&nbsp;Memory Buffers<br />
-			&nbsp;Device Caching<br />
-			&nbsp;Linked List Classes<br />
-			&nbsp;Binary Search Tree<br />
-			&nbsp;Stack Classes<br />
-			&nbsp;Queue Classes<br />
-			&nbsp;Date/Time Classes<br />
-			&nbsp;Configuration Manager<br />
-			&nbsp;Log Generator<br />
-			&nbsp;Postscript Text Generator<br />
-			&nbsp;Portable TERM I/O<br />
-			&nbsp;Text Utilities<br />
-			&nbsp;String Utilities<br />
-			&nbsp;Portable Directory Funcitons<br />
-			&nbsp;Portable File Functions</font></td>
-		</tr>
-	</tbody>
-</table>
-
-<p>&nbsp;</p>
-<!-- Begin Title Bar -->
-
-<table border="0" cellpadding="0" width="100%">
-	<tbody>
-		<tr>
-			<td bgcolor="A0CCFF"><font face="Arial,Helvetica,Sans-serif"><b>&nbsp;<a name="License">License</a></b></font></td>
-		</tr>
-	</tbody>
-</table>
-<!-- End Title Bar -->
+<h2 id="License">License</h2>
 
 <p>The DataReel open source library is copyrighted by DataReel Software Development, Copyright &copy; 2001-2025, all rights reserved. DataReel open source is available to non-profit, commercial, individual, and academic developers. The open-source archive is distributed under the <a href="https://www.gnu.org">GNU</a> Lesser General Public License (LGPL) with provisions for use in commercial and non-commercial applications under the terms of the LGPL.</p>
 
@@ -202,17 +65,8 @@ This library is free software; you can redistribute it and/or modify it under th
 <p>You should have received a copy of the GNU Lesser General Public License along with this library; if not, a copy is available on the
 gnu.org Website:<br /><br /><a href="https://www.gnu.org/licenses/lgpl.html">https://www.gnu.org/licenses/lgpl.html</a></p>
 
-<p>&nbsp;</p>
-<!-- Begin Title Bar -->
+<h2 id="SupportedPlatforms">Supported Platforms</h2>
 
-<table border="0" cellpadding="0" width="100%">
-	<tbody>
-		<tr>
-			<td bgcolor="A0CCFF"><font face="Arial,Helvetica,Sans-serif"><b>&nbsp;<a name="SupportedPlatforms">Supported Platforms</a></b></font></td>
-		</tr>
-	</tbody>
-</table>
-<!-- End Title Bar -->
 </p>
 The current Datareel release was developed and tested on Red Hat
 Enterprise Linux 8/9/10, Windows 10/11, and Windows 2025 server.
@@ -239,16 +93,7 @@ applications. The code base still supports 32-bit applications but
 current development is mainly for use in 64-bit applications.
 </p>
 
-<!-- Begin Title Bar -->
-
-<table border="0" cellpadding="0" width="100%">
-	<tbody>
-		<tr>
-			<td bgcolor="A0CCFF"><font face="Arial,Helvetica,Sans-serif"><b>&nbsp;<a name="SupportedCompilers">Supported Compilers</a></b></font></td>
-		</tr>
-	</tbody>
-</table>
-<!-- End Title Bar -->
+<h2 id="SupportedCompilers">Supported Compilers</h2>
 
 <p>
 For UNIX the current Datareel release supports GNU and Intel compiler
@@ -266,14 +111,7 @@ Previous releases supported cross platform Windows builds using MSVC,
 Visual C++, BCC, and DJGPP. 
 </p>
 
-<table border="0" cellpadding="0" width="100%">
-	<tbody>
-		<tr>
-			<td bgcolor="A0CCFF"><font face="Arial,Helvetica,Sans-serif"><b>&nbsp;<a name="PackageMap">Package Map</a></b></font></td>
-		</tr>
-	</tbody>
-</table>
-<!-- End Title Bar -->
+<h2 id="PackageMap">Package Map</h2>
 
 <p><b>DataReel Directory Structure&nbsp;</b></p>
 
@@ -290,117 +128,69 @@ Visual C++, BCC, and DJGPP.
 	<li>src - DataReel source code files</li>
 	<li>utils - DataReel utility programs</li>
 </ul>
-<!-- Begin Title Bar -->
 
-<table border="0" cellpadding="0" width="100%">
-	<tbody>
-		<tr>
-			<td bgcolor="A0CCFF"><font face="Arial,Helvetica,Sans-serif"><b>&nbsp;<a name="ExamplePrograms">Example Programs</a></b></font></td>
-		</tr>
-	</tbody>
-</table>
-<!-- End Title Bar -->
+<h2 id="ExamplePrograms">Example Programs</h2>
 
 <p>The Datareel distribution contains several example programs. The examples are fully functional programs used to test and demonstrate each component of the library individually. The example programs are located within subdirectories of the &quot;examples_general&quot;, &quot;examples_database&quot;, &quot;examples_threads&quot;, and &quot;examples_socket&quot; directories.</p>
 
 <p>This&nbsp;HTML documentation set include many more example programs that can by used as templates to build applications.&nbsp;</p>
 
-<table border="0" cellpadding="0" width="100%">
-	<tbody>
-		<tr>
-			<td bgcolor="A0CCFF"><font face="Arial,Helvetica,Sans-serif"><b>&nbsp;<a name="UNIXLIB">Linux
-			Builds&nbsp;</a></b></font></td>
-		</tr>
-	</tbody>
-</table>
-<!-- End Title Bar -->
+<h2 id="CodeReview">Code Review and Fixes</h2>
 
-<div>&nbsp;</div>
+<p>On 10/14/2026 the DataReel code in this repository was reviewed and fixed by Claude Code, Anthropic's AI coding assistant (<a href="https://claude.ai/code">https://claude.ai/code</a>). The review covered compiler warnings, AddressSanitizer and UndefinedBehaviorSanitizer runs of the example programs, and valgrind checks. Fixes include:</p>
+<ul>
+<li>Mismatched new[]/delete calls in UString, strutil, gxDatabase, MemoryBuffer and other classes</li>
+<li>Undefined behavior in the gxINT16/32/64 byte packing, UString Find/IFind, and gxConfig::ChangeConfigLine()</li>
+<li>Bounds checks in POD, gxRDBMS and gxsXML, and leaked buffers in gxSocket</li>
+<li>Replaced the deprecated readdir_r() and _np robust mutex calls</li>
+<li>SSL updates for OpenSSL 3: a 2048-bit (RFC 7919 ffdhe2048) default DH group, OpenSSL 3 DH parameter and RSA key interfaces, error checking and cleanup on every path, and new ssl_server example keys, certificate and DH parameters</li>
+<li>New <a href="classes/socket/gxssl.htm">gxSSL class documentation</a></li>
+<li>New documentation pages for gxListB, the thread pool and thread helpers, the XML parser, the RSS feed writer, the RDBMS layer, the B-tree and database caches, the debug manager, ix_debug and the <a href="examples/programs.htm">example programs</a>, and a modern style for all documentation pages</li>
+<li>Fixes for bugs found while writing the new pages: the RDBMS layer, thread helpers and thread pool, XML parser and RSS writer, B-tree and database caches, debug manager, B-tree Find() and gxDatabase</li>
+</ul>
+<p>The version number is now 5.10.</p>
+<p>See <a href="code_review_fixes.html">Code Review and Fixes</a> for the full list of fixes, SSL updates and behavior changes. Every change in the source is marked with a "10/14/2026" comment.</p>
 
-<div>Example install and build:</div>
+<h2 id="UNIXLIB">Linux Builds</h2>
 
-<div>&nbsp;</div>
+<p>Example install and build:</p>
 
-<div>&gt; mkdir -pv ~/git</div>
+<pre class="dr-code">&gt; mkdir -pv ~/git
+&gt; cd ~/git
+&gt; git clone https://github.com/datareel/datareel
+&gt; cd datareel
+&gt; cd env</pre>
 
-<div>&gt; cd ~/git</div>
+<p>In the env directory edit the linux.env file if you need to make any&nbsp;adjustments or modifications to the build&nbsp;</p>
 
-<div>&gt; git clone https://github.com/datareel/datareel</div>
+<pre class="dr-code">&gt; source gnu_env.sh
+&gt; cd ../build
+&gt; make 
+&gt; make install
+&gt; make clean</pre>
 
-<div>&gt; cd datareel</div>
+<p>To build with OpenSSL:</p>
 
-<div>&gt; cd env</div>
+<pre class="dr-code">&gt; export USE_OPEN_SSL=YES
+&gt; make -f makefile_ssl
+&gt; make -f makefile_ssl install
+&gt; make -f makefile_ssl clean</pre>
 
-<div>&nbsp;</div>
+<p>To build example programs:</p>
 
-<div>In the env directory edit the linux.env file if you need to make any&nbsp;adjustments or modifications to the build&nbsp;</div>
+<pre class="dr-code">&gt; cd ~/git/datareel/examples_database
+&gt; ls -l 
+&gt; cd simple
+&gt; make</pre>
 
-<div>&nbsp;</div>
+<p>To build utility programs</p>
 
-<div>&gt; source gnu_env.sh</div>
+<pre class="dr-code">&gt; cd ~/git/datareel/utils
+&gt; ls
+&gt; cd hexdump
+&gt; make </pre>
 
-<div>&gt; cd ../build</div>
-
-<div>&gt; make&nbsp;</div>
-
-<div>&gt; make install</div>
-
-<div>&gt; make clean</div>
-
-<div>&nbsp;</div>
-
-<div>To build with OpenSSL:</div>
-
-<div>&nbsp;</div>
-
-<div>&gt; export USE_OPEN_SSL=YES</div>
-
-<div>&gt; make -f makefile_ssl</div>
-
-<div>&gt; make -f makefile_ssl install</div>
-
-<div>&gt; make -f makefile_ssl clean</div>
-
-<div>&nbsp;</div>
-
-<div>To build example programs:</div>
-
-<div>&nbsp;</div>
-
-<div>&gt; cd ~/git/datareel/examples_database</div>
-
-<div>&gt; ls -l&nbsp;</div>
-
-<div>&gt; cd simple</div>
-
-<div>&gt; make</div>
-
-<div>&nbsp;</div>
-
-<div>To build utility programs</div>
-
-<div>&nbsp;</div>
-
-<div>&gt; cd ~/git/datareel/utils</div>
-
-<div>&gt; ls</div>
-
-<div>&gt; cd hexdump</div>
-
-<div>&gt; make&nbsp;</div>
-
-<div>&nbsp;</div>
-
-
-<table border="0" cellpadding="0" width="100%">
-	<tbody>
-		<tr>
-			<td bgcolor="A0CCFF"><font face="Arial,Helvetica,Sans-serif"><b>&nbsp;<a name="WINLIB">Windows
-			Builds&nbsp;</a></b></font></td>
-		</tr>
-	</tbody>
-</table>
-<!-- End Title Bar -->
+<h2 id="WINLIB">Windows Builds</h2>
 
 <p style="margin-bottom: 0in; line-height: 100%">In the example build
 below we will assume you are working with a copy</p>
@@ -579,7 +369,9 @@ msvc.mak</p>
 
 </p>
 
-<hr color="#000000" noshade="noshade" size="1" /><!-- Start Copyright Information -->
+<!-- Start Copyright Information -->
 <p><font color="000000">DataReel Copyright &copy; 2001-2025&nbsp;DataReel Software Development</font></p>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>

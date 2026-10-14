@@ -1610,6 +1610,14 @@ GXDLCODE_API struct dirent *futils_readdir(DIR *dirp, dirent *entry)
 #elif defined (__HPUX10__)
     if(readdir_r(dirp, entry) != 0) return 0;
     return entry;
+#elif defined (__LINUX__)
+    // 10/14/2026: readdir_r() is deprecated. glibc readdir() is thread safe
+    // when each thread reads its own directory stream, so copy the
+    // entry into the caller's buffer.
+    struct dirent *d = readdir(dirp);
+    if(!d) return 0;
+    memcpy(entry, d, sizeof(struct dirent));
+    return entry;
 #else
     if(readdir_r(dirp, entry, &entry) != 0) return 0; 
     return entry;

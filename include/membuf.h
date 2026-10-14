@@ -84,7 +84,7 @@ public:
     mptr = 0; l_length = d_length = 0; Alloc(bytes);
   }
   MemoryBuffer(const void *buf, __MEMBUF_INT__ bytes);
-  ~MemoryBuffer() { if(mptr) delete mptr; }
+  ~MemoryBuffer() { if(mptr) delete[] mptr; } // 10/14/2026: Was a scalar delete of new[]
   MemoryBuffer(const MemoryBuffer &buf);
   MemoryBuffer &operator=(const MemoryBuffer &buf);
 

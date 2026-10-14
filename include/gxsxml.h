@@ -134,6 +134,12 @@ struct GXDLCODE_API gxsXMLNode_t
   int is_closed;
   gxsXMLSubElement *sub_child;
 
+  // 10/14/2026: Nesting level of a sub-element below its child element
+  // (1 = directly inside the child). The parser and AddSubChild()/AddSibling()
+  // set it and the writer uses it to rebuild the nesting. A value of 0
+  // means not set, and the writer works it out from has_siblings.
+  int depth;
+
  private:
   gxsXMLSubElement *subelements;
   gxsXMLSubElement *last_subelement;
@@ -191,7 +197,7 @@ class GXDLCODE_API gxsXML : public DiskFileB
  public:
   gxsXML() { Clear(); }
   ~gxsXML() { }
-  gxsXML(const gxsXML &ob) { Copy(ob); }
+  gxsXML(const gxsXML &ob) : DiskFileB() { Copy(ob); }
   gxsXML &operator=(const gxsXML &ob);
 
  public:
@@ -217,6 +223,8 @@ class GXDLCODE_API gxsXML : public DiskFileB
   int test_comments(const gxString &pd);
   int write_xml_tree(gxList<gxsXMLNode> &xml_tree, 
 		     DiskFileB *outfile, gxString *outstr);
+  // 10/14/2026: Added to explode nested elements at any depth
+  int explode_sub_elements(gxsXMLNode_t &child, gxString &nodes, int depth);
 
  public: // Parser functions
   int GetXMLAttribute(const gxString &tag_str, const gxString &attr_str, 

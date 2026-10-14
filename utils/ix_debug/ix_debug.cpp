@@ -52,7 +52,9 @@ const char *ProgramName = "ix_debug";
 void Version()
 {
   GXSTD::cout << "\n";
-  GXSTD::cout << ProgramName << " gxDatabase file recovery program." << "\n";
+  // 10/14/2026: Was "file recovery program". This program only reads
+  // the index file and displays its B-tree headers.
+  GXSTD::cout << ProgramName << " gxBtree index file debug program." << "\n";
   EchoDatabaseVersion();
   GXSTD::cout << "\n";
 }
@@ -83,30 +85,36 @@ void DisplayBtreeHeader(gxBtreeHeader &bh, int tree_number = 1)
 
 int main(int argc, char **argv)
 {
-  // Display the program version information and exit the program
-  if(argc >= 2) {
-    if(strcmp(argv[1], "version") == 0) {
+  // 10/14/2026: The usage message offered an optional command after the
+  // file name, but no command was ever read. The program now takes
+  // exactly one argument and reports an error for extra arguments.
+  if(argc != 2) {
+    GXSTD::cout << "\n";
+    Version();
+    GXSTD::cout << "Usage: " << ProgramName << " infile" << "\n";
+    GXSTD::cout << "Usage: " << ProgramName << " version" << "\n";
+    GXSTD::cout << "\n";
+    return 1;
+  }
+
+  const char *fname = argv[1];
+
+  // Display the program version information and exit the program.
+  // 10/14/2026: A file named "version" could not be opened. The switch
+  // is now only used when no file with that name exists.
+  if(strcmp(fname, "version") == 0) {
+    if(!gxDatabase::Exists(fname)) {
       Version();
       return 0;
     }
   }
 
-  if(argc < 2) {
-    GXSTD::cout << "\n";
-    Version();
-    GXSTD::cout << "Usage: " << ProgramName << " infile" << "\n";
-    GXSTD::cout << "Usage: " << ProgramName << " infile (command)" << "\n";
-    GXSTD::cout << "\n";
-    return 1;
-  }
-  
   gxDatabaseDebugManager *f = new gxDatabaseDebugManager;   
   if(!f) {
     GXSTD::cout << "Memory allocation error!" << "\n";
     return 1;
   }
 
-  const char *fname = argv[1];
   if(!gxDatabase::Exists(fname)) {
     GXSTD::cout << "The specified file does not exist!" << "\n";
     GXSTD::cout << "Exiting..." << "\n";
@@ -121,11 +129,12 @@ int main(int argc, char **argv)
     }
   }
 
-  //  AnalyzeHeader(f);
+  // 10/14/2026: The static area checks below returned a zero (success)
+  // exit status. They now return 1 so scripts can detect the error.
   FAU_t sa = (FAU_t)f->StaticArea();
-  if(sa < sizeof(gxBtreeHeader)) {
+  if(sa < (FAU_t)sizeof(gxBtreeHeader)) {
     GXSTD::cout << "Cannot connect to B-tree header" << "\n";
-    if(sa == (FAU_t)0) {
+    if(sa <= (FAU_t)0) {
       GXSTD::cout << "This gxDatabase file has no static storage area \
 allocated" << "\n";
     }
@@ -134,28 +143,42 @@ allocated" << "\n";
 B-tree header" << "\n";
     }
     delete f;
-    return 0;
+    return 1;
   }
 
-  int test_tree_hdr = (int)(sa % sizeof(gxBtreeHeader));
+  int test_tree_hdr = (int)(sa % (FAU_t)sizeof(gxBtreeHeader));
   if(test_tree_hdr != 0) {
     GXSTD::cout << "Detected a storage area error" << "\n";
+    // 10/14/2026: Corrected the spelling of "information"
     GXSTD::cout << "The static storage area does not contain valid B-tree \
-header infomation" << "\n"; 
-    delete f;
-    return 0;
-  }
-
-  GXSTD::cout << "Connecting to first the B-tree header..." << "\n";
-  gxBtreeHeader btree_header;
-  
-  f->Read(&btree_header, sizeof(gxBtreeHeader), (FAU_t)f->FileHeaderSize());
-  if(CheckError((gxDatabase *)f) != 0) {
+header information" << "\n"; 
     delete f;
     return 1;
   }
 
-  DisplayBtreeHeader(btree_header);
+  // 10/14/2026: Only the first B-tree header was displayed. Display
+  // every header stored in the static storage area.
+  FAU_t num_trees = sa / (FAU_t)sizeof(gxBtreeHeader);
+  UString intbuf;
+  intbuf << clear << num_trees;
+  GXSTD::cout << "Found room for " << intbuf.c_str() 
+	      << " B-tree header(s) in the static storage area" << "\n";
+
+  for(FAU_t i = (FAU_t)0; i < num_trees; i++) {
+    if(i == (FAU_t)0) {
+      // 10/14/2026: Corrected the word order of this message
+      GXSTD::cout << "Connecting to the first B-tree header..." << "\n";
+    }
+    gxBtreeHeader btree_header;
+    FAU_t hdr_address = (FAU_t)f->FileHeaderSize() + 
+      (i * (FAU_t)sizeof(gxBtreeHeader));
+    f->Read(&btree_header, sizeof(gxBtreeHeader), hdr_address);
+    if(CheckError((gxDatabase *)f) != 0) {
+      delete f;
+      return 1;
+    }
+    DisplayBtreeHeader(btree_header, (int)(i+1));
+  }
 
   delete f;
   return 0;

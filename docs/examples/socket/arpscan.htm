@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>arpscan example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: arpscan.cpp</FONT>
-<FONT COLOR="#ff0000">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 09/20/1999</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>arpscan example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>Arpscan Example</h1>
+<p class="dr-listing-meta">Source file: <code>arpscan.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: arpscan.cpp</span>
+<span class="cm">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 09/20/1999</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 
 modify it under the terms of the GNU Lesser General Public
@@ -87,18 +93,18 @@ USA
 
 Test program used to get the Media Access Control (MAC) addresses
 of all the hosts on a specified class C subnet.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
 #include &lt;fstream&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
 #include &lt;fstream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include &lt;string.h&gt;
 #include &lt;stdio.h&gt;
@@ -108,7 +114,7 @@ using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard
 #include "gxip32.h"
 #include "gxmac48.h"
 
-<FONT COLOR="#ff0000">// Platform specific include files</FONT>
+<span class="cm">// Platform specific include files</span>
 #if defined (__UNIX__)
 #include &lt;net/if_arp.h&gt;
 #include &lt;sys/ioctl.h&gt;
@@ -121,7 +127,7 @@ int WIN32GetMAC(const char *ip_address, char *mac_address);
 int GetMacAddress(const char *ip_address, char *eth_dev, char *fname = 0,
 		  fstream *outfile = 0)
 {
-  <FONT COLOR="#ff0000">// Construct a raw socket;</FONT>
+  <span class="cm">// Construct a raw socket;</span>
   gxSocket raw_socket;
   if(raw_socket.InitSocketLibrary() != 0) {
     cout &lt;&lt; raw_socket.SocketExceptionMessage() &lt;&lt; "\n" &lt;&lt; flush;
@@ -149,7 +155,7 @@ int GetMacAddress(const char *ip_address, char *eth_dev, char *fname = 0,
     return 0;
   }
   
-  <FONT COLOR="#ff0000">// Ping with a specified timeout value</FONT>
+  <span class="cm">// Ping with a specified timeout value</span>
   gxsPing ping(&amp;raw_socket);
   if(ping.Ping(4) != gxSOCKET_NO_ERROR) {
     if(raw_socket.GetSocketError() == gxSOCKET_REQUEST_TIMEOUT) {
@@ -172,7 +178,7 @@ int GetMacAddress(const char *ip_address, char *eth_dev, char *fname = 0,
     cout &lt;&lt; "\n" &lt;&lt; flush;
     if(outfile) *(outfile) &lt;&lt; "\n" &lt;&lt; flush;
     delete hostnm;
-    return 0; <FONT COLOR="#ff0000">// No entry in the arp cache</FONT>
+    return 0; <span class="cm">// No entry in the arp cache</span>
   } 
   gxMAC48 mac(mac_address, '-', 2);
   cout &lt;&lt; '\t' &lt;&lt; mac.c_str(mac_address) &lt;&lt; flush;
@@ -194,7 +200,7 @@ int GetMacAddress(const char *ip_address, char *eth_dev, char *fname = 0,
     cout &lt;&lt; "\n" &lt;&lt; flush;
     if(outfile) *(outfile) &lt;&lt; "\n" &lt;&lt; flush; 
     delete hostnm;
-    return 0; <FONT COLOR="#ff0000">// No entry in the arp cache</FONT>
+    return 0; <span class="cm">// No entry in the arp cache</span>
   }
   
   char mac_address[255];
@@ -209,7 +215,7 @@ int GetMacAddress(const char *ip_address, char *eth_dev, char *fname = 0,
 #error You must define a target platform: __WIN32__ or __UNIX__
 #endif
 
-  if(fname) { <FONT COLOR="#ff0000">// Find the vendor information</FONT>
+  if(fname) { <span class="cm">// Find the vendor information</span>
     char name[255];
     char comment[255];
     if(FindVendor((const char *)fname, mac, name, comment)) {
@@ -226,21 +232,21 @@ int GetMacAddress(const char *ip_address, char *eth_dev, char *fname = 0,
 int main(int argc, char **argv)
 {
 #ifdef __UNIX__
-  <FONT COLOR="#ff0000">// Raw sockets require root access on all UNIX platforms. Programs</FONT>
-  <FONT COLOR="#ff0000">// that use raw sockets can be executed by non-root users if the</FONT>
-  <FONT COLOR="#ff0000">// effective user ID of the executing process is set to the same as</FONT>
-  <FONT COLOR="#ff0000">// the file's owner. In the case root must own the executable and</FONT>
-  <FONT COLOR="#ff0000">// the effective User-ID or Group-ID on execution bit must be set</FONT>
-  <FONT COLOR="#ff0000">// by root using the chmod command: "chmod u+s" or "chmod 4755"</FONT>
-  <FONT COLOR="#ff0000">// Now the effective user ID of the executing process will be set to </FONT>
-  <FONT COLOR="#ff0000">// the same user ID of the file's owner. </FONT>
+  <span class="cm">// Raw sockets require root access on all UNIX platforms. Programs</span>
+  <span class="cm">// that use raw sockets can be executed by non-root users if the</span>
+  <span class="cm">// effective user ID of the executing process is set to the same as</span>
+  <span class="cm">// the file's owner. In the case root must own the executable and</span>
+  <span class="cm">// the effective User-ID or Group-ID on execution bit must be set</span>
+  <span class="cm">// by root using the chmod command: "chmod u+s" or "chmod 4755"</span>
+  <span class="cm">// Now the effective user ID of the executing process will be set to </span>
+  <span class="cm">// the same user ID of the file's owner. </span>
   if(geteuid() != 0) {
     cout &lt;&lt; "You must be root to run this program" &lt;&lt; "\n";
     return 0;
   }
 #endif
 
-  <FONT COLOR="#ff0000">// Check the command line arguments</FONT>
+  <span class="cm">// Check the command line arguments</span>
 #if defined (__WIN32__)
   if(argc &lt; 2) {
     cout &lt;&lt; "\n";
@@ -286,7 +292,7 @@ outfile.txt" &lt;&lt; "\n";
   fstream outfile;
   int out = 0;
   if(ofname) {
-    <FONT COLOR="#ff0000">// Open the output file and truncate if it already exists</FONT>
+    <span class="cm">// Open the output file and truncate if it already exists</span>
     out = 1;
     outfile.open(ofname, ios::out|ios::trunc|ios::binary);
     if(!outfile) {
@@ -298,7 +304,7 @@ outfile.txt" &lt;&lt; "\n";
   gxIP32 ip32(subnet);
   char sbuf[255];
   if((ip32.GetByte4() == 0) || (ip32.GetByte4() == 255)) {
-    <FONT COLOR="#ff0000">// Find the mac address of all the nodes on a specified subnet</FONT>
+    <span class="cm">// Find the mac address of all the nodes on a specified subnet</span>
     for(int i = 1; i &lt; 255; i++) {
       ip32.SetByte4(i);
       if(out)
@@ -308,7 +314,7 @@ outfile.txt" &lt;&lt; "\n";
     }
   }
   else {
-    <FONT COLOR="#ff0000">// Get the mac address of a single node</FONT>
+    <span class="cm">// Get the mac address of a single node</span>
     if(out)
       GetMacAddress(ip32.c_str(sbuf), eth_dev, fname, &amp;outfile);
     else 
@@ -321,13 +327,13 @@ outfile.txt" &lt;&lt; "\n";
 
 #if defined (__WIN32__)
 int WIN32GetMAC(const char *ip_address, char *mac_address)
-<FONT COLOR="#ff0000">// Function used to get a mac address from the WIN32 arp cache.</FONT>
-<FONT COLOR="#ff0000">// Returns true if an arp cache entry exists for the specified</FONT>
-<FONT COLOR="#ff0000">// IP address string.</FONT>
+<span class="cm">// Function used to get a mac address from the WIN32 arp cache.</span>
+<span class="cm">// Returns true if an arp cache entry exists for the specified</span>
+<span class="cm">// IP address string.</span>
 {
   system("arp -a &gt; arpcache.txt");
   ifstream infile("arpcache.txt", ios::in);
-  if(!infile) return 0; <FONT COLOR="#ff0000">// Cannot open the file</FONT>
+  if(!infile) return 0; <span class="cm">// Cannot open the file</span>
   
   char sbuf[255];
   char ip_in[255];
@@ -339,21 +345,21 @@ int WIN32GetMAC(const char *ip_address, char *mac_address)
     ip_in[0] = 0;
     mac_address[0] = 0;
     
-    <FONT COLOR="#ff0000">// Trim leading tabs and spaces</FONT>
+    <span class="cm">// Trim leading tabs and spaces</span>
     while((sbuf[i] == ' ') || (sbuf[i] == '\t')) i++;
     byte_count -= i;
     if(byte_count &lt;= 0) continue;
     memmove(sbuf, sbuf+i, byte_count);
     sbuf[byte_count] = 0;
 
-    <FONT COLOR="#ff0000">// Parse the IP Address</FONT>
+    <span class="cm">// Parse the IP Address</span>
     for(i = 0; i &lt; byte_count; i ++) {
       if((sbuf[i] == ' ') || (sbuf[i] == '\t')) break;
       ip_in[i] = sbuf[i];
     }
-    ip_in[i] = 0; <FONT COLOR="#ff0000">// Null terminate the string</FONT>
+    ip_in[i] = 0; <span class="cm">// Null terminate the string</span>
 
-    if(strcmp(ip_in, ip_address) == 0) { <FONT COLOR="#ff0000">// Parse the MAC Address</FONT>
+    if(strcmp(ip_in, ip_address) == 0) { <span class="cm">// Parse the MAC Address</span>
       while((sbuf[i] == ' ') || (sbuf[i] == '\t')) i++;
       byte_count -= i;
       if(byte_count &lt;= 0) continue;
@@ -362,13 +368,13 @@ int WIN32GetMAC(const char *ip_address, char *mac_address)
 	if(sbuf[i] == ' ') break;
 	mac_address[i] = sbuf[i];
       }
-      mac_address[i] = 0; <FONT COLOR="#ff0000">// Null terminate the string</FONT>
+      mac_address[i] = 0; <span class="cm">// Null terminate the string</span>
       
-      if(mac_address[0] != 0)  { <FONT COLOR="#ff0000">// Remove any trailing spaces</FONT>
+      if(mac_address[0] != 0)  { <span class="cm">// Remove any trailing spaces</span>
 	offset = len = strlen(mac_address);
 	while(offset--) if(mac_address[offset] != ' ') break;
 	if(offset &lt; len) mac_address[offset+1] = 0;
-	return 1; <FONT COLOR="#ff0000">// Found the arp cache entry</FONT>
+	return 1; <span class="cm">// Found the arp cache entry</span>
       }
       else {
 	return 0;
@@ -379,17 +385,16 @@ int WIN32GetMAC(const char *ip_address, char *mac_address)
   return 0;
 }
 #endif
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

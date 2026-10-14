@@ -43,32 +43,37 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>file_h example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Header File Name: gxsfile.h</FONT>
-<FONT COLOR="#ff0000">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 09/20/1999</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ---------- Include File Description and Details  ---------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>file_h example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>Disk File Include</h1>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Header File Name: gxsfile.h</span>
+<span class="cm">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 09/20/1999</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ---------- Include File Description and Details  ---------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -86,8 +91,8 @@ USA
 
 The gxsFile class is used to move data to and from disk
 files using the device cache.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
 #ifndef __GXS_FILE_HPP__
 #define __GXS_FILE_HPP__
 
@@ -110,7 +115,7 @@ public:
 
 public:
   void DeviceErrorHandler(const char *mesg);
-  void Flush(); <FONT COLOR="#ff0000">// Flush the cache buckets to the output device</FONT>
+  void Flush(); <span class="cm">// Flush the cache buckets to the output device</span>
   unsigned BucketsInUse() { return cache.BucketsInUse(); }
   void CloseOutputFile();
   void CloseInputFile();
@@ -125,41 +130,40 @@ public:
   int CopyDatagramSocketToFile(gxDatagram *s, gxBlockHeader &amp;gxs);
   int CopySerialPortToFile(gxSerialCommServer *s, gxBlockHeader &amp;gxs);
 
-private: <FONT COLOR="#ff0000">// Base class interface</FONT>
+private: <span class="cm">// Base class interface</span>
   void Read(void *buf, unsigned Bytes, gxDeviceTypes dev);
   void Write(const void *buf, unsigned Bytes, gxDeviceTypes dev);
 
-private: <FONT COLOR="#ff0000">// Device objects</FONT>
-  DiskFileB outfile;               <FONT COLOR="#ff0000">// File used to output data</FONT>
-  DiskFileB infile;                <FONT COLOR="#ff0000">// File used to input data</FONT>
-  gxStream *stream_sock;           <FONT COLOR="#ff0000">// Stream socket (network device) </FONT>
-  gxDatagram *datagram_sock;       <FONT COLOR="#ff0000">// Datagram socket (network device)</FONT>
-  gxSerialCommServer *serial_port; <FONT COLOR="#ff0000">// Serial port (RS232 device)</FONT>
+private: <span class="cm">// Device objects</span>
+  DiskFileB outfile;               <span class="cm">// File used to output data</span>
+  DiskFileB infile;                <span class="cm">// File used to input data</span>
+  gxStream *stream_sock;           <span class="cm">// Stream socket (network device) </span>
+  gxDatagram *datagram_sock;       <span class="cm">// Datagram socket (network device)</span>
+  gxSerialCommServer *serial_port; <span class="cm">// Serial port (RS232 device)</span>
 
-private: <FONT COLOR="#ff0000">// Temporary variables used during read/write operations</FONT>
+private: <span class="cm">// Temporary variables used during read/write operations</span>
   gxBlockHeader curr_stream_hdr;
   gxBlockHeader curr_datagram_hdr;
   gxBlockHeader curr_serial_hdr;
 
-private: <FONT COLOR="#ff0000">// Device cache</FONT>
+private: <span class="cm">// Device cache</span>
   gxDeviceBucketCache cache;
 
-public: <FONT COLOR="#ff0000">// Functions used to get the current device cache</FONT>
+public: <span class="cm">// Functions used to get the current device cache</span>
   gxDeviceBucketCache *GetCache() { return &amp;cache; }
 };
 
-#endif <FONT COLOR="#ff0000">// __GXS_FILE_HPP__</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+#endif <span class="cm">// __GXS_FILE_HPP__</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

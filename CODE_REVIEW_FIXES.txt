@@ -1,0 +1,371 @@
+DataReel Code Review and Fixes, 10/14/2026
+DataReel version 5.10 (was 5.09)
+DataReel Copyright (c) 2001-2025 DataReel Software Development
+
+The DataReel library in this repository was reviewed and fixed by
+Claude Code, Anthropic's AI coding assistant (https://claude.ai/code).
+Every change in the source is marked with a "10/14/2026" comment.
+The library version in version.txt is now 5.10. The shared library
+version (SHAREDLIB_VERSION 5.0 in env/linux.env) is unchanged. Function
+names and parameters did not change, but gxsXMLNode_t gained a member
+(see Fixes From the Documentation Review), so programs that use the
+XML parser must be recompiled against the new headers.
+
+CONTENTS
+--------
+How the Code Was Reviewed
+Memory Fixes
+Undefined Behavior Fixes
+Logic and Bounds Fixes
+Deprecated API Updates
+Compiler Warning Fixes
+SSL Updates
+Example Program Fixes
+Documentation Updates
+Fixes From the Documentation Review
+Behavior Changes
+Known Items Left As Is
+
+HOW THE CODE WAS REVIEWED
+-------------------------
+- Every source file was compiled with GCC 13 using -Wall and -Wextra,
+  with and without the OpenSSL extensions.
+- The database, general, and thread example programs (39 programs)
+  were built with AddressSanitizer and UndefinedBehaviorSanitizer
+  (-fsanitize=address,undefined) and run until no reports remained.
+- Programs built on the library were checked with valgrind.
+- The SSL server example was tested with a TLS 1.2 DHE-RSA handshake
+  using "openssl s_client" against OpenSSL 3.0.
+
+Results after the fixes:
+- No sanitizer reports from any of the 39 example programs.
+- No valgrind errors.
+- One warning with -Wall (see Known Items Left As Is).
+
+MEMORY FIXES
+------------
+Memory allocated with new[] was freed with a scalar delete, which is
+undefined behavior and is reported by valgrind as a mismatched free.
+All of these now use delete[]:
+
+  src/ustring.cpp    UString buffers (allocate() and delete_sptr() now
+                     use unsigned char arrays), UString/UStringw
+                     constructors and the four temporary
+                     conversion buffers
+  src/strutil.cpp    temporary ASCII and Unicode buffers
+  src/gxdbase.cpp    gxDatabase::Alloc() block buffer
+  src/gxdfptr.cpp    file name and copy buffer in dio_close() and
+                     dio_seek()
+  src/gxrdbhdr.cpp   table field array
+  src/gxrdbms.cpp    secondary key field arrays
+  src/gxdstats.cpp   file signature buffer
+  src/ehandler.cpp   error string buffer
+  src/gxssl.cpp      random number tables
+  include/membuf.h   MemoryBuffer destructor
+
+gxSocket::GetIPAddress(), GetDomainName(), GetBoundIPAddress() and
+GetRemoteHostName() allocated a new buffer when passed a null pointer.
+The caller never received the buffer, so it leaked. These functions
+now return -1 for a null buffer. GetRemoteHostName() also null
+terminates the name after strncpy().
+
+UNDEFINED BEHAVIOR FIXES
+------------------------
+- gxINT16, gxINT32 and gxINT64 PackBits() shifted sign extended bytes
+  and could overflow the signed type. The bytes are now combined with
+  unsigned arithmetic. The results are unchanged.
+- UStringB::Find() and IFind() for char and wchar_t patterns trusted
+  the length passed by the caller and could read past the end of a
+  short pattern. The length is now limited to the pattern string,
+  matching the UStringB overloads.
+- gxConfig::ChangeConfigLine() read LineBuffer[strlen(LineBuffer)-1]
+  on blank lines, one byte before the buffer. A line that filled the
+  1024 byte buffer was also left without a null terminator. Both are
+  fixed.
+- thrapiw.cpp: the thread exit code is passed to pthread_exit()
+  through intptr_t instead of a direct int to pointer cast.
+- gxssl.cpp: "x = x=X509_new()" in MakeCertReq() had an undefined
+  order of evaluation.
+
+LOGIC AND BOUNDS FIXES
+----------------------
+- gxdfptr.cpp dio_seek(): the write access test used a logical &&
+  instead of a bitwise &, so it was true for any open file.
+- pod.cpp: OpenIndex(), CloseIndex() and both Index() functions now
+  reject an index number equal to the number of indexes (was off by
+  one) and check that the index exists. OpenIndex() frees the B-tree
+  on both error paths.
+- gxrdbms.cpp: the index number used for a search is checked against
+  the number of B-trees.
+- gxsxml.cpp: the line chunk offset test compared against length()-1,
+  which wrapped to a huge unsigned value for an empty chunk.
+- gxrdbhdr.cpp: field names are copied with room for the null
+  terminator.
+- ustring.cpp: 64-bit number formatting uses snprintf() with
+  precision limits instead of sprintf().
+- devcache.h and gxdbase.cpp: two statements on one line after an if
+  were split so each has its own if.
+
+DEPRECATED API UPDATES
+----------------------
+- futils.cpp: futils_readdir() uses readdir() on Linux instead of the
+  deprecated readdir_r().
+- thelpers.cpp: robust mutexes use pthread_mutexattr_setrobust() and
+  pthread_mutex_consistent() instead of the deprecated _np versions.
+- gxconfig.cpp, systime.cpp: string literals are held in const char
+  pointers.
+- gxsutils.cpp: the "register" keyword was removed (removed in C++17).
+
+COMPILER WARNING FIXES
+----------------------
+- memmove() and memset() calls on the byte array types in btnode.cpp,
+  gxrdbhdr.cpp and strutil.cpp cast to void pointers (34 calls).
+- Copy constructors explicitly initialize their base class: UString,
+  UStringw, gxDeviceBucket, gxConfig, gxsHTML and gxsXML.
+- gxshtml.cpp: an unused variable was removed.
+
+SSL UPDATES
+-----------
+gxSSL (src/gxssl.cpp, include/gxssl.h) builds and runs with OpenSSL 3
+and keeps the code paths for OpenSSL 1.1 and older.
+
+MakeDHParms()
+- The default Diffie-Hellman group is now the RFC 7919 ffdhe2048
+  group (2048-bit prime, generator 2). OpenSSL 3 rejects the old
+  1024-bit default prime ("dh key too small"), and 1024-bit groups
+  are too weak to use (Logjam).
+- With OpenSSL 3 the parameters are built with OSSL_PARAM_BLD and
+  EVP_PKEY_fromdata() and written with PEM_write_bio_Parameters().
+- The prime and generator are checked and freed on every path.
+
+LoadDHParms()
+- With OpenSSL 3 the parameters are read with
+  PEM_read_bio_Parameters() and set with SSL_CTX_set0_tmp_dh_pkey().
+- Errors are now reported. The old test for SSL_CTX_set_tmp_dh() used
+  "< 0", which missed its failure value of 0.
+- Checks for a null SSL context. The BIO is freed on every path.
+
+MakeRSAPrivateKey()
+- With OpenSSL 3 the key is generated with
+  EVP_PKEY_CTX_new_from_name("RSA"). The KeyGenCallbackFunc callback
+  is still called during key generation.
+- The random number generator is seeded first, the key is generated
+  before the key file is opened, and everything is freed on every
+  path.
+- The default key_len is still 512 bits. Pass 2048 or more for any
+  real use.
+
+MakeRSAEphKey()
+- Does nothing with OpenSSL 1.1.0 and later, where
+  SSL_CTX_set_tmp_rsa() no longer exists.
+
+MakeCertReq()
+- Fixed the X509_new() sequence point bug.
+
+Release()
+- New function that clears the context, SSL and BIO pointers without
+  freeing them. The misspelled Relase() is kept for existing code and
+  calls Release(). Relase() used "socket_bio = file_bio = memory_bio",
+  which copied the memory BIO pointer into the other two instead of
+  clearing all three.
+
+Documentation
+- New gxSSL class page: docs/classes/socket/gxssl.htm, listed under
+  Socket Classes in the class library index. See Documentation Updates
+  for the other new pages.
+
+ssl_server example
+- New dhparms.pem with 2048-bit parameters.
+- New matching server_private_key.pem (RSA 2048) and server_cert.pem.
+  The certificate is self signed and expires 10/14/2027.
+
+EXAMPLE PROGRAM FIXES
+---------------------
+- examples_general/string_class: buffers from ASCII2Unicode() and the
+  other conversion functions are freed with delete[].
+- examples_general/doubly_linked_list: the new[] strings are freed with
+  delete[] instead of gxList::DestroyList(), and a string that could
+  not be added to the list is freed.
+- examples_socket/http_server, multi_threaded_server (client and
+  server) and ssl_server: the console command loop stops at end of
+  input and limits the input length. It used to loop forever when
+  stdin was closed.
+
+DOCUMENTATION UPDATES
+---------------------
+New reference pages for classes and programs that had none:
+  classes/general/gxlistb.htm    gxListB non-template linked list
+  classes/thread/thrpool.htm     thrPool thread pool
+  classes/thread/thelpers.htm    thread mutex, condition and semaphore
+                                 helper functions
+  classes/socket/gxsxml.htm      gxsXML XML parser
+  classes/socket/gxsrss.htm      gxRSSfeed RSS feed writer
+  classes/database/gxrdbms.htm   gxRDBMS relational database layer
+  classes/database/btcache.htm   B-tree cache
+  classes/database/dbfcache.htm  database file cache
+  classes/database/dbugmgr.htm   database debug manager and statistics
+  utils/ix_debug.htm             index file debug utility
+  examples/programs.htm          guide to the example programs in the
+                                 examples_* folders
+All of them are listed in the Library, Examples and Utilities menus.
+The pages were written from the headers and source code, and they note
+behavior callers should know about.
+
+gxthread.htm now documents DestroyThreadPool() under its current name
+(it listed the misspelled DestoryThreadPool(), deprecated in 2003).
+
+Modern page style:
+- Every page uses one stylesheet (docs/css/datareel.css) and a small
+  script (docs/js/datareel.js): a site header, readable type,
+  function entries shown as cards, code blocks and source listings with
+  highlighted comments, light and dark themes, and layouts that work on
+  phones.
+- The Library, Examples and Utilities pages replace the old frames
+  with a searchable sidebar and a content pane. Each page can be
+  linked directly, for example classes/classes.htm#/socket/gxssl.htm.
+- docs/bin/modernize_docs.py converted the pages and keeps all of
+  their text. New pages can be written in the old inc2help layout and
+  converted by running the script again (--force rebuilds the menus
+  after a link is added to a p_lchild.htm page).
+
+FIXES FROM THE DOCUMENTATION REVIEW
+-----------------------------------
+Writing the new reference pages meant reading each class line by
+line, which turned up the bugs below. Each fix was proven with a
+sanitizer test program that fails on the old code, and the pages
+describe the corrected behavior.
+
+Relational database (gxrdbms.cpp, gxrdbms.h, gxrdbhdr.cpp)
+- gxrdDatabaseRecord::Compare() on all fields always returned -1.
+- Heap overflows in record Copy()/CreateRecord(), DefineKeys() and
+  LoadDiskRecord(); exclude-field and table-header Copy() bugs.
+- Find() and RebuildIndex chose the B-tree from the column number; the
+  short Search()/SortOrderList() overloads used the wrong index.
+- ChangeRecordField(), VerifyDataFile() and Find() mixed error codes
+  with results; ChangeOrAdd() added the "from" record; changes now
+  re-index every changed key.
+- DefineKeys() did not reset its counts between calls; Close() left
+  IsOpen() true; RebuildDataFile() ignored copy_static_data.
+- Records whose keys share a CRC-32 value are no longer confused.
+
+Threads and lists (thelpers.cpp/.h, thrpool.cpp, gxthread.cpp,
+gxlistb.cpp)
+- Mutex and condition init never marked themselves initialized, so
+  destroy did nothing; errors were never cleared after a success.
+- Shared conditions and semaphores were disabled on Linux.
+- Lock/TryLock tested an enum value instead of ENOTRECOVERABLE.
+- POSIX timed waits computed the wrong deadline, so the gxThread
+  sleep functions returned at once.
+- Semaphore Wait kept its mutex locked on failure; Increment did not
+  wake waiters; value fields were uninitialized.
+- WIN32 TryLock and condition wait/signal error paths (written to the
+  Win32 API rules; not compiled on Windows for this review).
+- HIGH priority threads lost their order in the pool;
+  RebuildThreadPool() dropped running threads; list node links were
+  left set after DetachNode() and inserts into an empty list.
+
+XML parser and RSS feed writer (gxsxml.cpp/.h, gxsrss.cpp)
+- Debug trace output was printed on every load.
+- Elements after a nested element were dropped, and nesting deeper
+  than one level was flattened on write. gxsXMLNode_t has a new depth
+  member and gxsXML a new protected explode_sub_elements() function.
+- WriteXMLFile() reported success when the file could not be created;
+  LoadXMLFile() appended to the previous tree; DecodeString() decoded
+  "&amp;" first; DTD, CDATA and comment nodes had the wrong type;
+  GetXMLAttribute() matched partial names; CDATA text and empty tags
+  changed on every write.
+- RSS: <cloud> was closed with <channel> (invalid XML); RSS 1.0 used
+  hard-coded sample addresses; Clear() left the channel; fields were
+  not XML encoded; rating, skipHours and skipDays were never written.
+
+Caches and debug tools (btcache.cpp, dbfcache.cpp/.h, dbugmgr.cpp,
+gxdstats.cpp, utils/ix_debug)
+- B-tree cache: reused buckets kept stale keys; failed loads left
+  buckets assigned; a cache with no file reused dirty buckets; small
+  node orders got undersized buckets; null pointer dereferences.
+- Database cache: stale data in reused segments; failed reads left
+  segments assigned or dirty; LRU order; copy address.
+- Debug manager: heap start checks tested the wrong pointer; Rebuild()
+  left the static signature changed, always returned 1, looped or
+  over-allocated on bad block lengths and wrote static data at the
+  wrong offset; BlindOpen() buffer overflow.
+- Statistics output left cout formatting changed.
+- ix_debug shows every B-tree header and exits non-zero on errors.
+
+Database engine (gxbtree.cpp, gxdbase.cpp)
+- gxBtree::Find() read the key before a node's key buffer when the
+  search key sorted before every key in the node (heap overflow in the
+  btree_cached example).
+- gxDatabase::Create() and Open() copied the file name into a fixed
+  1024 byte buffer without a length check.
+- gxDatabase::Read() treated a read that returned no bytes (past the
+  end of the file) as success.
+- TestBlockHeader() accepted a header when only one of the two
+  reserved status bytes was set; the library never sets them.
+
+Utilities
+- hexdump: the -x, -X, -D and -B number conversions printed wrong
+  results ("0x1255 = 1255" for -xFF) because "hex" and "dec" named
+  DataReel's DiskFileB stream functions, which printed as 1, and the
+  numbers were read with sscanf() formats for the wrong size. A check
+  of each word in hex text files tested the array address. Removed the
+  C++17 "register" keyword and unused variables (hexdump, ffind).
+
+Example programs
+- examples_general/xml_parser prints the tree with WriteTree(), so it
+  shows the nesting the fixed parser loads.
+
+BEHAVIOR CHANGES
+----------------
+Programs that use these functions may see different results:
+- The MakeDHParms() default group is 2048-bit ffdhe2048.
+- LoadDHParms() returns an error when the parameters cannot be set.
+- gxSocket::GetIPAddress(), GetDomainName(), GetBoundIPAddress() and
+  GetRemoteHostName() return -1 when passed a null buffer.
+- MakeRSAEphKey() does nothing with OpenSSL 1.1.0 and later.
+- gxSSL::Relase() clears the memory BIO pointer as well.
+- UStringB::Find() and IFind() limit the pattern length to the length
+  of the pattern string.
+- gxRDBMS: Compare() on all fields returns 0/+1/-1; ChangeOrAdd() adds
+  the "to" record; Close() deletes the POD object (IsOpen() is 0 until
+  reopened); DefineKeys() resets its settings on each call; Find() on
+  a field without a B-tree searches the data file. Run RebuildIndex on
+  ALLOWDUP index files built by older versions.
+- Threads: destroy functions release the native objects; POSIX timed
+  waits and the gxThread sleep functions wait the full time; WIN32
+  timed waits return 1 on timeout; error fields reflect the last call.
+- gxsXML: LoadXMLFile() replaces the loaded tree; DTD, CDATA and
+  comment nodes have their own node types; <a></a> loads with empty
+  data and is written as <a />; WriteXMLFile() returns 0 on failure.
+- gxRSSfeed: all text fields are XML encoded (do not pass pre-encoded
+  text); Clear() empties the channel; versions 0.9x write <rss>.
+- Caches: reused buckets and segments start empty; a cache with no
+  file returns null instead of reusing a dirty bucket.
+- gxDatabaseDebugManager::Rebuild() returns 0 when it finds errors;
+  ix_debug exits with 1 on errors.
+- gxDatabase::Read() of bytes past the end of the file returns
+  gxDBASE_FILE_READ_ERROR; Create() and Open() reject names of 1024
+  characters or more.
+
+KNOWN ITEMS LEFT AS IS
+----------------------
+- gxList::DestroyList() frees each item with a scalar delete. It is
+  only for items allocated with a single object new. Items allocated
+  with new[] must be removed and freed with delete[] by the caller.
+  This is noted in include/gxlist.h.
+- The -Woverloaded-virtual warning for gxListB::Add(). Bringing the
+  base class overload into scope would change which function
+  Add("text") calls.
+- -Wextra unused-parameter and ignored-qualifiers warnings. These are
+  part of the public interfaces and do not affect behavior.
+- Items that need a new interface or would change existing files are
+  described on the class pages: thrPool::ClearPool() deletes threads
+  without stopping them; gxDBCacheNode::Bind() loads one byte;
+  gxDatabaseCache::ReleaseSegments() keeps its array; gxRDBMS keys for
+  BLOB fields in all-field keys and ALLOWDUP lookups by key; gxsXML
+  text mixed with child elements; the RSS cloud attribute form.
+- glibc 2.39: pthread_mutex_trylock() on a robust mutex that is not
+  recoverable leaves it in a state that crashes a later unlock. This
+  is a glibc problem and is described on the thread helper page.
+
+DataReel Copyright (c) 2001-2025 DataReel Software Development

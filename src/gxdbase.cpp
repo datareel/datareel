@@ -152,6 +152,18 @@ gxDatabaseError gxDatabase::Create(const char *fname, FAU_t static_size,
   // Close any open files 
   if(Close() != gxDBASE_NO_ERROR) return gxd_error;
 
+  // 10/14/2026: Reject a null or too long name before opening the file.
+  // The name is copied into the fixed size file_name buffer, which a long
+  // name used to overflow.
+  if((!fname) || (strlen(fname) >= (size_t)gxMaxNameLength)) {
+    gxd_error = gxDBASE_FILE_OPEN_ERROR;
+#ifdef __CPP_EXCEPTIONS__
+    throw gxCDatabaseException();
+#else
+    return gxd_error;
+#endif
+  }
+
   // Create and truncate existing files
   fp = gxdFPTRCreate(fname);
 
@@ -266,6 +278,18 @@ gxDatabaseError gxDatabase::Open(const char *fname,
 {
   // Close any open files
   if(Close() != gxDBASE_NO_ERROR) return gxd_error;
+
+  // 10/14/2026: Reject a null or too long name before opening the file.
+  // The name is copied into the fixed size file_name buffer, which a long
+  // name used to overflow.
+  if((!fname) || (strlen(fname) >= (size_t)gxMaxNameLength)) {
+    gxd_error = gxDBASE_FILE_OPEN_ERROR;
+#ifdef __CPP_EXCEPTIONS__
+    throw gxCDatabaseException();
+#else
+    return gxd_error;
+#endif
+  }
 
   if(mode == gxDBASE_READONLY) { // Open with read only access
     ready_for_reading = 1;
@@ -444,7 +468,10 @@ gxDatabaseError gxDatabase::Read(void *buf, __ULWORD__ bytes,
     }
 
     __ULWORD__ bytes_read = gxdFPTRRead(fp, buf, bytes);
-    if(bytes_read == 0) bytes_read = bytes;
+    // 10/14/2026: A read that returns no bytes is no longer treated as a
+    // complete read. Reading past the end of the file used to succeed and
+    // leave the caller's buffer unchanged.
+    if((bytes_read == 0) && (bytes == 0)) bytes_read = bytes;
     if(bytes_read != bytes) {
       gxd_error = gxDBASE_FILE_READ_ERROR;
 #ifdef __CPP_EXCEPTIONS__
@@ -835,10 +862,10 @@ FAU_t gxDatabase::Alloc(__ULWORD__ bytes, gxDatabaseReclaimMethod method)
       char *mbuf = new char[bytes];
       memset(mbuf, 0, bytes);
       if(Write(mbuf, bytes, file_address) != gxDBASE_NO_ERROR) {
-	delete mbuf;
+	delete[] mbuf; // 10/14/2026: Was a scalar delete of new[]
 	return (FAU_t)0;
       }
-      delete mbuf;
+      delete[] mbuf;
 
       // Update the file stats for each new block allocated
       file_stats_header.num_blocks++;   
@@ -1050,10 +1077,12 @@ FAU_t gxDatabase::NormalBlocks()
 FAU gxDatabase::DeleteBlocks(FAU *d, FAU *r)
 // Depreciated function included for backward compatibility only.
 {
-  if(d) *d = (FAU)0; if(r) *r = (FAU)0;
+  if(d) *d = (FAU)0;
+  if(r) *r = (FAU)0;
   FAU_t tl, dl, rm;
   tl = DeletedBlocks(&dl, &rm);
-  if(d) *d = (FAU)dl; if(r) *r = (FAU)rm;
+  if(d) *d = (FAU)dl;
+  if(r) *r = (FAU)rm;
   return (FAU)tl;
 }
 
@@ -1080,7 +1109,8 @@ FAU_t gxDatabase::DeletedBlocks(FAU_t *d, FAU_t *r)
   FAU_t i = (FAU_t)0;
 
   // Set the deleted and removed pointers to zero
-  if(d) *d = (FAU_t)0; if(r) *r = (FAU_t)0;
+  if(d) *d = (FAU_t)0;
+  if(r) *r = (FAU_t)0;
   
   if(block_address == gxFSListCorrupt) return gxFSListCorrupt;
   SeekTo(block_address);
@@ -1421,7 +1451,10 @@ int gxDatabase::TestBlockHeader(const gxBlockHeader &hdr)
   __ULWORD__ block_status = hdr.block_status;
   __SBYTE__ unused_1 = __SBYTE__((block_status & 0xFF000000)>>24);
   __SBYTE__ unused_2 = __SBYTE__((block_status & 0xFF0000)>>16);
-  if((unused_1 != 0) && (unused_2 != 0)) {
+  // 10/14/2026: Both reserved status bytes must be zero (was &&, which
+  // accepted a header when only one of them was set). The library never
+  // writes these bytes, so every block it created still passes.
+  if((unused_1 != 0) || (unused_2 != 0)) {
     return 0; // This is not a valid block
   }
   

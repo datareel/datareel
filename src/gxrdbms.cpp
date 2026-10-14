@@ -36,11 +36,127 @@ library gxDatabase, gxBtree, and gxStream classes.
 #include "gxrdbms.h"
 #include "dbugmgr.h"
 #include "dfileb.h"
+#include <math.h> // 10/14/2026: For floor() in Search()
 
 #ifdef __BCC32__
 #pragma warn -8057
 #pragma warn -8080
 #endif
+
+// --------------------------------------------------------------
+// 10/14/2026: Internal helper functions
+// --------------------------------------------------------------
+static int gxrd_field_index(__ULWORD__ field, int primary_key, 
+			    int num_sec_keys, const int *sec_key_fields,
+			    int num_trees)
+// 10/14/2026: Returns the B-tree index number that holds the keys for the
+// zero-based field "field" (-1 for all fields), as set by the key
+// definition, or -1 if no B-tree holds keys for that field. Before this
+// fix the zero-based field number itself was used as the index number.
+{
+  if(primary_key == -1) { // The primary key uses all fields
+    if(field == (__ULWORD__)-1) return 0;
+    return -1;
+  }
+  if(field == (__ULWORD__)-1) return -1;
+  if(field == (__ULWORD__)(primary_key - 1)) return 0;
+  if((num_sec_keys > 0) && (num_trees > 1) && (sec_key_fields)) {
+    for(int i = 0; i < num_sec_keys; i++) {
+      if((i+1) >= num_trees) break;
+      if(field == (__ULWORD__)(sec_key_fields[i] - 1)) return i+1;
+    }
+  }
+  return -1;
+}
+
+static int gxrd_key_field_match(gxrdDatabaseRecord &a, gxrdDatabaseRecord &b,
+				__ULWORD__ col, int case_cmp)
+// 10/14/2026: Returns true if field "col" holds the same key data in
+// both records. The data is tested the way CreateKey() reads it: strings
+// up to the first null, upper case if case is ignored, BLOBs are skipped.
+{
+  char type_a, type_b;
+  gxUINT32 bytes_a, bytes_b;
+  char *pa = (char *)a.FieldData(col, type_a, bytes_a);
+  char *pb = (char *)b.FieldData(col, type_b, bytes_b);
+  if((!pa) || (!pb)) return 0;
+  if(type_a != type_b) return 0;
+  __ULWORD__ len_a = (__ULWORD__)bytes_a;
+  __ULWORD__ len_b = (__ULWORD__)bytes_b;
+  __ULWORD__ size = 0;
+  switch((int)type_a) {
+    case gxrdBLOB :
+      return 1;
+    case gxrdCHAR : case gxrdVCHAR : {
+      gxString sa, sb;
+      __ULWORD__ i;
+      for(i = 0; i < len_a; i++) if(pa[i] == 0) break;
+      sa.InsertAt(0, pa, (unsigned)i);
+      for(i = 0; i < len_b; i++) if(pb[i] == 0) break;
+      sb.InsertAt(0, pb, (unsigned)i);
+      if(!case_cmp) { sa.ToUpper(); sb.ToUpper(); }
+      return sa == sb;
+    }
+    case gxrdBINARY :
+      if(len_a != len_b) return 0;
+      return memcmp(pa, pb, len_a) == 0;
+    case gxrdBOOL : size = 1; break;
+    case gxrdINT16 : size = sizeof(gxINT16); break;
+    case gxrdINT32 : size = sizeof(gxINT32); break;
+    case gxrdINT64 : size = 8; break;
+    case gxrdFLOAT : case gxrdCURRENCY : size = sizeof(gxFLOAT64); break;
+    case gxrdDATE : size = sizeof(CDate); break;
+    default:
+      return 0;
+  }
+  if((len_a < size) || (len_b < size)) return 0;
+  return memcmp(pa, pb, size) == 0;
+}
+
+static int gxrd_key_fields_match(gxrdDatabaseRecord &a, gxrdDatabaseRecord &b,
+				 __ULWORD__ field, int case_cmp)
+// 10/14/2026: Returns true if the key field, or all fields if "field" is
+// -1, hold the same key data in both records. Used to make sure a record
+// found through its CRC-32 key is really the record searched for.
+{
+  if(a.NumFields() != b.NumFields()) return 0;
+  if(field != (__ULWORD__)-1) {
+    if(field >= a.NumFields()) return 0;
+    return gxrd_key_field_match(a, b, field, case_cmp);
+  }
+  for(__ULWORD__ i = 0; i < a.NumFields(); i++) {
+    if(!gxrd_key_field_match(a, b, i, case_cmp)) return 0;
+  }
+  return 1;
+}
+
+static int gxrd_keys_differ(const gxrdDatabaseRecord &a, 
+			    const gxrdDatabaseRecord &b,
+			    int primary_key, int num_sec_keys, 
+			    const int *sec_key_fields, int num_trees,
+			    int case_cmp)
+// 10/14/2026: Returns 1 if the primary key or any secondary key of the
+// two records differ, 0 if all keys are the same, or -1 if a key cannot
+// be made. Before this fix only the primary key was tested when a record
+// was changed in place, so changed secondary keys were never re-indexed.
+{
+  __ULWORD__ pk = (primary_key == -1) ? (__ULWORD__)-1 : 
+    (__ULWORD__)(primary_key - 1);
+  gxrdKeyType_t ka = a.CreateKey(pk, case_cmp);
+  gxrdKeyType_t kb = b.CreateKey(pk, case_cmp);
+  if((ka == (gxrdKeyType_t)0) || (kb == (gxrdKeyType_t)0)) return -1;
+  if(ka != kb) return 1;
+  if((num_sec_keys > 0) && (num_trees > 1) && (sec_key_fields)) {
+    for(int i = 0; i < num_sec_keys; i++) {
+      ka = a.CreateKey((__ULWORD__)(sec_key_fields[i]-1), case_cmp);
+      kb = b.CreateKey((__ULWORD__)(sec_key_fields[i]-1), case_cmp);
+      if((ka == (gxrdKeyType_t)0) || (kb == (gxrdKeyType_t)0)) return -1;
+      if(ka != kb) return 1;
+    }
+  }
+  return 0;
+}
+// --------------------------------------------------------------
 
 gxRDBMS::gxRDBMS()
 {
@@ -81,7 +197,7 @@ gxRDBMS::~gxRDBMS()
   pod = 0;
   if(indexfile_names) delete[] indexfile_names;
   indexfile_names = 0;
-  if(sec_key_fields) delete sec_key_fields; 
+  if(sec_key_fields) delete[] sec_key_fields; // 10/14/2026: Was a scalar delete of new[] 
   sec_key_fields = 0;
 }
 
@@ -271,6 +387,10 @@ gxDatabaseError gxRDBMS::Close()
   if(pod) {
     err = pod->Close();
     if(err != gxDBASE_NO_ERROR) return err;
+    // 10/14/2026: The POD object was kept after the files were closed,
+    // so IsOpen() still returned true and other calls used closed files
+    delete pod;
+    pod = 0;
   }
   return err;
 }
@@ -486,23 +606,41 @@ FAU_t gxRDBMS::Find(gxrdDatabaseRecord *r, __ULWORD__ field, int case_cmp,
     }
   }
   
-  // Search the index file for this entry
-  if(UsingIndex()) {
+  // Search the index file for this entry. 10/14/2026: The B-tree used is
+  // the one the key definition assigns to this field. Before, the field
+  // number itself was used as the index number. A field that has no
+  // B-tree is found by searching the data file below.
+  int field_index = gxrd_field_index(field, primary_key, num_sec_keys,
+				     sec_key_fields, num_trees);
+  if((UsingIndex()) && (field_index >= 0)) {
     gxrdKeyType_t k = r->CreateKey(field, CaseCompare());
     if(k == (gxrdKeyType_t)0) {
-      return pod->SetDataFileError(gxDBASE_BAD_KEY);
+      // 10/14/2026: The error code was returned as a block address
+      pod->SetDataFileError(gxDBASE_BAD_KEY);
+      return (FAU_t)0;
     }
     gxrdRecordHeader rh(table.table_name, r->NumFields());
     gxrdTableID_t tid = rh.table_id;
     gxrdKeyID_t kid = (gxrdKeyID_t)0;
     gxrdDatabaseKey key(k, kid, tid, dup);
     gxrdDatabaseKey compare_key;
-    unsigned index_number = field;
-    if(index_number == (__ULWORD__)-1) index_number = 0;
-    if(index_number > (unsigned)num_trees) index_number = 0;
+    unsigned index_number = (unsigned)field_index;
     if(!FindKey(key, compare_key, index_number, test_tree)) {
       return (FAU_t)0; // Could not find the key
     }
+
+    // 10/14/2026: Keys are CRC-32 values, so two different values can
+    // have the same key. Read the record and make sure its key data
+    // matches before reporting it as found.
+    gxrdDatabaseRecord found_record(table.record_def);
+    if(Read(&found_record, (FAU_t)key.KeyID()) != gxDBASE_NO_ERROR) {
+      return (FAU_t)0;
+    }
+    if(!gxrd_key_fields_match(found_record, *r, field, CaseCompare())) {
+      pod->SetDataFileError(gxDBASE_RECORD_NOT_FOUND);
+      return (FAU_t)0;
+    }
+    pod->SetDataFileError(gxDBASE_NO_ERROR);
     return key.KeyID(); // Found the index file entry
   }
 
@@ -852,14 +990,11 @@ int gxRDBMS::DeleteRecord(gxrdDatabaseRecord *r, int flushdb,
   gxDatabase *f = pod->OpenDataFile();
   FAU block_address = (FAU_t)0;
   if(UsingIndex()) {
-    if(num_trees == 1) { 
-      // There are no secondary keys so delete the primary key and return
-      err = DeleteKey(r, block_address, flushdb, test_tree);
-      if(err == gxDBASE_NO_ERROR) {
-	return f->Delete(block_address+f->BlockHeaderSize());
-      }
-    }
-    
+    // 10/14/2026: Removed a shortcut used when there were no secondary
+    // keys. It deleted the first key with the same CRC-32 value without
+    // checking that the record really matched. The search below checks
+    // the record before anything is deleted.
+
     // Search all the indexes for the primary key  
     block_address = FindKey(r, test_tree);
     if(block_address == (FAU_t)0) {
@@ -1096,8 +1231,17 @@ gxDatabaseError gxRDBMS::DefineKeys(const gxString &kdef)
   int i, field_num, bt_node_order;
   int num_pri_keys = 0;
 
+  // 10/14/2026: Reset the settings made by any previous key definition.
+  // The secondary key count was not reset, so a second call added to the
+  // old count and could write past the end of the new array.
+  num_sec_keys = 0;
+  primary_key = -1;
+  compare_case = 1;
+  compare_alpha = 0;
+  dup = 0;
+
   // Allocate memory for the key fields array
-  if(sec_key_fields) delete sec_key_fields;
+  if(sec_key_fields) delete[] sec_key_fields; // 10/14/2026: Was a scalar delete of new[]
   sec_key_fields = new int[record.NumFields()];
   if(!sec_key_fields) return gxDBASE_MEM_ALLOC_ERROR;
   for(i = 0; i < (int)record.NumFields(); i++) {
@@ -1117,7 +1261,7 @@ gxDatabaseError gxRDBMS::DefineKeys(const gxString &kdef)
 	  sec_key_fields = 0;
 	  return gxDBASE_BAD_KEY_DEF;
 	}
-	if(num_pri_keys > 1) {
+	if(num_pri_keys >= 1) { // 10/14/2026: Was "> 1", allowing two PRI keys
 	  delete[] sec_key_fields;
 	  sec_key_fields = 0;
 	  return gxDBASE_BAD_KEY_DEF;
@@ -1155,7 +1299,8 @@ gxDatabaseError gxRDBMS::DefineKeys(const gxString &kdef)
 	  sec_key_fields = 0;
 	  return gxDBASE_BAD_KEY_DEF;
 	}
-	if(num_sec_keys > (int)record.NumFields()) {
+	// 10/14/2026: Was ">", which allowed one write past the array end
+	if(num_sec_keys >= (int)record.NumFields()) {
 	  delete[] sec_key_fields;
 	  sec_key_fields = 0;
 	  return gxDBASE_BAD_KEY_DEF;
@@ -1337,7 +1482,9 @@ gxDatabaseError gxRDBMS::change_or_add_record(gxrdDatabaseRecord *from,
   if(block_address == (FAU_t)0) {
     if(!FindRecord(from, block_address, 1, test_tree)) {
       if(add) {
-	return Write(from, flushdb, test_tree);
+	// 10/14/2026: Was Write(from, ...), which added the old record
+	// instead of the new one
+	return Write(to, block_address, flushdb, test_tree);
       }
       else {
 	return pod->SetDataFileError(gxDBASE_RECORD_NOT_FOUND);
@@ -1380,25 +1527,17 @@ gxDatabaseError gxRDBMS::change_or_add_record(gxrdDatabaseRecord *from,
     return pod->SetDataFileError(gxDBASE_NO_ERROR);    
   }
 
-  if(UsingIndex()) { // Test the entry key
-    int pk = 0;
-    if(primary_key == -1) {
-      pk = -1;
-    }
-    else {
-      pk = primary_key - 1;
-    }
-    gxrdKeyType_t ka = from->CreateKey(pk, CaseCompare());
-    if(ka == (gxrdKeyType_t)0) {
-      return pod->SetDataFileError(gxDBASE_BAD_KEY);
-    }
-    gxrdKeyType_t kb = to->CreateKey(pk, CaseCompare());
-    if(kb == (gxrdKeyType_t)0) {
+  if(UsingIndex()) { // Test the entry keys
+    // 10/14/2026: Only the primary key was tested, so a changed secondary
+    // key was never re-indexed
+    int differ = gxrd_keys_differ(*from, *to, primary_key, num_sec_keys,
+				  sec_key_fields, num_trees, CaseCompare());
+    if(differ < 0) {
       return pod->SetDataFileError(gxDBASE_BAD_KEY);
     }
 
-    // The entry key has not changed for this record
-    if(ka == kb) return pod->SetDataFileError(gxDBASE_NO_ERROR);
+    // The entry keys have not changed for this record
+    if(differ == 0) return pod->SetDataFileError(gxDBASE_NO_ERROR);
     
     // Delete the entry key and reinsert it
     ba = block_address;
@@ -1468,6 +1607,7 @@ int gxRDBMS::ChangeRecordField(const void *data, __ULWORD__ bytes,
   }
   if(block_address == (FAU_t)0) {
     pod->SetDataFileError(gxDBASE_RECORD_NOT_FOUND);
+    return 0; // 10/14/2026: Did not return here
   }
 
   gxDatabase *f = pod->OpenDataFile();
@@ -1476,7 +1616,9 @@ int gxRDBMS::ChangeRecordField(const void *data, __ULWORD__ bytes,
 
   err = record.CreateRecord(table.record_def);
   if(err != gxDBASE_NO_ERROR) {
-    return pod->SetDataFileError(err);
+    // 10/14/2026: The error code was returned as the int result
+    pod->SetDataFileError(err);
+    return 0;
   }
   if(Read(&record, block_address) != gxDBASE_NO_ERROR) {
     return 0;
@@ -1537,36 +1679,35 @@ int gxRDBMS::ChangeRecordField(const void *data, __ULWORD__ bytes,
     return 0;
   }
 
-  if(UsingIndex()) { // Test the entry key
-    int pk = 0;
-    if(primary_key == -1) {
-      pk = -1;
-    }
-    else {
-      pk = primary_key - 1;
-    }
-    gxrdKeyType_t ka = record.CreateKey(pk, CaseCompare());
-    if(ka == (gxrdKeyType_t)0) {
-      return pod->SetDataFileError(gxDBASE_BAD_KEY);
-    }
-    gxrdKeyType_t kb = prev_record.CreateKey(pk, CaseCompare());
-    if(kb == (gxrdKeyType_t)0) {
-      return pod->SetDataFileError(gxDBASE_BAD_KEY);
+  if(UsingIndex()) { // Test the entry keys
+    // 10/14/2026: Error codes were returned as the int result, only the
+    // primary key was tested, and the gxDatabaseError from AddKey() was
+    // returned directly, so success (zero) read as failure.
+    int differ = gxrd_keys_differ(record, prev_record, primary_key, 
+				  num_sec_keys, sec_key_fields, num_trees,
+				  CaseCompare());
+    if(differ < 0) {
+      pod->SetDataFileError(gxDBASE_BAD_KEY);
+      return 0;
     }
 
-    // The entry key has not changed for this record
-    if(ka == kb) {
+    // The entry keys have not changed for this record
+    if(differ == 0) {
       pod->SetDataFileError(gxDBASE_NO_ERROR);
       return 1;
     }
 
-    // Delete the entry key and reinsert it
+    // Delete the entry keys and reinsert them
     ba = block_address;
     if(DeleteKey(&prev_record, ba, flushdb, test_tree) !=
        gxDBASE_NO_ERROR) {
-      return pod->GetDataFileError();
+      return 0;
     }
-    return AddKey(&record, block_address, flushdb, test_tree); 
+    if(AddKey(&record, block_address, flushdb, test_tree) != 
+       gxDBASE_NO_ERROR) {
+      return 0;
+    }
+    return 1;
   }
 
   return 1;
@@ -1995,8 +2136,9 @@ int gxRDBMS::VerifyDataFile(FAU_t &records, int auto_fix, int &rebuild_df,
   records = (FAU_t)0;
   if(!futils_exists(DataFileName().c_str())) {
     // The database does not exist, so create the database and recreate
-    // all associated index files.
-    return create_or_open(0);
+    // all associated index files. 10/14/2026: The gxDatabaseError result
+    // was returned as the int result, so success read as failure.
+    return create_or_open(0) == gxDBASE_NO_ERROR;
   }
   gxrdDatabaseRecord record(table.record_def);
   gxrdDatabaseRecord compare_record(table.record_def);
@@ -2333,12 +2475,23 @@ gxDatabaseError gxRDBMS::insert_key(gxrdDatabaseRecord *r, FAU block_address,
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!pod) return gxDBASE_NULL_PTR;
 
+  // 10/14/2026: The key field was the index number itself (index 0 used
+  // field 0, index 1 used field 1). The field now comes from the key
+  // definition: the primary key for index 0 and secondary key
+  // "index_number" for the others.
   int pk = 0;
   if(primary_key == -1) {
     pk = -1;
   }
+  else if(index_number == 0) {
+    pk = primary_key - 1;
+  }
   else {
-    pk = index_number;
+    if((!sec_key_fields) || (index_number > (__ULWORD__)num_sec_keys)) {
+      return pod->SetIndexFileError(gxDBASE_BAD_INDEX_NUMBER, 
+				    (unsigned)index_number);
+    }
+    pk = sec_key_fields[index_number-1] - 1;
   }
   
   gxrdKeyType_t k = r->CreateKey(pk, CaseCompare());
@@ -2629,8 +2782,9 @@ int gxRDBMS::rebuild_data_file(__SBYTE__ rev, FAU_t static_area,
     return -2;
   }
 
+  // 10/14/2026: copy_static_data was ignored and 0 was always passed
   int rv = f.Rebuild(fname.c_str(), &records, gxDatabase::gxVersion, 
-		     rev, static_area, 0);
+		     rev, static_area, copy_static_data);
   gxDatabaseError err = f.GetDatabaseError();
   if(err != gxDBASE_NO_ERROR) {
     // Record the error. The file was rebuild but there is an 
@@ -2665,6 +2819,18 @@ int gxRDBMS::rebuild_data_file(__SBYTE__ rev, FAU_t static_area,
   if(err != gxDBASE_NO_ERROR) {
     pod->SetDataFileError(err);
     return -8;
+  }
+  if(copy_static_data) {
+    // 10/14/2026: Keep the application space copied with the static
+    // data instead of clearing it when the table header is rewritten
+    gxrdTableHeader old_header;
+    gxRDBMSHeader old_file_id;
+    if(ReadTableHeader(pod->OpenDataFile(), old_header, old_file_id, 0) ==
+       gxDBASE_NO_ERROR) {
+      memmove(table.table_header.app_space, old_header.app_space,
+	      sizeof(table.table_header.app_space));
+    }
+    pod->SetDataFileError(gxDBASE_NO_ERROR);
   }
   err = WriteTableHeader(pod->OpenDataFile(), table.table_header, 1);
   if(err != gxDBASE_NO_ERROR) {
@@ -2810,7 +2976,8 @@ gxDatabaseError gxRDBMS::SortOrderList(
   if(err != gxDBASE_NO_ERROR) {
     return pod->SetDataFileError(err);
   }
-  if(key_number > record.NumFields()) {
+  // 10/14/2026: The -1 (all fields) value handled above was rejected here
+  if((key_number != (__ULWORD__)-1) && (key_number > record.NumFields())) {
     return pod->SetDataFileError(gxDBASE_BUFFER_OVERFLOW);
   }
 
@@ -2918,7 +3085,9 @@ gxDatabaseError gxRDBMS::Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
   if(err != gxDBASE_NO_ERROR) {
     return pod->SetDataFileError(err);
   }
-  if(search_field > record.NumFields()) {
+  // 10/14/2026: The -1 (all fields) value handled above was rejected here
+  if((search_field != (__ULWORD__)-1) && 
+     (search_field > record.NumFields())) {
     return gxDBASE_BUFFER_OVERFLOW;
   }
 
@@ -3020,6 +3189,9 @@ gxDatabaseError gxRDBMS::Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
   char bool_buf = 0;
 #if defined (__64_BIT_DATABASE_ENGINE__)
   gxINT64 i64buf;
+#else
+  gxINT32 i64words[2]; // Low and high words of a 64-bit value
+  double dval, high_part, low_part;
 #endif
 
   __ULWORD__ length;
@@ -3074,8 +3246,15 @@ gxDatabaseError gxRDBMS::Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
       i64buf = search_string.Atoi64();
       compare_record.SetField(&i64buf, sizeof(i64buf), field);
 #else
-      f64buf = search_string.Atof();
-      compare_record.SetField(&f64buf, sizeof(f64buf), field);
+      // 10/14/2026: The value was stored as a 64-bit float, which never
+      // matches INT64 field data. It is now stored as low and high 32-bit
+      // words, the layout CreateKey() and Compare() read in this build.
+      dval = search_string.Atof();
+      high_part = floor(dval / 4294967296.0);
+      low_part = dval - (high_part * 4294967296.0);
+      i64words[0] = (__LWORD__)(__ULWORD__)low_part;
+      i64words[1] = (__LWORD__)high_part;
+      compare_record.SetField(i64words, sizeof(i64words), field);
 #endif
       break;
       

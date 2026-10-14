@@ -43,32 +43,37 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>hsrv_h example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// C++ Header File Name: httpserv.h</FONT>
-<FONT COLOR="#ff0000">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 09/20/1999</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ---------- Include File Description and Details  ---------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>hsrv_h example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>Multithread HTTP Server Include</h1>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Header File Name: httpserv.h</span>
+<span class="cm">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 09/20/1999</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ---------- Include File Description and Details  ---------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -86,8 +91,8 @@ USA
 
 Multi-threaded server framework using the gxSocket and gxThread 
 libraries.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //   </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //   </span>
 #ifndef __GX_S_MTHREAD_SERVER_HPP__
 #define __GX_S_MTHREAD_SERVER_HPP__
 
@@ -98,36 +103,36 @@ libraries.
 #include "gxthread.h"
 #include "gxsocket.h"
 
-<FONT COLOR="#ff0000">// --------------------------------------------------------------</FONT>
-<FONT COLOR="#ff0000">// Constants</FONT>
-<FONT COLOR="#ff0000">// --------------------------------------------------------------</FONT>
-<FONT COLOR="#ff0000">// Thread constants</FONT>
+<span class="cm">// --------------------------------------------------------------</span>
+<span class="cm">// Constants</span>
+<span class="cm">// --------------------------------------------------------------</span>
+<span class="cm">// Thread constants</span>
 const int DISPLAY_THREAD_RETRIES = 3;
-<FONT COLOR="#ff0000">// --------------------------------------------------------------</FONT>
+<span class="cm">// --------------------------------------------------------------</span>
 
-<FONT COLOR="#ff0000">// Server configuration</FONT>
+<span class="cm">// Server configuration</span>
 struct  ServerConfig {
   ServerConfig();
   ~ServerConfig();
   
-  <FONT COLOR="#ff0000">// Server configuration variables</FONT>
-  gxsPort_t port;     <FONT COLOR="#ff0000">// Server's port number</FONT>
-  int accept_clients; <FONT COLOR="#ff0000">// True while accepting </FONT>
+  <span class="cm">// Server configuration variables</span>
+  gxsPort_t port;     <span class="cm">// Server's port number</span>
+  int accept_clients; <span class="cm">// True while accepting </span>
 
-  <FONT COLOR="#ff0000">// gxThread variables</FONT>
-  thrPool *client_request_pool; <FONT COLOR="#ff0000">// Worker threads processing client requests</FONT>
+  <span class="cm">// gxThread variables</span>
+  thrPool *client_request_pool; <span class="cm">// Worker threads processing client requests</span>
 
-  <FONT COLOR="#ff0000">// gxThread synchronization interface</FONT>
-  gxMutex display_lock;      <FONT COLOR="#ff0000">// Mutex object used to lock the display</FONT>
-  gxCondition display_cond;  <FONT COLOR="#ff0000">// Condition variable used with the display lock</FONT>
-  int display_is_locked;     <FONT COLOR="#ff0000">// Display lock Boolean predicate</FONT>
+  <span class="cm">// gxThread synchronization interface</span>
+  gxMutex display_lock;      <span class="cm">// Mutex object used to lock the display</span>
+  gxCondition display_cond;  <span class="cm">// Condition variable used with the display lock</span>
+  int display_is_locked;     <span class="cm">// Display lock Boolean predicate</span>
 };
 
-<FONT COLOR="#ff0000">// Client socket type used to associate client sockets other</FONT>
-<FONT COLOR="#ff0000">// data types.</FONT>
+<span class="cm">// Client socket type used to associate client sockets other</span>
+<span class="cm">// data types.</span>
 struct ClientSocket_t
 {
-  gxsSocket_t client_socket; <FONT COLOR="#ff0000">// Client socket</FONT>
+  gxsSocket_t client_socket; <span class="cm">// Client socket</span>
 };
 
 class ClientRequestThread : public gxSocket, public gxThread
@@ -136,10 +141,10 @@ public:
   ClientRequestThread() { }
   ~ClientRequestThread() { }
 
-public: <FONT COLOR="#ff0000">// Client routines</FONT>
+public: <span class="cm">// Client routines</span>
   void HandleClientRequest(ClientSocket_t *s);
 
-private: <FONT COLOR="#ff0000">// gxThread Interface</FONT>
+private: <span class="cm">// gxThread Interface</span>
   void *ThreadEntryRoutine(gxThread_t *thread);
   void ThreadExitRoutine(gxThread_t *thread);
   void ThreadCleanupHandler(gxThread_t *thread);
@@ -151,21 +156,21 @@ public:
   ServerThread() { }
   ~ServerThread() { }
 
-public: <FONT COLOR="#ff0000">// Server functions</FONT>
+public: <span class="cm">// Server functions</span>
   int InitServer(int max_connections = SOMAXCONN);
 
-private: <FONT COLOR="#ff0000">// gxThread Interface</FONT>
+private: <span class="cm">// gxThread Interface</span>
   void *ThreadEntryRoutine(gxThread_t *thread);
   void ThreadExitRoutine(gxThread_t *thread);
   void ThreadCleanupHandler(gxThread_t *thread);
   
-public: <FONT COLOR="#ff0000">// Server data members</FONT>
+public: <span class="cm">// Server data members</span>
   ClientRequestThread request_thread;
 };
 
-<FONT COLOR="#ff0000">// --------------------------------------------------------------</FONT>
-<FONT COLOR="#ff0000">// Standalone functions</FONT>
-<FONT COLOR="#ff0000">// --------------------------------------------------------------</FONT>
+<span class="cm">// --------------------------------------------------------------</span>
+<span class="cm">// Standalone functions</span>
+<span class="cm">// --------------------------------------------------------------</span>
 void PrintMessage(const char *s1 = " ", const char *s2 = " ", 
 		  const char *s3 = " ");
 void ReportError(const char *s1 = " ", const char *s2 = " ", 
@@ -174,27 +179,26 @@ int CheckSocketError(gxSocket *s, const char *mesg = 0,
 		     int report_error = 1);
 int CheckThreadError(gxThread_t *thread, const char *mesg = 0, 
 		     int report_error = 1);
-<FONT COLOR="#ff0000">// --------------------------------------------------------------</FONT>
+<span class="cm">// --------------------------------------------------------------</span>
 
-<FONT COLOR="#ff0000">// --------------------------------------------------------------</FONT>
-<FONT COLOR="#ff0000">// Globals configuration variables</FONT>
-<FONT COLOR="#ff0000">// --------------------------------------------------------------</FONT>
+<span class="cm">// --------------------------------------------------------------</span>
+<span class="cm">// Globals configuration variables</span>
+<span class="cm">// --------------------------------------------------------------</span>
 extern ServerConfig ServerConfigSruct;
 extern ServerConfig *servercfg;
-<FONT COLOR="#ff0000">// --------------------------------------------------------------</FONT>
+<span class="cm">// --------------------------------------------------------------</span>
 
-#endif <FONT COLOR="#ff0000">// __GX_S_MTHREAD_SERVER_HPP__</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+#endif <span class="cm">// __GX_S_MTHREAD_SERVER_HPP__</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

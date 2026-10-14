@@ -153,10 +153,10 @@ GXDLCODE_API u_short InChecksum16(u_short *addr, int len)
 // U. S. Army Ballistic Research Laboratory
 // December, 1983
 {
-  register int nleft = len;
-  register u_short *w = addr;
-  register u_short answer;
-  register int sum = 0;
+  int nleft = len; // 10/14/2026: register removed (not valid in C++17)
+  u_short *w = addr;
+  u_short answer;
+  int sum = 0;
 
   // Our algorithm is simple, using a 32 bit accumulator (sum),
   // we add sequential 16 bit words to it, and at the end, fold

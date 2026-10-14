@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>btree2c example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: gxbtree.cpp</FONT>
-<FONT COLOR="#ff0000">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 08/22/2000 </FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>btree2c example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>B-tree Cache Dictionary</h1>
+<p class="dr-listing-meta">Source file: <code>gxbtree.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: gxbtree.cpp</span>
+<span class="cm">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 08/22/2000 </span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -85,20 +91,20 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 Dictionary example program using the gxBtree cache functions.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
 #include "gxdlcode.h"
 
 #if !defined (__USE_BTREE_CACHE__)
 int main() { return 0; }
 #else
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include &lt;string.h&gt;
 #include &lt;time.h&gt;
@@ -119,7 +125,7 @@ public:
   void operator=(const char *name);
   ~MyKeyClass() { }
 
-public: <FONT COLOR="#ff0000">// Base class interface</FONT>
+public: <span class="cm">// Base class interface</span>
   size_t KeySize() { return sizeof(key_name); }
 #ifndef __USE_SINGLE_COMPARE__
   int operator==(const DatabaseKeyB&amp; key) const;
@@ -128,7 +134,7 @@ public: <FONT COLOR="#ff0000">// Base class interface</FONT>
   int CompareKey(const DatabaseKeyB&amp; key) const;
 #endif
 
-public: <FONT COLOR="#ff0000">// Persistent data member</FONT>
+public: <span class="cm">// Persistent data member</span>
   char key_name[MyKeyNameSize];
 };
 
@@ -140,13 +146,13 @@ MyKeyClass::MyKeyClass() : DatabaseKeyB((char *)key_name)
 MyKeyClass::MyKeyClass(const char *name) : DatabaseKeyB((char *)key_name)
 {
   strncpy(key_name, name,  MyKeyNameSize);
-  key_name[ MyKeyNameSize-1] = 0; <FONT COLOR="#ff0000">// Ensure null termination</FONT>
+  key_name[ MyKeyNameSize-1] = 0; <span class="cm">// Ensure null termination</span>
 }
 
 void MyKeyClass::operator=(const char *name)
 {
   strncpy(key_name, name,  MyKeyNameSize);
-  key_name[ MyKeyNameSize-1] = 0; <FONT COLOR="#ff0000">// Ensure null termination</FONT>
+  key_name[ MyKeyNameSize-1] = 0; <span class="cm">// Ensure null termination</span>
 }
 
 #ifndef __USE_SINGLE_COMPARE__
@@ -167,7 +173,7 @@ int MyKeyClass::CompareKey(const DatabaseKeyB&amp; key) const
   const MyKeyClass *kptr = (const MyKeyClass *)(&amp;key);
   return strcmp(key_name, (char *)kptr-&gt;db_key);
 }
-#endif <FONT COLOR="#ff0000">//  __USE_SINGLE_COMPARE__</FONT>
+#endif <span class="cm">//  __USE_SINGLE_COMPARE__</span>
 
 void PausePrg()
 {
@@ -205,13 +211,13 @@ void BtreeCacheStats(BtreeCache &amp;btree_cache)
 
 int ParseString(char *srt, char words[255][255],
 		int*numwords, char sepchar)
-<FONT COLOR="#ff0000">// General purpose string parser</FONT>
+<span class="cm">// General purpose string parser</span>
 {
   int i = 0;
   char newword[255];
   *numwords = 0;
 
-  <FONT COLOR="#ff0000">// First skip over leading blanks. Stop if an ASCII NULL is seen</FONT>
+  <span class="cm">// First skip over leading blanks. Stop if an ASCII NULL is seen</span>
   while (1) {
     if (*srt == '\0') return 0;
     if (*srt != ' ') break;
@@ -219,7 +225,7 @@ int ParseString(char *srt, char words[255][255],
   }
   
   while(1) {
-    <FONT COLOR="#ff0000">// Check to see if there is room for another word in the array</FONT>
+    <span class="cm">// Check to see if there is room for another word in the array</span>
     if(*numwords == 255) return 1;
 
     i = 0;
@@ -229,11 +235,11 @@ int ParseString(char *srt, char words[255][255],
       srt++;
       i++;
     }
-    newword[i] = 0;   <FONT COLOR="#ff0000">// Ensure an ASCII null at end of newword. </FONT>
-    strcpy (words[*numwords], newword);  <FONT COLOR="#ff0000">// Install into array </FONT>
+    newword[i] = 0;   <span class="cm">// Ensure an ASCII null at end of newword. </span>
+    strcpy (words[*numwords], newword);  <span class="cm">// Install into array </span>
     (*numwords)++;
     
-    <FONT COLOR="#ff0000">// If stopped by an ASCII NULL above, exit loop</FONT>
+    <span class="cm">// If stopped by an ASCII NULL above, exit loop</span>
     if(*srt == 0) break;
     
     srt++;
@@ -253,20 +259,20 @@ int ImportTextFile(gxBtree &amp;btx, char *fname)
   char words[255][255];
   const int MaxLine = 255;
   char LineBuffer[MaxLine];
-  const char dchar = '/';  <FONT COLOR="#ff0000">// Text delimiter</FONT>
+  const char dchar = '/';  <span class="cm">// Text delimiter</span>
 
   cout &lt;&lt; "\n";
   cout &lt;&lt; "Opening dictionary text file" &lt;&lt; "\n";
   
   DiskFileB infile(fname);
-  if(!infile) { <FONT COLOR="#ff0000">// Could not open the istream</FONT>
+  if(!infile) { <span class="cm">// Could not open the istream</span>
     cout &lt;&lt; "Could not open file: " &lt;&lt; fname &lt;&lt; "\n";
     return 1;
   }
  
   cout &lt;&lt; "Adding words..." &lt;&lt; "\n";
 
-  <FONT COLOR="#ff0000">// Get CPU clock cycles before entering loop</FONT>
+  <span class="cm">// Get CPU clock cycles before entering loop</span>
   clock_t begin = clock();
 
   MyKeyClass key;
@@ -280,7 +286,7 @@ int ImportTextFile(gxBtree &amp;btx, char *fname)
   while(!infile.df_EOF()) {
     if(infile.df_GetLine(LineBuffer, df_MAX_LINE_LENGTH, '\n', 1) != 
        DiskFileB::df_NO_ERROR) {
-      break; <FONT COLOR="#ff0000">// Error reading from the disk file</FONT>
+      break; <span class="cm">// Error reading from the disk file</span>
     }
     if(strcmp(LineBuffer, "") == 0) continue;
     
@@ -290,7 +296,7 @@ int ImportTextFile(gxBtree &amp;btx, char *fname)
     
     key = LineBuffer;
 
-    <FONT COLOR="#ff0000">// Cached insertion method</FONT>
+    <span class="cm">// Cached insertion method</span>
     status = btx.Insert(key, compare_key, &amp;btree_cache);
 
     if (status != 1) {
@@ -303,10 +309,10 @@ int ImportTextFile(gxBtree &amp;btx, char *fname)
     }
   }
   
-  <FONT COLOR="#ff0000">// Get CPU clock cycles after loop is completed </FONT>
+  <span class="cm">// Get CPU clock cycles after loop is completed </span>
   clock_t end =clock();
   
-  <FONT COLOR="#ff0000">// Calculate the elapsed time in seconds. </FONT>
+  <span class="cm">// Calculate the elapsed time in seconds. </span>
   double elapsed_time = (double)(end - begin) / CLOCKS_PER_SEC;
   cout.precision(3); 
   cout &lt;&lt; "Added " &lt;&lt; key_count &lt;&lt; " words in " 
@@ -314,7 +320,7 @@ int ImportTextFile(gxBtree &amp;btx, char *fname)
 
   BtreeCacheStats(btree_cache);
 
-  <FONT COLOR="#ff0000">// Rewind the file</FONT>
+  <span class="cm">// Rewind the file</span>
   infile.df_Rewind();
   
   cout &lt;&lt; "Verifying the entries using a sort order search..." &lt;&lt; "\n";
@@ -322,13 +328,13 @@ int ImportTextFile(gxBtree &amp;btx, char *fname)
   key_count = 0;
   double search_time = 0;
 
-  <FONT COLOR="#ff0000">// Cache node used for optimized sort order searches</FONT>
+  <span class="cm">// Cache node used for optimized sort order searches</span>
   BtreeCacheNode curr_node(btree_cache);
 
   while(!infile.df_EOF()) {
     if(infile.df_GetLine(LineBuffer, df_MAX_LINE_LENGTH, '\n', 1) != 
        DiskFileB::df_NO_ERROR) {
-      break; <FONT COLOR="#ff0000">// Error reading from the disk file</FONT>
+      break; <span class="cm">// Error reading from the disk file</span>
     }
     if(strcmp(LineBuffer, "") == 0) continue;
     
@@ -339,7 +345,7 @@ int ImportTextFile(gxBtree &amp;btx, char *fname)
     key = LineBuffer;
     clock_t begin_search = clock();
 
-    <FONT COLOR="#ff0000">// status = btx.Find(key, compare_key, &amp;btree_cache);</FONT>
+    <span class="cm">// status = btx.Find(key, compare_key, &amp;btree_cache);</span>
     status = btx.Find(key, compare_key, curr_node);
 
     clock_t end_search = clock();
@@ -370,7 +376,7 @@ int ImportTextFile(gxBtree &amp;btx, char *fname)
        &lt;&lt; "\n";
   begin = clock();
   key_count = 0;
-  btx.ResetStats(); <FONT COLOR="#ff0000">// Reset the B-tree tuning statistics</FONT>
+  btx.ResetStats(); <span class="cm">// Reset the B-tree tuning statistics</span>
 
   if(btx.FindFirst(key, curr_node)) {
     key_count++;
@@ -396,7 +402,7 @@ int ImportTextFile(gxBtree &amp;btx, char *fname)
        &lt;&lt; "\n";
   begin = clock();
   key_count = 0;
-  btx.ResetStats(); <FONT COLOR="#ff0000">// Reset the B-tree tuning statistics</FONT>
+  btx.ResetStats(); <span class="cm">// Reset the B-tree tuning statistics</span>
 
   if(btx.FindLast(key, curr_node)) {
     key_count++;
@@ -418,7 +424,7 @@ int ImportTextFile(gxBtree &amp;btx, char *fname)
 
   BtreeCacheStats(btree_cache);
   
-  <FONT COLOR="#ff0000">// Rewind the file</FONT>
+  <span class="cm">// Rewind the file</span>
   infile.df_Rewind();
 
   cout &lt;&lt; "Deleting the entries..." &lt;&lt; "\n";
@@ -428,14 +434,14 @@ int ImportTextFile(gxBtree &amp;btx, char *fname)
   while(!infile.df_EOF()) {
     if(infile.df_GetLine(LineBuffer, df_MAX_LINE_LENGTH, '\n', 1) != 
        DiskFileB::df_NO_ERROR) {
-      break; <FONT COLOR="#ff0000">// Error reading from the disk file</FONT>
+      break; <span class="cm">// Error reading from the disk file</span>
     }
     if(strcmp(LineBuffer, "") == 0) continue;
 
     key = LineBuffer;
 
-    <FONT COLOR="#ff0000">// Balanced delete function</FONT>
-    <FONT COLOR="#ff0000">// status = btx.Delete(key, compare_key, &amp;btree_cache);</FONT>
+    <span class="cm">// Balanced delete function</span>
+    <span class="cm">// status = btx.Delete(key, compare_key, &amp;btree_cache);</span>
 
     status = btx.FastDelete(key, compare_key, &amp;btree_cache);
 
@@ -457,7 +463,7 @@ int ImportTextFile(gxBtree &amp;btx, char *fname)
 
   BtreeCacheStats(btree_cache);
 
-  <FONT COLOR="#ff0000">// Rewind the file</FONT>
+  <span class="cm">// Rewind the file</span>
   infile.df_Rewind();
 
   cout &lt;&lt; "Re-inserting all the words..." &lt;&lt; "\n";
@@ -467,7 +473,7 @@ int ImportTextFile(gxBtree &amp;btx, char *fname)
   while(!infile.df_EOF()) {
     if(infile.df_GetLine(LineBuffer, df_MAX_LINE_LENGTH, '\n', 1) != 
        DiskFileB::df_NO_ERROR) {
-      break; <FONT COLOR="#ff0000">// Error reading from the disk file</FONT>
+      break; <span class="cm">// Error reading from the disk file</span>
     }
     if(strcmp(LineBuffer, "") == 0) continue;
     
@@ -515,29 +521,29 @@ int main(int argv, char **argc)
   InitLeakTest(); 
 #endif
 
-  const char *fname = "testfile.btx"; <FONT COLOR="#ff0000">// File name of this database</FONT>
-  char *dfile = "amerdict.txt"; <FONT COLOR="#ff0000">// Default dictionary file</FONT>
-  char rev_letter = gxDatabaseRevisionLetter; <FONT COLOR="#ff0000">// Set the default rev letter</FONT>
-  if(argv &gt;= 2) { <FONT COLOR="#ff0000">// Set a specified revision letter</FONT>
+  const char *fname = "testfile.btx"; <span class="cm">// File name of this database</span>
+  char *dfile = "amerdict.txt"; <span class="cm">// Default dictionary file</span>
+  char rev_letter = gxDatabaseRevisionLetter; <span class="cm">// Set the default rev letter</span>
+  if(argv &gt;= 2) { <span class="cm">// Set a specified revision letter</span>
     rev_letter = *argc[1];
     if(rev_letter == '0') rev_letter = '\0';
-    <FONT COLOR="#ff0000">// Valid rev letters are:</FONT>
-    <FONT COLOR="#ff0000">// Rev 0</FONT>
-    <FONT COLOR="#ff0000">// Rev 'A' or 'a'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'B' or 'b'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'C' or 'c'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'D' or 'd'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'E' or 'e'</FONT>
-    <FONT COLOR="#ff0000">// NOTE: The gxDatabase class will set invalid revision letters</FONT>
-    <FONT COLOR="#ff0000">// to the version set by the gxDatabaseRevisionLetter constant.  </FONT>
+    <span class="cm">// Valid rev letters are:</span>
+    <span class="cm">// Rev 0</span>
+    <span class="cm">// Rev 'A' or 'a'</span>
+    <span class="cm">// Rev 'B' or 'b'</span>
+    <span class="cm">// Rev 'C' or 'c'</span>
+    <span class="cm">// Rev 'D' or 'd'</span>
+    <span class="cm">// Rev 'E' or 'e'</span>
+    <span class="cm">// NOTE: The gxDatabase class will set invalid revision letters</span>
+    <span class="cm">// to the version set by the gxDatabaseRevisionLetter constant.  </span>
   }
 
-  if(argv == 3) dfile = argc[2]; <FONT COLOR="#ff0000">// Use specified dictionary</FONT>
+  if(argv == 3) dfile = argc[2]; <span class="cm">// Use specified dictionary</span>
 
   MyKeyClass key, kbuf;
   gxBtree btx(key, MyKeyClassOrder);
 
-  <FONT COLOR="#ff0000">// Create a new B-tree index with one tree</FONT>
+  <span class="cm">// Create a new B-tree index with one tree</span>
   btx.Create(fname, rev_letter);
 
   ImportTextFile(btx, dfile);
@@ -546,18 +552,17 @@ int main(int argv, char **argc)
   return 0;
 }
 
-#endif <FONT COLOR="#ff0000">// __USE_BTREE_CACHE__</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+#endif <span class="cm">// __USE_BTREE_CACHE__</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

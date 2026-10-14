@@ -92,7 +92,7 @@ public:
   ~gxConfig();
 
 private:
-  gxConfig(const gxConfig &ob) { }       // Disallow copying
+  gxConfig(const gxConfig &ob) : gxListB() { } // Disallow copying
   void operator=(const gxConfig &ob) { } // Disallow assignment
 
 public: // Functions used to load and unload config file

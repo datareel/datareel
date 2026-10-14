@@ -196,6 +196,8 @@ public:
   gxSemaphore_t() {
     is_initialized = 0; process_type = gxPROCESS_PRIVATE;
     semaphore_error = gxSEMAPHORE_NO_ERROR;
+    // 10/14/2026: The value fields were left uninitialized
+    value = value_after_operation = 1;
   }
   ~gxSemaphore_t() { }
 

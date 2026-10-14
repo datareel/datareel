@@ -156,7 +156,7 @@ GXDLCODE_API void DatabaseStats(gxDatabase *f)
       break;
   }
 
-  delete signature;
+  delete[] signature; // 10/14/2026: Was a scalar delete of new[]
   GXSTD::cout << "\n";
 #endif // Display type for stats messaging
 }
@@ -171,6 +171,11 @@ GXDLCODE_API  void BlockStats(gxDatabase *f, FAU oa)
   char rev_letter = f->GetRevLetter();
   __ULWORD__ object_crc, calc_crc;
   
+  // 10/14/2026: Save the stream format. The fill character and other
+  // format changes made below were left set after this function.
+  GXSTD::ios::fmtflags prev_flags = GXSTD::cout.flags();
+  char prev_fill = GXSTD::cout.fill();
+
   GXSTD::cout << "\n";
   GXSTD::cout << "----- Block Statistics -----" << "\n";
   
@@ -231,6 +236,8 @@ GXDLCODE_API  void BlockStats(gxDatabase *f, FAU oa)
   }
 
   GXSTD::cout << "\n";
+  GXSTD::cout.flags(prev_flags); // 10/14/2026: Restore the stream format
+  GXSTD::cout.fill(prev_fill);
 #endif // Display type for stats messaging
 }
 
@@ -267,6 +274,10 @@ GXDLCODE_API void EchoDatabaseVersion()
 // Echo the current library version and revision to the console.
 {
 #if defined (__CONSOLE__)
+  // 10/14/2026: Save the stream format. The fixed point format and
+  // precision set here were left set after this function.
+  GXSTD::ios::fmtflags prev_flags = GXSTD::cout.flags();
+  GXSTD::streamsize prev_precision = GXSTD::cout.precision();
   GXSTD::cout.setf(GXSTD::ios::showpoint | GXSTD::ios::fixed);
   GXSTD::cout.precision(3);
   GXSTD::cout << "Default Database Library Version:  " << gxDatabaseVersion 
@@ -283,26 +294,30 @@ GXDLCODE_API void EchoDatabaseVersion()
     GXSTD::cout << "Default Database Library Revision: " 
 		<< gxDatabaseRevisionLetter << "\n";
   }
+  GXSTD::cout.flags(prev_flags); // 10/14/2026: Restore the stream format
+  GXSTD::cout.precision(prev_precision);
 #endif // Display type for stats messaging
 }
 
 GXDLCODE_API void EchoDatabaseVersion(gxDatabase *f)
-// Echo the current library version and revision to the console.
+// Echo the version and revision of an open database file to the console.
 {
 #if defined (__CONSOLE__)
+  // 10/14/2026: The values come from the file, but they were printed
+  // with the "Default Database Library" labels used for the library
+  // defaults. The stream format was also changed and not restored, 
+  // although the version is printed as an integer string.
   UString intbuf;
-  GXSTD::cout.setf(GXSTD::ios::showpoint | GXSTD::ios::fixed);
-  GXSTD::cout.precision(3);
   char rev_letter = f->GetRevLetter();
   intbuf.Clear();
   intbuf << (FAU_t)f->GetVersion();
-  GXSTD::cout << "Default Database Library Version:  " << intbuf.c_str()
+  GXSTD::cout << "Database File Version:  " << intbuf.c_str()
 	      << "\n";
   if((rev_letter == '\0') || (rev_letter == ' ')) {
-    GXSTD::cout << "Default Database Library Revision: Zero" << "\n";
+    GXSTD::cout << "Database File Revision: Zero" << "\n";
   }
   else {
-    GXSTD::cout << "Default Database Library Revision: " << rev_letter << "\n";
+    GXSTD::cout << "Database File Revision: " << rev_letter << "\n";
   }
 #endif // Display type for stats messaging
 }

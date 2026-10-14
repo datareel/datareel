@@ -1217,8 +1217,9 @@ int gxSocket::GetIPAddress(char *sbuf)
   }
   ialist = (gxsInternetAddress *)hostinfo->h_addr_list[0];
 
-  // Prevent crashes if memory has not been allocated
-  if(!sbuf) sbuf = new char[gxsMAX_NAME_LEN]; 
+  // 10/14/2026: A null buffer is an error. It used to allocate a local
+  // buffer the caller never received, which leaked.
+  if(!sbuf) return -1;
 
   strcpy(sbuf, inet_ntoa(*ialist));
   delete hostinfo;
@@ -1239,8 +1240,9 @@ int gxSocket::GetDomainName(char *sbuf)
     socket_error = gxSOCKET_HOSTNAME_ERROR;
     return -1;
   }
-  // Prevent crashes if memory has not been allocated
-  if(!sbuf) sbuf = new char[gxsMAX_NAME_LEN]; 
+  // 10/14/2026: A null buffer is an error. It used to allocate a local
+  // buffer the caller never received, which leaked.
+  if(!sbuf) return -1;
 
   strcpy(sbuf, hostinfo->h_name);
   int i; int len = strlen(sbuf);
@@ -1267,8 +1269,9 @@ int gxSocket::GetBoundIPAddress(char *sbuf)
     return -1;
   }
 
-  // Prevent crashes if memory has not been allocated
-  if(!sbuf) sbuf = new char[gxsMAX_NAME_LEN]; 
+  // 10/14/2026: A null buffer is an error. It used to allocate a local
+  // buffer the caller never received, which leaked.
+  if(!sbuf) return -1;
 
   strcpy(sbuf, s);
   return 0;
@@ -1286,9 +1289,11 @@ int gxSocket::GetRemoteHostName(char *sbuf)
   memset(client_name, 0, gxsMAX_NAME_LEN);
   inet_ntop(AF_INET, &remote_sin.sin_addr, client_name, gxsMAX_NAME_LEN);
 
-  // Prevent crashes if memory has not been allocated
-  if(!sbuf) sbuf = new char[gxsMAX_NAME_LEN]; 
+  // 10/14/2026: A null buffer is an error. It used to allocate a local
+  // buffer the caller never received, which leaked.
+  if(!sbuf) return -1;
   strncpy(sbuf, client_name, (gxsMAX_NAME_LEN-1));
+  sbuf[gxsMAX_NAME_LEN-1] = 0; // 10/14/2026: strncpy may not terminate
 #else
   char *s = inet_ntoa(remote_sin.sin_addr);
   if(s == 0) {
@@ -1296,8 +1301,9 @@ int gxSocket::GetRemoteHostName(char *sbuf)
     return -1;
   }
 
-  // Prevent crashes if memory has not been allocated
-  if(!sbuf) sbuf = new char[gxsMAX_NAME_LEN]; 
+  // 10/14/2026: A null buffer is an error. It used to allocate a local
+  // buffer the caller never received, which leaked.
+  if(!sbuf) return -1;
 
   strcpy(sbuf, s);
 #endif

@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>persist example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: testprog.cpp</FONT>
-<FONT COLOR="#ff0000">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 09/18/1997</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>persist example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>Persistent Base Class</h1>
+<p class="dr-listing-meta">Source file: <code>testprog.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: testprog.cpp</span>
+<span class="cm">// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 09/18/1997</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -107,21 +113,21 @@ some C++ compilers so this feature was implemented to allow
 applications to obtain type information and used by the Persistent 
 base class to store objects from multiple classes in a single
 database.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //   </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //   </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include "grocery.h"
 
 void PausePrg()
-<FONT COLOR="#ff0000">// Function used to pause the program.</FONT>
+<span class="cm">// Function used to pause the program.</span>
 {
   cout &lt;&lt; "\n";
   cout &lt;&lt; "Press enter to continue..." &lt;&lt; "\n";
@@ -129,7 +135,7 @@ void PausePrg()
 }
 
 void ClearInputStream(istream &amp;s)
-<FONT COLOR="#ff0000">// Function used to clear the input stream.</FONT>
+<span class="cm">// Function used to clear the input stream.</span>
 {
   char c;
   s.clear();
@@ -143,23 +149,23 @@ int Quit()
 }
 
 char *InputData()
-<FONT COLOR="#ff0000">// Function used to read a string from the input stream.</FONT>
-<FONT COLOR="#ff0000">// Returns a null terminated string or a null value if an</FONT>
-<FONT COLOR="#ff0000">// error occurs. NOTE: The calling function must free the</FONT>
-<FONT COLOR="#ff0000">// memory allocated for this string.</FONT>
+<span class="cm">// Function used to read a string from the input stream.</span>
+<span class="cm">// Returns a null terminated string or a null value if an</span>
+<span class="cm">// error occurs. NOTE: The calling function must free the</span>
+<span class="cm">// memory allocated for this string.</span>
 {
   char buf[MAX_NAME_LENGTH];
   for(unsigned i = 0; i &lt; MAX_NAME_LENGTH; i++) buf[i] = 0;
   cout &lt;&lt; "Item name: ";
   cin.getline(buf, sizeof(buf));
-  char *s = new char[strlen(buf)+1]; <FONT COLOR="#ff0000">// Account for null terminator</FONT>
+  char *s = new char[strlen(buf)+1]; <span class="cm">// Account for null terminator</span>
   if(!s) return 0;
   strcpy(s, buf);
   return s;
 }
 
 void DisplayItem(Grocery &amp;grocery, int full = 1)
-<FONT COLOR="#ff0000">// Function used to print a grocery list object to the stdout.</FONT>
+<span class="cm">// Function used to print a grocery list object to the stdout.</span>
 {
   cout &lt;&lt; "\n";
   cout &lt;&lt; "Item's Name  = " &lt;&lt; grocery.Name() &lt;&lt; "\n";
@@ -173,10 +179,10 @@ void DisplayItem(Grocery &amp;grocery, int full = 1)
 }
 
 void AddItem(POD *DB)
-<FONT COLOR="#ff0000">// Function used to add an object to the database.</FONT>
+<span class="cm">// Function used to add an object to the database.</span>
 {
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   char *buf = InputData();
@@ -222,14 +228,14 @@ void AddItem(POD *DB)
   }
   delete buf;
 
-  DB-&gt;Flush(); <FONT COLOR="#ff0000">// Flushing the database buffers following manual insertion</FONT>
+  DB-&gt;Flush(); <span class="cm">// Flushing the database buffers following manual insertion</span>
 }
 
 void DeleteItem(POD *DB)
-<FONT COLOR="#ff0000">// Function used to delete an object from the database.</FONT>
+<span class="cm">// Function used to delete an object from the database.</span>
 {
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   char *buf = InputData();
@@ -245,7 +251,7 @@ void DeleteItem(POD *DB)
   cout &lt;&lt; "Deleted item: " &lt;&lt; buf &lt;&lt; "\n";
   delete buf;
 
-  DB-&gt;Flush(); <FONT COLOR="#ff0000">// Flushing the database buffers following manual deletion</FONT>
+  DB-&gt;Flush(); <span class="cm">// Flushing the database buffers following manual deletion</span>
 }
 
 void PrintBtreeHeader(POD *DB, unsigned index_number) 
@@ -259,24 +265,24 @@ void PrintBtreeHeader(POD *DB, unsigned index_number)
   cout &lt;&lt; "Number of nodes: " &lt;&lt; hdr.n_nodes &lt;&lt; "\n";
   cout &lt;&lt; "B-tree height:   " &lt;&lt; hdr.btree_height &lt;&lt; "\n";
   cout &lt;&lt; "Root Address:    " &lt;&lt; (long)hdr.root &lt;&lt; "\n";
-  <FONT COLOR="#ff0000">// NOTE: The root node FAU is cast to a long for compilers</FONT>
-  <FONT COLOR="#ff0000">// with native 64-bit int ostream overloads</FONT>
+  <span class="cm">// NOTE: The root node FAU is cast to a long for compilers</span>
+  <span class="cm">// with native 64-bit int ostream overloads</span>
   cout &lt;&lt; "Number of trees: " &lt;&lt; hdr.num_trees &lt;&lt; "\n";
   cout &lt;&lt; "\n";
 }
 
 void ListInOrder(POD *DB, unsigned index_number)
-<FONT COLOR="#ff0000">// List the contents of the database using the index file.</FONT>
+<span class="cm">// List the contents of the database using the index file.</span>
 {
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   Grocery grocery(DB);
   GroceryKey key, compare_key;
   gxBtree *btx = DB-&gt;Index(index_number);
 
-  <FONT COLOR="#ff0000">// Walk through the tree starting at the first key</FONT>
+  <span class="cm">// Walk through the tree starting at the first key</span>
   if(btx-&gt;FindFirst(key)) {
     if(!grocery.ReadObject(key.ObjectID())) {
       cout &lt;&lt; "Error reading the object" &lt;&lt; "\n";
@@ -297,16 +303,16 @@ void ListInOrder(POD *DB, unsigned index_number)
 }
 
 void ListInOrder(POD *DB)
-<FONT COLOR="#ff0000">// List contents of the database without using the index file.</FONT>
+<span class="cm">// List contents of the database without using the index file.</span>
 {
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   FAU_t addr = (FAU_t)0;
   Grocery grocery(DB);
   unsigned count = 0;
-  ClearInputStream(cin); <FONT COLOR="#ff0000">// Clear input stream</FONT>
+  ClearInputStream(cin); <span class="cm">// Clear input stream</span>
   while(1) {
     addr = DB-&gt;OpenDataFile()-&gt;FindFirstObject(addr);
     if(!addr) break;
@@ -325,10 +331,10 @@ void ListInOrder(POD *DB)
 }
 
 void FindItem(POD *DB)
-<FONT COLOR="#ff0000">// Function used to find an object in the database.</FONT>
+<span class="cm">// Function used to find an object in the database.</span>
 {
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   char *buf = InputData();
@@ -347,18 +353,18 @@ void FindItem(POD *DB)
   
   if(!grocery.ReadObject()) {
     cout &lt;&lt; "Error reading the object" &lt;&lt; "\n";
-    grocery.ClearName(); <FONT COLOR="#ff0000">// Prevent memory leak</FONT>
+    grocery.ClearName(); <span class="cm">// Prevent memory leak</span>
     return;
   }
   DisplayItem(grocery);
-  grocery.ClearName(); <FONT COLOR="#ff0000">// Prevent memory leak</FONT>
+  grocery.ClearName(); <span class="cm">// Prevent memory leak</span>
 }
 
 void BuildDatabase(POD *DB)
-<FONT COLOR="#ff0000">// Function used to build a test database.</FONT>
+<span class="cm">// Function used to build a test database.</span>
 {
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   const int NUM_OBJECTS = 1000;
@@ -372,12 +378,12 @@ void BuildDatabase(POD *DB)
   for(i = 0; i &lt; NUM_OBJECTS; i++) {
     sprintf(name, "Item %i", i);
 
-    <FONT COLOR="#ff0000">// Set the item's name, stock number, price</FONT>
+    <span class="cm">// Set the item's name, stock number, price</span>
     grocery.SetName((Name_t)name);
     grocery.SetStockNumber(StockNumber_t(stock_number+i));
     grocery.SetPrice(Price_t(price+i));
 
-    <FONT COLOR="#ff0000">// Write the grocery list item to the database</FONT>
+    <span class="cm">// Write the grocery list item to the database</span>
     if(!grocery.WriteObject()) {
       cout &lt;&lt; "Could not add object number " &lt;&lt; i &lt;&lt; " to the database"
 	   &lt;&lt; "\n";
@@ -385,12 +391,12 @@ void BuildDatabase(POD *DB)
     }
   }
   
-  <FONT COLOR="#ff0000">// Flush the database files after a batch insert</FONT>
+  <span class="cm">// Flush the database files after a batch insert</span>
   DB-&gt;Flush();
 }
  
 void Menu()
-<FONT COLOR="#ff0000">// Console based user menu.</FONT>
+<span class="cm">// Console based user menu.</span>
 {
   cout &lt;&lt; "(A, a)    Add object to the database" &lt;&lt; "\n";
   cout &lt;&lt; "(B, b)    Build a test database" &lt;&lt; "\n";
@@ -406,16 +412,16 @@ void Menu()
 }
 
 void Compare(POD *DB)
-<FONT COLOR="#ff0000">// Function used to compare the contents of the data file to the</FONT>
-<FONT COLOR="#ff0000">// index file.</FONT>
+<span class="cm">// Function used to compare the contents of the data file to the</span>
+<span class="cm">// index file.</span>
 {
   if(!DB-&gt;UsingIndex()) {
     cout &lt;&lt; "This database is not using the indexing sub-system" &lt;&lt; "\n";
     return;
   }
   
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   Grocery grocery(DB);
@@ -434,19 +440,19 @@ void Compare(POD *DB)
 }
 
 void Rebuild(POD *DB, const char *fname)
-<FONT COLOR="#ff0000">// Function used to rebuild the index file if the index file</FONT>
-<FONT COLOR="#ff0000">// entries no longer match the data file entries.</FONT>
+<span class="cm">// Function used to rebuild the index file if the index file</span>
+<span class="cm">// entries no longer match the data file entries.</span>
 {
   if(!DB-&gt;UsingIndex()) return;
   
-  <FONT COLOR="#ff0000">// Ensure that the in memory buffers and the file data</FONT>
-  <FONT COLOR="#ff0000">// stay in sync during multiple file access.</FONT>
+  <span class="cm">// Ensure that the in memory buffers and the file data</span>
+  <span class="cm">// stay in sync during multiple file access.</span>
   DB-&gt;TestDatabase();
 
   Grocery grocery(DB);
   cout &lt;&lt; "\n";
   cout &lt;&lt; "Rebuilding the index file..." &lt;&lt; "\n";
-  <FONT COLOR="#ff0000">// Rebuild index number 0 with room for 1 tree header</FONT>
+  <span class="cm">// Rebuild index number 0 with room for 1 tree header</span>
   int rv = grocery.RebuildIndexFile(fname, 0, 1, POD_DEFAULT_ORDER);
   if(!rv) {
     cout &lt;&lt; "The index file was not rebuilt!" &lt;&lt; "\n";
@@ -461,31 +467,31 @@ void Rebuild(POD *DB, const char *fname)
 
 int main(int argv, char **argc)
 {
-  char rev_letter = gxDatabaseRevisionLetter; <FONT COLOR="#ff0000">// Set the default rev letter</FONT>
-  if(argv == 2) { <FONT COLOR="#ff0000">// Set a specified revision letter</FONT>
+  char rev_letter = gxDatabaseRevisionLetter; <span class="cm">// Set the default rev letter</span>
+  if(argv == 2) { <span class="cm">// Set a specified revision letter</span>
     rev_letter = *argc[1];
     if(rev_letter == '0') rev_letter = '\0';
-    <FONT COLOR="#ff0000">// Valid rev letters are:</FONT>
-    <FONT COLOR="#ff0000">// Rev 0</FONT>
-    <FONT COLOR="#ff0000">// Rev 'A' or 'a'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'B' or 'b'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'C' or 'c'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'D' or 'd'</FONT>
-    <FONT COLOR="#ff0000">// Rev 'E' or 'e'</FONT>
-    <FONT COLOR="#ff0000">// NOTE: The gxDatabase class will set invalid revision letters</FONT>
-    <FONT COLOR="#ff0000">// to the version set by the gxDatabaseRevisionLetter constant.  </FONT>
+    <span class="cm">// Valid rev letters are:</span>
+    <span class="cm">// Rev 0</span>
+    <span class="cm">// Rev 'A' or 'a'</span>
+    <span class="cm">// Rev 'B' or 'b'</span>
+    <span class="cm">// Rev 'C' or 'c'</span>
+    <span class="cm">// Rev 'D' or 'd'</span>
+    <span class="cm">// Rev 'E' or 'e'</span>
+    <span class="cm">// NOTE: The gxDatabase class will set invalid revision letters</span>
+    <span class="cm">// to the version set by the gxDatabaseRevisionLetter constant.  </span>
   }
 
   const char *data_file = "grocery.gxd";
   const char *index_file = "grocery.btx";
   GroceryKey key_type;
 
-  <FONT COLOR="#ff0000">// Create or open an existing database using a single index file</FONT>
+  <span class="cm">// Create or open an existing database using a single index file</span>
   POD pod;
 
   gxDatabaseAccessMode mode = gxDBASE_READWRITE;
   BtreeNodeOrder_t order = POD_DEFAULT_ORDER;
-  int num_trees = 1; <FONT COLOR="#ff0000">// Use one tree per index file</FONT>
+  int num_trees = 1; <span class="cm">// Use one tree per index file</span>
   int use_index = 1;
   FAU_t static_size = (FAU_t)0;
   __SBYTE__ df_rev_letter = rev_letter;
@@ -494,7 +500,7 @@ int main(int argv, char **argc)
 				 order, mode, use_index, 
 				 static_size, num_trees, df_rev_letter, 
 				 if_rev_letter);
-  <FONT COLOR="#ff0000">// Test for any errors</FONT>
+  <span class="cm">// Test for any errors</span>
   if(err != gxDBASE_NO_ERROR) {
     cout &lt;&lt; gxDatabaseExceptionMessage(err) &lt;&lt; "\n";
     return 1;
@@ -535,17 +541,16 @@ int main(int argv, char **argc)
 
   return 0;
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

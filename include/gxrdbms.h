@@ -147,7 +147,9 @@ public: // Search and sort functions
   gxDatabaseError SortOrderList(gxBStree<gxrdDatabaseRecord> &virtual_list,
 				FAU_t list_limit, FAU_t list_start, 
 				FAU_t list_end) {
-    return SortOrderList(virtual_list, (primary_key-1), primary_key, 
+    // 10/14/2026: The index number was primary_key-1, which is not a
+    // B-tree index number. The primary key is always in B-tree 0.
+    return SortOrderList(virtual_list, 0, (__ULWORD__)primary_key, 
 			 compare_case, compare_alpha, list_limit,
 			 list_start, list_end);
   }
@@ -160,7 +162,8 @@ public: // Search and sort functions
   gxDatabaseError Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
 			 gxrdDatabaseRecord &compare_record, 
 			 int find_all_matches, FAU_t list_limit) {
-    return Search(virtual_list, compare_record, (primary_key-1), primary_key,
+    // 10/14/2026: The index number was primary_key-1 (see SortOrderList)
+    return Search(virtual_list, compare_record, 0, (__ULWORD__)primary_key,
 		  compare_case, compare_alpha, find_all_matches, list_limit);
   }
   gxDatabaseError Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
@@ -171,7 +174,8 @@ public: // Search and sort functions
   gxDatabaseError Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
 			 gxString &search_string,
 			 int find_all_matches, FAU_t list_limit) {
-    return Search(virtual_list, search_string, (primary_key-1), primary_key,
+    // 10/14/2026: The index number was primary_key-1 (see SortOrderList)
+    return Search(virtual_list, search_string, 0, (__ULWORD__)primary_key,
 		  compare_case, compare_alpha, find_all_matches, list_limit);
   }
   gxDatabaseError Search(gxBStree<gxrdDatabaseRecord> &virtual_list,

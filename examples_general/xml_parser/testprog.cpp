@@ -334,139 +334,16 @@ void PrintXS(gxsXML &xml)
 }
 
 void PrintTree(gxsXML &xml)
+// 10/14/2026: Print the tree with the library's own writer. The old
+// hand-written loop repeated the writer's earlier nesting logic, so it
+// showed nested elements at the wrong level once the parser was fixed.
 {
-  gxString root_name;
-  int i;
-
-  gxListNode<gxsXMLNode> *lptr = xml.node_tree.GetHead();
-  while(lptr) {
-    if(lptr->data.node_type == gxsXML_ROOT_NODE) {
-      root_name = lptr->data.name;
-      cout << "<" << lptr->data.name.c_str();
-      if(!lptr->data.attributes.is_null()) {
-	cout << " " << lptr->data.attributes.c_str();
-      }
-      cout << ">" << "\n";
-      if(!lptr->data.data.is_null()) {
-	cout << lptr->data.data.c_str() << "\n";
-      }
-    }
-   
-    if(lptr->data.node_type == gxsXML_PARENT_NODE) {
-      gxString curr_parent = lptr->data.name;
-      int parent_is_closed = 0;
-      cout << "  <" << lptr->data.name.c_str();
-      if(!lptr->data.attributes.is_null()) {
-	cout << " " << lptr->data.attributes.c_str();
-      }
-      if(lptr->data.child_nodes.elements.IsEmpty()) { 
-	if(lptr->data.data.is_null()) {
-	  cout << " />" << "\n";
-	}
-	else {
-	  cout << ">" << lptr->data.data.c_str() 
-	       << "</" << curr_parent << ">" << "\n";
-	}
-	parent_is_closed = 1;
-      }
-      else {
-	cout << ">" << "\n";
-      }
-
-      if(!lptr->data.child_nodes.elements.IsEmpty()) {
-	gxListNode<gxsXMLNode_t> *cptr = lptr->data.child_nodes.elements.GetHead();
-	while(cptr) {
-	  gxString curr_child = cptr->data.name;
-	  int child_is_closed = 0;
-
-	  cout << "    <" << cptr->data.name;
-	  if(!cptr->data.attributes.is_null()) {
-	    cout << " " << cptr->data.attributes.c_str();
-	  }
-	  if(!cptr->data.HasSubElements()) {
-	    if(cptr->data.data.is_null()) {
-	      cout << " />" << "\n";
-	    }
-	    else {
-	      cout << ">" << cptr->data.data.c_str()
-		   << "</" << curr_child << ">" << "\n";
-	    }
-	    child_is_closed = 1;
-	  }
-	  else {
-	    cout << ">" << "\n";
-	  }
-	  if(cptr->data.HasSubElements()) {
-	    gxsXMLSubElement *subptr = cptr->data.GetSubElements(); 
-
-	    gxString curr_sub_sub_child;
-	    int sub_sub_child_is_closed = 0;
-	    int depth = 1;
-
-	    while(subptr) {
-	      curr_sub_sub_child = subptr->element->name.c_str();
-	      sub_sub_child_is_closed = 0;
-	      for(i = 0; i < depth; i++) cout << " ";
-	      cout << "      <" << curr_sub_sub_child.c_str();
-	      if(!subptr->element->attributes.is_null()) {
-		cout << " " << subptr->element->attributes.c_str();
-	      }
-	      if(!subptr->next) {
-		if(subptr->element->data.is_null()) {
-		  cout << " />" << "\n";
-		}
-		else {
-		  cout << ">" << subptr->element->data.c_str()
-		       << "</" << subptr->element->name.c_str() << ">" << "\n";		 
-		}
-		sub_sub_child_is_closed = 1;
-		}
-	      else {
-		cout << ">";
-	      }
-	      
-	      if(subptr->next) cout << subptr->element->data.c_str();
-	      
-	      if(!sub_sub_child_is_closed) {
-		if(subptr->element->has_siblings) {
-		  depth++;
-		  cout << "\n";
-		}
-		else {
-		  cout << "</" << curr_sub_sub_child.c_str() << ">" << "\n";
-		}
-	      }
-
-	      subptr = subptr->next;
-	    }
-
-	    subptr = cptr->data.GetLastSubElement();
-	    while(subptr) {
-	      if(subptr->element->has_siblings) {
-		depth--;
-		for(i = 0; i < depth; i++) cout << " ";
-		cout << "      </" << subptr->element->name.c_str() 
-		     << ">" << "\n";
-	      }
-	      subptr = subptr->prev;
-	    }
-	  }
-	  
-	  if(!child_is_closed) {
-	  cout << "    </" << curr_child.c_str() << ">" << "\n";
-	  }
-	  cptr = cptr->next;
-	}
-      }
-      if(!parent_is_closed) {
-	cout << "  </" << curr_parent.c_str() << ">" << "\n";
-      }
-    }
-
-    lptr = lptr->next;
+  gxString tree;
+  if(!xml.WriteTree(tree)) {
+    cout << xml.GetError() << "\n";
+    return;
   }
-
-  cout << "</" << root_name << ">" << "\n";
+  cout << tree.c_str();
 }
 
 int WriteTestTree(const char *outfile)

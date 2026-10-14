@@ -55,6 +55,80 @@ const char *gxXMLEscapedReplacements[gxNumXMLEscapedElements] = {
   "&",
 };
 
+// 10/14/2026: Helper functions added for the bug fixes below.
+// Returns nchars characters starting at position. Unlike gxString::Mid()
+// it returns an empty string when nchars is 0 (Mid() returns the rest of 
+// the string) or the position is past the end of the string.
+static gxString gxsXML_mid(const gxString &s, int position, int nchars)
+{
+  gxString buf;
+  if((position < 0) || (nchars <= 0) || (position >= (int)s.length())) {
+    return buf;
+  }
+  buf = s.Mid(position, nchars);
+  return buf;
+}
+
+// Remove all CDATA sections from a string
+static void gxsXML_strip_cdata(gxString &s)
+{
+  int coffset = s.Find("<![CDATA[");
+  while(coffset != -1) {
+    int ecoffset = s.Find("]]>", coffset);
+    if(ecoffset == -1) break;
+    ecoffset += 3;
+    s.DeleteAt(coffset, (ecoffset-coffset));
+    coffset = s.Find("<![CDATA[", coffset);
+  }
+}
+
+// Returns true if the tag at offset in s is a start tag for "name".
+static int gxsXML_is_start_tag(const gxString &s, int offset, const gxString &name)
+{
+  if(s[offset] != '<') return 0;
+  if(s.Mid(offset+1, name.length()) != name) return 0;
+  int i = offset + 1 + name.length();
+  if(i >= (int)s.length()) return 0;
+  char c = s[i];
+  if((c != '>') && (c != '/') && (c != ' ') && (c != '\t') && 
+     (c != '\r') && (c != '\n')) return 0;
+  // Do not count an empty element tag <name ... />
+  int end = s.Find(">", i);
+  if((end > 0) && (s[end-1] == '/')) return 0;
+  return 1;
+}
+
+// Find the end tag "</name>" that matches a start tag of "name", 
+// starting the search at offset, which must be just past the start
+// tag. Nested elements with the same name and CDATA sections are
+// skipped. Returns the offset of the end tag or -1 if not found.
+static int gxsXML_find_closing_tag(const gxString &s, const gxString &name, int offset)
+{
+  gxString end_tag;
+  end_tag << "</" << name << ">";
+  int level = 0;
+  int i = offset;
+  while(i < (int)s.length()) {
+    i = s.Find("<", i);
+    if(i == -1) return -1;
+    if(s.Mid(i, 9) == "<![CDATA[") {
+      int ecoffset = s.Find("]]>", i);
+      if(ecoffset == -1) return -1;
+      i = ecoffset + 3;
+      continue;
+    }
+    if(s.Mid(i, end_tag.length()) == end_tag) {
+      if(level == 0) return i;
+      level--;
+    }
+    else if(gxsXML_is_start_tag(s, i, name)) {
+      level++;
+    }
+    i++;
+  }
+  return -1;
+}
+
 gxsXMLDocInfo &gxsXMLDocInfo::operator=(const gxsXMLDocInfo &ob) 
 {
   if(this != &ob) Copy(ob);
@@ -95,6 +169,9 @@ gxsXMLNode_t::gxsXMLNode_t()
   sub_child = 0;
   subelements = last_subelement = 0; 
   has_siblings = 0;
+  // 10/14/2026: is_closed was not initialized. The writer reads it.
+  is_closed = 0;
+  depth = 0;
 }
 
 gxsXMLNode_t::~gxsXMLNode_t() 
@@ -122,6 +199,7 @@ void gxsXMLNode_t::Clear()
   has_siblings = 0;
   is_closed = 0;
   sub_child = 0;
+  depth = 0; // 10/14/2026: Added nesting level
   if(subelements) destroy_subelements();
 }
 
@@ -144,12 +222,36 @@ void gxsXMLNode_t::Copy(const gxsXMLNode_t &ob)
   has_siblings = ob.has_siblings;
   is_closed = ob.is_closed;
   sub_child = ob.sub_child;
+  depth = ob.depth; // 10/14/2026: Added nesting level
 
   if(subelements) destroy_subelements();
   if(ob.subelements) {
     gxsXMLSubElement *cptr = ob.subelements;
     while(cptr) {
       AddSubElement(*cptr->element);
+      cptr = cptr->next;
+    }
+
+    // 10/14/2026: The sub_child pointers of the copied sub-elements 
+    // still pointed into the other node's list. Point them to the
+    // matching sub-elements in this node's list.
+    gxsXMLSubElement *nptr = subelements;
+    cptr = ob.subelements;
+    while(nptr && cptr) {
+      if(cptr->element->sub_child) {
+	nptr->element->sub_child = 0;
+	gxsXMLSubElement *optr = ob.subelements;
+	gxsXMLSubElement *mptr = subelements;
+	while(optr && mptr) {
+	  if(optr == cptr->element->sub_child) {
+	    nptr->element->sub_child = mptr;
+	    break;
+	  }
+	  optr = optr->next;
+	  mptr = mptr->next;
+	}
+      }
+      nptr = nptr->next;
       cptr = cptr->next;
     }
   }
@@ -424,7 +526,38 @@ int gxsXML::GetXMLAttribute(const gxString &tag_str, const gxString &attr_str,
   int start_tag, end_tag, offset;
   gxString sbuf;
   
-  offset = tag_str.Find(attr_str);
+  // 10/14/2026: The attribute name was found with a plain text search,
+  // so it could match part of a longer name (id in uid="1") or text
+  // inside an earlier value. Only match a whole name outside quotes.
+  offset = -1;
+  if(!attr_str.is_null()) {
+    char quote = 0;
+    int i;
+    int len = tag_str.length();
+    int alen = attr_str.length();
+    for(i = 0; i < len; i++) {
+      char c = tag_str[i];
+      if(quote) {
+	if(c == quote) quote = 0;
+	continue;
+      }
+      if((c == '\"') || (c == '\'')) {
+	quote = c;
+	continue;
+      }
+      if((i > 0) && (tag_str[i-1] != ' ') && (tag_str[i-1] != '\t') && 
+	 (tag_str[i-1] != '\r') && (tag_str[i-1] != '\n') && 
+	 (tag_str[i-1] != '<')) continue;
+      if(tag_str.Mid(i, alen) != attr_str) continue;
+      int j = i + alen;
+      while((j < len) && ((tag_str[j] == ' ') || (tag_str[j] == '\t') ||
+			  (tag_str[j] == '\r') || (tag_str[j] == '\n'))) j++;
+      if((j < len) && (tag_str[j] == '=')) {
+	offset = i;
+	break;
+      }
+    }
+  }
   if(offset == -1) {
     format_err_str();
     err_string << "Missing tag attribute: " << attr_str.c_str();
@@ -437,6 +570,15 @@ int gxsXML::GetXMLAttribute(const gxString &tag_str, const gxString &attr_str,
     return 0;
   }
   offset++;
+  // 10/14/2026: Allow spaces after the = sign and do not read past
+  // the end of the string when the value is missing.
+  while((offset < (int)tag_str.length()) &&
+	((tag_str[offset] == ' ') || (tag_str[offset] == '\t'))) offset++;
+  if(offset >= (int)tag_str.length()) {
+    format_err_str();
+    err_string << "Invalid tag attribute: " << attr_str.c_str();
+    return 0;
+  }
   if((tag_str[offset] == '\"') || (tag_str[offset] == '\'')) {
     sbuf << clear << tag_str[offset]; 
     start_tag = offset+1;
@@ -447,7 +589,8 @@ int gxsXML::GetXMLAttribute(const gxString &tag_str, const gxString &attr_str,
 		 << sbuf.c_str() << " character: " << attr_str.c_str();
       return 0;
     }
-    gxString sstr1 = tag_str.Mid(start_tag, (end_tag-start_tag));
+    // 10/14/2026: An empty value ("") returned the rest of the tag
+    gxString sstr1 = gxsXML_mid(tag_str, start_tag, (end_tag-start_tag));
     value = sstr1;
   }
   else {
@@ -466,7 +609,16 @@ int gxsXML::LoadXMLFile(const char *fname)
   doc_info.fname << clear << fname;
   doc_info.xml_style_sheet.Clear();
 
-  int rv = load_file(fname); 
+  // 10/14/2026: The node lists were not cleared, so loading a second
+  // file into the same object added to the nodes of the first file.
+  pi_list.ClearList();
+  dtd_list.ClearList();
+  cdata_list.ClearList();
+  comment_list.ClearList();
+  node_tree.ClearList();
+  xs.ClearList();
+
+  int rv = load_file(fname);
   if(rv != 0) {
     if(err_string.is_null()) {
       format_err_str();
@@ -529,7 +681,8 @@ int gxsXML::is_xml(DiskFileB &xml_fp, unsigned read_length)
     is_xml_doc = 1;
 
     start_tag += XML_hdr_start.length();
-    gxString mid_s = line_buf.Mid(start_tag, (end_tag-start_tag));
+    // 10/14/2026: An empty header returned the rest of the buffer
+    gxString mid_s = gxsXML_mid(line_buf, start_tag, (end_tag-start_tag));
     mid_s.TrimLeadingSpaces(); mid_s.TrimTrailingSpaces();
     
     // Parse all known header attributes here
@@ -585,19 +738,32 @@ void gxsXML::CleanAttributes(const gxString &tag, gxString &attrib)
   attrib.TrimLeadingSpaces();
   attrib.TrimTrailingSpaces();
   attrib.TrimTrailing('/');
+  // 10/14/2026: Remove the space before the "/" of an empty element
+  // tag. It was kept and another space was added on each write.
+  attrib.TrimTrailingSpaces();
 }
 
 int gxsXML::find_tag(gxString &node, int offset, int &start, int &end)
 {
   int i = 0;
-  int len = node.length();
   start = end = -1;
 
-  // Docment has an incorrect empty tag
-  node.ReplaceString("></", "> </");
+  // 10/14/2026: Removed the "></" to "> </" replacement. It changed 
+  // the text of CDATA sections and turned empty elements into elements
+  // holding a space. Empty elements are handled by explode_nodes().
+  int len = node.length();
 
   for(i = offset; i < len; i++) {
     if(node[i] == '<') {
+      // 10/14/2026: Skip CDATA sections so tags inside them are
+      // not treated as elements.
+      if(node.Mid(i, 9) == "<![CDATA[") {
+	int ecoffset = node.Find("]]>", i);
+	if(ecoffset == -1) return 0;
+	i = ecoffset + 2;
+	start = -1;
+	continue;
+      }
       start = i;
       continue;
     }
@@ -619,57 +785,23 @@ int gxsXML::has_sub_elements(const gxsXMLElement &element)
   return 0;
 }
 
+// 10/14/2026: Rewritten. The old code only followed the first element
+// at each level that had nested elements. Any elements after it at the
+// same level were lost, and deeper levels were not recorded, so the
+// tree could not be written back with the original nesting. The old
+// code also wrote debug trace text to std::cout.
 int gxsXML::explode_nodes(gxString &node, gxsXMLNode &n)
 {
-  // TODO::
-  std::cout << "Explode nodes call 1: " << node.c_str() << "\n" << std::flush;
-
   int rv = explode_nodes(node, n.child_nodes.elements);
   if(rv < 0) return rv;
-  if(!has_sub_elements(n.child_nodes)) return rv;
 
   gxListNode<gxsXMLNode_t> *ptr = n.child_nodes.elements.GetHead();
   while(ptr) {
-    gxString nodes = ptr->data.data;
-    int has_sub_sub_nodes = 0;
-    if(has_sub_elements(nodes)) {    
-      do {
-	gxList<gxsXMLNode_t> elements;
-	rv = explode_nodes(nodes, elements);
-	if(rv < 0) return rv;
-
-	gxListNode<gxsXMLNode_t> *cptr = elements.GetHead();
-	while(cptr) {
-	  gxsXMLNode_t element;
-	  element.name = cptr->data.name;
-	  element.attributes = cptr->data.attributes;
-	  if(has_sub_elements(cptr->data.data)) {
-	    nodes = cptr->data.data;
-	    has_sub_sub_nodes = 1;
-	    element.has_siblings = 1;
-	    ptr->data.data.Clear();
-	    if(!ptr->data.AddSubElement(element)) {
-	      format_err_str();
-	      err_string << "Memory allocation error exploding child nodes";
-	    }
-	    Handle_Sibling_Event(ptr->data);
-	    break;
-	  }
-	  else {
-	    ptr->data.data.Clear();
-	    element.data = cptr->data.data;
-	    element.has_siblings = 0;
-	    if(!ptr->data.AddSubElement(element)) {
-	      format_err_str();
-	      err_string << "Memory allocation error exploding child nodes";
-	    }
-	    has_sub_sub_nodes = 0;
-	    Handle_SubChild_Event(ptr->data);
-	  }
-	  cptr = cptr->next;
-	}
-	
-      } while(has_sub_sub_nodes);
+    if(has_sub_elements(ptr->data.data)) {
+      gxString nodes = ptr->data.data;
+      ptr->data.data.Clear();
+      int srv = explode_sub_elements(ptr->data, nodes, 1);
+      if(srv < 0) return srv;
     }
     ptr = ptr->next;
   }
@@ -677,131 +809,100 @@ int gxsXML::explode_nodes(gxString &node, gxsXMLNode &n)
   return rv;
 }
 
+// 10/14/2026: Added. Adds the elements in "nodes" to the sub-element
+// list of "child" at the given depth, followed by the elements nested
+// inside each of them. Returns -1 if an error occurs.
+int gxsXML::explode_sub_elements(gxsXMLNode_t &child, gxString &nodes, 
+				 int depth)
+{
+  gxList<gxsXMLNode_t> elements;
+  int rv = explode_nodes(nodes, elements);
+  if(rv < 0) return rv;
+
+  gxListNode<gxsXMLNode_t> *cptr = elements.GetHead();
+  while(cptr) {
+    gxsXMLNode_t element;
+    element.name = cptr->data.name;
+    element.attributes = cptr->data.attributes;
+    element.depth = depth;
+    if(has_sub_elements(cptr->data.data)) {
+      element.has_siblings = 1;
+      if(!child.AddSubElement(element)) {
+	format_err_str();
+	err_string << "Memory allocation error exploding child nodes";
+	return -1;
+      }
+      Handle_Sibling_Event(child);
+      gxString sub_nodes = cptr->data.data;
+      rv = explode_sub_elements(child, sub_nodes, depth+1);
+      if(rv < 0) return rv;
+    }
+    else {
+      element.data = cptr->data.data;
+      element.has_siblings = 0;
+      if(!child.AddSubElement(element)) {
+	format_err_str();
+	err_string << "Memory allocation error exploding child nodes";
+	return -1;
+      }
+      Handle_SubChild_Event(child);
+    }
+    cptr = cptr->next;
+  }
+
+  return 0;
+}
+
+// 10/14/2026: Rewritten. The old code matched the first end tag with
+// the same name, so an element containing an element with the same
+// name was cut short. It also moved the first CDATA section found
+// anywhere in the text to the first element that ended, which could
+// be the wrong element, and wrote debug trace text to std::cout.
 int gxsXML::explode_nodes(gxString &node, gxList<gxsXMLNode_t> &node_list)
 {
-
-  // TODO::
-  std::cout << "Explode nodes call 2: " << node.c_str() << "\n" << std::flush;
-
   node_list.ClearList();
-
-  int search_tags = 1;
-  int tag_offset = 0;
-  int start, end;
-  int read_data = 0;
-  int start_data_offset = 0;
-  int num_nodes = 0;
-  gxString name;
-  gxString tag_end;
-  int looking_for_end_tag = 0;
-  gxString start_tag;
-  gxString cdata;
-  int has_subnodes = 0;
 
   if(!strip_comments(node)) return -1;
 
-  while(search_tags) {
+  int num_nodes = 0;
+  int tag_offset = 0;
+  int start, end;
+  gxString name;
 
-    int coffset = node.Find("<![CDATA[");
-    if(coffset != -1) {
-      int ecoffset = node.Find("]]>", coffset);
-      if(ecoffset != -1) {
-	ecoffset += 3;
-	cdata = node.Mid(coffset, (ecoffset-coffset)); 
-	node.DeleteAt(coffset, (ecoffset-coffset));
-      }
-    } 
-
-    if(!find_tag(node, tag_offset, start, end)) {
-      break;
-    }
-    if((start < 0) || (end <= 0)) { 
-      break;
-    }
+  while(find_tag(node, tag_offset, start, end)) {
+    tag_offset = end;
+    if(start < 0) continue; // A ">" character in the text
 
     gxString curr_tag = node.Mid(start, (end-start));
+    if(curr_tag.length() < 3) continue;
 
-    // TODO::
-    std::cout << "curr tag 1= " << curr_tag.c_str() << "\n";
-    std::cout << "end tag 1= " << tag_end.c_str() << "\n";
-    std::cout << "read data == " << read_data << "\n";
+    // Skip end tags with no start tag and processing instructions
+    if((curr_tag[1] == '/') || (curr_tag[1] == '?') || 
+       (curr_tag[1] == '!')) continue;
 
-    if((curr_tag.Right(2) == "/>") && (!read_data)) {
+    gxsXMLNode_t n;
+    CleanAttributes(curr_tag, n.attributes); 
+    CleanTagName(curr_tag, name);
+    n.name = name;
 
-      std::cout << "closing curr " << curr_tag.c_str() << "\n";
-
-      gxsXMLNode_t n;
-      CleanAttributes(curr_tag, n.attributes); 
-      CleanTagName(curr_tag, name);
-      num_nodes++;
-      n.name = name;
-      n.data.Clear();
-      cdata.Clear();
+    if(curr_tag.Right(2) == "/>") { // Empty element
       node_list.Add(n);
-    }
-    else {
-      if(!read_data) {
-	start_tag = curr_tag;
-	CleanTagName(curr_tag, name);
-	tag_end << clear << "</" << name << ">";
-	read_data = 1;
-	start_data_offset = end;
-	looking_for_end_tag = 1;
-      }
+      num_nodes++;
+      continue;
     }
 
-    // TODO::
-    std::cout << "if read data and start == end = " << curr_tag.c_str() << "\n";
-    std::cout << "end tag " << tag_end.c_str() << "\n";
-
-
-    if(read_data) {
-      if(curr_tag == tag_end) {
-	
-	// TODO::
-	std::cout << "********start == end = " << tag_end.c_str() << "\n";
-	std::cout << "********adding " << curr_tag.c_str() << "\n";
-
-	gxString data = node.Mid(start_data_offset, (start-start_data_offset));
-	gxsXMLNode_t n;
-	
-	// TODO::
-	if(has_subnodes > 1) n.has_siblings = 1;
-	  // TODO::
-	  std::cout << "## num sub nodes = " << has_subnodes << "\n";
-	  //	}
-	has_subnodes = 0;
-
-	CleanAttributes(start_tag, n.attributes); 
-	n.name = name;
-	n.data.Clear();
-	if(!cdata.is_null()) n.data << cdata;
-	n.data << data;
-	node_list.Add(n);
-	read_data = 0;
-	tag_end.Clear();
-	start_tag.Clear();
-	cdata.Clear();
-	num_nodes++;
-	looking_for_end_tag = 0;
-      }
+    int end_offset = gxsXML_find_closing_tag(node, name, end);
+    if(end_offset == -1) {
+      format_err_str();
+      err_string << "Missing closing tag: </" << name.c_str() << ">";
+      return -1;
     }
 
-    // TODO::
-    std::cout << "-----Searching for siblings----" << "\n";
-
-    if(read_data) has_subnodes++;
-    tag_offset = end++;
-  }
-
-  // TODO:
-  std::cout << "########### Tag search loop complete" << "\n";
-  std::cout << "Looking for end tag = " << looking_for_end_tag << "\n";
-
-  if(looking_for_end_tag) {
-    format_err_str();
-    err_string << "Missing closing tag: " << tag_end.c_str();
-    return -1;
+    n.data = gxsXML_mid(node, end, (end_offset-end));
+    if(has_sub_elements(n.data)) n.has_siblings = 1;
+    node_list.Add(n);
+    num_nodes++;
+    tag_offset = end_offset + name.length() + 3;
   }
 
   return num_nodes;
@@ -863,18 +964,10 @@ int gxsXML::strip_comments(gxString &pd)
 
 int gxsXML::has_sub_elements(const gxString &node_data)
 {
-  // TODO:: remove
-  std::cout << "Node data: " << node_data.c_str() << "\n";
-
+  // 10/14/2026: Removed debug trace output to std::cout. Remove all 
+  // CDATA sections, not just the first one, before looking for tags.
   gxString pd = node_data;
-  int coffset = pd.Find("<![CDATA[");
-  if(coffset != -1) {
-    int ecoffset = pd.Find("]]>", coffset);
-    if(ecoffset != -1) {
-      ecoffset += 3;
-      pd.DeleteAt(coffset, (ecoffset-coffset));
-    }
-  } 
+  gxsXML_strip_cdata(pd);
   if((pd.Find("<") != -1) && (pd.Find(">") != -1)) {
     return 1;
   }
@@ -992,7 +1085,8 @@ int gxsXML::load_file(const char *fname)
       looking_for_end_tag = 1;
       curr_offset++;
 
-      if(curr_offset > (line_chunk.length()-1)) {
+      // 10/14/2026: Signed compare (length()-1 wrapped when the chunk was empty)
+      if(curr_offset >= (int)line_chunk.length()) {
 	line_chunk.DeleteAt(0, start_tag);
 	looking_for_start_tag = 1;
 	break;
@@ -1124,7 +1218,8 @@ int gxsXML::load_file(const char *fname)
 	    }
 	    break;
 	  case gxsXML_DTD_NODE:
-	    n.node_type = gxsXML_PROC_NODE;
+	    // 10/14/2026: Was stored as gxsXML_PROC_NODE
+	    n.node_type = gxsXML_DTD_NODE;
 	    n.attributes = xml_tag;
 	    Handle_DTD_Event(n);
 	    if(n.sax_end_parse == 1) {
@@ -1137,7 +1232,8 @@ int gxsXML::load_file(const char *fname)
 	    }
 	    break;
 	  case gxsXML_CDATA_NODE:
-	    n.node_type = gxsXML_PROC_NODE;
+	    // 10/14/2026: Was stored as gxsXML_PROC_NODE
+	    n.node_type = gxsXML_CDATA_NODE;
 	    n.attributes = xml_tag;
 	    Handle_CDATA_Event(n);
 	    if(n.sax_end_parse == 1) {
@@ -1150,7 +1246,8 @@ int gxsXML::load_file(const char *fname)
 	    }
 	    break;
 	  case gxsXML_COMMENT_NODE:
-	    n.node_type = gxsXML_PROC_NODE;
+	    // 10/14/2026: Was stored as gxsXML_PROC_NODE
+	    n.node_type = gxsXML_COMMENT_NODE;
 	    n.attributes = xml_tag;
 	    Handle_Comment_Event(n);
 	    if(n.sax_end_parse == 1) {
@@ -1262,26 +1359,31 @@ int gxsXML::load_file(const char *fname)
 	}
 	end_of_parent << clear << "</" << parent_name << ">";
 
-	// 02/09/2012: Look for empty start and end tags
-	if(line_chunk.Find("></") != -1) {
-	  line_chunk.ReplaceString("></", "> </");
-	}
+	// 10/14/2026: Removed the 02/09/2012 "></" to "> </" replacement.
+	// It changed the text of CDATA sections and turned an empty parent 
+	// into one holding a space. The matching end tag is now found by 
+	// gxsXML_find_closing_tag(), which handles empty elements.
 	line_chunk.DeleteAt(0, (start_tag+xml_tag.length()));
 
-	int eop_pos = line_chunk.Find(end_of_parent);
+	// 10/14/2026: Find the matching end tag. The old code used the
+	// first end tag with the same name, which belonged to a nested
+	// element when the parent contained an element with its own name.
+	int eop_pos = gxsXML_find_closing_tag(line_chunk, parent_name, 0);
 	if(eop_pos != -1) {
-	  gxString pd = line_chunk.Mid(0, eop_pos);
+	  // 10/14/2026: Mid() returns the rest of the string for 0 chars
+	  gxString pd = gxsXML_mid(line_chunk, 0, eop_pos);
 	  gxsXMLNode n;
 	  if(!strip_comments(pd)) {
 	    has_error = 1;
 	    break;
 	  }
 	  n.name = parent_name;
+	  // 10/14/2026: Set the node type and attributes before the child
+	  // event is called. Removed debug trace output to std::cout.
+	  n.node_type = gxsXML_PARENT_NODE;
+	  CleanAttributes(xml_tag, n.attributes);
 	  if(has_sub_elements(pd)) { 
 	    n.data.Clear();
-	    // TODO: left off here 02/16
-	    std::cout << "-->02/21/2012:: " << n.name << "\n";
-
 	    if(explode_nodes(pd, n) < 0) {
 	      has_error = 1;
 	      break;
@@ -1307,7 +1409,8 @@ int gxsXML::load_file(const char *fname)
 	  if(parser_type == gxsXML_PARSER_DOM) {
 	    node_tree.Add(n);
 	  }
-	  line_chunk.DeleteBeforeIncluding(end_of_parent);
+	  // 10/14/2026: Delete up to the matching end tag found above
+	  line_chunk.DeleteAt(0, (eop_pos+end_of_parent.length()));
 	  parent_name.Clear();
 	  xml_tag.Clear();
 	  curr_offset = 0;
@@ -1330,28 +1433,26 @@ int gxsXML::load_file(const char *fname)
 	      }
 	    }
 	    line_chunk.Cat(read_buf, xml_fp.df_gcount());
-	    if(line_chunk.Find(end_of_parent) != -1) break;
+	    // 10/14/2026: Look for the matching end tag
+	    if(gxsXML_find_closing_tag(line_chunk, parent_name, 0) != -1) break;
 	  }
 	  if(has_error == 1) break;
-	  int eop_pos = line_chunk.Find(end_of_parent);
+	  int eop_pos = gxsXML_find_closing_tag(line_chunk, parent_name, 0);
 	  if(eop_pos != -1) {
-	    gxString pd = line_chunk.Mid(0, eop_pos);
+	    // 10/14/2026: Mid() returns the rest of the string for 0 chars
+	    gxString pd = gxsXML_mid(line_chunk, 0, eop_pos);
 	    if(!strip_comments(pd)) {
 	      has_error = 1;
 	      break;
 	    }
 	    gxsXMLNode n;
 	    n.name = parent_name;
-
-	    // TODO: left off here 02/16
-	    std::cout << "#->02/21/2012:: " << n.name << "\n";
-
-
+	    // 10/14/2026: Set the node type and attributes before the child
+	    // event is called. Removed debug trace output to std::cout.
+	    n.node_type = gxsXML_PARENT_NODE;
+	    CleanAttributes(xml_tag, n.attributes);
 	    if(has_sub_elements(pd)) { 
 	      n.data.Clear();
-	      // TODO: left off here 02/16
-	      std::cout << "()->02/21/2012:: " << n.name << "\n";
-
 	      if(explode_nodes(pd, n) < 0) {
 		has_error = 1;
 		break;
@@ -1378,7 +1479,8 @@ int gxsXML::load_file(const char *fname)
 	      node_tree.Add(n);
 	    }
 
-	    line_chunk.DeleteBeforeIncluding(end_of_parent);
+	    // 10/14/2026: Delete up to the matching end tag found above
+	    line_chunk.DeleteAt(0, (eop_pos+end_of_parent.length()));
 	    parent_name.Clear();
 	    xml_tag.Clear();
 	    curr_offset = 0;
@@ -1458,7 +1560,7 @@ int gxsXML::WriteXMLFile(const char *fname)
   if(!xml_fp) {
     format_err_str();
     err_string << "Cannot write to file: " << fname;
-    return 1;
+    return 0; // 10/14/2026: Returned 1 (success) when the create failed
   }
 
   gxListNode<gxsXMLNode> *ptr;
@@ -1780,276 +1882,115 @@ int gxsXML::write_xml_tree(gxList<gxsXMLNode> &xml_tree,
 	      }
 	    }
 	  }
+	  // 10/14/2026: Rewritten. The old code tracked the nesting with
+	  // the has_siblings flags only. Every level it opened stayed open
+	  // until the end of the child unless the caller closed it with
+	  // CloseSubChildAtSibling(), so trees loaded from files with more 
+	  // than one nested level were written with the wrong nesting. It
+	  // also changed the is_closed flags of the tree while writing.
+	  // The nesting level of each sub-element is now taken from its
+	  // depth member (set by the parser, AddSubChild() and AddSibling()).
 	  if(cptr->data.HasSubElements()) {
-	    gxsXMLSubElement *subptr = cptr->data.GetSubElements(); 
+	    gxsXMLSubElement *subptr; 
+	    int num_sub = 0;
+	    for(subptr = cptr->data.GetSubElements(); subptr; 
+		subptr = subptr->next) num_sub++;
+	    int *depths = new int[num_sub];
 
-	    gxString curr_sub_sub_child;
-	    int sub_sub_child_is_closed = 0;
-	    int depth = 1;
-
-	    while(subptr) {
-	      curr_sub_sub_child = subptr->element->name.c_str();
-	      sub_sub_child_is_closed = 0;
-	      for(i = 0; i < depth; i++) {
-		if(outstr) {
-		  *(outstr) << " ";
+	    // Work out the nesting level of each sub-element. Elements
+	    // with no depth set use the has_siblings, is_closed and 
+	    // sub_child members the same way the old code did.
+	    int curr = 0;
+	    for(subptr = cptr->data.GetSubElements(); subptr; 
+		subptr = subptr->next, curr++) {
+	      gxsXMLNode_t *e = subptr->element;
+	      int d = 1;
+	      if(curr > 0) {
+		gxsXMLNode_t *pe = subptr->prev->element;
+		int max_depth = depths[curr-1];
+		if(!pe->is_closed) max_depth++;
+		if(e->depth > 0) {
+		  d = e->depth;
 		}
-		if(outfile) {
-		  *(outfile) << " ";
-		  if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
-		    format_err_str();
-		    err_string << outfile->df_ExceptionMessage();
-		    return 0;
+		else {
+		  d = depths[curr-1];
+		  if(pe->is_closed) {
+		    if(pe->sub_child) {
+		      gxsXMLSubElement *sptr = cptr->data.GetSubElements();
+		      int k = 0;
+		      while(sptr && (k < curr)) {
+			if(sptr == pe->sub_child) {
+			  d = depths[k];
+			  break;
+			}
+			sptr = sptr->next;
+			k++;
+		      }
+		    }
+		  }
+		  else if(pe->has_siblings) {
+		    d++;
 		  }
 		}
+		if(d > max_depth) d = max_depth;
 	      }
+	      if(d < 1) d = 1;
+	      depths[curr] = d;
+	    }
+
+	    gxString sbuf;
+	    curr = 0;
+	    for(subptr = cptr->data.GetSubElements(); subptr; 
+		subptr = subptr->next, curr++) {
+	      gxsXMLNode_t *e = subptr->element;
+	      int d = depths[curr];
+	      int next_depth = 1;
+	      if(subptr->next) next_depth = depths[curr+1];
+
+	      sbuf.Clear();
+	      for(i = 0; i < d; i++) sbuf << " ";
+	      sbuf << "      <" << e->name;
+	      if(!e->attributes.is_null()) sbuf << " " << e->attributes;
+	      if(next_depth > d) { // This element contains the next one
+		sbuf << ">" << e->data << "\n";
+	      }
+	      else {
+		if(e->data.is_null()) {
+		  sbuf << " />" << "\n";
+		}
+		else {
+		  sbuf << ">" << e->data << "</" << e->name << ">" << "\n";
+		}
+
+		// Close the levels that end after this element
+		int level;
+		for(level = d-1; level >= next_depth; level--) {
+		  int k = curr;
+		  gxsXMLSubElement *pptr = subptr;
+		  while(pptr && (depths[k] != level)) {
+		    pptr = pptr->prev;
+		    k--;
+		  }
+		  if(!pptr) break;
+		  for(i = 0; i < level; i++) sbuf << " ";
+		  sbuf << "      </" << pptr->element->name << ">" << "\n";
+		}
+	      }
+
 	      if(outstr) {
-		*(outstr) << "      <" << curr_sub_sub_child.c_str();
+		*(outstr) << sbuf;
 	      }
 	      if(outfile) {
-		*(outfile) << "      <" << curr_sub_sub_child.c_str();
+		*(outfile) << sbuf.c_str();
 		if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
 		  format_err_str();
 		  err_string << outfile->df_ExceptionMessage();
+		  delete[] depths;
 		  return 0;
 		}
 	      }
-
-	      if(!subptr->element->attributes.is_null()) {
-		if(outstr) {
-		  *(outstr) << " " << subptr->element->attributes.c_str();
-		}
-		if(outfile) {
-		  *(outfile) << " " << subptr->element->attributes.c_str();
-		  if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
-		    format_err_str();
-		    err_string << outfile->df_ExceptionMessage();
-		    return 0;
-		  }
-		}
-	      }
-	    	      
-	      // 02/02/2012: Allow caller to close a sub-child or sibling
-	      if(subptr->element->is_closed) {
-		sub_sub_child_is_closed = 1;
-		if(subptr->element->data.is_null()) {
-		  if(outstr) {
-		    *(outstr) << " />" << "\n";
-		  }
-		  if(outfile) {
-		    *(outfile) << " />" << "\n";
-		    if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
-		      format_err_str();
-		      err_string << outfile->df_ExceptionMessage();
-		      return 0;
-		    }
-		  }
-		}
-		else {
-		  if(outstr) {
-		    *(outstr) << ">" << subptr->element->data.c_str() << "</" 
-			      << subptr->element->name.c_str() << ">" 
-			      << "\n";		 
-		  }
-		  if(outfile) {
-		    *(outfile) << ">" << subptr->element->data.c_str() << "</" 
-			       << subptr->element->name.c_str() 
-			       << ">" << "\n";		 
-		    if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
-		      format_err_str();
-		      err_string << outfile->df_ExceptionMessage();
-		      return 0;
-		    }
-		  }
-		}
-
-		if(subptr->element->sub_child) {
-		  if(subptr->element->sub_child->element->has_siblings) {
-		    depth--;
-		    for(i = 0; i < depth; i++) {
-		      if(outstr) {
-			*(outstr) << " ";
-		      }
-		      if(outfile) {
-			*(outfile) << " ";
-			if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
-			  format_err_str();
-			  err_string << outfile->df_ExceptionMessage();
-			  return 0;
-			}
-		      }
-		    }
-		    if(outstr) {
-		      *(outstr) << "      </" << subptr->element->sub_child->element->name.c_str() 
-				<< ">" << "\n";
-		    }
-		    if(outfile) {
-		      *(outfile) << "      </" << subptr->element->sub_child->element->name.c_str() 
-				 << ">" << "\n";
-		      if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
-			format_err_str();
-			err_string << outfile->df_ExceptionMessage();
-			return 0;
-		      }
-		    }
-		  }
-		}
-
-		if(subptr->element->sub_child) {
-		  subptr->element->sub_child->element->is_closed = 1;
-		}
-
-		// 02/02/2012: Allow caller to close a sub-child or sibling
-		gxsXMLSubElement *last_subptr = cptr->data.GetLastSubElement(); 
-		if((last_subptr) && (subptr->element->sub_child)) {
-		  if(last_subptr->element->name == subptr->element->sub_child->element->name) {
-		    last_subptr->element->sub_child = subptr->element->sub_child;
-		    last_subptr->element->is_closed = 1;
-		  }
-		}
-		sub_sub_child_is_closed = 1;
-		subptr = subptr->next;
-		continue;
-	      }
-
-	      // 02/02/2012: Allow caller to close a sub-child or sibling
-	      if(!subptr->next || subptr->element->is_closed) {
-		if(subptr->element->data.is_null()) {
-		  if(outstr) {
-		    *(outstr) << " />" << "\n";
-		  }
-		  if(outfile) {
-		    *(outfile) << " />" << "\n";
-		    if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
-		      format_err_str();
-		      err_string << outfile->df_ExceptionMessage();
-		      return 0;
-		    }
-		  }
-		}
-		else {
-		  if(outstr) {
-		    *(outstr) << ">" << subptr->element->data.c_str() << "</" 
-			      << subptr->element->name.c_str() << ">" 
-			      << "\n";		 
-		  }
-		  if(outfile) {
-		    *(outfile) << ">" << subptr->element->data.c_str() << "</" 
-			       << subptr->element->name.c_str() 
-			       << ">" << "\n";		 
-		    if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
-		      format_err_str();
-		      err_string << outfile->df_ExceptionMessage();
-		      return 0;
-		    }
-		  }
-		}
-		sub_sub_child_is_closed = 1;
-	      } // end of if no next node
-	      else {
-		if(outstr) {
-		  *(outstr) << ">";
-		}
-		if(outfile) {
-		  *(outfile) << ">";
-		  if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
-		    format_err_str();
-		    err_string << outfile->df_ExceptionMessage();
-		    return 0;
-		  }
-		}
-	      }
-	      
-	      // 02/02/2012: Allow caller to close a sub-child or sibling
-	      if(subptr->next && !subptr->element->is_closed) {
-		if(outstr) {
-		  *(outstr) << subptr->element->data.c_str();
-		}
-		if(outfile) {
-		  *(outfile) << subptr->element->data.c_str();
-		  if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
-		    format_err_str();
-		    err_string << outfile->df_ExceptionMessage();
-		    return 0;
-		  }
-		}
-	      }
-	      
-	      if(!sub_sub_child_is_closed) {
-		if(subptr->element->has_siblings) {
-		  depth++;
-		  if(outstr) {
-		    *(outstr) << "\n";
-		  }
-		  if(outfile) {
-		    *(outfile) << "\n";
-		    if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
-		      format_err_str();
-		      err_string << outfile->df_ExceptionMessage();
-		      return 0;
-		    }
-		  }
-		}
-		else {
-		  if(outstr) {
-		    *(outstr) << "</" << curr_sub_sub_child.c_str() << ">" 
-			      << "\n";
-		  }
-		  if(outfile) {
-		    *(outfile) << "</" << curr_sub_sub_child.c_str() << ">" 
-			       << "\n";
-		    if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
-		      format_err_str();
-		      err_string << outfile->df_ExceptionMessage();
-		      return 0;
-		    }
-		  }
-		}
-	      }
-
-	      subptr = subptr->next;
 	    }
-
-	    // Loop to print all closing </...> tags
-	    subptr = cptr->data.GetLastSubElement();
-	    while(subptr) {
-	      if(subptr->element->is_closed) {
-		subptr = subptr->prev;
-		continue;
-	      }
-
-	      if(subptr->element->has_siblings) {
-		depth--;
-		for(i = 0; i < depth; i++) {
-		  if(outstr) {
-		    *(outstr) << " ";
-		  }
-		  if(outfile) {
-		    *(outfile) << " ";
-		    if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
-		      format_err_str();
-		      err_string << outfile->df_ExceptionMessage();
-		      return 0;
-		    }
-		  }
-		}
-		if(outstr) {
-		  *(outstr) << "      </" << subptr->element->name.c_str() 
-			    << ">" << "\n";
-		}
-		if(outfile) {
-		  *(outfile) << "      </" << subptr->element->name.c_str() 
-			     << ">" << "\n";
-		  if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
-		    format_err_str();
-		    err_string << outfile->df_ExceptionMessage();
-		    return 0;
-		  }
-		}
-	      }
-	      subptr = subptr->prev;
-	    }
-
+	    delete[] depths;
 	  } // End of sub elements check
 	  
 	  if(!child_is_closed) {
@@ -2225,6 +2166,7 @@ gxsXMLSubElement *gxsXML::AddSubChild(gxsXMLNode_t *child, const char *name,
   if(data) element.data << clear << data;
   if(attributes) element.attributes << clear << attributes; 
   child->has_siblings = 1;
+  element.depth = 1; // 10/14/2026: Directly inside the child element
 
   gxsXMLSubElement *ptr = child->AddSubElement(element);
   if(!ptr) {
@@ -2252,6 +2194,9 @@ gxsXMLSubElement *gxsXML::AddSibling(gxsXMLNode_t *child, gxsXMLSubElement *sibl
   e.name << clear << name;
   if(data) e.data << clear << data;
   if(attributes) e.attributes << clear << attributes; 
+
+  // 10/14/2026: The new element is nested one level inside "sibling"
+  if(sibling->element->depth > 0) e.depth = sibling->element->depth + 1;
 
   gxsXMLSubElement *ptr = child->AddSubElement(e);
   if(!ptr) {
@@ -2289,11 +2234,13 @@ int gxsXML::DecodeString(const char *encoded_str, gxString &unencoded_str)
 {
   if(!encoded_str) return 0;
   unencoded_str = encoded_str;
-  unencoded_str.ReplaceString("&amp;", "&");
+  // 10/14/2026: Replace &amp; last. Replacing it first decoded text
+  // twice, so "&amp;lt;" was turned into "<" instead of "&lt;".
   unencoded_str.ReplaceString("&lt;", "<");
   unencoded_str.ReplaceString("&gt;", ">");
   unencoded_str.ReplaceString("&apos;", "\'");
   unencoded_str.ReplaceString("&quot;", "\"");
+  unencoded_str.ReplaceString("&amp;", "&");
   return 1;
 } 
 

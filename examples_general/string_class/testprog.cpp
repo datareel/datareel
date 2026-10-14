@@ -1404,7 +1404,7 @@ void MixedStringTest()
   else {
     cout << "Could not find ASCII match" << "\n";
   }
-  delete wpattern; // Free memory before calling conversion function again
+  delete[] wpattern; // Free memory before calling conversion function again
   wpattern = ASCII2Unicode("FOX");
   offset = IFindMatch(wsearch_str, wpattern);
   if(offset != -1) {
@@ -1415,13 +1415,14 @@ void MixedStringTest()
   }
 
   // Free all memory buffers
-  delete umesg;
-  delete gxws_t1;
-  delete comp; delete wcomp;
-  delete ws1; delete ws2; delete ws3;
-  delete ws_strings;
-  delete wacomp; delete wbcomp;
-  delete wsearch_str; delete wpattern;
+  // 10/14/2026: The conversion functions allocate with new[], free with delete[]
+  delete[] umesg;
+  delete[] gxws_t1;
+  delete[] comp; delete[] wcomp;
+  delete[] ws1; delete[] ws2; delete[] ws3;
+  delete[] ws_strings;
+  delete[] wacomp; delete[] wbcomp;
+  delete[] wsearch_str; delete[] wpattern;
   
   cout << "\n";
   cout << "Exiting mixed string test" << "\n";

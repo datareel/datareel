@@ -194,7 +194,7 @@ void EHandler::Message(const char *mesg1, const char *mesg2,
   strcat(comp, mesg2);
   strcat(comp, mesg3);
   MessageBox( NULL, comp, "Program Message", MB_OK ) ;
-  delete comp;
+  delete[] comp; // 10/14/2026: Was a scalar delete of new[]
 
 #else
 // Allow the library to be compiled without a display type

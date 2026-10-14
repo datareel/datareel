@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>server example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: server.cpp</FONT>
-<FONT COLOR="#ff0000">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 09/20/1999</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>server example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>Device Cache Server</h1>
+<p class="dr-listing-meta">Source file: <code>server.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: server.cpp</span>
+<span class="cm">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 09/20/1999</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -85,16 +91,16 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 This is a test program for the device cache classes.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) <FONT COLOR="#ff0000">// Use the ANSI Standard C++ library</FONT>
+#if defined (__USE_ANSI_CPP__) <span class="cm">// Use the ANSI Standard C++ library</span>
 #include &lt;iostream&gt;
-using namespace std; <FONT COLOR="#ff0000">// Use unqualified names for Standard C++ library</FONT>
-#else <FONT COLOR="#ff0000">// Use the old iostream library by default</FONT>
+using namespace std; <span class="cm">// Use unqualified names for Standard C++ library</span>
+#else <span class="cm">// Use the old iostream library by default</span>
 #include &lt;iostream.h&gt;
-#endif <FONT COLOR="#ff0000">// __USE_ANSI_CPP__</FONT>
+#endif <span class="cm">// __USE_ANSI_CPP__</span>
 
 #include "gxsfile.h"
 
@@ -116,7 +122,7 @@ void InputString(char *mesg, MemoryBuffer &amp;s)
   for(int i = 0; i &lt; 255; i++) buf[i] = 0;
   cin &gt;&gt; buf;
   s.Load(buf, (strlen(buf) + 1));
-  s[s.length()] += '\0'; <FONT COLOR="#ff0000">// Null terminate the string</FONT>
+  s[s.length()] += '\0'; <span class="cm">// Null terminate the string</span>
 }
 
 void InputInt(char *mesg, int &amp;i)
@@ -139,8 +145,8 @@ void Menu()
 }
 
 int CopyStreamSocketToFile(gxsFile *dev)
-<FONT COLOR="#ff0000">// Copies data from a stream socket to the memory cache</FONT>
-<FONT COLOR="#ff0000">// and flushes the cache buffers to a disk file.</FONT>
+<span class="cm">// Copies data from a stream socket to the memory cache</span>
+<span class="cm">// and flushes the cache buffers to a disk file.</span>
 {
   MemoryBuffer s;
   InputString("Enter the name of the output file", s);
@@ -163,7 +169,7 @@ int CopyStreamSocketToFile(gxsFile *dev)
     return 1;
   }
   
-  <FONT COLOR="#ff0000">// Get the host name assigned to this machine</FONT>
+  <span class="cm">// Get the host name assigned to this machine</span>
   char hostname[gxsMAX_NAME_LEN];
   if(server.HostName(hostname) != 0) {
     cout &lt;&lt; server.SocketExceptionMessage() &lt;&lt; "\n" &lt;&lt; flush;
@@ -182,24 +188,24 @@ int CopyStreamSocketToFile(gxsFile *dev)
   }
 
   while(server_up) {
-    <FONT COLOR="#ff0000">// Read the block following a client connection</FONT>
+    <span class="cm">// Read the block following a client connection</span>
     gxBlockHeader gx;
     if(server.ReadClientHeader(gx) != 0) {
       cout &lt;&lt; server.SocketExceptionMessage() &lt;&lt; "\n" &lt;&lt; flush;
       return 1;
     }
 
-    <FONT COLOR="#ff0000">// Get the client info</FONT>
+    <span class="cm">// Get the client info</span>
     char client_name[gxsMAX_NAME_LEN]; int r_port = -1;
     server.GetClientInfo(client_name, r_port);
     cout &lt;&lt; client_name &lt;&lt; " connecting on port " &lt;&lt; r_port &lt;&lt; "\n" &lt;&lt; flush;
     
-    <FONT COLOR="#ff0000">// Read the status byte to determine what to do with this block</FONT>
+    <span class="cm">// Read the status byte to determine what to do with this block</span>
     __ULWORD__ block_status = gx.block_status;
     __SBYTE__ status = (__SBYTE__)((block_status &amp; 0xFF00)&gt;&gt;8);
 
     switch(status) { 
-      <FONT COLOR="#ff0000">// Process each block of data</FONT>
+      <span class="cm">// Process each block of data</span>
       case gxSendBlock :  
 	cout &lt;&lt; "Reading " &lt;&lt; gx.block_length &lt;&lt; " bytes from " &lt;&lt; client_name 
 	     &lt;&lt; " remote port " &lt;&lt; r_port &lt;&lt; "\n" &lt;&lt; flush;
@@ -229,15 +235,15 @@ int CopyStreamSocketToFile(gxsFile *dev)
 
   cout &lt;&lt; "Number of cache buckets in use = " &lt;&lt; dev-&gt;BucketsInUse() &lt;&lt; "\n" 
        &lt;&lt; flush;
-  dev-&gt;Flush(); <FONT COLOR="#ff0000">// Flush all the cache buffers before exiting</FONT>
+  dev-&gt;Flush(); <span class="cm">// Flush all the cache buffers before exiting</span>
   dev-&gt;CloseOutputFile();
   cout &lt;&lt; "Exiting..." &lt;&lt; "\n" &lt;&lt; flush;
   return 1;
 }
 
 int CopyDatagramSocketToFile(gxsFile *dev)
-<FONT COLOR="#ff0000">// Copies data from a stream socket to the memory cache</FONT>
-<FONT COLOR="#ff0000">// and flushes the cache buffers to a disk file.</FONT>
+<span class="cm">// Copies data from a stream socket to the memory cache</span>
+<span class="cm">// and flushes the cache buffers to a disk file.</span>
 {
   MemoryBuffer s;
   InputString("Enter the name of the output file", s);
@@ -259,7 +265,7 @@ int CopyDatagramSocketToFile(gxsFile *dev)
     return 1;
   }
 
-  <FONT COLOR="#ff0000">// Get the host name assigned to this machine</FONT>
+  <span class="cm">// Get the host name assigned to this machine</span>
   char hostname[gxsMAX_NAME_LEN];
   if(server.HostName(hostname) != 0) {
     cout &lt;&lt; server.SocketExceptionMessage() &lt;&lt; "\n" &lt;&lt; flush;
@@ -267,7 +273,7 @@ int CopyDatagramSocketToFile(gxsFile *dev)
   }
   cout &lt;&lt; "Opening GX datagram server on host " &lt;&lt; hostname &lt;&lt; "\n" &lt;&lt; flush;
 
-  <FONT COLOR="#ff0000">// Find out what port was really assigned </FONT>
+  <span class="cm">// Find out what port was really assigned </span>
   int assigned_port;
   if(server.PortNumber(assigned_port) != 0) {
     cout &lt;&lt; server.SocketExceptionMessage() &lt;&lt; "\n" &lt;&lt; flush;
@@ -277,24 +283,24 @@ int CopyDatagramSocketToFile(gxsFile *dev)
 
   int server_up = 1;
   while(server_up) {
-    <FONT COLOR="#ff0000">// Read the block following a client connection</FONT>
+    <span class="cm">// Read the block following a client connection</span>
     gxBlockHeader gx;
     if(server.ReadClientHeader(gx) != 0) {
       cout &lt;&lt; server.SocketExceptionMessage() &lt;&lt; "\n" &lt;&lt; flush;
       return 1;
     }
 
-    <FONT COLOR="#ff0000">// Get the client info</FONT>
+    <span class="cm">// Get the client info</span>
     char client_name[gxsMAX_NAME_LEN]; int r_port = -1;
     server.GetClientInfo(client_name, r_port);
     cout &lt;&lt; client_name &lt;&lt; " connecting on port " &lt;&lt; r_port &lt;&lt; "\n" &lt;&lt; flush;
 
-    <FONT COLOR="#ff0000">// Read the status byte to determine what to do with this block</FONT>
+    <span class="cm">// Read the status byte to determine what to do with this block</span>
     __ULWORD__ block_status = gx.block_status;
     __SBYTE__ status = (__SBYTE__)((block_status &amp; 0xFF00)&gt;&gt;8);
 
     switch(status) { 
-      <FONT COLOR="#ff0000">// Process each block of data</FONT>
+      <span class="cm">// Process each block of data</span>
       case gxSendBlock :
 	cout &lt;&lt; "Reading " &lt;&lt; gx.block_length &lt;&lt; " bytes from " &lt;&lt; client_name 
 	     &lt;&lt; " remote port " &lt;&lt; r_port &lt;&lt; "\n" &lt;&lt; flush;
@@ -323,7 +329,7 @@ int CopyDatagramSocketToFile(gxsFile *dev)
     
   cout &lt;&lt; "Number of cache buckets in use = " &lt;&lt; dev-&gt;BucketsInUse() &lt;&lt; "\n" 
        &lt;&lt; flush;
-  dev-&gt;Flush(); <FONT COLOR="#ff0000">// Flush all the cache buffers before exiting</FONT>
+  dev-&gt;Flush(); <span class="cm">// Flush all the cache buffers before exiting</span>
   dev-&gt;CloseOutputFile();
   cout &lt;&lt; "Exiting..." &lt;&lt; "\n" &lt;&lt; flush;
   return 1;
@@ -389,7 +395,7 @@ void CopySerialPortToFile(gxsFile *dev)
 
   int server_up = 1;
   while(server_up) {
-    <FONT COLOR="#ff0000">// Wait for a block header.</FONT>
+    <span class="cm">// Wait for a block header.</span>
     gxBlockHeader gx;
     if(server.ReadHeader(gx) != 0) {
       cout &lt;&lt; server.SerialCommExceptionMessage() &lt;&lt; "\n" &lt;&lt; flush;
@@ -398,12 +404,12 @@ void CopySerialPortToFile(gxsFile *dev)
     
     cout &lt;&lt; "Client connecting on " &lt;&lt; (char *)port &lt;&lt; "\n" &lt;&lt; flush;
     
-    <FONT COLOR="#ff0000">// Read the status byte to determine what to do with this block</FONT>
+    <span class="cm">// Read the status byte to determine what to do with this block</span>
     __ULWORD__ block_status = gx.block_status;
     __SBYTE__ status = (__SBYTE__)((block_status &amp; 0xFF00)&gt;&gt;8);
     
     switch(status) { 
-      <FONT COLOR="#ff0000">// Process each block of data</FONT>
+      <span class="cm">// Process each block of data</span>
       case gxSendBlock :
 	cout &lt;&lt; "Reading database block " &lt;&lt; gx.block_length
 	     &lt;&lt; " bytes in length" &lt;&lt; "\n" &lt;&lt; flush;
@@ -441,7 +447,7 @@ void CopySerialPortToFile(gxsFile *dev)
 void SetupServer(int server_type)
 {
   int cache_size = 1024;
-  gxsFile dev(cache_size); <FONT COLOR="#ff0000">// Device cache used to process a file</FONT>
+  gxsFile dev(cache_size); <span class="cm">// Device cache used to process a file</span>
 
   cout &lt;&lt; "Creating a device cache using " &lt;&lt; cache_size 
        &lt;&lt; " cache buckets." &lt;&lt; "\n" &lt;&lt; flush;
@@ -536,17 +542,16 @@ int main()
   }
   return 0;
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

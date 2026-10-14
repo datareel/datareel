@@ -282,6 +282,9 @@ void gxList<TYPE>::ClearList()
 template<class TYPE>
 void gxList<TYPE>::DestroyList()
 // Clear the list and destroy the node data.
+// NOTE: The data is freed with a scalar delete, so TYPE must be a pointer
+// to a single object allocated with new. Data allocated with new[] (for
+// example strings) must be removed and freed with delete[] by the caller.
 {
   TYPE X;
   while(!IsEmpty()) {

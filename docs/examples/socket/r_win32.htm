@@ -43,32 +43,38 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
-
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>r_win32 example</title>
-    </head>
-    <body>
-
-
-
-<FONT FACE="Courier New" SIZE=3><PRE>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// -------- Start of File -------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// C++ Source Code File Name: r_win32.cpp</FONT>
-<FONT COLOR="#ff0000">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</FONT>
-<FONT COLOR="#ff0000">// Produced By: DataReel Software Development Team</FONT>
-<FONT COLOR="#ff0000">// File Creation Date: 09/20/1999</FONT>
-<FONT COLOR="#ff0000">// Date Last Modified: 06/17/2016</FONT>
-<FONT COLOR="#ff0000">// Copyright (c) 2001-2025 DataReel Software Development</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------- Program Description and Details ------------- // </FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">/*
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>r_win32 example</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-listing">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm">Library</a><a href="../../examples/examples.htm" aria-current="page">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>Overlapped I/O Receiver</h1>
+<p class="dr-listing-meta">Source file: <code>r_win32.cpp</code></p>
+<pre class="dr-code">
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// C++ Source Code File Name: r_win32.cpp</span>
+<span class="cm">// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 09/20/1999</span>
+<span class="cm">// Date Last Modified: 06/17/2016</span>
+<span class="cm">// Copyright (c) 2001-2025 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------- Program Description and Details ------------- // </span>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">/*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
@@ -86,8 +92,8 @@ USA
 
 Code used by Win32 applications to read and write data to and
 from a serial port using overlapped I/O.
-*/</FONT>
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
+*/</span>
+<span class="cm">// ----------------------------------------------------------- // </span>
 #include "gxdlcode.h"
 
 void PrintError(LPCSTR str)
@@ -107,8 +113,8 @@ void PrintError(LPCSTR str)
 }
 
 DWORD CALLBACK ConsoleThread(HANDLE h)
-<FONT COLOR="#ff0000">// Starts a user input thread using the console.</FONT>
-<FONT COLOR="#ff0000">// Takes console characters and sends them to the com port.</FONT>
+<span class="cm">// Starts a user input thread using the console.</span>
+<span class="cm">// Takes console characters and sends them to the com port.</span>
 {
   OVERLAPPED ov;
   HANDLE hconn = GetStdHandle(STD_INPUT_HANDLE);
@@ -129,25 +135,25 @@ DWORD CALLBACK ConsoleThread(HANDLE h)
     char buf[10];
     DWORD bytes_read = 0;
     
-    <FONT COLOR="#ff0000">// Wait for user data</FONT>
+    <span class="cm">// Wait for user data</span>
     WaitForSingleObject(hconn, INFINITE);
     
-    <FONT COLOR="#ff0000">// Read the console buffer</FONT>
+    <span class="cm">// Read the console buffer</span>
     if(!ReadConsole(hconn, buf, sizeof(buf), &amp;bytes_read, NULL)) {
       PrintError("ReadConsole failed");
       quit  = TRUE;
     }
     if(bytes_read) {
       DWORD write;
-      <FONT COLOR="#ff0000">// Check for Esc key</FONT>
+      <span class="cm">// Check for Esc key</span>
       for(write=0; write &lt; bytes_read; write++) {
-	<FONT COLOR="#ff0000">// Terminate when Esc key is pressed</FONT>
+	<span class="cm">// Terminate when Esc key is pressed</span>
 	if(buf[write] == 0x1b) {
 	  quit = TRUE;
 	  break;
 	}
       }
-      <FONT COLOR="#ff0000">// Send data to the serial device</FONT>
+      <span class="cm">// Send data to the serial device</span>
       if(write) {
 	if(!WriteFile(h, buf, write, &amp;write, &amp;ov)) {
 	  if(GetLastError() == ERROR_IO_PENDING) {
@@ -165,7 +171,7 @@ DWORD CALLBACK ConsoleThread(HANDLE h)
     
   } while(!quit);
   
-  <FONT COLOR="#ff0000">// Signal the terminal thread to quit</FONT>
+  <span class="cm">// Signal the terminal thread to quit</span>
   SetCommMask(h, 0);
   
   return 0;
@@ -202,17 +208,17 @@ void SerialRead(gxSerialComm *dev, char *dumpfile = 0)
   
   ZeroMemory(&amp;ov, sizeof(ov));
 
-  <FONT COLOR="#ff0000">// Create event for overlapped I/O</FONT>
+  <span class="cm">// Create event for overlapped I/O</span>
   ov.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
   if(ov.hEvent == INVALID_HANDLE_VALUE)
     PrintError("CreateEvent failed");
   
-  <FONT COLOR="#ff0000">// Wait for received characters</FONT>
+  <span class="cm">// Wait for received characters</span>
   if(!SetCommMask(h, EV_RXCHAR))
     PrintError("SetCommMask failed");
   
   while(1) {
-    <FONT COLOR="#ff0000">// Get the event mask</FONT>
+    <span class="cm">// Get the event mask</span>
     if(!WaitCommEvent(h, &amp;mask, &amp;ov)) {
       DWORD e = GetLastError();
       if(e == ERROR_IO_PENDING) {
@@ -227,7 +233,7 @@ void SerialRead(gxSerialComm *dev, char *dumpfile = 0)
       }
     }
     
-    <FONT COLOR="#ff0000">// If no event, then UI thread terminated with SetCommMask(h, 0)</FONT>
+    <span class="cm">// If no event, then UI thread terminated with SetCommMask(h, 0)</span>
     if(mask == 0) {
       break;
     }
@@ -249,11 +255,11 @@ void SerialRead(gxSerialComm *dev, char *dumpfile = 0)
 	  }
 	}
 	if(bytes_read) {
-	  if(dumpfile) { <FONT COLOR="#ff0000">// Capture the data to a file</FONT>
+	  if(dumpfile) { <span class="cm">// Capture the data to a file</span>
 	    outfile.df_Write((char *)buf, bytes_read);
 	    outfile.df_Flush();
 	  }
-	  else <FONT COLOR="#ff0000">// Write the data to the console</FONT>
+	  else <span class="cm">// Write the data to the console</span>
 	    WriteFile(hconn, buf, bytes_read, &amp;bytes_read, NULL);
 	}
       } while(bytes_read);
@@ -261,19 +267,18 @@ void SerialRead(gxSerialComm *dev, char *dumpfile = 0)
     mask = 0;
   }
   outfile.df_Close();
-  CloseHandle(ov.hEvent);  <FONT COLOR="#ff0000">// Close the event</FONT>
+  CloseHandle(ov.hEvent);  <span class="cm">// Close the event</span>
 }
-<FONT COLOR="#ff0000">// ----------------------------------------------------------- // </FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
-<FONT COLOR="#ff0000">// --------- End of File --------- //</FONT>
-<FONT COLOR="#ff0000">// ------------------------------- //</FONT>
+<span class="cm">// ----------------------------------------------------------- // </span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span>
 
-</PRE></FONT>
-
-
-  </body>
+</pre>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->

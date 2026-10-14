@@ -290,7 +290,7 @@ public:
 public:
   gxsHTML();
   virtual ~gxsHTML();
-  gxsHTML(const gxsHTML &ob) { Copy(ob); }
+  gxsHTML(const gxsHTML &ob) : DiskFileB() { Copy(ob); }
   gxsHTML &operator=(const gxsHTML &ob) { Copy(ob); return *this; }
 
 public:

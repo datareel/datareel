@@ -82,40 +82,16 @@ gxINT64::operator __LLWORD__() const
   return PackBits();
 }
 
+// 10/14/2026: Combine the bytes in unsigned arithmetic. Shifting the
+// sign-extended signed bytes was undefined behavior for negative bytes
+// and for values that overflow the signed type.
 __LLWORD__ gxINT64::PackBits() const
 {
-  __LLWORD__ a, b, c, d, e ,f, g, h;
-  
-  a = (__LLWORD__)byte[0];
-  b = (__LLWORD__)byte[1];
-  c = (__LLWORD__)byte[2];
-  d = (__LLWORD__)byte[3];
-  e = (__LLWORD__)byte[4];
-  f = (__LLWORD__)byte[5];
-  g = (__LLWORD__)byte[6];
-  h = (__LLWORD__)byte[7];
-
-  a = a & 0xFF;
-  b = (b<<8) & 0xFF00;
-  c = (c<<16) & 0xFF0000;
-  d = (d<<24) & 0xFF000000;
-#if defined (__MINGW32__)
-  e = (e<<32) & 0xFF00000000LL;
-  f = (f<<40) & 0xFF0000000000LL;
-  g = (g<<48) & 0xFF000000000000LL;
-  h = (h<<56) & 0xFF00000000000000LL;
-#elif defined (__LINUX__)
-  e = (e<<32) & 0xFF00000000LL;
-  f = (f<<40) & 0xFF0000000000LL;
-  g = (g<<48) & 0xFF000000000000LL;
-  h = (h<<56) & 0xFF00000000000000LL;
-#else
-  e = (e<<32) & 0xFF00000000;
-  f = (f<<40) & 0xFF0000000000;
-  g = (g<<48) & 0xFF000000000000;
-  h = (h<<56) & 0xFF00000000000000;
-#endif
-  return a + b + c + d + e + f + g + h;
+  __ULLWORD__ val = 0;
+  for(int i = 7; i >= 0; i--) {
+    val = (__ULLWORD__)((val << 8) | (__ULLWORD__)(__UBYTE__)byte[i]);
+  }
+  return (__LLWORD__)val;
 }
 
 void gxINT64::UnPackBits(__LLWORD__ val)

@@ -43,30 +43,33 @@
 <!-- HTML Internet page -->
 <!-- *********************************************************** -->
 <!-- PAGE CONTENT STARTS BELOW -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>gxcond class</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img src="../../images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm" aria-current="page">Library</a><a href="../../examples/examples.htm">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<H1>Condition Variable Class</H1>
 
-<html lang="en" data-bs-theme="auto">
-  <head>
-<!--HEADSTART-->
-<!--HEADEND-->
-    <title>gxcond class</title>
-    </head>
-    <body>
-
-
-
-
-<H1 ALIGN="CENTER">Condition Variable Class</H1>
-<P><HR></P>
-<B><U><FONT SIZE=4><P>Topics</B></U></FONT>:</P>
-<P><A HREF="#Overview">Overview</A><BR>
+<div class="dr-toc-title">Contents</div>
+<P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
 <A HREF="#Enum">Enumerations</A><BR>
 <A HREF="#Functions">Functions</A><BR>
 <A HREF="#Ehandler">Error Handling</A></P>
-<P><HR></P>
-<B><FONT SIZE=4><P><A NAME="Overview">Overview</A></B></FONT> </P>
+
+<h2 id="Overview">Overview</h2>
 <P>The condition variable class is a synchronization mechanism used by a thread to block its own execution until an expression involving shared data reaches a particular state.</P>
-<P><HR></P>
-<B><FONT SIZE=4><P><A NAME="Enum">Enumerations</A></P>
+
+<h2 id="Enum">Enumerations</h2><B><FONT>
 </B></FONT><P>The following enumeration is used define integer constants used with the gxCondition class:</P>
 <PRE>enum <A NAME="gxConditionError"><B>gxConditionError</A></B> { // Condition variables error codes
   <B>gxCONDITION_NO_ERROR</B> = 0, // No errors reported
@@ -84,9 +87,9 @@
   <B>gxCONDITION_TIMED_WAIT_ERROR</B>,   // Error during a timed waiting
   <B>gxCONDITION_WAIT_ERROR</B>          // Error waiting
 };</PRE>
-<P><HR></P>
-<B><FONT SIZE=4><P><A NAME="Functions">Functions</A></P>
-</B></FONT><P><A HREF="#ConditionBroadcast">gxCondition::ConditionBroadcast</A><BR>
+
+<h2 id="Functions">Functions</h2><B><FONT>
+</B></FONT><P class="dr-fnlist"><A HREF="#ConditionBroadcast">gxCondition::ConditionBroadcast</A><BR>
 <A HREF="#ConditionDestroy">gxCondition::ConditionDestroy</A><BR>
 <A HREF="#ConditionExceptionMessage">gxCondition::ConditionExceptionMessage</A><BR>
 <A HREF="#ConditionInit">gxCondition::ConditionInit</A><BR>
@@ -98,36 +101,33 @@
 <A HREF="#GetConditionProcessType">gxCondition::GetConditionProcessType</A><BR>
 <A HREF="#NumWaiting">gxCondition::NumWaiting</A><BR>
 <A HREF="#ThreadsWaiting">gxCondition::ThreadsWaiting</A></P>
-<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="ConditionBroadcast">ConditionBroadcast</A>()</B></FONT> - Function used to wake up all threads waiting on this condition. Returns a non-zero value if any errors occur.</P>
-<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="ConditionDestroy">ConditionDestroy</A>()</B></FONT> - Function used by the gxCondition destructor to destroy the condition variable and free its resources. Returns a non-zero value if the condition variable cannot be destroyed or if any errors occur.</P>
-<B><FONT COLOR="#000080"><P>const char * gxCondition::<A NAME="ConditionExceptionMessage">ConditionExceptionMessage</A>()</B></FONT> - Returns a null terminated string that can be used to log or print a condition exception.</P>
-<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="ConditionInit">ConditionInit</A>(gxProcessType type = gxPROCESS_PRIVATE)</B></FONT> - Function used by the gxCondition constructor to initialize the condition variable. By default the process type is set to private meaning that this condition variable can only be shared by threads of the same process. If a <B>gxPROCESS_SHARED</B> process type is specified the condition variable can be shared across multiple processes. Returns a non-zero value if the condition variable cannot be initialized or if any errors occur.</P>
-<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="ConditionSignal">ConditionSignal</A>()</B></FONT> - Function used to wake up a thread waiting on the this condition. Returns a non-zero value if any errors occur.</P>
-<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="ConditionTimedWait">ConditionTimedWait</A>(gxMutex *m, unsigned long sec, unsigned long nsec=0)</B></FONT> - Function used to block a thread from its own execution until this condition is signaled or the timeout value elapses. Returns a non-zero value if any errors occur.</P>
-<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="ConditionWait">ConditionWait</A>(gxMutex *m)</B></FONT> - Function used to block a thread from its own execution until this condition is signaled. Returns a non-zero value if any errors occur.</P>
-<B><FONT COLOR="#000080"><P>gxCondition_t * gxCondition::<A NAME="GetCondition">GetCondition</A>()</B></FONT> - Returns a pointer to the gxCondition_t data structure, which contains platform specific variables. <B>NOTE</B>: This function is provided for debugging and testing purposes only. The gxCondition_t data structure and the helper functions that operate on gxCondition_t types should not be used directly.</P>
-<B><FONT COLOR="#000080"><P>gxConditionError gxCondition::<A NAME="GetConditionError">GetConditionError</A>()</B></FONT> - Returns the last reported condition variable error. The return value will match one of the integer constants defined in <A HREF="#gxConditionError">gxConditionError</A> enumeration.</P>
-<B><FONT COLOR="#000080"><P>gxProcessType gxCondition::<A NAME="GetConditionProcessType">GetConditionProcessType</A>()</B></FONT> - Returns the process type for this condition. The return value will match one of the integer constants defined in <A NAME="gxProcessType"><A HREF="gxthread.htm#gxProcessType">gxProcessType</A></A> enumeration.</P>
-<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="NumWaiting">NumWaiting</A>()</B></FONT> - Returns the total number of threads waiting on this condition.</P>
-<B><FONT COLOR="#000080"><P>int gxCondition::<A NAME="ThreadsWaiting">ThreadsWaiting</A>()</B></FONT> - Returns true if any threads are waiting on this condition.</P>
-<P><HR></P>
-<B><FONT SIZE=4><P><A NAME="Ehandler">Error Handling</A></P>
+<div class="dr-fn" id="ConditionBroadcast"><code class="dr-sig">int gxCondition::ConditionBroadcast()</code><p class="dr-desc">Function used to wake up all threads waiting on this condition. Returns a non-zero value if any errors occur.</p></div>
+<div class="dr-fn" id="ConditionDestroy"><code class="dr-sig">int gxCondition::ConditionDestroy()</code><p class="dr-desc">Function used by the gxCondition destructor to destroy the condition variable and free its resources. Returns a non-zero value if the condition variable cannot be destroyed or if any errors occur.</p></div>
+<div class="dr-fn" id="ConditionExceptionMessage"><code class="dr-sig">const char * gxCondition::ConditionExceptionMessage()</code><p class="dr-desc">Returns a null terminated string that can be used to log or print a condition exception.</p></div>
+<div class="dr-fn" id="ConditionInit"><code class="dr-sig">int gxCondition::ConditionInit(gxProcessType type = gxPROCESS_PRIVATE)</code><p class="dr-desc">Function used by the gxCondition constructor to initialize the condition variable. By default the process type is set to private meaning that this condition variable can only be shared by threads of the same process. If a <B>gxPROCESS_SHARED</B> process type is specified the condition variable can be shared across multiple processes. Returns a non-zero value if the condition variable cannot be initialized or if any errors occur.</p></div>
+<div class="dr-fn" id="ConditionSignal"><code class="dr-sig">int gxCondition::ConditionSignal()</code><p class="dr-desc">Function used to wake up a thread waiting on the this condition. Returns a non-zero value if any errors occur.</p></div>
+<div class="dr-fn" id="ConditionTimedWait"><code class="dr-sig">int gxCondition::ConditionTimedWait(gxMutex *m, unsigned long sec, unsigned long nsec=0)</code><p class="dr-desc">Function used to block a thread from its own execution until this condition is signaled or the timeout value elapses. Returns a non-zero value if any errors occur.</p></div>
+<div class="dr-fn" id="ConditionWait"><code class="dr-sig">int gxCondition::ConditionWait(gxMutex *m)</code><p class="dr-desc">Function used to block a thread from its own execution until this condition is signaled. Returns a non-zero value if any errors occur.</p></div>
+<div class="dr-fn" id="GetCondition"><code class="dr-sig">gxCondition_t * gxCondition::GetCondition()</code><p class="dr-desc">Returns a pointer to the gxCondition_t data structure, which contains platform specific variables. <B>NOTE</B>: This function is provided for debugging and testing purposes only. The gxCondition_t data structure and the helper functions that operate on gxCondition_t types should not be used directly.</p></div>
+<div class="dr-fn" id="GetConditionError"><code class="dr-sig">gxConditionError gxCondition::GetConditionError()</code><p class="dr-desc">Returns the last reported condition variable error. The return value will match one of the integer constants defined in <A HREF="#gxConditionError">gxConditionError</A> enumeration.</p></div>
+<div class="dr-fn" id="GetConditionProcessType"><code class="dr-sig">gxProcessType gxCondition::GetConditionProcessType()</code><p class="dr-desc">Returns the process type for this condition. The return value will match one of the integer constants defined in <A NAME="gxProcessType"><A HREF="gxthread.htm#gxProcessType">gxProcessType</A></A> enumeration.</p></div>
+<div class="dr-fn" id="NumWaiting"><code class="dr-sig">int gxCondition::NumWaiting()</code><p class="dr-desc">Returns the total number of threads waiting on this condition.</p></div>
+<div class="dr-fn" id="ThreadsWaiting"><code class="dr-sig">int gxCondition::ThreadsWaiting()</code><p class="dr-desc">Returns true if any threads are waiting on this condition.</p></div>
+
+<h2 id="Ehandler">Error Handling</h2><B><FONT>
 </B></FONT><P>The application is responsible for monitoring and handling any condition variable errors that occur following a condition variable operation. An error condition is reported to the application by any condition variable function returning a non-zero value. If any value other then 0 is returned the application must generate the appropriate exception to handle the error condition. </P>
 <P>Condition variable errors are recorded by the gxCondition_t helper functions and stored in the gxCondition_t::condition_error variable. The condition variable error variable is accessible to the application though the <A HREF="#GetConditionError">gxCondition::GetConditionError</A> function. A condition variable error is a numeric value corresponding to one of the integer constants defined in the <A HREF="#gxConditionError">gxConditionError</A> enumeration. The <A HREF="#ConditionExceptionMessage">gxCondition::ConditionExceptionMessage</A> function can be used to log or print a condition variable exception.</P>
-<P><HR></P>
-<P ALIGN="CENTER"><CENTER><TABLE BORDER CELLSPACING=1 BORDERCOLOR="#000000">
+
+<P ALIGN="CENTER"><CENTER><div class="dr-tablewrap"><TABLE BORDER CELLSPACING=1 BORDERCOLOR="#000000">
 <TR><TD VALIGN="MIDDLE">
 <P ALIGN="CENTER">End Of Document</TD>
 </TR>
-</TABLE>
+</TABLE></div>
 </CENTER></P>
-
-<P>&nbsp;</P>
-
-
-  </body>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
 </html>
-
 <!-- PAGE CONTENT ENDS ABOVE -->
 <!-- *********************************************************** -->
 <!-- ******************************* -->
