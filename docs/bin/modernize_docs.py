@@ -98,7 +98,10 @@ def header_html(path):
         cur = ' aria-current="page"' if k == key else ""
         links.append(f'<a href="{rel}{target}"{cur}>{label}</a>')
     return (f'<header class="dr-header">\n'
-            f'  <a class="dr-brand" href="{rel}index.html"><img src="{rel}images/drlogo1.jpg" alt="DataReel" width="233" height="74"><span>C++ Toolkit Documentation</span></a>\n'
+            f'  <a class="dr-brand" href="{rel}index.html">'
+            f'<img class="dr-logo-light" src="{rel}images/datareel_logo.svg" alt="DataReel" width="173" height="48">'
+            f'<img class="dr-logo-dark" src="{rel}images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48">'
+            f'<span>C++ Toolkit Documentation</span></a>\n'
             f'  <nav class="dr-nav" aria-label="Documentation sections">{"".join(links)}</nav>\n'
             f'</header>')
 
@@ -118,6 +121,9 @@ def page(path, title, body_class, content, lead_comments="", tail_comments="", m
             f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
             f"{MARK}\n<title>{title}</title>\n"
             f'<link rel="stylesheet" href="{rel}css/datareel.css">\n'
+            f'<link rel="icon" href="{rel}images/favicon.ico" sizes="any">\n'
+            f'<link rel="icon" type="image/png" sizes="192x192" href="{rel}images/datareel_icon_192.png">\n'
+            f'<link rel="apple-touch-icon" href="{rel}images/datareel_icon_apple_touch.png">\n'
             f'<script src="{rel}js/datareel.js"></script>\n'
             f"</head>\n<body class=\"{body_class}\">\n{header_html(path)}\n{body}\n</body>\n</html>\n{tail_comments}")
 

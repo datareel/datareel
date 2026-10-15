@@ -103,7 +103,15 @@ img { max-width: 100%; height: auto; }
 }
 .dr-brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 650; white-space: nowrap; }
 .dr-brand:hover { text-decoration: none; }
-.dr-brand img { height: 36px; width: auto; background: #fff; border-radius: 6px; padding: 2px 4px; }
+.dr-brand img { height: 40px; width: auto; }
+/* DataReel logo: the light version, or the dark one in the dark color mode */
+.dr-brand .dr-logo-dark { display: none; }
+:root[data-theme="dark"] .dr-brand .dr-logo-light { display: none; }
+:root[data-theme="dark"] .dr-brand .dr-logo-dark { display: inline; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .dr-brand .dr-logo-light { display: none; }
+  :root:not([data-theme="light"]) .dr-brand .dr-logo-dark { display: inline; }
+}
 .dr-brand span { font-size: 15px; color: var(--muted); font-weight: 500; }
 .dr-nav { display: flex; gap: 4px; margin-left: auto; overflow-x: auto; scrollbar-width: none; }
 .dr-nav::-webkit-scrollbar { display: none; }
