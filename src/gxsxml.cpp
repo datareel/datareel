@@ -775,6 +775,35 @@ int gxsXML::find_tag(gxString &node, int offset, int &start, int &end)
   return 0;
 }
 
+// 10/24/2026: Added. Adds the text in "node" from "start" up to "end" to
+// "node_list" as a node with no name, if it is not only white space.
+// Leading and trailing white space is removed, so writing and loading a
+// document again does not add to it.
+static gxString gxsXML_trim_text(const gxString &s, int start, int end)
+// 10/24/2026: Returns the text from "start" up to "end" without its
+// leading and trailing white space.
+{
+  gxString buf;
+  if(end > (int)s.length()) end = (int)s.length();
+  if((start < 0) || (end <= start)) return buf;
+  const char *p = s.c_str();
+  while((start < end) && ((p[start] == ' ') || (p[start] == '\t') ||
+			  (p[start] == '\r') || (p[start] == '\n'))) start++;
+  while((end > start) && ((p[end-1] == ' ') || (p[end-1] == '\t') ||
+			  (p[end-1] == '\r') || (p[end-1] == '\n'))) end--;
+  return gxsXML_mid(s, start, (end-start));
+}
+
+static void gxsXML_add_text_node(gxString &node, int start, int end,
+				 gxList<gxsXMLNode_t> &node_list)
+{
+  gxString text = gxsXML_trim_text(node, start, end);
+  if(text.is_null()) return;
+  gxsXMLNode_t n;
+  n.data = text;
+  node_list.Add(n);
+}
+
 int gxsXML::has_sub_elements(const gxsXMLElement &element)
 {
   gxListNode<gxsXMLNode_t> *ptr = element.elements.GetHead();
@@ -869,6 +898,10 @@ int gxsXML::explode_nodes(gxString &node, gxList<gxsXMLNode_t> &node_list)
   int start, end;
   gxString name;
 
+  // 10/24/2026: Text between the elements (mixed content) is kept as
+  // nodes with no name, in document order. It used to be dropped.
+  int text_offset = 0;
+
   while(find_tag(node, tag_offset, start, end)) {
     tag_offset = end;
     if(start < 0) continue; // A ">" character in the text
@@ -880,6 +913,8 @@ int gxsXML::explode_nodes(gxString &node, gxList<gxsXMLNode_t> &node_list)
     if((curr_tag[1] == '/') || (curr_tag[1] == '?') || 
        (curr_tag[1] == '!')) continue;
 
+    gxsXML_add_text_node(node, text_offset, start, node_list);
+    
     gxsXMLNode_t n;
     CleanAttributes(curr_tag, n.attributes); 
     CleanTagName(curr_tag, name);
@@ -888,6 +923,7 @@ int gxsXML::explode_nodes(gxString &node, gxList<gxsXMLNode_t> &node_list)
     if(curr_tag.Right(2) == "/>") { // Empty element
       node_list.Add(n);
       num_nodes++;
+      text_offset = end;
       continue;
     }
 
@@ -903,6 +939,13 @@ int gxsXML::explode_nodes(gxString &node, gxList<gxsXMLNode_t> &node_list)
     node_list.Add(n);
     num_nodes++;
     tag_offset = end_offset + name.length() + 3;
+    text_offset = tag_offset;
+  }
+
+  // Text after the last element. Text is only kept when it is mixed
+  // with elements. Text with no elements stays in the element data.
+  if(num_nodes > 0) {
+    gxsXML_add_text_node(node, text_offset, (int)node.length(), node_list);
   }
 
   return num_nodes;
@@ -1025,6 +1068,7 @@ int gxsXML::load_file(const char *fname)
   gxString parent_name, end_of_parent;
   gxString root_data;
   int num_parents = 0;
+  gxString root_text; // 10/24/2026: Text between the parent elements
   gxsXMLNode root_node;
 
   // Clear previous error string, if any
@@ -1075,7 +1119,19 @@ int gxsXML::load_file(const char *fname)
 	root_data << line_chunk;
       }
 
-      curr_offset = line_chunk.Find(XML_start_tag, curr_offset);
+      int next_tag = line_chunk.Find(XML_start_tag, curr_offset);
+      // 10/24/2026: Keep the text between the parent elements of the
+      // root. It used to be dropped. It is added to the tree as a text
+      // node before the next parent or the end of the root.
+      if((has_root) && (!set_root) && (num_parents > 0) && 
+	 (!found_end_of_root)) {
+	int text_end = (next_tag == -1) ? (int)line_chunk.length() : next_tag;
+	if(text_end > curr_offset) {
+	  root_text << gxsXML_mid(line_chunk, curr_offset, 
+				 (text_end-curr_offset));
+	}
+      }
+      curr_offset = next_tag;
       if(curr_offset == -1) {
 	break;
       }
@@ -1322,6 +1378,24 @@ int gxsXML::load_file(const char *fname)
 	  }
 	}
 
+	// 10/24/2026: Add any text found since the last parent element
+	if(!root_text.is_null()) {
+	  gxsXMLNode tn;
+	  tn.data = gxsXML_trim_text(root_text, 0, (int)root_text.length());
+	  root_text.Clear();
+	  if(!tn.data.is_null()) {
+	    tn.node_type = gxsXML_TEXT_NODE;
+	    Handle_Parent_Event(tn);
+	    if(tn.sax_end_parse == 1) {
+	      xml_fp.df_Close();
+	      delete[] read_buf;
+	      return 0;
+	    }
+	    if(parser_type == gxsXML_PARSER_DOM) {
+	      node_tree.Add(tn);
+	    }
+	  }
+	}
 	if(xml_tag == end_of_root) { // We are at the end of this tree
 	  has_root = set_root = 0; // Signal to stop collecting nodes
 	  end_of_root.Clear();
@@ -1334,6 +1408,24 @@ int gxsXML::load_file(const char *fname)
       }
       
       if((has_root) && (!found_end_of_root)) {
+	// 10/24/2026: Add any text found since the last parent element
+	if(!root_text.is_null()) {
+	  gxsXMLNode tn;
+	  tn.data = gxsXML_trim_text(root_text, 0, (int)root_text.length());
+	  root_text.Clear();
+	  if(!tn.data.is_null()) {
+	    tn.node_type = gxsXML_TEXT_NODE;
+	    Handle_Parent_Event(tn);
+	    if(tn.sax_end_parse == 1) {
+	      xml_fp.df_Close();
+	      delete[] read_buf;
+	      return 0;
+	    }
+	    if(parser_type == gxsXML_PARSER_DOM) {
+	      node_tree.Add(tn);
+	    }
+	  }
+	}
 	num_parents++; 
 	
 	CleanTagName(xml_tag, parent_name);
@@ -1733,6 +1825,22 @@ int gxsXML::write_xml_tree(gxList<gxsXMLNode> &xml_tree,
       }
     }
    
+    // 10/24/2026: Text found between the parent elements of the root
+    if((lptr->data.node_type == gxsXML_TEXT_NODE) && 
+       (!lptr->data.data.is_null())) {
+      if(outstr) {
+	*(outstr) << "  " << lptr->data.data.c_str() << "\n";
+      }
+      if(outfile) {
+	*(outfile) << "  " << lptr->data.data.c_str() << "\n";
+	if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
+	  format_err_str();
+	  err_string << outfile->df_ExceptionMessage();
+	  return 0;
+	}
+      }
+    }
+
     if(lptr->data.node_type == gxsXML_PARENT_NODE) {
       gxString curr_parent = lptr->data.name;
       int parent_is_closed = 0;
@@ -1810,6 +1918,26 @@ int gxsXML::write_xml_tree(gxList<gxsXMLNode> &xml_tree,
 	while(cptr) {
 	  gxString curr_child = cptr->data.name;
 	  int child_is_closed = 0;
+
+	  // 10/24/2026: A child with no name is text found between the
+	  // elements of the parent and is written as text.
+	  if(curr_child.is_null()) {
+	    if(!cptr->data.data.is_null()) {
+	      if(outstr) {
+		*(outstr) << "    " << cptr->data.data.c_str() << "\n";
+	      }
+	      if(outfile) {
+		*(outfile) << "    " << cptr->data.data.c_str() << "\n";
+		if(outfile->df_GetError() != DiskFileB::df_NO_ERROR) {
+		  format_err_str();
+		  err_string << outfile->df_ExceptionMessage();
+		  return 0;
+		}
+	      }
+	    }
+	    cptr = cptr->next;
+	    continue;
+	  }
 
 	  if(outstr) {
 	    *(outstr) << "    <" << cptr->data.name;
@@ -1949,13 +2077,21 @@ int gxsXML::write_xml_tree(gxList<gxsXMLNode> &xml_tree,
 
 	      sbuf.Clear();
 	      for(i = 0; i < d; i++) sbuf << " ";
-	      sbuf << "      <" << e->name;
-	      if(!e->attributes.is_null()) sbuf << " " << e->attributes;
+	      // 10/24/2026: A sub-element with no name is text found between
+	      // elements and is written as text. It never contains elements.
+	      if(e->name.is_null()) next_depth = (next_depth > d) ? d : next_depth;
+	      else sbuf << "      <" << e->name;
+	      if((!e->name.is_null()) && (!e->attributes.is_null())) {
+		sbuf << " " << e->attributes;
+	      }
 	      if(next_depth > d) { // This element contains the next one
 		sbuf << ">" << e->data << "\n";
 	      }
 	      else {
-		if(e->data.is_null()) {
+		if(e->name.is_null()) {
+		  sbuf << "      " << e->data << "\n";
+		}
+		else if(e->data.is_null()) {
 		  sbuf << " />" << "\n";
 		}
 		else {
@@ -2245,22 +2381,22 @@ int gxsXML::DecodeString(const char *encoded_str, gxString &unencoded_str)
 } 
 
 // Derived class interface used to process SAX events
-void gxsXML::Handle_PI_Event(gxsXMLNode &n)
+void gxsXML::Handle_PI_Event(gxsXMLNode & /* n */)
 {
 
 }
 
-void gxsXML::Handle_DTD_Event(gxsXMLNode &n)
+void gxsXML::Handle_DTD_Event(gxsXMLNode & /* n */)
 {
 
 }
 
-void gxsXML::Handle_CDATA_Event(gxsXMLNode &n)
+void gxsXML::Handle_CDATA_Event(gxsXMLNode & /* n */)
 {
 
 }
 
-void gxsXML::Handle_Comment_Event(gxsXMLNode &n)
+void gxsXML::Handle_Comment_Event(gxsXMLNode & /* n */)
 {
 
 }
@@ -2270,27 +2406,27 @@ void gxsXML::Handle_XS_Event()
 
 }
 
-void gxsXML::Handle_Root_Event(gxsXMLNode &n)
+void gxsXML::Handle_Root_Event(gxsXMLNode & /* n */)
 {
 
 }
 
-void gxsXML::Handle_Parent_Event(gxsXMLNode &n)
+void gxsXML::Handle_Parent_Event(gxsXMLNode & /* n */)
 {
 
 }
 
-void gxsXML::Handle_Child_Event(gxsXMLNode &n)
+void gxsXML::Handle_Child_Event(gxsXMLNode & /* n */)
 {
 
 }
 
-void gxsXML::Handle_SubChild_Event(gxsXMLNode_t &n)
+void gxsXML::Handle_SubChild_Event(gxsXMLNode_t & /* n */)
 {
 
 }
 
-void gxsXML::Handle_Sibling_Event(gxsXMLNode_t &n)
+void gxsXML::Handle_Sibling_Event(gxsXMLNode_t & /* n */)
 {
 
 }

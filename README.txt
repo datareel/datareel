@@ -244,6 +244,21 @@ DOCUMENTATION
 All documentation is included in the docs sub directory in an HTML
 format, viewable in any Web browser. 
 
+VERSION 6.0
+-----------
+DataReel 6.0, 10/24/2026, is the first major release in many years.
+Version 5.10, tagged 5.10 in the repository, is the last version 5
+release. Version 6.0 fixes every item that the 10/14/2026 code review
+left as is: linked list array cleanup, gxConfig::Add(), stopping
+threads when a thread pool is cleared, database cache Bind() and
+ReleaseSegments(), RDBMS duplicate key lookups and BLOB fields in
+all-field keys, mixed text in the XML parser, the RSS <cloud> element,
+the glibc robust mutex problem, and all -Wall -Wextra compiler
+warnings. The shared library is built as libdatareel.so.6.0. Programs
+must be recompiled, and some interfaces changed. See
+RELEASE_NOTES_6.0.txt and docs/release_notes_6_0.html. Every change in
+the source is marked with a "10/24/2026" comment.
+
 CODE REVIEW AND FIXES
 ---------------------
 On 10/14/2026 the DataReel code in this repository was reviewed and
@@ -272,7 +287,8 @@ programs, and valgrind checks. Fixes include:
    thread helpers and thread pool, XML parser and RSS writer, B-tree
    and database caches, debug manager, B-tree Find() and gxDatabase
 
-The version number is now 5.10. The full list of fixes, SSL updates and behavior changes is in
+These fixes were released as version 5.10. The full list of fixes, SSL
+updates and behavior changes is in
 CODE_REVIEW_FIXES.txt and docs/code_review_fixes.html. Every change
 in the source is marked with a "10/14/2026" comment.
 

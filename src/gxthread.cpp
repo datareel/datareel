@@ -198,7 +198,7 @@ int gxThread::JoinThread(gxThread_t *thread)
   return thread_api_wrapper->apiJoinThread(thread);
 }
 
-void gxThread::ThreadExitRoutine(gxThread_t *thread)
+void gxThread::ThreadExitRoutine(gxThread_t * /* thread */)
 // Function used to perform any routines needed before
 // exiting a thread under normal conditions.
 {
@@ -206,7 +206,7 @@ void gxThread::ThreadExitRoutine(gxThread_t *thread)
   // Ignore BCC32 warning 8057 thread is never used
 }
 
-void gxThread::ThreadCleanupHandler(gxThread_t *thread)
+void gxThread::ThreadCleanupHandler(gxThread_t * /* thread */)
 // Function used to perform any cleanup routines needed when a
 // a thread is canceled. 
 {
@@ -547,7 +547,9 @@ int gxThread::DestroyThreadPool(thrPool *thread_pool, int check_state)
 	  // PC-lint 09/14/2005: thread may not be initalized 
 	  thread = ptr->GetThreadPtr();
 	  if(thread) {
-	    if(CancelThread(thread) != 0) return 1;
+	    // 10/24/2026: Wait for the canceled thread to finish before it
+	    // is deleted. CancelThread() only sends a cancel request.
+	    if(thread_api_wrapper->apiStopThread(thread) != 0) return 1;
 	  }
 	}
 	thread = thread_pool->RemoveNode(ptr);
@@ -558,7 +560,9 @@ int gxThread::DestroyThreadPool(thrPool *thread_pool, int check_state)
 	  // PC-lint 09/14/2005: thread may not be initalized 
 	  thread = ptr->GetThreadPtr();
 	  if(thread) {
-	    if(CancelThread(thread) != 0) return 1;
+	    // 10/24/2026: Wait for the canceled thread to finish before it
+	    // is deleted. CancelThread() only sends a cancel request.
+	    if(thread_api_wrapper->apiStopThread(thread) != 0) return 1;
 	  }
 	}
 	thread = thread_pool->RemoveNode(ptr);
@@ -569,7 +573,9 @@ int gxThread::DestroyThreadPool(thrPool *thread_pool, int check_state)
 	  // PC-lint 09/14/2005: thread may not be initalized 
 	  thread = ptr->GetThreadPtr();
 	  if(thread) {
-	    if(CancelThread(thread) != 0) return 1;
+	    // 10/24/2026: Wait for the canceled thread to finish before it
+	    // is deleted. CancelThread() only sends a cancel request.
+	    if(thread_api_wrapper->apiStopThread(thread) != 0) return 1;
 	  }
 	}
 	thread = thread_pool->RemoveNode(ptr);

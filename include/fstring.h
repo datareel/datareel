@@ -48,7 +48,7 @@ the bytes in a string when a FString object is constructed.
 
 10/13/2002: Removed the following conversion function from the FString
 class due to excessive compiler warning under Linux: 
-operator const int () const { return sptr[0] != 0; }
+operator int () const { return sptr[0] != 0; }
 
 10/13/2002: Removed the following conversion function to avoid having
 FString objects being automatically converted to int types: 

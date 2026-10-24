@@ -45,6 +45,7 @@ from <gxstypes.h> to "gxstypes.h"
 
 GXDLCODE_API char *WinSockExceptionMessage(int wserror)
 {
+  (void)wserror; // 10/24/2026: Only used in WIN32 builds
 #if defined (__WIN32__)
   switch(wserror) {
     case 0 :
@@ -224,6 +225,7 @@ service provider");
 
 GXDLCODE_API void WinSockSetException(int err)
 {
+  (void)err; // 10/24/2026: Only used in WIN32 builds
 #if defined (__WIN32__) 
   WSASetLastError(err);
 #endif

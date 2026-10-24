@@ -62,8 +62,12 @@ enum gxsXMLNodeType {
   gxsXML_COMMENT_NODE, // Comment nodes
   gxsXML_PROC_NODE,    // Processing instruction nodes
   gxsXML_DTD_NODE,     // Document type declaration nodes
-  gxsXML_CDATA_NODE    // CDATA type
+  gxsXML_CDATA_NODE,   // CDATA type
   // CDATA contains information expressed in a non-XML format
+
+  // 10/24/2026: Text found between the parent elements of the root.
+  // Text between other elements is stored in nodes with no name.
+  gxsXML_TEXT_NODE
 };
 
 enum gxsXMLElementType {

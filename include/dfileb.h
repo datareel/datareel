@@ -310,7 +310,7 @@ protected: // Process control variables
 public: // Overloaded operators
   int operator!() const { return ((df_is_ok == 0) || (df_is_open == 0)); }
   int operator!() { return ((df_is_ok == 0) || (df_is_open == 0)); }
-  operator const int () const { 
+  operator int () const { 
     return ((df_is_ok == 1) && (df_is_open == 1)); 
   }
   operator int () { return ((df_is_ok == 1) && (df_is_open == 1)); }

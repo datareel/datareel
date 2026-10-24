@@ -96,7 +96,7 @@ void HyperTextDrv::WriteString(const char *s)
  unsigned len = strlen(s);
 
  while(len--) {
-   WriteChar((const unsigned char)*p);
+   WriteChar((unsigned char)*p);
    p++;
  }
 }
@@ -138,17 +138,17 @@ void HyperTextDrv::WriteChar(const unsigned char c) const
 
 void HyperTextDrv::Write(char c)
 {
-  WriteChar((const unsigned char)c);
+  WriteChar((unsigned char)c);
 }
 
 void HyperTextDrv::Write(const char c) const
 {
-  WriteChar((const unsigned char)c);
+  WriteChar((unsigned char)c);
 }
 
 void HyperTextDrv::Write(unsigned char c)
 {
-  WriteChar((const unsigned char)c);
+  WriteChar((unsigned char)c);
 }
 
 void HyperTextDrv::Write(const unsigned char c) const
@@ -447,14 +447,14 @@ void HyperText::StartTableRow()
   *(stream) << tr << "\n"; 
 }
 
-void HyperText::TableHeader(char *valign, int colspan, int rowspan, int width)
+void HyperText::TableHeader(const char *valign, int colspan, int rowspan, int width)
 {
   *(stream) << lt << "TH ALIGN=" << valign << ' ' << "COLSPAN=" << colspan;
   *(stream) << ' ' << "ROWSPAN=" << rowspan << ' ';
   *(stream) << "WIDTH=\"%" << width << "\"" << gt;
 }
 
-void HyperText::TableData(char *valign, int colspan, int rowspan, int width)
+void HyperText::TableData(const char *valign, int colspan, int rowspan, int width)
 {
   *(stream) << lt << "TD ALIGN=" << valign << ' ' << "COLSPAN=" << colspan;
   *(stream) << ' ' << "ROWSPAN=" << rowspan << ' ';

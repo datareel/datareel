@@ -389,7 +389,7 @@ gxSocketError gxsTelnetClient::SetEchoOption(unsigned char code,
 }
 
 gxSocketError gxsTelnetClient::SetSuppOption(unsigned char code, 
-					     unsigned char option)
+					     unsigned char /* option */)
 // Suppress go ahead option.
 {
   gxSocketError err = gxSOCKET_NO_ERROR;

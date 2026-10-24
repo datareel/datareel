@@ -101,6 +101,18 @@
   gxString <B>name</B>;        // The name of the text object in the text input area.
   gxString <B>link</B>;        // The URL of the CGI script that processes text input requests.
 };</PRE>
+</FONT><P><A NAME="gxRSScloud">Channel cloud.</A> The RSS 2.0 &lt;cloud&gt; element is written as an empty element with its settings as attributes when the domain member is set, for example: &lt;cloud domain="rpc.example.com" port="80" path="/RPC2" registerProcedure="pingMe" protocol="soap" /&gt;. All five attributes are always written, because the RSS 2.0 specification requires them. The values are XML encoded. It is not used in RSS 1.0 output. Clear() empties all members and is_null() returns true when the domain is empty. <B>NOTE</B>: 10/24/2026: Added in version 6.0. The channel cloud member used to be a gxString written as element text, which is not valid RSS.</P>
+<FONT COLOR="#008080"><PRE>struct <B>gxRSScloud</B>
+{
+  void Clear();
+  int is_null() const;
+
+  gxString <B>domain</B>;            // Domain name or IP address of the cloud
+  gxString <B>port</B>;              // TCP port the cloud runs on
+  gxString <B>path</B>;              // Location of the cloud's responder
+  gxString <B>registerprocedure</B>; // Name of the procedure to call to register
+  gxString <B>protocol</B>;          // xml-rpc, soap or http-post
+};</PRE>
 </FONT><P><A NAME="gxRSSitem">Feed item.</A> The title, link and description are always written. In RSS 2.0 output the other members are written only when they are not empty. In RSS 1.0 output only title, link and description are used.</P>
 <FONT COLOR="#008080"><PRE>struct <B>gxRSSitem</B>
 {
@@ -141,7 +153,7 @@
   gxString <B>category</B>;  // Specify one or more categories that the channel belongs to.
   gxString <B>generator</B>; // A string indicating the program used to generate the channel.
   gxString <B>docs</B>;      // A URL that points to the documentation for the format used in the RSS file.
-  gxString <B>cloud</B>;     // Allows processes to register with a cloud to be notified of updates to the channel,
+  <A HREF="#gxRSScloud">gxRSScloud</A> <B>cloud</B>; // 10/24/2026: Was a gxString. Allows processes to register with a cloud to be notified of updates to the channel,
                       // implementing a lightweight publish-subscribe protocol for RSS feeds.
   gxString <B>ttl</B>;       // Time to live is a number of minutes that indicates how long a channel can be
                       // cached before refreshing from the source.
@@ -188,7 +200,7 @@ public:
 <div class="dr-fn" id="encode_xhtml"><code class="dr-sig">int gxRSSfeed::encode_xhtml(const gxString &amp;unencoded_str, gxString &amp;encoded_str)</code><p class="dr-desc">Internal processing function (declared public) used to copy "unencoded_str" to "encoded_str" and replace the characters &amp;, &lt;, &gt;, ' and " with &amp;amp;amp;, &amp;amp;lt;, &amp;amp;gt;, &amp;amp;apos; and &amp;amp;quot;. Always returns 1.</p></div>
 <div class="dr-fn" id="WriteFeed"><code class="dr-sig">int gxRSSfeed::WriteFeed(gxString &amp;feed)</code><p class="dr-desc">Public member function used to write the complete feed into the "feed" string. Any previous contents of "feed" are replaced. Calls <A HREF="#write_rss1_feed">write_rss1_feed()</A> if the integer value of rss_version is 1, otherwise calls <A HREF="#write_rss2_feed">write_rss2_feed()</A>. Always returns 1. The function does not check that the required channel or item fields are set. <B>NOTE</B>: 10/14/2026: Fixed: any version below 2, including 0.91 and 0.92, was written as RSS 1.0.</p></div>
 <div class="dr-fn" id="write_rss1_feed"><code class="dr-sig">int gxRSSfeed::write_rss1_feed(gxString &amp;feed)</code><p class="dr-desc">Internal processing function (declared public) used to write an RSS 1.0 (RDF) document into "feed". The channel's rdf:about value is the channel link. The &lt;items&gt; sequence lists the link of each item, and each &lt;item&gt; uses its link as its rdf:about value. The image and text input references use the image URL and the text input link, and are written only when the image or text input is written. Always returns 1. <B>NOTE</B>: 10/14/2026: Fixed: these values were fixed sample addresses from xml.com, and the &lt;items&gt; sequence always listed the same two sample addresses.</p></div>
-<div class="dr-fn" id="write_rss2_feed"><code class="dr-sig">int gxRSSfeed::write_rss2_feed(gxString &amp;feed)</code><p class="dr-desc">Internal processing function (declared public) used to write an RSS 2.0 document into "feed". The XML header and &lt;rss&gt; root are followed by a &lt;channel&gt; element with the channel fields, the optional &lt;image&gt; and &lt;textInput&gt; elements and one &lt;item&gt; element per item. Always returns 1. <B>NOTE</B>: 10/14/2026: Fixed: channel.cloud was written as "&lt;cloud&gt;...&lt;channel&gt;", which made the feed invalid XML. It is now closed with &lt;/cloud&gt;. The text input element was named &lt;textinput&gt;; it is now &lt;textInput&gt; as the RSS 2.0 specification requires. The cloud text is written as element content; the specification's cloud attributes (domain, port, path and so on) are not supported.</p></div>
+<div class="dr-fn" id="write_rss2_feed"><code class="dr-sig">int gxRSSfeed::write_rss2_feed(gxString &amp;feed)</code><p class="dr-desc">Internal processing function (declared public) used to write an RSS 2.0 document into "feed". The XML header and &lt;rss&gt; root are followed by a &lt;channel&gt; element with the channel fields, the optional &lt;image&gt; and &lt;textInput&gt; elements and one &lt;item&gt; element per item. Always returns 1. <B>NOTE</B>: 10/14/2026: Fixed: channel.cloud was written as "&lt;cloud&gt;...&lt;channel&gt;", which made the feed invalid XML. It is now closed with &lt;/cloud&gt;. The text input element was named &lt;textinput&gt;; it is now &lt;textInput&gt; as the RSS 2.0 specification requires. <B>NOTE</B>: 10/24/2026: The cloud element is now written with the domain, port, path, registerProcedure and protocol attributes from the <A HREF="#gxRSScloud">gxRSScloud</A> member, the form the specification gives. It used to be written as element text.</p></div>
 
 <h2 id="Example">Example</h2>
 <P>No example program in the distribution uses these classes (examples_general/xml_parser/testprog.cpp only includes gxsrss.h). The following minimal example builds a feed with one item and prints it.</P>
@@ -245,7 +257,7 @@ int main()
   &lt;/channel&gt;
 &lt;/rss&gt;</PRE>
 </main>
-<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.0 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

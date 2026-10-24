@@ -278,8 +278,8 @@ public:
   virtual ~gxSSL();
 
 private: // Disallow copying and assignment
-  gxSSL(const gxSSL &ob) { }
-  void operator=(const gxSSL &ob) { }
+  gxSSL(const gxSSL &) { }
+  void operator=(const gxSSL &) { }
 
 public: // External exception handling functions
   gxSSLError GetSSLError() { return ssl_error; }

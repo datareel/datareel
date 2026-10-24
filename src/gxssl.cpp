@@ -443,7 +443,7 @@ void gxCertIssuerInfo::CopyCert(gxCertIssuerInfo &ob) {
   netscape_comment = ob.netscape_comment;
 }
 
-int password_cb2(char *buf,int num, int rwflag,void *userdata)
+int password_cb2(char *buf,int num, int /* rwflag */, void *userdata)
 // Password callback function.
 {
   gxSSL *openssl = (gxSSL *)userdata;

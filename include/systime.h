@@ -135,8 +135,8 @@ public:
   };
 
 private:
-  SysTime(const SysTime &ob) { }        // Disallow copying
-  void operator=(const SysTime &ob) { } // Disallow assignment
+  SysTime(const SysTime &) { }        // Disallow copying
+  void operator=(const SysTime &) { } // Disallow assignment
 
 public:
   void FormatTime(int Format);

@@ -175,6 +175,7 @@ GXDLCODE_API int gxThreadMutexInit(gxMutex_t *m, gxProcessType type)
   else m->process_type = gxPROCESS_PRIVATE;
 
   m->mutex_error = gxMUTEX_NO_ERROR;
+  m->not_recoverable = 0; // 10/24/2026
   
 #if defined (__WIN32__)
   // Enable multiple processes to get handles of the same mutex
@@ -391,7 +392,10 @@ GXDLCODE_API int gxThreadMutexDestroy(gxMutex_t *m)
   }
 #endif
 
-  pthread_mutex_unlock(&m->mutex);
+  // 10/24/2026: Do not unlock a mutex that is not recoverable. The glibc
+  // unlock call can crash on it. See gxMutex_t::not_recoverable.
+  if(!m->not_recoverable) pthread_mutex_unlock(&m->mutex);
+  m->not_recoverable = 0;
   int rv = pthread_mutex_destroy(&m->mutex);
   if(rv != 0) {
     m->mutex_error = gxMUTEX_DESTROY_ERROR;
@@ -463,6 +467,14 @@ GXDLCODE_API int gxThreadMutexLock(gxMutex_t *m)
 // Lock the specified mutex. Returns a non-zero value if the
 // mutex cannot be locked.
 {
+#if defined(__POSIX__) && defined(ENOTRECOVERABLE)
+  // 10/24/2026: Do not call the native API on a mutex that is not
+  // recoverable. See gxMutex_t::not_recoverable.
+  if(m->not_recoverable) {
+    m->mutex_error = gxMUTEX_NOTRECOVERABLE_ERROR;
+    return ENOTRECOVERABLE;
+  }
+#endif
 #if defined (__WIN32__)
   if(m->process_type == gxPROCESS_SHARED) {
     // The function's time-out interval never elapses 
@@ -487,6 +499,7 @@ GXDLCODE_API int gxThreadMutexLock(gxMutex_t *m)
       // enum value instead of the ENOTRECOVERABLE error code.
       case ENOTRECOVERABLE:
 	m->mutex_error = gxMUTEX_NOTRECOVERABLE_ERROR;
+	m->not_recoverable = 1; // 10/24/2026
 	break;
 #endif
       default:
@@ -513,6 +526,15 @@ GXDLCODE_API int gxThreadMutexUnlock(gxMutex_t *m)
   // call is stored below.
   gxMutexError prev_error = m->mutex_error;
   if(prev_error != gxMUTEX_NO_ERROR) m->mutex_error = gxMUTEX_NO_ERROR;
+
+#if defined(__POSIX__) && defined(ENOTRECOVERABLE)
+  // 10/24/2026: A mutex that is not recoverable cannot be held, and the
+  // glibc unlock call can crash on it. See gxMutex_t::not_recoverable.
+  if(m->not_recoverable) {
+    m->mutex_error = gxMUTEX_NOTRECOVERABLE_ERROR;
+    return ENOTRECOVERABLE;
+  }
+#endif
 
 #if defined (__WIN32__)  
   if(m->process_type == gxPROCESS_SHARED) {
@@ -569,6 +591,14 @@ GXDLCODE_API int gxThreadMutexTryLock(gxMutex_t *m)
 // Test the mutex before locking it. Returns a non-zero
 // value if the mutex cannot be locked.
 {
+#if defined(__POSIX__) && defined(ENOTRECOVERABLE)
+  // 10/24/2026: Do not call the native API on a mutex that is not
+  // recoverable. See gxMutex_t::not_recoverable.
+  if(m->not_recoverable) {
+    m->mutex_error = gxMUTEX_NOTRECOVERABLE_ERROR;
+    return ENOTRECOVERABLE;
+  }
+#endif
 #if defined (__WIN32__)
   if(m->process_type == gxPROCESS_SHARED) {
     // Test the object's state and return immediately
@@ -601,6 +631,7 @@ GXDLCODE_API int gxThreadMutexTryLock(gxMutex_t *m)
       // enum value instead of the ENOTRECOVERABLE error code.
       case ENOTRECOVERABLE:
         m->mutex_error = gxMUTEX_NOTRECOVERABLE_ERROR;
+        m->not_recoverable = 1; // 10/24/2026
 	break;
 #endif
       case EBUSY:

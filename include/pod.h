@@ -113,8 +113,8 @@ public:
   ~POD();
   
 private:
-  POD(const POD &ob) { }            // Disallow copying
-  void operator=(const POD &ob) { } // Disallow assignment
+  POD(const POD &) { }            // Disallow copying
+  void operator=(const POD &) { } // Disallow assignment
 
 public: // POD database functions
   gxDatabaseError Open(const char *dfname, const char *ifname,

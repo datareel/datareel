@@ -259,8 +259,8 @@ struct GXDLCODE_API gxFileHeader // Database file header information
   FAU gxd_ver;     // Database engine version number
   
 private: // Disallow copying and assignment
-  gxFileHeader(const gxFileHeader &ob) { }
-  void operator=(const gxFileHeader &ob) { }
+  gxFileHeader(const gxFileHeader &) { }
+  void operator=(const gxFileHeader &) { }
 };
 
 // Database/Device Block Header 

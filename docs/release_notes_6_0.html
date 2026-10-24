@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel 6.0 Release Notes</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>DataReel 6.0 Release Notes</h1>
+<h2 id="Top">DataReel 6.0 Release Notes, 10/24/2026</h2>
+
+<p><b>DataReel version 6.0 (was 5.10)</b></p>
+<p>DataReel 6.0 is the first major release in many years. Version 5.10, tagged 5.10 in the repository, is the last version 5 release.</p>
+<p>Version 6.0 fixes every item listed under "Known Items Left As Is" in CODE_REVIEW_FIXES.txt. Those items were held back in 5.10 because they needed a new interface or would change existing files. Every change in the source is marked with a "10/24/2026" comment. The changes were made by Claude Code, Anthropic's AI coding assistant (https://claude.ai/code).</p>
+<p>The library version in version.txt is 6.0 and the shared library version (SHAREDLIB_VERSION in env/linux.env) is 6.0, so the Linux shared library is built as libdatareel.so.6.0. Programs must be recompiled against the 6.0 headers. Some classes gained members and some function signatures changed (see Upgrading From Version 5).</p>
+<p><a href="#HowTheChangesWereTested">How the Changes Were Tested</a><br />
+<a href="#LinkedLists">Linked Lists</a><br />
+<a href="#ConfigurationManager">Configuration Manager</a><br />
+<a href="#ThreadPool">Thread Pool</a><br />
+<a href="#DatabaseFileCache">Database File Cache</a><br />
+<a href="#RelationalDatabase">Relational Database</a><br />
+<a href="#XmlParser">XML Parser</a><br />
+<a href="#RssFeedWriter">RSS Feed Writer</a><br />
+<a href="#ThreadHelpersAndGlibc">Thread Helpers and glibc</a><br />
+<a href="#CompilerWarnings">Compiler Warnings</a><br />
+<a href="#OtherFixes">Other Fixes</a><br />
+<a href="#UpgradingFromVersion5">Upgrading From Version 5</a></p>
+<h2 id="HowTheChangesWereTested">How the Changes Were Tested</h2>
+<ul>
+<li>The library and the OpenSSL library build with no warnings using GCC 13 with -Wall -Wextra, at -O0 and at -O2.</li>
+<li>The 39 database, general and thread example programs were built with AddressSanitizer and UndefinedBehaviorSanitizer and run with no reports.</li>
+<li>New test programs for each change pass against 6.0. The RDBMS, XML and thread pool tests fail against 5.10, which shows that they test the problems that were fixed. The glibc mutex problem was reproduced with a small C program: after a trylock that returns ENOTRECOVERABLE, an unlock crashes and a lock never returns.</li>
+</ul>
+<h2 id="LinkedLists">Linked Lists</h2>
+<ul>
+<li>New gxList::DestroyArrayList() and gxListB::DestroyArrayList() free each item with delete[], for strings and other data allocated with new[]. DestroyList() still uses a scalar delete and is only for data allocated with a single object new.</li>
+<li>examples_general/doubly_linked_list uses DestroyArrayList().</li>
+</ul>
+<h2 id="ConfigurationManager">Configuration Manager</h2>
+<ul>
+<li>gxConfig::Add(const gxString &amp;) hid the virtual gxListB::Add(void *) (-Woverloaded-virtual). gxConfig now overrides Add(void *) as a private function that adds nothing and returns a null value, since every node in a configuration list must hold a gxString.</li>
+<li>New gxConfig::Add(const char *), so Add(char_buffer) stores the text as a string instead of picking the void pointer overload.</li>
+</ul>
+<h2 id="ThreadPool">Thread Pool</h2>
+<ul>
+<li>thrPool::ClearPool() and the thrPool destructor used to delete every thread with a plain delete, even while it was still running. They now cancel running, suspended and waiting joinable threads and, under POSIX, wait for them to finish before deleting them.</li>
+<li>gxThread::DestroyThreadPool() and gxThread::DestroyThread() with check_state also wait for a canceled thread under POSIX. pthread_cancel() only sends a cancel request, so a canceled thread could still be running when its gxThread_t was deleted.</li>
+<li>New gxThreadAPIWrapper::apiStopThread() cancels a thread and waits for it.</li>
+<li>A canceled thread stops at its next cancellation point. A thread that never reaches one keeps these functions waiting. A canceled thread runs gxThread::ThreadCleanupHandler(), so the gxThread object must still exist when the pool is cleared. Detached threads cannot be canceled and are still deleted without being stopped.</li>
+</ul>
+<h2 id="DatabaseFileCache">Database File Cache</h2>
+<ul>
+<li>gxDBCacheNode::Bind() loaded a segment that was not in the cache with a read length of one byte. The cache node now remembers the length of its last CachedRead(), CachedWrite() or Bind(bytes) call and loads the whole node. With no length set, only a segment that is already cached is bound, and the node address is kept.</li>
+<li>New gxDBCacheNode::Bind(bytes), GetNodeLength() and SetNodeLength().</li>
+<li>gxDatabaseCache::ReleaseSegments() now returns the segment array and leaves the cache empty. It used to set only the array pointer to null, so the head and tail still pointed into the released array. The caller frees the returned array with delete[].</li>
+</ul>
+<h2 id="RelationalDatabase">Relational Database</h2>
+<ul>
+<li>ALLOWDUP lookups by key: with duplicates allowed the block address is part of each B-tree key, so a search key with a block address of 0 never matched. FindRecord(), DeleteRecord() and the change functions could not find any record through an index. Find() now starts at the first key with the same CRC-32 value and reads each record with that value until one matches.</li>
+<li>AddRecord() no longer checks for an existing key when duplicates are allowed. The check always passed before, because the lookup always failed.</li>
+<li>BLOB fields in all-field keys: CreateKey() moved its write offset past a BLOB field but did not count it in the key length, so the fields after a BLOB were left out of the key. BLOB fields are now skipped without leaving a gap.</li>
+<li>File change: the all-field keys of tables with BLOB fields are different in 6.0. Rebuild the index files of those tables with RebuildIndex after upgrading. Index files of other tables do not change.</li>
+</ul>
+<h2 id="XmlParser">XML Parser</h2>
+<ul>
+<li>Text mixed with child elements is kept in document order. It used to be dropped. Inside a parent, child or sub-element, each piece of text is stored as a node with an empty name and the text in its data member. Text between the parent elements of the root is stored in node_tree with the new node type gxsXML_TEXT_NODE and passed to Handle_Parent_Event() in SAX mode.</li>
+<li>Leading and trailing white space is removed from the text, and text that is only white space is not kept, so a document written and loaded again gives the same tree.</li>
+<li>The writer writes a node with no name as text.</li>
+<li>Code that walks a loaded tree will see the text nodes in documents with mixed content, and should skip nodes with an empty name if it only wants elements.</li>
+</ul>
+<h2 id="RssFeedWriter">RSS Feed Writer</h2>
+<ul>
+<li>New gxRSScloud structure with domain, port, path, registerprocedure and protocol members. gxRSSchannel::cloud is now a gxRSScloud (it was a gxString).</li>
+<li>The &lt;cloud&gt; element is written as an empty element with the five attributes the RSS 2.0 specification requires, when cloud.domain is set. It used to be written as element text, which is not valid RSS.</li>
+</ul>
+<h2 id="ThreadHelpersAndGlibc">Thread Helpers and glibc</h2>
+<ul>
+<li>In glibc 2.39 a pthread_mutex_trylock() call that returns ENOTRECOVERABLE on a robust mutex leaves the mutex in a bad state: a later unlock crashes and a later lock never returns.</li>
+<li>gxMutex_t has a new not_recoverable member. It is set when gxThreadMutexLock() or gxThreadMutexTryLock() gets ENOTRECOVERABLE. The lock, try lock and unlock functions then return ENOTRECOVERABLE and store gxMUTEX_NOTRECOVERABLE_ERROR without calling glibc, and gxThreadMutexDestroy() skips its unlock call. The mutex can be destroyed and initialized again.</li>
+</ul>
+<h2 id="CompilerWarnings">Compiler Warnings</h2>
+<p>With -Wall -Wextra the 5.10 library reported warnings at 117 places in the source. All are fixed:</p>
+<ul>
+<li>The private copy constructors and assignment operators used to disallow copying no longer name their unused parameter. The parameters of other functions that are not used are commented out, or marked with (void) where only WIN32 builds use them.</li>
+<li>"operator const int () const" is now "operator int () const", and gxDatabase::GetRevLetter() returns char.</li>
+<li>Casts to "const unsigned char" in htmldrv.cpp and ostrbase.cpp are now casts to unsigned char.</li>
+<li>HyperText::TableHeader() and TableData() take a const char *valign, and PostScriptDrv::SetDocumentName() keeps a const char pointer, so string literals can be passed without a cast.</li>
+<li>Signed and unsigned compares in gxdatagm.cpp, gxstream.cpp, scomserv.cpp and gxrdbhdr.cpp.</li>
+<li>gxBStree::Find() had an unused variable.</li>
+</ul>
+<h2 id="OtherFixes">Other Fixes</h2>
+<p>Found while testing the changes above:</p>
+<ul>
+<li>DiskFileB::df_copy() stored the file lengths in unsigned variables, so the tests for a futils_filelength() error could never be true.</li>
+<li>gxDatabase::ReadObjectChecksum() compared CRC values that were never set when the file was not open. It now returns 0. The optional CRC pointers are checked for null on every path.</li>
+<li>ASPrint() for int, long and double values formatted the number into a buffer the size of the field width, which overflowed for a narrow field. long values were truncated to int. A fixed buffer and snprintf() are used now.</li>
+<li>operator&gt;&gt;() for UString and UStringw read an uninitialized buffer when the input failed, for example at the end of the input. Found by AddressSanitizer in examples_general/string_class.</li>
+</ul>
+<h2 id="UpgradingFromVersion5">Upgrading From Version 5</h2>
+<ul>
+<li>Recompile every program against the 6.0 headers and link with the 6.0 library.</li>
+<li>gxRSSchannel::cloud is a gxRSScloud. Set cloud.domain, cloud.port, cloud.path, cloud.registerprocedure and cloud.protocol instead of assigning a string.</li>
+<li>gxDatabaseCache::ReleaseSegments() returns the segment array. Free it with delete[] when it is no longer used.</li>
+<li>gxConfig objects no longer accept untyped data through gxListB::Add(void *).</li>
+<li>Rebuild the index files of RDBMS tables that have BLOB fields and an all-field key ("PRI: COL NONE").</li>
+<li>Programs that walk gxsXML trees loaded from documents with mixed content should skip nodes with an empty name, or handle them as text.</li>
+<li>A thread pool is now cleared by stopping its running joinable threads. Threads must reach a cancellation point, and the gxThread object must still exist when the pool is cleared or deleted.</li>
+</ul>
+<p><font face="arial" size="-1">DataReel Copyright (c) 2001-2025 DataReel Software Development</font></p>
+</main>
+<footer class="dr-footer">DataReel 6.0 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
+</html>

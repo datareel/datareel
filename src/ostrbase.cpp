@@ -74,7 +74,7 @@ void OutputStreamB::WriteString(const char *s)
   unsigned len = strlen(s);
   
   while(len--) {
-    WriteChar((const unsigned char)*p);
+    WriteChar((unsigned char)*p);
     p++;
   }
 }
@@ -159,17 +159,17 @@ void OutputStreamB::WriteChar(const unsigned char c) const
 
 void OutputStreamB::Write(char c)
 {
-  WriteChar((const unsigned char)c);
+  WriteChar((unsigned char)c);
 }
 
 void OutputStreamB::Write(const char c) const
 {
-  WriteChar((const unsigned char)c);
+  WriteChar((unsigned char)c);
 }
 
 void OutputStreamB::Write(unsigned char c)
 {
-  WriteChar((const unsigned char)c);
+  WriteChar((unsigned char)c);
 }
 
 void OutputStreamB::Write(const unsigned char c) const

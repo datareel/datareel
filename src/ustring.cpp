@@ -2954,6 +2954,9 @@ GXDLCODE_API GXSTD::istream &operator>>(GXSTD::istream &os, UString &s)
     s.SetString((const char *)"\0", 1);
     return os;
   }
+  // 10/24/2026: Nothing is stored when the read fails, for example at
+  // the end of the input, so the buffer was read without a null.
+  nsptr[0] = 0;
   os >> GXSTD::setw(ibuf_size) >> nsptr;
   s.SetString(nsptr, gxstrlen(nsptr));
   delete[] nsptr;
@@ -2968,6 +2971,9 @@ GXDLCODE_API GXSTD::istream &operator>>(GXSTD::istream &os, UStringw &s)
     s.SetString((const char *)"\0", 1);
     return os;
   }
+  // 10/24/2026: Nothing is stored when the read fails, for example at
+  // the end of the input, so the buffer was read without a null.
+  nsptr[0] = 0;
   os >> GXSTD::setw(ibuf_size) >> nsptr;
   s.SetString(nsptr, gxstrlen(nsptr));
   delete[] nsptr;

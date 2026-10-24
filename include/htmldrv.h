@@ -279,10 +279,10 @@ public: // Table Functions
 		int border = 1, htmCOLORS bordercolor = htmBLACK); 
   void StartTableRow();
   void EndTableRow() { *(stream) << etr << "\n"; }
-  void TableHeader(char *valign="CENTER", int colspan = 1, int rowspan = 1,
+  void TableHeader(const char *valign="CENTER", int colspan = 1, int rowspan = 1,
 		   int width = 10);
   void EndTableHeader() { *(stream) << eth << "\n"; }
-  void TableData(char *valign="TOP", int colspan = 1, int rowspan = 1,
+  void TableData(const char *valign="TOP", int colspan = 1, int rowspan = 1,
 		 int width = 10);
   void EndTableData() { *(stream) << etd << "\n"; }
   void EndTable() { *(stream) << etable << "\n"; }

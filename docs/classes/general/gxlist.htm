@@ -101,6 +101,7 @@ public:
 <A HREF="#AddToFront">gxList::AddToFront()</A><BR>
 <A HREF="#AllocNode">gxList::AllocNode()</A><BR>
 <A HREF="#ClearList">gxList::ClearList()</A><BR>
+<A HREF="#DestroyArrayList">gxList::DestroyArrayList()</A><BR>
 <A HREF="#DestroyList">gxList::DestroyList()</A><BR>
 <A HREF="#DetachNode">gxList::DetachNode()</A><BR>
 <A HREF="#FreeNode">gxList::FreeNode()</A><BR>
@@ -136,7 +137,8 @@ public:
 <div class="dr-fn" id="AddToFront"><code class="dr-sig">gxListNode&lt;TYPE&gt; *gxList::AddToFront(TYPE &amp;X)</code><p class="dr-desc">Public member function used to add a list node to the front of the list. Returns a pointer to the newly created node or a null value if heap space could not be allocated for the node.</p></div>
 <div class="dr-fn" id="AllocNode"><code class="dr-sig">gxListNode&lt;TYPE&gt; *gxList::AllocNode(TYPE &amp;X)</code><p class="dr-desc">Private member function used to allocate a new list node.</p></div>
 <div class="dr-fn" id="ClearList"><code class="dr-sig">void gxList::ClearList()</code><p class="dr-desc">Public member function used to clear the list.</p></div>
-<div class="dr-fn" id="DestroyList"><code class="dr-sig">void gxList::DestroyList()</code><p class="dr-desc">Public member function used to clear the list and destroy the node data. <B>NOTE</B>: The node data is freed with a scalar delete, so TYPE must point to a single object allocated with new. Data allocated with new[], such as strings, must be removed from the list and freed with delete[] by the calling function.</p></div>
+<div class="dr-fn" id="DestroyArrayList"><code class="dr-sig">void gxList::DestroyArrayList()</code><p class="dr-desc">Public member function used to clear the list and destroy node data allocated with new[], for example strings. Each data pointer is freed with delete[], so TYPE must point to an array allocated with new[]. <B>NOTE</B>: 10/24/2026: Added in version 6.0. Before, data allocated with new[] had to be removed and freed by the calling function, because DestroyList() uses a scalar delete.</p></div>
+<div class="dr-fn" id="DestroyList"><code class="dr-sig">void gxList::DestroyList()</code><p class="dr-desc">Public member function used to clear the list and destroy the node data. <B>NOTE</B>: The node data is freed with a scalar delete, so TYPE must point to a single object allocated with new. Use DestroyArrayList() for data allocated with new[], such as strings.</p></div>
 <div class="dr-fn" id="DetachNode"><code class="dr-sig">void gxList::DetachNode(gxListNode&lt;TYPE&gt; *n)</code><p class="dr-desc">Public member function used to detach the node from its current location.</p></div>
 <div class="dr-fn" id="Extract"><code class="dr-sig">int gxList::Extract(TYPE &amp;X)</code><p class="dr-desc">Public queue operation used to extract a list node from the list. Returns true if the node was extracted.</p></div>
 <div class="dr-fn" id="FreeNode"><code class="dr-sig">int gxList::FreeNode(gxListNode&lt;TYPE&gt; *n, TYPE &amp;X)</code><p class="dr-desc">Private member function used to free the memory location of the node without releasing the nodes data pointer. <B>NOTE</B>: This function assumes that the node has already been detached from the list. Returns a true if the node was deleted.</p></div>
@@ -160,7 +162,7 @@ public:
 <div class="dr-fn" id="RemoveHead"><code class="dr-sig">int gxList::RemoveHead(TYPE &amp;X)</code><p class="dr-desc">Public member function used to remove the first node in the list. Returns true if the node was removed.</p></div>
 <div class="dr-fn" id="RemoveTail"><code class="dr-sig">int gxList::RemoveTail(TYPE &amp;X)</code><p class="dr-desc">Public member function used to remove the last node in the list. Returns true if the node was removed.</p></div>
 </main>
-<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.0 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

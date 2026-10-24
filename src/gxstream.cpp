@@ -142,7 +142,7 @@ int gxStream::WriteBlock(gxsSocket_t s, const void *buf, gxBlockHeader &gx)
   if(Send(s, (char *)buf, gx.block_length) < 0)
     return socket_error;
   
-  if(bytes_moved != gx.block_length) 
+  if((gxUINT32)bytes_moved != gx.block_length) 
       return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
 
   return socket_error = gxSOCKET_NO_ERROR;  
@@ -174,7 +174,7 @@ int gxStream::ReadBlock(gxsSocket_t s, void *buf, gxBlockHeader &gx,
 
   // If the bytes read do not equal the bytes received then
   // the transmitter and receiver are no longer synchronized.
-  if(bytes_read != gx.block_length) 
+  if((gxUINT32)bytes_read != gx.block_length) 
     return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
 
   return socket_error = gxSOCKET_NO_ERROR;
@@ -236,7 +236,7 @@ void *gxStream::RequestBlock(gxsSocket_t s, const void *request,
   }
 
   // Check the byte count to ensure that all blocks were received.
-  if(bytes_read != requested_block_header.block_length) {
+  if((gxUINT32)bytes_read != requested_block_header.block_length) {
     delete[] buf;
     return 0; 
   }

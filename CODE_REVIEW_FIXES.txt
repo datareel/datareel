@@ -349,6 +349,9 @@ Programs that use these functions may see different results:
 
 KNOWN ITEMS LEFT AS IS
 ----------------------
+10/24/2026: All of the items below are fixed in DataReel 6.0. See
+RELEASE_NOTES_6.0.txt.
+
 - gxList::DestroyList() frees each item with a scalar delete. It is
   only for items allocated with a single object new. Items allocated
   with new[] must be removed and freed with delete[] by the caller.

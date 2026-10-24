@@ -2744,13 +2744,13 @@ int gxsHTML::ProcessStyleSheets(const MemoryBuffer &membuf)
   return 0;
 }
 
-void gxsHTML::Handle_Script(gxsScriptInfo &script)
+void gxsHTML::Handle_Script(gxsScriptInfo & /* script */)
 {
   // Override to handle script code in an HTML file
 }
 
 
-void gxsHTML::Handle_StyleSheet(gxsStyleInfo &style_sheet)
+void gxsHTML::Handle_StyleSheet(gxsStyleInfo & /* style_sheet */)
 {
   // Override to handle embedded style sheets in an HTML file
 }

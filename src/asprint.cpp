@@ -105,34 +105,36 @@ GXDLCODE_API void ASPrint(const char c, GXSTD::ostream &stream,
 GXDLCODE_API void ASPrint(int val, GXSTD::ostream &stream, int offset, 
 			  int pos, const char pad)
 {
-  char *buf = new char[offset+1];
-  buf[offset] = '\0';
-  sprintf(buf, "%d", val);
+  // 10/24/2026: The number was formatted into a buffer of "offset"
+  // bytes, which overflowed when the number had more characters than
+  // the field width. ASPrint() cuts the text to the field width.
+  char buf[64];
+  snprintf(buf, sizeof(buf), "%d", val);
   ASPrint(buf, stream, offset, pos, pad);
-  delete[] buf; 
 }
 
 GXDLCODE_API void ASPrint(long val, GXSTD::ostream &stream, int offset, 
 			  int pos, const char pad)
 {
-  char *buf = new char[offset+1];
-  buf[offset] = '\0';
-  // 05/30/2002: Using type cast to int type to eliminate
-  // warning: int format, long int arg (arg 3) when compiled
-  // under Linux gcc.
-  sprintf(buf, "%d", (int)val);
+  // 10/24/2026: The number was formatted into a buffer of "offset"
+  // bytes, which overflowed when the number had more characters than
+  // the field width. ASPrint() cuts the text to the field width.
+  // 10/24/2026: Was formatted with "%d" and an int cast, which
+  // truncated long values on 64-bit systems.
+  char buf[64];
+  snprintf(buf, sizeof(buf), "%ld", val);
   ASPrint(buf, stream, offset, pos, pad);
-  delete[] buf; 
 }
 
 GXDLCODE_API void ASPrint(double val, GXSTD::ostream &stream, int offset, 
 			  int pos, const char pad)
 {
-  char *buf = new char[offset+1];
-  buf[offset] = '\0';
-  sprintf(buf, "%g", val);
+  // 10/24/2026: The number was formatted into a buffer of "offset"
+  // bytes, which overflowed when the number had more characters than
+  // the field width. ASPrint() cuts the text to the field width.
+  char buf[64];
+  snprintf(buf, sizeof(buf), "%g", val);
   ASPrint(buf, stream, offset, pos, pad);
-  delete[] buf; 
 }
 
 #endif // __USE_TEXT_PRINTING__

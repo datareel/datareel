@@ -71,6 +71,25 @@ struct GXDLCODE_API gxRSStextinput
   gxString link;        // The URL of the CGI script that processes text input requests.
 };
 
+// 10/24/2026: Added. The RSS 2.0 <cloud> element is an empty element
+// whose settings are attributes, for example:
+// <cloud domain="rpc.example.com" port="80" path="/RPC2"
+//        registerProcedure="pingMe" protocol="soap"/>
+struct GXDLCODE_API gxRSScloud
+{
+  void Clear() {
+    domain.Clear(); port.Clear(); path.Clear(); 
+    registerprocedure.Clear(); protocol.Clear();
+  }
+  int is_null() const { return domain.is_null(); }
+
+  gxString domain;            // Domain name or IP address of the cloud
+  gxString port;              // TCP port the cloud runs on
+  gxString path;              // Location of the cloud's responder
+  gxString registerprocedure; // Name of the procedure to call to register
+  gxString protocol;          // xml-rpc, soap or http-post
+};
+
 struct GXDLCODE_API gxRSSitem
 {
   // Required
@@ -110,8 +129,10 @@ struct GXDLCODE_API gxRSSchannel
   gxString category;  // Specify one or more categories that the channel belongs to.
   gxString generator; // A string indicating the program used to generate the channel.
   gxString docs;      // A URL that points to the documentation for the format used in the RSS file.
-  gxString cloud;     // Allows processes to register with a cloud to be notified of updates to the channel, 
+  gxRSScloud cloud;   // Allows processes to register with a cloud to be notified of updates to the channel, 
                       // implementing a lightweight publish-subscribe protocol for RSS feeds.
+                      // 10/24/2026: Was a gxString written as element text.
+                      // The element is written when cloud.domain is set.
   gxString ttl;       // Time to live is a number of minutes that indicates how long a channel can be 
                       // cached before refreshing from the source.
   gxString rating;    // The PICS rating for the channel.

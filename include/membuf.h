@@ -140,7 +140,7 @@ public: // Memory allocation/de-allocation routines
 public: // Conversion functions
   operator char *() const { return (char *)mptr; }
   operator const char *() const { return (const char*)mptr; }
-  operator const int () const { return ((mptr != 0) && (l_length != 0)); }
+  operator int () const { return ((mptr != 0) && (l_length != 0)); }
   operator int () { return ((mptr != 0) && (l_length != 0)); }
 
 public: // Overloaded operators

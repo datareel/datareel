@@ -51,8 +51,8 @@ public:
   ~gxThread_t();
 
 private: // Disallow coping and assignment
-  gxThread_t(const gxThread_t &ob) { } 
-  void operator=(const gxThread_t &ob) { }
+  gxThread_t(const gxThread_t &) { } 
+  void operator=(const gxThread_t &) { }
   
 public: // Thread status functions
   gxThreadState GetThreadState() { return thread_state; }

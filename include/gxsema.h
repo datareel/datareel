@@ -49,8 +49,8 @@ public:
   ~gxSemaphore();
 
 private: // Disallow copying and assignment
-  gxSemaphore(const gxSemaphore &ob) { }
-  void operator=(const gxSemaphore &ob) { }
+  gxSemaphore(const gxSemaphore &) { }
+  void operator=(const gxSemaphore &) { }
 
 public:
   int SemaphoreInit(gxProcessType type = gxPROCESS_PRIVATE);

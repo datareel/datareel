@@ -123,7 +123,7 @@ int gxDatagram::WriteBlock(gxsSocket_t s, gxsSocketAddress *sa,
   if(SendTo(s, sa, (char *)buf, gx.block_length) < 0)
     return socket_error;
   
-  if(bytes_moved != gx.block_length) 
+  if((gxUINT32)bytes_moved != gx.block_length) 
       return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
 
   return socket_error = gxSOCKET_NO_ERROR;  
@@ -156,7 +156,7 @@ int gxDatagram::ReadBlock(gxsSocket_t s, gxsSocketAddress *sa, void *buf,
 
   // If the bytes read do not equal the bytes received then
   // the transmitter and receiver are no longer synchronized.
-  if(bytes_read != gx.block_length) 
+  if((gxUINT32)bytes_read != gx.block_length) 
     return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
 
   return socket_error = gxSOCKET_NO_ERROR;
@@ -212,7 +212,7 @@ void *gxDatagram::RequestBlock(gxsSocket_t s, gxsSocketAddress *sa,
   }
 
   // Check the byte count to ensure that all blocks were received.
-  if(bytes_read != requested_block_header.block_length) {
+  if((gxUINT32)bytes_read != requested_block_header.block_length) {
     // PC-lint 09/08/2005: Memory leak if buf is not freeed before returning
     // on error condition.
     delete[] buf;

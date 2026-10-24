@@ -180,6 +180,8 @@ void gxListB::ClearList()
 
 void gxListB::DestroyList()
 // Clear the list and destroy the node data.
+// NOTE: The data is freed as a single char with a scalar delete. Use
+// DestroyArrayList() for data allocated with new[], for example strings.
 {
   while(!IsEmpty()) {
     void *v = RemoveTail();
@@ -187,6 +189,18 @@ void gxListB::DestroyList()
     // 05/29/2002: Casting to char * to avoid undefined delete
     // warnings under Linux g++
     if(v) delete (char *)v;
+  }
+  head = tail = 0;
+}
+
+void gxListB::DestroyArrayList()
+// 10/24/2026: Clear the list and destroy node data allocated as char
+// arrays with new[], for example strings. DestroyList() frees the data
+// with a scalar delete, which does not match new[].
+{
+  while(!IsEmpty()) {
+    void *v = RemoveTail();
+    if(v) delete[] (char *)v;
   }
   head = tail = 0;
 }
