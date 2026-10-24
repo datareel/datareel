@@ -50,6 +50,7 @@ SECTIONS = [  # (label, path from docs/, key)
     ("Library", "classes/classes.htm", "classes"),
     ("Examples", "examples/examples.htm", "examples"),
     ("Utilities", "utils/utils.htm", "utils"),
+    ("Cluster Manager", "drcm.html", "drcm"),
     ("Code Review", "code_review_fixes.html", "review"),
 ]
 
@@ -78,6 +79,8 @@ def section_key(path):
         return "utils"
     if path.startswith("code_review"):
         return "review"
+    if path.startswith("drcm"):
+        return "drcm"
     return "readme"
 
 
