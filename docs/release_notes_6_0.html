@@ -36,6 +36,7 @@
 <a href="#CompilerWarnings">Compiler Warnings</a><br />
 <a href="#OtherFixes">Other Fixes</a><br />
 <a href="#WindowsAndVisualStudio2026">Windows and Visual Studio 2026</a><br />
+<a href="#LinuxOpenSSLDefault">Linux OpenSSL Default</a><br />
 <a href="#UpgradingFromVersion5">Upgrading From Version 5</a></p>
 <h2 id="HowTheChangesWereTested">How the Changes Were Tested</h2>
 <ul>
@@ -121,7 +122,8 @@
 <p>ENV BAT files:</p>
 <ul>
 <li>New env/vs2026_vars.bat finds the VS 2026 install with vswhere.exe and calls vcvarsall.bat. It works with the Community, Professional, Enterprise, Build Tools and Insiders editions. The other BAT files called the Insiders path directly, which does not exist in a release install of VS 2026.</li>
-<li>env/msvc.bat and env/msvc32_vs2026.bat set up 32-bit x86 builds. env/msvc64_vs2026.bat now sets up 64-bit x64 builds. It called vcvarsamd64_x86.bat before, which builds 32-bit programs on a 64-bit host.</li>
+<li>The default Windows build is now 64-bit x64. env/msvc.bat and env/msvc64_vs2026.bat set up x64 builds, and env/msvc_vs2022.bat sets up x64 builds with VS 2022. env/msvc64_vs2026.bat called vcvarsamd64_x86.bat before, which builds 32-bit programs on a 64-bit host. For 32-bit x86 builds of legacy code use env/msvc32_vs2026.bat.</li>
+<li>The OpenSSL ENV files point to the openssl64 install by default.</li>
 </ul>
 <p>Source:</p>
 <ul>
@@ -137,6 +139,10 @@
 <li>The library, the DLL, the utils and the examples were cross-compiled on Linux with the MinGW-w64 GCC 13 compilers for 32-bit and 64-bit Windows, with the MSVC defines from msvc.env, in ANSI and _UNICODE builds. All 64 programs link. The OpenSSL examples were not built.</li>
 <li>The 64-bit programs were run under Wine 9. The database, general and thread examples ran, the directory functions were checked in ANSI and _UNICODE builds, and the simple socket client and server exchanged data.</li>
 <li>The library was not built with the Microsoft compiler or nmake for this release. Build it with VS 2026 on Windows before you use it.</li>
+</ul>
+<h2 id="LinuxOpenSSLDefault">Linux OpenSSL Default</h2>
+<ul>
+<li>The Linux build uses OpenSSL by default. env/linux.env sets USE_OPEN_SSL to YES unless it is already set, so "make" in the build directory builds libdatareel_ssl and the example programs link to it with -lssl -lcrypto. Build with "make USE_OPEN_SSL=NO" for the libdatareel library without SSL. makefile_ssl still works.</li>
 </ul>
 <h2 id="UpgradingFromVersion5">Upgrading From Version 5</h2>
 <ul>

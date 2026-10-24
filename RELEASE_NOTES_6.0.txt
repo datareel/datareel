@@ -31,6 +31,7 @@ Thread Helpers and glibc
 Compiler Warnings
 Other Fixes
 Windows and Visual Studio 2026
+Linux OpenSSL Default
 Upgrading From Version 5
 
 HOW THE CHANGES WERE TESTED
@@ -223,10 +224,13 @@ ENV BAT files:
   Enterprise, Build Tools and Insiders editions. The other BAT files
   called the Insiders path directly, which does not exist in a release
   install of VS 2026.
-- env/msvc.bat and env/msvc32_vs2026.bat set up 32-bit x86 builds.
-  env/msvc64_vs2026.bat now sets up 64-bit x64 builds. It called
+- The default Windows build is now 64-bit x64. env/msvc.bat and
+  env/msvc64_vs2026.bat set up x64 builds, and env/msvc_vs2022.bat
+  sets up x64 builds with VS 2022. env/msvc64_vs2026.bat called
   vcvarsamd64_x86.bat before, which builds 32-bit programs on a 64-bit
-  host.
+  host. For 32-bit x86 builds of legacy code use
+  env/msvc32_vs2026.bat.
+- The OpenSSL ENV files point to the openssl64 install by default.
 
 Source:
 - gxdtyp64.h used the old _int64 keyword. It now uses __int64.
@@ -262,6 +266,14 @@ How these changes were tested:
   exchanged data.
 - The library was not built with the Microsoft compiler or nmake for
   this release. Build it with VS 2026 on Windows before you use it.
+
+LINUX OPENSSL DEFAULT
+---------------------
+- The Linux build uses OpenSSL by default. env/linux.env sets
+  USE_OPEN_SSL to YES unless it is already set, so "make" in the build
+  directory builds libdatareel_ssl and the example programs link to it
+  with -lssl -lcrypto. Build with "make USE_OPEN_SSL=NO" for the
+  libdatareel library without SSL. makefile_ssl still works.
 
 UPGRADING FROM VERSION 5
 ------------------------

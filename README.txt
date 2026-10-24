@@ -312,12 +312,19 @@ adjustments or modifications to the build
 > make install
 > make clean
 
-To build with OpenSSL:
+The library is built with OpenSSL by default, so SSL is enabled. The
+OpenSSL development files must be installed (the libssl-dev package on
+Debian and Ubuntu, openssl-devel on RHEL and Fedora). The SSL library
+is named libdatareel_ssl and the example programs link to it.
 
-> export USE_OPEN_SSL=YES
-> make -f makefile_ssl
-> make -f makefile_ssl install
-> make -f makefile_ssl clean
+To build without OpenSSL, which builds the libdatareel library:
+
+> make USE_OPEN_SSL=NO
+> make USE_OPEN_SSL=NO install
+> make USE_OPEN_SSL=NO clean
+
+You can also export USE_OPEN_SSL=NO before running make. Programs
+that link to the library must be built with the same setting.
 
 To build example programs:
 
@@ -346,7 +353,8 @@ To setup a command line build open a Run dialog and enter cmd to open
 a command prompt.
 
 To setup the VS 2026 environment the msvc.bat file is provided in the
-env directory. 
+env directory. The default build is 64-bit x64. For 32-bit x86 builds
+of legacy code use env\msvc32_vs2026.bat instead of env\msvc.bat.
 
 To build the datareel static library without SSL enabled:
 

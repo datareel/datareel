@@ -5,7 +5,8 @@
 :: File Creation Date: 10/24/2026
 :: Date Last Modified: 10/24/2026
 :: --------------------------------------------------------------- 
-:: Usage: call env\vs2026_vars.bat [x86 | x64 | arm64 | amd64_x86]
+:: Usage: call env\vs2026_vars.bat [x64 | x86 | arm64 | amd64_x86]
+:: The default is x64.
 ::
 :: Uses vswhere.exe to find the VS 2026 (version 18) install, so this
 :: works with the Community, Professional, Enterprise, Build Tools,
@@ -13,7 +14,7 @@
 :: before calling this file to skip the search.
 :: --------------------------------------------------------------- 
 set "DR_VSARCH=%~1"
-if "%DR_VSARCH%"=="" set "DR_VSARCH=x86"
+if "%DR_VSARCH%"=="" set "DR_VSARCH=x64"
 
 set "DR_VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 if not defined DR_VSDIR if exist "%DR_VSWHERE%" for /f "usebackq tokens=*" %%i in (`"%DR_VSWHERE%" -latest -prerelease -products * -version 18.0 -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "DR_VSDIR=%%i"

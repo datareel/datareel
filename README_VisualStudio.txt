@@ -63,7 +63,8 @@ To build the datareel library start with the static library build:
 > nmake -f msvc.mak
 
 The env\msvc.bat file calls env\vs2026_vars.bat, which finds your VS
-2026 install with vswhere.exe and sets the ENV for 32-bit x86 builds.
+2026 install with vswhere.exe and sets the ENV for 64-bit x64 builds,
+which is the default.
 It works with the Community, Professional, Enterprise, Build Tools, and
 Insiders editions. To use a VS install it does not find, set DR_VSDIR
 first:
@@ -71,11 +72,16 @@ first:
 > set DR_VSDIR=C:\Program Files\Microsoft Visual Studio\18\Community
 > env\msvc.bat
 
-For 64-bit x64 programs use env\msvc64_vs2026.bat instead of
-env\msvc.bat. Use a new command prompt when you switch between 32-bit
+For 32-bit x86 builds of legacy code use env\msvc32_vs2026.bat instead
+of env\msvc.bat. env\msvc64_vs2026.bat is the same as env\msvc.bat.
+Use a new command prompt when you switch between 32-bit
 and 64-bit builds, and run "nmake -f msvc.mak clean" first, because the
 32-bit and 64-bit builds use the same library file names. For VS 2022
-use env\msvc_vs2022.bat.
+use env\msvc_vs2022.bat, which also sets up x64 builds.
+
+The OpenSSL ENV files (winslib\openssl.env, dll\openssl.env and
+env\openssl_windows.env) point to a 64-bit OpenSSL install by default.
+For 32-bit builds set OPENSSL_DIR to your 32-bit OpenSSL install.
 
 The library builds use these settings:
 
