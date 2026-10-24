@@ -28,10 +28,6 @@ GXCODE_LIB_PATH = -L$(GCODE_LIB_DIR)$(PATHSEP)lib
 # Link to static library 
 LIB_GXCODE = $(GCODE_LIB_DIR)$(PATHSEP)lib/libdatareel.a
 
-ifeq ($(USE_OPEN_SSL),YES)
-LIB_GXCODE = $(GCODE_LIB_DIR)$(PATHSEP)lib/libdatareel_ssl.a
-endif
-
 
 $(PROJECT):	$(OBJECTS)
 	$(CXX) $(COMPILE_FLAGS) $(OBJECTS) \

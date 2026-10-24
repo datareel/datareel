@@ -312,12 +312,19 @@ adjustments or modifications to the build
 > make install
 > make clean
 
-To build with OpenSSL:
+SSL is built into the libdatareel library with OpenSSL by default.
+There is no separate libdatareel_ssl library. The OpenSSL development
+files must be installed (the libssl-dev package on Debian and Ubuntu,
+openssl-devel on RHEL and Fedora).
 
-> export USE_OPEN_SSL=YES
-> make -f makefile_ssl
-> make -f makefile_ssl install
-> make -f makefile_ssl clean
+On a system without OpenSSL you can build libdatareel without SSL:
+
+> make USE_OPEN_SSL=NO
+> make USE_OPEN_SSL=NO install
+> make USE_OPEN_SSL=NO clean
+
+You can also export USE_OPEN_SSL=NO before running make. Programs
+that link to the library must be built with the same setting.
 
 To build example programs:
 
@@ -346,9 +353,14 @@ To setup a command line build open a Run dialog and enter cmd to open
 a command prompt.
 
 To setup the VS 2026 environment the msvc.bat file is provided in the
-env directory. 
+env directory. The default build is 64-bit x64. For 32-bit x86 builds
+of legacy code use env\msvc32_vs2026.bat instead of env\msvc.bat.
 
-To build the datareel static library without SSL enabled:
+SSL is built into the gxcode library. By default the gxSSL class uses
+the native Windows Schannel (SSPI) TLS API, so OpenSSL is not needed.
+OpenSSL is still available as an option for existing code, see below.
+
+To build the datareel static library:
 
 > cd %USERPROFILE%\datareel
 > env\msvc.bat
@@ -356,7 +368,8 @@ To build the datareel static library without SSL enabled:
 > nmake -f msvc.mak
 
 The utility programs and examples programs will link to the static
-library. 
+library. Programs link to secur32.lib, crypt32.lib, and ncrypt.lib
+for SSL, which are part of the Windows SDK.
 
 To build the example programs:
 
@@ -364,14 +377,18 @@ To build the example programs:
 > cd string_class
 > nmake -f msvc.mak
 
-To build the datareel library as a DLL without SSL enabled:
+> cd %USERPROFILE%\datareel\examples_socket
+> cd https_client
+> nmake -f msvc.mak
+
+To build the datareel library as a DLL:
 
 > cd %USERPROFILE%\datareel
 > env\msvc.bat
 > cd dll
 > nmake -f msvc.mak
 
-To build the datareel static library with SSL enabled:
+To build the datareel static library with OpenSSL instead of Schannel:
 
 > cd %USERPROFILE%\datareel
 > env\msvc.bat
@@ -382,29 +399,25 @@ In the openssl.env file set the path to your openssl installation directory.
 
 > nmake -f msvc_ssl.mak
 
-The utility programs and examples programs will link to the static
-library. Before you can build the utils or example programs with SSL
-enabled you must set the path to your openssl install in the following
-ENV file: 
+Programs that link to the OpenSSL build of the library must also be
+built with USESSL=1. Set the path to your openssl install in the
+following ENV file: 
 
 > cd %USERPROFILE%\datareel\env
 > notepad openssl_windows.env
 
-In the openssl_windows.env  set the path to your openssl installation
-directory.
-
-To build the example programs:
+Then build your program or an example program with USESSL=1:
 
 > cd %USERPROFILE%\datareel\examples_socket
 > cd https_client
-> nmake -f msvc.mak
+> nmake -f msvc.mak USESSL=1
 
 Before running the example program in you user environment add the
 openssl\bin dir to your PATH:
 
 > set PATH=%PATH%;e:\3plibs\openssl\bin
 
-To build the datareel library as a DLL with SSL enabled:
+To build the datareel library as a DLL with OpenSSL:
 
 > cd %USERPROFILE%\datareel
 > env\msvc.bat
@@ -413,6 +426,8 @@ To build the datareel library as a DLL with SSL enabled:
 
 In the openssl.env file set the path to your openssl installation directory.
 
-> nmake -f msvc.mak
+> nmake -f msvc_ssl.mak
+
+See README_windows_openssl.txt for building OpenSSL on Windows.
 
 DataReel Copyright (c) 2001-2025 DataReel Software Development

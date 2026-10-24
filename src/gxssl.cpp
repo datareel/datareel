@@ -112,8 +112,10 @@ unsigned gxRandom::entropy_number(unsigned &a, unsigned &b,
   char *bytes = new char[4];
   a = b = c = d = 0;
 
-  unsigned long ob_addr = (unsigned long)this;
-  unsigned long arib_addr = (unsigned long)&bytes;
+  // 10/24/2026: Use size_t so the pointer casts do not truncate on 64-bit
+  // Windows, where unsigned long is 32 bits.
+  size_t ob_addr = (size_t)this;
+  size_t arib_addr = (size_t)&bytes;
   ob_addr &= arib_addr;
   unsigned r_seed = (unsigned)time(0);
   r_seed -= ob_addr;
@@ -443,6 +445,10 @@ void gxCertIssuerInfo::CopyCert(gxCertIssuerInfo &ob) {
   netscape_comment = ob.netscape_comment;
 }
 
+#if !defined (__USE_GX_SCHANNEL__)
+// --------------------------------------------------------------
+// OpenSSL version of the gxSSL class
+// --------------------------------------------------------------
 int password_cb2(char *buf,int num, int /* rwflag */, void *userdata)
 // Password callback function.
 {
@@ -510,6 +516,10 @@ int gxSSL::ConnectSSLSocket()
 // Returns a non-zero value if the function fails.
 {
   if(is_ssl_null()) return ssl_error;
+  // 10/24/2026: Send the server name (SNI) if the caller set one
+  if(!host_name.is_null()) {
+    SSL_set_tlsext_host_name(ssl, host_name.c_str());
+  }
   if(check_ssl_error(SSL_connect(ssl)) != SSL_ERROR_NONE) {
     return ssl_error;
   }
@@ -1256,6 +1266,32 @@ int gxSSL::VerifyCert(const char *hostname, long *X509_return_code)
   return ssl_error = gxSSL_NO_ERROR;
 }
 
+int gxSSL::GetPeerCertInfo(gxString &subject, gxString &issuer)
+// 10/24/2026: Passes back the subject and issuer names of the peer's
+// certificate. Returns 0 if successful or a non-zero value if the peer
+// did not present a certificate.
+{
+  subject.Clear(); issuer.Clear();
+  if(is_ssl_null()) return ssl_error;
+  X509 *cert = SSL_get_peer_certificate(ssl);
+  if(!cert) return ssl_error = gxSSL_PEERCERT_ERROR;
+  char buf[4096];
+  memset(buf, 0, sizeof(buf));
+  X509_NAME_oneline(X509_get_subject_name(cert), buf, sizeof(buf));
+  subject = buf;
+  memset(buf, 0, sizeof(buf));
+  X509_NAME_oneline(X509_get_issuer_name(cert), buf, sizeof(buf));
+  issuer = buf;
+  X509_free(cert);
+  return ssl_error = gxSSL_NO_ERROR;
+}
+
+const char *gxSSL::CertVerifyErrorString(long X509_return_code)
+// 10/24/2026: Returns a string for a VerifyCert() return code
+{
+  return X509_verify_cert_error_string(X509_return_code);
+}
+
 // 07/31/2021: Include support for openssl 1.0.1
 int gxSSL::MakeDHParms(const char *dh_fname, 
 		       unsigned char *dh1024_p, int dh1024_p_len,  
@@ -1868,7 +1904,17 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
   return ssl_error = gxSSL_NO_ERROR;
 }
 
+#endif // !__USE_GX_SCHANNEL__
+
 #endif // __USE_GX_SSL_EXTENSIONS__
+
+#if defined (__USE_GX_SSL_EXTENSIONS__) && defined (__USE_GX_SCHANNEL__)
+// 10/24/2026: The Windows Schannel version of the gxSSL class is in
+// gxsschan.cpp, which is compiled as part of this file so the build
+// files do not need another object file.
+#define __GX_SSL_SCHANNEL_SOURCE__
+#include "gxsschan.cpp"
+#endif
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

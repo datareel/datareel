@@ -54,7 +54,7 @@ private: // Base class interface
 void *SimpleThread::ThreadEntryRoutine(gxThread_t *thread)
 // Thread's entry function
 {
-  cout << "Executing thread: " << (long)thread->GetThreadParm()
+  cout << "Executing thread: " << (long)(size_t)thread->GetThreadParm()
        << ", Stack Size: " << thread->GetStackSize() << "\n"
        << flush;
     

@@ -83,6 +83,12 @@ library.
 #define GXSTD
 #endif // __USE_ANSI_CPP__
 
+// 10/24/2026: Visual Studio 2026 (MSVC 14.50, _MSC_VER 1950) and
+// higher use the VS 2026 code paths without needing -D__VS2026__
+#if defined (_MSC_VER) && (_MSC_VER >= 1950) && !defined (__VS2026__)
+#define __VS2026__
+#endif
+
 // Windows CE macros
 #if defined(_WIN32_WCE)
 #define __WINCE__

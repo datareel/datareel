@@ -264,8 +264,10 @@ void *gxThreadAPIWrapper::apiThreadStartRoutine(void *arg)
     thread->thread_state = gxTHREAD_STATE_RUNNING;
 
 #if defined (__WIN32__)
+    // 10/24/2026: Cast through size_t to avoid a pointer truncation
+    // error on 64-bit Windows, where DWORD is 32 bits.
     thread->thread_exit_code = \
-      (gxThreadExitCode)thread->entry->ThreadEntryRoutine(thread);
+      (gxThreadExitCode)(size_t)thread->entry->ThreadEntryRoutine(thread);
     
 #elif defined (__POSIX__)
     // Install the thread's cleanup handler for threads that

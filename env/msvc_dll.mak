@@ -3,10 +3,10 @@
 #######################
 # --------------------------------------------------------------- 
 # Makefile Contents: Makefile for command line builds
-# C/C++ Compiler Used: MSVC 6.0 SP5, Visual C++ .NET, and VS 2022
+# C/C++ Compiler Used: MSVC 6.0 SP5, Visual C++ .NET, VS 2022, and VS 2026
 # Produced By: DataReel Software Development Team
 # File Creation Date: 05/25/2001
-# Date Last Modified: 10/30/2025
+# Date Last Modified: 10/24/2026
 # --------------------------------------------------------------- 
 # Setup my path to the gxcode DLL library
 GCODE_LIB_PATH = ../..
@@ -15,7 +15,7 @@ GCODE_LIB_PATH = ../..
 !IF "$(FINAL)" == ""
 #FINAL = 0 # Default to debug configuration
 FINAL = 1 # Default to release configuration
-!MESSAGE No library configuration specified. Defaulting to debug configuration.
+!MESSAGE No library configuration specified. Defaulting to release configuration.
 !ENDIF
 
 !IF "$(64BITCFG)" == ""
@@ -58,7 +58,7 @@ LIB_GXCODE = $(GXCODE_LIB_PATH)$(PATHSEP)gxcode32d.lib
 LIBRARIES = $(LIB_GXCODE) $(LINK_LIBRARIES) setargv.obj # Expand wildcards
 
 $(PROJECT)$(EXE_EXT):	$(OBJECTS) 
-	$(LINKER) $(LINK_FLAGS) $(OBJECTS) $(LIBRARIES) /OUT:$@ 
+	$(LINKER) $(LINKER_FLAGS) $(OBJECTS) $(LIBRARIES) /OUT:$@ 
 # ===============================================================
 
 # Remove OBJS, debug files, and executable after running nmake 

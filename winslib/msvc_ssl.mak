@@ -11,6 +11,8 @@
 
 # Set FINAL to 0 for debug build
 # Set 64BITCFG to 1 for 64 bit build
+# 10/24/2026: Builds the gxSSL class with OpenSSL instead of the default
+# native Windows Schannel. See winslib/openssl.env for the OpenSSL path.
 
 # Compile the object files and build the static LIB files
 # ===============================================================

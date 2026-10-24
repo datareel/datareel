@@ -67,7 +67,7 @@ void *SimpleThread::ThreadEntryRoutine(gxThread_t *thread)
 // Thread's entry function
 {
   if(display_message) {
-    cout << "Executing worker thread: " << (long)thread->GetThreadParm() 
+    cout << "Executing worker thread: " << (long)(size_t)thread->GetThreadParm() 
 	 << "\n" << flush;
   }
 

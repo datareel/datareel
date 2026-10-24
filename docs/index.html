@@ -178,12 +178,11 @@ Visual C++, BCC, and DJGPP.
 &gt; make install
 &gt; make clean</pre>
 
-<p>To build with OpenSSL:</p>
+<p>SSL is built into the libdatareel library with OpenSSL by default. The OpenSSL development files must be installed (libssl-dev on Debian and Ubuntu, openssl-devel on RHEL and Fedora). On a system without OpenSSL build with:</p>
 
-<pre class="dr-code">&gt; export USE_OPEN_SSL=YES
-&gt; make -f makefile_ssl
-&gt; make -f makefile_ssl install
-&gt; make -f makefile_ssl clean</pre>
+<pre class="dr-code">&gt; make USE_OPEN_SSL=NO
+&gt; make USE_OPEN_SSL=NO install
+&gt; make USE_OPEN_SSL=NO clean</pre>
 
 <p>To build example programs:</p>
 
