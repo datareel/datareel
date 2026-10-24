@@ -89,6 +89,7 @@ msvc_ssl.mak and your programs with USESSL=1.
 The OpenSSL ENV files (winslib\openssl.env, dll\openssl.env and
 env\openssl_windows.env) point to a 64-bit OpenSSL install by default.
 For 32-bit builds set OPENSSL_DIR to your 32-bit OpenSSL install.
+Use only an OpenSSL 3.5.x LTS release, see README_windows_openssl.txt.
 
 The library builds use these settings:
 
