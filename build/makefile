@@ -192,9 +192,9 @@ clean:
 	rm -f $(PROJECT)$(SHAREDLIB_EXT)
 
 clean_lib:
-	rm -fv ../lib/libdatareel.a
-	rm -fv ../lib/libdatareel.so
-	rm -fv ../lib/libdatareel.so.5.0
+	rm -fv $(LIB_INSTALL_DIR)/$(PROJECT)$(LIB_EXT)
+	rm -fv $(LIB_INSTALL_DIR)/$(PROJECT)$(DLIB_EXT)
+	rm -fv $(LIB_INSTALL_DIR)/$(PROJECT)$(SHAREDLIB_EXT)
 # --------------------------------------------------------------- 
 #####################
 #### End of File ####
