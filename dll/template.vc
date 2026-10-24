@@ -6,7 +6,7 @@
 # C/C++ Compiler Used: MSVC 6.0 SP5 and Visual C++ .NET
 # Produced By: DataReel Software Development Team
 # File Creation Date: 05/25/2001
-# Date Last Modified: 10/17/2005
+# Date Last Modified: 10/24/2026
 # --------------------------------------------------------------- 
 # Setup my path to the gxcode DLL library
 GCODE_LIB_PATH = #--> Set the absolute path here

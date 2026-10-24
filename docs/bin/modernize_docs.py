@@ -112,7 +112,7 @@ def header_html(path):
 def footer_html():
     ver = f"DataReel {VERSION} &middot; " if VERSION else ""
     return ('<footer class="dr-footer">' + ver +
-            'Copyright (c) 2001-2025 DataReel Software Development &middot; '
+            'Copyright (c) 2001-2026 DataReel Software Development &middot; '
             'Documentation style updated 10/14/2026</footer>')
 
 
