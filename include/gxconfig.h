@@ -92,8 +92,8 @@ public:
   ~gxConfig();
 
 private:
-  gxConfig(const gxConfig &ob) : gxListB() { } // Disallow copying
-  void operator=(const gxConfig &ob) { } // Disallow assignment
+  gxConfig(const gxConfig &) : gxListB() { } // Disallow copying
+  void operator=(const gxConfig &) { } // Disallow assignment
 
 public: // Functions used to load and unload config file
   int Load();
@@ -152,11 +152,19 @@ public: // Functions used to write config values
   int ChangeConfigValue(const char *parm, double value);
   
 public: // Linked list functions
-  // Ignore BCC32 hidden virtual function warning
   gxConfigListNode *Add(const gxString &s);
+  // 10/24/2026: Added so Add() with a char pointer stores a string
+  gxConfigListNode *Add(const char *s) { return Add(gxString(s)); }
   gxConfigListNode *FindAny(const gxString &s, gxConfigListNode *ptr = 0);
   gxConfigListNode *Find(const gxString &s, gxConfigListNode *ptr = 0);
   
+private: 
+  // 10/24/2026: Overrides gxListB::Add(void *), which was hidden by the
+  // Add() functions above (-Woverloaded-virtual). Every node in this list
+  // must hold a gxString, so untyped data is not added. It is private so
+  // a call such as Add(char_buffer) uses Add(const char *).
+  gxListNodeB *Add(void *v);
+
 private: // Internal proccessing functions
   void FilterLineFeed(char &c);
   int StoreCfgData(const char *cfg_line);

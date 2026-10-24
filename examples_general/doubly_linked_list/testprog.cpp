@@ -209,14 +209,10 @@ int main()
   PausePrg();
 
   cout << "Releasing memory allocated back to the heap..." << "\n";
-  // 10/14/2026: The strings were allocated with new[], so free them with
-  // delete[] here. gxList::DestroyList() uses a scalar delete and is only
+  // 10/24/2026: The strings were allocated with new[], so free them with
+  // DestroyArrayList(). DestroyList() uses a scalar delete and is only
   // for data allocated with a single-object new.
-  char *sptr;
-  while(!dlist.IsEmpty()) {
-    if(dlist.RemoveTail(sptr)) delete[] sptr;
-  }
-  dlist.ClearList();
+  dlist.DestroyArrayList();
 
   PausePrg();
   

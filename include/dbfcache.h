@@ -140,7 +140,7 @@ public:
   gxDatabaseSegment *DemoteSegment(gxDatabaseSegment *segment);
   gxDatabaseSegment *PromoteSegment(gxDatabaseSegment *segment);
   void ReleaseFile() { f = 0; }
-  void ReleaseSegments() { segments = 0; }
+  gxDatabaseSegment *ReleaseSegments();
 
 public: // Cache statistics
   int NumSegments() { return num_segments; }
@@ -155,7 +155,7 @@ private: // Internal processing functions
 public: // Overloaded operators
   int operator!() const { return segments == 0; }
   int operator!() { return segments == 0; }
-  operator const int () const { return segments != 0; }
+  operator int () const { return segments != 0; }
   operator int () { return segments != 0; }
 
 private:
@@ -183,6 +183,7 @@ public:
     cache = &ds_cache; 
     ds_address = address; 
     segment = 0;
+    ds_length = (__ULWORD__)0;
   }
   gxDBCacheNode(gxDatabaseCache *ds_cache, FAU_t address = (FAU_t)-1) {
     // Constructs a cache pointer and connects it a previously
@@ -190,6 +191,7 @@ public:
     cache = ds_cache; 
     ds_address = address; 
     segment = 0;
+    ds_length = (__ULWORD__)0;
   }
   gxDBCacheNode(const gxDBCacheNode &ob) {
     segment = ob.segment; 
@@ -197,11 +199,13 @@ public:
     // 10/14/2026: Was set to 0, which is a valid file address for the
     // raw file cache. -1 is the "not linked" value used by this class.
     ds_address = (FAU_t)-1;
+    ds_length = ob.ds_length;
   }
   gxDBCacheNode& operator=(const gxDBCacheNode &ob) {
     segment = ob.segment; 
     cache = ob.cache;
     ds_address = (FAU_t)-1; // 10/14/2026: Was 0, see the copy constructor
+    ds_length = ob.ds_length;
     return *this;
   }
   ~gxDBCacheNode() { }
@@ -220,6 +224,10 @@ public:
   gxDatabaseSegment *CachedRead(FAU_t address,
 			       __ULWORD__ bytes = ( __ULWORD__)0);
   gxDatabaseSegment *Bind();
+  gxDatabaseSegment *Bind(__ULWORD__ bytes); // 10/24/2026: Added
+  __ULWORD__ GetNodeLength() { return ds_length; }
+  __ULWORD__ GetNodeLength() const { return ds_length; }
+  void SetNodeLength(__ULWORD__ bytes) { ds_length = bytes; }
   FAU_t GetNodeAddress() { return ds_address; }
   FAU_t GetNodeAddress() const { return ds_address; }
   gxDatabaseSegment *GetSegment() { return segment; }
@@ -252,6 +260,9 @@ public: // Overloaded operators
 
 private:
   FAU_t ds_address;           // Database segment's file address
+  // 10/24/2026: Number of bytes Bind() loads for a segment that is not
+  // in the cache. Set by CachedRead(), CachedWrite() and Bind(bytes).
+  __ULWORD__ ds_length;
   gxDatabaseSegment *segment; // Current cache segment
   gxDatabaseCache *cache;     // Pointer to this object's cache
 };

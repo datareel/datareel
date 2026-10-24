@@ -111,7 +111,7 @@ and overloaded += operators to support the wxString class.
 
 10/13/2002: Removed the following conversion function from the UStringB 
 class due to excessive compiler warning under Linux: 
-operator const int () const { return ((sptr != 0) && (s_length != 0)); }
+operator int () const { return ((sptr != 0) && (s_length != 0)); }
 
 10/13/2002: Removed the following conversion function to avoid having
 UStringB objects being automatically converted to int types: 
@@ -191,8 +191,8 @@ public:
   virtual ~UStringB();
 
 private: // Copying and assignment is only allowed in the derived class
-  UStringB(const UStringB &s) { }
-  void operator=(const UStringB &s) { }
+  UStringB(const UStringB &) { }
+  void operator=(const UStringB &) { }
 
 public: // Derived class interface
   virtual int is_unicode() const = 0; // Return true for Unicode classes

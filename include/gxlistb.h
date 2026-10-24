@@ -68,8 +68,8 @@ public:
   virtual ~gxListB();
 
 private: // Disallow copying and assignment
-  gxListB(const gxListB &ob) { }
-  void operator=(const gxListB &ob) { }
+  gxListB(const gxListB &) { }
+  void operator=(const gxListB &) { }
   
 public: // Pointer manipulation operations
   gxListNodeB *GetHead() { return head; }
@@ -95,6 +95,7 @@ public: // Add and remove functions
   void ClearList(); 
   void Clear() { ClearList(); }
   void DestroyList();
+  void DestroyArrayList(); // 10/24/2026: For char data allocated with new[]
   void MakeEmpty(); // Called only if all the nodes have been removed 
   void *RemoveHead();
   void *RemoveTail();

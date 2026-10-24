@@ -214,7 +214,7 @@ inline char *gxLTCHAR(const wchar_t *s, char *nsptr) {
   return Unicode2ASCII(s, 0, nsptr);
 }
 
-inline char gxLTCHAR(const wchar_t c, char *nsptr) {
+inline char gxLTCHAR(const wchar_t c, char *) {
   return (char)c;
 }
 
@@ -222,7 +222,7 @@ inline wchar_t *gxLTCHAR(const char *s, wchar_t *nsptr) {
   return ASCII2Unicode(s, 0, nsptr);
 }
 
-inline wchar_t gxLTCHAR(const char c, wchar_t *nsptr) {
+inline wchar_t gxLTCHAR(const char c, wchar_t *) {
   return (wchar_t)c;
 }
 
@@ -230,7 +230,7 @@ inline wchar_t *gxLTCHAR(const gxwchar_t *s, wchar_t *nsptr) {
   return gxwchar_t2Unicode(s, 0, nsptr);
 }
 
-inline wchar_t gxLTCHAR(const gxwchar_t c, wchar_t *nsptr) {
+inline wchar_t gxLTCHAR(const gxwchar_t c, wchar_t *) {
   return wchar_t((long)c);
 }
 
@@ -238,7 +238,7 @@ inline char *gxLTCHAR(const gxwchar_t *s, char *nsptr) {
   return gxwchar_t2ASCII(s, 0, nsptr);
 }
 
-inline char gxLTCHAR(const gxwchar_t c, char *nsptr) {
+inline char gxLTCHAR(const gxwchar_t c, char *) {
   return char((long)c);
 }
 
@@ -246,7 +246,7 @@ inline gxwchar_t *gxLTCHAR(const char *s, gxwchar_t *nsptr) {
   return ASCII2gxwchar_t(s, 0, nsptr);
 }
 
-inline gxwchar_t gxLTCHAR(const char c, gxwchar_t *nsptr) {
+inline gxwchar_t gxLTCHAR(const char c, gxwchar_t *) {
   return gxwchar((long)c);
 }
 
@@ -254,7 +254,7 @@ inline gxwchar_t *gxLTCHAR(const wchar_t *s, gxwchar_t *nsptr) {
   return Unicode2gxwchar_t(s, 0, nsptr);
 }
 
-inline gxwchar_t gxLTCHAR(const wchar_t c, gxwchar_t *nsptr) {
+inline gxwchar_t gxLTCHAR(const wchar_t c, gxwchar_t *) {
   return gxwchar((long)c);
 }
 
@@ -263,7 +263,7 @@ inline char *gxLTCHAR(const char *s, char *nsptr) {
   return gxstrcpy(nsptr, s);
 }
 
-inline char gxLTCHAR(const char c, char *nsptr) {
+inline char gxLTCHAR(const char c, char *) {
   return (char)c;
 }
 
@@ -271,7 +271,7 @@ inline wchar_t *gxLTCHAR(const wchar_t *s, wchar_t *nsptr) {
   return gxstrcpy(nsptr, s);
 }
 
-inline wchar_t gxLTCHAR(const wchar_t c, wchar_t *nsptr) {
+inline wchar_t gxLTCHAR(const wchar_t c, wchar_t *) {
   return (wchar_t)c;
 }
 
@@ -279,7 +279,7 @@ inline gxwchar_t *gxLTCHAR(const gxwchar_t *s, gxwchar_t *nsptr) {
   return gxstrcpy(nsptr, s);
 }
 
-inline gxwchar_t gxLTCHAR(const gxwchar_t c, gxwchar_t *nsptr) {
+inline gxwchar_t gxLTCHAR(const gxwchar_t c, gxwchar_t *) {
   return (gxwchar_t)c;
 }
 

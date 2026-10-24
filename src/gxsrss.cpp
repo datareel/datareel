@@ -158,7 +158,14 @@ int gxRSSfeed::write_rss2_feed(gxString &feed)
   }
   if(!channel.cloud.is_null()) {
     // 10/14/2026: The end tag was written as <channel> instead of </cloud>
-    feed << "    " << "<cloud>" << gxRSS_encode(this, channel.cloud) << "</cloud>" << "\n";
+    // 10/24/2026: Written as an empty element with the cloud settings as
+    // attributes, the form given in the RSS 2.0 specification. The text
+    // form written before is not valid RSS.
+    feed << "    " << "<cloud domain=\"" << gxRSS_encode(this, channel.cloud.domain) << "\"";
+    feed << " port=\"" << gxRSS_encode(this, channel.cloud.port) << "\"";
+    feed << " path=\"" << gxRSS_encode(this, channel.cloud.path) << "\"";
+    feed << " registerProcedure=\"" << gxRSS_encode(this, channel.cloud.registerprocedure) << "\"";
+    feed << " protocol=\"" << gxRSS_encode(this, channel.cloud.protocol) << "\" />" << "\n";
   }
   if(!channel.ttl.is_null()) {
     feed << "    " << "<ttl>" << gxRSS_encode(this, channel.ttl) << "</ttl>" << "\n";

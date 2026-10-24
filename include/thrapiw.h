@@ -63,8 +63,8 @@ public:
   ~gxThreadAPIWrapper() { }
 
 private: // Disallow copying and assignment
-  gxThreadAPIWrapper(const gxThreadAPIWrapper &ob) { }
-  void operator=(const gxThreadAPIWrapper &ob) { }
+  gxThreadAPIWrapper(const gxThreadAPIWrapper &) { }
+  void operator=(const gxThreadAPIWrapper &) { }
 
 public: // Native thread API functions
   int apiInitThreadAttribute(gxThreadAttribute *attr);
@@ -74,6 +74,7 @@ public: // Native thread API functions
   int apiSuspendThread(gxThread_t *thread);
   int apiResumeThread(gxThread_t *thread);
   int apiCancelThread(gxThread_t *thread);
+  int apiStopThread(gxThread_t *thread); // 10/24/2026: Cancel and wait
   int apiCloseThread(gxThread_t *thread);
   int apiDestroyThread(gxThread_t *thread, int check_state = 1);
   void *apiExitThread(gxThread_t *thread, int exit_code);

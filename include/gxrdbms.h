@@ -49,8 +49,8 @@ public:
   virtual ~gxRDBMS();
 
 private: // Disallow copying and assignment
-  gxRDBMS(const gxRDBMS &ob) { }
-  void operator=(const gxRDBMS &ob) { }
+  gxRDBMS(const gxRDBMS &) { }
+  void operator=(const gxRDBMS &) { }
 
 public: // User interface
   gxDatabaseError CreateTable(const gxString &tdef, const gxString &kdef);

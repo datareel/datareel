@@ -55,8 +55,8 @@ public:
   ~thrPoolNode() { }
   
 private: // Disallow copying and assignmnet
-  thrPoolNode(const thrPoolNode &ob) { }
-  void operator=(const thrPoolNode &ob) { }
+  thrPoolNode(const thrPoolNode &) { }
+  void operator=(const thrPoolNode &) { }
   
 public:
   thrPoolNode *GetNext() { return next; }  
@@ -84,8 +84,8 @@ public:
   ~thrPool();
 
 private: // Disallow copying and assignment
-  thrPool(const thrPool &ob) { }
-  void operator=(const thrPool &ob) { }
+  thrPool(const thrPool &) { }
+  void operator=(const thrPool &) { }
 
 public: // Pointer manipulation operations
   void DetachNode(thrPoolNode *);
@@ -104,7 +104,7 @@ public: // Add and remove functions
   thrPoolNode *AddToBack(gxThread_t *t);
   thrPoolNode *AddAfter(thrPoolNode *pos, gxThread_t *t);
   thrPoolNode *AddBefore(thrPoolNode *pos, gxThread_t *t);
-  void ClearPool(); // Empty the pool without checking the thread status
+  void ClearPool(); // Empty the pool, stopping running joinable threads
   void MakeEmpty(); // Called only if all the nodes have been removed 
   gxThread_t *RemoveThread(gxThread_t *t);
   gxThread_t *RemoveNode(thrPoolNode *n);

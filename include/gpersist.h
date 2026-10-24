@@ -81,8 +81,8 @@ public:
   gxPersistent() { pod = 0; } 
 
 private:
-  gxPersistent(const gxPersistent &ob) { }   // Disallow coping
-  void operator=(const gxPersistent &ob) { } // Disallow assignment
+  gxPersistent(const gxPersistent &) { }   // Disallow coping
+  void operator=(const gxPersistent &) { } // Disallow assignment
   
 protected: // Derived class interface
   virtual gxDatabaseError Read(FAU object_address) = 0;

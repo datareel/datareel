@@ -1357,7 +1357,11 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 	
       case gxrdBLOB : // BLOB types cannot be indexed
 	if(num_bytes < sizeof(char)) return (gxrdKeyType_t)0;
-	buf_offset += num_bytes; // Continue to the next field
+	// 10/24/2026: Skip the BLOB without moving the write offset. The
+	// offset used to move past the BLOB while the key length did not,
+	// so the fields after a BLOB were left out of all-field keys.
+	// NOTE: This changes the all-field keys of tables with BLOB fields.
+	// Rebuild index files made by version 5 for those tables.
 	break;
 
       case gxrdBINARY : // User defined types and small binary objects
@@ -2017,7 +2021,7 @@ int gxrdExcludeFields::Exclude(gxUINT32 field)
 // number.  
 {
   int exclude = 0;
-  int i;
+  gxUINT32 i;
 
   if((num_fields > (gxUINT32)0) && (fields)) {
     for(i = 0; i < num_fields; i++) {
@@ -2041,7 +2045,7 @@ void gxrdExcludeFields::SetNumFields(gxUINT32 nfields)
     num_fields = 0;
     return;
   }
-  for(int i = 0; i < num_fields; i++) {
+  for(gxUINT32 i = 0; i < num_fields; i++) {
     // Reset all the field numbers to a default value
     fields[i] = (gxUINT32)0xffffffff;
   }

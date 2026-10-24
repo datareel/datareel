@@ -95,6 +95,7 @@ String=YES                                                  </PRE>
 <h2 id="Functions">Functions</h2>
 <P><A HREF="#gxConfig">gxConfig::gxConfig()</A><BR>
 <A HREF="#BM_gxConfig">gxConfig::~gxConfig()</A><BR>
+<A HREF="#Add">gxConfig::Add()</A><BR>
 <A HREF="#ChangeConfigValue">gxConfig::ChangeConfigValue()</A><BR>
 <A HREF="#FilterComments">gxConfig::FilterComments()</A><BR>
 <A HREF="#GetCommentChar">gxConfig::GetCommentChar()</A><BR>
@@ -124,6 +125,8 @@ String=YES                                                  </PRE>
 <div class="dr-fn"><code class="dr-sig">gxConfig::gxConfig(const gxString &amp;fname, char *p_id)</code><p class="dr-desc">Class constructor used to construct a configuration file object and set the name of the configuration file and the string value that will be used to identify parameter values within the file.</p></div>
 <div class="dr-fn" id="gxConfig_overload_6"><code class="dr-sig">gxConfig::gxConfig(const gxString &amp;fname, const char *p_id)</code><p class="dr-desc">Class constructor used to construct a configuration file object and set the name of the configuration file and the string value that will be used to identify parameter values within the file.</p></div>
 <div class="dr-fn" id="BM_gxConfig"><code class="dr-sig">gxConfig::~gxConfig()</code><p class="dr-desc">Class destructor responsible for clearing the list and de-allocating all the nodes when a gxConfig object is destroyed.</p></div>
+<div class="dr-fn" id="Add"><code class="dr-sig">gxConfigListNode *gxConfig::Add(const gxString &amp;s)</code><p class="dr-desc">Public member function used to add the string "s" to the end of the configuration list. Returns a pointer to the new node, or a null value if the node could not be allocated.</p></div>
+<div class="dr-fn" id="Add_overload_1"><code class="dr-sig">gxConfigListNode *gxConfig::Add(const char *s)</code><p class="dr-desc">Public member function used to add the string "s" to the end of the configuration list. <B>NOTE</B>: 10/24/2026: Added in version 6.0. gxConfig also overrides gxListB::Add(void *) as a private function that adds nothing and returns a null value, because every node in a configuration list must hold a gxString. The two functions used to hide the base class function and caused a -Woverloaded-virtual compiler warning. Calls such as Add(char_buffer) now store the text as a string.</p></div>
 <div class="dr-fn" id="ChangeConfigValue"><code class="dr-sig">int gxConfig::ChangeConfigValue(const gxString &amp;parm, const gxString &amp;value)</code><p class="dr-desc">Public member function used to a modify a configuration file user-defined string value. <B>NOTE</B>: All parameter values should not contain a parameter ID label at the end of the string. The parameter ID label will be added to mark it as a configuration file parameter. By default an equal sign will be used as a parameter ID.</p></div>
 <div class="dr-fn" id="ChangeConfigValue_overload_1"><code class="dr-sig">int gxConfig::ChangeConfigValue(const char *parm, const gxString &amp;value)</code><p class="dr-desc">Public member function used to a modify a configuration file value. <B>NOTE</B>: All parameter values should not contain a parameter ID label at the end of the string. The parameter ID label will be added to mark it as a configuration file parameter. By default an equal sign will be used as a parameter ID.</p></div>
 <div class="dr-fn" id="ChangeConfigValue_overload_10"><code class="dr-sig">int gxConfig::ChangeConfigValue(const gxString &amp;parm, unsigned value)</code><p class="dr-desc">Public member function used to a modify a configuration file value. <B>NOTE</B>: All parameter values should not contain a parameter ID label at the end of the string. The parameter ID label will be added to mark it as a configuration file parameter. By default an equal sign will be used as a parameter ID.</p></div>
@@ -192,7 +195,7 @@ String=YES                                                  </PRE>
 <div class="dr-fn" id="WriteLine_overload_1"><code class="dr-sig">int gxConfig::WriteLine(const char *s)</code><p class="dr-desc">Public member function used to write a line of text to the configuration file. Returns zero if an error occurs or one to indicate that the line was written successfully.</p></div>
 <div class="dr-fn" id="WriteLine_overload_2"><code class="dr-sig">int gxConfig::WriteLine(char *s)</code><p class="dr-desc">Public member function used to write a line of text to the configuration file. Returns zero if an error occurs or one to indicate that the line was written successfully.</p></div>
 </main>
-<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.0 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

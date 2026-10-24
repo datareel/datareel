@@ -81,7 +81,7 @@
 <h2 id="Memory">Memory Ownership</h2>
 <P>The list owns its nodes but does not own the data the nodes point to. The add functions store the data pointer you pass. They do not copy the data. The remove functions delete the node and return the data pointer to you. You must free that data yourself.</P>
 <P>ClearList(), Clear(), and the class destructor delete every node but never delete the data. If the data was allocated on the heap, free it before you clear the list or let the list go out of scope. Otherwise the data is leaked.</P>
-<P>DestroyList() deletes the data as well as the nodes. It frees each data pointer with <B>delete (char *)</B>. This is only correct for data allocated as a single char with new. It does not call the destructor of any class object. It does not match memory allocated with new[] or malloc(). For any other kind of data, remove each item and free it yourself.</P>
+<P>DestroyList() deletes the data as well as the nodes. It frees each data pointer with <B>delete (char *)</B>. This is only correct for data allocated as a single char with new. It does not call the destructor of any class object. It does not match memory allocated with new[] or malloc(). DestroyArrayList() (added 10/24/2026 in version 6.0) frees each data pointer with <B>delete[] (char *)</B>, for strings and other char arrays allocated with new[]. For any other kind of data, remove each item and free it yourself.</P>
 <P>MakeEmpty() and Release() reset the head and tail pointers without deleting anything. Use Release() when another object still uses the same nodes. If no other object holds the nodes, these calls leak them.</P>
 
 <h2 id="ThreadSafety">Thread Safety</h2>
@@ -116,6 +116,7 @@ protected:
 <A HREF="#AllocNode">gxListB::AllocNode()</A><BR>
 <A HREF="#Clear">gxListB::Clear()</A><BR>
 <A HREF="#ClearList">gxListB::ClearList()</A><BR>
+<A HREF="#DestroyArrayList">gxListB::DestroyArrayList()</A><BR>
 <A HREF="#DestroyList">gxListB::DestroyList()</A><BR>
 <A HREF="#DetachNode">gxListB::DetachNode()</A><BR>
 <A HREF="#Extract">gxListB::Extract()</A><BR>
@@ -148,7 +149,7 @@ protected:
 <A HREF="#gxListB_overload_2">gxListB::gxListB(const gxListB &amp;ob)</A><BR>
 <A HREF="#gxListBAssign">gxListB::operator=()</A><BR>
 <A HREF="#gxListBDestructor">gxListB::~gxListB()</A></P>
-<div class="dr-fn" id="Add"><code class="dr-sig">virtual gxListNodeB *gxListB::Add(void *v)</code><p class="dr-desc">Public member function used to add a new node to the back of the list. The node stores the pointer "v". The data is not copied. Returns a pointer to the new node, or a null value if AllocNode() returns null. Derived classes can override this function.</p></div>
+<div class="dr-fn" id="Add"><code class="dr-sig">virtual gxListNodeB *gxListB::Add(void *v)</code><p class="dr-desc">Public member function used to add a new node to the back of the list. The node stores the pointer "v". The data is not copied. Returns a pointer to the new node, or a null value if AllocNode() returns null. Derived classes can override this function. <B>NOTE</B>: 10/24/2026: gxConfig overrides it so that untyped data cannot be added to a configuration list. Through a gxListB pointer or reference, Add() on a gxConfig object returns a null value.</p></div>
 <div class="dr-fn" id="AddAfter"><code class="dr-sig">gxListNodeB *gxListB::AddAfter(gxListNodeB *pos, void *v)</code><p class="dr-desc">Public member function used to add a new node holding "v" after the node "pos". The "pos" node must be in this list. If the list is empty, "pos" is ignored and the new node becomes the only node. Returns a pointer to the new node, or a null value if the node could not be allocated.</p></div>
 <div class="dr-fn" id="AddBefore"><code class="dr-sig">gxListNodeB *gxListB::AddBefore(gxListNodeB *pos, void *v)</code><p class="dr-desc">Public member function used to add a new node holding "v" before the node "pos". The "pos" node must be in this list. If the list is empty, "pos" is ignored and the new node becomes the only node. Returns a pointer to the new node, or a null value if the node could not be allocated.</p></div>
 <div class="dr-fn" id="AddToBack"><code class="dr-sig">gxListNodeB *gxListB::AddToBack(void *v)</code><p class="dr-desc">Public member function used to add a new node holding "v" to the back (tail) of the list. Returns a pointer to the new node, or a null value if the node could not be allocated.</p></div>
@@ -156,6 +157,7 @@ protected:
 <div class="dr-fn" id="AllocNode"><code class="dr-sig">virtual gxListNodeB *gxListB::AllocNode(void *v)</code><p class="dr-desc">Protected member function used by all the add functions to create a node. The default version allocates a gxListNodeB with new and sets its data pointer to "v". It assumes "v" already points to valid memory. Derived classes can override this function to use their own node type.</p></div>
 <div class="dr-fn" id="Clear"><code class="dr-sig">void gxListB::Clear()</code><p class="dr-desc">Public member function that calls ClearList().</p></div>
 <div class="dr-fn" id="ClearList"><code class="dr-sig">void gxListB::ClearList()</code><p class="dr-desc">Public member function used to remove and delete every node in the list, starting at the tail. The node data is not deleted. Free the data first if the list holds heap pointers. The class destructor calls this function.</p></div>
+<div class="dr-fn" id="DestroyArrayList"><code class="dr-sig">void gxListB::DestroyArrayList()</code><p class="dr-desc">Public member function used to remove every node and delete each node's data with <B>delete[] (char *)</B>. Use it for strings and other char arrays allocated with new[]. <B>NOTE</B>: 10/24/2026: Added in version 6.0. See <A HREF="#Memory">Memory Ownership</A>.</p></div>
 <div class="dr-fn" id="DestroyList"><code class="dr-sig">void gxListB::DestroyList()</code><p class="dr-desc">Public member function used to remove every node and delete each node's data. Each non-null data pointer is freed with <B>delete (char *)</B>. This does not call class destructors and does not match new[] or malloc(). See <A HREF="#Memory">Memory Ownership</A>.</p></div>
 <div class="dr-fn" id="DetachNode"><code class="dr-sig">void gxListB::DetachNode(gxListNodeB *n)</code><p class="dr-desc">Public member function used to unlink the node "n" from the list without deleting it. Nothing happens if the list is empty or "n" is null. The next and prev pointers of "n" are set to null. <B>NOTE</B>: "n" must be a node in this list. 10/14/2026: Fixed two problems. If the list held only one node, it was emptied no matter which node was passed in; now nothing happens unless "n" is that node. The links of the detached node used to keep pointing into the list.</p></div>
 <div class="dr-fn" id="Extract"><code class="dr-sig">void *gxListB::Extract()</code><p class="dr-desc">Queue function used to remove the node at the head of the list. Use it with Insert() for first-in, first-out order. Returns the node's data pointer for the application to free, or a null value if the list is empty.</p></div>
@@ -189,7 +191,7 @@ protected:
 <div class="dr-fn" id="gxListBAssign"><code class="dr-sig">void gxListB::operator=(const gxListB &amp;ob)</code><p class="dr-desc">Private assignment operator used to disallow assignment.</p></div>
 <div class="dr-fn" id="gxListBDestructor"><code class="dr-sig">virtual gxListB::~gxListB()</code><p class="dr-desc">Virtual class destructor. Calls ClearList() to delete all the nodes. The node data is not deleted. Call Release() first if other objects still use the nodes.</p></div>
 </main>
-<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.0 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

@@ -86,6 +86,7 @@
 <P>Most functions report errors through an internal error string. The string always starts with "XML ERROR: " and can be read with <A HREF="#GetError">GetError()</A>.</P>
 <P><B>NOTE</B>: This is not a validating parser. It does not decode entity references such as "&amp;amp;" while loading. Use <A HREF="#DecodeString">DecodeString()</A> on the data if needed. The file must start with an "&lt;?xml ... ?&gt;" header, and parsing stops at the closing tag of the root element. Anything after the root element is ignored.</P>
 <P><B>NOTE</B>: 10/14/2026: Fixed: the debug trace statements were removed, so loading a file no longer writes trace text to std::cout.</P>
+<P><B>Mixed content.</B> Text found between elements is kept in document order (10/24/2026, version 6.0). It used to be dropped. Inside a parent, a child or a sub-element, each piece of text becomes a <A HREF="#gxsXMLNode_t">gxsXMLNode_t</A> with an empty name and the text in its data member. Text between the parent elements of the root becomes a node_tree entry with a node type of <B>gxsXML_TEXT_NODE</B>, an empty name and the text in its data member. In SAX mode these root level text nodes are passed to <A HREF="#Handle_Parent_Event">Handle_Parent_Event()</A>, so check the node type there. Leading and trailing white space is removed from the text, and text that is only white space, such as the line breaks between elements, is not kept. An element with text and no elements keeps its text in its data member as before. The writer writes a node with no name as text. Code that walks a tree loaded from a file with mixed content will see these nodes and should skip nodes with an empty name if it only wants elements.</P>
 
 <h2 id="Constants">Constants</h2><B><FONT>
 </B></FONT><PRE>const unsigned <B>gxsXML_DEFAULT_READ_LEN</B> = 4096; // Optimum buffer size
@@ -107,8 +108,12 @@ const unsigned <B>gxsXML_MAX_READ_LEN</B> = gxsXML_DEFAULT_READ_LEN * 16;</PRE>
   <B>gxsXML_COMMENT_NODE</B>, // Comment nodes
   <B>gxsXML_PROC_NODE</B>,    // Processing instruction nodes
   <B>gxsXML_DTD_NODE</B>,     // Document type declaration nodes
-  <B>gxsXML_CDATA_NODE</B>    // CDATA type
+  <B>gxsXML_CDATA_NODE</B>,   // CDATA type
   // CDATA contains information expressed in a non-XML format
+
+  // 10/24/2026: Text found between the parent elements of the root.
+  // Text between other elements is stored in nodes with no name.
+  <B>gxsXML_TEXT_NODE</B>
 };
 
 <A NAME="ElementTypes">enum gxsXMLElementType</A> {
@@ -216,7 +221,7 @@ const unsigned <B>gxsXML_MAX_READ_LEN</B> = gxsXML_DEFAULT_READ_LEN * 16;</PRE>
 
   gxList&lt;gxsXMLNode_t&gt; <B>elements</B>;
 };</PRE>
-</FONT><P><A NAME="gxsXMLNode">Tree node.</A> Used for the root node, the parent nodes and the nodes stored in pi_list, dtd_list, cdata_list, comment_list and xs. For the root node, data holds the text found inside the root before the first parent element. For a parent with no child elements, data holds its text. For a parent with child elements, data is empty and the children are in child_nodes. The sax_end_parse member can be set to 1 by an event handler to stop the load.</P>
+</FONT><P><A NAME="gxsXMLNode">Tree node.</A> Used for the root node, the parent nodes and the nodes stored in pi_list, dtd_list, cdata_list, comment_list and xs. For the root node, data holds the text found inside the root before the first parent element. For a parent with no child elements, data holds its text. For a parent with child elements, data is empty and the children are in child_nodes, including any text between them as children with no name (see <A HREF="#Overview">Mixed content</A>). The sax_end_parse member can be set to 1 by an event handler to stop the load.</P>
 <FONT COLOR="#008080"><PRE>struct <B>gxsXMLNode</B>
 {
   gxsXMLNode() { Clear(); }
@@ -520,7 +525,7 @@ int WriteTestTree(const char *outfile)
   &lt;/subtree_depth_test&gt;
 &lt;/xmlroot&gt;</PRE>
 </main>
-<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.0 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

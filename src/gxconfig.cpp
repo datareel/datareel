@@ -205,6 +205,13 @@ gxConfigListNode *gxConfig::Add(const gxString &s)
   return node;
 }
 
+gxListNodeB *gxConfig::Add(void *)
+// 10/24/2026: Untyped data cannot be stored in the config list. Every
+// node must be a gxConfigListNode, so nothing is added.
+{
+  return 0;
+}
+
 gxConfigListNode *gxConfig::FindAny(const gxString &s, gxConfigListNode *ptr)
 {
   if(ptr == 0) ptr = (gxConfigListNode *)GetHead();

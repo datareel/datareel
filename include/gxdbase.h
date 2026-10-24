@@ -101,8 +101,8 @@ private:
   // Disallow copying and assignment to prevent multiple copies of
   // database objects. Forcing pointer semantics to helps to ensure
   // the safe deletion or modification of a database object.
-  gxDatabase(const gxDatabase &ob) { }
-  void operator=(const gxDatabase &ob) { }
+  gxDatabase(const gxDatabase &) { }
+  void operator=(const gxDatabase &) { }
 
 public: // Database functions
   virtual gxDatabaseError Create(const char *fname, 
@@ -175,7 +175,7 @@ public: // Static file statistics
   const char *GetSignature() const;
   char *GetSignature();
   char GetRevLetter() { return rev_letter; }
-  const char GetRevLetter() const { return rev_letter; }
+  char GetRevLetter() const { return rev_letter; }
   FAU GetVersion() const { return file_header.gxd_ver; }
   FAU GetVersion() { return file_header.gxd_ver; }
   const char *DatabaseName() const { return (const char *)file_name; }
@@ -260,7 +260,7 @@ public: // Static data members used in place of global variables
 public: // Overloaded operators
   int operator!() const { return ((is_ok == 0) || (is_open == 0)); }
   int operator!() { return ((is_ok == 0) || (is_open == 0)); }
-  operator const int () const { return ((is_ok == 1) && (is_open == 1)); }
+  operator int () const { return ((is_ok == 1) && (is_open == 1)); }
   operator int () { return ((is_ok == 1) && (is_open == 1)); }
 
 protected: // Data members added to keep persistent stats

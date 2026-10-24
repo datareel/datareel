@@ -48,8 +48,8 @@ public:
   ~gxCondition();
 
 private: // Disallow copying and assignment
-  gxCondition(const gxCondition &ob) { } 
-  void operator=(const gxCondition &ob) { }
+  gxCondition(const gxCondition &) { } 
+  void operator=(const gxCondition &) { }
 
 public:
   int ConditionInit(gxProcessType type = gxPROCESS_PRIVATE);

@@ -794,6 +794,24 @@ int gxThreadAPIWrapper::apiCancelThread(gxThread_t *thread)
   return 0; // No errors were reported
 }
 
+int gxThreadAPIWrapper::apiStopThread(gxThread_t *thread)
+// 10/24/2026: Cancel a joinable thread and, under POSIX, wait for it to
+// finish. pthread_cancel() only sends a cancel request, so a thread that
+// was canceled could still be running when its gxThread_t was deleted.
+// Under WIN32 apiCancelThread() suspends the thread, so it is not waited
+// for. Returns a non-zero value if the thread cannot be canceled.
+// NOTE: Under POSIX the thread stops at its next cancellation point. A
+// thread that never reaches one keeps this function waiting.
+{
+  if(!thread) return 1;
+  int rv = apiCancelThread(thread);
+  if(rv != 0) return rv;
+#if defined (__POSIX__)
+  pthread_join(thread->thread_id, (void **)0);
+#endif
+  return 0;
+}
+
 int gxThreadAPIWrapper::apiDestroyThread(gxThread_t *thread, int check_state)
 // Destroy the specified thread. Returns a non-zero value if
 // the thread cannot be destroyed.
@@ -816,20 +834,22 @@ int gxThreadAPIWrapper::apiDestroyThread(gxThread_t *thread, int check_state)
 	// Lets assume that is not intended to be executed
 	// at this point.
 	break;
+      // 10/24/2026: Canceled threads are waited for with apiStopThread()
+      // before the thread pointer is deleted below.
       case gxTHREAD_STATE_RUNNING :
 	// Cancel a joinable thread if it is currently running
 	if(thread->thread_type == gxTHREAD_TYPE_DETACHED) break;
-	if(apiCancelThread(thread) != 0) return 1;
+	if(apiStopThread(thread) != 0) return 1;
 	break; 
       case gxTHREAD_STATE_SUSPENDED :
 	// Cancel a joinable thread if it is currently suspended
 	if(thread->thread_type == gxTHREAD_TYPE_DETACHED) break;
-	if(apiCancelThread(thread) != 0) return 1;
+	if(apiStopThread(thread) != 0) return 1;
 	break;
       case gxTHREAD_STATE_WAITING :
 	// Cancel a joinable thread if it is currently waiting
 	if(thread->thread_type == gxTHREAD_TYPE_DETACHED) break;
-	if(apiCancelThread(thread) != 0) return 1;
+	if(apiStopThread(thread) != 0) return 1;
 	break;
       default:
 	break;

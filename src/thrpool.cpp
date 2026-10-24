@@ -38,6 +38,7 @@ the list.
 
 #include "thrpool.h"
 #include "gthreadt.h"
+#include "thrapiw.h"
 
 thrPool::~thrPool()
 {
@@ -226,11 +227,20 @@ gxThread_t *thrPool::RemoveTail()
 }
 
 void thrPool::ClearPool()
-// Clear the pool without checking each thread's status.
+// Clear the pool and destroy each thread. 10/24/2026: Running, suspended
+// and waiting joinable threads are canceled and waited for before they
+// are deleted. They used to be deleted while they were still running.
+// Detached threads cannot be canceled and are deleted as before.
 {
+  gxThreadAPIWrapper api;
   while(!IsEmpty()) {
     gxThread_t *t = RemoveTail();
-    if(t) delete t; // Free any memory the thread is holding
+    if(t) {
+      // apiDestroyThread() deletes the thread unless it cannot be
+      // canceled. Under POSIX that means the thread no longer exists, so
+      // free the memory the thread is holding here.
+      if(api.apiDestroyThread(t, 1) != 0) delete t;
+    }
   }
   head = tail = 0;
 }

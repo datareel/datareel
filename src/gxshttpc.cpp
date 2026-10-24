@@ -889,7 +889,7 @@ int gxsHTTPClient::ParseHTTPHeader(const gxsURLInfo &u,
 }
 
 void gxsHTTPClient::BuildSimpleRequestString(const gxsURLInfo &u,
-					     int method, 
+					     int /* method */, 
 					     gxString &request)
 // Build a simple request string.
 {
@@ -1087,7 +1087,7 @@ int gxsHTTPClient::SimpleRequest(const gxsURLInfo &u, MemoryBuffer &mbuf)
   return socket_error = gxSOCKET_NO_ERROR;
 }
 
-int gxsHTTPClient::RequestFile(const gxsURLInfo &u, const gxsHTTPHeader &hdr,
+int gxsHTTPClient::RequestFile(const gxsURLInfo &u, const gxsHTTPHeader & /* hdr */,
 			       gxdFPTR *stream)
 // This function is depreciated in version 4.11 and has been retained for 
 // backward compatibility. Request a file and write it to the specified stream.
@@ -1098,7 +1098,7 @@ int gxsHTTPClient::RequestFile(const gxsURLInfo &u, const gxsHTTPHeader &hdr,
   return Request(u, http_header, stream);
 }
 
-int gxsHTTPClient::RequestFile(const gxsURLInfo &u, const gxsHTTPHeader &hdr,
+int gxsHTTPClient::RequestFile(const gxsURLInfo &u, const gxsHTTPHeader & /* hdr */,
 			       MemoryBuffer &mbuf)
 // This function is depreciated in version 4.11 and has been retained for 
 // backward compatibility. Request a file and write it to the specified buffer.
@@ -2010,7 +2010,7 @@ int gxsHTTPSClient::ParseHTTPHeader(const gxsURLInfo &u,
 }
 
 void gxsHTTPSClient::BuildSimpleRequestString(const gxsURLInfo &u,
-					     int method, 
+					     int /* method */, 
 					     gxString &request)
 // Build a simple request string.
 {

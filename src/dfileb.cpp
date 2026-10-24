@@ -151,7 +151,7 @@ DiskFileB::DiskFileB(const char *fname, int mode, int create, int append)
 }
 
 DiskFileB::DiskFileB(const char *fname, int mode, int create, 
-		     int truncate, int sharing)
+		     int /* truncate */, int /* sharing */)
 // NOTE: This constructor is depreciated.
 // Ignore all BCC32 parameter never used warnings 
 {
@@ -165,7 +165,7 @@ DiskFileB::DiskFileB(const char *fname, int mode, int create,
 }
 
 int DiskFileB::df_Open(const char *fname, int mode, int create, 
-		       int truncate, int sharing)
+		       int /* truncate */, int /* sharing */)
 // NOTE: This function is depreciated.
 // Ignore all BCC32 parameter never used warnings
 {
@@ -1345,12 +1345,15 @@ int DiskFileB::df_copy(const char *from, const char *to, unsigned buf_size,
 	return df_last_error = DiskFileB::df_GET_FILELENGTH_DEST_ERROR;
       }
 #else
-      __ULWORD__ from_len = futils_filelength(from);
-      __ULWORD__ to_len = futils_filelength(to);
-      if(from_len < (__ULWORD__)0) {
+      // 10/24/2026: futils_filelength() returns a long, -1 on error. The
+      // lengths were stored as unsigned values, so the tests below for an
+      // error could never be true.
+      long from_len = futils_filelength(from);
+      long to_len = futils_filelength(to);
+      if(from_len < 0) {
 	return df_last_error = DiskFileB::df_GET_FILELENGTH_SRC_ERROR;
       }
-      if(to_len < (__ULWORD__)0) {
+      if(to_len < 0) {
 	return df_last_error = DiskFileB::df_GET_FILELENGTH_DEST_ERROR;
       }
 #endif

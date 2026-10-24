@@ -878,11 +878,11 @@ int gxsURL::ParseDynamicPage(gxsURLInfo &u,
 int gxsURL::ParseDynamicPage(gxsURLInfo &u, 
 			     const gxString &my_dynamic_file_types,
 			     const gxString &my_dynamic_dir_types,
-			     int &is_dynamic,
-			     gxString &query_string,
-			     gxString &file_extension,
-			     gxString &bin_dir,
-			     gxString &local_query_file)
+			     int & /* is_dynamic */,
+			     gxString & /* query_string */,
+			     gxString & /* file_extension */,
+			     gxString & /* bin_dir */,
+			     gxString & /* local_query_file */)
 {
   return ParseDynamicPage(u.url, 
 			  my_dynamic_file_types, 

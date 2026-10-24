@@ -125,18 +125,26 @@ public:
   gxMutex_t() {
     is_initialized = 0; process_type = gxPROCESS_PRIVATE;
     mutex_error = gxMUTEX_NO_ERROR;
+    not_recoverable = 0;
   }
   ~gxMutex_t() { }
 
 private: // Disallow copying and assignment
-  gxMutex_t(const gxMutex_t &ob) { }
-  void operator=(const gxMutex_t &ob) { } 
+  gxMutex_t(const gxMutex_t &) { }
+  void operator=(const gxMutex_t &) { } 
 
 public:
   gxProcessType process_type;       // Shared or private access
   gxMutexError mutex_error;         // Last error reported
   gxMutexAttribute mutex_attribute; // Mutex attribute
   int is_initialized;               // True if initialized
+
+  // 10/24/2026: Set when a lock call returns ENOTRECOVERABLE. The lock,
+  // try lock and unlock functions then return ENOTRECOVERABLE without
+  // calling the native API. In glibc 2.39 a pthread_mutex_trylock() 
+  // call that returns ENOTRECOVERABLE leaves the mutex in a state where
+  // a later lock call never returns and a later unlock call crashes.
+  int not_recoverable;
   
 #if defined (__WIN32__)
   // Mutex types that can be shared across multiple processes
@@ -164,8 +172,8 @@ public:
   ~gxCondition_t() { }
 
 private: // Disallow copying and assignment
-  gxCondition_t(const gxCondition_t &ob) { }
-  void operator=(const gxCondition_t &ob) { }
+  gxCondition_t(const gxCondition_t &) { }
+  void operator=(const gxCondition_t &) { }
 
 public:
   gxProcessType process_type;               // Shared or private access
@@ -202,8 +210,8 @@ public:
   ~gxSemaphore_t() { }
 
 private: // Disallow copying and assignment
-  gxSemaphore_t(const gxSemaphore_t &ob) { }
-  void operator=(const gxSemaphore_t &ob) { }
+  gxSemaphore_t(const gxSemaphore_t &) { }
+  void operator=(const gxSemaphore_t &) { }
 
 public:
   gxProcessType process_type;       // Shared or private access

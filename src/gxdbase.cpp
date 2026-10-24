@@ -648,14 +648,17 @@ int gxDatabase::ReadObjectChecksum(FAU_t object_address,
   switch(rev_letter) {
     case '\0' : case ' ' : case 'e' : case 'E' :
       // Return true for any file below rev 'A' or rev 'E' files
-      *object_crc = 0;
-      *calc_crc = 0;
+      // 10/24/2026: The pointers are optional, as they are below
+      if(object_crc) *object_crc = 0;
+      if(calc_crc) *calc_crc = 0;
       return 1; 
     default: // Rev 'A', 'B', 'C', and 'D'
       break;
   }
   
-  gxUINT32 CRC, objectCRC;
+  // 10/24/2026: Initialized, and false is returned when the file is not
+  // open. The CRC values used to be compared without ever being set.
+  gxUINT32 CRC = 0, objectCRC = 0;
   gxBlockHeader blk_hdr;
   __ULWORD__ bytes;
 
@@ -682,6 +685,9 @@ int gxDatabase::ReadObjectChecksum(FAU_t object_address,
     // Read the CRC value stored on disk
     if(Read(&objectCRC, sizeof(objectCRC), object_address) != gxDBASE_NO_ERROR)
       return 0;
+  }
+  else {
+    return 0;
   }
 
   if(object_crc) *object_crc = objectCRC;

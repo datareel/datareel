@@ -175,7 +175,7 @@ private: // Internal processing functions
 public: // Overloaded operators
   int operator!() const { return buckets == 0; }
   int operator!() { return buckets == 0; }
-  operator const int () const { return buckets != 0; }
+  operator int () const { return buckets != 0; }
   operator int () { return buckets != 0; }
 
 private:

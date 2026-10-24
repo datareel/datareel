@@ -80,8 +80,8 @@ public:
   virtual ~gxThread();
 
 private: // Disallow coping and assignment
-  gxThread(const gxThread &ob) { }
-  void operator=(const gxThread &ob) { } 
+  gxThread(const gxThread &) { }
+  void operator=(const gxThread &) { } 
 
 public: // Thread functions
   gxThread_t *ConstructThread(gxThreadType t = gxTHREAD_TYPE_JOINABLE, 

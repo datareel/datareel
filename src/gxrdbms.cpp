@@ -625,6 +625,31 @@ FAU_t gxRDBMS::Find(gxrdDatabaseRecord *r, __ULWORD__ field, int case_cmp,
     gxrdDatabaseKey key(k, kid, tid, dup);
     gxrdDatabaseKey compare_key;
     unsigned index_number = (unsigned)field_index;
+    gxrdDatabaseRecord found_record(table.record_def);
+
+    if(dup) {
+      // 10/24/2026: With ALLOWDUP the block address is part of each key,
+      // so a search key with a block address of 0 never matched and every
+      // lookup by key failed. Start at the first key with this CRC-32 
+      // value and test each record with the same value until one matches.
+      gxBtree *tree = pod->Index(index_number);
+      if(!tree) return (FAU_t)0;
+      int found = tree->PartialFind(key, compare_key, test_tree);
+      while(found) {
+	if(key.Key() != k) break; // Past the keys with this CRC-32 value
+	if(Read(&found_record, (FAU_t)key.KeyID()) != gxDBASE_NO_ERROR) {
+	  return (FAU_t)0;
+	}
+	if(gxrd_key_fields_match(found_record, *r, field, CaseCompare())) {
+	  pod->SetDataFileError(gxDBASE_NO_ERROR);
+	  return key.KeyID(); // Found the index file entry
+	}
+	found = tree->FindNext(key, compare_key);
+      }
+      pod->SetDataFileError(gxDBASE_RECORD_NOT_FOUND);
+      return (FAU_t)0;
+    }
+
     if(!FindKey(key, compare_key, index_number, test_tree)) {
       return (FAU_t)0; // Could not find the key
     }
@@ -632,7 +657,6 @@ FAU_t gxRDBMS::Find(gxrdDatabaseRecord *r, __ULWORD__ field, int case_cmp,
     // 10/14/2026: Keys are CRC-32 values, so two different values can
     // have the same key. Read the record and make sure its key data
     // matches before reporting it as found.
-    gxrdDatabaseRecord found_record(table.record_def);
     if(Read(&found_record, (FAU_t)key.KeyID()) != gxDBASE_NO_ERROR) {
       return (FAU_t)0;
     }
@@ -914,10 +938,15 @@ int gxRDBMS::AddRecord(gxrdDatabaseRecord *r, int flushdb, int test_tree)
     return 0;
   }
 
-  FAU_t block_address = FindKey(r, test_tree);
-  if(block_address != (FAU_t)0) {
-    pod->SetDataFileError(gxDBASE_RECORD_EXISTS);
-    return 0;
+  // 10/24/2026: With ALLOWDUP records with the same keys can be added.
+  // FindKey() never found a record by key with ALLOWDUP before, so this
+  // check always passed. Now that it can find them it is skipped.
+  if(!dup) {
+    FAU_t block_address = FindKey(r, test_tree);
+    if(block_address != (FAU_t)0) {
+      pod->SetDataFileError(gxDBASE_RECORD_EXISTS);
+      return 0;
+    }
   }
   if(Write(r, flushdb, test_tree) != gxDBASE_NO_ERROR) return 0;
   return 1;
@@ -1364,7 +1393,7 @@ gxDatabaseError gxRDBMS::DefineKeys(const gxString &kdef)
   return gxDBASE_NO_ERROR;
 }
 
-int gxRDBMS::delete_record(FAU_t &block_address, int flushdb, int test_tree)
+int gxRDBMS::delete_record(FAU_t &block_address, int /* flushdb */, int /* test_tree */)
 {
   if(IsClosed()) return 0;
 

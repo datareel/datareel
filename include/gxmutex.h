@@ -48,8 +48,8 @@ public:
   ~gxMutex();
 
 private: // Disallow copying and assignment
-  gxMutex(const gxMutex &ob) { } 
-  void operator=(const gxMutex &ob) { }
+  gxMutex(const gxMutex &) { } 
+  void operator=(const gxMutex &) { }
 
 public:
   int MutexInit(gxProcessType type = gxPROCESS_PRIVATE);
