@@ -36,7 +36,8 @@
 <a href="#CompilerWarnings">Compiler Warnings</a><br />
 <a href="#OtherFixes">Other Fixes</a><br />
 <a href="#WindowsAndVisualStudio2026">Windows and Visual Studio 2026</a><br />
-<a href="#LinuxOpenSSLDefault">Linux OpenSSL Default</a><br />
+<a href="#OneLibraryWithSSL">One Library With SSL</a><br />
+<a href="#WindowsSchannelSSL">Windows Schannel SSL</a><br />
 <a href="#UpgradingFromVersion5">Upgrading From Version 5</a></p>
 <h2 id="HowTheChangesWereTested">How the Changes Were Tested</h2>
 <ul>
@@ -140,9 +141,22 @@
 <li>The 64-bit programs were run under Wine 9. The database, general and thread examples ran, the directory functions were checked in ANSI and _UNICODE builds, and the simple socket client and server exchanged data.</li>
 <li>The library was not built with the Microsoft compiler or nmake for this release. Build it with VS 2026 on Windows before you use it.</li>
 </ul>
-<h2 id="LinuxOpenSSLDefault">Linux OpenSSL Default</h2>
+<h2 id="OneLibraryWithSSL">One Library With SSL</h2>
 <ul>
-<li>The Linux build uses OpenSSL by default. env/linux.env sets USE_OPEN_SSL to YES unless it is already set, so "make" in the build directory builds libdatareel_ssl and the example programs link to it with -lssl -lcrypto. Build with "make USE_OPEN_SSL=NO" for the libdatareel library without SSL. makefile_ssl still works.</li>
+<li>SSL is built into the library on every platform. There is no separate SSL library.</li>
+<li>Linux: "make" in the build directory builds libdatareel with OpenSSL. env/linux.env sets USE_OPEN_SSL to YES unless it is already set, and the example programs link with -lssl -lcrypto. The libdatareel_ssl library and build/makefile_ssl were removed. On a system without OpenSSL, build libdatareel and your programs with "make USE_OPEN_SSL=NO".</li>
+<li>Windows: the gxcode library uses the native Windows Schannel (SSPI) TLS API by default, so OpenSSL does not need to be built. Programs link with secur32.lib, crypt32.lib and ncrypt.lib, which come with the Windows SDK. msvc.env adds -D__USE_GX_SSL_EXTENSIONS__ and -D__USE_GX_SCHANNEL__. OpenSSL is still an option: build the library with msvc_ssl.mak and your programs with USESSL=1.</li>
+</ul>
+<h2 id="WindowsSchannelSSL">Windows Schannel SSL</h2>
+<ul>
+<li>New file src/gxsschan.cpp has the Schannel version of the gxSSL class. gxssl.cpp includes it when __USE_GX_SCHANNEL__ is defined. The gxSSL functions, error codes and messages are the same for both versions.</li>
+<li>Client side: TLS 1.2 and TLS 1.3 (where Windows supports it), SNI, and VerifyCert() with the Windows certificate chain engine. With SetCAList() the chain must end at a CA in the CA file. Without it the Windows trusted root store is used.</li>
+<li>Server side: InitCTX() loads PEM or DER cert and key files. RSA (PKCS#1 and PKCS#8) and EC keys are supported, and the key is imported into CNG for the life of the context. A .pfx or .p12 file with the key password also works. Encrypted PEM keys need a .pfx file.</li>
+<li>GetCTX() and GetSSL() return Schannel objects, so programs that call OpenSSL functions directly must use the OpenSSL build.</li>
+<li>MakeDHParms(), MakeRSAPrivateKey() and MakeCertReq() need OpenSSL and return an error in the Schannel build. LoadDHParms(), InitPRNG() and MakeRSAEphKey() do nothing because Schannel handles key exchange.</li>
+<li>New gxSSL functions for both versions: SetHostName() for SNI, GetPeerCertInfo() for the peer's subject and issuer, and CertVerifyErrorString() for VerifyCert() return codes. gxsHTTPClient sets the host name, so HTTPS requests to virtual hosted sites work with both versions.</li>
+<li>The ssl_verify_cert example uses the new functions and works with both versions. The https_client, http_client, ssl_server and ssl_verify_cert msvc.mak files no longer set USESSL=1.</li>
+<li>Tested by cross-compiling with MinGW-w64 for x86 and x64 and running under Wine 9: the client against openssl s_server, cert checks with a good and a bad host name, the server with a .pfx file against a Python ssl client, a 1 MB transfer, a read timeout, and the https_client example. Wine cannot import PEM keys into CNG, so the PEM server path and TLS 1.3 still need a test on Windows.</li>
 </ul>
 <h2 id="UpgradingFromVersion5">Upgrading From Version 5</h2>
 <ul>

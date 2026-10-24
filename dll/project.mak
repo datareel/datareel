@@ -396,7 +396,7 @@ $(OUTDIR)\wserror$(OBJ_EXT):	$(GLIB_SRC_PATH)wserror.cpp $(WSERROR_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)wserror.cpp
 
-$(OUTDIR)\gxssl$(OBJ_EXT):	$(GLIB_SRC_PATH)gxssl.cpp $(GXSSL_DEP)
+$(OUTDIR)\gxssl$(OBJ_EXT):	$(GLIB_SRC_PATH)gxssl.cpp $(GLIB_SRC_PATH)gxsschan.cpp $(GXSSL_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxssl.cpp
 

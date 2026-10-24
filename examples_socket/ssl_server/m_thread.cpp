@@ -217,7 +217,10 @@ Shutting down the server");
       return (void *)0;
     }
     
+#if !defined (__USE_GX_SCHANNEL__)
+    // Schannel uses the cipher suites set by the Windows TLS policy
     SSL_CTX_set_cipher_list(openssl.GetCTX(), "ALL");
+#endif
 
     // Record the file descriptor assigned by the Operating System
     s->client_socket = GetRemoteSocket();

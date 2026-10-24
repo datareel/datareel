@@ -235,7 +235,7 @@ gxspop3$(OBJ_EXT):	$(GLIB_SRC_PATH)gxspop3.cpp $(GXSPOP3_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxspop3.cpp
 
-gxssl$(OBJ_EXT):	$(GLIB_SRC_PATH)gxssl.cpp $(GXSSL_DEP)
+gxssl$(OBJ_EXT):	$(GLIB_SRC_PATH)gxssl.cpp $(GLIB_SRC_PATH)gxsschan.cpp $(GXSSL_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxssl.cpp
 

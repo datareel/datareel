@@ -1155,6 +1155,10 @@ int gxsHTTPSClient::ConnectClient(const char *host, int port)
   }
   if(Connect() < 0) return socket_error;
 
+  // 10/24/2026: Send the host name to the server (SNI). Most HTTPS
+  // servers need it to pick the certificate.
+  openssl.SetHostName(host);
+
   // Open and init the SSL object
   if(openssl.OpenSSLSocket(gxsocket) != gxSSL_NO_ERROR) {
     return socket_error = gxSOCKET_SSL_ERROR;

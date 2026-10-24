@@ -28,7 +28,9 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 The gxSSL class is an OpenSSL wrapper used to support SSL and TLS 
-socket applications. The gxSSL class requires openssl-0.9.8a or higher. 
+socket applications. 10/24/2026: On Windows the gxSSL class can also
+be built with the native Windows Schannel TLS library by defining
+__USE_GX_SCHANNEL__, which does not need OpenSSL. The gxSSL class requires openssl-0.9.8a or higher. 
 Some of the class functions and supporting code was derived from the 
 OpenSSL implementation described in the following book: "SSL and TLS 
 Designing and Building Secure Systems" written by Eric Rescorla, 
@@ -94,6 +96,40 @@ private:
 
 #if defined (__USE_GX_SSL_EXTENSIONS__)
 
+#if defined (__USE_GX_SCHANNEL__)
+// --------------------------------------------------------------
+// 10/24/2026: Windows native TLS (Schannel) include files. Define
+// __USE_GX_SCHANNEL__ with __USE_GX_SSL_EXTENSIONS__ to build the gxSSL
+// class with the Windows Schannel SSP instead of OpenSSL. Link with
+// secur32.lib, crypt32.lib and ncrypt.lib.
+// --------------------------------------------------------------
+#if !defined (__WIN32__)
+#error __USE_GX_SCHANNEL__ is only supported for __WIN32__ builds
+#endif
+#ifndef SECURITY_WIN32
+#define SECURITY_WIN32
+#endif
+#include <windows.h>
+#include <wincrypt.h>
+#include <security.h>
+// SCH_CREDENTIALS, needed for TLS 1.3, is only declared when
+// SCHANNEL_USE_BLACKLISTS is defined, and uses UNICODE_STRING from
+// subauth.h
+#ifndef SCHANNEL_USE_BLACKLISTS
+#define SCHANNEL_USE_BLACKLISTS
+#endif
+#include <subauth.h>
+#include <schannel.h>
+#include <ncrypt.h>
+
+// Schannel context and connection objects. The gxSSL interface uses
+// these in place of the OpenSSL SSL_CTX and SSL objects.
+struct gxSchannelCTX;
+struct gxSchannelConn;
+typedef gxSchannelCTX gxSSL_CTX_t;
+typedef gxSchannelConn gxSSL_t;
+
+#else // Use OpenSSL by default
 // --------------------------------------------------------------
 // Open SSL include files 
 // --------------------------------------------------------------
@@ -119,6 +155,12 @@ private:
 #define OBJ_get0_data(o) ((o)->data)
 #define OBJ_length(o) ((o)->length)
 #endif
+
+// 10/24/2026: Types used by the gxSSL interface for both SSL libraries
+typedef SSL_CTX gxSSL_CTX_t;
+typedef SSL gxSSL_t;
+
+#endif // __USE_GX_SCHANNEL__
 
 // --------------------------------------------------------------
 // Enumerations
@@ -274,7 +316,7 @@ class GXDLCODE_API gxSSL
 {
 public:
   gxSSL() { init_data_members(); }
-  gxSSL(SSL_CTX *p) { init_data_members(); ctx = p; }
+  gxSSL(gxSSL_CTX_t *p) { init_data_members(); ctx = p; }
   virtual ~gxSSL();
 
 private: // Disallow copying and assignment
@@ -295,7 +337,7 @@ public: // External exception handling functions
   static void GlobalSSLError(gxString &err_str);
 
 public: // SSL and Context functions
-  SSL_CTX *InitCTX();
+  gxSSL_CTX_t *InitCTX();
   int LoadDHParms(const char *fname);
   void DestroyCTX();
   void DestroySSL();
@@ -319,25 +361,35 @@ public: // Socket functions
   int MakeServer() { is_client = 0; return is_server = 1; }
   int MakeClient() { is_server = 0; return is_client = 1; }
 
+  // 10/24/2026: Host name sent to the server in the TLS server name
+  // indication (SNI) extension when a client connects. Set it before
+  // calling ConnectSSLSocket().
+  void SetHostName(const char *s) { host_name = s; }
+  const char *HostName() { return host_name.c_str(); }
+
 public: // OpenSSL library init functions
   static int InitSSLibrary();
   static int ReleaseSSLLibrary();
   int HasLibInit() { return gxSSL::lib_init == 1; }
 
 public:  // Object pointer functions
-  SSL_CTX *InitCTX(const char *cert_fname, const char *key_fname);
-  SSL_CTX *InitCTX(const char *cert_fname, const char *key_fname, 
-		   const char *key_passphrase);
-  SSL_CTX *GetCTX() { return ctx; }
-  SSL *GetSSL() { return ssl; }
+  gxSSL_CTX_t *InitCTX(const char *cert_fname, const char *key_fname);
+  gxSSL_CTX_t *InitCTX(const char *cert_fname, const char *key_fname, 
+		       const char *key_passphrase);
+  gxSSL_CTX_t *GetCTX() { return ctx; }
+  gxSSL_t *GetSSL() { return ssl; }
+#if !defined (__USE_GX_SCHANNEL__)
   BIO *SocketBIO() { return socket_bio; }
   BIO *FileBIO() { return file_bio; }
   BIO *MemoryBIO() { return memory_bio; }
+#endif
   int is_ssl_null();
   int is_ctx_null();
+#if !defined (__USE_GX_SCHANNEL__)
   int is_socket_bio_null();
   int is_file_bio_null();
   int is_memory_bio_null();
+#endif
 
 public:  // Key, cert, and passwd functions
   const char *RandomFile() { return random_file.c_str(); }
@@ -353,6 +405,10 @@ public:  // Key, cert, and passwd functions
   void SetCertType(gxSSLCertType t) { cert_type = t; }
   gxSSLCertType CertType() { return cert_type; }
   int VerifyCert(const char *hostname, long *X509_return_code = 0);
+  // 10/24/2026: Pass back the subject and issuer names of the peer's
+  // certificate and return a string for a VerifyCert() return code
+  int GetPeerCertInfo(gxString &subject, gxString &issuer);
+  static const char *CertVerifyErrorString(long X509_return_code);
   int HasVerifyCert() { return verify_cert == 1; } 
   int RequireVerifyCert() { return verify_cert = 1; }
   int NoVerifyCert() { return verify_cert = 0; }
@@ -371,21 +427,27 @@ public: // Thread functions
   // 10/14/2026: Release() clears every pointer without freeing it. The
   // misspelled Relase() is kept for existing code; it used to copy
   // memory_bio into socket_bio and file_bio instead of clearing them.
+#if defined (__USE_GX_SCHANNEL__)
+  void Release() { ctx = 0; ssl = 0; }
+#else
   void Release() { ctx = 0; ssl = 0; socket_bio = file_bio = memory_bio = 0; }
+#endif
   void Relase() { Release(); }
   void ReleaseCTX() { ctx = 0; }
   void ReleaseSSL() { ssl = 0; }
+  void SetCTX(gxSSL_CTX_t *p) { ctx = p; }
+  void SetSSL(gxSSL_t *p) { ssl = p; }
+#if !defined (__USE_GX_SCHANNEL__)
   void ReleaseSBIO() { socket_bio = 0; }
   void ReleaseFBIO() { file_bio = 0; }
   void ReleaseMBIO() { memory_bio = 0; }
-  void SetCTX(SSL_CTX *p) { ctx = p; }
-  void SetSSL(SSL *p) { ssl = p; }
   void SetSocketBIO(BIO *p) { socket_bio = p; }
   void SetFileBIO(BIO *p) { file_bio = p; }
   void SetMemoryBIO(BIO *p) { memory_bio = p; }
   
 public: // Call back functions
   friend int password_cb2(char *buf, int num, int rwflag, void *userdata);
+#endif
   
 public: // Static data members used in place of global variables
   static int lib_init;
@@ -393,8 +455,23 @@ public: // Static data members used in place of global variables
 protected: // Internal functions
   void init_data_members();
   void clear_strings();
+#if defined (__USE_GX_SCHANNEL__)
+  // Schannel internal functions
+  int sc_acquire_cred(int inbound);
+  int sc_load_cert_and_key();
+  int sc_load_pfx(const char *fname);
+  int sc_handshake(int is_accept, int have_input);
+  int sc_send_token(SecBuffer &token);
+  int sc_recv_raw(int use_timeout, int seconds, int useconds);
+  int sc_read_some(void *buf, int bytes, int use_timeout, int seconds,
+		   int useconds);
+  int sc_write_all(const void *buf, int bytes);
+  int sc_shutdown();
+  void sc_set_status(long status);
+#else
   int check_ssl_error(int rv);
   int add_cert_ext(X509 *cert, int nid, char *value);
+#endif
 
 protected: // OpenSSL passwords, keys, and certs
   gxString random_file;  // Random file used to seed random num generator
@@ -404,16 +481,19 @@ protected: // OpenSSL passwords, keys, and certs
   gxString passwd;       // Cert or key passphrase
   int verify_cert;
 
-protected: // OpenSSL objects 
-  SSL_CTX *ctx; // Context object
-  SSL *ssl;     // SSL object
+protected: // SSL library objects 
+  gxSSL_CTX_t *ctx; // Context object
+  gxSSL_t *ssl;     // SSL object
   gxSSLMethod ssl_proto;
   gxSSLCertType cert_type;
+  gxString host_name; // Server name sent by clients (SNI)
 
 protected: // SSL I/O objects
+#if !defined (__USE_GX_SCHANNEL__)
   BIO *socket_bio; // SSL Socket I/O object
   BIO *file_bio;   // SSL file I/O object
   BIO *memory_bio; // SSL memory I/O object
+#endif
   int bytes_moved; // Number of bytes moved following an SSL write
   int bytes_read;  // Number of bytes received following an SSL read
   int is_client;   // True if configured for client operations only

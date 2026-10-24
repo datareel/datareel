@@ -79,6 +79,13 @@ and 64-bit builds, and run "nmake -f msvc.mak clean" first, because the
 32-bit and 64-bit builds use the same library file names. For VS 2022
 use env\msvc_vs2022.bat, which also sets up x64 builds.
 
+SSL is built into the gxcode library. By default the gxSSL class uses
+the native Windows Schannel (SSPI) TLS API, so you do not need to
+build OpenSSL. Programs link with secur32.lib, crypt32.lib and
+ncrypt.lib from the Windows SDK. OpenSSL is still an option for code
+that calls OpenSSL functions directly: build the library with
+msvc_ssl.mak and your programs with USESSL=1.
+
 The OpenSSL ENV files (winslib\openssl.env, dll\openssl.env and
 env\openssl_windows.env) point to a 64-bit OpenSSL install by default.
 For 32-bit builds set OPENSSL_DIR to your 32-bit OpenSSL install.
@@ -90,8 +97,9 @@ FINAL=0      Debug build with /MTd /Z7 /Od
 64BITCFG=1   64-bit database engine, which can use files larger than
              2 GB. Builds gxcode64.lib. This is not the same as an
              x64 build. It works with the 32-bit and 64-bit compilers.
-USESSL=1     Build the OpenSSL extensions (see msvc_ssl.mak and
-             README_windows_openssl.txt)
+USESSL=0     SSL with native Windows Schannel (default)
+USESSL=1     SSL with OpenSSL instead of Schannel (see msvc_ssl.mak
+             and README_windows_openssl.txt)
 
 To build a debug static library and the 64-bit database engine:
 

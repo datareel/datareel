@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 10/15/2024
+// Date Last Modified: 10/24/2026
 // Copyright (c) 2001-2025 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -60,6 +60,9 @@ int main(int argc, char **argv)
   hostname.DeleteBeforeIncluding("https://");
   hostname.DeleteAfterLastIncluding("/");
 
+  // Send the hostname to the server (SNI) for virtual hosted sites
+  openssl_client.SetHostName(hostname.c_str());
+
   // We must supply a trusted CA list for client-side cert verification
   openssl_client.SetCAList("ca-bundle.crt");
 
@@ -95,41 +98,29 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  SSL_CTX *ctx = openssl_client.GetCTX();
-  SSL *ssl = openssl_client.GetSSL();
-
-  SSL_CTX_set_verify (ctx, SSL_VERIFY_NONE, 0);
-  SSL_CTX_set_default_verify_paths(ctx);
-
-   X509 *cert = SSL_get_peer_certificate(ssl);
-   if(!cert) {
-     cout << "ERROR - No certificate presented by " << hostname.c_str() << "\n";
-     cout << "\n";
-     return 1;
-   }
-
-  const size_t buflen = 4096;
-  char buf[buflen];
+  // 10/24/2026: Use the gxSSL cert functions so this example works with
+  // both OpenSSL and the native Windows Schannel builds.
+  gxString subject, issuer;
+  if(openssl_client.GetPeerCertInfo(subject, issuer) != gxSSL_NO_ERROR) {
+    cout << "ERROR - No certificate presented by " << hostname.c_str() << "\n";
+    cout << "\n";
+    openssl_client.CloseSSLSocket();
+    client.Close();
+    return 1;
+  }
 
   cout << "\n";
   cout << "Certificate Info:" << "\n";
-  memset(buf, 0, buflen);
-   // Returns value is an internal pointer which MUST NOT be freed
-  X509_NAME *subject = X509_get_subject_name(cert);
-  X509_NAME_oneline(subject, buf, buflen);
-  cout << "Subject: " << buf << "\n";
-  memset(buf, 0, buflen);
-  X509_NAME *issuer = X509_get_issuer_name(cert);
-  X509_NAME_oneline(issuer, buf, buflen);
-  cout << "Issuer: " << buf << "\n";
+  cout << "Subject: " << subject.c_str() << "\n";
+  cout << "Issuer: " << issuer.c_str() << "\n";
   cout << "\n";
 
-  long X509_return_code;
+  long X509_return_code = 0;
   int rv = openssl_client.VerifyCert(hostname.c_str(), &X509_return_code);
 
-  if(X509_return_code != X509_V_OK) {
+  if(X509_return_code != 0) {
     cout << "ERROR - Cannot verify " << hostname.c_str()  << " certificate" << "\n";
-    cout << X509_verify_cert_error_string(X509_return_code) << "\n";
+    cout << gxSSL::CertVerifyErrorString(X509_return_code) << "\n";
     error_level = 1;
   }
   if(rv != 0) {
@@ -146,7 +137,6 @@ int main(int argc, char **argv)
     cout << "\n";
   }
 
-  X509_free(cert);
   openssl_client.CloseSSLSocket();
   client.Close();
   return error_level;

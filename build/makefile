@@ -6,7 +6,7 @@
 # C/C++ Compiler Used: GNU, Intel, Cray
 # Produced By: DataReel Software Development Team
 # File Creation Date: 05/25/2001
-# Date Last Modified: 06/11/2016
+# Date Last Modified: 10/24/2026
 # --------------------------------------------------------------- 
 # Setup my path to the gxcode library
 GCODE_LIB_DIR = ..
@@ -14,11 +14,9 @@ GCODE_LIB_DIR = ..
 include ../env/linux.env
 
 # Define a name for the static library
+# 10/24/2026: SSL is built into libdatareel by default. The separate
+# libdatareel_ssl library and makefile_ssl are no longer used.
 PROJECT = libdatareel
-
-ifeq ($(USE_OPEN_SSL),YES)
-PROJECT = libdatareel_ssl
-endif
 
 # Build dependency rules
 # ===============================================================

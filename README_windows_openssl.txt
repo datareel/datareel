@@ -98,7 +98,13 @@ DataReel Build with OpenSSL Enabled
 In the example build below we will assume you are working with a copy of the datareel
 library unpacked to the "%USERPROFILE%\datareel" location.
 
-To build the datareel library with SSL enabled start with the static library build:
+NOTE: SSL is built into the datareel library and uses the native
+Windows Schannel API by default, so OpenSSL is not required. Use the
+OpenSSL build below for code that calls OpenSSL functions directly.
+Programs that link to the OpenSSL build must be built with USESSL=1,
+for example: nmake -f msvc.mak USESSL=1
+
+To build the datareel library with OpenSSL start with the static library build:
 
 > cd %USERPROFILE%\datareel
 > env\msvc.bat
@@ -124,7 +130,7 @@ To build the example programs:
 
 > cd %USERPROFILE%\datareel\examples_socket
 > cd https_client
-> nmake -f msvc.mak
+> nmake -f msvc.mak USESSL=1
 
 Before running the example program in you user environment add the
 openssl\bin dir to your PATH:
