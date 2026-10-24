@@ -30,3 +30,8 @@
 
 # Debug file
 core.*
+
+# MSVC build outputs
+*.exp
+*.ilk
+*.pdb
