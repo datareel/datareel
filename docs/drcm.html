@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel Cluster Manager</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html" aria-current="page">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>DataReel Cluster Manager</h1>
+<p class="dr-lead">High-availability failover for Linux services, built on the DataReel C++ toolkit.</p>
+
+<div class="dr-toc-title">Contents</div><p class="dr-toc"><a href="#Overview">Overview</a><br />
+<a href="#Features">Features</a><br />
+<a href="#HowItWorks">How It Works</a><br />
+<a href="#Security">Security Model</a><br />
+<a href="#Transports">UDP and TCP Transports</a><br />
+<a href="#Platforms">Supported Platforms</a><br />
+<a href="#GetTheCode">Get the Code</a><br />
+<a href="#Build">Build and Install</a><br />
+<a href="#Tools">Setup and Migration Tools</a><br />
+<a href="#Docs">Administrator Guide</a><br />
+<a href="#License">License</a></p>
+
+<h2 id="Overview">Overview</h2>
+
+<p><b>What is the DataReel Cluster Manager?</b><br />
+The DataReel Cluster Manager (DRCM) is an open-source, multi-threaded high-availability (HA) cluster manager for Linux. It keeps services, floating IP addresses, filesystems, applications and cron jobs running by monitoring every node in a cluster and automatically failing resources over to a healthy node when a node stops responding. DRCM is written in C++ on top of the DataReel toolkit and uses its threading, socket, string, list, configuration and logging classes directly.</p>
+
+<p>DRCM runs as a lightweight daemon on each node. Nodes exchange authenticated keep-alive messages on a schedule you control. When a node misses its keep-alive window, a surviving node takes over the failed node's resources by running small, auditable resource scripts &mdash; so what happens during a failover is transparent and easy to customize for your environment.</p>
+
+<p><b>Why use DRCM?</b><br />
+DRCM is simple to reason about, has very few runtime dependencies, and gives the administrator full control over what a failover actually does. It is well suited to two-node active/standby pairs, witness-backed quorum clusters, and now &mdash; with the TCP + TLS transport &mdash; nodes that fail over across the public internet rather than only within one subnet.</p>
+
+<div class="dr-note"><b>Part of the DataReel project.</b> DRCM is a separate product in its own repository, but it builds against the same DataReel library documented throughout this site. If you are new to DataReel, start with the <a href="index.html">Readme</a> and the <a href="classes/classes.htm">Class Library</a>.</div>
+
+<h2 id="Features">Features</h2>
+<div class="dr-features"><section><h3>Cluster Management</h3><ul><li>Multi-threaded HA daemon</li><li>Active/standby failover</li><li>Two-node clusters</li><li>Witness-quorum clusters</li><li>Per-node keep-alive monitoring</li><li>Configurable dead-node timeout</li><li>Primary/backup resource maps</li><li>Live cluster status queries</li><li>Per-node statistics</li></ul></section><section><h3>Managed Resources</h3><ul><li>Floating IP addresses</li><li>System services (systemd)</li><li>Mounted filesystems (NFS)</li><li>User applications</li><li>Crontab installation</li><li>Pluggable resource scripts</li><li>AWS Elastic IP failover</li><li>AWS route-table VIP failover</li></ul></section><section><h3>Security</h3><ul><li>HMAC-SHA256 message authentication</li><li>2048-byte cluster auth key</li><li>Sequence + nonce anti-replay</li><li>Optional timestamp window</li><li>TLS 1.2+ over TCP</li><li>Mutual certificate auth</li><li>Optional certificate pinning</li><li>Hardened compiler flags</li></ul></section><section><h3>Operations</h3><ul><li>Single config file (cm.cfg)</li><li>systemd unit files</li><li>Rotating log files</li><li>Config migration script</li><li>tkinter setup GUI</li><li>RPM packaging</li><li>Administrator guide</li><li>Example two-node config</li></ul></section></div>
+
+<h2 id="HowItWorks">How It Works</h2>
+
+<p>Each node runs the <code>drcm_server</code> daemon, configured from a single <code>cm.cfg</code> file that describes the cluster, every node, and the resources each node owns. On a schedule, each node sends an authenticated keep-alive message to the other nodes it monitors.</p>
+
+<ul>
+<li><b>Healthy state.</b> Keep-alives arrive on time and every node holds its assigned resources.</li>
+<li><b>Node failure.</b> When a node misses <code>dead_node_count</code> consecutive keep-alive windows, a surviving node marks it dead and begins takeover.</li>
+<li><b>Takeover.</b> The surviving node runs the resource scripts for the dead node's floating IPs, services, filesystems, applications and crontabs, assuming its backup responsibilities.</li>
+<li><b>Recovery.</b> When the failed node returns and re-establishes keep-alives, resources can be returned according to your configuration.</li>
+</ul>
+
+<p>Resource actions are plain scripts in <code>etc/resources/</code> (for example <code>ipv4addr.sh</code>, <code>service.sh</code>, <code>nfs.sh</code>, and the new <code>aws_ipv4addr.sh</code>), so a failover does exactly what you can read in those scripts &mdash; nothing hidden.</p>
+
+<h2 id="Security">Security Model</h2>
+
+<p>DRCM treats the cluster control channel as a security boundary: a node must never be able to be tricked into failing resources over, and a network attacker must not be able to forge, replay or tamper with cluster messages. The current release hardens the protocol end to end.</p>
+
+<ul>
+<li><b>Authenticated messages.</b> Every cluster frame carries an HMAC-SHA256 tag keyed with a 2048-byte per-cluster authentication key. A node silently drops any frame whose tag does not verify, so only holders of the cluster key can speak on the control channel.</li>
+<li><b>Anti-replay.</b> Each frame includes a per-sender sequence number and a random 16-bit-safe nonce, checked against a recent-nonce cache, so a captured message cannot be replayed to re-trigger a failover. An optional timestamp window adds a time-based check for clusters with synchronized clocks.</li>
+<li><b>TLS over the internet.</b> When nodes fail over across untrusted networks, the TCP transport wraps the control channel in TLS 1.2 or higher with mutual certificate authentication against a cluster CA, with optional certificate-fingerprint pinning for defense in depth.</li>
+<li><b>Hardened builds.</b> The daemon is compiled with stack protection, <code>_FORTIFY_SOURCE</code>, a position-independent executable and full RELRO, and has been exercised under AddressSanitizer and UndefinedBehaviorSanitizer with a dedicated attack-simulation test suite.</li>
+</ul>
+
+<div class="dr-note"><b>Internal UDP clusters are authenticated too.</b> The HMAC and anti-replay protections apply to the same-subnet UDP transport as well as to TCP, so even a purely internal cluster is protected against forged and replayed keep-alive and takeover messages.</div>
+
+<h2 id="Transports">UDP and TCP Transports</h2>
+
+<p>DRCM supports two transports, selected with <code>cluster_transport</code> in <code>cm.cfg</code>:</p>
+
+<ul>
+<li><b>UDP (default)</b> &mdash; lightweight datagrams for nodes on the same subnet. Authenticated with HMAC-SHA256 and protected by sequence + nonce anti-replay.</li>
+<li><b>TCP + TLS</b> &mdash; for failover over the internet or any untrusted network. Adds TLS 1.2+ with mutual cluster-CA certificate authentication on top of the same authenticated frames.</li>
+</ul>
+
+<p>Both the default self-signed cluster CA and externally-issued certificates (for example Let's Encrypt via acme.sh) are supported for the TLS transport &mdash; only the certificate, key and CA file paths matter to the daemon.</p>
+
+<pre class="dr-code"># cm.cfg -- select the TCP + TLS transport
+cluster_transport = tcp
+tls_ca_file   = /etc/drcm/tls/ca.pem
+tls_cert_file = /etc/drcm/tls/node.pem
+tls_key_file  = /etc/drcm/tls/node-key.pem
+tls_min_version = 1.2
+
+# Witness quorum guards a two-node split brain
+quorum_required  = 1
+witness_endpoint = 10.0.0.9</pre>
+
+<h2 id="Platforms">Supported Platforms</h2>
+
+<p>The current DRCM release is developed and tested on Red Hat Enterprise Linux 9 and 10. It builds on any modern Linux distribution with the GNU C++ compiler and OpenSSL.</p>
+
+<ul>
+<li><b>Supported:</b> RHEL 10 and RHEL 9 (and compatible rebuilds such as AlmaLinux and Rocky Linux).</li>
+<li><b>Best-effort / legacy:</b> RHEL 8 builds but is considered legacy and is not the primary test target.</li>
+<li><b>No longer supported:</b> RHEL 6 and RHEL 7 are end-of-life and are no longer supported by this release.</li>
+</ul>
+
+<h2 id="GetTheCode">Get the Code</h2>
+
+<p>The DataReel Cluster Manager lives in its own repository on GitHub:</p>
+
+<p><a href="https://github.com/datareel/ha-cluster-manager">https://github.com/datareel/ha-cluster-manager</a></p>
+
+<pre class="dr-code">&gt; mkdir -pv ~/git
+&gt; cd ~/git
+&gt; git clone https://github.com/datareel/ha-cluster-manager
+&gt; cd ha-cluster-manager</pre>
+
+<p>DRCM links against the DataReel library. Clone both repositories side by side:</p>
+
+<pre class="dr-code">&gt; cd ~/git
+&gt; git clone https://github.com/datareel/datareel
+&gt; git clone https://github.com/datareel/ha-cluster-manager</pre>
+
+<h2 id="Build">Build and Install</h2>
+
+<p>Build the DataReel library first (see the <a href="index.html#UNIXLIB">Linux Builds</a> section of the Readme), then build the cluster daemon:</p>
+
+<pre class="dr-code">&gt; cd ~/git/ha-cluster-manager
+&gt; source env/gnu_env.sh
+&gt; cd drcm_server
+&gt; make -f makedrcm.mak</pre>
+
+<p>The daemon links OpenSSL (<span class="dr-cmd">-lssl -lcrypto</span>) for the HMAC authentication and the TLS transport, and is built with hardening flags enabled. systemd unit files are provided under <code>systemd_init/</code>, and an RPM spec under <code>rpm_builder/</code>.</p>
+
+<h2 id="Tools">Setup and Migration Tools</h2>
+
+<p>Two helper tools make it easy to stand up a new cluster or move an existing one to the current configuration format:</p>
+
+<ul>
+<li><b><code>tools/migrate_cfg.py</code></b> &mdash; an additive, idempotent migration script that upgrades a pre-existing <code>cm.cfg</code> to the current format. It leaves the cluster on UDP by default and can optionally scaffold the TCP + TLS and witness-quorum settings.</li>
+<li><b><code>tools/drcm_gui.py</code></b> &mdash; a small tkinter GUI with a <i>New cluster</i> tab that generates a ready-to-edit <code>cm.cfg</code> (UDP or TCP + TLS, with anti-replay and quorum options) and a <i>Migrate</i> tab that reuses the migration script. It runs headless with <span class="dr-cmd">--selftest</span> to print a sample config without a display.</li>
+</ul>
+
+<pre class="dr-code"># Migrate an existing config to the current format (prints to stdout)
+&gt; python3 tools/migrate_cfg.py /etc/drcm/cm.cfg
+
+# Switch it to the TCP + TLS transport with a witness
+&gt; python3 tools/migrate_cfg.py /etc/drcm/cm.cfg \
+    --tcp --quorum --witness 10.0.0.9 -o cm.new.cfg</pre>
+
+<h2 id="Docs">Administrator Guide</h2>
+
+<p>A full administrator guide ships with the repository under <code>docs/</code>. It covers the architecture, installation, the complete configuration reference, the security model, TCP + TLS and witness-quorum setup, floating-IP failover (including AWS Elastic IP and route-table modes), monitoring, a two-node walkthrough, and troubleshooting.</p>
+
+<p><a href="https://github.com/datareel/ha-cluster-manager/blob/master/docs/drcm.html">DRCM Administrator Guide (docs/drcm.html)</a></p>
+
+<h2 id="License">License</h2>
+
+<p>The DataReel Cluster Manager is open source, copyrighted by DataReel Software Development, Copyright &copy; 2001-2025, all rights reserved. Like the DataReel library it is distributed under the <a href="https://www.gnu.org">GNU</a> Lesser General Public License (LGPL), with provisions for use in commercial and non-commercial applications under the terms of the LGPL. See the <code>COPYING</code> file in the repository for the full text.</p>
+
+<!-- Start Copyright Information -->
+<p><font color="000000">DataReel Copyright &copy; 2001-2025&nbsp;DataReel Software Development</font></p>
+</main>
+<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2025 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
+</html>
