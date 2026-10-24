@@ -43,54 +43,77 @@ and reference E:\3plibs as the build location for 3rd party libs.
 The examples use a command line version of unzip.exe to unpack the zip
 archives. 
 
-To build ZLIB from a Windows command prompt:
+The default Windows build is 64-bit x64. The 32-bit x86 builds are
+only for legacy systems. Build each library in a new command prompt
+for the target you are building.
+
+To build the 64-bit ZLIB from a Windows command prompt:
 
 E:
 E:\>cd 3plibs
 E:\3plibs>cd distrib
 E:\3plibs\distrib>unzip -d e:\3plibs zlib131.zip
 E:\3plibs\distrib>cd e:\3plibs
-E:\3plibs>move zlib-1.3.1 zlib32-1.3.1
-E:\3plibs>cd zlib32-1.3.1
-E:\3plibs\zlib32-1.3.1> "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat"
- "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat"
-E:\3plibs\zlib32-1.3.1>nmake -f win32\Makefile.msc
+E:\3plibs>move zlib-1.3.1 zlib64-1.3.1
+E:\3plibs>cd zlib64-1.3.1
+E:\3plibs\zlib64-1.3.1>"C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat"
+E:\3plibs\zlib64-1.3.1>nmake -f win32\Makefile.msc
 
-For the OpenSSL build you will need to download the release you wish
-to use from: 
+For a 32-bit legacy build unpack a second copy to zlib32-1.3.1 and
+use vcvars32.bat instead of vcvars64.bat.
 
-https://github.com/openssl/openssl
+----------------------------
+OpenSSL Version Requirements
+----------------------------
+When you build DataReel or your programs with OpenSSL on Windows, use
+only an OpenSSL 3.5.x LTS (long term support) release. Do not use
+OpenSSL 3.0 through 3.4 or a newer non-LTS release. When a new 3.5.x
+release is published, rebuild OpenSSL with it and rebuild the DataReel
+library and your programs. This document uses OpenSSL 3.5.9, the
+latest 3.5.x LTS release. The default DataReel SSL build uses the
+native Windows Schannel API and does not need OpenSSL.
+
+Download the latest 3.5.x LTS release from:
+
 https://github.com/openssl/openssl/releases 
+https://openssl-library.org/source/
 
-In this document we will be using version 3.2.2 to match the RHEL 9
-and 10 version. 
-
-To build OpenSSL from a Windows command prompt:
+To build the 64-bit OpenSSL from a Windows command prompt:
 
 E:
 E:\>cd e:\3plibs
-E:\3plibs\distrib>unzip -d e:\3plibs openssl-openssl-3.2.2.zip
-E:\3plibs\distrib>cd e:\3plibs
-E:\3plibs>move openssl-openssl-3.2.2 openssl32-openssl-3.2.2
-E:\3plibs>cd openssl32-openssl-3.2.2
-E:\3plibs\openssl32-openssl-3.2.2>"C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat"
-E:\3plibs\openssl32-openssl-3.2.2>C:\strawberry-perl\portableshell.bat
-E:\3plibs\openssl32-openssl-3.2.2>perl Configure VC-WIN32 --prefix=e:\3plibs\openssl --openssldir=e:\3plibs\openssl --with-zlib-include=e:\3plibs\zlib32-1.3.1 --with-zlib-lib=e:\3plibs\zlib32-1.3.1 enable-fips no-shared
-E:\3plibs\openssl32-openssl-3.2.2>perl configdata.pm --dump
-E:\3plibs\openssl32-openssl-3.2.2>nmake
-E:\3plibs\openssl32-openssl-3.2.2>nmake test
+E:\3plibs>tar -xzf distrib\openssl-3.5.9.tar.gz
+E:\3plibs>move openssl-3.5.9 openssl64-openssl-3.5.9
+E:\3plibs>cd openssl64-openssl-3.5.9
+E:\3plibs\openssl64-openssl-3.5.9>"C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat"
+E:\3plibs\openssl64-openssl-3.5.9>C:\strawberry-perl\portableshell.bat
+E:\3plibs\openssl64-openssl-3.5.9>perl Configure VC-WIN64A --prefix=e:\3plibs\openssl64 --openssldir=e:\3plibs\openssl64 --with-zlib-include=e:\3plibs\zlib64-1.3.1 --with-zlib-lib=e:\3plibs\zlib64-1.3.1 enable-fips no-shared
+E:\3plibs\openssl64-openssl-3.5.9>perl configdata.pm --dump
+E:\3plibs\openssl64-openssl-3.5.9>nmake
+E:\3plibs\openssl64-openssl-3.5.9>nmake test
 
 All tests successful.
-Files=298, Tests=3164, 978 wallclock secs ( 7.58 usr +  1.17 sys =  8.75 CPU)
+Files=347, Tests=4214, 2135 wallclock secs ( 8.45 usr +  2.03 sys = 10.48 CPU)
 Result: PASS
 
-E:\3plibs\openssl32-openssl-3.2.2>nmake install
-E:\3plibs\openssl32-openssl-3.2.2>move e:\3plibs\openssl e:\3plibs\openssl32
-E:\3plibs\openssl32-openssl-3.2.2>e:\3plibs\openssl32\bin\openssl.exe version
-OpenSSL 3.2.2 4 Jun 2024 (Library: OpenSSL 3.2.2 4 Jun 2024)
+E:\3plibs\openssl64-openssl-3.5.9>nmake install_sw install_ssldirs install_fips
+E:\3plibs\openssl64-openssl-3.5.9>e:\3plibs\openssl64\bin\openssl.exe version
+OpenSSL 3.5.9 29 Sep 2026 (Library: OpenSSL 3.5.9 29 Sep 2026)
 
-NOTE: To build a debug version of OpenSSL run the perl configure script with the following option: 
->perl Configure debug-VC-WIN32
+To build the 32-bit OpenSSL for legacy systems, unpack a second copy to
+openssl32-openssl-3.5.9 and in a new command prompt use vcvars32.bat,
+VC-WIN32, zlib32-1.3.1 and --prefix=e:\3plibs\openssl32
+--openssldir=e:\3plibs\openssl32:
+
+E:\3plibs\openssl32-openssl-3.5.9>"C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat"
+E:\3plibs\openssl32-openssl-3.5.9>C:\strawberry-perl\portableshell.bat
+E:\3plibs\openssl32-openssl-3.5.9>perl Configure VC-WIN32 --prefix=e:\3plibs\openssl32 --openssldir=e:\3plibs\openssl32 --with-zlib-include=e:\3plibs\zlib32-1.3.1 --with-zlib-lib=e:\3plibs\zlib32-1.3.1 enable-fips no-shared
+E:\3plibs\openssl32-openssl-3.5.9>nmake
+E:\3plibs\openssl32-openssl-3.5.9>nmake test
+E:\3plibs\openssl32-openssl-3.5.9>nmake install_sw install_ssldirs install_fips
+
+NOTE: To build a debug version of OpenSSL run the perl configure
+script with debug-VC-WIN64A, or debug-VC-WIN32 for 32-bit builds.
 
 -----------------------------------
 DataReel Build with OpenSSL Enabled
@@ -135,7 +158,7 @@ To build the example programs:
 Before running the example program in you user environment add the
 openssl\bin dir to your PATH:
 
-> set PATH=%PATH%;e:\3plibs\openssl\bin
+> set PATH=%PATH%;e:\3plibs\openssl64\bin
 
 --
 To build the datareel library as a DLL with SSL enabled:
