@@ -1869,7 +1869,9 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
     }
   }
   
-  if(!X509_sign(x, private_key, EVP_md5())) {
+  // 10/24/2026: Sign with SHA-256. Windows Schannel and current browsers
+  // reject MD5 signed certs.
+  if(!X509_sign(x, private_key, EVP_sha256())) {
     X509_free(x);
     EVP_PKEY_free(private_key);
     CRYPTO_cleanup_all_ex_data();

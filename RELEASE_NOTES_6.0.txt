@@ -318,6 +318,14 @@ WINDOWS SCHANNEL SSL
   Python ssl client, a 1 MB transfer, a read timeout, and the
   https_client example. Wine cannot import PEM keys into CNG, so the
   PEM server path and TLS 1.3 still need a test on Windows.
+- Tested on Windows 11 (10.0.26200) with VS 2026 (cl 19.50) x64:
+  the library, the DLL and all 61 examples and utils build with nmake.
+  Cert verify, https_client and the ssl_server example (PEM key) pass
+  with TLS 1.2 and TLS 1.3.
+- MakeCertReq() signed certs with MD5, which Schannel rejects. It
+  signs with SHA-256 now, and the ssl_server example cert was
+  re-signed with SHA-256.
+- The debug DLL link no longer uses /incremental:yes (LNK4224).
 
 UPGRADING FROM VERSION 5
 ------------------------
