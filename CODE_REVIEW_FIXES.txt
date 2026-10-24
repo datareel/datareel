@@ -1,6 +1,6 @@
 DataReel Code Review and Fixes, 10/14/2026
 DataReel version 5.10 (was 5.09)
-DataReel Copyright (c) 2001-2025 DataReel Software Development
+DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 The DataReel library in this repository was reviewed and fixed by
 Claude Code, Anthropic's AI coding assistant (https://claude.ai/code).
@@ -371,4 +371,4 @@ RELEASE_NOTES_6.0.txt.
   recoverable leaves it in a state that crashes a later unlock. This
   is a glibc problem and is described on the thread helper page.
 
-DataReel Copyright (c) 2001-2025 DataReel Software Development
+DataReel Copyright (c) 2001-2026 DataReel Software Development

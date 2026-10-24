@@ -1,5 +1,5 @@
 DataReel 5.X Readme File
-DataReel Copyright (c) 2001-2025 DataReel Software Development
+DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://github.com/datareel
 
@@ -152,7 +152,7 @@ General
 LICENSE
 -------
 The DataReel open source library is copyrighted by DataReel Software
-Development, Copyright (C) 2001-2025, all rights reserved. DataReel
+Development, Copyright (C) 2001-2026, all rights reserved. DataReel
 open source is available to non-profit, commercial, individual, and
 academic developers. The open-source archive is distributed under the
 GNU Lesser General Public License (LGPL) with provisions for use in
@@ -430,4 +430,4 @@ In the openssl.env file set the path to your openssl installation directory.
 
 See README_windows_openssl.txt for building OpenSSL on Windows.
 
-DataReel Copyright (c) 2001-2025 DataReel Software Development
+DataReel Copyright (c) 2001-2026 DataReel Software Development

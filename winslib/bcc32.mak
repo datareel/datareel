@@ -6,7 +6,7 @@
 # C/C++ Compiler Used: Borland C++ 5.5 for WIN32
 # Produced By: DataReel Software Development Team
 # File Creation Date: 05/25/2001 
-# Date Last Modified: 10/17/2005
+# Date Last Modified: 10/24/2026
 # --------------------------------------------------------------- 
 # Setup my path to the gxcode library
 GCODE_LIB_DIR = ..

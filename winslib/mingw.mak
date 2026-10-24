@@ -6,7 +6,7 @@
 # C/C++ Compiler Used: GNU MINGW
 # Produced By: DataReel Software Development Team
 # File Creation Date: 02/21/2002
-# Date Last Modified: 10/17/2005
+# Date Last Modified: 10/24/2026
 # --------------------------------------------------------------- 
 # Setup my path to the gxcode library
 GCODE_LIB_DIR = ..

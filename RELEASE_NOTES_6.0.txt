@@ -1,6 +1,6 @@
 DataReel 6.0 Release Notes, 10/24/2026
 DataReel version 6.0 (was 5.10)
-DataReel Copyright (c) 2001-2025 DataReel Software Development
+DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 DataReel 6.0 is the first major release in many years. Version 5.10,
 tagged 5.10 in the repository, is the last version 5 release.
@@ -346,4 +346,4 @@ UPGRADING FROM VERSION 5
   threads. Threads must reach a cancellation point, and the gxThread
   object must still exist when the pool is cleared or deleted.
 
-DataReel Copyright (c) 2001-2025 DataReel Software Development
+DataReel Copyright (c) 2001-2026 DataReel Software Development
