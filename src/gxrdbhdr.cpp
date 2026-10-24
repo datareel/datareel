@@ -1318,6 +1318,9 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
     // Move to the field type
     p = (char *)(db_record[i].m_buf()+offset);
 
+    // 10/24/2026: sizeof() is cast to __ULWORD__ in the length checks
+    // below. In 64-bit Windows builds without __USE_NATIVE_INT_TYPES__,
+    // gxUINT32 < size_t was ambiguous and would not compile.
     // NOTE: All relational field types must be account for in
     // this function.
     switch(type) {
@@ -1331,7 +1334,7 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 	break;
 
       case gxrdCHAR : case gxrdVCHAR :
-	if(num_bytes < sizeof(char)) return (gxrdKeyType_t)0;
+	if(num_bytes < (__ULWORD__)sizeof(char)) return (gxrdKeyType_t)0;
 	sbuf.Clear();
 	for(j = 0; j < num_bytes; j++, p++) {
 	  if(*p == 0) {
@@ -1356,7 +1359,7 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 	break;
 	
       case gxrdBLOB : // BLOB types cannot be indexed
-	if(num_bytes < sizeof(char)) return (gxrdKeyType_t)0;
+	if(num_bytes < (__ULWORD__)sizeof(char)) return (gxrdKeyType_t)0;
 	// 10/24/2026: Skip the BLOB without moving the write offset. The
 	// offset used to move past the BLOB while the key length did not,
 	// so the fields after a BLOB were left out of all-field keys.
@@ -1365,7 +1368,7 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 	break;
 
       case gxrdBINARY : // User defined types and small binary objects
-	if(num_bytes < sizeof(char)) return (gxrdKeyType_t)0;
+	if(num_bytes < (__ULWORD__)sizeof(char)) return (gxrdKeyType_t)0;
 	bin_buf.Clear();
 	bin_buf.InsertAt(0, (char *)(db_record[i].m_buf()+offset), 
 			 num_bytes);
@@ -1376,7 +1379,7 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 	break;
 
       case gxrdINT16 :
-	if(num_bytes < sizeof(gxINT16)) return (gxrdKeyType_t)0;
+	if(num_bytes < (__ULWORD__)sizeof(gxINT16)) return (gxrdKeyType_t)0;
 	buf_size += sizeof(gxINT16);
 	if(buf.length() < buf_size) buf.resize(buf_size);
 	memmove((void *)&i16buf, (const void *)p, sizeof(gxINT16));
@@ -1385,7 +1388,7 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 	break;
 
       case gxrdINT32 :
-	if(num_bytes < sizeof(gxINT32)) return (gxrdKeyType_t)0;
+	if(num_bytes < (__ULWORD__)sizeof(gxINT32)) return (gxrdKeyType_t)0;
 	buf_size += sizeof(gxINT32);
 	if(buf.length() < buf_size) buf.resize(buf_size);
 	memmove((void *)&i32buf, (const void *)p, sizeof(gxINT32));
@@ -1412,7 +1415,7 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 	break;
 
       case gxrdFLOAT : case gxrdCURRENCY :
-	if(num_bytes < sizeof(gxFLOAT64)) return (gxrdKeyType_t)0;
+	if(num_bytes < (__ULWORD__)sizeof(gxFLOAT64)) return (gxrdKeyType_t)0;
 	buf_size += sizeof(gxFLOAT64);
 	if(buf.length() < buf_size) buf.resize(buf_size);
 	memmove((void *)&f64buf, (const void *)p, sizeof(gxFLOAT64));
@@ -1421,7 +1424,7 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 	break;
 
       case gxrdDATE :
-	if(num_bytes < sizeof(CDate)) return (gxrdKeyType_t)0;
+	if(num_bytes < (__ULWORD__)sizeof(CDate)) return (gxrdKeyType_t)0;
 	buf_size += sizeof(CDate);
 	if(buf.length() < buf_size) buf.resize(buf_size);
 	memmove((void *)&date_buf, (const void *)p, sizeof(CDate));
@@ -1506,6 +1509,9 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
     p1 = (char *)(db_record[i].m_buf()+offset1);
     p2 = (char *)(ob.db_record[i].m_buf()+offset2);
 
+    // 10/24/2026: sizeof() is cast to __ULWORD__ in the length checks
+    // below. In 64-bit Windows builds without __USE_NATIVE_INT_TYPES__,
+    // gxUINT32 < size_t was ambiguous and would not compile.
     // NOTE: All relational field types must be account for in
     // this function.
     switch(type) {
@@ -1521,7 +1527,7 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
 	break;
 
       case gxrdCHAR : case gxrdVCHAR :
-	if((num_bytes1 < sizeof(char)) || (num_bytes2 < sizeof(char))) {
+	if((num_bytes1 < (__ULWORD__)sizeof(char)) || (num_bytes2 < (__ULWORD__)sizeof(char))) {
 	  return -1;
 	}
 	sbuf1.Clear(); sbuf2.Clear();
@@ -1579,7 +1585,7 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
 	break;
 	
       case gxrdBINARY : // User defined types and small binary objects
-	if((num_bytes1 < sizeof(char)) || (num_bytes2 < sizeof(char))) {
+	if((num_bytes1 < (__ULWORD__)sizeof(char)) || (num_bytes2 < (__ULWORD__)sizeof(char))) {
 	  return -1;
 	}
 	bin_buf1.Clear(); bin_buf2.Clear();
@@ -1598,7 +1604,7 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
 	break;
 
       case gxrdINT16 :
-	if((num_bytes1 < sizeof(gxINT16)) || (num_bytes2 < sizeof(gxINT16))) {
+	if((num_bytes1 < (__ULWORD__)sizeof(gxINT16)) || (num_bytes2 < (__ULWORD__)sizeof(gxINT16))) {
 	  return -1;
 	}
 	if(find_match) { // Search for matching byte pattern
@@ -1618,7 +1624,7 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
 	break;
 
       case gxrdINT32 :
-	if((num_bytes1 < sizeof(gxINT32)) || (num_bytes2 < sizeof(gxINT32))) {
+	if((num_bytes1 < (__ULWORD__)sizeof(gxINT32)) || (num_bytes2 < (__ULWORD__)sizeof(gxINT32))) {
 	  return -1;
 	}
 	if(find_match) { // Search for matching byte pattern
@@ -1680,8 +1686,8 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
 	break;
 
       case gxrdFLOAT : case gxrdCURRENCY :
-	if((num_bytes1 < sizeof(gxFLOAT64)) || 
-	   (num_bytes2 < sizeof(gxFLOAT64))) {
+	if((num_bytes1 < (__ULWORD__)sizeof(gxFLOAT64)) || 
+	   (num_bytes2 < (__ULWORD__)sizeof(gxFLOAT64))) {
 	  return -1;
 	}
 	if(find_match) { // Search for matching byte pattern
@@ -1701,7 +1707,7 @@ int gxrdDatabaseRecord::Compare(const gxrdDatabaseRecord &ob,
 	break;
 
       case gxrdDATE :
-	if((num_bytes1 < sizeof(CDate)) || (num_bytes2 < sizeof(CDate))) {
+	if((num_bytes1 < (__ULWORD__)sizeof(CDate)) || (num_bytes2 < (__ULWORD__)sizeof(CDate))) {
 	  return -1;
 	}
 	if(find_match) { // Search for matching byte pattern
