@@ -55,7 +55,7 @@ private: // Base class interface
 void *SimpleThread::ThreadEntryRoutine(gxThread_t *thread)
 // Thread's entry function
 {
-  cout << "Executing worker thread: " << (long)thread->GetThreadParm() << ", "
+  cout << "Executing worker thread: " << (long)(size_t)thread->GetThreadParm() << ", "
        << thread->ThreadPriorityMessage() << "\n" << flush;
   return 0;
 }

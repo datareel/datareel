@@ -3,10 +3,10 @@
 #######################
 # --------------------------------------------------------------- 
 # Makefile Contents: Makefile for the MSVC gxcode library
-# C/C++ Compiler Used: MSVC 6.0 SP5, Visual C++ .NET, and VS 2022
+# C/C++ Compiler Used: MSVC 6.0 SP5, Visual C++ .NET, VS 2022, and VS 2026
 # Produced By: DataReel Software Development Team
 # File Creation Date: 05/25/2001
-# Date Last Modified: 10/30/2025
+# Date Last Modified: 10/24/2026
 # --------------------------------------------------------------- 
 # Setup library configuration
 !IF "$(FINAL)" == ""
@@ -178,7 +178,7 @@ GLIB_OBJECTS = $(GLIB_DATABASE_CORE_OBJECTS) \
 OBJECTS = $(GLIB_OBJECTS)
 
 $(PROJECT).lib:	$(OBJECTS) 
-	$(LIBUTIL) $(LINK_FLAGS) $(OBJECTS) /OUT:$@ 
+	$(LIBUTIL) $(LIBUTIL_FLAGS) $(OBJECTS) /OUT:$@ 
 # ===============================================================
 
 # install the library files

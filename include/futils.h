@@ -6,8 +6,8 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/30/2025
-// Copyright (c) 2001-2025 DataReel Software Development
+// Date Last Modified: 10/24/2026
+// Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
 // ----------------------------------------------------------- // 
@@ -151,7 +151,9 @@ typedef struct dirent {
   char  d_name[futils_MAX_NAME_LENGTH]; // Name of this file 
 
   // WIN32 Specifics 
-  WIN32_FIND_DATA file; // Describes a file found by a WIN32 find function 
+  // 10/24/2026: Use the ANSI find data so cFileName is always a char
+  // string, even when _UNICODE is defined.
+  WIN32_FIND_DATAA file; // Describes a file found by a WIN32 find function 
 } WIN32FileData;
 
 // POSIX style directory structure for WIN32 platforms 

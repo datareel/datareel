@@ -6,7 +6,8 @@ Reference links:
 https://visualstudio.microsoft.com/downloads/
 https://visualstudio.microsoft.com/free-developer-offers/ 
 
-Download the Visual Studio 2026 Insiders installer from:
+Download the Visual Studio 2026 installer from the downloads page
+above. The Insiders installer also works:
 
 https://visualstudio.microsoft.com/insiders/ 
 
@@ -19,7 +20,9 @@ WinUI application development
 Under installation details select all options
 
 After installation with the above options there will be 4 command
-prompts you can open with all the C/C++ environmental variables set: 
+prompts you can open with all the C/C++ environmental variables set.
+The examples below are for the Insiders edition. For a release install
+replace Insiders with Community, Professional, or Enterprise: 
 
 %comspec% /k "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat"
 %comspec% /k "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvarsamd64_x86.bat"
@@ -58,6 +61,42 @@ To build the datareel library start with the static library build:
 > env\msvc.bat
 > cd winslib 
 > nmake -f msvc.mak
+
+The env\msvc.bat file calls env\vs2026_vars.bat, which finds your VS
+2026 install with vswhere.exe and sets the ENV for 32-bit x86 builds.
+It works with the Community, Professional, Enterprise, Build Tools, and
+Insiders editions. To use a VS install it does not find, set DR_VSDIR
+first:
+
+> set DR_VSDIR=C:\Program Files\Microsoft Visual Studio\18\Community
+> env\msvc.bat
+
+For 64-bit x64 programs use env\msvc64_vs2026.bat instead of
+env\msvc.bat. Use a new command prompt when you switch between 32-bit
+and 64-bit builds, and run "nmake -f msvc.mak clean" first, because the
+32-bit and 64-bit builds use the same library file names. For VS 2022
+use env\msvc_vs2022.bat.
+
+The library builds use these settings:
+
+FINAL=1      Release build with /MT /O2 (default in msvc.mak)
+FINAL=0      Debug build with /MTd /Z7 /Od
+64BITCFG=1   64-bit database engine, which can use files larger than
+             2 GB. Builds gxcode64.lib. This is not the same as an
+             x64 build. It works with the 32-bit and 64-bit compilers.
+USESSL=1     Build the OpenSSL extensions (see msvc_ssl.mak and
+             README_windows_openssl.txt)
+
+To build a debug static library and the 64-bit database engine:
+
+> cd %USERPROFILE%\datareel\winslib
+> nmake -f project.mak FINAL=0 64BITCFG=1 USESSL=0
+
+Programs that link to the library must be built with the same FINAL
+and 64BITCFG settings, for example:
+
+> cd %USERPROFILE%\datareel\utils\hexdump
+> nmake -f msvc.mak FINAL=0 64BITCFG=1
 
 The utility programs and examples programs will link to the static
 library. To build the utils:

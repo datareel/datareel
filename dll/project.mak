@@ -3,10 +3,10 @@
 #######################
 # --------------------------------------------------------------- 
 # Makefile Contents: Project makefile for the MSVC datareel dynamic link library
-# C/C++ Compiler Used: MSVC 6.0 SP5, Visual C++ .NET, and VS 2022
+# C/C++ Compiler Used: MSVC 6.0 SP5, Visual C++ .NET, VS 2022, and VS 2026
 # Produced By: DataReel Software Development Team
 # File Creation Date: 05/25/2001
-# Date Last Modified: 10/30/2025
+# Date Last Modified: 10/24/2026
 # --------------------------------------------------------------- 
 # Setup library configuration
 !IF "$(FINAL)" == ""
@@ -66,8 +66,7 @@ COMPILE_FLAGS = $(COMPILE_FLAGS) /D "_MBCS" /D "_USRDLL" \
 LINKER_FLAGS = $(LINKER_FLAGS) /dll \
 /pdb:"./$(OUTDIR)\$(PROJECT).pdb" \
 /out:"./$(OUTDIR)\$(PROJECT)$(SHAREDLIB_EXT)" \
-/implib:"./$(OUTDIR)\$(PROJECT)$(LIB_EXT)" \
-/pdbtype:sept
+/implib:"./$(OUTDIR)\$(PROJECT)$(LIB_EXT)" 
 !ENDIF
 
 # Build dependency rules

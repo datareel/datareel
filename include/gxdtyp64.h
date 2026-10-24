@@ -55,8 +55,8 @@ compiler.
 typedef __int64 __LLWORD__, *__LLWORD_PTR__; 
 typedef unsigned __int64 __ULLWORD__, *ULLWORD_PTR__; 
 #else
-typedef _int64 __LLWORD__;           
-typedef unsigned _int64 __ULLWORD__; 
+typedef __int64 __LLWORD__;          
+typedef unsigned __int64 __ULLWORD__; 
 #endif // _lint
 
 #elif defined (__WIN32__) && defined (__BCC32__)

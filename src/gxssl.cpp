@@ -112,8 +112,10 @@ unsigned gxRandom::entropy_number(unsigned &a, unsigned &b,
   char *bytes = new char[4];
   a = b = c = d = 0;
 
-  unsigned long ob_addr = (unsigned long)this;
-  unsigned long arib_addr = (unsigned long)&bytes;
+  // 10/24/2026: Use size_t so the pointer casts do not truncate on 64-bit
+  // Windows, where unsigned long is 32 bits.
+  size_t ob_addr = (size_t)this;
+  size_t arib_addr = (size_t)&bytes;
   ob_addr &= arib_addr;
   unsigned r_seed = (unsigned)time(0);
   r_seed -= ob_addr;

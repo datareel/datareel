@@ -35,6 +35,7 @@
 <a href="#ThreadHelpersAndGlibc">Thread Helpers and glibc</a><br />
 <a href="#CompilerWarnings">Compiler Warnings</a><br />
 <a href="#OtherFixes">Other Fixes</a><br />
+<a href="#WindowsAndVisualStudio2026">Windows and Visual Studio 2026</a><br />
 <a href="#UpgradingFromVersion5">Upgrading From Version 5</a></p>
 <h2 id="HowTheChangesWereTested">How the Changes Were Tested</h2>
 <ul>
@@ -106,6 +107,36 @@
 <li>gxDatabase::ReadObjectChecksum() compared CRC values that were never set when the file was not open. It now returns 0. The optional CRC pointers are checked for null on every path.</li>
 <li>ASPrint() for int, long and double values formatted the number into a buffer the size of the field width, which overflowed for a narrow field. long values were truncated to int. A fixed buffer and snprintf() are used now.</li>
 <li>operator&gt;&gt;() for UString and UStringw read an uninitialized buffer when the input failed, for example at the end of the input. Found by AddressSanitizer in examples_general/string_class.</li>
+</ul>
+<h2 id="WindowsAndVisualStudio2026">Windows and Visual Studio 2026</h2>
+<p>The nmake build files and the Windows code were reviewed and updated for Visual Studio 2026 (MSVC 14.50). VS 2022 is still supported.</p>
+<p>Build files:</p>
+<ul>
+<li>winslib/msvc.env used the cdebug, cflags, cvarsmt, guilflags and guilibsmt macros from win32.mak, which is no longer part of the Windows SDK. Those macros were empty, so the static library and every program linked to it were built with no optimization in release builds and no debug information in debug builds. The flags are now set in msvc.env: /MT /O2 for release builds and /MTd /Z7 /Od for debug builds, with /W3 /EHsc /GR for both.</li>
+<li>The Windows system libraries are now listed in msvc.env. The OpenSSL builds also link ws2_32.lib, which the OpenSSL 3.x static libraries need.</li>
+<li>env/msvc.mak and env/msvc_dll.mak passed LINK_FLAGS, which was never set, to the linker. They now pass LINKER_FLAGS. winslib/project.mak passes /nologo to lib.exe.</li>
+<li>dll/msvc.env linked with /machine:I386, so the DLL could not be built with the x64 compiler. The linker now takes the target CPU from the object files. The /pdbtype:sept option, which the linker no longer supports, was removed.</li>
+<li>_CRT_SECURE_NO_WARNINGS, _CRT_NONSTDC_NO_WARNINGS and _WINSOCK_DEPRECATED_NO_WARNINGS are defined in MSVC_DEFMACS, so the C4996 deprecation warnings for the C string, POSIX and WinSock 1.1 functions do not hide other warnings. Comment out MSVC_DEFMACS to see them. _HAS_STD_BYTE=0 is also defined, so std::byte cannot conflict with the Windows byte type if the code is built with /std:c++17 or later.</li>
+</ul>
+<p>ENV BAT files:</p>
+<ul>
+<li>New env/vs2026_vars.bat finds the VS 2026 install with vswhere.exe and calls vcvarsall.bat. It works with the Community, Professional, Enterprise, Build Tools and Insiders editions. The other BAT files called the Insiders path directly, which does not exist in a release install of VS 2026.</li>
+<li>env/msvc.bat and env/msvc32_vs2026.bat set up 32-bit x86 builds. env/msvc64_vs2026.bat now sets up 64-bit x64 builds. It called vcvarsamd64_x86.bat before, which builds 32-bit programs on a 64-bit host.</li>
+</ul>
+<p>Source:</p>
+<ul>
+<li>gxdtyp64.h used the old _int64 keyword. It now uses __int64.</li>
+<li>gxRandom::entropy_number() in gxssl.cpp and the WIN32 thread entry in thrapiw.cpp cast pointers to unsigned long and DWORD, which are 32 bits in 64-bit Windows builds. They cast through size_t now. The detach, priority, stack and thread_pool thread examples had the same cast.</li>
+<li>The futils directory functions and futils_GetDiskSpace() use the ANSI Windows functions (FindFirstFileA, FindNextFileA, GetDiskFreeSpaceA and GetDiskFreeSpaceExA). In _UNICODE builds the __VS2026__ code copied a wide file name with strcpy(), which kept only the first letter, and passed a wide string to GetDiskFreeSpaceExA. futils_readdir() did not set d_namlen in ANSI builds.</li>
+<li>futils_filelength() called CreateFile(TEXT(fname)), which does not compile with _UNICODE when the 64-bit integer option is used. It calls CreateFileA() now.</li>
+<li>futils_mode() discarded the result of tolower(), so files ending in .EXE or .COM in upper case were not marked as programs.</li>
+<li>gxdlcode.h defines __VS2026__ when _MSC_VER is 1950 (VS 2026) or higher, so the VS 2026 _UNICODE code is used without a -D__VS2026__ flag.</li>
+</ul>
+<p>How these changes were tested:</p>
+<ul>
+<li>The library, the DLL, the utils and the examples were cross-compiled on Linux with the MinGW-w64 GCC 13 compilers for 32-bit and 64-bit Windows, with the MSVC defines from msvc.env, in ANSI and _UNICODE builds. All 64 programs link. The OpenSSL examples were not built.</li>
+<li>The 64-bit programs were run under Wine 9. The database, general and thread examples ran, the directory functions were checked in ANSI and _UNICODE builds, and the simple socket client and server exchanged data.</li>
+<li>The library was not built with the Microsoft compiler or nmake for this release. Build it with VS 2026 on Windows before you use it.</li>
 </ul>
 <h2 id="UpgradingFromVersion5">Upgrading From Version 5</h2>
 <ul>
