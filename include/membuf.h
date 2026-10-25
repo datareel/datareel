@@ -49,6 +49,10 @@ the contents of the buffer will not cleared.
 06/04/2002: Added the __MEMBUF_INT__ type definition and the
 __MEMBUF_NO_MATCH__ constant used to eliminate signed and 
 unsigned comparison warnings.
+
+10/25/2026: Clear(1), Alloc(), Realloc(), Destroy() and the destructor
+overwrite the allocated buffer with zeros before it is cleared or freed,
+so no sensitive data is left in memory. Added SecureZero().
 ==============================================================
 */
 // ----------------------------------------------------------- //   
@@ -84,7 +88,7 @@ public:
     mptr = 0; l_length = d_length = 0; Alloc(bytes);
   }
   MemoryBuffer(const void *buf, __MEMBUF_INT__ bytes);
-  ~MemoryBuffer() { if(mptr) delete[] mptr; } // 10/14/2026: Was a scalar delete of new[]
+  ~MemoryBuffer() { Destroy(); } // 10/25/2026: Wipes the buffer before freeing it
   MemoryBuffer(const MemoryBuffer &buf);
   MemoryBuffer &operator=(const MemoryBuffer &buf);
 
@@ -131,6 +135,11 @@ public: // Search functions
     return Find(buf.mptr, buf.l_length, offset); 
   }
   
+public: // Secure memory functions
+  // 10/25/2026: Overwrite memory with zeros in a way the compiler will
+  // not optimize away. Used before any buffer memory is freed or cleared.
+  static void SecureZero(void *buf, __MEMBUF_INT__ bytes);
+
 public: // Memory allocation/de-allocation routines
   void *Alloc(__MEMBUF_INT__ bytes);
   void *Realloc(__MEMBUF_INT__ bytes, int keep = 1, int reuse = 1);

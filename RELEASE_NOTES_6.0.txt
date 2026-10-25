@@ -186,6 +186,11 @@ Found while testing the changes above:
 - operator>>() for UString and UStringw read an uninitialized buffer
   when the input failed, for example at the end of the input. Found
   by AddressSanitizer in examples_general/string_class.
+- MemoryBuffer::Clear(1) only set the length to zero, and Alloc(),
+  Realloc(), Destroy() and the destructor freed memory without clearing
+  it, so passwords and keys stayed in freed memory. Clear(1) and every
+  free now overwrite the whole allocated buffer with zeros through the
+  new MemoryBuffer::SecureZero(). Found in the fcrypt security review.
 
 WINDOWS AND VISUAL STUDIO 2026
 ------------------------------
