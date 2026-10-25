@@ -434,6 +434,22 @@ gxDatabaseError gxBtree::WriteNode(const BtreeNode &node, FAU_t node_address)
   return gxDBASE_NO_ERROR;
 }
 
+gxDatabaseError gxBtree::ReadNodeChecked(BtreeNode &node, FAU_t node_address,
+					 unsigned &depth)
+// 10/25/2026: Read a node while walking the tree from the root. Each
+// walk counts the nodes it reads and stops with an error after
+// gxBtreeMaxNodeReads, so a damaged or crafted index file with a node
+// that points back up the tree cannot loop forever. A valid tree never
+// needs that many: with at least 3 branches per node a tree of height
+// 64 holds more keys than any file can, and an insert or delete reads a
+// few nodes per level.
+{
+  if(++depth > gxBtreeMaxNodeReads) {
+    return f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+  }
+  return ReadNode(node, node_address);
+}
+
 gxDatabaseError gxBtree::ReadNode(BtreeNode &node, FAU_t node_address)
 // Read a B-tree node from the specified file address. Returns zero if 
 // successful or a non-zero value to indicate a failure.
@@ -669,6 +685,7 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
 // Non-recursive insertion function used to insert a key into the Btree.
 // Returns zero if successful or a non-zero value to indicate a failure.
 {
+  unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
 #ifdef __CPP_EXCEPTIONS__
@@ -688,7 +705,7 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
 
   // Walk to the leaf where the key will be inserted and look duplicate keys
   while(curr_address != (FAU_t)0) {
-    if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR)
+    if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR)
       return f->GetDatabaseError();
     if(!node_stack.Push(curr_address)) {
       f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
@@ -717,7 +734,7 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
   while(!node_stack.IsEmpty()) {
     curr_address = node_stack.Pop();
     if(num_splits > 0) {
-      if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR)
+      if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR)
 	return f->GetDatabaseError();
       curr_node.FindKeyLocation(key, compare_key, key_location);
     }
@@ -807,6 +824,7 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
 // splitting and merging that occurs during tree rotations. Returns zero 
 // if successful or a non-zero value to indicate a failure. 
 {
+  unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
 #ifdef __CPP_EXCEPTIONS__
@@ -829,7 +847,7 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
   parent_address = btree_header.root;
 
   while(parent_address != (FAU_t)0) {
-    if(ReadNode(parent_node, parent_address) != gxDBASE_NO_ERROR)
+    if(ReadNodeChecked(parent_node, parent_address, depth) != gxDBASE_NO_ERROR)
       return f->GetDatabaseError();
 
     if(parent_node.FindKeyLocation(key, compare_key, key_location) == 0) {
@@ -873,7 +891,7 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
 #endif
     }
     
-    if(ReadNode(sibling_node, sibling_address) != gxDBASE_NO_ERROR) {
+    if(ReadNodeChecked(sibling_node, sibling_address, depth) != gxDBASE_NO_ERROR) {
       node_stack.Clear();
       return f->GetDatabaseError();
     }
@@ -881,7 +899,7 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
     // Follow the siblings to the parent node's left most child
     while(sibling_node.left_child != (FAU_t)0) {
       sibling_address = sibling_node.left_child;
-      if(ReadNode(sibling_node, sibling_address) != gxDBASE_NO_ERROR) {
+      if(ReadNodeChecked(sibling_node, sibling_address, depth) != gxDBASE_NO_ERROR) {
 	node_stack.Clear();
 	return f->GetDatabaseError();
       }
@@ -916,7 +934,7 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
       // Continue deleting the empty siblings
       while(!node_stack.IsEmpty()) {
 	sibling_address = node_stack.Pop();
-	if(ReadNode(sibling_node, sibling_address) != gxDBASE_NO_ERROR) {
+	if(ReadNodeChecked(sibling_node, sibling_address, depth) != gxDBASE_NO_ERROR) {
 	  node_stack.Clear();
 	  return f->GetDatabaseError(); 
 	}
@@ -980,6 +998,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
 // following a deletion. Returns zero if successful or a non-zero value 
 // to indicate a failure.
 {
+  unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
 #ifdef __CPP_EXCEPTIONS__
@@ -1013,7 +1032,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
   
   // Search the B-tree for the specified key
   while(curr_address != (FAU_t)0) {
-    if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR) {
+    if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR) {
       node_stack.Clear();
       return f->GetDatabaseError();
     }
@@ -1060,7 +1079,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
       return f->GetDatabaseError();
 #endif
     }
-    if(ReadNode(sibling_node, sibling_address) != gxDBASE_NO_ERROR) {
+    if(ReadNodeChecked(sibling_node, sibling_address, depth) != gxDBASE_NO_ERROR) {
       node_stack.Clear();
       return f->GetDatabaseError();
     }
@@ -1079,7 +1098,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
 #endif
       }
       sibling_address = sibling_node.left_child;
-      if(ReadNode(sibling_node, sibling_address) != gxDBASE_NO_ERROR) {
+      if(ReadNodeChecked(sibling_node, sibling_address, depth) != gxDBASE_NO_ERROR) {
 	node_stack.Clear();
 	return f->GetDatabaseError();
       }
@@ -1571,6 +1590,7 @@ int gxBtree::Find(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 // disable the optimized search set the "curr_node" key count
 // to zero before calling this function.
 {
+  unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
 #ifdef __CPP_EXCEPTIONS__
@@ -1633,7 +1653,7 @@ int gxBtree::Find(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   curr_address = btree_header.root; 
 
   while(curr_address != (FAU_t)0) {
-    if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR) return 0;
+    if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR) return 0;
     if(curr_node.FindKeyLocation(key, compare_key, key_location) == 0) {
       // Load the key data in the event that this is a partial look up
       curr_node.LoadKey(key, key_location); 
@@ -1664,6 +1684,7 @@ int gxBtree::FindFirst(DatabaseKeyB &key, BtreeNode &curr_node, int test_tree)
 // found the node containing the key is passed back to the
 // caller in the "curr_node" variable.
 {
+  unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
 #ifdef __CPP_EXCEPTIONS__
@@ -1680,11 +1701,11 @@ int gxBtree::FindFirst(DatabaseKeyB &key, BtreeNode &curr_node, int test_tree)
   if(IsEmpty()) return 0;
 
   FAU_t curr_address = btree_header.root;
-  if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR) return 0;
+  if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR) return 0;
   
   while(curr_node.left_child != (FAU_t)0) {
     curr_address = curr_node.left_child;
-    if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR) return 0;
+    if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR) return 0;
   }
   if(curr_node.key_count <= (BtreeKeyCount)0) {
     f->SetDatabaseError(gxDBASE_ENTRY_NOT_FOUND);
@@ -1702,6 +1723,7 @@ int gxBtree::FindLast(DatabaseKeyB &key, BtreeNode &curr_node, int test_tree)
 // found the node containing the key is passed back to the
 // caller in the "curr_node" variable.
 {
+  unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // Ensure that the in memory buffers and the file data
   // stay in sync during multiple file access.
   if(test_tree) TestTree();
@@ -1709,12 +1731,12 @@ int gxBtree::FindLast(DatabaseKeyB &key, BtreeNode &curr_node, int test_tree)
   if (IsEmpty()) return 0;
   
   FAU_t curr_address = btree_header.root;
-  if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR) return 0;
+  if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR) return 0;
 
   while(curr_node.GetBranch((BtreeKeyLocation_t)curr_node.key_count-1)) {
     curr_address = \
       curr_node.GetBranch((BtreeKeyLocation_t)curr_node.key_count-1);
-    if(ReadNode(curr_node, curr_address)!= gxDBASE_NO_ERROR) return 0;
+    if(ReadNodeChecked(curr_node, curr_address, depth)!= gxDBASE_NO_ERROR) return 0;
   }
   if(curr_node.key_count <= (BtreeKeyCount_t)0) return 0;
   curr_node.LoadKey(key, curr_node.key_count-1);
@@ -1734,6 +1756,7 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 // point for this search. NOTE: To disable the optimized search set the 
 // "curr_node" key count to zero before calling this function.
 {
+  unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
 #ifdef __CPP_EXCEPTIONS__
@@ -1754,10 +1777,10 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
     if(curr_node.FindKeyLocation(key, compare_key, key_location) == 0) {
       if(curr_node.GetBranch(key_location) != (FAU_t)0) {
         curr_address = curr_node.GetBranch(key_location);
-        if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR) return 0;
+        if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR) return 0;
 	while(curr_node.left_child != (FAU_t)0) { // Get left most node
           curr_address = curr_node.left_child;
-          if(ReadNode(curr_node, curr_address)!= gxDBASE_NO_ERROR) return 0;
+          if(ReadNodeChecked(curr_node, curr_address, depth)!= gxDBASE_NO_ERROR) return 0;
 	}
         if(curr_node.key_count <= (BtreeKeyCount_t)0) {
 	  f->SetDatabaseError(gxDBASE_ENTRY_NOT_FOUND);
@@ -1787,15 +1810,15 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   BtreeKeyLocation_t sav_location = (BtreeKeyLocation_t)0;
  
   while(curr_address != (FAU_t)0) { 
-    if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR) return 0;
+    if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR) return 0;
     rv = curr_node.FindKeyLocation(key, compare_key, key_location);
     if(rv == 0) { // Found matching key, search for the next key in sort order
       if(curr_node.GetBranch(key_location) != (FAU_t)0) {
         curr_address = curr_node.GetBranch(key_location);
-        if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR) return 0;
+        if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR) return 0;
 	while(curr_node.left_child != (FAU_t)0) { // Get left most node
           curr_address = curr_node.left_child;
-          if(ReadNode(curr_node, curr_address)!= gxDBASE_NO_ERROR) return 0;
+          if(ReadNodeChecked(curr_node, curr_address, depth)!= gxDBASE_NO_ERROR) return 0;
 	}
         if(curr_node.key_count <= (BtreeKeyCount_t)0) {
 	  f->SetDatabaseError(gxDBASE_ENTRY_NOT_FOUND);
@@ -1810,7 +1833,7 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 	  return 1;
 	}
 	if(parent_address != (FAU_t)0) { // Go back to the parent node
-          if(ReadNode(parent_node, parent_address)!= gxDBASE_NO_ERROR) 
+          if(ReadNodeChecked(parent_node, parent_address, depth)!= gxDBASE_NO_ERROR) 
 	    return 0;
           if(parent_node.key_count <= (BtreeKeyCount_t)0) {
 	    f->SetDatabaseError(gxDBASE_ENTRY_NOT_FOUND);
@@ -1850,6 +1873,7 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 // point for this search. NOTE: To disable the optimized search set the 
 // "curr_node" key count to zero before calling this function.
 {
+  unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
 #ifdef __CPP_EXCEPTIONS__
@@ -1871,7 +1895,7 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
       if(--key_location >= (BtreeKeyLocation_t)0) {
         while(curr_node.GetBranch(key_location) != (FAU_t)0) {
           curr_address = curr_node.GetBranch(key_location);
-          if(ReadNode(curr_node, curr_address)!= gxDBASE_NO_ERROR) return 0;
+          if(ReadNodeChecked(curr_node, curr_address, depth)!= gxDBASE_NO_ERROR) return 0;
           key_location = curr_node.key_count-1;
 	}
         curr_node.LoadKey(key, key_location);
@@ -1879,11 +1903,11 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
       }
       if(curr_node.left_child != (FAU_t)0) {
         curr_address = curr_node.left_child;
-        if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR) return 0;
+        if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR) return 0;
         key_location = curr_node.key_count-1;
         while(curr_node.GetBranch(key_location) != (FAU_t)0) {
           curr_address = curr_node.GetBranch(key_location);
-          if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR) return 0;
+          if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR) return 0;
           key_location = curr_node.key_count-1;
 	}
         curr_node.LoadKey(key, key_location);
@@ -1902,14 +1926,14 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   BtreeKeyLocation_t sav_location = -1;
 
   while(curr_address != (FAU_t)0) {
-    if(ReadNode(curr_node, curr_address)!= gxDBASE_NO_ERROR) return 0;
+    if(ReadNodeChecked(curr_node, curr_address, depth)!= gxDBASE_NO_ERROR) return 0;
     rv = curr_node.FindKeyLocation(key, compare_key, key_location);
     if(rv == 0) {
       // Found matching key, search for the previous key in sort order 
       if(--key_location >= (BtreeKeyLocation_t)0) {
         while(curr_node.GetBranch(key_location) != (FAU_t)0) {
           curr_address = curr_node.GetBranch(key_location);
-          if(ReadNode(curr_node, curr_address)!= gxDBASE_NO_ERROR) return 0;
+          if(ReadNodeChecked(curr_node, curr_address, depth)!= gxDBASE_NO_ERROR) return 0;
           key_location = curr_node.key_count-1;
 	}
         curr_node.LoadKey(key, key_location);
@@ -1917,11 +1941,11 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
       }
       if(curr_node.left_child != (FAU_t)0) {
         curr_address = curr_node.left_child;
-        if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR) return 0;
+        if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR) return 0;
         key_location = curr_node.key_count-1;
         while(curr_node.GetBranch(key_location) != (FAU_t)0) {
           curr_address = curr_node.GetBranch(key_location);
-          if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR) return 0;
+          if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR) return 0;
           key_location = curr_node.key_count-1;
 	}
         curr_node.LoadKey(key, key_location);
@@ -1936,7 +1960,7 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
     }
     else if (rv > 0) { // Save the parent node only if it branches to the right
       parent_address = curr_address;
-      if(ReadNode(parent_node, parent_address)!= gxDBASE_NO_ERROR) return 0;
+      if(ReadNodeChecked(parent_node, parent_address, depth)!= gxDBASE_NO_ERROR) return 0;
       sav_location = key_location;
     }
     curr_address = curr_node.GetBranch(key_location); // Keep walking 
@@ -1956,6 +1980,7 @@ int gxBtree::PartialFind(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 // partial match is found the node containing the key is passed back to the
 // caller in the "curr_node" variable.
 {
+  unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
 #ifdef __CPP_EXCEPTIONS__
@@ -1976,7 +2001,7 @@ int gxBtree::PartialFind(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   BtreeNode parent_node(btree_header.key_size, btree_header.node_order);
 
   while(curr_address != (FAU_t)0) {
-    if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR) return 0;
+    if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR) return 0;
     if(curr_node.FindKeyLocation(key, compare_key, key_location) == 0) {
       // Found an exact match, so load the key and return 
       curr_node.LoadKey(key, key_location); 
@@ -1995,10 +2020,10 @@ int gxBtree::PartialFind(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   // Search for the next key where the search for an exact match failed.
   if(curr_node.GetBranch(key_location) != (FAU_t)0) {
     curr_address = curr_node.GetBranch(key_location);
-    if(ReadNode(curr_node, curr_address) != gxDBASE_NO_ERROR) return 0;
+    if(ReadNodeChecked(curr_node, curr_address, depth) != gxDBASE_NO_ERROR) return 0;
     while(curr_node.left_child != (FAU_t)0) { // Get left most node
       curr_address = curr_node.left_child;
-      if(ReadNode(curr_node, curr_address)!= gxDBASE_NO_ERROR) return 0;
+      if(ReadNodeChecked(curr_node, curr_address, depth)!= gxDBASE_NO_ERROR) return 0;
     }
     if(curr_node.key_count <= (BtreeKeyCount_t)0) {
       f->SetDatabaseError(gxDBASE_ENTRY_NOT_FOUND);
@@ -2013,7 +2038,7 @@ int gxBtree::PartialFind(DatabaseKeyB &key, DatabaseKeyB &compare_key,
       return 1;
     }
     if(parent_address != (FAU_t)0) { // Go back to the parent node
-      if(ReadNode(parent_node, parent_address)!= gxDBASE_NO_ERROR) 
+      if(ReadNodeChecked(parent_node, parent_address, depth)!= gxDBASE_NO_ERROR) 
 	return 0;
       if(parent_node.key_count <= (BtreeKeyCount_t)0) {
 	f->SetDatabaseError(gxDBASE_ENTRY_NOT_FOUND);

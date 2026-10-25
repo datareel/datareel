@@ -606,7 +606,14 @@ int InfoHog<TYPE>::Find()
 	  }
 	}
       }
-      addr = addr + blk.block_length; // Goto the next database block
+      // 10/25/2026: A block length shorter than a block header is
+      // damaged and made this loop run forever
+      if((FAU_t)blk.block_length < (FAU_t)pod->OpenDataFile()->BlockHeaderSize()) {
+	addr++;
+      }
+      else {
+	addr = addr + blk.block_length; // Goto the next database block
+      }
     }
     else {
       addr++; // Keep searching until a valid database block is found
@@ -734,8 +741,17 @@ int InfoHog<TYPE>::CompareIndex(unsigned index_number)
 	ReadObjectHeader(oh, oa);
 
 	if(oh.ClassID == GetClassID()) { 
+	  // 10/25/2026: Skip objects that cannot be read, Read() checks the key member
+	  if(infohog.Read(oa) != gxDBASE_NO_ERROR) {
+	    if((FAU_t)blk.block_length >= (FAU_t)pod->OpenDataFile()->BlockHeaderSize()) {
+	      addr = addr + blk.block_length;
+	    }
+	    else {
+	      addr++;
+	    }
+	    continue;
+	  }
 	  objects++; // Increment the object count
-	  infohog.Read(oa);
 	  key.SetObjectName(*((TYPE *)infohog.ih_members[0].m_buf()));
 	  key.SetObjectID(oa);
 	  key.SetClassID(oh.ClassID);
@@ -744,7 +760,14 @@ int InfoHog<TYPE>::CompareIndex(unsigned index_number)
 	  }
 	}
       }
-      addr = addr + blk.block_length; // Goto the next database block
+      // 10/25/2026: A block length shorter than a block header is
+      // damaged and made this loop run forever
+      if((FAU_t)blk.block_length < (FAU_t)pod->OpenDataFile()->BlockHeaderSize()) {
+	addr++;
+      }
+      else {
+	addr = addr + blk.block_length; // Goto the next database block
+      }
     }
     else {
       addr++; // Keep searching until a valid database block is found
@@ -788,8 +811,17 @@ int InfoHog<TYPE>::RebuildIndexFile(const char *fname, unsigned index_number,
 	oa = addr + pod->OpenDataFile()->BlockHeaderSize();
 	ReadObjectHeader(oh, oa);
 	if(oh.ClassID == GetClassID()) { 
+	  // 10/25/2026: Skip objects that cannot be read, Read() checks the key member
+	  if(infohog.Read(oa) != gxDBASE_NO_ERROR) {
+	    if((FAU_t)blk.block_length >= (FAU_t)pod->OpenDataFile()->BlockHeaderSize()) {
+	      addr = addr + blk.block_length;
+	    }
+	    else {
+	      addr++;
+	    }
+	    continue;
+	  }
 	  objects++; // Increment the object count
-	  infohog.Read(oa);
 	  key.SetObjectName(*((TYPE *)infohog.ih_members[0].m_buf()));	
 	  key.SetObjectID(oa);
 	  key.SetClassID(oh.ClassID);
@@ -799,7 +831,14 @@ int InfoHog<TYPE>::RebuildIndexFile(const char *fname, unsigned index_number,
 	  inserts++; // Index and data file match
 	}
       }
-      addr = addr + blk.block_length; // Goto the next database block
+      // 10/25/2026: A block length shorter than a block header is
+      // damaged and made this loop run forever
+      if((FAU_t)blk.block_length < (FAU_t)pod->OpenDataFile()->BlockHeaderSize()) {
+	addr++;
+      }
+      else {
+	addr = addr + blk.block_length; // Goto the next database block
+      }
     }
     else {
       addr++; // Keep searching until a valid database block is found

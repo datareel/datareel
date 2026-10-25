@@ -92,6 +92,10 @@ gxBtreeHeader::n_keys variable.
 #include "btcache.h"
 #endif
 
+// 10/25/2026: Most nodes one search, insert or delete reads before it
+// stops with gxDBASE_BADBLOCK_ERROR, see gxBtree::ReadNodeChecked()
+const unsigned gxBtreeMaxNodeReads = 4096;
+
 // Btree header
 struct GXDLCODE_API gxBtreeHeader
 { 
@@ -167,6 +171,8 @@ public: // Btree database file functions
   gxDatabaseError WriteBtreeHeader(gxBtreeHeader &hdr) {
     return WriteBtreeHeader(hdr, btree_header_address);
   }
+  gxDatabaseError ReadNodeChecked(BtreeNode &node, FAU_t node_address,
+				  unsigned &depth); // 10/25/2026
   gxDatabaseError ReadNode(BtreeNode &node, FAU_t
 			   node_address = gxCurrAddress);
   gxDatabaseError WriteNode(const BtreeNode &node,
