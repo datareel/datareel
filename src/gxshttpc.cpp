@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/25/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -79,7 +79,7 @@ connections.
 #include "gxs_ver.h"
 
 #if defined (__LINUX__)
-#if defined (__wxWIN201__) || (__wxWIN291__)
+#if defined (__wxWIN201__) || defined (__wxWIN291__)
 #include "wx2incs.h"  // Include files for wxWindows version 2.X
 #endif
 

@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/14/1996  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/25/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -103,7 +103,7 @@ void EHandler::DisplayException(const char *mesg)
 #if defined (__wxWIN168B__)
   wxMessageBox((char *)mesg, (char *)MessageBoxCaption, wxOK|wxCENTRE);
 
-#elif defined (__wxWIN201__) || (__wxWIN291__)
+#elif defined (__wxWIN201__) || defined (__wxWIN291__)
   wxString message(mesg);
   wxString caption(MessageBoxCaption);
   wxMessageBox(message, caption, wxOK|wxCENTRE);
@@ -165,7 +165,7 @@ void EHandler::Message(const char *mesg1, const char *mesg2,
   // to call for the array members.
   delete[] comp;
 
-#elif defined (__wxWIN201__) || (__wxWIN291__)
+#elif defined (__wxWIN201__) || defined (__wxWIN291__)
   wxString message(mesg1);
   wxString caption("Program Message");
   message += mesg2;
@@ -211,7 +211,7 @@ void EHandler::Terminate()
   // be deleted (after deleting all other frames) to terminate the
   // application. 
 
-#elif defined (__wxWIN201__) || (__wxWIN291__)
+#elif defined (__wxWIN201__) || defined (__wxWIN291__)
   // Terminate the program using the wxExit() function.
   wxExit();
 

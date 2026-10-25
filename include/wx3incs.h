@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 06/17/2016
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/25/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -28,10 +28,10 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 Additional include files need to compile with the wxWindows
-GUI library version 3.0.2
+GUI library version 3.x (3.0 through 3.3)
 */
 // ----------------------------------------------------------- //   
-#ifndef __GX_WX3NCS_HPP__
+#ifndef __GX_WX3INCS_HPP__
 #define __GX_WX3INCS_HPP__
 
 #include "gxdlcode.h"

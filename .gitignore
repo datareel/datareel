@@ -35,3 +35,6 @@ core.*
 *.exp
 *.ilk
 *.pdb
+
+# CMake build trees
+cmake-build/
