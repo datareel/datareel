@@ -246,6 +246,16 @@ DOCUMENTATION
 All documentation is included in the docs sub directory in an HTML
 format, viewable in any Web browser. 
 
+VERSION 6.1
+-----------
+DataReel 6.1, 10/25/2026, is a security fix release. gxBtree and
+InfoHog now check the lengths and counts they read from database and
+index files, so a damaged or crafted file is rejected instead of
+overflowing memory. The shared library is built as libdatareel.so.6.1.
+There are no interface changes from 6.0; recompile and relink. See
+RELEASE_NOTES_6.1.txt. Every change in the source is marked with a
+"10/25/2026" comment.
+
 VERSION 6.0
 -----------
 DataReel 6.0, 10/24/2026, is the first major release in many years.

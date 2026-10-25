@@ -1,0 +1,43 @@
+DataReel 6.1 Release Notes, 10/25/2026
+DataReel version 6.1 (was 6.0)
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 6.1 is a security fix release. It fixes memory safety bugs
+found by a security review of the Encrypted Password Database, which
+uses the DataReel database engine. Every change in the source is
+marked with a "10/25/2026" comment.
+
+The library version in version.txt is 6.1 and the shared library
+version (SHAREDLIB_VERSION in env/linux.env) is 6.1, so the Linux
+shared library is built as libdatareel.so.6.1. There are no interface
+changes from 6.0. Programs must be recompiled and relinked.
+
+SECURITY FIXES
+--------------
+- gxBtree::ReadNode() read key_size * key_count bytes into the fixed
+  key_entries buffer of a node, using the key count stored in the
+  index file. A count larger than the node can hold overflowed the
+  heap. Node key counts below 0 or above the node capacity are now
+  rejected with gxDBASE_BADBLOCK_ERROR.
+- gxBtree::InitBtree() used the key size and node order stored in an
+  existing index file without checking them. A stored key size that
+  does not match the key type of the tree, or a node order out of
+  range, is now rejected with gxDBASE_BAD_HEADER.
+- InfoHog::Read() trusted the member count and member lengths stored
+  in the data file. A member count of 0 or above InfoHogMaxMembers,
+  member lengths larger than the file, and a key member (member 0)
+  whose length is not sizeof(TYPE) are now rejected. Callers cast
+  member 0 to TYPE, so a short key member was read past its buffer.
+- InfoHog::GetMember(), GetMemberLen() and SetMember() checked
+  index > num_members instead of index >= num_members, and accessed
+  one element past the member array.
+
+HOW THE CHANGES WERE TESTED
+---------------------------
+- Index files with a root node key count of 5000 and with a wrong key
+  size in the B-tree header, which crashed programs built with 6.0
+  (heap corruption abort and segmentation fault), are rejected with an
+  error by programs built with 6.1.
+- Unchanged database and index files read the same as with 6.0.
+
+DataReel Copyright (c) 2001-2026 DataReel Software Development
