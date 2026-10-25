@@ -18,13 +18,14 @@
 </header>
 <main class="dr-main">
 <h1>DataReel Cluster Manager</h1>
-<p class="dr-lead">High-availability failover for Linux services, built on the DataReel C++ toolkit.</p>
+<p class="dr-lead">High-availability failover for Linux services, built on the DataReel C++ toolkit. Current release: DRCM 1.42.</p>
 
 <div class="dr-toc-title">Contents</div><p class="dr-toc"><a href="#Overview">Overview</a><br />
 <a href="#Features">Features</a><br />
 <a href="#HowItWorks">How It Works</a><br />
 <a href="#Security">Security Model</a><br />
 <a href="#Transports">UDP and TCP Transports</a><br />
+<a href="#Version142">Version 1.42</a><br />
 <a href="#Platforms">Supported Platforms</a><br />
 <a href="#GetTheCode">Get the Code</a><br />
 <a href="#Build">Build and Install</a><br />
@@ -95,6 +96,10 @@ tls_min_version = 1.2
 quorum_required  = 1
 witness_endpoint = 10.0.0.9</pre>
 
+<h2 id="Version142">Version 1.42</h2>
+
+<p>DRCM 1.42, 10/25/2026, tagged 1.42 in the repository, is a security release. Every cluster message is an authenticated v2 frame with anti-replay protection, and the release adds the TCP + TLS transport, witness quorum, the AWS floating IP script and the setup tools. 1.42 nodes do not talk to 1.41 or older nodes, so upgrade all cluster nodes together. See <code>CHANGELOG.md</code> in the source release for every change.</p>
+
 <h2 id="Platforms">Supported Platforms</h2>
 
 <p>The current DRCM release is developed and tested on Red Hat Enterprise Linux 9 and 10. It builds on any modern Linux distribution with the GNU C++ compiler and OpenSSL.</p>
@@ -159,15 +164,15 @@ witness_endpoint = 10.0.0.9</pre>
 
 <p>A full administrator guide ships with the source release under <code>docs/</code>. It covers the architecture, installation, the complete configuration reference, the security model, TCP + TLS and witness-quorum setup, floating-IP failover (including AWS Elastic IP and route-table modes), monitoring, a two-node walkthrough, and troubleshooting.</p>
 
-<p><a href="https://datareel.com/drcm/index.php">DRCM Administrator Guide (online)</a></p>
+<p><a href="https://datareel.com/drcm/admin_guide.html">DRCM 1.42 Administrator Guide</a> (<a href="https://datareel.com/drcm/admin_guide.txt">plain text</a>), and the <a href="https://datareel.com/drcm/index.php">online documentation</a>. The same guide ships in the source release as <code>docs/drcm.html</code> and <code>docs/drcm.txt</code>.</p>
 
 <h2 id="License">License</h2>
 
-<p>The DataReel Cluster Manager is open source, copyrighted by DataReel Software Development, Copyright &copy; 2001-2026, all rights reserved. Like the DataReel library it is distributed under the <a href="https://www.gnu.org">GNU</a> Lesser General Public License (LGPL), with provisions for use in commercial and non-commercial applications under the terms of the LGPL. See the <code>COPYING</code> file in the repository for the full text.</p>
+<p>The DataReel Cluster Manager is open source, copyrighted by DataReel Software Development, Copyright &copy; 2001-2026. It is distributed under the <a href="https://www.gnu.org/licenses/gpl-3.0.html">GNU General Public License version 3</a> (GPL). The DataReel library it builds on is distributed under the LGPL. See the <code>COPYING</code> file in the source release for the full text.</p>
 
 <!-- Start Copyright Information -->
 <p><font color="000000">DataReel Copyright &copy; 2001-2026&nbsp;DataReel Software Development</font></p>
 </main>
-<footer class="dr-footer">DataReel 5.10 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DRCM 1.42 &middot; DataReel 5.10 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
