@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 05/25/2001  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/25/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -47,6 +47,16 @@ library.
 // ----------------------------------------------------------- // 
 #ifndef __GX_DLL_CODE_HPP__
 #define __GX_DLL_CODE_HPP__
+
+// 10/25/2026: __wxWIN3__ selects the wxWidgets 3.x GUI code for any 3.x
+// release (3.0 through 3.3). It is interchangeable with the older
+// __wxWIN302__ macro, so either one can be defined by an application.
+#if defined (__wxWIN3__) && !defined (__wxWIN302__)
+#define __wxWIN302__
+#endif
+#if defined (__wxWIN302__) && !defined (__wxWIN3__)
+#define __wxWIN3__
+#endif
 
 #if defined (__MSVC_DLL__) // Defines the entry point for the DLL application
 // The following ifdef block is the standard way of creating macros which 
@@ -97,7 +107,7 @@ library.
 // 10/21/2025: Moved the wxWidgets includes here for Windows builds
 // the wx included must be delcared before windows.h when using VS2026
 #if defined (__WIN32__)
-#if defined (__wxWIN201__) || (__wxWIN291__)
+#if defined (__wxWIN201__) || defined (__wxWIN291__)
 #include "wx2incs.h"
 #endif
 #if defined (__wxWIN302__)

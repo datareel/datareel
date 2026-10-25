@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/30/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/25/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -36,7 +36,7 @@ GUI library version 2.0.1
 
 #include "gxdlcode.h"
 
-#if defined (__wxWIN201__) || (__wxWIN291__)
+#if defined (__wxWIN201__) || defined (__wxWIN291__)
 
 #ifdef __GNUG__
   #pragma implementation
