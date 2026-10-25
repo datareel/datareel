@@ -238,7 +238,17 @@ public: // Record lock functions (revision C and higher)
   int UnlockRecord(gxDatabaseLockType l_type = gxDBASE_WRITELOCK,
 		   FAU_t block_address = gxCurrAddress);
 
+public: // 10/25/2026: Write notification
+  // The hook is called after each successful Write(), so an application
+  // can tell its own changes to a file apart from changes made by others
+  // and update data that depends on the file, such as a MAC.
+  void SetWriteHook(void (*hook)(void *), void *data) {
+    write_hook = hook; write_hook_data = data;
+  }
+
 protected:
+  void (*write_hook)(void *); // 10/25/2026: See SetWriteHook()
+  void *write_hook_data;
   char file_name[gxMaxNameLength];    // Open database file name
   char rev_letter;                    // Database revision letter
   gxFileHeader file_header;           // Database file header

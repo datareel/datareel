@@ -104,6 +104,9 @@ gxDatabase::gxDatabase()
   // PC-lint 09/08/2005: Variable not set in constructor warning.
   // Last operation variable is set during an open or create call.
   last_operation = gxDBASE_SEEK;
+
+  write_hook = 0;
+  write_hook_data = 0;
 }
 
 gxDatabase::~gxDatabase()
@@ -534,6 +537,7 @@ gxDatabaseError gxDatabase::Write(const void *buf, __ULWORD__ bytes,
 #endif
     }
     last_operation = gxDBASE_WRITE;
+    if(write_hook) (*write_hook)(write_hook_data); // 10/25/2026
   }
   else {
     gxd_error = gxDBASE_FILE_NOT_WRITEABLE;
