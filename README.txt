@@ -340,6 +340,40 @@ To build utility programs
 > cd hexdump
 > make
 
+BUILDING WITH CMAKE
+-------------------
+A CMakeLists.txt in the top-level directory builds the same objects as
+the makefiles into a static library. It works on Linux and Windows
+(Visual Studio 2022/2026) and needs CMake 3.16 or later. The makefiles
+are unchanged and can still be used.
+
+> cd ~/git/datareel
+> cmake -S . -B cmake-build
+> cmake --build cmake-build -j
+
+Build options (pass with -D<option>=<value>):
+
+DATAREEL_SSL            OPENSSL (Linux default), SCHANNEL (Windows
+                        default) or NONE
+DATAREEL_GUI            CONSOLE (default) or WX for wxWidgets 3.x
+                        message boxes and wxString support
+DATAREEL_64BIT_DATABASE ON for the 64-bit database engine with large
+                        file support (default OFF)
+DATAREEL_NATIVE_TYPES   ON (default) to use native integer and float
+                        types
+
+Other CMake projects can build and link the library directly:
+
+add_subdirectory(path/to/datareel datareel)
+target_link_libraries(myapp PRIVATE DataReel::datareel)
+
+The configuration macros are passed on to programs that link the
+library, so they are always compiled with matching settings.
+
+wxWidgets applications can define __wxWIN3__ to select the wxWidgets
+3.x code for any 3.x release. It is interchangeable with the older
+__wxWIN302__ macro.
+
 BUILDING WINDOWS STATIC LIBRARY and DLL
 ---------------------------------------
 In the example build below we will assume you are working with a copy
