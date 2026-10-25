@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/25/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -46,12 +46,12 @@ functions to account for tags using the ; character inside < > tags.
 #include "gxstring.h"
 
 #if defined (__LINUX__)
-#if defined (__wxWIN201__) || (__wxWIN291__)
+#if defined (__wxWIN201__) || defined (__wxWIN291__)
 #include "wx2incs.h"  // Include files for wxWindows version 2.X
 #endif
 
 #if defined (__wxWIN302__)
-#include "wx2incs.h"  // Include files for wxWindows version 3.X
+#include "wx3incs.h"  // Include files for wxWindows version 3.X
 #endif
 #endif
 
@@ -464,7 +464,7 @@ int gxsHTML::CollectHTMLTags()
 #if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
-#if defined (__wxWIN302__)
+#if defined (__wxWIN302__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
 
@@ -726,7 +726,7 @@ int gxsHTML::ProcessHTMLTags()
 #if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
-#if defined (__wxWIN302__)
+#if defined (__wxWIN302__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
 
@@ -784,7 +784,7 @@ int gxsHTML::ProcessScripts()
 #if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
-#if defined (__wxWIN302__)
+#if defined (__wxWIN302__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
 
@@ -829,7 +829,7 @@ int gxsHTML::ProcessStyleSheets()
 #if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
-#if defined (__wxWIN302__)
+#if defined (__wxWIN302__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
 
@@ -1002,7 +1002,7 @@ void gxsHTML::Copy(const gxsHTML &ob)
 #if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
-#if defined (__wxWIN302__)
+#if defined (__wxWIN302__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
 
@@ -1027,7 +1027,7 @@ void gxsHTML::Copy(const gxsHTML &ob)
 #if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
-#if defined (__wxWIN302__)
+#if defined (__wxWIN302__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
 
@@ -1048,7 +1048,7 @@ void gxsHTML::Copy(const gxsHTML &ob)
 #if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
-#if defined (__wxWIN302__)
+#if defined (__wxWIN302__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
 
@@ -2619,7 +2619,7 @@ int gxsHTML::ProcessHTMLTags(const MemoryBuffer &membuf)
 #if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
-#if defined (__wxWIN302__)
+#if defined (__wxWIN302__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
 
@@ -2674,7 +2674,7 @@ int gxsHTML::ProcessScripts(const MemoryBuffer &membuf)
 #if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
-#if defined (__wxWIN302__)
+#if defined (__wxWIN302__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
 
@@ -2718,7 +2718,7 @@ int gxsHTML::ProcessStyleSheets(const MemoryBuffer &membuf)
 #if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
-#if defined (__wxWIN302__)
+#if defined (__wxWIN302__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
 
