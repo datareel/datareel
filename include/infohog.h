@@ -493,6 +493,10 @@ gxDatabaseError InfoHog<TYPE>::Read(FAU object_address)
 {
   gxObjectHeader oh;
   
+  // 10/25/2026: Get the end of file before positioning the file for the
+  // reads below. Member lengths larger than the file are rejected.
+  FAU_t file_eof = pod->OpenDataFile()->GetEOF();
+
   // Optimize seeks during intervening reads
   pod->OpenDataFile()->SeekTo(object_address);
   if(pod->GetDataFileError() != gxDBASE_NO_ERROR) {
@@ -526,7 +530,6 @@ gxDatabaseError InfoHog<TYPE>::Read(FAU object_address)
   }
   
   // Read the InfoHog members
-  FAU_t file_eof = pod->OpenDataFile()->GetEOF();
   for(unsigned i = 0; i  < num_members; i++) {
     gxUINT32 len = (__ULWORD__)0;
     if(pod->OpenDataFile()->Read(&len, sizeof(gxUINT32)) != gxDBASE_NO_ERROR) {
