@@ -27,6 +27,9 @@ FINAL = 1 # Default to release configuration
 !MESSAGE No 64-bit configuration specified. Defaulting to 32-bit configuration.
 !ENDIF
 
+# Windows OpenSSL builds (USESSL=1) must use only an OpenSSL 3.5.x LTS
+# release: 64-bit by default, 32-bit for legacy builds only. See
+# README_windows_openssl.txt.
 !IF "$(USESSL)" == "1"
 !MESSAGE Using OpenSSL ENV to set path to OpenSSL LIB
 !include $(GCODE_LIB_PATH)/env/openssl_windows.env

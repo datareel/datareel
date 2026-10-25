@@ -17,149 +17,149 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html" aria-current="page">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>Setup For Windows 11 desktop or Windows server 2025 development system as a Linux KVM virtual machine</h1>
+<h1>Setup For Windows 11 desktop or Windows Server 2022/2025 development system as a Linux KVM virtual machine</h1>
 <p>On the Linux KVM host:</p>
 <pre class="dr-code">&gt; sudo -i
 # cd /var/lib/libvirt/images
 # qemu-img create -f qcow2 win11_dev_system.qcow2 500G
-# qemu-img create -f qcow2 win11_dev_system_data_drive.qcow2 500G
-# virt-manager</pre>
-<p>CPUs = 8</p>
-<p>Memory = 16384</p>
-<p>SATA disk = var/lib/libvirt/images/win11_dev_system.qcow2</p>
-<p>NIC=e1000e</p>
+# qemu-img create -f qcow2 win11_dev_system_data_drive.qcow2 500G</pre>
+<pre class="dr-code"># virt-manager</pre>
+<p>CPUs = 8 Memory = 16384 SATA disk =  var/lib/libvirt/images/win11_dev_system.qcow2 NIC=e1000e</p>
 <p>NOTE: Before building change BOOT from BIOS to UEFI</p>
-<p>NOTE: For Window 11 TPM is required</p>
-<p>Add Hardware = TPM (default settings)</p>
-<p>Start install from ISO image mounted to SATA CDROM</p>
-<p>The installation ISO images can be downloaded from:</p>
-<p><a href="https://www.microsoft.com/en-us/software-download/windows11"><font color="#1155cc"><u>https://www.microsoft.com/en-us/software-download/windows11</u></font></a></p>
-<p><a href="https://www.microsoft.com/en-us/evalcenter/download-windows-server-2025"><font color="#1155cc"><u>https://www.microsoft.com/en-us/evalcenter/download-windows-server-2025</u></font></a></p>
+<p>NOTE: For Window 11 TPM is required Add Hardware = TPM (default settings)</p>
+<p>Start install from ISO image mounted to SATA CDROM The installation ISO images can be downloaded from: <a href="https://www.microsoft.com/en-us/software-download/windows11">https://www.microsoft.com/en-us/software-download/windows11</a> <a href="https://www.microsoft.com/en-us/evalcenter/download-windows-server-2025">https://www.microsoft.com/en-us/evalcenter/download-windows-server-2025</a></p>
 <p>After the install completes setup your username and password on the Windows 11 VM.</p>
-<p>Set the computer name:</p>
-<p>System-&gt;About-&gt;Rename this PC</p>
-<p>Set up the automatic updates to download and install patches when Available.</p>
-<p>Control Panel-&gt;System-&gt;Windows Update</p>
-<p>Install latest patches and reboot.</p>
-<p>For Windows 2025 server:</p>
-<p>To add services, programs and features go to Server Manager and click on Add roles and features.</p>
-<p>Server Manager-&gt;Dashboard-&gt;Add roles and features</p>
-<p>Role-based or feature-based installation</p>
-<p>Check all the roles needed:</p>
-<p>Active Directory (all services except rights management)</p>
-<p>File and Storage Service (expand and install all other file services)</p>
-<p>Network Policy</p>
-<p>Print and Documentation Services</p>
-<p>Remote Desktop Services</p>
-<p>Volume Activation Services</p>
-<p>Windows Deployment Services</p>
+<p>Set the computer name: System-&gt;About-&gt;Rename this PC</p>
+<p>Set up the automatic updates to download and install patches when Available. Control Panel-&gt;System-&gt;Windows Update Install latest patches and reboot.</p>
+<p>For Windows 2025 server: To add services, programs and features go to Server Manager and click on Add roles and features. Server Manager-&gt;Dashboard-&gt;Add roles and features Role-based or feature-based installation</p>
+<p>Check all the roles needed: Active Directory (all services except rights management) File and Storage Service (expand and install all other file services) Network Policy Print and Documentation Services Remote Desktop Services Volume Activation Services Windows Deployment Services</p>
 <p>After the initial setup is complete shutdown the VM and add the second hard drive:</p>
-<p>SATA disk = var/lib/libvirt/images/win11_dev_system_data_drive.qcow2</p>
+<p>SATA disk =  var/lib/libvirt/images/win11_dev_system_data_drive.qcow2</p>
 <p>Unmount the ISO image from the SATA CDROM and start the Windows 11 VM.</p>
-<p>System drive = C:</p>
-<p>Optical drive = D:</p>
-<p>Data drive = E:</p>
+<p>System drive = C: Optical drive = D: Data drive = E:</p>
 <p>Using a separate data drive for all git repos and build so the drive can be copied and used on other development VMs.</p>
 <p>On the Window VM install the virtualization guest tools. The latest Virtio drivers can be downloaded from:</p>
-<p><a href="https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/latest-virtio"><font color="#1155cc"><u>https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/latest-virtio</u></font></a></p>
+<p><a href="https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/latest-virtio">https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/latest-virtio</a></p>
 <p>Download and install the following:</p>
 <p>virtio-win-guest-tools.exe</p>
 <p>On the Windows VM install the following applications need for development work:</p>
-<p>7zip</p>
-<p><a href="https://www.7-zip.org/"><font color="#1155cc"><u>https://www.7-zip.org/</u></font></a></p>
-<p>Emacs</p>
-<p><a href="https://ftp.gnu.org/gnu/emacs/windows/"><font color="#1155cc"><u>https://ftp.gnu.org/gnu/emacs/windows/</u></font></a></p>
-<p>EMACS profile per user: %USERPROFILE%\AppData\Roaming\.emacs</p>
-<p>GIT</p>
-<p><a href="https://git-scm.com/install/windows"><font color="#1155cc"><u>https://git-scm.com/install/windows</u></font></a></p>
-<p>Firefox</p>
-<p><a href="https://www.firefox.com/en-US/"><font color="#1155cc"><u>https://www.firefox.com/en-US/</u></font></a></p>
-<p>Chrome</p>
-<p><a href="https://www.google.com/chrome/dr/download/"><font color="#1155cc"><u>https://www.google.com/chrome/dr/download/</u></font></a></p>
+<p>7zip <a href="https://www.7-zip.org/">https://www.7-zip.org/</a></p>
+<p>Emacs <a href="https://ftp.gnu.org/gnu/emacs/windows/">https://ftp.gnu.org/gnu/emacs/windows/</a> EMACS profile per user: %USERPROFILE%\AppData\Roaming\.emacs</p>
+<p>GIT <a href="https://git-scm.com/install/windows">https://git-scm.com/install/windows</a></p>
+<p>Firefox <a href="https://www.firefox.com/en-US/">https://www.firefox.com/en-US/</a></p>
+<p>Chrome <a href="https://www.google.com/chrome/dr/download/">https://www.google.com/chrome/dr/download/</a></p>
 <p>On the Windows VM if you need to add any additional ENV paths:</p>
-<p>Search-&gt;Edit environment variables for your account</p>
-<p>User variables for username-&gt;Path-&gt;Edit-&gt;New</p>
+<p>Search-&gt;Edit environment variables for your account User variables for username-&gt;Path-&gt;Edit-&gt;New</p>
 <p>Or</p>
-<p>Search-&gt;Edit the system environment variables</p>
-<p>System Properties-&gt;User Profiles-&gt;Environment Variables</p>
-<p>System Variables-&gt;Path-&gt;Edit-&gt;New</p>
-<p>Microsoft Visual Studio Install</p>
-<p>OpenSSL Build for Windows</p>
+<p>Search-&gt;Edit the system environment variables System Properties-&gt;User Profiles-&gt;Environment Variables System Variables-&gt;Path-&gt;Edit-&gt;New</p>
+<h2>Microsoft Visual Studio Install</h2>
+<p>On the Windows 11 VM or 2025 server VM install visual studio, free version (VS Community 2026)</p>
+<p>Reference links: <a href="https://visualstudio.microsoft.com/downloads/">https://visualstudio.microsoft.com/downloads/</a> <a href="https://visualstudio.microsoft.com/free-developer-offers/">https://visualstudio.microsoft.com/free-developer-offers/</a></p>
+<p>Download the Visual Studio 2026 Insiders installer from:</p>
+<p><a href="https://visualstudio.microsoft.com/insiders/">https://visualstudio.microsoft.com/insiders/</a></p>
+<p>Run the VS installer and select:</p>
+<p>Desktop development with C++ Under installation details select all options</p>
+<p>WinUI application development Under installation details select all options</p>
+<p>After installation with the above options there will be 4 command prompts you can open with all the C/C++ environmental variables set:</p>
+<pre class="dr-code">%comspec% /k "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat"
+%comspec% /k "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvarsamd64_x86.bat"
+%comspec% /k "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat"
+%comspec% /k "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvarsx86_amd64.bat"</pre>
+<p>To test the installation:</p>
+<p>In a Run dialog paste the vcvars64.bat command prompt to start a build environment:</p>
+<p>Search-&gt;Run</p>
+<pre class="dr-code">%comspec% /k "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat"</pre>
+<pre class="dr-code">C:\Windows\System32&gt;mkdir c:\tmp
+C:\Windows\System32&gt;cd \tmp</pre>
+<p>Create a test program for compiler testing:</p>
+<pre class="dr-code">C:\tmp&gt;notepad testprog.c</pre>
+<pre class="dr-code">#include &lt;stdio.h&gt;</pre>
+<pre class="dr-code">int main()
+{
+  printf("Test program\n");
+  return 0;
+}</pre>
+<pre class="dr-code">C:\tmp&gt;cl testprog.c
+C:\tmp&gt;testprog.exe</pre>
+<h2>OpenSSL Build for Windows</h2>
 <p>For the OpenSSL build you will need to install Perl for Windows and NASM if you build OpenSSL with machine language optimizations.</p>
 <p>To install Perl for Windows:</p>
 <p>Download the latest portable version strawberry Perl:</p>
-<p><a href="https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases"><font color="#1155cc"><u>https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases</u></font></a></p>
+<p><a href="https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases">https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases</a></p>
 <p>Unzip the 64-bit portable package to C:\strawberry-perl</p>
 <p>To setup the perl environment in a command prompt window run:</p>
-<pre class="dr-code">C:\strawberry-perl\portableshell.bat</pre>
+<p>C:\strawberry-perl\portableshell.bat</p>
 <p>Install NASM for Windows:</p>
 <p>Download the latest release version:</p>
-<p>https://www.nasm.us/pub/nasm/releasebuilds/2.16.03</p>
+<p><a href="https://www.nasm.us/pub/nasm/releasebuilds/2.16.03">https://www.nasm.us/pub/nasm/releasebuilds/2.16.03</a></p>
 <p>Copy the binary EXE files to:</p>
-<pre class="dr-code">C:\nasm\bin</pre>
+<p>C:\nasm\bin</p>
 <p>Add the NASM bin path to the path for your account:</p>
-<p>Search-&gt;Edit environment variables for your account</p>
-<p>User variables for username-&gt;Path-&gt;Edit-&gt;New-&gt;C:\nasm\bin</p>
+<p>Search-&gt;Edit environment variables for your account User variables for username-&gt;Path-&gt;Edit-&gt;New-&gt;C:\nasm\bin</p>
 <p>For the OpenSSL build you will need to build the ZLIB compression library:</p>
-<p><a href="https://zlib.net/"><font color="#1155cc"><u>https://zlib.net/</u></font></a></p>
-<p>For all the build examples this document will reference E:\3plibs\distrib for the location of source code download packages and reference E:\3plibs as the build location.</p>
+<p><a href="https://zlib.net/">https://zlib.net/</a></p>
+<p>For all the build examples below this document will reference E:\3plibs\distrib for the location of source code download packages and reference E:\3plibs as the build location for 3rd party libs.</p>
 <p>The examples use a command line version of unzip.exe to unpack the zip archives.</p>
-<p>To build ZLIB from a Windows command prompt:</p>
-<p>E:</p>
-<p>E:\&gt;cd 3plibs</p>
-<p>E:\3plibs&gt;cd distrib</p>
-<p>E:\3plibs\distrib&gt;unzip -d e:\3plibs zlib131.zip</p>
-<p>E:\3plibs\distrib&gt;cd e:\3plibs</p>
-<p>E:\3plibs&gt;move zlib-1.3.1 zlib32-1.3.1</p>
-<p>E:\3plibs&gt;cd zlib32-1.3.1</p>
-<p>E:\3plibs\zlib32-1.3.1&gt; &quot;C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat&quot;</p>
-<p>&quot;C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat&quot;</p>
-<p>E:\3plibs\zlib32-1.3.1&gt;nmake -f win32\Makefile.msc</p>
-<p>For the OpenSSL build you will need to download the release you wish to use from:</p>
-<p><a href="https://github.com/openssl/openssl"><font color="#1155cc"><u>https://github.com/openssl/openssl</u></font></a></p>
-<p><a href="https://github.com/openssl/openssl/releases"><font color="#1155cc"><u>https://github.com/openssl/openssl/releases</u></font></a></p>
-<p>In this document we will be using version 3.2.2 to match the RHEL 9 and 10 version.</p>
-<p>To build OpenSSL from a Windows command prompt:</p>
-<p>E:</p>
-<p>E:\&gt;cd e:\3plibs</p>
-<p>E:\3plibs\distrib&gt;unzip -d e:\3plibs openssl-openssl-3.2.2.zip</p>
-<p>E:\3plibs\distrib&gt;cd e:\3plibs</p>
-<p>E:\3plibs&gt;move openssl-openssl-3.2.2 openssl32-openssl-3.2.2</p>
-<p>E:\3plibs&gt;cd openssl32-openssl-3.2.2</p>
-<p>E:\3plibs\openssl32-openssl-3.2.2&gt;&quot;C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat&quot;</p>
-<p>E:\3plibs\openssl32-openssl-3.2.2&gt;C:\strawberry-perl\portableshell.bat</p>
-<p>E:\3plibs\openssl32-openssl-3.2.2&gt;perl Configure VC-WIN32 --prefix=e:\3plibs\openssl --openssldir=e:\3plibs\openssl --with-zlib-include=e:\3plibs\zlib32-1.3.1 --with-zlib-lib=e:\3plibs\zlib32-1.3.1 enable-fips no-shared</p>
-<p>E:\3plibs\openssl32-openssl-3.2.2&gt;perl configdata.pm --dump</p>
-<p>E:\3plibs\openssl32-openssl-3.2.2&gt;nmake</p>
-<p>E:\3plibs\openssl32-openssl-3.2.2&gt;nmake test</p>
-<p>All tests successful.</p>
-<p>Files=298, Tests=3164, 978 wallclock secs ( 7.58 usr +  1.17 sys =  8.75 CPU)</p>
-<p>Result: PASS</p>
-<p>E:\3plibs\openssl32-openssl-3.2.2&gt;nmake install</p>
-<p>E:\3plibs\openssl32-openssl-3.2.2&gt;move e:\3plibs\openssl e:\3plibs\openssl32</p>
-<p>E:\3plibs\openssl32-openssl-3.2.2&gt;e:\3plibs\openssl32\bin\openssl.exe version</p>
-<p>OpenSSL 3.2.2 4 Jun 2024 (Library: OpenSSL 3.2.2 4 Jun 2024)</p>
-<p>NOTE: To build a debug version of OpenSSL run the perl configure script with the following option:</p>
-<pre class="dr-code">&gt;perl Configure debug-VC-WIN32</pre>
+<p>The default Windows build is 64-bit x64. The 32-bit x86 builds are only for legacy systems. Build each library in a new command prompt for the target you are building.</p>
+<p>To build the 64-bit ZLIB from a Windows command prompt:</p>
+<pre class="dr-code">E:
+E:\&gt;cd 3plibs
+E:\3plibs&gt;cd distrib
+E:\3plibs\distrib&gt;unzip -d e:\3plibs zlib131.zip
+E:\3plibs\distrib&gt;cd e:\3plibs
+E:\3plibs&gt;move zlib-1.3.1 zlib64-1.3.1
+E:\3plibs&gt;cd zlib64-1.3.1
+E:\3plibs\zlib64-1.3.1&gt;"C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat"
+E:\3plibs\zlib64-1.3.1&gt;nmake -f win32\Makefile.msc</pre>
+<p>For a 32-bit legacy build unpack a second copy to zlib32-1.3.1 and use vcvars32.bat instead of vcvars64.bat.</p>
+<h2>OpenSSL Version Requirements</h2>
+<p>When you build DataReel or your programs with OpenSSL on Windows, use only an OpenSSL 3.5.x LTS (long term support) release. Do not use OpenSSL 3.0 through 3.4 or a newer non-LTS release. When a new 3.5.x release is published, rebuild OpenSSL with it and rebuild the DataReel library and your programs. This document uses OpenSSL 3.5.9, the latest 3.5.x LTS release. The default DataReel SSL build uses the native Windows Schannel API and does not need OpenSSL.</p>
+<p>Download the latest 3.5.x LTS release from:</p>
+<p><a href="https://github.com/openssl/openssl/releases">https://github.com/openssl/openssl/releases</a> <a href="https://openssl-library.org/source/">https://openssl-library.org/source/</a></p>
+<p>To build the 64-bit OpenSSL from a Windows command prompt:</p>
+<pre class="dr-code">E:
+E:\&gt;cd e:\3plibs
+E:\3plibs&gt;tar -xzf distrib\openssl-3.5.9.tar.gz
+E:\3plibs&gt;move openssl-3.5.9 openssl64-openssl-3.5.9
+E:\3plibs&gt;cd openssl64-openssl-3.5.9
+E:\3plibs\openssl64-openssl-3.5.9&gt;"C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat"
+E:\3plibs\openssl64-openssl-3.5.9&gt;C:\strawberry-perl\portableshell.bat
+E:\3plibs\openssl64-openssl-3.5.9&gt;perl Configure VC-WIN64A --prefix=e:\3plibs\openssl64 --openssldir=e:\3plibs\openssl64 --with-zlib-include=e:\3plibs\zlib64-1.3.1 --with-zlib-lib=e:\3plibs\zlib64-1.3.1 enable-fips no-shared
+E:\3plibs\openssl64-openssl-3.5.9&gt;perl configdata.pm --dump
+E:\3plibs\openssl64-openssl-3.5.9&gt;nmake
+E:\3plibs\openssl64-openssl-3.5.9&gt;nmake test</pre>
+<pre class="dr-code">All tests successful.
+Files=347, Tests=4214, 2135 wallclock secs ( 8.45 usr +  2.03 sys = 10.48 CPU)
+Result: PASS</pre>
+<pre class="dr-code">E:\3plibs\openssl64-openssl-3.5.9&gt;nmake install_sw install_ssldirs install_fips
+E:\3plibs\openssl64-openssl-3.5.9&gt;e:\3plibs\openssl64\bin\openssl.exe version
+OpenSSL 3.5.9 29 Sep 2026 (Library: OpenSSL 3.5.9 29 Sep 2026)</pre>
+<p>To build the 32-bit OpenSSL for legacy systems, unpack a second copy to openssl32-openssl-3.5.9 and in a new command prompt use vcvars32.bat, VC-WIN32, zlib32-1.3.1 and --prefix=e:\3plibs\openssl32 --openssldir=e:\3plibs\openssl32:</p>
+<pre class="dr-code">E:\3plibs\openssl32-openssl-3.5.9&gt;"C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat"
+E:\3plibs\openssl32-openssl-3.5.9&gt;C:\strawberry-perl\portableshell.bat
+E:\3plibs\openssl32-openssl-3.5.9&gt;perl Configure VC-WIN32 --prefix=e:\3plibs\openssl32 --openssldir=e:\3plibs\openssl32 --with-zlib-include=e:\3plibs\zlib32-1.3.1 --with-zlib-lib=e:\3plibs\zlib32-1.3.1 enable-fips no-shared
+E:\3plibs\openssl32-openssl-3.5.9&gt;nmake
+E:\3plibs\openssl32-openssl-3.5.9&gt;nmake test
+E:\3plibs\openssl32-openssl-3.5.9&gt;nmake install_sw install_ssldirs install_fips</pre>
+<p>NOTE: To build a debug version of OpenSSL run the perl configure script with debug-VC-WIN64A, or debug-VC-WIN32 for 32-bit builds.</p>
 <p>For the cross platform GUI library we will be using wxWidgets.</p>
 <p>For the wxWidgets build you will need to download the release you with to use from:</p>
-<p><a href="https://github.com/wxWidgets/wxWidgets"><font color="#1155cc"><u>https://github.com/wxWidgets/wxWidgets</u></font></a></p>
-<p><a href="https://github.com/wxWidgets/wxWidgets/releases"><font color="#1155cc"><u>https://github.com/wxWidgets/wxWidgets/releases</u></font></a></p>
+<p><a href="https://github.com/wxWidgets/wxWidgets">https://github.com/wxWidgets/wxWidgets</a> <a href="https://github.com/wxWidgets/wxWidgets/releases">https://github.com/wxWidgets/wxWidgets/releases</a></p>
 <p>In this document we will be using version 3.2.4</p>
-<p>E:</p>
-<p>E:\&gt;cd 3plibs</p>
-<p>E:\3plibs&gt;mkdir e:\3plibs\wxWidgets32-3.2.4</p>
-<p>E:\3plibs&gt;cd e:\3plibs\distrib</p>
-<p>E:\3plibs\distrib&gt;unzip -d e:\3plibs\wxWidgets32-3.2.4 wxWidgets-3.2.4.zip</p>
-<p>E:\3plibs\distrib&gt;cd e:\3plibs\wxWidgets32-3.2.4\build\msw</p>
-<p>E:\3plibs\wxWidgets32-3.2.4\build\msw&gt;&quot;C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat&quot;</p>
-<p>E:\3plibs\wxWidgets32-3.2.4\build\msw&gt;nmake -f makefile.vc BUILD=release SHARED=0 UNICODE=1</p>
+<pre class="dr-code">E:
+E:\&gt;cd 3plibs
+E:\3plibs&gt;mkdir e:\3plibs\wxWidgets32-3.2.4
+E:\3plibs&gt;cd e:\3plibs\distrib
+E:\3plibs\distrib&gt;unzip -d e:\3plibs\wxWidgets32-3.2.4 wxWidgets-3.2.4.zip
+E:\3plibs\distrib&gt;cd e:\3plibs\wxWidgets32-3.2.4\build\msw
+E:\3plibs\wxWidgets32-3.2.4\build\msw&gt;"C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars32.bat"
+E:\3plibs\wxWidgets32-3.2.4\build\msw&gt;nmake -f makefile.vc BUILD=release SHARED=0 UNICODE=1</pre>
 <p>To test the build:</p>
-<p>E:\3plibs\wxWidgets32-3.2.4\build\msw&gt;cd ..\..\samples\minimal</p>
-<p>E:\3plibs\wxWidgets32-3.2.4\samples\minimal&gt;nmake -f makefile.vc BUILD=release SHARED=0 UNICODE=1</p>
+<pre class="dr-code">E:\3plibs\wxWidgets32-3.2.4\build\msw&gt;cd ..\..\samples\minimal
+E:\3plibs\wxWidgets32-3.2.4\samples\minimal&gt;nmake -f makefile.vc BUILD=release SHARED=0 UNICODE=1</pre>
 <p>NOTE: To build a debug version of wxWigets use the following options:</p>
 <pre class="dr-code">&gt; nmake -f makefile.vc BUILD=debug SHARED=0 UNICODE=1</pre>
 </main>
-<footer class="dr-footer">DataReel 6.0 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>

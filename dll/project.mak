@@ -25,6 +25,9 @@ GCODE_LIB_DIR = $(GCODE_LIB_PATH)
 GLIB_INCLUDE_PATH = ..$(PATHSEP)include$(PATHSEP)
 GLIB_SRC_PATH = ..$(PATHSEP)src$(PATHSEP)
 
+# Windows OpenSSL builds (USESSL=1) must use only an OpenSSL 3.5.x LTS
+# release: 64-bit by default, 32-bit for legacy builds only. See
+# README_windows_openssl.txt.
 !IF "$(USESSL)" == "1"
 !MESSAGE Using OpenSSL ENV to set path to OpenSSL LIB
 !include openssl.env

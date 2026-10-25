@@ -87,12 +87,12 @@
 <B><P>__LINUX__ - </B>Conditional directive required for all Linux platforms.</P>
 
 <h2 id="Building">Building and Requirements</h2><B><FONT>
-</B></FONT><P>gxSSL is built into the library. On Linux it uses OpenSSL 1.0.2, 1.1.x or 3.x. OpenSSL 3 is recommended. The code selects the OpenSSL interfaces from OPENSSL_VERSION_NUMBER, so no other settings are needed. On Windows it uses the native Schannel (SSPI) TLS API by default, with OpenSSL as an option.</P>
+</B></FONT><P>gxSSL is built into the library. On Linux it uses the OpenSSL that comes with the operating system (OpenSSL 3 on RHEL 8, 9 and 10). The code selects the OpenSSL interfaces from OPENSSL_VERSION_NUMBER, so no other settings are needed. On Windows it uses the native Schannel (SSPI) TLS API by default, with OpenSSL as an option. Windows OpenSSL builds must use only an OpenSSL 3.5.x LTS release, 64-bit by default and 32-bit for legacy builds only (see README_windows_openssl.txt).</P>
 <P>Linux library build (SSL is on by default):</P>
 <PRE>cd build
 make</PRE>
 <P>Linux applications are compiled with <B>-D__USE_GX_SSL_EXTENSIONS__</B> and linked with <B>-lssl -lcrypto</B>.</P>
-<P>Windows applications built with the default Schannel library are compiled with <B>-D__USE_GX_SSL_EXTENSIONS__ -D__USE_GX_SCHANNEL__</B> and linked with <B>secur32.lib crypt32.lib ncrypt.lib</B>. Build the library and programs with <B>USESSL=1</B> to use OpenSSL instead. For Windows builds see the <A HREF="../../index.html#WINLIB">Windows Builds</A> section of the readme.</P>
+<P>Windows applications built with the default Schannel library are compiled with <B>-D__USE_GX_SSL_EXTENSIONS__ -D__USE_GX_SCHANNEL__</B> and linked with <B>secur32.lib crypt32.lib ncrypt.lib</B>. Build the library and programs with <B>USESSL=1</B> to use OpenSSL 3.5.x LTS instead. For Windows builds see the <A HREF="../../index.html#WINLIB">Windows Builds</A> section of the readme.</P>
 <P><B>Schannel notes:</B> GetCTX() and GetSSL() return Schannel objects, not OpenSSL SSL_CTX and SSL pointers, so code that calls OpenSSL functions directly must use the OpenSSL build. Use GetPeerCertInfo(), VerifyCert() and CertVerifyErrorString() for portable cert checks. A server can load PEM or DER cert and key files with InitCTX(), or a PFX/P12 file with the key password. Call SetHostName() before ConnectSSLSocket() to send the server name (SNI); gxsHTTPClient does this for you. The key and cert generator functions MakeDHParms(), MakeRSAPrivateKey() and MakeCertReq() need OpenSSL and return an error in the Schannel build. Create keys and certs with the openssl command line tool or the Windows certificate tools.</P>
 <P><B>__USE_GX_SCHANNEL__</B> - Windows only. Builds gxSSL with the native Schannel API instead of OpenSSL. Set by default in the Windows makefiles.</P>
 

@@ -13,6 +13,8 @@
 # Set 64BITCFG to 1 for 64 bit build
 # 10/24/2026: Builds the gxSSL class with OpenSSL instead of the default
 # native Windows Schannel. See winslib/openssl.env for the OpenSSL path.
+# Use only an OpenSSL 3.5.x LTS release, 64-bit by default and 32-bit
+# for legacy builds only (see README_windows_openssl.txt).
 
 # Compile the object files and build the static LIB files
 # ===============================================================

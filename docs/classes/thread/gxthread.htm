@@ -87,8 +87,8 @@ gxsema.h - Semaphore synchronization class</P>
 
 <h2 id="Directives">Conditional Directives</h2><B><FONT>
 </B></FONT><P>In order to achieve cross-platform interoperability conditional directives are used by the low-level thread API wrapper classes to identify the correct thread API call for the each specific platform. The correct directive for your specific platform must be defined using the "-D" compiler option or from within your IDE. The following is a complete listing of all the conditional directives used in the gxThread library:</P>
-<U><P>Windows 95/98/NT/2000 Directives</U>:</P>
-<B><P>__WIN32__</B> WIN32 directive for Windows 95/98/NT/2000 applications.</P>
+<U><P>Windows Directives</U>:</P>
+<B><P>__WIN32__</B> WIN32 directive for Windows applications (32-bit and 64-bit).</P>
 <B><P>__HAS__BEGINTHREADEX__ </B>Create thread using the _beginthreadex() C RTL call.</P>
 <U><P>UNIX Directives</U>:</P>
 <B><P>__UNIX__ </B>Generic UNIX directive. <B>NOTE</B>: This directive must be defined for all UNIX systems.</P>
@@ -99,7 +99,7 @@ gxsema.h - Semaphore synchronization class</P>
 <U><P>Conditional Directives Reserved For Future Use In The gxThread Library</U>:</P>
 <B><P>__MSVC__ </B>Microsoft Visual C++ 4.2 and higher compiler specifics.</P>
 <B><P>__BCC32__</B> Borland BCC 4.0 and higher compiler specifics.</P>
-<B><P>__MFC__ </B>MFC directive for Windows 95/98/NT MFC applications.</P>
+<B><P>__MFC__ </B>MFC directive for Windows MFC applications.</P>
 <B><P>__HPUX__ </B>HPUX directive defined for all versions of HPUX.</P>
 <B><P>__HPUX11__ </B>Define for all HPUX 11.0 and higher applications.</P>
 <B><P>__LINUX_THREADS__</B> Define for applications using Linux threads.</P>

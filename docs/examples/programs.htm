@@ -78,7 +78,7 @@ source gnu_env.sh
 cd ../examples_database/simple
 make
 ./testprog</PRE>
-<P>On Windows use <B>nmake -f msvc.mak</B> in the same folder. The SSL examples (https_client, ssl_server and ssl_verify_cert) need the library built with OpenSSL; see <A HREF="../index.html#UNIXLIB" TARGET="_top">Linux Builds</A>. Most test programs pause between steps and wait for Enter. string_class can be built with <B>-D__AUTORUN_TESTPROG__</B> to run without prompts. All of these programs were run under AddressSanitizer and UndefinedBehaviorSanitizer for the 10/14/2026 code review.</P>
+<P>On Windows use <B>nmake -f msvc.mak</B> in the same folder. The SSL examples (https_client, ssl_server and ssl_verify_cert) need the library built with OpenSSL (on Windows only an OpenSSL 3.5.x LTS release); see <A HREF="../index.html#UNIXLIB" TARGET="_top">Linux Builds</A>. Most test programs pause between steps and wait for Enter. string_class can be built with <B>-D__AUTORUN_TESTPROG__</B> to run without prompts. All of these programs were run under AddressSanitizer and UndefinedBehaviorSanitizer for the 10/14/2026 code review.</P>
 
 <h2 id="examples_database">Database Examples</h2>
 <P>Folder: <B>examples_database</B></P>

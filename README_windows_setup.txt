@@ -1,4 +1,4 @@
-Setup For Windows 11 desktop or Windows server 2025 development system
+Setup For Windows 11 desktop or Windows Server 2022/2025 development system
 as a Linux KVM virtual machine
 
 

@@ -74,7 +74,7 @@
 <A HREF="#MSDOSWIN32Port">MSDOS/WIN32</A> </P>
 
 <h2 id="Overview">Overview</h2>
-<P>The Terminal class is a terminal interface designed to be portable between DOS and UNIX systems. On UNIX systems the curses library is used to create independent terminal type code. On MSDOS and Windows 95 systems the ANSI.SYS driver is used to simulate some of the basic functions in the curses library. </P>
+<P>The Terminal class is a terminal interface designed to be portable between DOS and UNIX systems. On UNIX systems the curses library is used to create independent terminal type code. On MSDOS and early Windows systems the ANSI.SYS driver was used to simulate some of the basic functions in the curses library. The DOS/WIN32 port is legacy code and is not supported on current Windows releases (Windows 11 and Windows Server 2022/2025). </P>
 <P>The curses library is a comprehensive API that allows an application to perform detailed terminal operations. A terminal is the logical input (keyboard) and output (screen) device through which character-based applications interact with the user. There are several types of terminals. Each type has different capabilities with respect to its display modes plus its input and output operations. On UNIX systems various terminal types can be emulated on the console or during telnet sessions. </P>
 <P>Using the curses library a program you can manipulate text anywhere on the screen and use different display modes such as highlighting and accept input from the user without waiting for the user to press the Enter key. Console based programs do not have the capability to manipulate text on the screen and rely on buffered input. </P>
 
@@ -195,6 +195,7 @@ private:
 <div class="dr-fn"><code class="dr-sig">double Terminal::GetFloat(int x = -1, int y = -1)</code><p class="dr-desc">Public member function used to allow the user to enter a double precision floating point value. If the "x" and "y" coordinates are not given the cursor will remain at its current location on the screen.</p></div>
 
 <h2 id="MSDOSWIN32Port">MSDOS/WIN32 Port</h2>
+<P><B>NOTE</B>: The MSDOS/WIN32 port described below is legacy code kept for reference. It is not supported on current Windows releases.</P>
 <P>The DOS/WIN32 port of the curses library is enabled by defining the <B>__DOS__</B> or <B>__WIN32__</B> macro at compile time. Several standalone functions are used to port this code from UNIX to DOS, Windows 3.11, and Windows 95/98. These functions are used to simulate the basic functionality of the vast curses library. All of these functions rely on the ANSI.SYS driver installed in the config.sys file: </P>
 <B><P>DEVICEHIGH=C:\WINDOWS\COMMAND\ANSI.SYS</B> (Windows 95/98) </P>
 <B><P>DEVICEHIGH=C:\DOS\ANSI.SYS</B> (DOS/Windows 3.11) </P>

@@ -1,4 +1,4 @@
-DataReel 5.X Readme File
+DataReel 6.1 Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -186,13 +186,21 @@ https://www.gnu.org/licenses/lgpl.html
 SUPPORTED PLATFORMS
 -------------------
 The current Datareel release was developed and tested on Red Hat
-Enterprise Linux 8/9/10, Windows 10/11, and Windows 2025 server.
+Enterprise Linux 10 (the default build platform), RHEL 9 and RHEL 8,
+Windows 11, and Windows Server 2022 and 2025. RHEL 6 and 7, and
+Windows releases older than Windows 11 and Windows Server 2022, are
+no longer supported.
+
+On Linux the library uses the OpenSSL that comes with the operating
+system. On Windows use only an OpenSSL 3.5.x LTS release (see
+README_windows_openssl.txt). The Windows build is 64-bit by default,
+32-bit builds are kept for legacy code only.
 
 The datareel library can be compiled on any Linux variant with the
 GNU compiler. 
 
 The datareel library can be compiled for Windows using Microsoft
-Visual Sudio.
+Visual Studio.
 
 Legacy platforms in the code base include HPUX and Solaris but make
 files are no longer distributed. 
@@ -208,7 +216,7 @@ builds. The code base has been used in super computer applications
 compiled with Cray C++ compilers.
 
 For Windows the current Datareel release supports Microsoft
-Visual Sudio 2022 or 2025.
+Visual Studio 2022 or 2026.
 
 Previous releases supported cross platform Windows builds using MSVC,
 Visual C++, BCC, and DJGPP. 
@@ -329,7 +337,9 @@ adjustments or modifications to the build
 SSL is built into the libdatareel library with OpenSSL by default.
 There is no separate libdatareel_ssl library. The OpenSSL development
 files must be installed (the libssl-dev package on Debian and Ubuntu,
-openssl-devel on RHEL and Fedora).
+openssl-devel on RHEL and Fedora). Linux builds always use the
+operating system's OpenSSL. Do not build against a private OpenSSL
+copy on Linux, and do not mix it with the system version.
 
 On a system without OpenSSL you can build libdatareel without SSL:
 
@@ -373,6 +383,9 @@ of legacy code use env\msvc32_vs2026.bat instead of env\msvc.bat.
 SSL is built into the gxcode library. By default the gxSSL class uses
 the native Windows Schannel (SSPI) TLS API, so OpenSSL is not needed.
 OpenSSL is still available as an option for existing code, see below.
+When you build with OpenSSL on Windows, use only an OpenSSL 3.5.x LTS
+(long term support) release, 64-bit by default and 32-bit for legacy
+builds. See README_windows_openssl.txt.
 
 To build the datareel static library:
 
@@ -409,13 +422,15 @@ To build the datareel static library with OpenSSL instead of Schannel:
 > cd winslib 
 > notepad openssl.env
 
-In the openssl.env file set the path to your openssl installation directory.
+In the openssl.env file set the path to your OpenSSL 3.5.x LTS
+installation directory (3plibs\openssl64 by default, or
+3plibs\openssl32 for a legacy 32-bit build).
 
 > nmake -f msvc_ssl.mak
 
 Programs that link to the OpenSSL build of the library must also be
-built with USESSL=1. Set the path to your openssl install in the
-following ENV file: 
+built with USESSL=1. Set the path to your OpenSSL 3.5.x LTS install
+in the following ENV file: 
 
 > cd %USERPROFILE%\datareel\env
 > notepad openssl_windows.env
@@ -427,9 +442,9 @@ Then build your program or an example program with USESSL=1:
 > nmake -f msvc.mak USESSL=1
 
 Before running the example program in you user environment add the
-openssl\bin dir to your PATH:
+OpenSSL 3.5.x bin dir to your PATH:
 
-> set PATH=%PATH%;e:\3plibs\openssl\bin
+> set PATH=%PATH%;e:\3plibs\openssl64\bin
 
 To build the datareel library as a DLL with OpenSSL:
 
@@ -438,10 +453,13 @@ To build the datareel library as a DLL with OpenSSL:
 > cd dll
 > notepad openssl.env
 
-In the openssl.env file set the path to your openssl installation directory.
+In the openssl.env file set the path to your OpenSSL 3.5.x LTS
+installation directory (3plibs\openssl64 by default, or
+3plibs\openssl32 for a legacy 32-bit build).
 
 > nmake -f msvc_ssl.mak
 
-See README_windows_openssl.txt for building OpenSSL on Windows.
+See README_windows_openssl.txt for building OpenSSL 3.5.x LTS on
+Windows.
 
 DataReel Copyright (c) 2001-2026 DataReel Software Development

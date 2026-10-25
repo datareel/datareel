@@ -29,7 +29,7 @@
 <a href="#CodeReview">Code Review and Fixes</a><br />
 <a href="#UNIXLIB">Linux Builds</a><br />
 <a href="#WINLIB">Windows Builds</a><br />
-<a href="README_windows_setup.html">Setup For Windows 11 desktop or Windows server 2025 development system</a></p>
+<a href="README_windows_setup.html">Setup For Windows 11 desktop or Windows Server 2022/2025 development system</a></p>
 
 <h2 id="Overview">Overview</h2>
 
@@ -74,9 +74,19 @@ gnu.org Website:<br /><br /><a href="https://www.gnu.org/licenses/lgpl.html">htt
 
 <h2 id="SupportedPlatforms">Supported Platforms</h2>
 
-</p>
+<p>
 The current Datareel release was developed and tested on Red Hat
-Enterprise Linux 8/9/10, Windows 10/11, and Windows 2025 server.
+Enterprise Linux 10 (the default build platform), RHEL 9 and RHEL 8,
+Windows 11, and Windows Server 2022 and 2025. RHEL 6 and 7, and
+Windows releases older than Windows 11 and Windows Server 2022, are
+no longer supported.
+</p>
+
+<p>
+On Linux the library uses the OpenSSL that comes with the operating
+system. On Windows use only an OpenSSL 3.5.x LTS release (see
+README_windows_openssl.txt). The Windows build is 64-bit by default,
+32-bit builds are kept for legacy code only.
 </p>
 
 <p>
@@ -110,7 +120,7 @@ compiled with Cray C++ compilers.
 
 <p>
 For Windows the current Datareel release supports Microsoft
-Visual Studio 2022 or 2025.
+Visual Studio 2022 or 2026.
 </p>
 
 <p>
@@ -183,7 +193,7 @@ Visual C++, BCC, and DJGPP.
 &gt; make install
 &gt; make clean</pre>
 
-<p>SSL is built into the libdatareel library with OpenSSL by default. The OpenSSL development files must be installed (libssl-dev on Debian and Ubuntu, openssl-devel on RHEL and Fedora). On a system without OpenSSL build with:</p>
+<p>SSL is built into the libdatareel library with OpenSSL by default. The OpenSSL development files must be installed (libssl-dev on Debian and Ubuntu, openssl-devel on RHEL and Fedora). Linux builds always use the operating system's OpenSSL; do not build against a private OpenSSL copy on Linux or mix it with the system version. On a system without OpenSSL build with:</p>
 
 <pre class="dr-code">&gt; make USE_OPEN_SSL=NO
 &gt; make USE_OPEN_SSL=NO install
@@ -205,186 +215,57 @@ Visual C++, BCC, and DJGPP.
 
 <h2 id="WINLIB">Windows Builds</h2>
 
-<p style="margin-bottom: 0in; line-height: 100%">In the example build
-below we will assume you are working with a copy</p>
-<p style="margin-bottom: 0in; line-height: 100%">of the datareel
-library unpacked to the &quot;%USERPROFILE%\datareel&quot;</p>
-<p style="margin-bottom: 0in; line-height: 100%">location. 
-</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">In this document we
-will assume you have installed Visual Studio 2026</p>
-<p style="margin-bottom: 0in; line-height: 100%">and will be working
-on the command line.</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">To setup a command
-line build open a Run dialog and enter cmd to open</p>
-<p style="margin-bottom: 0in; line-height: 100%">a command prompt.</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">To setup the VS 2026
-environment the msvc.bat file is provided in the</p>
-<p style="margin-bottom: 0in; line-height: 100%">env directory. 
-</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">To build the
-datareel static library without SSL enabled:</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; cd
-%USERPROFILE%\datareel</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; env\msvc.bat</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; cd winslib 
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; nmake -f
-msvc.mak</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">The utility programs
-and examples programs will link to the static</p>
-<p style="margin-bottom: 0in; line-height: 100%">library. 
-</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">To build the example
-programs:</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; cd
-%USERPROFILE%\datareel\examples_general</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; cd string_class</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; nmake -f
-msvc.mak</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">To build the
-datareel library as a DLL without SSL enabled:</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; cd
-%USERPROFILE%\datareel</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; env\msvc.bat</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; cd dll</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; nmake -f
-msvc.mak</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">To build the
-datareel static library with SSL enabled:</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; cd
-%USERPROFILE%\datareel</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; env\msvc.bat</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; cd winslib 
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; notepad
-openssl.env</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">In the openssl.env
-file set the path to your openssl installation directory.</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; nmake -f
-msvc_ssl.mak</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">The utility programs
-and examples programs will link to the static</p>
-<p style="margin-bottom: 0in; line-height: 100%">library. Before you
-can build the utils or example programs with SSL</p>
-<p style="margin-bottom: 0in; line-height: 100%">enabled you must set
-the path to your openssl install in the following</p>
-<p style="margin-bottom: 0in; line-height: 100%">ENV file: 
-</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; cd
-%USERPROFILE%\datareel\env</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; notepad
-openssl_windows.env</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">In the
-openssl_windows.env  set the path to your openssl installation</p>
-<p style="margin-bottom: 0in; line-height: 100%">directory.</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">To build the example
-programs:</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; cd
-%USERPROFILE%\datareel\examples_socket</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; cd https_client</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; nmake -f
-msvc.mak</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">Before running the
-example program in you user environment add the</p>
-<p style="margin-bottom: 0in; line-height: 100%">openssl\bin dir to
-your PATH:</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; set
-PATH=%PATH%;e:\3plibs\openssl\bin</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">To build the
-datareel library as a DLL with SSL enabled:</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; cd
-%USERPROFILE%\datareel</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; env\msvc.bat</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; cd dll</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; notepad
-openssl.env</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">In the openssl.env
-file set the path to your openssl installation directory.</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
-<p style="margin-bottom: 0in; line-height: 100%">&gt; nmake -f
-msvc.mak</p>
-<p style="margin-bottom: 0in; line-height: 100%"><br/>
-
-</p>
+<p>In the example build below we will assume you are working with a copy of the datareel library unpacked to the "%USERPROFILE%\datareel" location.</p>
+<p>In this document we will assume you have installed Visual Studio 2026 and will be working on the command line.</p>
+<p>To setup a command line build open a Run dialog and enter cmd to open a command prompt.</p>
+<p>To setup the VS 2026 environment the msvc.bat file is provided in the env directory. The default build is 64-bit x64. For 32-bit x86 builds of legacy code use env\msvc32_vs2026.bat instead of env\msvc.bat.</p>
+<p>SSL is built into the gxcode library. By default the gxSSL class uses the native Windows Schannel (SSPI) TLS API, so OpenSSL is not needed. OpenSSL is still available as an option for existing code, see below. When you build with OpenSSL on Windows, use only an OpenSSL 3.5.x LTS (long term support) release, 64-bit by default and 32-bit for legacy builds. See README_windows_openssl.txt.</p>
+<p>To build the datareel static library:</p>
+<pre class="dr-code">&gt; cd %USERPROFILE%\datareel
+&gt; env\msvc.bat
+&gt; cd winslib
+&gt; nmake -f msvc.mak</pre>
+<p>The utility programs and examples programs will link to the static library. Programs link to secur32.lib, crypt32.lib, and ncrypt.lib for SSL, which are part of the Windows SDK.</p>
+<p>To build the example programs:</p>
+<pre class="dr-code">&gt; cd %USERPROFILE%\datareel\examples_general
+&gt; cd string_class
+&gt; nmake -f msvc.mak</pre>
+<pre class="dr-code">&gt; cd %USERPROFILE%\datareel\examples_socket
+&gt; cd https_client
+&gt; nmake -f msvc.mak</pre>
+<p>To build the datareel library as a DLL:</p>
+<pre class="dr-code">&gt; cd %USERPROFILE%\datareel
+&gt; env\msvc.bat
+&gt; cd dll
+&gt; nmake -f msvc.mak</pre>
+<p>To build the datareel static library with OpenSSL instead of Schannel:</p>
+<pre class="dr-code">&gt; cd %USERPROFILE%\datareel
+&gt; env\msvc.bat
+&gt; cd winslib
+&gt; notepad openssl.env</pre>
+<p>In the openssl.env file set the path to your OpenSSL 3.5.x LTS installation directory (3plibs\openssl64 by default, or 3plibs\openssl32 for a legacy 32-bit build).</p>
+<pre class="dr-code">&gt; nmake -f msvc_ssl.mak</pre>
+<p>Programs that link to the OpenSSL build of the library must also be built with USESSL=1. Set the path to your OpenSSL 3.5.x LTS install in the following ENV file:</p>
+<pre class="dr-code">&gt; cd %USERPROFILE%\datareel\env
+&gt; notepad openssl_windows.env</pre>
+<p>Then build your program or an example program with USESSL=1:</p>
+<pre class="dr-code">&gt; cd %USERPROFILE%\datareel\examples_socket
+&gt; cd https_client
+&gt; nmake -f msvc.mak USESSL=1</pre>
+<p>Before running the example program in you user environment add the OpenSSL 3.5.x bin dir to your PATH:</p>
+<pre class="dr-code">&gt; set PATH=%PATH%;e:\3plibs\openssl64\bin</pre>
+<p>To build the datareel library as a DLL with OpenSSL:</p>
+<pre class="dr-code">&gt; cd %USERPROFILE%\datareel
+&gt; env\msvc.bat
+&gt; cd dll
+&gt; notepad openssl.env</pre>
+<p>In the openssl.env file set the path to your OpenSSL 3.5.x LTS installation directory (3plibs\openssl64 by default, or 3plibs\openssl32 for a legacy 32-bit build).</p>
+<pre class="dr-code">&gt; nmake -f msvc_ssl.mak</pre>
+<p>See README_windows_openssl.txt for building OpenSSL 3.5.x LTS on Windows.</p>
 
 <!-- Start Copyright Information -->
 <p><font color="000000">DataReel Copyright &copy; 2001-2026&nbsp;DataReel Software Development</font></p>
 </main>
-<footer class="dr-footer">DataReel 6.0 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
