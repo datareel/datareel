@@ -343,7 +343,7 @@ unsigned char *InfoHog<TYPE>::GetMember(unsigned index)
 // If the index is out of bounds or no memory has been allocated
 // for the member array this function will return a null value.
 { 
-  if(index > num_members) return 0;
+  if(index >= num_members) return 0; // 10/25/2026: Was index > num_members
   if(!ih_members) return 0;
   return ih_members[index].m_buf(); 
 }
@@ -354,7 +354,7 @@ unsigned InfoHog<TYPE>::GetMemberLen(unsigned index)
 // If the index is out of bounds or no memory has been allocated
 // for the member array this function will return zero.
 { 
-  if(index > num_members) return 0;
+  if(index >= num_members) return 0; // 10/25/2026: Was index > num_members
   if(!ih_members) return 0;
   return ih_members[index].length();
 }
@@ -366,7 +366,7 @@ int InfoHog<TYPE>::SetMember(const void *ob, unsigned len, unsigned index)
 // an error occurred.
 {
   if(!ih_members) return 0;
-  if(index > num_members) return 0;
+  if(index >= num_members) return 0; // 10/25/2026: Was index > num_members
   if(!ih_members[index].Load(ob, len)) return 0;
   return 1;
 }
@@ -514,16 +514,26 @@ gxDatabaseError InfoHog<TYPE>::Read(FAU object_address)
     return pod->GetDataFileError();
   }
   
+  // 10/25/2026: The member count and lengths are read from the file.
+  // Reject counts above the maximum and lengths larger than the file.
+  if((num == (__ULWORD__)0) || (num > (__ULWORD__)InfoHogMaxMembers)) {
+    return pod->SetDataFileError(gxDBASE_BAD_OBJECT_ADDRESS);
+  }
+
   // Ensure the correct amount of memory is allocated for the member array
   if(!AllocArray((__ULWORD__)num)) {
     // Error - 
   }
   
   // Read the InfoHog members
+  FAU_t file_eof = pod->OpenDataFile()->GetEOF();
   for(unsigned i = 0; i  < num_members; i++) {
     gxUINT32 len = (__ULWORD__)0;
     if(pod->OpenDataFile()->Read(&len, sizeof(gxUINT32)) != gxDBASE_NO_ERROR) {
       return pod->GetDataFileError();
+    }
+    if((FAU_t)len > file_eof) {
+      return pod->SetDataFileError(gxDBASE_BAD_OBJECT_ADDRESS);
     }
     if(len > (__ULWORD__)0) {
       ih_members[i].resize((__ULWORD__)len, 0);
@@ -532,6 +542,11 @@ gxDatabaseError InfoHog<TYPE>::Read(FAU object_address)
 	return pod->GetDataFileError();
       }   
     }
+  }
+
+  // 10/25/2026: Member 0 is the key and is cast to TYPE by the callers
+  if(ih_members[0].length() != (__ULWORD__)sizeof(TYPE)) {
+    return pod->SetDataFileError(gxDBASE_BAD_OBJECT_ADDRESS);
   }
 
   objectaddress = object_address;

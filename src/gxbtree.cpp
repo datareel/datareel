@@ -117,7 +117,16 @@ gxDatabaseError gxBtree::InitBtree(int create, FAU_t header_address,
     if(flushdb) Flush(0); // Flush all open disk buffers after creating the tree
   }
   else {
+    // 10/25/2026: The header is read from the file, so check it before
+    // nodes are allocated from it. The key size must match the key type
+    // this tree was constructed with and the node order must be sane.
+    BtreeSize_t expected_key_size = btree_header.key_size;
     if(ReadBtreeHeader() != gxDBASE_NO_ERROR) return f->GetDatabaseError();
+    if((btree_header.key_size != expected_key_size) ||
+       (btree_header.node_order < (BtreeNodeOrder_t)2) ||
+       ((__ULWORD__)btree_header.node_order > ((__ULWORD__)0x1000000 / (__ULWORD__)(expected_key_size ? expected_key_size : 1)))) {
+      return f->SetDatabaseError(gxDBASE_BAD_HEADER);
+    }
     if(f->GetVersion() == (FAU_t)4000) {
       btree_header.num_trees = 1; // This value was not recorded in ver 4.0
     }
@@ -448,6 +457,14 @@ gxDatabaseError gxBtree::ReadNode(BtreeNode &node, FAU_t node_address)
     return f->GetDatabaseError();
   if(f->Read(&node.left_child, sizeof(node.left_child)) != gxDBASE_NO_ERROR)
     return f->GetDatabaseError();
+
+  // 10/25/2026: The key count is read from the file. A count larger than
+  // the node can hold overflowed the key_entries buffer.
+  if((node.key_count < (BtreeKeyCount_t)0) ||
+     (node.key_count > (BtreeKeyCount_t)node.node_order)) {
+    node.key_count = (BtreeKeyCount_t)0;
+    return f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+  }
 
   // Optimize the read by only reading the exact number of keys
   if(node.key_count > (BtreeKeyCount_t)0) { // Ensure node has entries
