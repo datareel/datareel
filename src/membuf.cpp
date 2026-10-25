@@ -91,6 +91,15 @@ MemoryBuffer &MemoryBuffer::operator=(const MemoryBuffer &buf)
   return *this;
 }
 
+void MemoryBuffer::SecureZero(void *buf, __MEMBUF_INT__ bytes)
+// Overwrite memory with zeros. The volatile pointer keeps the compiler
+// from removing the writes even when the memory is freed right after.
+{
+  if(!buf) return;
+  volatile unsigned char *p = (volatile unsigned char *)buf;
+  while(bytes--) *p++ = 0;
+}
+
 void *MemoryBuffer::Alloc(__MEMBUF_INT__ bytes)
 // Allocate a specified number of bytes for this memory buffer.
 // This function will try to re-use the current memory segment
@@ -104,6 +113,7 @@ void *MemoryBuffer::Alloc(__MEMBUF_INT__ bytes)
       return (void *)mptr;
     }
     else { // Must resize the buffer
+      SecureZero(mptr, d_length); // 10/25/2026: Wipe before freeing
       delete[] mptr;// Delete the previous copy and re-allocate memory
       l_length = d_length = 0;
     }
@@ -141,7 +151,10 @@ void *MemoryBuffer::Realloc(__MEMBUF_INT__ bytes, int keep, int reuse)
     memmove(nmptr, mptr, l_length);
   }
 
-  if(mptr) delete[] mptr;        // Free the previously allocated memory
+  if(mptr) { // Free the previously allocated memory
+    SecureZero(mptr, d_length); // 10/25/2026: Wipe before freeing
+    delete[] mptr;
+  }
   mptr = nmptr;                // Point to new memory buffer
   l_length = d_length = bytes; // Record new allocated length
   return (void *)mptr;
@@ -151,7 +164,10 @@ void MemoryBuffer::Destroy()
 // Frees the memory allocated for the buffer and resets the
 // length variables.
 {
-  if(mptr) delete[] mptr;
+  if(mptr) {
+    SecureZero(mptr, d_length); // 10/25/2026: Wipe before freeing
+    delete[] mptr;
+  }
   mptr = 0;
   l_length = d_length = 0;
 }
@@ -347,10 +363,10 @@ void MemoryBuffer::Clear(int clean_buf)
 // otherwise the logical length will be set to 
 // zero and the contents of the buffer will not
 // cleared.
+// 10/25/2026: clean_buf now overwrites the whole allocated buffer with
+// zeros. Before it only set the length to zero, leaving secrets in memory.
 { 
-  if(l_length > 0) {
-    if(clean_buf) DeleteAt(0, l_length); 
-  }
+  if(clean_buf && mptr) SecureZero(mptr, d_length);
   l_length = 0;
 } 
 
