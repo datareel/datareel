@@ -48,11 +48,12 @@ The DataReel toolkit is available to commercial, individual, and academic develo
 
 <p><b>Who Can Contribute?</b><br />
 The DataReel project accepts bug fixes, enhancements, and additions
-  from all developers. Project git
-  repo:<br /><br /><a href="https://github.com/datareel/datareel">https://github.com/datareel/datareel</a>.
+  from all developers. Source code releases are on the
+  <a href="https://datareel.com/downloads/datareel/">DataReel downloads page</a>, and contributions are sent through the
+  <a href="https://datareel.com/contact.php">contact page</a>.
 </p>
 
-<div class="dr-note"><b>Built with DataReel: the DataReel Cluster Manager.</b> The <a href="drcm.html">DataReel Cluster Manager</a> (DRCM) is an open-source, multi-threaded high-availability failover manager for Linux services, built on this toolkit. It now supports authenticated UDP and TLS-secured TCP transports for failover over the internet. See the <a href="drcm.html">Cluster Manager</a> page, or the repository at <a href="https://github.com/datareel/ha-cluster-manager">github.com/datareel/ha-cluster-manager</a>.</div>
+<div class="dr-note"><b>Built with DataReel: the DataReel Cluster Manager.</b> The <a href="drcm.html">DataReel Cluster Manager</a> (DRCM) is an open-source, multi-threaded high-availability failover manager for Linux services, built on this toolkit. It now supports authenticated UDP and TLS-secured TCP transports for failover over the internet. See the <a href="drcm.html">Cluster Manager</a> page, or the <a href="https://datareel.com/info_drcm.php">DRCM information page</a>.</div>
 
 <h2 id="Features">Features</h2>
 <div class="dr-features"><section><h3>Database</h3><ul><li>WIN32/UNIX Interoperability</li><li>32-Bit DB Engine</li><li>64-Bit DB Engine</li><li>Large file support</li><li>CRC Checking</li><li>Portable File Locking</li><li>Portable Record Locking</li><li>B-tree Indexing</li><li>Persistent Objects</li><li>Supports OODM Design</li><li>Supports RDBMS Design</li><li>Supports Multi-threading</li><li>Supports Client/Server Apps</li><li>Built-in Network Database</li><li>Real-time TCP Streaming</li><li>Real-time UDP Streaming</li><li>RS232 streaming</li></ul></section><section><h3>Sockets</h3><ul><li>WIN32/UNIX Interoperability</li><li>Winsock/BSD Wrappers</li><li>Object-Oriented Design</li><li>Stream Sockets</li><li>Datagram Sockets</li><li>RS232 Support</li><li>Supports Multi-threading</li><li>Embedded Ping</li><li>Embedded FTP</li><li>Embedded Telnet</li><li>Embedded SMTP</li><li>Embedded POP3</li><li>Embedded HTTP</li><li>URL Parsing</li><li>HTML Parsing</li><li>HTML Generator</li><li>Embedded SSL</li><li>XML Parsing</li></ul></section><section><h3>Threads</h3><ul><li>WIN32/UNIX Interoperability</li><li>Windows/POSIX Wrappers</li><li>Object-Oriented Design</li><li>Thread Creation/Construction</li><li>Thread Destruction</li><li>Cancellation</li><li>Exit</li><li>Join</li><li>Suspend</li><li>Resume</li><li>Sleep</li><li>Priority Functions</li><li>Thread Specific Storage</li><li>Thread Pooling</li><li>Mutex Locks</li><li>Conditional Variables</li><li>Semaphore Synchronization</li></ul></section><section><h3>General</h3><ul><li>String Classes</li><li>Memory Buffers</li><li>Device Caching</li><li>Linked List Classes</li><li>Binary Search Tree</li><li>Stack Classes</li><li>Queue Classes</li><li>Date/Time Classes</li><li>Configuration Manager</li><li>Log Generator</li><li>Postscript Text Generator</li><li>Portable TERM I/O</li><li>Text Utilities</li><li>String Utilities</li><li>Portable Directory Funcitons</li><li>Portable File Functions</li></ul></section></div>
@@ -168,7 +169,9 @@ Visual C++, BCC, and DJGPP.
 
 <pre class="dr-code">&gt; mkdir -pv ~/git
 &gt; cd ~/git
-&gt; git clone https://github.com/datareel/datareel
+&gt; wget https://datareel.com/downloads/datareel/datareel-&lt;version&gt;.tar.gz
+&gt; tar xzf datareel-&lt;version&gt;.tar.gz
+&gt; mv datareel-&lt;version&gt; datareel
 &gt; cd datareel
 &gt; cd env</pre>
 

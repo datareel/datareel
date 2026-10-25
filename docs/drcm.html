@@ -107,20 +107,26 @@ witness_endpoint = 10.0.0.9</pre>
 
 <h2 id="GetTheCode">Get the Code</h2>
 
-<p>The DataReel Cluster Manager lives in its own repository on GitHub:</p>
+<p>The DataReel Cluster Manager has its own source releases on the DataReel website:</p>
 
-<p><a href="https://github.com/datareel/ha-cluster-manager">https://github.com/datareel/ha-cluster-manager</a></p>
+<p><a href="https://datareel.com/downloads/drcm/">https://datareel.com/downloads/drcm/</a></p>
 
 <pre class="dr-code">&gt; mkdir -pv ~/git
 &gt; cd ~/git
-&gt; git clone https://github.com/datareel/ha-cluster-manager
+&gt; wget https://datareel.com/downloads/drcm/ha-cluster-manager-&lt;version&gt;.tar.gz
+&gt; tar xzf ha-cluster-manager-&lt;version&gt;.tar.gz
+&gt; mv ha-cluster-manager-&lt;version&gt; ha-cluster-manager
 &gt; cd ha-cluster-manager</pre>
 
-<p>DRCM links against the DataReel library. Clone both repositories side by side:</p>
+<p>DRCM links against the DataReel library. Extract both source releases side by side:</p>
 
 <pre class="dr-code">&gt; cd ~/git
-&gt; git clone https://github.com/datareel/datareel
-&gt; git clone https://github.com/datareel/ha-cluster-manager</pre>
+&gt; wget https://datareel.com/downloads/datareel/datareel-&lt;version&gt;.tar.gz
+&gt; tar xzf datareel-&lt;version&gt;.tar.gz
+&gt; mv datareel-&lt;version&gt; datareel
+&gt; wget https://datareel.com/downloads/drcm/ha-cluster-manager-&lt;version&gt;.tar.gz
+&gt; tar xzf ha-cluster-manager-&lt;version&gt;.tar.gz
+&gt; mv ha-cluster-manager-&lt;version&gt; ha-cluster-manager</pre>
 
 <h2 id="Build">Build and Install</h2>
 
@@ -151,9 +157,9 @@ witness_endpoint = 10.0.0.9</pre>
 
 <h2 id="Docs">Administrator Guide</h2>
 
-<p>A full administrator guide ships with the repository under <code>docs/</code>. It covers the architecture, installation, the complete configuration reference, the security model, TCP + TLS and witness-quorum setup, floating-IP failover (including AWS Elastic IP and route-table modes), monitoring, a two-node walkthrough, and troubleshooting.</p>
+<p>A full administrator guide ships with the source release under <code>docs/</code>. It covers the architecture, installation, the complete configuration reference, the security model, TCP + TLS and witness-quorum setup, floating-IP failover (including AWS Elastic IP and route-table modes), monitoring, a two-node walkthrough, and troubleshooting.</p>
 
-<p><a href="https://github.com/datareel/ha-cluster-manager/blob/master/docs/drcm.html">DRCM Administrator Guide (docs/drcm.html)</a></p>
+<p><a href="https://datareel.com/drcm/index.php">DRCM Administrator Guide (online)</a></p>
 
 <h2 id="License">License</h2>
 

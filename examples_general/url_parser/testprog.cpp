@@ -52,7 +52,7 @@ const char *ProgramName = "gxsURL test program";
 
 // Author information
 const char *ProducedBy = "DataReel Software Development";
-const char *EmailAddress = "https://github.com/datareel";
+const char *EmailAddress = "https://datareel.com";
 
 // Program globals
 int parsing_url = 1;

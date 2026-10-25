@@ -1,7 +1,7 @@
 DataReel 5.X Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
-https://github.com/datareel
+https://datareel.com
 
 CONTENTS
 --------
@@ -67,9 +67,11 @@ of choice for any programming task.
 
 Who Can Contribute?
 The DataReel project accepts bug fixes, enhancements, and additions
-from all developers. Project git repo:
+from all developers. Source code releases are on the DataReel
+website, and contributions are sent through the contact page:
 
-https://github.com/datareel/datareel
+https://datareel.com/downloads/datareel/
+https://datareel.com/contact.php
  
 FEATURES
 --------
@@ -298,7 +300,9 @@ Example install and build:
 
 > mkdir -pv ~/git
 > cd ~/git
-> git clone https://github.com/datareel/datareel
+> wget https://datareel.com/downloads/datareel/datareel-<version>.tar.gz
+> tar xzf datareel-<version>.tar.gz
+> mv datareel-<version> datareel
 > cd datareel
 > cd env
 
