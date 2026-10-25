@@ -263,6 +263,8 @@ overflowing memory. The shared library is built as libdatareel.so.6.1.
 There are no interface changes from 6.0; recompile and relink. See
 RELEASE_NOTES_6.1.txt. Every change in the source is marked with a
 "10/25/2026" comment.
+Supported platforms are now RHEL 10 (default), 9 and 8, Windows 11,
+and Windows Server 2022 and 2025.
 
 VERSION 6.0
 -----------

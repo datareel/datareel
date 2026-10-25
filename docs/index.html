@@ -25,6 +25,7 @@
 <a href="#SupportedCompilers">Supported Compilers</a><br />
 <a href="#PackageMap">Package Map</a><br />
 <a href="#ExamplePrograms">Example Programs</a><br />
+<a href="#Version61">Version 6.1</a><br />
 <a href="#Version6">Version 6.0</a><br />
 <a href="#CodeReview">Code Review and Fixes</a><br />
 <a href="#UNIXLIB">Linux Builds</a><br />
@@ -151,6 +152,10 @@ Visual C++, BCC, and DJGPP.
 <p>The Datareel distribution contains several example programs. The examples are fully functional programs used to test and demonstrate each component of the library individually. The example programs are located within subdirectories of the &quot;examples_general&quot;, &quot;examples_database&quot;, &quot;examples_threads&quot;, and &quot;examples_socket&quot; directories.</p>
 
 <p>This&nbsp;HTML documentation set include many more example programs that can by used as templates to build applications.&nbsp;</p>
+
+<h2 id="Version61">Version 6.1</h2>
+
+<p>DataReel 6.1, 10/25/2026, is a security fix release. gxBtree and InfoHog now check the lengths and counts they read from database and index files, so a damaged or crafted file is rejected instead of overflowing memory. The shared library is built as libdatareel.so.6.1. There are no interface changes from 6.0; recompile and relink. Supported platforms are now RHEL 10, 9 and 8, Windows 11, and Windows Server 2022 and 2025. See the <a href="release_notes_6_1.html">DataReel 6.1 Release Notes</a>. Every change in the source is marked with a "10/25/2026" comment.</p>
 
 <h2 id="Version6">Version 6.0</h2>
 

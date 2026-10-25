@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel 6.1 Release Notes</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>DataReel 6.1 Release Notes</h1>
+<h2 id="Top">DataReel 6.1 Release Notes, 10/25/2026</h2>
+<p>DataReel version 6.1 (was 6.0) DataReel Copyright (c) 2001-2026 DataReel Software Development</p>
+<p>DataReel 6.1 is a security fix release. It fixes memory safety bugs found by a security review of the Encrypted Password Database, which uses the DataReel database engine. Every change in the source is marked with a "10/25/2026" comment.</p>
+<p>The library version in version.txt is 6.1 and the shared library version (SHAREDLIB_VERSION in env/linux.env) is 6.1, so the Linux shared library is built as libdatareel.so.6.1. There are no interface changes from 6.0. Programs must be recompiled and relinked.</p>
+<h2>Security Fixes</h2>
+<ul>
+<li>gxBtree::ReadNode() read key_size * key_count bytes into the fixed key_entries buffer of a node, using the key count stored in the index file. A count larger than the node can hold overflowed the heap. Node key counts below 0 or above the node capacity are now rejected with gxDBASE_BADBLOCK_ERROR.</li>
+<li>gxBtree::InitBtree() used the key size and node order stored in an existing index file without checking them. A stored key size that does not match the key type of the tree, or a node order out of range, is now rejected with gxDBASE_BAD_HEADER.</li>
+<li>InfoHog::Read() trusted the member count and member lengths stored in the data file. A member count of 0 or above InfoHogMaxMembers, member lengths larger than the file, and a key member (member 0) whose length is not sizeof(TYPE) are now rejected. Callers cast member 0 to TYPE, so a short key member was read past its buffer.</li>
+<li>InfoHog::GetMember(), GetMemberLen() and SetMember() checked index &gt; num_members instead of index &gt;= num_members, and accessed one element past the member array.</li>
+</ul>
+<h2>How The Changes Were Tested</h2>
+<ul>
+<li>Index files with a root node key count of 5000 and with a wrong key size in the B-tree header, which crashed programs built with 6.0 (heap corruption abort and segmentation fault), are rejected with an error by programs built with 6.1.</li>
+<li>Unchanged database and index files read the same as with 6.0.</li>
+</ul>
+<h2>Supported Platforms</h2>
+<ul>
+<li>Linux: Red Hat Enterprise Linux 10 (the default build platform), RHEL 9 and RHEL 8. RHEL 6 and 7 are no longer supported. Linux builds use the operating system's OpenSSL.</li>
+<li>Windows: Windows 11 and Windows Server 2022 and 2025, with Visual Studio 2022 or 2026. Older Windows releases are no longer supported. The Windows build is 64-bit by default; 32-bit builds are kept for legacy code only. Windows OpenSSL builds (USESSL=1) must use only an OpenSSL 3.5.x LTS release, see README_windows_openssl.txt. The default Windows SSL build uses the native Schannel API.</li>
+<li>The readmes, makefile and ENV file comments and the HTML documentation set were updated to match. docs/README_windows_setup.html was regenerated from README_windows_setup.txt.</li>
+<li>The stray build/libdatareel.so.5.0 binary was removed from the source tree.</li>
+</ul>
+<p>DataReel Copyright (c) 2001-2026 DataReel Software Development</p>
+</main>
+<footer class="dr-footer">DataReel 6.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
+</html>

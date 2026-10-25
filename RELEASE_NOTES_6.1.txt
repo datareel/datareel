@@ -40,4 +40,21 @@ HOW THE CHANGES WERE TESTED
   error by programs built with 6.1.
 - Unchanged database and index files read the same as with 6.0.
 
+SUPPORTED PLATFORMS
+-------------------
+- Linux: Red Hat Enterprise Linux 10 (the default build platform),
+  RHEL 9 and RHEL 8. RHEL 6 and 7 are no longer supported. Linux builds
+  use the operating system's OpenSSL.
+- Windows: Windows 11 and Windows Server 2022 and 2025, with Visual
+  Studio 2022 or 2026. Older Windows releases are no longer supported.
+  The Windows build is 64-bit by default; 32-bit builds are kept for
+  legacy code only. Windows OpenSSL builds (USESSL=1) must use only an
+  OpenSSL 3.5.x LTS release, see README_windows_openssl.txt. The
+  default Windows SSL build uses the native Schannel API.
+- The readmes, makefile and ENV file comments and the HTML
+  documentation set were updated to match. docs/README_windows_setup.html
+  was regenerated from README_windows_setup.txt.
+- The stray build/libdatareel.so.5.0 binary was removed from the
+  source tree.
+
 DataReel Copyright (c) 2001-2026 DataReel Software Development
