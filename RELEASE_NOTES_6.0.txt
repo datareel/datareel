@@ -1,21 +1,21 @@
 DataReel 6.0 Release Notes, 10/24/2026
-DataReel version 6.0 (was 5.10)
+DataReel version 6.0
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
-DataReel 6.0 is the first major release in many years. Version 5.10,
-tagged 5.10 in the repository, is the last version 5 release.
+DataReel 6.0 is the first major release in many years.
 
 Version 6.0 fixes every item listed under "Known Items Left As Is" in
-CODE_REVIEW_FIXES.txt. Those items were held back in 5.10 because they
-needed a new interface or would change existing files. Every change in
-the source is marked with a "10/24/2026" comment. The changes were made
-by Claude Code, Anthropic's AI coding assistant (https://claude.ai/code).
+CODE_REVIEW_FIXES.txt. Those items were held back in the code review
+release because they needed a new interface or would change existing
+files. Every change in the source is marked with a "10/24/2026"
+comment. The changes were made by Claude Code, Anthropic's AI coding
+assistant (https://claude.ai/code).
 
 The library version in version.txt is 6.0 and the shared library
 version (SHAREDLIB_VERSION in env/linux.env) is 6.0, so the Linux
 shared library is built as libdatareel.so.6.0. Programs must be
 recompiled against the 6.0 headers. Some classes gained members and
-some function signatures changed (see Upgrading From Version 5).
+some function signatures changed (see Upgrading From Earlier Versions).
 
 CONTENTS
 --------
@@ -32,7 +32,7 @@ Compiler Warnings
 Other Fixes
 Windows and Visual Studio 2026
 Linux OpenSSL Default
-Upgrading From Version 5
+Upgrading From Earlier Versions
 
 HOW THE CHANGES WERE TESTED
 ---------------------------
@@ -42,9 +42,9 @@ HOW THE CHANGES WERE TESTED
   AddressSanitizer and UndefinedBehaviorSanitizer and run with no
   reports.
 - New test programs for each change pass against 6.0. The RDBMS, XML
-  and thread pool tests fail against 5.10, which shows that they test
-  the problems that were fixed. The glibc mutex problem was reproduced
-  with a small C program: after a trylock that returns
+  and thread pool tests fail against the previous release, which shows
+  that they test the problems that were fixed. The glibc mutex problem
+  was reproduced with a small C program: after a trylock that returns
   ENOTRECOVERABLE, an unlock crashes and a lock never returns.
 
 LINKED LISTS
@@ -154,8 +154,8 @@ THREAD HELPERS AND GLIBC
 
 COMPILER WARNINGS
 -----------------
-With -Wall -Wextra the 5.10 library reported warnings at 117 places
-in the source. All are fixed:
+With -Wall -Wextra the previous library reported warnings at 117
+places in the source. All are fixed:
 - The private copy constructors and assignment operators used to
   disallow copying no longer name their unused parameter.
   The parameters of other functions that are not used are commented
@@ -332,8 +332,8 @@ WINDOWS SCHANNEL SSL
   re-signed with SHA-256.
 - The debug DLL link no longer uses /incremental:yes (LNK4224).
 
-UPGRADING FROM VERSION 5
-------------------------
+UPGRADING FROM EARLIER VERSIONS
+-------------------------------
 - Recompile every program against the 6.0 headers and link with the
   6.0 library.
 - gxRSSchannel::cloud is a gxRSScloud. Set cloud.domain, cloud.port,

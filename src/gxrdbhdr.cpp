@@ -1364,7 +1364,7 @@ gxrdKeyType_t gxrdDatabaseRecord::CreateKey(__ULWORD__ field,
 	// offset used to move past the BLOB while the key length did not,
 	// so the fields after a BLOB were left out of all-field keys.
 	// NOTE: This changes the all-field keys of tables with BLOB fields.
-	// Rebuild index files made by version 5 for those tables.
+	// Rebuild index files made by releases before 6.0 for those tables.
 	break;
 
       case gxrdBINARY : // User defined types and small binary objects

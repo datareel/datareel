@@ -1,13 +1,11 @@
 DataReel Code Review and Fixes, 10/14/2026
-DataReel version 5.10 (was 5.09)
+These fixes are included in DataReel 6.0 and later (current release 6.1).
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 The DataReel library in this repository was reviewed and fixed by
 Claude Code, Anthropic's AI coding assistant (https://claude.ai/code).
 Every change in the source is marked with a "10/14/2026" comment.
-The library version in version.txt is now 5.10. The shared library
-version (SHAREDLIB_VERSION 5.0 in env/linux.env) is unchanged. Function
-names and parameters did not change, but gxsXMLNode_t gained a member
+Function names and parameters did not change, but gxsXMLNode_t gained a member
 (see Fixes From the Documentation Review), so programs that use the
 XML parser must be recompiled against the new headers.
 

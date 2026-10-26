@@ -159,7 +159,7 @@ Visual C++, BCC, and DJGPP.
 
 <h2 id="Version6">Version 6.0</h2>
 
-<p>DataReel 6.0, 10/24/2026, is the first major release in many years. Version 5.10, tagged 5.10 in the repository, is the last version 5 release. Version 6.0 fixes every item that the 10/14/2026 code review left as is: linked list array cleanup, gxConfig::Add(), stopping threads when a thread pool is cleared, database cache Bind() and ReleaseSegments(), RDBMS duplicate key lookups and BLOB fields in all-field keys, mixed text in the XML parser, the RSS &lt;cloud&gt; element, the glibc robust mutex problem, and all -Wall -Wextra compiler warnings.</p>
+<p>DataReel 6.0, 10/24/2026, is the first major release in many years. Version 6.0 fixes every item that the 10/14/2026 code review left as is: linked list array cleanup, gxConfig::Add(), stopping threads when a thread pool is cleared, database cache Bind() and ReleaseSegments(), RDBMS duplicate key lookups and BLOB fields in all-field keys, mixed text in the XML parser, the RSS &lt;cloud&gt; element, the glibc robust mutex problem, and all -Wall -Wextra compiler warnings.</p>
 <p>The shared library is built as libdatareel.so.6.0. Programs must be recompiled, and some interfaces changed. See the <a href="release_notes_6_0.html">DataReel 6.0 Release Notes</a>. Every change in the source is marked with a "10/24/2026" comment.</p>
 
 <h2 id="CodeReview">Code Review and Fixes</h2>
@@ -175,7 +175,7 @@ Visual C++, BCC, and DJGPP.
 <li>New documentation pages for gxListB, the thread pool and thread helpers, the XML parser, the RSS feed writer, the RDBMS layer, the B-tree and database caches, the debug manager, ix_debug and the <a href="examples/programs.htm">example programs</a>, and a modern style for all documentation pages</li>
 <li>Fixes for bugs found while writing the new pages: the RDBMS layer, thread helpers and thread pool, XML parser and RSS writer, B-tree and database caches, debug manager, B-tree Find() and gxDatabase</li>
 </ul>
-<p>These fixes were released as version 5.10.</p>
+<p>These fixes are included in DataReel 6.0 and later.</p>
 <p>See <a href="code_review_fixes.html">Code Review and Fixes</a> for the full list of fixes, SSL updates and behavior changes. Every change in the source is marked with a "10/14/2026" comment.</p>
 
 <h2 id="UNIXLIB">Linux Builds</h2>

@@ -54,7 +54,7 @@ SUPPORTED PLATFORMS
 - The readmes, makefile and ENV file comments and the HTML
   documentation set were updated to match. docs/README_windows_setup.html
   was regenerated from README_windows_setup.txt.
-- The stray build/libdatareel.so.5.0 binary was removed from the
+- A stray prebuilt shared library binary was removed from the
   source tree.
 
 DataReel Copyright (c) 2001-2026 DataReel Software Development

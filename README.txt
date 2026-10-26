@@ -269,8 +269,7 @@ and Windows Server 2022 and 2025.
 VERSION 6.0
 -----------
 DataReel 6.0, 10/24/2026, is the first major release in many years.
-Version 5.10, tagged 5.10 in the repository, is the last version 5
-release. Version 6.0 fixes every item that the 10/14/2026 code review
+Version 6.0 fixes every item that the 10/14/2026 code review
 left as is: linked list array cleanup, gxConfig::Add(), stopping
 threads when a thread pool is cleared, database cache Bind() and
 ReleaseSegments(), RDBMS duplicate key lookups and BLOB fields in
@@ -309,7 +308,7 @@ programs, and valgrind checks. Fixes include:
    thread helpers and thread pool, XML parser and RSS writer, B-tree
    and database caches, debug manager, B-tree Find() and gxDatabase
 
-These fixes were released as version 5.10. The full list of fixes, SSL
+These fixes are included in DataReel 6.0 and later. The full list of fixes, SSL
 updates and behavior changes is in
 CODE_REVIEW_FIXES.txt and docs/code_review_fixes.html. Every change
 in the source is marked with a "10/14/2026" comment.

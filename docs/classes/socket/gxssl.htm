@@ -441,7 +441,7 @@ keygen.MakeCertReq(&quot;server_private_key.pem&quot;, ci, &quot;server_cert.pem
 keygen.MakeDHParms(&quot;dhparms.pem&quot;); // RFC 7919 ffdhe2048 group</PRE>
 
 <h2 id="Changes">10/14/2026 Changes</h2>
-<P>The gxSSL code was reviewed and fixed by Claude Code, Anthropic's AI coding assistant (<A HREF="https://claude.ai/code">https://claude.ai/code</A>), for DataReel 5.10. Summary of the gxSSL changes:</P>
+<P>The gxSSL code was reviewed and fixed by Claude Code, Anthropic's AI coding assistant (<A HREF="https://claude.ai/code">https://claude.ai/code</A>), in the 10/14/2026 code review. Summary of the gxSSL changes:</P>
 <UL>
 <LI>OpenSSL 3 interfaces for Diffie-Hellman parameters (OSSL_PARAM_BLD, EVP_PKEY_fromdata(), PEM_write_bio_Parameters(), PEM_read_bio_Parameters(), SSL_CTX_set0_tmp_dh_pkey()) and RSA keys (EVP_PKEY_CTX_new_from_name()). The OpenSSL 1.1 and older code paths are kept.</LI>
 <LI>MakeDHParms() writes the RFC 7919 ffdhe2048 group by default instead of a 1024-bit prime.</LI>
