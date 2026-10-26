@@ -1812,7 +1812,7 @@ gxDatabaseError gxRDBMS::gen_file_names()
   if(!db_dir.empty()) {
 #if defined (__WIN32__)
     char path_sep = '\\';
-    db_dir.ReplaceChar('/', '\\');
+    std::replace(db_dir.begin(), db_dir.end(), '/', '\\');
 #else 
     char path_sep = '/';
     std::replace(db_dir.begin(), db_dir.end(), '\\', '/');

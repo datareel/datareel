@@ -7,6 +7,7 @@ usage: mock_servers.py cert.pem key.pem workdir base_port
   base_port+2  POP3, implicit TLS      base_port+3  POP3, STLS
   base_port+4  FTPS, implicit TLS      base_port+5  FTPS, AUTH TLS
   base_port+6  SMTP without STARTTLS (the client must refuse it)
+  base_port+7  FTPS passive data port (one transfer at a time)
 Received mail is written to workdir/mail.txt; FTP files live in
 workdir/ftp. User "test", password "secret".
 """
@@ -120,6 +121,11 @@ def ftps(c, secure):
     prot_p = False
     cwd = FTPDIR
     pasv = None
+    def data_close(d):
+        # Send close_notify; the client may already have closed its side
+        try: d.unwrap()
+        except (OSError, ValueError): pass
+        d.close()
     def data_conn():
         s, _ = pasv.accept()
         pasv.close()
@@ -142,14 +148,15 @@ def ftps(c, secure):
         elif u == 'EPSV':
             pasv = socket.socket(socket.AF_INET6)
             pasv.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
-            pasv.bind(('::', 0)); pasv.listen(1)
+            pasv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            pasv.bind(('::', BASE + 7)); pasv.listen(1)
             c.send('229 Entering Extended Passive Mode (|||%d|)' % pasv.getsockname()[1])
         elif u.startswith('LIST') or u.startswith('NLST'):
             if not prot_p: c.send('521 PROT P required'); continue
             c.send('150 here it comes')
             d = data_conn()
             d.sendall(''.join(n + '\r\n' for n in sorted(os.listdir(cwd))).encode())
-            d.close() if not prot_p else (d.unwrap().close())
+            data_close(d)
             c.send('226 done')
         elif u.startswith('RETR '):
             path = os.path.join(cwd, os.path.basename(l[5:]))
@@ -157,7 +164,7 @@ def ftps(c, secure):
             c.send('150 sending')
             d = data_conn()
             with open(path, 'rb') as f: d.sendall(f.read())
-            d.unwrap().close()
+            data_close(d)
             c.send('226 done')
         elif u.startswith('STOR '):
             path = os.path.join(cwd, os.path.basename(l[5:]))
@@ -168,9 +175,7 @@ def ftps(c, secure):
                     b = d.recv(65536)
                     if not b: break
                     f.write(b)
-            try: d.unwrap()
-            except Exception: pass
-            d.close()
+            data_close(d)
             c.send('226 stored')
         elif u.startswith('SIZE '):
             path = os.path.join(cwd, os.path.basename(l[5:]))

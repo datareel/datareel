@@ -580,6 +580,10 @@ SSL_CTX *gxSSL::InitCTX()
   }
   else {
     SSL_CTX_set_default_verify_paths(ctx);
+#if defined (_WIN32) && OPENSSL_VERSION_NUMBER >= 0x30200000L
+    // OpenSSL 3.2 and later can read the Windows certificate store
+    SSL_CTX_load_verify_store(ctx, "org.openssl.winstore:");
+#endif
   }
 
   ssl_error = gxSSL_NO_ERROR;
