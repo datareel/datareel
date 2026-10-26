@@ -78,9 +78,9 @@
 <h2 id="Functions">Functions</h2>
 <div class="dr-fn"><code class="dr-sig">unsigned long calcCRC32(const char *buf, unsigned len)</code><p class="dr-desc">Calculates a 32-bit CRC for a raw pattern of bytes. Returns a 32-bit checksum.</p></div>
 <div class="dr-fn"><code class="dr-sig">unsigned long calcCRC32(unsigned char c, unsigned long CRC)</code><p class="dr-desc">Calculates a 32-bit CRC table value for a single byte. <B>NOTE:</B> The initial CRC value must be set to 0xffffffffL and the final 32-bit value that must be XOR'ed with 0xffffffffL to obtain the checksum.</p></div>
-<div class="dr-fn"><code class="dr-sig">unsigned long calcCRC32(fstream &amp;infile)</code><p class="dr-desc">Calculates a 32-bit CRC for a file. Assumes the stream is already open. Returns a 32-bit checksum.</p></div>
+<div class="dr-fn"><code class="dr-sig">unsigned long calcCRC32(std::istream &amp;infile)</code><p class="dr-desc">Calculates a 32-bit CRC of everything from the current position to the end of an open stream. Returns the checksum, or 0 if the stream cannot be read.</p></div>
 </main>
-<footer class="dr-footer">DataReel 6.2 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 7.0 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

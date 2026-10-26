@@ -41,13 +41,13 @@ Functions - Usage description for public/protected functions</p>
 
 <h2 id="Naming">Naming Convention</h2>
 
-<p>All core library component names are prefaced by letters <b>gx</b>. GX is a short acronym for the compound term: General-Purpose Platform Interoperable Code. The GX acronym was derived specifically to avoid name conflicts with other libraries.</p>
+<p>All core library component names are prefaced by letters <b>gx</b>. GX is a short acronym for the compound term: General-Purpose Platform Interoperable Code. The GX acronym was derived specifically to avoid name conflicts with other libraries. In DataReel 7 every class, type and function is declared in the <code>datareel</code> namespace. The <code>gxdlcode.h</code> header adds <code>using namespace datareel;</code> so existing code that uses the names unqualified still compiles; define <code>DATAREEL_NO_GLOBAL_NAMES</code> before including any DataReel header to keep the names out of the global namespace.</p>
 
 <!-- Start Copyright Information -->
 <p><font color="000000">DataReel Copyright &copy; 2001-2026 DataReel Software Development</font><!-- End Copyright Information --></p>
 
 <!-- End Embedded Table -->
 </main>
-<footer class="dr-footer">DataReel 6.2 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 7.0 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

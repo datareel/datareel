@@ -1,10 +1,11 @@
 <!doctype html>
+<!-- Generated from README.txt by docs/bin/txt2html.py -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>DataReel Open Source Readme File</title>
+<title>DataReel 7.0 Readme</title>
 <link rel="stylesheet" href="css/datareel.css">
 <link rel="icon" href="images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
@@ -17,265 +18,161 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html" aria-current="page">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>DataReel Open Source Readme File</h1>
-<div class="dr-toc-title">Contents</div><p class="dr-toc"><a href="#Overview">Overview</a><br />
-<a href="#Features">Features</a><br />
-<a href="#License">License</a><br />
-<a href="#SupportedPlatforms">Supported Platforms</a><br />
-<a href="#SupportedCompilers">Supported Compilers</a><br />
-<a href="#PackageMap">Package Map</a><br />
-<a href="#ExamplePrograms">Example Programs</a><br />
-<a href="#Version62">Version 6.2</a><br />
-<a href="#Version61">Version 6.1</a><br />
-<a href="#Version6">Version 6.0</a><br />
-<a href="#CodeReview">Code Review and Fixes</a><br />
-<a href="#UNIXLIB">Linux Builds</a><br />
-<a href="#WINLIB">Windows Builds</a><br />
-<a href="README_windows_setup.html">Setup For Windows 11 desktop or Windows Server 2022/2025 development system</a></p>
-
+<h1>DataReel 7.0 Readme</h1>
+<div class="dr-toc-title">Contents</div>
+<p class="dr-toc"><a href="#Overview">Overview</a><br>
+<a href="#WhatDatareelIsGoodFor">What DataReel is good for</a><br>
+<a href="#WhatChangedInDatareel7">What changed in DataReel 7</a><br>
+<a href="#License">License</a><br>
+<a href="#SupportedPlatformsAndCompilers">Supported platforms and compilers</a><br>
+<a href="#PackageMap">Package map</a><br>
+<a href="#Building">Building</a><br>
+<a href="#UsingDatareelInYourProject">Using DataReel in your project</a><br>
+<a href="#FileFormats">File formats</a><br>
+<a href="#ExampleProgramsAndTests">Example programs and tests</a><br>
+<a href="#Documentation">Documentation</a><br>
+<a href="#ReleaseHistory">Release history</a></p>
+<p><a href="https://datareel.com">https://datareel.com</a></p>
 <h2 id="Overview">Overview</h2>
-
-<p><b>What is DataReel?</b><br />
-Datareel is a comprehensive cross-platform C++ development kit used to build multi-threaded database and communication applications. C++ is a programming language that produces fast executing compiled programs and offers very powerful programming capabilities. Unlike interpreted languages such as JAVA and PERL the C++ language by itself does not contain built-in programming interfaces for database, communications, and multi-threaded programming. By using DataReel you can extend the power of the C++ programming language by using high-level programming interfaces for database, communications, and multi-threaded programming.</p>
-
-<p>The DataReel development package was produced by independent work and contract work released to the public through non-exclusive license agreements. The initial work began independently in 1997 and was augmented from 1999 to 2004 by code produced under contract to support various applications. Several developers throughout the World have made contributions to enhance the DataReel code and promote its stability. In 2005 the DataReel code library underwent intense analysis to produce a bulletproof code base suitable for use in complex commercial applications.</p>
-
-<p><b>Why Use DataReel?</b><br />
-DataReel simplifies complex time consuming database, socket, and multi-threaded programming tasks by providing JAVA like programming interfaces for database, communications, and multi-threaded programming. Using DataReel you can harness the full power of the C++ programming language and build stable end-user applications, embedded systems, and reusable libraries for multiple operating systems.</p>
-
-<p>DataReel is flexible. Using DataReel gives your developers the flexibility to develop core application components independently of complex user interfaces. DataReel is portable. DataReel not only offers portability but also interoperability between multiple platforms. DataReel is modular. DataReel is a modular approach to network and database programming making code adaptation and cross-platform testing easy.</p>
-
-<p><b>Who Can Use DataReel?</b><br />
-The DataReel toolkit is available to commercial, individual, and academic developers. The DataReel code base is distributed to the public in an open source format. This keeps the code stable through the continued support of worldwide developers who submit code enhancements and report potential problems. The open source format is also intended to promote the C++ programming language as the language of choice for any programming task.</p>
-
-<p><b>Who Can Contribute?</b><br />
-The DataReel project accepts bug fixes, enhancements, and additions
-  from all developers. Source code releases are on the
-  <a href="https://datareel.com/downloads/datareel/">DataReel downloads page</a>, and contributions are sent through the
-  <a href="https://datareel.com/contact.php">contact page</a>.
-</p>
-
-<div class="dr-note"><b>Built with DataReel: the DataReel Cluster Manager.</b> The <a href="drcm.html">DataReel Cluster Manager</a> (DRCM) is an open-source, multi-threaded high-availability failover manager for Linux services, built on this toolkit. It now supports authenticated UDP and TLS-secured TCP transports for failover over the internet. See the <a href="drcm.html">Cluster Manager</a> page, or the <a href="https://datareel.com/info_drcm.php">DRCM information page</a>.</div>
-
-<h2 id="Features">Features</h2>
-<div class="dr-features"><section><h3>Database</h3><ul><li>WIN32/UNIX Interoperability</li><li>32-Bit DB Engine</li><li>64-Bit DB Engine</li><li>Large file support</li><li>CRC Checking</li><li>Portable File Locking</li><li>Portable Record Locking</li><li>B-tree Indexing</li><li>Persistent Objects</li><li>Supports OODM Design</li><li>Supports RDBMS Design</li><li>Supports Multi-threading</li><li>Supports Client/Server Apps</li><li>Built-in Network Database</li><li>Real-time TCP Streaming</li><li>Real-time UDP Streaming</li><li>RS232 streaming</li></ul></section><section><h3>Sockets</h3><ul><li>WIN32/UNIX Interoperability</li><li>Winsock/BSD Wrappers</li><li>Object-Oriented Design</li><li>Stream Sockets</li><li>Datagram Sockets</li><li>RS232 Support</li><li>Supports Multi-threading</li><li>Embedded Ping</li><li>Embedded FTP</li><li>Embedded Telnet</li><li>Embedded SMTP</li><li>Embedded POP3</li><li>Embedded HTTP</li><li>URL Parsing</li><li>HTML Parsing</li><li>HTML Generator</li><li>Embedded SSL</li><li>XML Parsing</li></ul></section><section><h3>Threads</h3><ul><li>WIN32/UNIX Interoperability</li><li>Windows/POSIX Wrappers</li><li>Object-Oriented Design</li><li>Thread Creation/Construction</li><li>Thread Destruction</li><li>Cancellation</li><li>Exit</li><li>Join</li><li>Suspend</li><li>Resume</li><li>Sleep</li><li>Priority Functions</li><li>Thread Specific Storage</li><li>Thread Pooling</li><li>Mutex Locks</li><li>Conditional Variables</li><li>Semaphore Synchronization</li></ul></section><section><h3>General</h3><ul><li>String Classes</li><li>Memory Buffers</li><li>Device Caching</li><li>Linked List Classes</li><li>Binary Search Tree</li><li>Stack Classes</li><li>Queue Classes</li><li>Date/Time Classes</li><li>Configuration Manager</li><li>Log Generator</li><li>Postscript Text Generator</li><li>Portable TERM I/O</li><li>Text Utilities</li><li>String Utilities</li><li>Portable Directory Funcitons</li><li>Portable File Functions</li></ul></section></div>
-
+<p>DataReel is a C++ toolkit for applications that keep their data in local database files and talk to other systems over TLS. It began in 1997, when C++ had no standard string, container, thread or file system classes, as a general purpose library that supplied all of them. The C++ standard library now does that job, so DataReel 7 keeps the parts the standard library still does not have and removes the rest:</p>
+<ul>
+<li>An embedded object database: block files with free space reuse, CRC checks and file locking, disk B-tree indexes, persistent objects and simple relational tables, with tools to check and repair files.</li>
+<li>TLS networking: IPv4 and IPv6 sockets, TLS 1.2 and 1.3 with certificate checking, and HTTPS, SMTP, POP3, FTPS and database block clients and servers.</li>
+<li>Stable, portable file formats: files written by DataReel releases going back to 2001 still open, byte for byte.</li>
+</ul>
+<p>The library has no dependencies except the system TLS library (OpenSSL on Linux, Schannel or OpenSSL on Windows).</p>
+<p>The DataReel development package was produced by independent work and contract work released to the public through non-exclusive license agreements. The initial work began independently in 1997 and was augmented from 1999 to 2004 by code produced under contract to support various applications. Bug fixes, enhancements and additions are welcome through the DataReel website:</p>
+<p><a href="https://datareel.com/downloads/datareel/">https://datareel.com/downloads/datareel/</a> <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a></p>
+<h2 id="WhatDatareelIsGoodFor">What DataReel is good for</h2>
+<h3>Object database</h3>
+<pre> gxDatabase        32/64-bit block file engine: allocate, write, read,
+                   delete and reuse variable size blocks, per-block CRC,
+                   file and record locking, large files
+ gxBtree           Disk B-tree index with your own key class, optional
+                   node cache (BtreeCache)
+ POD               A data file and its index files opened together
+ InfoHog           Persistent objects: a fixed key plus any number of
+                   variable length members, indexed by key
+ gxRDBMS           Relational tables defined by a text definition, with
+                   primary and secondary keys, search and sort
+ gxDatabaseCache   Write-back cache for database files
+ db_debug/ix_debug Utilities that analyze and rebuild damaged files</pre>
+<h3>TLS networking</h3>
+<pre> gxsTLSConnection  TCP connection with implicit TLS or STARTTLS,
+                   certificate and host name checks, line and block I/O
+ gxsTLSServer      TLS server; pairs well with datareel::ThreadPool
+ gxsHTTPClient     HTTPS client with redirects and chunked bodies
+ gxsHTTPMessage    HTTP/1.1 messages for clients and servers
+ gxsSMTPClient     Mail over implicit TLS (465) or STARTTLS (587)
+ gxsPOP3Client     Mail over implicit TLS (995) or STLS (110)
+ gxsFTPClient      FTPS with encrypted data connections
+ gxStream          Database blocks between client and server over TLS
+ gxSocket          IPv4/IPv6 TCP and UDP socket under all of the above
+ gxSerialComm      Serial ports (and a serial database block server)
+ gxsPing, telnet   Plain text diagnostics (ICMP and telnet cannot be
+                   encrypted; use telnet only on trusted networks)</pre>
+<h3>Portable types and helpers</h3>
+<pre> gxINT16..gxUINT64, gxFLOAT64, CDate   Fixed layout types used in files
+ gxConfig          name=value configuration files
+ LogFile           Thread safe time stamped log file
+ ThreadPool        Task pool on std::thread (the standard has none)
+ strutil.h         std::string helpers (trim, case-insensitive find,
+                   split, str_append, ...)
+ systime.h         Time stamps for logs, SMTP and HTTP
+ gxs_b64.h, gxcrc32.h   Base 64 and CRC-32</pre>
+<p>For general purpose work (strings, containers, threads, files, time) use the C++ standard library; DataReel 7 itself does.</p>
+<h2 id="WhatChangedInDatareel7">What changed in DataReel 7</h2>
+<p>See <a href="release_notes_7_0.html">RELEASE_NOTES_7.0.txt</a> for the full list and for porting notes. In short:</p>
+<ul>
+<li>C++17 is required. Strings, lists, trees, threads, mutexes, files and time now come from the standard library. The UString/gxString, MemoryBuffer, gxList, gxBStree, DiskFileB, futils, SysTime, gxThread, gxMutex, gxCondition, gxSemaphore and thrPool classes, the HTML/XML/ RSS parsers, the report writers, the terminal and device cache classes, gxIP32, gxMAC48, FString and gxDatagram were removed.</li>
+<li>All networking uses TLS 1.2 or later and checks certificates by default. Sockets support IPv6. http://, plain SMTP, plain POP3 and plain FTP are no longer supported.</li>
+<li>Everything is in the datareel namespace. &quot;using namespace datareel;&quot; is added for you so 6.x code that uses unqualified names compiles; define DATAREEL_NO_GLOBAL_NAMES to turn that off.</li>
+<li>CMake builds the library, examples and tests on Linux and Windows and installs a find_package(DataReel) package.</li>
+<li>Database, index, InfoHog and gxRDBMS files are unchanged.</li>
+</ul>
 <h2 id="License">License</h2>
-
-<p>The DataReel open source library is copyrighted by DataReel Software Development, Copyright &copy; 2001-2026, all rights reserved. DataReel open source is available to non-profit, commercial, individual, and academic developers. The open-source archive is distributed under the <a href="https://www.gnu.org">GNU</a> Lesser General Public License (LGPL) with provisions for use in commercial and non-commercial applications under the terms of the LGPL.</p>
-
+<p>The DataReel open source library is copyrighted by DataReel Software Development, Copyright (c) 2001-2026, all rights reserved. DataReel open source is available to non-profit, commercial, individual, and academic developers. The open-source archive is distributed under the GNU Lesser General Public License (LGPL) with provisions for use in commercial and non-commercial applications under the terms of the LGPL. See the LICENSE file.</p>
 <p>Under the terms of the LGPL you can use the open source code in commercial applications as a static or dynamically linked library. This allows commercial developers to compile the library and link to it without making any changes to the DataReel source code.</p>
-
-<p><a href="LICENSE">GNU Lesser General Public License</a><br />
-This library is free software; you can redistribute it and/or modify it under the terms of the GNU Lesser General Public License as published by the Free Software Foundation; either version 3.0 of the License, or (at your option) any later version.</p>
-
 <p>This library is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.</p>
-
-<p>You should have received a copy of the GNU Lesser General Public License along with this library; if not, a copy is available on the
-gnu.org Website:<br /><br /><a href="https://www.gnu.org/licenses/lgpl.html">https://www.gnu.org/licenses/lgpl.html</a></p>
-
-<h2 id="SupportedPlatforms">Supported Platforms</h2>
-
-<p>
-The current Datareel release was developed and tested on Red Hat
-Enterprise Linux 10 (the default build platform), RHEL 9 and RHEL 8,
-Windows 11, and Windows Server 2022 and 2025. RHEL 6 and 7, and
-Windows releases older than Windows 11 and Windows Server 2022, are
-no longer supported.
-</p>
-
-<p>
-On Linux the library uses the OpenSSL that comes with the operating
-system. On Windows use only an OpenSSL 3.5.x LTS release (see
-README_windows_openssl.txt). The Windows build is 64-bit by default,
-32-bit builds are kept for legacy code only.
-</p>
-
-<p>
-The datareel library can be compiled on any Linux variant with the
-GNU compiler. 
-</p>
-
-<p>
-The datareel library can be compiled for Windows using Microsoft&#39;s
-Visual Studio.
-</p>
-
-<p>
-Legacy platforms in the code base include HPUX and Solaris but make
-files for legacy platforms are no longer distributed. 
-</p>
-
-<p>
-Datareel has been compiled for use in 16-bit, 32-bit, and 64-bit
-applications. The code base still supports 32-bit applications but
-current development is mainly for use in 64-bit applications.
-</p>
-
-<h2 id="SupportedCompilers">Supported Compilers</h2>
-
-<p>
-For UNIX the current Datareel release supports GNU and Intel compiler
-builds. The code base has been used in super computer applications
-compiled with Cray C++ compilers.
-</p>
-
-<p>
-For Windows the current Datareel release supports Microsoft
-Visual Studio 2022 or 2026.
-</p>
-
-<p>
-Previous releases supported cross platform Windows builds using MSVC,
-Visual C++, BCC, and DJGPP. 
-</p>
-
-<h2 id="PackageMap">Package Map</h2>
-
-<p><b>DataReel Directory Structure&nbsp;</b></p>
-
+<h2 id="SupportedPlatformsAndCompilers">Supported platforms and compilers</h2>
 <ul>
-	<li>bin - Directory used to intall executables</li>
-	<li>docs - Directory for all DataReel documentation sets</li>
-	<li>env - Makefile includes used to build libraries example programs</li>
-	<li>examples_general&nbsp;- General support example programs</li>
-	<li>examples_database&nbsp;- Database example programs</li>
-	<li>examples_threads&nbsp;- Thread example programs</li>
-	<li>examples_socket&nbsp;- Socket example programs</li>
-	<li>include - DataReel include files</li>
-	<li>lib - Empty directory used to install library files</li>
-	<li>src - DataReel source code files</li>
-	<li>utils - DataReel utility programs</li>
+<li>Red Hat Enterprise Linux 10 (the default build platform), 9 and 8, with the system GCC (8 or later) and the system OpenSSL (1.1.1 or later). RHEL 8&#x27;s GCC 8 links std::filesystem from libstdc++fs; the build files add it.</li>
+<li>Windows 11 and Windows Server 2022 and 2025, 64-bit, with Visual Studio 2022 or 2026. TLS uses Windows Schannel by default, or OpenSSL 3.5.x LTS (see <a href="../README_windows_openssl.txt">README_windows_openssl.txt</a>).</li>
+<li>CMake 3.16 or later.</li>
 </ul>
-
-<h2 id="ExamplePrograms">Example Programs</h2>
-
-<p>The Datareel distribution contains several example programs. The examples are fully functional programs used to test and demonstrate each component of the library individually. The example programs are located within subdirectories of the &quot;examples_general&quot;, &quot;examples_database&quot;, &quot;examples_threads&quot;, and &quot;examples_socket&quot; directories.</p>
-
-<p>This&nbsp;HTML documentation set include many more example programs that can by used as templates to build applications.&nbsp;</p>
-
-<h2 id="Version62">Version 6.2</h2>
-
-<p>DataReel 6.2, 10/25/2026, stops gxBtree walks and InfoHog data file scans from looping forever on damaged or crafted files, adds gxDatabase::SetWriteHook(), fixes the wxWidgets 3 headers, adds the __wxWIN3__ macro and adds a CMake build. The shared library is built as libdatareel.so.6.2. gxDatabase has two new members, so recompile and relink. See the <a href="release_notes_6_2.html">DataReel 6.2 Release Notes</a>. Every change in the source is marked with a "10/25/2026" comment.</p>
-
-<h2 id="Version61">Version 6.1</h2>
-
-<p>DataReel 6.1, 10/25/2026, is a security fix release. gxBtree and InfoHog now check the lengths and counts they read from database and index files, so a damaged or crafted file is rejected instead of overflowing memory. The shared library is built as libdatareel.so.6.1. There are no interface changes from 6.0; recompile and relink. Supported platforms are now RHEL 10, 9 and 8, Windows 11, and Windows Server 2022 and 2025. See the <a href="release_notes_6_1.html">DataReel 6.1 Release Notes</a>. Every change in the source is marked with a "10/25/2026" comment.</p>
-
-<h2 id="Version6">Version 6.0</h2>
-
-<p>DataReel 6.0, 10/24/2026, is the first major release in many years. Version 6.0 fixes every item that the 10/14/2026 code review left as is: linked list array cleanup, gxConfig::Add(), stopping threads when a thread pool is cleared, database cache Bind() and ReleaseSegments(), RDBMS duplicate key lookups and BLOB fields in all-field keys, mixed text in the XML parser, the RSS &lt;cloud&gt; element, the glibc robust mutex problem, and all -Wall -Wextra compiler warnings.</p>
-<p>The shared library is built as libdatareel.so.6.0. Programs must be recompiled, and some interfaces changed. See the <a href="release_notes_6_0.html">DataReel 6.0 Release Notes</a>. Every change in the source is marked with a "10/24/2026" comment.</p>
-
-<h2 id="CodeReview">Code Review and Fixes</h2>
-
-<p>On 10/14/2026 the DataReel code in this repository was reviewed and fixed by Claude Code, Anthropic's AI coding assistant (<a href="https://claude.ai/code">https://claude.ai/code</a>). The review covered compiler warnings, AddressSanitizer and UndefinedBehaviorSanitizer runs of the example programs, and valgrind checks. Fixes include:</p>
+<h2 id="PackageMap">Package map</h2>
+<pre> CMakeLists.txt  Main build file (library, examples, utilities, tests)
+ include/        DataReel headers
+ src/            DataReel source files
+ examples/       Example programs: database/, tls/, general/, diagnostics/
+ utils/          db_debug and ix_debug database utilities
+ tests/          run_tests.sh, mock mail/FTPS servers, damaged file test
+ build/          Linux makefile (cd build; make; make install)
+ env/            Settings for the Linux makefile (linux.env, gnu_env.sh)
+ lib/            Library install folder used by build/makefile
+ docs/           HTML documentation (start with docs/index.html)
+ docs/ai/        Usage guides for AI coding assistants
+ AGENTS.md       Rules for AI assistants that write code with DataReel
+ llms.txt        Index of the documentation for AI tools
+ llms-full.txt   The AI guides in one file</pre>
+<h2 id="Building">Building</h2>
+<p>Linux (RHEL 8, 9, 10):</p>
+<pre> sudo dnf install gcc-c++ cmake openssl-devel
+ cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
+ cmake --build cmake-build -j
+ sudo cmake --install cmake-build          # /usr/local by default</pre>
+<p>Or with the makefile, which installs into ../lib:</p>
+<pre> cd build
+ make                 # make LARGEFILES=1 for the 64-bit database engine
+ make install</pre>
+<p>Windows (Visual Studio 2022 or 2026, from a Developer Command Prompt):</p>
+<pre> cmake -S . -B cmake-build -G &quot;Visual Studio 17 2022&quot; -A x64
+ cmake --build cmake-build --config Release
+ cmake --install cmake-build --config Release --prefix C:\datareel</pre>
+<p>Use -G &quot;Visual Studio 18 2026&quot; with Visual Studio 2026. To build with OpenSSL instead of Schannel add:</p>
+<pre> -DDATAREEL_SSL=OPENSSL -DOPENSSL_ROOT_DIR=E:/3plibs/openssl64</pre>
+<p>CMake options:</p>
+<pre> DATAREEL_64BIT_DATABASE  64-bit database engine (default OFF)
+ DATAREEL_NATIVE_TYPES    Native integer/float types (default ON)
+ DATAREEL_SSL             OPENSSL or SCHANNEL
+ DATAREEL_GUI             CONSOLE or WX (wxWidgets 3.x)
+ BUILD_SHARED_LIBS        Shared library instead of static
+ DATAREEL_BUILD_EXAMPLES  Examples, utilities and tests (default ON)</pre>
+<h2 id="UsingDatareelInYourProject">Using DataReel in your project</h2>
+<p>With an installed DataReel:</p>
+<pre> find_package(DataReel 7 REQUIRED)
+ target_link_libraries(myapp PRIVATE DataReel::datareel)</pre>
+<p>Or as a subdirectory of your project:</p>
+<pre> add_subdirectory(datareel)
+ target_link_libraries(myapp PRIVATE DataReel::datareel)</pre>
+<p>The DataReel::datareel target carries the include path and the configuration macros, which must match between the library and your program because some headers change layout with them.</p>
+<h2 id="FileFormats">File formats</h2>
+<p>DataReel 7 reads and writes the same files as 6.x. Two build settings change the file layout, so a program must use the same settings as the files it opens:</p>
 <ul>
-<li>Mismatched new[]/delete calls in UString, strutil, gxDatabase, MemoryBuffer and other classes</li>
-<li>Undefined behavior in the gxINT16/32/64 byte packing, UString Find/IFind, and gxConfig::ChangeConfigLine()</li>
-<li>Bounds checks in POD, gxRDBMS and gxsXML, and leaked buffers in gxSocket</li>
-<li>Replaced the deprecated readdir_r() and _np robust mutex calls</li>
-<li>SSL updates for OpenSSL 3: a 2048-bit (RFC 7919 ffdhe2048) default DH group, OpenSSL 3 DH parameter and RSA key interfaces, error checking and cleanup on every path, and new ssl_server example keys, certificate and DH parameters</li>
-<li>New <a href="classes/socket/gxssl.htm">gxSSL class documentation</a></li>
-<li>New documentation pages for gxListB, the thread pool and thread helpers, the XML parser, the RSS feed writer, the RDBMS layer, the B-tree and database caches, the debug manager, ix_debug and the <a href="examples/programs.htm">example programs</a>, and a modern style for all documentation pages</li>
-<li>Fixes for bugs found while writing the new pages: the RDBMS layer, thread helpers and thread pool, XML parser and RSS writer, B-tree and database caches, debug manager, B-tree Find() and gxDatabase</li>
+<li>DATAREEL_64BIT_DATABASE (makefile: LARGEFILES=1) selects 64-bit file addresses. 32-bit and 64-bit engine files are not interchangeable.</li>
+<li>DATAREEL_NATIVE_TYPES (default ON) stores gxINT32 and the other fixed types as the native C++ types. On 64-bit Linux &quot;long&quot; is 8 bytes and on Windows it is 4, so native builds on the two systems write different layouts. To share files between Linux and Windows build both with DATAREEL_NATIVE_TYPES=OFF, which uses the portable byte-order classes.</li>
 </ul>
-<p>These fixes are included in DataReel 6.0 and later.</p>
-<p>See <a href="code_review_fixes.html">Code Review and Fixes</a> for the full list of fixes, SSL updates and behavior changes. Every change in the source is marked with a "10/14/2026" comment.</p>
-
-<h2 id="UNIXLIB">Linux Builds</h2>
-
-<p>Example install and build:</p>
-
-<pre class="dr-code">&gt; mkdir -pv ~/git
-&gt; cd ~/git
-&gt; wget https://datareel.com/downloads/datareel/datareel-&lt;version&gt;.tar.gz
-&gt; tar xzf datareel-&lt;version&gt;.tar.gz
-&gt; mv datareel-&lt;version&gt; datareel
-&gt; cd datareel
-&gt; cd env</pre>
-
-<p>In the env directory edit the linux.env file if you need to make any&nbsp;adjustments or modifications to the build&nbsp;</p>
-
-<pre class="dr-code">&gt; source gnu_env.sh
-&gt; cd ../build
-&gt; make 
-&gt; make install
-&gt; make clean</pre>
-
-<p>SSL is built into the libdatareel library with OpenSSL by default. The OpenSSL development files must be installed (libssl-dev on Debian and Ubuntu, openssl-devel on RHEL and Fedora). Linux builds always use the operating system's OpenSSL; do not build against a private OpenSSL copy on Linux or mix it with the system version. On a system without OpenSSL build with:</p>
-
-<pre class="dr-code">&gt; make USE_OPEN_SSL=NO
-&gt; make USE_OPEN_SSL=NO install
-&gt; make USE_OPEN_SSL=NO clean</pre>
-
-<p>To build example programs:</p>
-
-<pre class="dr-code">&gt; cd ~/git/datareel/examples_database
-&gt; ls -l 
-&gt; cd simple
-&gt; make</pre>
-
-<p>To build utility programs</p>
-
-<pre class="dr-code">&gt; cd ~/git/datareel/utils
-&gt; ls
-&gt; cd hexdump
-&gt; make </pre>
-
-<h2 id="WINLIB">Windows Builds</h2>
-
-<p>In the example build below we will assume you are working with a copy of the datareel library unpacked to the "%USERPROFILE%\datareel" location.</p>
-<p>In this document we will assume you have installed Visual Studio 2026 and will be working on the command line.</p>
-<p>To setup a command line build open a Run dialog and enter cmd to open a command prompt.</p>
-<p>To setup the VS 2026 environment the msvc.bat file is provided in the env directory. The default build is 64-bit x64. For 32-bit x86 builds of legacy code use env\msvc32_vs2026.bat instead of env\msvc.bat.</p>
-<p>SSL is built into the gxcode library. By default the gxSSL class uses the native Windows Schannel (SSPI) TLS API, so OpenSSL is not needed. OpenSSL is still available as an option for existing code, see below. When you build with OpenSSL on Windows, use only an OpenSSL 3.5.x LTS (long term support) release, 64-bit by default and 32-bit for legacy builds. See README_windows_openssl.txt.</p>
-<p>To build the datareel static library:</p>
-<pre class="dr-code">&gt; cd %USERPROFILE%\datareel
-&gt; env\msvc.bat
-&gt; cd winslib
-&gt; nmake -f msvc.mak</pre>
-<p>The utility programs and examples programs will link to the static library. Programs link to secur32.lib, crypt32.lib, and ncrypt.lib for SSL, which are part of the Windows SDK.</p>
-<p>To build the example programs:</p>
-<pre class="dr-code">&gt; cd %USERPROFILE%\datareel\examples_general
-&gt; cd string_class
-&gt; nmake -f msvc.mak</pre>
-<pre class="dr-code">&gt; cd %USERPROFILE%\datareel\examples_socket
-&gt; cd https_client
-&gt; nmake -f msvc.mak</pre>
-<p>To build the datareel library as a DLL:</p>
-<pre class="dr-code">&gt; cd %USERPROFILE%\datareel
-&gt; env\msvc.bat
-&gt; cd dll
-&gt; nmake -f msvc.mak</pre>
-<p>To build the datareel static library with OpenSSL instead of Schannel:</p>
-<pre class="dr-code">&gt; cd %USERPROFILE%\datareel
-&gt; env\msvc.bat
-&gt; cd winslib
-&gt; notepad openssl.env</pre>
-<p>In the openssl.env file set the path to your OpenSSL 3.5.x LTS installation directory (3plibs\openssl64 by default, or 3plibs\openssl32 for a legacy 32-bit build).</p>
-<pre class="dr-code">&gt; nmake -f msvc_ssl.mak</pre>
-<p>Programs that link to the OpenSSL build of the library must also be built with USESSL=1. Set the path to your OpenSSL 3.5.x LTS install in the following ENV file:</p>
-<pre class="dr-code">&gt; cd %USERPROFILE%\datareel\env
-&gt; notepad openssl_windows.env</pre>
-<p>Then build your program or an example program with USESSL=1:</p>
-<pre class="dr-code">&gt; cd %USERPROFILE%\datareel\examples_socket
-&gt; cd https_client
-&gt; nmake -f msvc.mak USESSL=1</pre>
-<p>Before running the example program in you user environment add the OpenSSL 3.5.x bin dir to your PATH:</p>
-<pre class="dr-code">&gt; set PATH=%PATH%;e:\3plibs\openssl64\bin</pre>
-<p>To build the datareel library as a DLL with OpenSSL:</p>
-<pre class="dr-code">&gt; cd %USERPROFILE%\datareel
-&gt; env\msvc.bat
-&gt; cd dll
-&gt; notepad openssl.env</pre>
-<p>In the openssl.env file set the path to your OpenSSL 3.5.x LTS installation directory (3plibs\openssl64 by default, or 3plibs\openssl32 for a legacy 32-bit build).</p>
-<pre class="dr-code">&gt; nmake -f msvc_ssl.mak</pre>
-<p>See README_windows_openssl.txt for building OpenSSL 3.5.x LTS on Windows.</p>
-
-<!-- Start Copyright Information -->
-<p><font color="000000">DataReel Copyright &copy; 2001-2026&nbsp;DataReel Software Development</font></p>
+<h2 id="ExampleProgramsAndTests">Example programs and tests</h2>
+<p>The examples are built with the library. Each is one source file:</p>
+<pre> examples/database/   gxDatabase, gxBtree, POD, InfoHog, gxRDBMS
+ examples/tls/        TLS echo server/client, HTTPS server/client,
+                      SMTP, POP3, FTPS, gxStream server/client
+ examples/general/    gxConfig, LogFile, ThreadPool
+ examples/diagnostics ping, telnet</pre>
+<p>tests/run_tests.sh builds everything with CMake and runs the examples against each other, the mail and FTPS clients against mock servers (tests/mock_servers.py, needs python3), and tests/damaged_files, which reads deliberately damaged database files. Pass CMAKE_OPTS to test other configurations:</p>
+<pre> tests/run_tests.sh
+ CMAKE_OPTS=&quot;-DDATAREEL_64BIT_DATABASE=ON&quot; tests/run_tests.sh /tmp/b64</pre>
+<h2 id="Documentation">Documentation</h2>
+<p>Open <a href="index.html">docs/index.html</a> in a browser. The class library pages are under docs/classes, the examples under docs/examples and the utilities under docs/utils. The guides in <a href="ai/README.md">docs/ai</a> (also collected in <a href="../llms-full.txt">llms-full.txt</a>) are short task-oriented descriptions of the API with working code, written for AI coding assistants but useful to anyone.</p>
+<h2 id="ReleaseHistory">Release history</h2>
+<pre> 7.0  10/26/2026  Modern C++17 rewrite, TLS-only networking, IPv6,
+                  datareel namespace, CMake (RELEASE_NOTES_7.0.txt)
+ 6.2  10/25/2026  Loop guards for damaged files, SetWriteHook()
+ 6.1  10/25/2026  Security fixes in gxBtree and InfoHog
+ 6.0              Code review fixes (RELEASE_NOTES_6.0.txt and
+                  CODE_REVIEW_FIXES.txt)</pre>
+<p>Release notes for the earlier versions are in <a href="release_notes_6_2.html">docs/release_notes_6_2.html</a>, <a href="release_notes_6_1.html">docs/release_notes_6_1.html</a> and <a href="release_notes_6_0.html">docs/release_notes_6_0.html</a>.</p>
 </main>
-<footer class="dr-footer">DataReel 6.2 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 7.0 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

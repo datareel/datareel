@@ -72,6 +72,7 @@
 
 <h2 id="Overview">Overview</h2>
 <P>The embedded Telnet client is a cross platform Telnet implementation used with applications that require use of the Telnet protocol as a keyboard and screen interface to the TCP stack. The gxsTelnet Client class is derived from the <A HREF="gxsocket.htm">gxSocket</A> class and supports NVT (Network Virtual Terminal) terminal negotiation. The character set is restricted to 7 bits sent as a byte value with the most significant bit cleared. All terminal emulations other then NVT are handled by terminal type set in the environment by the TERM variable. This implementation works well in a UNIX to UNIX environment. However, in a Windows to UNIX environment your application must provide the API to perform specific terminal emulations. </P>
+<P><B>Telnet sends everything, including passwords, in plain text.</B> It is the one DataReel protocol that is not encrypted and is kept for devices and test systems that offer nothing else. Use it only on trusted networks; use SSH for remote logins.</P>
 
 <h2 id="Constants">Constants</h2>
 <PRE>// Telnet command codes
@@ -187,7 +188,7 @@ enum <A NAME="gxsTelnetState">gxsTelnetState</A> { // Telnet transition state en
 <div class="dr-fn" id="SetTimeOut"><code class="dr-sig">void gxsTelnetClient::SetTimeOut(int seconds, int useconds)</code><p class="dr-desc">Public member function used to set telnet timeout values for this client session.</p></div>
 <div class="dr-fn" id="WaitForReply"><code class="dr-sig">int gxsTelnetClient::WaitForReply()</code><p class="dr-desc">Public member function that returns false if a reply time is longer then the timeout values.</p></div>
 </main>
-<footer class="dr-footer">DataReel 6.2 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 7.0 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

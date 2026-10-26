@@ -75,7 +75,7 @@
 <A HREF="#BtreeCacheNodeFunctions">B-tree Cache Node Functions</A></P>
 
 <h2 id="Overview">Overview</h2>
-<P>The B-tree cache classes are a special adaptation of the <A HREF="../general/devcache.htm">Device Cache</A> classes. They use the <A HREF="btnode.htm">BtreeNode</A> class as the bucket type and are tuned for B-tree operations. The cache links disk-based B-tree nodes to memory-based cache buckets. This lets the <A HREF="gxbtree.htm">gxBtree</A> class work with cache buckets in place of disk-based nodes. The goal is to reduce disk reads and writes during insert, find, and delete operations.</P>
+<P>The B-tree cache classes use the <A HREF="btnode.htm">BtreeNode</A> class as the bucket type and are tuned for B-tree operations. The cache links disk-based B-tree nodes to memory-based cache buckets. This lets the <A HREF="gxbtree.htm">gxBtree</A> class work with cache buckets in place of disk-based nodes. The goal is to reduce disk reads and writes during insert, find, and delete operations.</P>
 <P>The B-tree cache uses three cooperating classes:</P>
 <P><A HREF="#BtreeBucketFunctions">BtreeBucket</A> - Derived from the <A HREF="btnode.htm">BtreeNode</A> class. A bucket holds one B-tree node in memory and records the file address of that node. Each bucket has a dirty flag that tells the cache the in-memory copy has changed and must be written to disk. Buckets also have previous and next pointers used to link them into a list.</P>
 <P><A HREF="#BtreeCacheFunctions">BtreeCache</A> - Allocates and frees a fixed number of buckets and handles requests for memory-based B-tree nodes. When a node is requested the cache first looks for a bucket already holding that node. If none is found it reuses the least recently reserved bucket, writing it to disk first if it is dirty, clears it, and loads the node from disk. If the cache is not connected to a file, a dirty bucket is not reused. Buckets are kept in a circular doubly linked list. The head of the list is the most recently reserved bucket and the tail is the least recently reserved bucket.</P>
@@ -244,7 +244,7 @@ public: // Cache statistics
 <div class="dr-fn" id="BtreeCacheNode_BtreeCacheNode_overload_2"><code class="dr-sig">BtreeCacheNode::BtreeCacheNode(const BtreeCacheNode &amp;ob)</code><p class="dr-desc">Copy constructor. Copies the bucket and cache pointers from "ob" and sets the node address to zero. The node address is not copied on purpose: the cached gxBtree search functions copy the current node to get a node on the same cache and test for a zero address to see if a parent node has been set.</p></div>
 <div class="dr-fn" id="BtreeCacheNode_Destructor"><code class="dr-sig">BtreeCacheNode::~BtreeCacheNode()</code><p class="dr-desc">Class destructor. Does nothing. The bucket remains in the cache.</p></div>
 </main>
-<footer class="dr-footer">DataReel 6.2 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 7.0 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

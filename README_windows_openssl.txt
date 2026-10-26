@@ -118,56 +118,23 @@ script with debug-VC-WIN64A, or debug-VC-WIN32 for 32-bit builds.
 -----------------------------------
 DataReel Build with OpenSSL Enabled
 -----------------------------------
-In the example build below we will assume you are working with a copy of the datareel
-library unpacked to the "%USERPROFILE%\datareel" location.
 
-NOTE: SSL is built into the datareel library and uses the native
-Windows Schannel API by default, so OpenSSL is not required. Use the
-OpenSSL build below for code that calls OpenSSL functions directly.
-Programs that link to the OpenSSL build must be built with USESSL=1,
-for example: nmake -f msvc.mak USESSL=1
-
-To build the datareel library with OpenSSL start with the static library build:
+DataReel 7 uses the Windows Schannel TLS library by default, which
+needs nothing installed. To build with OpenSSL instead, point CMake at
+the OpenSSL install. From a Visual Studio Developer Command Prompt:
 
 > cd %USERPROFILE%\datareel
-> env\msvc.bat
-> cd winslib 
-> notepad openssl.env
+> cmake -S . -B build-openssl -G "Visual Studio 18 2026" -A x64 ^
+    -DDATAREEL_SSL=OPENSSL -DOPENSSL_ROOT_DIR=E:/3plibs/openssl64 ^
+    -DOPENSSL_USE_STATIC_LIBS=ON
+> cmake --build build-openssl --config Release
 
-In the openssl.env file set the path to your openssl installation directory.
+Use -G "Visual Studio 17 2022" with Visual Studio 2022. The examples
+are built into build-openssl\examples\Release. With static OpenSSL
+libraries the programs need no OpenSSL DLLs; with the shared libraries
+add the OpenSSL bin directory to your PATH before running them:
 
-> nmake -f msvc_ssl.mak
+> set PATH=%PATH%;E:\3plibs\openssl64\bin
 
-The utility programs and examples programs will link to the static
-library. Before you can build the utils or example programs with SSL
-enabled you must set the path to your openssl install in the following
-ENV file: 
-
-> cd %USERPROFILE%\datareel\env
-> notepad openssl_windows.env
-
-In the openssl_windows.env  set the path to your openssl installation directory.
-
---
-To build the example programs:
-
-> cd %USERPROFILE%\datareel\examples_socket
-> cd https_client
-> nmake -f msvc.mak USESSL=1
-
-Before running the example program in you user environment add the
-openssl\bin dir to your PATH:
-
-> set PATH=%PATH%;e:\3plibs\openssl64\bin
-
---
-To build the datareel library as a DLL with SSL enabled:
-
-> cd %USERPROFILE%\datareel
-> env\msvc.bat
-> cd dll
-> notepad openssl.env
-
-In the openssl.env file set the path to your openssl installation directory.
-
-> nmake -f msvc.mak
+OpenSSL 3.2 and later builds also trust the Windows certificate store,
+so HTTPS servers with public certificates verify without a CA file.

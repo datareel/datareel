@@ -75,13 +75,13 @@
 <A HREF="#DBCacheNodeFunctions">Database Cache Node Functions</A></P>
 
 <h2 id="Overview">Overview</h2>
-<P>The database file cache classes are experimental. They are a special adaptation of the <A HREF="../general/devcache.htm">Device Cache</A> classes that use raw file data as the segment type. The cache links blocks of file data to memory-based cache segments, so an application can read and write cached segments in place of the disk file. The goal is to reduce disk reads and writes.</P>
+<P>The database file cache classes are experimental. They use raw file data as the segment type. The cache links blocks of file data to memory-based cache segments, so an application can read and write cached segments in place of the disk file. The goal is to reduce disk reads and writes.</P>
 <P>The cache works directly on a <A HREF="gxdfptr.htm">gxdFPTR</A> file pointer, not on a gxDatabase object. It reads and writes raw bytes at the file addresses you give it. It does not allocate database blocks, write block headers, or calculate checksums. Use the gxDatabase engine to allocate blocks and use the cache to move the object data.</P>
 <P>The database file cache uses three cooperating classes:</P>
 <P><A HREF="#DatabaseSegmentFunctions">gxDatabaseSegment</A> - A variable length memory segment that holds a copy of file data and the file address it came from. Each segment has a dirty flag that tells the cache the in-memory copy has changed and must be written to disk. Segments also have previous and next pointers used to link them into a list.</P>
 <P><A HREF="#DatabaseCacheFunctions">gxDatabaseCache</A> - Allocates and frees a fixed number of segments and handles requests for file data. When data is requested the cache first looks for a segment already holding that file address. If none is found it reuses a segment that is not dirty, or flushes the least recently reserved segment if every segment is dirty. The reused segment is cleared, moved to the head of the list, and loaded with data from disk. Segments are kept in a circular doubly linked list. The head of the list is the most recently reserved segment and the tail is the least recently reserved segment.</P>
 <P><A HREF="#DBCacheNodeFunctions">gxDBCacheNode</A> - A lightweight pointer used to read and write cached segments. Each cache node stores a file address, a pointer to the segment holding that address, and a pointer to its cache.</P>
-<P>The cache owns all segment memory. The segment array is allocated when the cache is constructed and freed when the cache is destroyed. Each segment owns a <A HREF="../general/membuf.htm">MemoryBuffer</A> that grows to fit the largest block of data loaded into it. Cache nodes never own memory.</P>
+<P>The cache owns all segment memory. The segment array is allocated when the cache is constructed and freed when the cache is destroyed. Each segment owns a std::vector&lt;unsigned char&gt; ("ds") that grows to fit the largest block of data loaded into it. Cache nodes never own memory.</P>
 <P>The cache does not write changes to disk until a segment is reused or one of the flush functions is called. The destructor flushes all dirty segments to the connected file. If the file will be closed before the cache is destroyed, call <A HREF="#gxDatabaseCache_Flush">Flush()</A> and then <A HREF="#gxDatabaseCache_ReleaseFile">ReleaseFile()</A> first.</P>
 <P>A file address of -1 marks a segment or cache node that is not linked to any file data.</P>
 
@@ -125,7 +125,7 @@ public:
   FAU_t <B>ds_address</B>;        // File address of this database segment
 
 public: // Persistent data members
-  MemoryBuffer <B>ds</B>; // In memory copy of raw file data
+  std::vector&lt;unsigned char&gt; <B>ds</B>; // In memory copy of raw file data
 };
 
 class gxDatabaseCache
@@ -134,7 +134,7 @@ public: // Cache statistics
   unsigned <B>uncached_reads</B>; // Counts the number of disk reads
   unsigned <B>cached_reads</B>;   // Counts the number of cached reads
 };</PRE>
-<P>Read the cached data through the segment's "ds" <A HREF="../general/membuf.htm">MemoryBuffer</A>. If you change the data in "ds" directly, call <A HREF="#gxDatabaseSegment_SetDirty">SetDirty()</A> so the change is written to disk. The "prev" and "next" pointers are managed by the cache and should not be changed by the application.</P>
+<P>Read the cached data through the segment's "ds" vector. If you change the data in "ds" directly, call <A HREF="#gxDatabaseSegment_SetDirty">SetDirty()</A> so the change is written to disk. The "prev" and "next" pointers are managed by the cache and should not be changed by the application.</P>
 <P>The statistics counters are updated by <A HREF="#gxDatabaseCache_AllocSegment">gxDatabaseCache::AllocSegment()</A>. A request for an address already in the cache increments "cached_reads". A request for an address not in the cache increments "uncached_reads", even if no data is read from disk. Use <A HREF="#gxDatabaseCache_ResetStats">ResetStats()</A> to set both counters to zero.</P>
 
 <h2 id="DatabaseSegmentFunctions">Database Segment Functions</h2>
@@ -262,7 +262,7 @@ public: // Cache statistics
 <div class="dr-fn" id="gxDBCacheNode_gxDBCacheNode_overload_2"><code class="dr-sig">gxDBCacheNode::gxDBCacheNode(const gxDBCacheNode &amp;ob)</code><p class="dr-desc">Copy constructor. Copies the segment and cache pointers from "ob" and sets the file address to -1 (not linked). <B>NOTE</B>: 10/14/2026: The file address was set to 0, which is a valid file offset for this cache.</p></div>
 <div class="dr-fn" id="gxDBCacheNode_Destructor"><code class="dr-sig">gxDBCacheNode::~gxDBCacheNode()</code><p class="dr-desc">Class destructor. Does nothing. The segment remains in the cache.</p></div>
 </main>
-<footer class="dr-footer">DataReel 6.2 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 7.0 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

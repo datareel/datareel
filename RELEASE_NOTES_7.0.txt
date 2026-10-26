@@ -1,0 +1,200 @@
+DataReel 7.0 Release Notes, 10/26/2026
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.0 is a modernization release. The library now requires
+C++17, uses the C++ standard library for strings, containers,
+threads, files and time, and keeps the parts the standard library does
+not have: the object database, TLS networking and the portable file
+formats. Every network protocol except telnet and ping uses TLS.
+
+Database, index, InfoHog and gxRDBMS files are unchanged. The same
+programs built against 6.2 and 7.0 write byte-for-byte identical
+files, and 7.0 reads files written by 6.2.
+
+The library version is 7.0 (version.txt, DATAREEL_VERSION_STRING in
+gxdlcode.h, libdatareel.so.7.0). The database file format version
+(gxDatabaseVersionNumber 4630) is unchanged.
+
+REQUIREMENTS
+------------
+- A C++17 compiler: GCC 8 or later (RHEL 8, 9, 10) or Visual Studio
+  2022 or 2026.
+- CMake 3.16 or later (the Linux makefile in build/ is still there).
+- TLS library: OpenSSL 1.1.1 or later on Linux; Windows Schannel (the
+  default) or OpenSSL 3.x on Windows.
+
+REMOVED, AND WHAT TO USE INSTEAD
+--------------------------------
+ UString, gxString, gxStringw     std::string, std::wstring, and the
+                                  helpers in strutil.h
+ strutil C string functions       strutil.h std::string helpers
+ MemoryBuffer, MemoryBlock        std::vector<unsigned char>
+ gxList, gxListB, gxBStree        std::list, std::vector, std::set,
+                                  std::map
+ DiskFileB, futils                std::fstream, std::filesystem
+ SysTime                          systime.h functions, std::chrono
+ gxThread, gxThreadAPIWrapper,    std::thread or std::jthread
+ thread helpers, gThreadT
+ gxMutex, gxCondition,            std::mutex, std::condition_variable,
+ gxSemaphore                      std::counting_semaphore (C++20)
+ thrPool                          datareel::ThreadPool (thrpool.h)
+ gxDeviceCache, device buckets    (no replacement; the B-tree and
+                                  database caches remain)
+ FString                          char arrays or std::array
+ gxIP32, gxMAC48                  gxsAddress, std::string
+ gxDatagram                       gxSocket::OpenDatagram()/SendTo()
+ gxsHTML, gxsXML, gxsRSS parsers  a dedicated parser (pugixml,
+                                  libxml2)
+ HyperText, PostScriptDrv,        std::format/std::ostream
+ asprint report writers
+ Terminal (curses/ANSI.SYS)       ncurses directly
+ Ehandler, ostrbase               exceptions, std::ostream
+ leaktest (MSVC CRT)              AddressSanitizer, valgrind
+ gxsSocketUtils (gxsutils.h)      (moved into gxsPing)
+ wserror (Winsock messages)       gxSocket::SocketExceptionMessage()
+ gxrdbsql.h (empty placeholder)   SQLite if you need SQL
+ stdafx.h, gxdlincs.h, wxincs.h,  (not needed)
+ wx2incs.h
+ hexdump, ffind, txfilter utils   xxd, find, sed, PowerShell
+ MSVC nmake, Borland, MinGW and   CMake
+ Intel makefiles; dll/, winslib/
+
+REWRITTEN CLASSES
+-----------------
+Networking
+- gxSocket supports IPv4 and IPv6. Connect(host, port, timeout) tries
+  every address a name resolves to; Listen(port) listens on one dual-
+  stack socket; Accept() returns the client as a new gxSocket (the
+  old remote_socket/RemoteRecv/RemoteSend server model is gone).
+  Windows builds use Winsock 2.
+- gxSSL requires TLS 1.2 or later. gxSSLMethod is now gxSSL_TLS,
+  gxSSL_TLSv1_2, gxSSL_TLSv1_3 or gxSSL_DTLS. The system certificate
+  store is loaded, VerifyCert() checks subject alternative names and
+  IP addresses, and clients verify certificates by default.
+  MakeDHParms(), LoadDHParms(), MakeRSAEphKey() and gxRandom were
+  removed; MakeRSAPrivateKey() makes 3072-bit keys by default.
+- New gxsTLSConnection and gxsTLSServer (gxstls.h) are the
+  connections every protocol uses.
+- gxsHTTPClient is HTTPS only (gxsHTTPSClient was merged into it), with
+  a gxsHTTPMessage request/response type that also serves HTTPS
+  servers.
+- gxsSMTPClient, gxsPOP3Client and gxsFTPClient only connect with
+  TLS: implicit TLS or STARTTLS/STLS/AUTH TLS. A server that does not
+  offer TLS is refused. FTPS data connections use PROT P and reuse the
+  control connection's TLS session.
+- gxStream runs over a gxsTLSConnection; the block format is the same.
+  Block lengths from the network are limited (SetMaxBlockSize()).
+- gxsPing supports IPv6, needs no root on Linux when unprivileged ICMP
+  sockets are enabled, and uses IcmpSendEcho on Windows.
+- gxsTelnetClient is unchanged apart from the new gxSocket. It is the
+  one plain text protocol left.
+
+General
+- gxConfig, LogFile (now thread safe), CDate, the base 64 functions
+  and the URL parser use std::string. strutil.h, systime.h, logfile.h,
+  gxconfig.h and thrpool.h are in the datareel namespace.
+
+Database
+- gxRDBMS, InfoHog, gxDatabaseDebugManager and gxDatabaseCache use
+  std::string and std::vector internally. gxRDBMS::Search() and
+  SortOrderList() fill a std::set<gxrdDatabaseRecord>.
+
+NAMESPACE
+---------
+Every class, type, constant and function is declared in namespace
+datareel. gxdlcode.h, which every DataReel header includes, adds
+"using namespace datareel;" so 6.x code that uses unqualified names
+still compiles. Define DATAREEL_NO_GLOBAL_NAMES before including any
+DataReel header to keep the names out of the global namespace and
+qualify them (datareel::gxDatabase).
+
+BUG AND SECURITY FIXES
+----------------------
+- BtreeBucket::ReadNode() (the cached B-tree) trusted the key count in
+  the index file; a damaged or crafted file overflowed the heap. This
+  is the cached version of the gxBtree::ReadNode() fix in 6.1.
+- The cached B-tree walks stop after gxBtreeMaxNodeReads node reads,
+  like the uncached walks in 6.2.
+- InfoHog::Read() and gxPersistent::ReadString() checked lengths read
+  from the file through a signed cast, so very large lengths passed
+  the check. gxDatabase::CalcChecksum() could allocate a huge buffer
+  from a damaged block header. All now return an error.
+- gxrdDatabaseRecord::Compare() did not match a search string without
+  a null against a stored string with its null, so gxRDBMS searches on
+  CHAR fields found nothing.
+- gxDatabase::FindNextObject() and FindNextBlock() skipped a block
+  when given an object address and returned the last block again at
+  the end of the file, so a walk never ended. The next and previous
+  navigation functions were rewritten: the offset is an object or
+  block address, each returns 0 at the end, and FindPrevBlock() no
+  longer skips deleted blocks (FindPrevObject() does).
+- The B-tree cache did not work on index files opened read only.
+- gxTelnetClient's terminal type, long database file names and the
+  serial block server could overflow buffers or allocate without
+  limit.
+- Table header padding bytes are zeroed instead of left over memory.
+- The SMTP Date header is RFC 5322 (numeric time zone).
+- The old OpenSSL PRNG seeding from gxRandom tables was removed; the
+  operating system seeds OpenSSL.
+
+PORTING FROM 6.x
+----------------
+1. Build with CMake (or the new build/makefile) and C++17.
+2. Replace gxString/UString with std::string. Most member calls have a
+   strutil.h function: TrimLeadingSpaces() -> trim_left_in_place(s),
+   DeleteBeforeIncluding(x) -> delete_before_including(s, x),
+   Atoi() -> to_int(s), IFind() -> ifind(s, p), ToUpper() ->
+   s = to_upper(s), FilterChar(c) -> erase_char(s, c), and
+   "s << a << 42" -> str_append(s, a, 42). Find() returns
+   std::string::npos instead of -1.
+3. Replace MemoryBuffer with std::vector<unsigned char> (m_buf() ->
+   data(), length() -> size(), Load(p, n) -> assign(p, p + n)).
+4. Replace the thread classes with std::thread, std::mutex and
+   std::condition_variable, and thrPool with datareel::ThreadPool.
+5. Network code: open TLS connections with gxsTLSConnection or the
+   protocol clients. Servers use gxsTLSServer with a certificate and
+   key. Test servers with self-signed certificates need SetCAFile()
+   on the client (or SetVerifyPeer(false) for tests only).
+6. gxConfig::Load() and the Write functions return bool (true on
+   success); GetStrValue() returns const char* or null.
+7. LogFile no longer derives from DiskFileB; use Open(), WriteLine(),
+   Write() and operator<<.
+8. CDate::c_str() is now str() and returns std::string.
+9. Keep DATAREEL_64BIT_DATABASE and DATAREEL_NATIVE_TYPES the same as
+   your 6.x build so your files keep their layout.
+
+GUIDES FOR AI CODING ASSISTANTS
+-------------------------------
+AGENTS.md, llms.txt, llms-full.txt and docs/ai describe how to use
+DataReel for TLS communications and object databases, with complete
+sample programs (docs/ai/samples) that tests/run_tests.sh builds and
+runs. docs/bin/make_ai_docs.py copies the samples into the guides and
+rebuilds llms.txt and llms-full.txt.
+
+HOW THE RELEASE WAS TESTED
+--------------------------
+- tests/run_tests.sh on RHEL 10: 42 checks covering every database
+  example, InfoHog, gxRDBMS, TLS echo over IPv4 and IPv6, certificate
+  rejection, HTTPS (including path traversal and http:// refusal),
+  gxStream, SMTP (implicit TLS, STARTTLS, refusing a server without
+  STARTTLS), POP3 (implicit TLS and STLS) and FTPS (explicit and
+  implicit, upload, list, download) and the AI guide samples, in
+  32-bit and 64-bit engine,
+  native and portable type, and static and shared library builds.
+- tests/damaged_files read thousands of randomly damaged database,
+  index and InfoHog files without a crash or endless loop, and ran
+  clean under valgrind.
+- The database examples, InfoHog and gxRDBMS programs were run with
+  6.2 and 7.0 and wrote identical files; 7.0 opened the 6.2 files.
+- Windows 11 with Visual Studio 2026, with both Schannel and OpenSSL
+  3.5: every example and test passed, including HTTPS to a public site
+  through the Windows certificate store, the mail and FTPS clients
+  against the Linux mock servers, and a Linux OpenSSL client with a
+  Windows Schannel server.
+
+SUPPORTED PLATFORMS
+-------------------
+- Linux: Red Hat Enterprise Linux 10 (the default build platform), 9
+  and 8, with the system OpenSSL.
+- Windows: Windows 11 and Windows Server 2022 and 2025, 64-bit, with
+  Visual Studio 2022 or 2026, using Schannel or OpenSSL 3.5.x LTS.
