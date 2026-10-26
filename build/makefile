@@ -71,14 +71,11 @@ GLIB_SOCKET_EX_OBJECTS = gxshttp$(OBJ_EXT) \
 	gxsping$(OBJ_EXT) \
 	gxspop3$(OBJ_EXT) \
 	gxsftp$(OBJ_EXT) \
-	gxshtml$(OBJ_EXT) \
 	gxsurl$(OBJ_EXT) \
 	gxsutils$(OBJ_EXT) \
 	gxs_b64$(OBJ_EXT) \
 	gxtelnet$(OBJ_EXT) \
 	wserror$(OBJ_EXT) \
-	gxsrss$(OBJ_EXT) \
-	gxsxml$(OBJ_EXT) \
 	gxssl$(OBJ_EXT)
 
 # Database socket library components
@@ -92,18 +89,9 @@ GLIB_SERIAL_CORE_OBJECTS = gxscomm$(OBJ_EXT)
 GLIB_SERIAL_DB_OBJECTS = scomserv$(OBJ_EXT)
 
 # Thread library components
-GLIB_THREAD_OBJECTS = gthreadt$(OBJ_EXT) \
-	gxmutex$(OBJ_EXT) \
-	thelpers$(OBJ_EXT) \
-	thrapiw$(OBJ_EXT) \
-	gxthread$(OBJ_EXT) \
-	gxsema$(OBJ_EXT) \
-	gxcond$(OBJ_EXT) \
-	thrpool$(OBJ_EXT)
 
 # General purpose library components
-GLIB_GP_OBJECTS = asprint$(OBJ_EXT) \
-	bstreei$(OBJ_EXT)  \
+GLIB_GP_OBJECTS = bstreei$(OBJ_EXT)  \
 	cdate$(OBJ_EXT)  \
 	devcache$(OBJ_EXT) \
 	dfileb$(OBJ_EXT) \
@@ -113,12 +101,9 @@ GLIB_GP_OBJECTS = asprint$(OBJ_EXT) \
 	gxip32$(OBJ_EXT) \
 	gxlistb$(OBJ_EXT) \
 	gxmac48$(OBJ_EXT) \
-	htmldrv$(OBJ_EXT) \
 	logfile$(OBJ_EXT) \
 	memblock$(OBJ_EXT) \
 	membuf$(OBJ_EXT) \
-	ostrbase$(OBJ_EXT) \
-	pscript$(OBJ_EXT)  \
 	strutil$(OBJ_EXT) \
 	systime$(OBJ_EXT) \
 	ustring$(OBJ_EXT) 
@@ -126,11 +111,9 @@ GLIB_GP_OBJECTS = asprint$(OBJ_EXT) \
 # Optional debug objects
 
 # Term I/O objects
-GLIB_TERM_OBJECTS = terminal$(OBJ_EXT)
 
 # Console/GUI messaging gxcode objects
-GLIB_MSG_OBJECTS = ehandler$(OBJ_EXT) \
-	gxdstats$(OBJ_EXT)
+GLIB_MSG_OBJECTS = gxdstats$(OBJ_EXT)
 
 # Set the library components to compile here
 GLIB_OBJECTS = $(GLIB_DATABASE_CORE_OBJECTS) \
@@ -141,9 +124,7 @@ GLIB_OBJECTS = $(GLIB_DATABASE_CORE_OBJECTS) \
 	$(GLIB_SOCKET_DB_OBJECTS) \
 	$(GLIB_SERIAL_CORE_OBJECTS) \
 	$(GLIB_SERIAL_DB_OBJECTS) \
-	$(GLIB_THREAD_OBJECTS) \
 	$(GLIB_GP_OBJECTS) \
-	$(GLIB_TERM_OBJECTS) \
 	$(GLIB_MSG_OBJECTS) \
 	$(GLIB_DEBUG_OBJECTS)
 

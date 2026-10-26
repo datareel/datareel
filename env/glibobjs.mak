@@ -31,9 +31,6 @@ GLIB_SRC_PATH = $(GCODE_LIB_DIR)$(PATHSEP)src$(PATHSEP)
 
 # Rules to compile library components 
 # ===============================================================
-asprint$(OBJ_EXT):	$(GLIB_SRC_PATH)asprint.cpp $(ASPRINT_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)asprint.cpp
 
 bstreei$(OBJ_EXT):	$(GLIB_SRC_PATH)bstreei.cpp $(GXSTREEI_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -75,9 +72,6 @@ dfileb$(OBJ_EXT):	$(GLIB_SRC_PATH)dfileb.cpp $(DFILEB_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)dfileb.cpp
 
-ehandler$(OBJ_EXT):	$(GLIB_SRC_PATH)ehandler.cpp $(EHANDLER_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)ehandler.cpp
 
 fstring$(OBJ_EXT):	$(GLIB_SRC_PATH)fstring.cpp $(FSTRING_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -91,17 +85,11 @@ gpersist$(OBJ_EXT):	$(GLIB_SRC_PATH)gpersist.cpp $(GPERSIST_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gpersist.cpp
 
-gthreadt$(OBJ_EXT):	$(GLIB_SRC_PATH)gthreadt.cpp $(GTHREADT_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gthreadt.cpp
 
 gxbtree$(OBJ_EXT):	$(GLIB_SRC_PATH)gxbtree.cpp $(GXTREE_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxbtree.cpp
 
-gxcond$(OBJ_EXT):	$(GLIB_SRC_PATH)gxcond.cpp $(GXCOND_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxcond.cpp
 
 gxconfig$(OBJ_EXT):	$(GLIB_SRC_PATH)gxconfig.cpp $(GXCONFIG_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -167,9 +155,6 @@ gxmac48$(OBJ_EXT):	$(GLIB_SRC_PATH)gxmac48.cpp $(GXMAC48_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxmac48.cpp
 
-gxmutex$(OBJ_EXT):	$(GLIB_SRC_PATH)gxmutex.cpp $(GXMUTEX_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxmutex.cpp
 
 gxrdbdef$(OBJ_EXT):	$(GLIB_SRC_PATH)gxrdbdef.cpp $(GXRDBDEF_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -188,25 +173,13 @@ gxscomm$(OBJ_EXT):	$(GLIB_SRC_PATH)gxscomm.cpp $(GXSCOMM_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxscomm.cpp
 
-gxsema$(OBJ_EXT):	$(GLIB_SRC_PATH)gxsema.cpp $(GXSEMA_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxsema.cpp
 
 gxsftp$(OBJ_EXT):	$(GLIB_SRC_PATH)gxsftp.cpp $(GXSFTP_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxsftp.cpp
 
-gxshtml$(OBJ_EXT):	$(GLIB_SRC_PATH)gxshtml.cpp $(GXSHTML_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxshtml.cpp
 
-gxsrss$(OBJ_EXT):	$(GLIB_SRC_PATH)gxsrss.cpp $(GXSRSS_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxsrss.cpp
 
-gxsxml$(OBJ_EXT):	$(GLIB_SRC_PATH)gxsxml.cpp $(GXSXML_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxsxml.cpp
 
 gxshttp$(OBJ_EXT):	$(GLIB_SRC_PATH)gxshttp.cpp $(GXSHTTP_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -256,9 +229,6 @@ gxtelnet$(OBJ_EXT):	$(GLIB_SRC_PATH)gxtelnet.cpp $(GXTELNET_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxtelnet.cpp
 
-gxthread$(OBJ_EXT):	$(GLIB_SRC_PATH)gxthread.cpp $(GXTHREAD_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxthread.cpp
 
 gxuint16$(OBJ_EXT):	$(GLIB_SRC_PATH)gxuint16.cpp $(GXUINT16_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -272,9 +242,6 @@ gxuint64$(OBJ_EXT):	$(GLIB_SRC_PATH)gxuint64.cpp $(GXUINT64_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxuint64.cpp
 
-htmldrv$(OBJ_EXT):	$(GLIB_SRC_PATH)htmldrv.cpp $(HTMLDRV_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)htmldrv.cpp
 
 httpgrab$(OBJ_EXT):	$(GLIB_SRC_PATH)httpgrab.cpp $(HTTPGRAB_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -293,17 +260,11 @@ membuf$(OBJ_EXT):	$(GLIB_SRC_PATH)membuf.cpp $(MEMBUF_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)membuf.cpp
 
-ostrbase$(OBJ_EXT):	$(GLIB_SRC_PATH)ostrbase.cpp $(OSTRBASE_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)ostrbase.cpp
 
 pod$(OBJ_EXT):	$(GLIB_SRC_PATH)pod.cpp $(POD_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)pod.cpp
 
-pscript$(OBJ_EXT):	$(GLIB_SRC_PATH)pscript.cpp $(PSCRIPT_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)pscript.cpp
 
 scomserv$(OBJ_EXT):	$(GLIB_SRC_PATH)scomserv.cpp $(SCOMSERV_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -321,21 +282,9 @@ systime$(OBJ_EXT):	$(GLIB_SRC_PATH)systime.cpp $(SYSTIME_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)systime.cpp
 
-terminal$(OBJ_EXT):	$(GLIB_SRC_PATH)terminal.cpp $(TERMINAL_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)terminal.cpp
 
-thelpers$(OBJ_EXT):	$(GLIB_SRC_PATH)thelpers.cpp $(THELPERS_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)thelpers.cpp
 
-thrapiw$(OBJ_EXT):	$(GLIB_SRC_PATH)thrapiw.cpp $(THRAPIW_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)thrapiw.cpp
 
-thrpool$(OBJ_EXT):	$(GLIB_SRC_PATH)thrpool.cpp $(THRPOOL_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)thrpool.cpp
 
 ustring$(OBJ_EXT):	$(GLIB_SRC_PATH)ustring.cpp $(USTRING_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \

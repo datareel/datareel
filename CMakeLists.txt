@@ -57,8 +57,6 @@ set(DATAREEL_SOURCES
   gxsutils gxs_b64 gxtelnet wserror gxsrss gxsxml gxssl gxdatagm gxstream
   # Serial comm
   gxscomm scomserv
-  # Threads
-  gthreadt gxmutex thelpers thrapiw gxthread gxsema gxcond thrpool
   # General purpose
   asprint bstreei cdate devcache dfileb fstring futils gxconfig gxip32
   gxlistb gxmac48 htmldrv logfile memblock membuf ostrbase pscript strutil

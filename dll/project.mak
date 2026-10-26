@@ -91,9 +91,6 @@ $(OUTDIR)\gxdlcode$(OBJ_EXT):	$(GLIB_SRC_PATH)gxdlcode.cpp $(GXDLCODE_DEP)
 	$(GLIB_SRC_PATH)gxdlcode.cpp
 
 # GX code targets
-$(OUTDIR)\asprint$(OBJ_EXT):	$(GLIB_SRC_PATH)asprint.cpp $(ASPRINT_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)asprint.cpp
 
 $(OUTDIR)\bstreei$(OBJ_EXT):	$(GLIB_SRC_PATH)bstreei.cpp $(GXSTREEI_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -135,9 +132,6 @@ $(OUTDIR)\dfileb$(OBJ_EXT):	$(GLIB_SRC_PATH)dfileb.cpp $(DFILEB_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)dfileb.cpp
 
-$(OUTDIR)\ehandler$(OBJ_EXT):	$(GLIB_SRC_PATH)ehandler.cpp $(EHANDLER_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)ehandler.cpp
 
 $(OUTDIR)\fstring$(OBJ_EXT):	$(GLIB_SRC_PATH)fstring.cpp $(FSTRING_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -151,17 +145,11 @@ $(OUTDIR)\gpersist$(OBJ_EXT):	$(GLIB_SRC_PATH)gpersist.cpp $(GPERSIST_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gpersist.cpp
 
-$(OUTDIR)\gthreadt$(OBJ_EXT):	$(GLIB_SRC_PATH)gthreadt.cpp $(GTHREADT_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gthreadt.cpp
 
 $(OUTDIR)\gxbtree$(OBJ_EXT):	$(GLIB_SRC_PATH)gxbtree.cpp $(GXTREE_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxbtree.cpp
 
-$(OUTDIR)\gxcond$(OBJ_EXT):	$(GLIB_SRC_PATH)gxcond.cpp $(GXCOND_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxcond.cpp
 
 $(OUTDIR)\gxconfig$(OBJ_EXT):	$(GLIB_SRC_PATH)gxconfig.cpp $(GXCONFIG_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -223,9 +211,6 @@ $(OUTDIR)\gxmac48$(OBJ_EXT):	$(GLIB_SRC_PATH)gxmac48.cpp $(GXMAC48_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxmac48.cpp
 
-$(OUTDIR)\gxmutex$(OBJ_EXT):	$(GLIB_SRC_PATH)gxmutex.cpp $(GXMUTEX_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxmutex.cpp
 
 $(OUTDIR)\gxrdbdef$(OBJ_EXT):	$(GLIB_SRC_PATH)gxrdbdef.cpp $(GXRDBDEF_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -244,25 +229,13 @@ $(OUTDIR)\gxscomm$(OBJ_EXT):	$(GLIB_SRC_PATH)gxscomm.cpp $(GXSCOMM_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxscomm.cpp
 
-$(OUTDIR)\gxsema$(OBJ_EXT):	$(GLIB_SRC_PATH)gxsema.cpp $(GXSEMA_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxsema.cpp
 
 $(OUTDIR)\gxsftp$(OBJ_EXT):	$(GLIB_SRC_PATH)gxsftp.cpp $(GXSFTP_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxsftp.cpp
 
-$(OUTDIR)\gxshtml$(OBJ_EXT):	$(GLIB_SRC_PATH)gxshtml.cpp $(GXSHTML_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxshtml.cpp
 
-$(OUTDIR)\gxsrss$(OBJ_EXT):	$(GLIB_SRC_PATH)gxsrss.cpp $(GXSRSS_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxsrss.cpp
 
-$(OUTDIR)\gxsxml$(OBJ_EXT):	$(GLIB_SRC_PATH)gxsxml.cpp $(GXSXML_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxsxml.cpp
 
 $(OUTDIR)\gxshttp$(OBJ_EXT): $(GLIB_SRC_PATH)gxshttp.cpp
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -308,9 +281,6 @@ $(OUTDIR)\gxtelnet$(OBJ_EXT):	$(GLIB_SRC_PATH)gxtelnet.cpp $(GXTELNET_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxtelnet.cpp
 
-$(OUTDIR)\gxthread$(OBJ_EXT):	$(GLIB_SRC_PATH)gxthread.cpp $(GXTHREAD_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxthread.cpp
 
 $(OUTDIR)\gxuint16$(OBJ_EXT):	$(GLIB_SRC_PATH)gxuint16.cpp $(GXUINT16_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -324,9 +294,6 @@ $(OUTDIR)\gxuint64$(OBJ_EXT):	$(GLIB_SRC_PATH)gxuint64.cpp $(GXUINT64_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxuint64.cpp
 
-$(OUTDIR)\htmldrv$(OBJ_EXT):	$(GLIB_SRC_PATH)htmldrv.cpp $(HTMLDRV_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)htmldrv.cpp
 
 $(OUTDIR)\httpgrab$(OBJ_EXT):	$(GLIB_SRC_PATH)httpgrab.cpp $(HTTPGRAB_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -345,17 +312,11 @@ $(OUTDIR)\membuf$(OBJ_EXT):	$(GLIB_SRC_PATH)membuf.cpp $(MEMBUF_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)membuf.cpp
 
-$(OUTDIR)\ostrbase$(OBJ_EXT):	$(GLIB_SRC_PATH)ostrbase.cpp $(OSTRBASE_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)ostrbase.cpp
 
 $(OUTDIR)\pod$(OBJ_EXT):	$(GLIB_SRC_PATH)pod.cpp $(POD_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)pod.cpp
 
-$(OUTDIR)\pscript$(OBJ_EXT):	$(GLIB_SRC_PATH)pscript.cpp $(PSCRIPT_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)pscript.cpp
 
 $(OUTDIR)\scomserv$(OBJ_EXT):	$(GLIB_SRC_PATH)scomserv.cpp $(SCOMSERV_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -369,21 +330,9 @@ $(OUTDIR)\systime$(OBJ_EXT):	$(GLIB_SRC_PATH)systime.cpp $(SYSTIME_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)systime.cpp
 
-$(OUTDIR)\terminal$(OBJ_EXT):	$(GLIB_SRC_PATH)terminal.cpp $(TERMINAL_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)terminal.cpp
 
-$(OUTDIR)\thelpers$(OBJ_EXT):	$(GLIB_SRC_PATH)thelpers.cpp $(THELPERS_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)thelpers.cpp
 
-$(OUTDIR)\thrapiw$(OBJ_EXT):	$(GLIB_SRC_PATH)thrapiw.cpp $(THRAPIW_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)thrapiw.cpp
 
-$(OUTDIR)\thrpool$(OBJ_EXT):	$(GLIB_SRC_PATH)thrpool.cpp $(THRPOOL_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)thrpool.cpp
 
 $(OUTDIR)\ustring$(OBJ_EXT):	$(GLIB_SRC_PATH)ustring.cpp $(USTRING_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -441,14 +390,11 @@ GLIB_SOCKET_EX_OBJECTS = $(OUTDIR)\gxshttp$(OBJ_EXT) \
 	$(OUTDIR)\gxsping$(OBJ_EXT) \
 	$(OUTDIR)\gxspop3$(OBJ_EXT) \
 	$(OUTDIR)\gxsftp$(OBJ_EXT) \
-	$(OUTDIR)\gxshtml$(OBJ_EXT) \
 	$(OUTDIR)\gxsurl$(OBJ_EXT) \
 	$(OUTDIR)\gxsutils$(OBJ_EXT) \
 	$(OUTDIR)\gxs_b64$(OBJ_EXT) \
 	$(OUTDIR)\gxtelnet$(OBJ_EXT) \
 	$(OUTDIR)\wserror$(OBJ_EXT) \
-	$(OUTDIR)\gxsrss$(OBJ_EXT) \
-	$(OUTDIR)\gxsxml$(OBJ_EXT) \
 	$(OUTDIR)\gxssl$(OBJ_EXT)
 
 # Database socket library components
@@ -462,18 +408,9 @@ GLIB_SERIAL_CORE_OBJECTS = $(OUTDIR)\gxscomm$(OBJ_EXT)
 GLIB_SERIAL_DB_OBJECTS = $(OUTDIR)\scomserv$(OBJ_EXT)
 
 # Thread library components
-GLIB_THREAD_OBJECTS = $(OUTDIR)\gthreadt$(OBJ_EXT) \
-	$(OUTDIR)\gxmutex$(OBJ_EXT) \
-	$(OUTDIR)\thelpers$(OBJ_EXT) \
-	$(OUTDIR)\thrapiw$(OBJ_EXT) \
-	$(OUTDIR)\gxthread$(OBJ_EXT) \
-	$(OUTDIR)\gxsema$(OBJ_EXT) \
-	$(OUTDIR)\gxcond$(OBJ_EXT) \
-	$(OUTDIR)\thrpool$(OBJ_EXT)
 
 # General purpose library components
-GLIB_GP_OBJECTS = $(OUTDIR)\asprint$(OBJ_EXT) \
-	$(OUTDIR)\bstreei$(OBJ_EXT)  \
+GLIB_GP_OBJECTS = $(OUTDIR)\bstreei$(OBJ_EXT)  \
 	$(OUTDIR)\cdate$(OBJ_EXT)  \
 	$(OUTDIR)\devcache$(OBJ_EXT) \
 	$(OUTDIR)\dfileb$(OBJ_EXT) \
@@ -483,12 +420,9 @@ GLIB_GP_OBJECTS = $(OUTDIR)\asprint$(OBJ_EXT) \
 	$(OUTDIR)\gxip32$(OBJ_EXT) \
 	$(OUTDIR)\gxlistb$(OBJ_EXT) \
 	$(OUTDIR)\gxmac48$(OBJ_EXT) \
-	$(OUTDIR)\htmldrv$(OBJ_EXT) \
 	$(OUTDIR)\logfile$(OBJ_EXT) \
 	$(OUTDIR)\memblock$(OBJ_EXT) \
 	$(OUTDIR)\membuf$(OBJ_EXT) \
-	$(OUTDIR)\ostrbase$(OBJ_EXT) \
-	$(OUTDIR)\pscript$(OBJ_EXT)  \
 	$(OUTDIR)\strutil$(OBJ_EXT) \
 	$(OUTDIR)\systime$(OBJ_EXT) \
 	$(OUTDIR)\ustring$(OBJ_EXT) 
@@ -498,11 +432,9 @@ GLIB_GP_OBJECTS = $(OUTDIR)\asprint$(OBJ_EXT) \
 # flag and the /MDd or /MTd compiler flag. 
 
 # Term I/O objects
-GLIB_TERM_OBJECTS = $(OUTDIR)\terminal$(OBJ_EXT)
 
 # Console/GUI messaging gxcode objects
-GLIB_MSG_OBJECTS = $(OUTDIR)\ehandler$(OBJ_EXT) \
-	$(OUTDIR)\gxdstats$(OBJ_EXT)
+GLIB_MSG_OBJECTS = $(OUTDIR)\gxdstats$(OBJ_EXT)
 
 # TODO: Set the library components to compile here
 GLIB_OBJECTS = $(GLIB_DATABASE_CORE_OBJECTS) \
@@ -513,9 +445,7 @@ GLIB_OBJECTS = $(GLIB_DATABASE_CORE_OBJECTS) \
 	$(GLIB_SOCKET_DB_OBJECTS) \
 	$(GLIB_SERIAL_CORE_OBJECTS) \
 	$(GLIB_SERIAL_DB_OBJECTS) \
-	$(GLIB_THREAD_OBJECTS) \
 	$(GLIB_GP_OBJECTS) \
-	$(GLIB_TERM_OBJECTS) \
 	$(GLIB_MSG_OBJECTS) \
 	$(GLIB_DEBUG_OBJECTS)
 

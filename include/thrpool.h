@@ -3,20 +3,20 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: thrpool.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
-// File Creation Date: 03/31/2000
-// Date Last Modified: 10/24/2026
+// File Creation Date: 10/26/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
-// ----------------------------------------------------------- // 
-// ---------- Include File Description and Details  ---------- // 
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
+// ---------- Include File Description and Details  ---------- //
+// ----------------------------------------------------------- //
 /*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
 version 2.1 of the License, or (at your option) any later version.
- 
+
 This library is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
@@ -24,119 +24,135 @@ Lesser General Public License for more details.
 
 You should have received a copy of the GNU Lesser General Public
 License along with this library; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  
+Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
-The thrPool class is used to pool threads of a single or multiple
-processes together. Each thread pool consists of a doubly linked
-list of thrPoolNode nodes. A thrPoolNode node holds a pointer to
-a gxThread_t object plus a pointer to previous and next node in
-the list.
+The ThreadPool class runs tasks on a fixed set of worker threads.
+The standard library has threads, mutexes and condition variables
+but no thread pool, so this is the one thread class DataReel keeps.
+It is header only and built entirely on std::thread.
+
+Changes:
+==============================================================
+10/26/2026: DataReel 7 replaces the gxThread, gxMutex,
+gxCondition, gxSemaphore and thrPool classes with the standard
+library. Use std::thread or std::jthread, std::mutex,
+std::condition_variable and std::counting_semaphore in their
+place. ThreadPool replaces thrPool.
+==============================================================
 */
-// ----------------------------------------------------------- //   
+// ----------------------------------------------------------- //
 #ifndef __GX_THREAD_POOL_HPP__
 #define __GX_THREAD_POOL_HPP__
 
-#include "gxdlcode.h"
+#include <condition_variable>
+#include <cstddef>
+#include <deque>
+#include <functional>
+#include <future>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <tuple>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
-// Foward class calling conventions
-class gxThread_t;
-class thrPool;
+namespace datareel {
 
-// Thread Pool Node Class
-class GXDLCODE_API thrPoolNode
-{
-private:
-  friend class thrPool;
-
-public:
-  thrPoolNode() { next = prev = 0; thread = 0; }
-  thrPoolNode(gxThread_t *t) { next = prev = 0; thread = t; }
-  ~thrPoolNode() { }
-  
-private: // Disallow copying and assignmnet
-  thrPoolNode(const thrPoolNode &) { }
-  void operator=(const thrPoolNode &) { }
-  
-public:
-  thrPoolNode *GetNext() { return next; }  
-  thrPoolNode *GetPrev() { return prev; } 
-  gxThread_t *GetThreadPtr() { return thread; } 
-  gxThread_t *GetThreadPtr() const { return thread; } 
-  void SetThreadPtr(gxThread_t *t) { thread = t; }
-  void SetThreadPtr(const gxThread_t *t) { thread = (gxThread_t *)t; }
-  void SetNext(thrPoolNode *n) { next = n; }  
-  void SetNext(const thrPoolNode *n) { next = (thrPoolNode *)n; }  
-  void SetPrev(thrPoolNode *p) { prev = p; }
-  void SetPrev(const thrPoolNode *p) { prev = (thrPoolNode *)p; }
-  
-private:
-  gxThread_t *thread; // Pointer to the this node's thread
-  thrPoolNode *next;  // Pointer to the next node in the list
-  thrPoolNode *prev;  // Pointer to the previous node in the list
-};
-
-// Thread Pool Class
-class GXDLCODE_API thrPool
+class ThreadPool
 {
 public:
-  thrPool() { head = tail = 0; }
-  ~thrPool();
+  // Start num_threads workers, or one per CPU when num_threads is 0
+  explicit ThreadPool(std::size_t num_threads = 0) {
+    if(num_threads == 0) num_threads = std::thread::hardware_concurrency();
+    if(num_threads == 0) num_threads = 1;
+    workers.reserve(num_threads);
+    for(std::size_t i = 0; i < num_threads; i++) {
+      workers.emplace_back([this] { WorkerLoop(); });
+    }
+  }
 
-private: // Disallow copying and assignment
-  thrPool(const thrPool &) { }
-  void operator=(const thrPool &) { }
+  // Finish every queued task, then stop and join the workers
+  ~ThreadPool() {
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      stopping = true;
+    }
+    work_cv.notify_all();
+    for(auto &w : workers) w.join();
+  }
 
-public: // Pointer manipulation operations
-  void DetachNode(thrPoolNode *);
-  void MoveToFront(thrPoolNode *n);
-  void MoveToBack(thrPoolNode *n);
-  void MoveBefore(thrPoolNode *pos, thrPoolNode *n);
-  void MoveAfter(thrPoolNode *pos, thrPoolNode *n);
-  void InsertBefore(thrPoolNode *pos, thrPoolNode *n);
-  void InsertAfter(thrPoolNode *pos, thrPoolNode *n);
-  void InsertAtHead(thrPoolNode *n);
-  void InsertAtTail(thrPoolNode *n);
+  ThreadPool(const ThreadPool &) = delete;
+  ThreadPool &operator=(const ThreadPool &) = delete;
 
-public: // Add and remove functions
-  thrPoolNode *AddThread(gxThread_t *thread);
-  thrPoolNode *AddToFront(gxThread_t *t);
-  thrPoolNode *AddToBack(gxThread_t *t);
-  thrPoolNode *AddAfter(thrPoolNode *pos, gxThread_t *t);
-  thrPoolNode *AddBefore(thrPoolNode *pos, gxThread_t *t);
-  void ClearPool(); // Empty the pool, stopping running joinable threads
-  void MakeEmpty(); // Called only if all the nodes have been removed 
-  gxThread_t *RemoveThread(gxThread_t *t);
-  gxThread_t *RemoveNode(thrPoolNode *n);
-  gxThread_t *RemoveHead();
-  gxThread_t *RemoveTail();
+public:
+  // Queue a task. The returned future holds its result or exception.
+  template<class F, class... Args>
+  auto Submit(F &&f, Args &&...args)
+    -> std::future<std::invoke_result_t<std::decay_t<F>, std::decay_t<Args>...>> {
+    using R = std::invoke_result_t<std::decay_t<F>, std::decay_t<Args>...>;
+    auto task = std::make_shared<std::packaged_task<R()>>(
+      [fn = std::forward<F>(f), tup = std::make_tuple(std::forward<Args>(args)...)]() mutable {
+        return std::apply(std::move(fn), std::move(tup));
+      });
+    std::future<R> result = task->get_future();
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      tasks.emplace_back([task] { (*task)(); });
+    }
+    work_cv.notify_one();
+    return result;
+  }
 
-public: // Search functions
-  thrPoolNode *FindThread(gxThread_t *t, thrPoolNode *ptr = 0);
+  // Block until the queue is empty and no task is running
+  void Wait() {
+    std::unique_lock<std::mutex> lock(mtx);
+    idle_cv.wait(lock, [this] { return tasks.empty() && active == 0; });
+  }
 
-private: // Allocation/de-allocation functions
-  gxThread_t *FreeNode(thrPoolNode *n);
-  thrPoolNode *AllocNode(gxThread_t *t);
-  
-public: // Node position functions
-  int IsEmpty() { return head == 0; }
-  int IsEmpty() const { return (const thrPoolNode *)head == 0; }
-  thrPoolNode *GetHead() { return head; }
-  thrPoolNode *GetTail() { return tail; }
-  thrPoolNode *GetHead() const { return head; }
-  thrPoolNode *GetTail() const { return tail; }
-  void SetHead(thrPoolNode *h) { head = h; }
-  void SetHead(const thrPoolNode *h) { head = (thrPoolNode *)h; }
-  void SetTail(thrPoolNode *t) { tail = t; }
-  void SetTail(const thrPoolNode *t) { tail = (thrPoolNode *)t; }
-  
+  std::size_t Size() const { return workers.size(); }
+
+  std::size_t Pending() {
+    std::lock_guard<std::mutex> lock(mtx);
+    return tasks.size();
+  }
+
 private:
-  thrPoolNode *head; // First node in the list
-  thrPoolNode *tail; // Last node in the list
+  void WorkerLoop() {
+    for(;;) {
+      std::function<void()> task;
+      {
+        std::unique_lock<std::mutex> lock(mtx);
+        work_cv.wait(lock, [this] { return stopping || !tasks.empty(); });
+        if(tasks.empty()) return; // stopping and drained
+        task = std::move(tasks.front());
+        tasks.pop_front();
+        active++;
+      }
+      task();
+      {
+        std::lock_guard<std::mutex> lock(mtx);
+        active--;
+        if(tasks.empty() && active == 0) idle_cv.notify_all();
+      }
+    }
+  }
+
+private:
+  std::vector<std::thread> workers;
+  std::deque<std::function<void()>> tasks;
+  std::mutex mtx;
+  std::condition_variable work_cv;
+  std::condition_variable idle_cv;
+  std::size_t active = 0;
+  bool stopping = false;
 };
+
+} // namespace datareel
 
 #endif // __GX_THREAD_POOL_HPP__
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //
 // ------------------------------- //
