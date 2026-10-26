@@ -71,6 +71,13 @@ for p in db_simple db_database db_btree db_btree_cached db_btree_node \
 done
 cd "$WORK/run_db_infohog" && check db_infohog_reopen sh -c "$E/db_infohog < /dev/null"
 expect rdbms_search "Engineering (2)" "$WORK/db_rdbms.log"
+# Sample programs from the AI guides (docs/ai/samples); run twice to
+# reopen the files
+mkdir -p "$WORK/run_ai_db" && cd "$WORK/run_ai_db" &&
+  $E/ai_record_store > /dev/null 2>&1 && $E/ai_indexed_records > /dev/null 2>&1
+check ai_record_store $E/ai_record_store
+check ai_record_store_walk sh -c "[ \$(grep -c qty $WORK/ai_record_store.log) -eq 4 ]"
+check ai_indexed_records sh -c "$E/ai_indexed_records | tr -d '\n' | grep -q 'Found Acme Tools.*Acme Tools, 40 orders  Baker Hardware, 7 orders  Wilson Supply, 12 orders\$'"
 mkdir -p "$WORK/run_damaged" && cd "$WORK/run_damaged" && 
   check damaged_files "$BUILD/tests/damaged_files" 300 7
 cd "$WORK"
@@ -85,6 +92,13 @@ check tls_untrusted_refused sh -c "! printf 'x\n' | $E/tls_echo_client localhost
 check tls_wrong_host_refused sh -c "! printf 'x\n' | $E/tls_echo_client $(hostname -f) $PORT --ca ca.pem"
 printf 'shutdown\n' | $E/tls_echo_client localhost $PORT --ca ca.pem > /dev/null 2>&1
 
+# AI guide TLS samples
+P5=$((PORT+3))
+$E/ai_tls_server $P5 server.pem server.key > ai_tls_server.log 2>&1 &
+PIDS+=($!); wait_port $P5
+check ai_tls_client sh -c "$E/ai_tls_client localhost $P5 ca.pem | grep -q 'got \"HELLO\"'"
+printf 'stop\n' | $E/tls_echo_client localhost $P5 --ca ca.pem > /dev/null 2>&1
+
 # HTTPS server and client
 P2=$((PORT+1)); mkdir -p www/sub
 echo "<h1>DataReel 7</h1>" > www/index.html
@@ -95,6 +109,7 @@ check https_get sh -c "$E/https_get https://localhost:$P2/ --ca ca.pem | grep -q
 check https_download sh -c "$E/https_get https://localhost:$P2/sub/data.bin data.out --ca ca.pem && cmp data.out www/sub/data.bin"
 check https_traversal_refused sh -c "$E/https_get 'https://localhost:$P2/%2e%2e/%2e%2e/etc/passwd' --ca ca.pem | head -1 | grep -q 403"
 check http_refused sh -c "! $E/https_get http://localhost:$P2/"
+check ai_https_fetch sh -c "$E/ai_https_fetch https://localhost:$P2/ ca.pem | grep -q 'POST -> 405'"
 
 # gxStream database blocks over TLS
 P3=$((PORT+2))
@@ -111,6 +126,7 @@ echo "Test body line" > body.txt
 check smtp_implicit_tls sh -c "$E/smtp_send localhost $P4 test secret a@example.com b@example.com Hello --ca ca.pem < body.txt"
 expect smtp_body "Test body line" mail.txt
 check smtp_starttls sh -c "$E/smtp_send localhost $((P4+1)) test secret a@example.com b@example.com Hi --starttls --ca ca.pem < body.txt"
+check ai_send_mail $E/ai_send_mail localhost $((P4+1)) test secret a@example.com b@example.com ca.pem
 check smtp_no_starttls_refused sh -c "! $E/smtp_send localhost $((P4+6)) test secret a@example.com b@example.com Hi --starttls --ca ca.pem < body.txt"
 check pop3_implicit_tls sh -c "$E/pop3_list localhost $((P4+2)) test secret -r 1 --ca ca.pem | grep -q '^.dot line'"
 check pop3_stls sh -c "$E/pop3_list localhost $((P4+3)) test secret --starttls --ca ca.pem | grep -q '2 messages'"

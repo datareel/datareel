@@ -1,0 +1,24 @@
+# DataReel 7
+
+> DataReel 7 is a C++17 library (LGPL) for embedded object databases (block files, disk B-tree indexes, persistent objects, simple relational tables) and TLS-only communications (TLS client/server, HTTPS, SMTP, POP3, FTPS) on Linux and Windows.
+
+All classes are in namespace datareel. Link with CMake target DataReel::datareel. Network calls return 0 on success; database calls return gxDatabaseError (gxDBASE_NO_ERROR is 0). Records and keys must be fixed-size (no std::string or pointers). Certificates are verified by default; there is no plain text HTTP, SMTP, POP3 or FTP.
+
+## Guides
+
+- [AGENTS.md](AGENTS.md): Rules for writing code with DataReel and for changing the library
+- [TLS communications](docs/ai/tls-comms.md): TLS clients and servers, HTTPS, SMTP, POP3, FTPS and gxStream, with complete programs
+- [Object database](docs/ai/object-database.md): gxDatabase block files, gxBtree indexes, POD, InfoHog persistent objects and gxRDBMS tables
+- [Building and linking](docs/ai/building.md): CMake options, file format settings, find_package(DataReel), running the tests
+- [Porting from 6.x](docs/ai/porting-from-6x.md): Replacements for the removed classes and the move to TLS-only networking
+
+## Reference
+
+- [Readme](README.txt): What the library is for, building, file formats
+- [Release notes 7.0](RELEASE_NOTES_7.0.txt): Removed classes, rewritten classes, fixes, porting notes
+- [Class reference](docs/classes/classes.htm): HTML pages for every class
+- [Examples](docs/examples/examples.htm): The example programs and how to run them
+
+## Optional
+
+- [llms-full.txt](llms-full.txt): AGENTS.md and all guides in one file

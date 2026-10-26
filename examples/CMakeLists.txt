@@ -38,3 +38,9 @@ datareel_example(thread_pool       general/thread_pool.cpp)
 # Plain text diagnostics (ICMP and telnet cannot use TLS)
 datareel_example(ping              diagnostics/ping.cpp)
 datareel_example(telnet_client     diagnostics/telnet_client.cpp)
+
+# Sample programs from the AI guides in docs/ai, built so they stay correct
+foreach(sample tls_client tls_server https_fetch send_mail 
+    record_store indexed_records)
+  datareel_example(ai_${sample} ${PROJECT_SOURCE_DIR}/docs/ai/samples/${sample}.cpp)
+endforeach()
