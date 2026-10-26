@@ -1,5 +1,5 @@
 DataReel Code Review and Fixes, 10/14/2026
-These fixes are included in DataReel 6.0 and later (current release 6.1).
+These fixes are included in DataReel 6.0 and later (current release 6.2).
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 The DataReel library in this repository was reviewed and fixed by

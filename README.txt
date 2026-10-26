@@ -1,4 +1,4 @@
-DataReel 6.1 Readme File
+DataReel 6.2 Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -253,6 +253,16 @@ DOCUMENTATION
 -------------
 All documentation is included in the docs sub directory in an HTML
 format, viewable in any Web browser. 
+
+VERSION 6.2
+-----------
+DataReel 6.2, 10/25/2026, stops gxBtree walks and InfoHog data file
+scans from looping forever on damaged or crafted files, adds
+gxDatabase::SetWriteHook(), fixes the wxWidgets 3 headers, adds the
+__wxWIN3__ macro and adds a CMake build (see BUILDING WITH CMAKE). The
+shared library is built as libdatareel.so.6.2. gxDatabase has two new
+members, so recompile and relink. See RELEASE_NOTES_6.2.txt. Every
+change in the source is marked with a "10/25/2026" comment.
 
 VERSION 6.1
 -----------

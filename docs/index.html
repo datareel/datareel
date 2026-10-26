@@ -25,6 +25,7 @@
 <a href="#SupportedCompilers">Supported Compilers</a><br />
 <a href="#PackageMap">Package Map</a><br />
 <a href="#ExamplePrograms">Example Programs</a><br />
+<a href="#Version62">Version 6.2</a><br />
 <a href="#Version61">Version 6.1</a><br />
 <a href="#Version6">Version 6.0</a><br />
 <a href="#CodeReview">Code Review and Fixes</a><br />
@@ -153,6 +154,10 @@ Visual C++, BCC, and DJGPP.
 
 <p>This&nbsp;HTML documentation set include many more example programs that can by used as templates to build applications.&nbsp;</p>
 
+<h2 id="Version62">Version 6.2</h2>
+
+<p>DataReel 6.2, 10/25/2026, stops gxBtree walks and InfoHog data file scans from looping forever on damaged or crafted files, adds gxDatabase::SetWriteHook(), fixes the wxWidgets 3 headers, adds the __wxWIN3__ macro and adds a CMake build. The shared library is built as libdatareel.so.6.2. gxDatabase has two new members, so recompile and relink. See the <a href="release_notes_6_2.html">DataReel 6.2 Release Notes</a>. Every change in the source is marked with a "10/25/2026" comment.</p>
+
 <h2 id="Version61">Version 6.1</h2>
 
 <p>DataReel 6.1, 10/25/2026, is a security fix release. gxBtree and InfoHog now check the lengths and counts they read from database and index files, so a damaged or crafted file is rejected instead of overflowing memory. The shared library is built as libdatareel.so.6.1. There are no interface changes from 6.0; recompile and relink. Supported platforms are now RHEL 10, 9 and 8, Windows 11, and Windows Server 2022 and 2025. See the <a href="release_notes_6_1.html">DataReel 6.1 Release Notes</a>. Every change in the source is marked with a "10/25/2026" comment.</p>
@@ -271,6 +276,6 @@ Visual C++, BCC, and DJGPP.
 <!-- Start Copyright Information -->
 <p><font color="000000">DataReel Copyright &copy; 2001-2026&nbsp;DataReel Software Development</font></p>
 </main>
-<footer class="dr-footer">DataReel 6.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.2 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>

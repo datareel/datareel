@@ -1,0 +1,74 @@
+DataReel 6.2 Release Notes, 10/25/2026
+DataReel version 6.2 (was 6.1)
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 6.2 adds more fixes for damaged or crafted database and index
+files found by the security review of the Encrypted Password Database,
+a new gxDatabase::SetWriteHook() function, wxWidgets 3 header fixes
+and a CMake build. Every change in the source is marked with a
+"10/25/2026" comment.
+
+The library version in version.txt is 6.2 and the shared library
+version (SHAREDLIB_VERSION in env/linux.env) is 6.2, so the Linux
+shared library is built as libdatareel.so.6.2. gxDatabase has two new
+members, so programs must be recompiled against the 6.2 headers and
+relinked.
+
+SECURITY FIXES
+--------------
+- gxBtree search, insert and delete walks stop with
+  gxDBASE_BADBLOCK_ERROR after gxBtreeMaxNodeReads (4096) node reads,
+  so a node in a damaged or crafted index file that points back up the
+  tree cannot make them loop forever. The BtreeCache variants are not
+  changed.
+- InfoHog Find(), CompareIndex() and RebuildIndexFile() no longer loop
+  forever on a data file block length shorter than a block header, and
+  skip objects that cannot be read instead of using the key member of
+  a failed read.
+
+NEW FUNCTION
+------------
+- gxDatabase::SetWriteHook() sets a function that is called after each
+  successful Write(), so an application can tell its own changes to a
+  file from changes made by others. The Encrypted Password Database
+  uses it to update its database MAC.
+
+WXWIDGETS 3
+-----------
+- wx3incs.h: the include guard tested __GX_WX3NCS_HPP__ but defined
+  __GX_WX3INCS_HPP__, so the header was never guarded.
+- gxshtml.cpp: the wxWidgets 3.x code included wx2incs.h instead of
+  wx3incs.h, and called wxYield() even when __GUI_THREAD_SAFE__ was
+  not defined. wxYield() from a worker thread is not allowed in
+  wxWidgets 3.
+- "defined (__wxWIN201__) || (__wxWIN291__)" tested the value of
+  __wxWIN291__ instead of whether it is defined. Both now use
+  defined().
+- The new __wxWIN3__ macro selects the wxWidgets 3.x code for any 3.x
+  release (3.0 through 3.3). It is interchangeable with __wxWIN302__,
+  so existing code is unchanged.
+
+CMAKE BUILD
+-----------
+- A CMakeLists.txt in the top-level directory builds the same objects
+  as the makefiles into a static library (DataReel::datareel) on Linux
+  and Windows, with options for SSL (OpenSSL, Schannel or none),
+  console or wxWidgets message display, the 64-bit database engine and
+  native types. See "BUILDING WITH CMAKE" in README.txt. The makefiles
+  are unchanged.
+
+HOW THE CHANGES WERE TESTED
+---------------------------
+- An index file whose node points to itself is rejected with an error
+  instead of looping, and the database examples give the same results
+  as with 6.1.
+- On RHEL 10 the library builds with no warnings with the makefiles and
+  with CMake, and the example and utility programs build against it.
+
+DOCUMENTATION
+-------------
+- Historical references to version 5 were reworded, the documentation
+  footers read DataReel 6.2, and the Cluster Manager page describes
+  DRCM 1.42.
+
+DataReel Copyright (c) 2001-2026 DataReel Software Development

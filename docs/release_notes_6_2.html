@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel 6.2 Release Notes</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>DataReel 6.2 Release Notes</h1>
+<h2 id="Top">DataReel 6.2 Release Notes, 10/25/2026</h2>
+<p>DataReel version 6.2 (was 6.1) DataReel Copyright (c) 2001-2026 DataReel Software Development</p>
+<p>DataReel 6.2 adds more fixes for damaged or crafted database and index files found by the security review of the Encrypted Password Database, a new gxDatabase::SetWriteHook() function, wxWidgets 3 header fixes and a CMake build. Every change in the source is marked with a "10/25/2026" comment.</p>
+<p>The library version in version.txt is 6.2 and the shared library version (SHAREDLIB_VERSION in env/linux.env) is 6.2, so the Linux shared library is built as libdatareel.so.6.2. gxDatabase has two new members, so programs must be recompiled against the 6.2 headers and relinked.</p>
+<h2>Security Fixes</h2>
+<ul>
+<li>gxBtree search, insert and delete walks stop with gxDBASE_BADBLOCK_ERROR after gxBtreeMaxNodeReads (4096) node reads, so a node in a damaged or crafted index file that points back up the tree cannot make them loop forever. The BtreeCache variants are not changed.</li>
+<li>InfoHog Find(), CompareIndex() and RebuildIndexFile() no longer loop forever on a data file block length shorter than a block header, and skip objects that cannot be read instead of using the key member of a failed read.</li>
+</ul>
+<h2>New Function</h2>
+<ul>
+<li>gxDatabase::SetWriteHook() sets a function that is called after each successful Write(), so an application can tell its own changes to a file from changes made by others. The Encrypted Password Database uses it to update its database MAC.</li>
+</ul>
+<h2>wxWidgets 3</h2>
+<ul>
+<li>wx3incs.h: the include guard tested __GX_WX3NCS_HPP__ but defined __GX_WX3INCS_HPP__, so the header was never guarded.</li>
+<li>gxshtml.cpp: the wxWidgets 3.x code included wx2incs.h instead of wx3incs.h, and called wxYield() even when __GUI_THREAD_SAFE__ was not defined. wxYield() from a worker thread is not allowed in wxWidgets 3.</li>
+<li>"defined (__wxWIN201__) || (__wxWIN291__)" tested the value of __wxWIN291__ instead of whether it is defined. Both now use defined().</li>
+<li>The new __wxWIN3__ macro selects the wxWidgets 3.x code for any 3.x release (3.0 through 3.3). It is interchangeable with __wxWIN302__, so existing code is unchanged.</li>
+</ul>
+<h2>CMake Build</h2>
+<ul>
+<li>A CMakeLists.txt in the top-level directory builds the same objects as the makefiles into a static library (DataReel::datareel) on Linux and Windows, with options for SSL (OpenSSL, Schannel or none), console or wxWidgets message display, the 64-bit database engine and native types. See "BUILDING WITH CMAKE" in README.txt. The makefiles are unchanged.</li>
+</ul>
+<h2>How The Changes Were Tested</h2>
+<ul>
+<li>An index file whose node points to itself is rejected with an error instead of looping, and the database examples give the same results as with 6.1.</li>
+<li>On RHEL 10 the library builds with no warnings with the makefiles and with CMake, and the example and utility programs build against it.</li>
+</ul>
+<h2>Documentation</h2>
+<ul>
+<li>Historical references to version 5 were reworded, the documentation footers read DataReel 6.2, and the Cluster Manager page describes DRCM 1.42.</li>
+</ul>
+<p>DataReel Copyright (c) 2001-2026 DataReel Software Development</p>
+</main>
+<footer class="dr-footer">DataReel 6.2 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
+</html>
