@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxdbase.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -58,7 +58,12 @@ gDatabase::ReclaimBestFit(), and gxDatabase::ReclaimFirstFit().
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
+#include <new>
 #include "gxdbase.h"
+#include "strutil.h"
+
+namespace datareel {
+
 
 
 // Initialize all static variables and data members
@@ -84,7 +89,7 @@ gxUINT32 gxDatabase::gxInternalCheckWord = gxCheckWord;
 gxDatabase::gxDatabase()
 // Creates a database file object.
 {
-  strcpy(file_name, gxDefaultFileName); // Set the initial file name
+  datareel::copy_to(file_name, sizeof(file_name), gxDefaultFileName); // Set the initial file name
   fp = 0;
 
   // Reset the last reported error and the file status members
@@ -120,7 +125,7 @@ void gxDatabase::Release()
 // this file pointer. This allows the file to remain open until all 
 // threads accessing this file pointer have exited or released it.
 {
-  strcpy(file_name, gxDefaultFileName); // Reset the open file name
+  datareel::copy_to(file_name, sizeof(file_name), gxDefaultFileName); // Reset the open file name
   fp = 0; 
 
   // Reset the last reported error and the file status members
@@ -174,7 +179,8 @@ gxDatabaseError gxDatabase::Create(const char *fname, FAU_t static_size,
     is_ok = 1;
     ready_for_writing = 1;
     ready_for_reading = 1;
-    strcpy(file_name, fname);
+    // 10/26/2026: Was strcpy(), which overflowed on long path names
+    datareel::copy_to(file_name, sizeof(file_name), fname);
 
     // Set the specified revision letter. NOTE This will default to the
     // current revision unless a lower version is specified.
@@ -297,7 +303,8 @@ gxDatabaseError gxDatabase::Open(const char *fname,
   else {
     is_open = 1;
     is_ok = 1;
-    strcpy(file_name, fname);
+    // 10/26/2026: Was strcpy(), which overflowed on long path names
+    datareel::copy_to(file_name, sizeof(file_name), fname);
     last_operation = gxDBASE_WRITE;
     
     if(ReadFileHdr()!= gxDBASE_NO_ERROR) return gxd_error;
@@ -336,7 +343,7 @@ gxDatabaseError gxDatabase::Close()
       gxd_error = gxDBASE_FILE_CLOSE_ERROR;
       return gxd_error;
     }
-    strcpy(file_name, gxDefaultFileName); // Set the initial file name
+    datareel::copy_to(file_name, sizeof(file_name), gxDefaultFileName); // Set the initial file name
   }
 
   is_open = 0;
@@ -655,8 +662,18 @@ __ULWORD__ gxDatabase::CalcChecksum(__ULWORD__ bytes, FAU_t file_address,
   unsigned char data;
   char *buf = 0;  
 
+  // 10/26/2026: The byte count comes from a block header on disk. A
+  // damaged header gave a huge count (block_length shorter than the
+  // header wraps around), and new char[] then threw std::bad_alloc.
+  FAU_t eof = GetEOF();
+  if((file_address < (FAU_t)0) || (file_address > eof) ||
+     ((unsigned long long)bytes > (unsigned long long)(eof - file_address))) {
+    gxd_error = gxDBASE_BADBLOCK_ERROR;
+    return 0;
+  }
+
   // Create a buffer equal to the object length
-  if(mem_alloc) buf = new char[bytes]; 
+  if(mem_alloc) buf = new(std::nothrow) char[bytes]; 
 
   if(buf) {
     if(IsOK()) {
@@ -2700,6 +2717,8 @@ gxDatabaseError gxDatabase::ReadFileStatsHdr(gxFileStatsHeader &hdr)
 // Database File Stat Functions (END HERE)
 // ==============================================================
 
+
+} // namespace datareel
 
 // ----------------------------------------------------------- //
 // ------------------------------- //

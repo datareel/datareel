@@ -91,7 +91,9 @@ written with std::fstream.
 #include "gxsftp.h"
 #include "strutil.h"
 
-using namespace datareel;
+namespace datareel {
+
+
 
 int gxsFTPClient::read_reply()
 // Read a reply, which may span several lines ("150-" ... "150 ").
@@ -376,6 +378,8 @@ int gxsFTPClient::Quit()
   conn.Close();
   return rv;
 }
+} // namespace datareel
+
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

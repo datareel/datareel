@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: dbcache.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/2002
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -70,6 +70,9 @@ multiple cache nodes connected to the same cache.
 #include "gxdfptr.h"
 #include "gxderror.h"
 #include <vector>
+
+namespace datareel {
+
 
 // Set minimum number of file segments. 
 const int MIN_DATABASE_SEGMENTS = 3;
@@ -266,6 +269,8 @@ private:
   gxDatabaseSegment *segment; // Current cache segment
   gxDatabaseCache *cache;     // Pointer to this object's cache
 };
+
+} // namespace datareel
 
 #endif // __USE_DATABASE_CACHE__
 

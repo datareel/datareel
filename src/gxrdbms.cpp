@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxrdbms.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/09/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -41,7 +41,11 @@ library gxDatabase, gxBtree, and gxStream classes.
 #include <fstream>
 #include <system_error>
 
-using namespace datareel;
+#include <math.h> // 10/14/2026: For floor() in Search()
+
+namespace datareel {
+
+
 
 static bool file_exists(const std::string &fname)
 {
@@ -63,7 +67,6 @@ static int file_rename(const std::string &from, const std::string &to)
   std::filesystem::rename(from, to, ec);
   return ec ? -1 : 0;
 }
-#include <math.h> // 10/14/2026: For floor() in Search()
 
 
 // --------------------------------------------------------------
@@ -3324,6 +3327,8 @@ GXDLCODE_API int gxrdRemovePID(const char *pid_file_name)
 // --------------------------------------------------------------
 // END: Standalone functions
 // --------------------------------------------------------------
+
+} // namespace datareel
 
 // ----------------------------------------------------------- //
 // ------------------------------- //

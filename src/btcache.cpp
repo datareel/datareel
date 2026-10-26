@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: btcache.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/09/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -44,6 +44,9 @@ build faster B-tree insert, find, and delete functions.
 #include "gxbtree.h"
 #include "btcache.h"
 
+namespace datareel {
+
+
 gxDatabaseError BtreeBucket::Flush(gxDatabase *f) 
 // Function used to flush this bucket to disk and reset the 
 // bucket variables. Returns zero if successful or a non-zero 
@@ -73,6 +76,15 @@ gxDatabaseError BtreeBucket::ReadNode(gxDatabase *f)
     return f->GetDatabaseError();
   if(f->Read(&left_child, sizeof(left_child)) != gxDBASE_NO_ERROR)
     return f->GetDatabaseError();
+
+  // 10/26/2026: The key count comes from the index file. A count larger
+  // than the node can hold overflowed key_entries, the same problem
+  // fixed in gxBtree::ReadNode() in 6.1.
+  if((key_count < (BtreeKeyCount_t)0) ||
+     (key_count > (BtreeKeyCount_t)node_order)) {
+    key_count = (BtreeKeyCount_t)0;
+    return f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+  }
 
   // Optimize the read by only reading the exact number of keys
   if(key_count > (BtreeKeyCount_t)0) { // Ensure node has entries
@@ -331,7 +343,9 @@ BtreeBucket *BtreeCache::FindEmptyBucket()
 	return 0; // Error writing to the file 
       }
     }
-    else { // The file is not ready for writing
+    else if(bucket->IsDirty()) { // The file is not ready for writing
+      // 10/26/2026: Only a modified bucket needs writing. Clean buckets
+      // are reused, so the cache now works with read-only index files.
       f->SetDatabaseError(gxDBASE_FILE_NOT_READY);
       return 0;
     }
@@ -641,6 +655,8 @@ BtreeBucket *BtreeCacheNode::Bind()
   // Return a pointer to this nodes bucket
   return bucket;
 }
+
+} // namespace datareel
 
 #endif // __USE_BTREE_CACHE__
 // ----------------------------------------------------------- // 

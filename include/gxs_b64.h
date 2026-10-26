@@ -61,6 +61,9 @@ base 64 alphabet instead of reading past the input.
 #include <string>
 #include <string_view>
 
+namespace datareel {
+
+
 // Standard base 64 (RFC 4648) with = padding
 GXDLCODE_API std::string gxsBase64Encode(const void *data, std::size_t len);
 inline std::string gxsBase64Encode(std::string_view s) {
@@ -80,6 +83,8 @@ GXDLCODE_API std::string gxsBasicAuthenticationEncode(std::string_view user,
 GXDLCODE_API bool gxsBasicAuthenticationDecode(std::string_view value, 
 					       std::string &user,
 					       std::string &passwd);
+
+} // namespace datareel
 
 #endif // __GX_BASE64_HPP__
 // ----------------------------------------------------------- //

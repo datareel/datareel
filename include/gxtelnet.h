@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Header File Name: gxtelnet.h
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -57,6 +57,9 @@ functions used to set the gxsTelnetClient::server_type variable.
 #include "gxdlcode.h"
 
 #include "gxsocket.h"
+
+namespace datareel {
+
 
 // Telnet command codes
 const unsigned char gxsTEL_IAC   = 255; // Interpret as command
@@ -192,6 +195,8 @@ protected:
   int time_out_usec; // Number of microseconds before a blocking timeout
   int server_type;   // Added to set the server type
 };
+
+} // namespace datareel
 
 #endif // __GX_EMBEDDED_TELNET_LIB_HPP__
 // ----------------------------------------------------------- //

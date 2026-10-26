@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: scomserv.h
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -40,6 +40,9 @@ blocks over a serial port.
 #include "gxscomm.h"
 #include "gxheader.h"
 
+namespace datareel {
+
+
 // Serial communications server/client
 class GXDLCODE_API gxSerialCommServer : public gxSerialComm
 {
@@ -71,6 +74,8 @@ public: // Database block functions
   int TerminateConnection();
   int CloseConnection();
 };
+
+} // namespace datareel
 
 #endif // __GX_COMMSERVER_HPP__
 // ----------------------------------------------------------- // 

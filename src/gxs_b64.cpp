@@ -56,6 +56,9 @@ base 64 alphabet instead of reading past the input.
 
 #include "gxs_b64.h"
 
+namespace datareel {
+
+
 static const char gxsBase64Chars[] = 
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -145,6 +148,8 @@ GXDLCODE_API bool gxsBasicAuthenticationDecode(std::string_view value,
   passwd = creds.substr(colon + 1);
   return true;
 }
+} // namespace datareel
+
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: dbugmgr.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -39,7 +39,9 @@ and repair damaged or corrupt database files.
 #include <string>
 #include "strutil.h"
 
-using namespace datareel;
+namespace datareel {
+
+
 
 
 // 10/14/2026: Internal helper used by the rebuild function. The memory
@@ -96,7 +98,7 @@ gxDatabaseError gxDatabaseDebugManager::BlindOpen(const char *fname,
   ready_for_writing = 0;
   is_open = 1;
   is_ok = 1;
-  strcpy(file_name, fname);
+  copy_to(file_name, sizeof(file_name), fname); // 10/26/2026: Was strcpy()
   last_operation = gxDBASE_WRITE;
   
   gxFileHeader fh;
@@ -1038,6 +1040,8 @@ void gxDatabaseDebugManager::ResetFileHeader(gxFileHeader &fh)
   // "rev_letter" value;
   fh.gxd_sig[gxSignatureSize-1] = rev_letter;
 }
+
+} // namespace datareel
 
 // ----------------------------------------------------------- //
 // ------------------------------- //

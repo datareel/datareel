@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxdbase.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -90,6 +90,9 @@ current stream pointer position in the open file.
 #include "gxcrc32.h"
 #include "gxdfptr.h"
 #include "gxderror.h"
+
+namespace datareel {
+
 
 class GXDLCODE_API gxDatabase
 {
@@ -284,6 +287,8 @@ public: // Rev 'D' and higher file stat functions
 public: // Synchronization functions
   void Release();
 };
+
+} // namespace datareel
 
 #endif // __GX_DATABASE_HPP__
 // ----------------------------------------------------------- // 

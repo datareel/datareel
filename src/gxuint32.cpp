@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxuint32.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/05/1997  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -42,6 +42,9 @@ An gxUINT32 type has a base 10 limit of 4,294,967,295.
 
 #include <string.h>
 #include <memory.h>
+
+namespace datareel {
+
 
 gxUINT32::gxUINT32(__ULWORD__ val)
 {
@@ -674,6 +677,8 @@ GXDLCODE_API int operator>=(const __UBYTE__ &al, const gxUINT32 &b)
 {
   return (__ULWORD__)al == b.PackBits() || (__ULWORD__)al > b.PackBits();
 }
+
+} // namespace datareel
 
 #endif // __USE_NATIVE_INT_TYPES__ 
 // ----------------------------------------------------------- // 

@@ -72,6 +72,9 @@ values, and functions to read and write one over a TLS connection.
 #include <utility>
 #include <vector>
 
+namespace datareel {
+
+
 class gxsTLSConnection;
 
 // An HTTP/1.1 request or response
@@ -121,6 +124,8 @@ GXDLCODE_API int gxsHTTPReadResponse(gxsTLSConnection &conn,
 
 // Standard reason phrase for a status code, such as "Not Found"
 GXDLCODE_API const char *gxsHTTPStatusCodeMessage(int status);
+
+} // namespace datareel
 
 #endif // __GX_HTTP_HPP__
 // ----------------------------------------------------------- //

@@ -43,7 +43,9 @@ relative redirect location into an absolute URL.
 #include "gxsurl.h"
 #include "strutil.h"
 
-using namespace datareel;
+namespace datareel {
+
+
 
 void gxsURLInfo::Clear()
 {
@@ -239,6 +241,8 @@ std::string gxsURL::Decode(std::string_view s, bool plus_is_space)
   }
   return out;
 }
+} // namespace datareel
+
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxtelnet.cpp
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -55,6 +55,10 @@ type before returning an end of line sequence.
 #include <string.h>
 #include <stdlib.h>
 #include "gxtelnet.h"
+#include "strutil.h"
+
+namespace datareel {
+
 
 
 gxsTelnetClient::gxsTelnetClient() 
@@ -79,10 +83,11 @@ void gxsTelnetClient::SetTermType(const char *s)
 // Function used to set a custom terminal type.
 {
   if(!s) { // Prevent program crash if "s" is a null pointer
-    strcpy(term_string, "NVT");
+    datareel::copy_to(term_string, sizeof(term_string), "NVT");
   }
   else {
-    strcpy(term_string, s);
+    // 10/26/2026: Was strcpy(), which overflowed the 16 byte buffer
+    datareel::copy_to(term_string, sizeof(term_string), s);
   }
   term_type = gxsTEL_NVT_TERM;
 }
@@ -92,13 +97,13 @@ void gxsTelnetClient::SetTermType(gxsTelnetTermTypes ttype)
 { 
   switch(ttype) {
     case gxsTEL_VT100F_TERM : // Filtered VT100/ANSI terminal emulation
-      strcpy(term_string, "VT100");
+      datareel::copy_to(term_string, sizeof(term_string), "VT100");
       term_type = gxsTEL_VT100F_TERM;
       return;
     case gxsTEL_ENV_TERM  :   // Use term type set in environment 
       // PC-lint 09/14/2005: getenv is considered dangerous
       if(getenv("TERM")) { // The TERM variable is set
-	strcpy(term_string, getenv("TERM"));
+	datareel::copy_to(term_string, sizeof(term_string), getenv("TERM"));
 	term_type = gxsTEL_ENV_TERM;
 	return;
       }
@@ -108,7 +113,7 @@ void gxsTelnetClient::SetTermType(gxsTelnetTermTypes ttype)
   }
 
   // Default to NVT - Network Virtual Terminal
-  strcpy(term_string, "NVT");
+  datareel::copy_to(term_string, sizeof(term_string), "NVT");
   term_type = gxsTEL_NVT_TERM;
 }
 
@@ -446,7 +451,7 @@ gxSocketError gxsTelnetClient::NegotiateTermType(unsigned char data)
     sbuf[1] = gxsTEL_SB;
     sbuf[2] = gxsTELOPT_TERM;
     sbuf[3] = 0; // Our terminal type is
-    strcpy((char *)&sbuf[4], term_string);
+    memcpy(&sbuf[4], term_string, strlen(term_string) + 1); // At most 15 chars
     int len = strlen((char *)&sbuf[4]);
     sbuf[4+len] = gxsTEL_IAC;
     sbuf[5+len] = gxsTEL_SE;
@@ -596,6 +601,8 @@ gxSocketError gxsTelnetClient::VT100FWrite(unsigned char data)
   }
   return err;
 }
+
+} // namespace datareel
 
 // ----------------------------------------------------------- //
 // ------------------------------- //

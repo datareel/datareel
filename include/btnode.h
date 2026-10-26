@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: btnode.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/22/2000 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -55,6 +55,9 @@ now public functions.
 
 #include "dbasekey.h"
 
+namespace datareel {
+
+
 class GXDLCODE_API BtreeNode
 {
 public:
@@ -99,6 +102,8 @@ public: // Persistent data members
   FAU left_child;          // File pointer to this node's left child
   char *key_entries;       // Variable order of key entries
 };
+
+} // namespace datareel
 
 #endif // __GX_BTREE_NODE_HPP__
 // ----------------------------------------------------------- // 

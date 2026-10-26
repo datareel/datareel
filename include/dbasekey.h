@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: dbasekey.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/22/2000 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -52,6 +52,9 @@ than, 0 equal to, 1 greater than.
 
 #include "keytypes.h"
 
+namespace datareel {
+
+
 class GXDLCODE_API DatabaseKeyB
 {
 public:
@@ -87,6 +90,8 @@ public: // Persistent data members
   // PC-lint 05/24/2002: The derived class must free memory
   // if heap space is used for the db_key pointer.
 };
+
+} // namespace datareel
 
 #endif // __GX_DATABASE_KEY_HPP__
 // ----------------------------------------------------------- // 

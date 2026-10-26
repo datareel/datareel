@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxdfp64.h
-// Compiler Used: MSVC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -34,25 +34,10 @@ functions defined are intended to be used directly. They are
 used by the gxDatabase class to call the correct native 
 64-bit file API function for each supported platform. 
 
-NOTE: DataReel supports large files on Windows NT/2000/XP, 
-RedHat 6.2 and higher, HPUX 11.X, and Solaris 2.8 and higher.
-
-Under Windows NT/2000/XP NTFS formatted files systems the file 
-size is limited only by the size of the volume. NTFS volume sizes 
-range from 10MB to 2TB and larger. FAT32 volumes range from 512MB 
-to 2TB with a maximum file size of 4GB. FAT16 volumes range from 
-floppy disk size to 4GB with a maximum file size of 2GB.
-
-The 64-bit UNIX API is based on the non-POSIX standard UNIX API
-interfaces to support large files:
-
-::fopen64()
-::fseeko64()
-::ftello64()
-::stat64()
-
-NOTE: Since these functions are not part of the POSIX standard
-they may be removed in future compiler versions.
+DataReel 7 supports large files on Windows 11 and Windows Server
+2022 and later (NTFS, where the file size is limited by the volume)
+and on Red Hat Enterprise Linux 8, 9 and 10 (64-bit file offsets
+through the fopen64(), fseeko64() and ftello64() functions).
 
 Changes:
 ==============================================================
@@ -91,14 +76,15 @@ throughout the library.
 #error You must define a target platform: __WIN32__ or __UNIX__
 #endif
 
+namespace datareel {
+
+
 // Platform specific file pointer type
 struct GXDLCODE_API gxdFPTR64 {
 #if defined (__WIN32__) && defined (__MSVC__)
   // WIN32 file pointer type for MSVC
   HANDLE fptr;
 #elif defined (__UNIX__) && defined (__LINUX__)
-  // NOTE: Large file support for Linux is supported by RedHat
-  // Linux 6.2 and higher.
   FILE *fptr;
 #else
 #error You must define a target platform and/or compiler
@@ -122,6 +108,8 @@ GXDLCODE_API __LLWORD__ gxdFPTR64Tell(gxdFPTR64 *stream);
 GXDLCODE_API int gxdFPTR64Exists(const char *fname);
 GXDLCODE_API __LLWORD__ gxdFPTR64FileSize(const char *fname);
 
+
+} // namespace datareel
 
 #endif // __GX_DATABASE_FILE_POINTER_64_HPP__
 // ----------------------------------------------------------- // 

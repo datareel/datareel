@@ -111,6 +111,9 @@ returns an error instead of raising SIGPIPE.
 #include <netinet/tcp.h>
 #endif
 
+namespace datareel {
+
+
 #if defined (MSG_NOSIGNAL)
 const int gxsSEND_FLAGS = MSG_NOSIGNAL;
 #else
@@ -748,6 +751,8 @@ const char *gxSocket::SocketExceptionMessage() const
 {
   return ExceptionMessage(socket_error);
 }
+} // namespace datareel
+
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

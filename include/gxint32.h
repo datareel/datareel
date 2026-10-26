@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxint32.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/05/1997  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -41,6 +41,9 @@ a negative limit of 2,147,483,648.
 #include "gxdlcode.h"
 
 #include "gxdtypes.h"
+
+namespace datareel {
+
 
 #if defined (__USE_NATIVE_INT_TYPES__)
 typedef __LWORD__ gxINT32;
@@ -225,6 +228,8 @@ private:
   __SBYTE__ byte[4];
 };
 #endif // __USE_NATIVE_INT_TYPES__
+
+} // namespace datareel
 
 #endif // __GX_INT32_HPP__
 // ----------------------------------------------------------- // 

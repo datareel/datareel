@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxdtypes.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/05/1997  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -37,6 +37,11 @@ compilers.
 
 #include "gxdlcode.h"
 
+#include "gxdtyp64.h" // Platform/compiler specific INT64 types
+
+namespace datareel {
+
+
 // --------------------------------------------------------------
 // Type definitions common to all platforms
 // --------------------------------------------------------------
@@ -51,11 +56,8 @@ typedef unsigned short __USWORD__; // (U)nsigned (S)hort (W)ord size (2 bytes)
 typedef double __DPFLOAT__; // (D)ouble (P)recision (F)loating point (8 bytes)
 // --------------------------------------------------------------
 
-// --------------------------------------------------------------
-// Platform/compiler specific INT64 types
-// --------------------------------------------------------------
-#include "gxdtyp64.h" 
-// --------------------------------------------------------------
+
+} // namespace datareel
 
 #endif // __GX_DATABASE__TYPES_HPP__
 // ----------------------------------------------------------- // 

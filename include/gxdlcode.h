@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Header File Name: gxdlcode.h
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 05/25/2001  
-// Date Last Modified: 10/25/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -75,28 +75,27 @@ library.
 #define GXDLCODE_API
 #endif // __MSVC_DLL__
 
-// Force ANSI compatibility for Visual C++ .NET
-
-// Force ANSI compatibility for BCC32
-
-// Macro used to define the std name space used by the ANSI 
-// Standard C++ library.
-#define GXSTD std
-
-// 10/24/2026: Visual Studio 2026 (MSVC 14.50, _MSC_VER 1950) and
-// higher use the VS 2026 code paths without needing -D__VS2026__
-#if defined(_MSC_VER) && _MSC_VER >= 1950 && !defined(__VS2026__)
-#define __VS2026__
-#endif
-
-// Windows CE macros
-
 // 10/21/2025: Moved the wxWidgets includes here for Windows builds
 // the wx included must be delcared before windows.h when using VS2026
 #if defined (__WIN32__)
 #if defined (__wxWIN302__)
 #include "wx3incs.h"
 #endif
+#endif
+
+// DataReel library version
+#define DATAREEL_VERSION_MAJOR 7
+#define DATAREEL_VERSION_MINOR 0
+#define DATAREEL_VERSION_STRING "7.0"
+
+// 10/26/2026: DataReel 7 declares its classes, types and functions in
+// the datareel namespace. The using-directive below keeps DataReel 6.x
+// code that uses the names unqualified compiling. Define
+// DATAREEL_NO_GLOBAL_NAMES before including any DataReel header to
+// keep the names out of the global namespace.
+namespace datareel { }
+#if !defined (DATAREEL_NO_GLOBAL_NAMES)
+using namespace datareel;
 #endif
 
 #endif // __GX_DLL_CODE_HPP__

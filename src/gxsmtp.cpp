@@ -64,7 +64,9 @@ stuffed. SendMessage() writes RFC 5322 headers.
 #include "strutil.h"
 #include "systime.h"
 
-using namespace datareel;
+namespace datareel {
+
+
 
 int gxsSMTPClient::fail(const std::string &msg)
 {
@@ -277,6 +279,8 @@ int gxsSMTPClient::SendMessage(const std::string &from,
   msg += body;
   return Data(msg);
 }
+} // namespace datareel
+
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

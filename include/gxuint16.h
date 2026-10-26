@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxuint16.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/05/1997  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -40,6 +40,9 @@ An gxUINT16 type has a base 10 positive limit of 65,535.
 #include "gxdlcode.h"
 
 #include "gxdtypes.h"
+
+namespace datareel {
+
 
 #if defined (__USE_NATIVE_INT_TYPES__)
 typedef unsigned short gxUINT16;
@@ -229,6 +232,8 @@ private:
 
 
 #endif // __USE_NATIVE_INT_TYPES__
+
+} // namespace datareel
 
 #endif // __GX_UINT16_HPP__
 // ----------------------------------------------------------- // 

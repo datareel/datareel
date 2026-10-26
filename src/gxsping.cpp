@@ -64,6 +64,9 @@ a diagnostic tool, like telnet.
 #include <netinet/icmp6.h>
 #endif
 
+namespace datareel {
+
+
 #if defined (_WIN32)
 
 int gxsPing::Ping(const std::string &host, gxsPingResult &result, int family)
@@ -223,6 +226,8 @@ int gxsPing::Ping(const std::string &host, gxsPingResult &result, int family)
 }
 
 #endif
+} // namespace datareel
+
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

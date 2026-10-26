@@ -74,6 +74,9 @@ written with std::fstream.
 #include "gxsmtp.h" // gxsMailSecurity
 #include "gxstls.h"
 
+namespace datareel {
+
+
 // FTPS client (RFC 959 with RFC 4217 TLS). Plain FTP is not supported.
 class GXDLCODE_API gxsFTPClient
 {
@@ -133,6 +136,8 @@ private:
   std::string last_reply;
   std::string error;
 };
+
+} // namespace datareel
 
 #endif // __GX_EMBEDDED_FTP_LIB_HPP__
 // ----------------------------------------------------------- //

@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxfloat.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/12/1997  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -50,6 +50,9 @@ mantissa, giving an approximate decimal precision of 15 digits.
 #include "gxdlcode.h"
 
 #include "gxdtypes.h"
+
+namespace datareel {
+
 
 #if defined (__USE_NATIVE_FLOAT_TYPES__)
 typedef double gxFLOAT64;
@@ -254,6 +257,8 @@ private:
   __SBYTE__ byte[8];
 };
 #endif // __USE_NATIVE_FLOAT_TYPES__
+
+} // namespace datareel
 
 #endif // __GX_FLOAT64_HPP__
 // ----------------------------------------------------------- //

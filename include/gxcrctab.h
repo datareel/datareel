@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: crc32tab.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/17/1998 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -45,6 +45,9 @@ the LSB. Thus 0x4C11DB7 becomes 0xEDB88320:
 #define __GX_CRC32_TABLE_HPP__
 
 #include "gxdlcode.h"
+
+namespace datareel {
+
 
 const unsigned long crc32tab[256] = {
   0x00000000U, 0x77073096U, 0xee0e612cU, 0x990951baU, 0x076dc419U,
@@ -100,6 +103,8 @@ const unsigned long crc32tab[256] = {
   0x5d681b02U, 0x2a6f2b94U, 0xb40bbe37U, 0xc30c8ea1U, 0x5a05df1bU,
   0x2d02ef8dU
 };
+
+} // namespace datareel
 
 #endif // __GX_CRC32_TABLE_HPP__
 // ----------------------------------------------------------- // 

@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: keytypes.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/22/2000 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -47,6 +47,9 @@ and the BtreeKeyLocation platform independent types.
 
 #include "gxdbase.h"
 
+namespace datareel {
+
+
 #if defined (__64_BIT_DATABASE_ENGINE__)
 typedef gxINT64 gxClassID;       // Persistent class ID type
 typedef __LLWORD__ gxClassID_t;  // Native class ID type 
@@ -71,6 +74,8 @@ typedef gxINT32 BtreeNodeOrder;   // Type used for the Btree node order
 typedef gxINT32 BtreeSize;        // Type used to Btree size values
 typedef gxINT32 BtreeKeyCount;    // Type used for the Btree node key count
 typedef gxINT32 BtreeKeyLocation; // Type used for Btree node key locations
+
+} // namespace datareel
 
 #endif // __GX_DATABASE_KEY_TYPES_HPP__
 // ----------------------------------------------------------- // 

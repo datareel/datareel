@@ -49,7 +49,9 @@ results are returned as std::string values.
 #include "gxspop3.h"
 #include "strutil.h"
 
-using namespace datareel;
+namespace datareel {
+
+
 
 int gxsPOP3Client::read_status()
 {
@@ -159,6 +161,8 @@ int gxsPOP3Client::Quit()
   conn.Close();
   return rv;
 }
+} // namespace datareel
+
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

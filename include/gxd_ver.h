@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxd_ver.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/05/1997  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -41,6 +41,9 @@ rev E.
 #define __GX_DATABASE__VERSION_HPP__
 
 #include "gxdlcode.h"
+
+namespace datareel {
+
 
 // Current GX Database version number.
 const long gxDatabaseVersionNumber = 4630;
@@ -92,6 +95,8 @@ const char gxDatabaseRevisionLetter = 'E';
 // file statistics offering file locking with the least amount of overhead
 // per block.
 // ----------------------------------------- //
+
+} // namespace datareel
 
 #endif // __GX_DATABASE__VERSION_HPP__
 // ----------------------------------------------------------- // 

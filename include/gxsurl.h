@@ -46,6 +46,9 @@ relative redirect location into an absolute URL.
 #include <string>
 #include <string_view>
 
+namespace datareel {
+
+
 // Parts of a URL: scheme://user:passwd@host:port/path?query#fragment
 struct GXDLCODE_API gxsURLInfo
 {
@@ -87,6 +90,8 @@ public:
   // Decode %XX sequences, and '+' as a space when plus_is_space is true
   static std::string Decode(std::string_view s, bool plus_is_space = false);
 };
+
+} // namespace datareel
 
 #endif // __GX_URL_HPP__
 // ----------------------------------------------------------- //

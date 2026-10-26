@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: btnode.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/22/2000 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -55,6 +55,9 @@ DatabaseKeyB::CompareKey() function with return values of: -1 less than,
 
 #include <string.h>
 #include "btnode.h"
+
+namespace datareel {
+
 
 
 BtreeNode::BtreeNode(BtreeSize_t dbkey_size, BtreeNodeOrder_t order)
@@ -303,6 +306,8 @@ void BtreeNode::Release()
   // PC-lint 04/20/2004: Creation of memory leak warning (ignore)
   key_entries = 0;
 }
+
+} // namespace datareel
 
 // ----------------------------------------------------------- //
 // ------------------------------- //

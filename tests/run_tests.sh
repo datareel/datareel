@@ -11,7 +11,8 @@
 SRC=$(cd "$(dirname "$0")/.." && pwd)
 BUILD=${1:-$SRC/cmake-build}
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/datareel-tests.XXXXXX")
-PORT=$((20000 + RANDOM % 20000))
+# Below the Linux ephemeral port range (32768 and up)
+PORT=$((10000 + RANDOM % 20000))
 PASS=0
 FAIL=0
 PIDS=()
@@ -70,6 +71,8 @@ for p in db_simple db_database db_btree db_btree_cached db_btree_node \
 done
 cd "$WORK/run_db_infohog" && check db_infohog_reopen sh -c "$E/db_infohog < /dev/null"
 expect rdbms_search "Engineering (2)" "$WORK/db_rdbms.log"
+mkdir -p "$WORK/run_damaged" && cd "$WORK/run_damaged" && 
+  check damaged_files "$BUILD/tests/damaged_files" 300 7
 cd "$WORK"
 
 # TLS echo server and client, IPv4 and IPv6, certificate checks

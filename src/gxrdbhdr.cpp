@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxrdbhdr.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/09/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -47,7 +47,9 @@ exclude field that will not be copied to or from the disk record.
 #include "gxrdbhdr.h"
 #include "strutil.h"
 
-using namespace datareel;
+namespace datareel {
+
+
 
 
 // Must match the gxrdFIELD_TYPES enumeration
@@ -1976,6 +1978,8 @@ GXDLCODE_API const char *gxrdFieldTypeString(gxrdFIELD_TYPES t)
   if(error > (gxrdNUM_FIELD_TYPES-1)) error = gxrdINVALID_TYPE;
   return gxrdFIELD_TYPES_STRINGS[error];
 }
+
+} // namespace datareel
 
 // ----------------------------------------------------------- //
 // ------------------------------- //

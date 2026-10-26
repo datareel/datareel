@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: btstack.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/22/2000 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -49,6 +49,9 @@ across multiple platforms.
 #include "gxdlcode.h"
 
 #include "keytypes.h"
+
+namespace datareel {
+
 
 struct GXDLCODE_API BtreeStack_t
 {
@@ -97,6 +100,8 @@ private:
   BtreeStack_t *head; // First node in the list
   BtreeStack_t *tail; // Last node in the list
 };
+
+} // namespace datareel
 
 #endif // __GX_BTREE_STACK_HPP__
 // ----------------------------------------------------------- // 

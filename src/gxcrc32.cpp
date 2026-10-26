@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxcrc32.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/17/1998 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program description and details ------------- // 
@@ -41,6 +41,11 @@ remainder 32-bit, which is the checksum.
 
 #include "gxcrc32.h"
 #include "gxcrctab.h"
+
+#include <iomanip>
+
+namespace datareel {
+
 
 GXDLCODE_API unsigned long calcCRC32(const char *buf, unsigned len)
 // Calculate a 32-bit CRC for a raw pattern of bytes.
@@ -86,7 +91,6 @@ GXDLCODE_API unsigned long calcCRC32(std::istream &infile)
 }
 
 #ifdef __USE_CRC32_TABLE_FUNCTIONS__
-#include <iomanip>
 
 GXDLCODE_API int makeCRC32(std::ostream &stream)
 // Write a CRC 32 table for a byte-wise 32-bit CRC calculation
@@ -150,6 +154,8 @@ GXDLCODE_API int makeCRC32(std::ostream &stream)
   return 1;
 }
 #endif // __USE_CRC32_TABLE_FUNCTIONS__
+} // namespace datareel
+
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

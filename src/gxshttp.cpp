@@ -64,7 +64,9 @@ values, and functions to read and write one over a TLS connection.
 #include "gxstls.h"
 #include "strutil.h"
 
-using namespace datareel;
+namespace datareel {
+
+
 
 void gxsHTTPMessage::Clear()
 {
@@ -294,6 +296,8 @@ GXDLCODE_API const char *gxsHTTPStatusCodeMessage(int status)
   }
   return "Unknown";
 }
+} // namespace datareel
+
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

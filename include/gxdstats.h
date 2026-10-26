@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxdstats.h 
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/03/1997  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -40,12 +40,17 @@ database files.
 
 #include "gxdbase.h"
 
+namespace datareel {
+
+
 GXDLCODE_API void DatabaseStats(gxDatabase *f);
 GXDLCODE_API void BlockStats(gxDatabase *f, FAU oa);
 GXDLCODE_API int CheckError(gxDatabase *f);
 GXDLCODE_API int CheckError(gxDatabaseError err);
 GXDLCODE_API void EchoDatabaseVersion();
 GXDLCODE_API void EchoDatabaseVersion(gxDatabase *f);
+
+} // namespace datareel
 
 #endif // __GX_DATABASE_STATS_HPP__
 // ----------------------------------------------------------- //

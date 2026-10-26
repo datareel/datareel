@@ -53,6 +53,9 @@ std::vector instead of a new[] buffer.
 #include <cstring>
 #include "gxstream.h"
 
+namespace datareel {
+
+
 int gxStream::Connect(const std::string &host, int port)
 {
   if(conn.Connect(host, port, true) != 0) {
@@ -228,6 +231,8 @@ int gxStream::CloseConnection()
   SetBlockStatus(gx, gxCloseConnection);
   return WriteHeader(gx);
 }
+} // namespace datareel
+
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

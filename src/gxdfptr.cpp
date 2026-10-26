@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxdfptr.cpp
-// Compiler Used: MSVC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -74,6 +74,9 @@ throughout the library.
 #endif
 
 #include "gxdfptr.h"
+
+namespace datareel {
+
 
 
 GXDLCODE_API gxdFPTR *gxdFPTRCreate(const char *fname)
@@ -466,8 +469,7 @@ DIOFILE * dio_open(const char  *filename,  int  access,  int  permission)
   fp->access = access;
   fp->perm = permission;
   fp->fname = new char[(strlen(filename)+1)];
-  memset(fp->fname,0,strlen(filename)+1);
-  strcpy(fp->fname, filename); 
+  memcpy(fp->fname, filename, strlen(filename)+1);
   fp->read_eof = -1;
   fp->seek_past_eof = -1;
   fp->fill_holes = 0;
@@ -664,6 +666,8 @@ ssize_t dio_getline(DIOFILE *fp, char **buf, size_t *bufsiz)
   return dio_getdelim(fp, buf, bufsiz, '\n');
 }
 #endif
+
+} // namespace datareel
 
 // ----------------------------------------------------------- //
 // ------------------------------- //

@@ -52,6 +52,9 @@ network protocol except telnet.
 #include "gxsocket.h"
 #include "gxssl.h"
 
+namespace datareel {
+
+
 class GXDLCODE_API gxsTLSConnection
 {
 public:
@@ -172,6 +175,8 @@ private:
   gxSSL tls;
   std::string error;
 };
+
+} // namespace datareel
 
 #endif // __GX_TLS_CONNECTION_HPP__
 // ----------------------------------------------------------- //

@@ -64,6 +64,9 @@ stuffed. SendMessage() writes RFC 5322 headers.
 
 #include "gxstls.h"
 
+namespace datareel {
+
+
 enum gxsMailSecurity {
   gxsMAIL_IMPLICIT_TLS, // TLS from the start (SMTP 465, POP3 995, FTPS 990)
   gxsMAIL_STARTTLS      // Plain greeting, then STARTTLS/STLS/AUTH TLS
@@ -125,6 +128,8 @@ private:
   std::string last_reply;
   std::string error;
 };
+
+} // namespace datareel
 
 #endif // __GX_EMBEDDED_SMTP_LIB_HPP__
 // ----------------------------------------------------------- //

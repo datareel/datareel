@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: infohog.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/17/1997  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -74,6 +74,9 @@ purpose member.
 
 #include "gpersist.h"
 #include <vector>
+
+namespace datareel {
+
 
 // Constants
 const unsigned InfoHogMinMembers = 1;   // Minimum number of members
@@ -525,7 +528,10 @@ gxDatabaseError InfoHog<TYPE>::Read(FAU object_address)
     if(pod->OpenDataFile()->Read(&len, sizeof(gxUINT32)) != gxDBASE_NO_ERROR) {
       return pod->GetDataFileError();
     }
-    if((FAU_t)len > file_eof) {
+    // 10/26/2026: Compare without the FAU_t cast, which made large
+    // lengths negative in 32-bit engine builds and let them through
+    if((file_eof < (FAU_t)0) ||
+       ((unsigned long long)(__ULWORD__)len > (unsigned long long)file_eof)) {
       return pod->SetDataFileError(gxDBASE_BAD_OBJECT_ADDRESS);
     }
     if(len > (__ULWORD__)0) {
@@ -1014,6 +1020,8 @@ int InfoHog<TYPE>::ChangeKeyMember(TYPE &k, int find_object)
   // The object was updated
   return 1;
 }
+
+} // namespace datareel
 
 #endif // __GX_INFOHOG_HPP__
 // ----------------------------------------------------------- // 

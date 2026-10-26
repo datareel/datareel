@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: scomserv.cpp
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -34,7 +34,11 @@ blocks over a serial port.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
+#include <new>
 #include "scomserv.h"
+
+namespace datareel {
+
 
 
 int gxSerialCommServer::InitCommServer(char *dev, int sp, char pr, int cs,
@@ -170,8 +174,15 @@ void *gxSerialCommServer::RequestBlock(const void *request,
   if(ReadHeader(requested_block_header) != gxSerialComm::scomm_NO_ERROR) 
     return 0;
 
+  // 10/26/2026: The length comes from the other end of the serial line;
+  // refuse blocks over 64 MB instead of allocating whatever it says
+  if((__ULWORD__)requested_block_header.block_length > 
+     (__ULWORD__)(64*1024*1024)) {
+    return 0;
+  }
+
   // Read the returned requested block
-  char *buf = new char[(__ULWORD__)requested_block_header.block_length];
+  char *buf = new(std::nothrow) char[(__ULWORD__)requested_block_header.block_length];
   if(!buf) return 0;
   
   if(Recv(buf, requested_block_header.block_length) < 0) {
@@ -287,6 +298,8 @@ int gxSerialCommServer::CloseConnection()
 
   return scomm_error = gxSerialComm::scomm_NO_ERROR;  
 }
+
+} // namespace datareel
 
 // ----------------------------------------------------------- // 
 // ------------------------------- //

@@ -78,6 +78,9 @@ are returned in a std::string or written to a file.
 #include "gxstls.h"
 #include "gxsurl.h"
 
+namespace datareel {
+
+
 // HTTPS client. Each request opens a new TLS connection.
 class GXDLCODE_API gxsHTTPClient
 {
@@ -137,6 +140,8 @@ private:
   std::string error;
   std::string final_url;
 };
+
+} // namespace datareel
 
 #endif // __GX_HTTP_CLIENT_HPP__
 // ----------------------------------------------------------- //

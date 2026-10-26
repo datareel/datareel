@@ -40,6 +40,9 @@ Changes:
 #include <cstring>
 #include "gxstls.h"
 
+namespace datareel {
+
+
 int gxsTLSConnection::fail(const std::string &msg)
 {
   error = msg;
@@ -302,6 +305,8 @@ int gxsTLSServer::Accept(gxsTLSConnection &conn)
   }
   return 0;
 }
+} // namespace datareel
+
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

@@ -53,6 +53,9 @@ std::vector instead of a new[] buffer.
 #include "gxheader.h"
 #include "gxstls.h"
 
+namespace datareel {
+
+
 const int gxSTREAM_DEF_TIMEOUT = 7200;
 const gxUINT32 gxSTREAM_DEF_MAX_BLOCK = 64*1024*1024;
 
@@ -118,6 +121,8 @@ private:
   gxUINT32 max_block = gxSTREAM_DEF_MAX_BLOCK;
   gxSocketError stream_error = gxSOCKET_NO_ERROR;
 };
+
+} // namespace datareel
 
 #endif // __GX_STREAM_HPP__
 // ----------------------------------------------------------- //

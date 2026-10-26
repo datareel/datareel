@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: btstack.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/22/2000 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -34,6 +34,9 @@ during non-recursive insertions and deletions.
 #include "gxdlcode.h"
 
 #include "btstack.h"
+
+namespace datareel {
+
 
 
 BtreeStack::~BtreeStack()
@@ -222,6 +225,8 @@ FAU_t BtreeStack::Extract()
   DetachNode(stack_node);
   return FreeNode(stack_node);
 }
+
+} // namespace datareel
 
 // ----------------------------------------------------------- // 
 // ------------------------------- //

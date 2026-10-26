@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Source Code File Name: gxsschan.cpp
-// C++ Compiler Used: MSVC, MINGW
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/24/2026
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -65,6 +65,9 @@ Differences from the OpenSSL version:
 
 #include <stdio.h>
 #include <string.h>
+
+namespace datareel {
+
 
 // --------------------------------------------------------------
 // Schannel context and connection objects
@@ -450,7 +453,7 @@ void gxSSL::GlobalSSLError(std::string &err_str)
   memset(sbuf, 0, sizeof(sbuf));
   DWORD code = (DWORD)gxSchannelLastStatus;
   char num[32];
-  sprintf(num, "0x%08lX", (unsigned long)code);
+  snprintf(num, sizeof(num), "0x%08lX", (unsigned long)code);
   err_str = str_cat("SSL global exception: ", num);
   if(code == 0) {
     str_append(err_str, " No errors reported");
@@ -1672,7 +1675,7 @@ const char *gxSSL::CertVerifyErrorString(long X509_return_code)
     while(n > 0 && (sbuf[n-1] == '\r' || sbuf[n-1] == '\n')) sbuf[--n] = 0;
     return sbuf;
   }
-  sprintf(sbuf, "Certificate error 0x%08lX",
+  snprintf(sbuf, sizeof(sbuf), "Certificate error 0x%08lX",
 	  (unsigned long)(DWORD)X509_return_code);
   return sbuf;
 }
@@ -1708,6 +1711,8 @@ int gxSSL::MakeCertReq(const char * /* key_fname */,
   return SetAppError("SSL exception: MakeCertReq() is not supported with \
 Schannel, use openssl req to make a certificate");
 }
+
+} // namespace datareel
 
 #endif // __GX_SSL_SCHANNEL_SOURCE__
 // ----------------------------------------------------------- //

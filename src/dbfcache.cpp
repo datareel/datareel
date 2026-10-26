@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: dbcache.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/2002
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -44,6 +44,9 @@ writes allowing users to build faster database functions.
 #ifdef __USE_DATABASE_CACHE__
 
 #include "dbfcache.h"
+
+namespace datareel {
+
 
 gxDatabaseError gxDatabaseSegment::Flush(gxdFPTR *fp) 
 // Function used to flush this segment to disk and reset the 
@@ -595,6 +598,8 @@ gxDatabaseSegment *gxDBCacheNode::Bind(__ULWORD__ bytes)
   ds_length = bytes;
   return Bind();
 }
+
+} // namespace datareel
 
 #endif // __USE_DATABASE_CACHE__
 // ----------------------------------------------------------- // 

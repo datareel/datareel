@@ -80,7 +80,9 @@ are returned in a std::string or written to a file.
 #include "gxs_b64.h"
 #include "strutil.h"
 
-using namespace datareel;
+namespace datareel {
+
+
 
 int gxsHTTPClient::Get(const std::string &url, gxsHTTPMessage &response)
 {
@@ -188,6 +190,8 @@ int gxsHTTPClient::Download(const std::string &url, const std::string &fname,
   if(!out) return fail("HTTP exception: Cannot write " + fname);
   return 0;
 }
+} // namespace datareel
+
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

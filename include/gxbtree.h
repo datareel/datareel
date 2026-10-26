@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxbtree.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/22/2000 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -91,6 +91,9 @@ gxBtreeHeader::n_keys variable.
 #ifdef __USE_BTREE_CACHE__
 #include "btcache.h"
 #endif
+
+namespace datareel {
+
 
 // 10/25/2026: Most nodes one search, insert or delete reads before it
 // stops with gxDBASE_BADBLOCK_ERROR, see gxBtree::ReadNodeChecked()
@@ -402,6 +405,8 @@ protected:
 // End - B-tree cache additions
 // =========================================================== //
 };
+
+} // namespace datareel
 
 #endif // __GX_DATABASE_BTREE_HPP__
 // ----------------------------------------------------------- // 

@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxscomm.cpp
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -128,6 +128,9 @@ gxsSerialCommExceptionMessages[] character array.
 
 
 #include "gxscomm.h" 
+
+namespace datareel {
+
 
 
 // NOTE: This array must contain the same number of exceptions as the
@@ -261,7 +264,6 @@ int gxSerialComm::OpenSerialPort(char *device_name)
   // Valid device names for Windows are: COM1, COM2, etc.
 
 #ifdef _UNICODE
-#ifdef __VS2026__
   const char* narrowString = device_name;
   wchar_t wideBuffer[1024];
   MultiByteToWideChar(CP_ACP, 0, narrowString, -1, wideBuffer, 1024);
@@ -272,16 +274,6 @@ int gxSerialComm::OpenSerialPort(char *device_name)
 			     OPEN_EXISTING,
 			     FILE_FLAG_OVERLAPPED,
 			     NULL);
-#else
-  USES_CONVERSION;
-  device_handle = CreateFile(A2T(device_name),
-			     GENERIC_READ | GENERIC_WRITE,
-			     FILE_SHARE_READ | FILE_SHARE_WRITE,
-			     NULL,
-			     OPEN_EXISTING,
-			     FILE_FLAG_OVERLAPPED,
-			     NULL);
-#endif
 #else
   device_handle = CreateFile(device_name,
 			     GENERIC_READ | GENERIC_WRITE,
@@ -1108,6 +1100,8 @@ int gxSerialComm::DCD_Active()
   }
   return 0;
 }
+
+} // namespace datareel
 
 // ----------------------------------------------------------- // 
 // ------------------------------- //

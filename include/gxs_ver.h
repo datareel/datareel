@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxs_ver.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -36,6 +36,9 @@ number of the GX Socket library.
 
 #include "gxdlcode.h"
 
+namespace datareel {
+
+
 const long gxSocketVersionNumber = 4630;
 
 // Version specific changes
@@ -44,6 +47,8 @@ const double gxSocketRevisionNumber = .101;
 // GXD library distribution version number
 const double gxSocketVersion = gxSocketVersionNumber + \
 gxSocketRevisionNumber;
+
+} // namespace datareel
 
 #endif  // __GX_SOCKET_VERSION_HPP__
 // ----------------------------------------------------------- // 

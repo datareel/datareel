@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxheader.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -86,6 +86,9 @@ gxWarningBanner headers.
 #include "gxint64.h"
 #include "gxuint64.h"
 #endif
+
+namespace datareel {
+
 // --------------------------------------------------------------
 
 // --------------------------------------------------------------
@@ -541,6 +544,8 @@ struct GXDLCODE_API gxSessionCertHeader
   char cert[gxSessionCertLen];
 };
 // --------------------------------------------------------------
+
+} // namespace datareel
 
 #endif // __GX_BLOCK_HEADER_HPP__
 // ----------------------------------------------------------- // 

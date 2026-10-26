@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Source Code File Name: gpersist.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/18/1997
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -40,6 +40,9 @@ function that could occur during a database read error condition.
 #include "gxdlcode.h"
 
 #include "gpersist.h"
+
+namespace datareel {
+
 
 
 gxDatabaseError gxPersistent::Connect(POD *DB) 
@@ -187,6 +190,15 @@ char *gxPersistent::ReadString(FAU_t file_address)
     return 0;
   }
 
+  // 10/26/2026: The length comes from the file. Reject one that runs
+  // past the end of the file before allocating memory for it.
+  FAU_t pos = pod->OpenDataFile()->FilePosition();
+  FAU_t eof = pod->OpenDataFile()->GetEOF();
+  if((pos < (FAU_t)0) || (pos > eof) || ((unsigned long long)(__ULWORD__)len > (unsigned long long)(eof - pos))) {
+    pod->SetDataFileError(gxDBASE_BAD_OBJECT_ADDRESS);
+    return 0;
+  }
+
   char *sbuf = new char[len +1]; // Account for the null terminator
 
   if(!sbuf) { // Could not allocate memory for the string
@@ -255,6 +267,8 @@ int gxPersistent::ReadObject()
   if(Read(objectaddress) != gxDBASE_NO_ERROR) return 0;
   return 1;
 }
+
+} // namespace datareel
 
 // ----------------------------------------------------------- //
 // ------------------------------- //

@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxderror.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/14/1996  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -51,6 +51,9 @@ message function.
 #define __GX_DATABASE_ERROR_HPP__
 
 #include "gxdlcode.h"
+
+namespace datareel {
+
 
 enum gxDatabaseError { // Database error codes
   gxDBASE_NO_ERROR = 0,        // No errors reported
@@ -176,6 +179,8 @@ GXDLCODE_API const char *gxDatabaseExceptionMessage(gxDatabaseError err);
 // Standalone function used to report database status messages
 GXDLCODE_API const char *gxDatabaseStatusMessage(gxDatabaseStatus status);
 
+
+} // namespace datareel
 
 #endif // __GX_DATABASE_ERROR_HPP__
 // ----------------------------------------------------------- //

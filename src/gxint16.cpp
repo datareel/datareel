@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxint16.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/05/1997  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -44,6 +44,9 @@ negative limit of 32,768.
 
 #include <string.h>
 #include <memory.h>
+
+namespace datareel {
+
 
 gxINT16::gxINT16(__SWORD__ val)
 {
@@ -670,6 +673,8 @@ GXDLCODE_API int operator>=(const __UBYTE__ &as, const gxINT16 &b)
   return (__SWORD__)as == b.PackBits() || (__SWORD__)as > b.PackBits();
 }
 
+
+} // namespace datareel
 
 #endif // __USE_NATIVE_INT_TYPES__ 
 // ----------------------------------------------------------- // 

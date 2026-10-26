@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxstypes.h 
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -82,6 +82,9 @@ closed during an revc() call when the recv() call returns zero bytes.
 #include <sys/socket.h> // Definitions related to sockets
 #include <sys/time.h>   // Time value functions
 #endif
+
+namespace datareel {
+
 
 // Type definitions
 typedef int gxsAddressFamily;  // Address family to which a socket belongs
@@ -226,6 +229,8 @@ enum gxsServices {
   gxSOCKET_DBS_PORT = 2073, // gxs-data-port (services file name)
   gxSOCKET_DEFAULT_PORT = 2073 // Default port if no port number is specified
 };
+
+} // namespace datareel
 
 #endif // __GX_SOCKET_TYPES_HPP__
 // ----------------------------------------------------------- // 

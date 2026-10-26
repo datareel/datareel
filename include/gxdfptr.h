@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxdfptr.h
-// Compiler Used: MSVC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -62,6 +62,16 @@ throughout the library.
 #include <stdio.h>
 #include "gxdtypes.h"
 #include "gxheader.h"
+
+#if defined (__64_BIT_DATABASE_ENGINE__)
+#include "gxdfp64.h" // WIN32 will always use NTFS for large files
+#elif defined (__WIN32__) && defined (__NTFS__)
+#include <windows.h> // WIN32 file I/O API
+#include <io.h>
+#endif
+
+namespace datareel {
+
 
 #if defined (_USE_DIRECT_IO_) && defined (__LINUX__)
 struct DIOFILE {
@@ -218,13 +228,10 @@ int dio_seterrno(DIOFILE *fp);
 
 // Select the underlying file system used for the database engine
 #if defined (__64_BIT_DATABASE_ENGINE__)
-#include "gxdfp64.h" // WIN32 will always use NTFS for large files
 typedef gxdFPTR64 gxdFPTR;
 
 #elif defined (__WIN32__) && defined (__NTFS__)
 // WIN32 file I/O API
-#include <windows.h>
-#include <io.h>
 
 struct GXDLCODE_API gxdFPTR { // Platform specific file pointer type
   HANDLE fptr;
@@ -258,6 +265,8 @@ GXDLCODE_API FAU_t gxdFPTRSeek(gxdFPTR *stream, FAU_t,
 GXDLCODE_API FAU_t gxdFPTRTell(gxdFPTR *stream);
 GXDLCODE_API int gxdFPTRExists(const char *fname);
 GXDLCODE_API FAU_t gxdFPTRFileSize(const char *fname);
+
+} // namespace datareel
 
 #endif // __GX_DATABASE_FILE_POINTER_HPP__
 // ----------------------------------------------------------- // 

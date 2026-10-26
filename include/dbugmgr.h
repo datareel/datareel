@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: dbugmgr.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -38,6 +38,9 @@ and repair damaged or corrupt gxDatabase files.
 
 #include "gxdstats.h"
 #include <string>
+
+namespace datareel {
+
 
 class GXDLCODE_API gxDatabaseDebugManager : public gxDatabase
 {
@@ -71,6 +74,8 @@ public: // Database debug utilities
 public:
   std::string status_message;
 };
+
+} // namespace datareel
 
 #endif // __GX_DATABASE_DEBUG_MANAGER_HPP__
 // ----------------------------------------------------------- // 

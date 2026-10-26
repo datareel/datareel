@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gpersist.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/18/1997
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -64,6 +64,9 @@ to.
 #include "gxdlcode.h"
 
 #include "pod.h"
+
+namespace datareel {
+
 
 // Object header use to ID objects in the data file
 struct GXDLCODE_API gxObjectHeader
@@ -136,6 +139,8 @@ protected:
   POD *pod; // Pointer to the current POD manager
   gxObjectID_t objectaddress; // Data file address of this object
 };
+
+} // namespace datareel
 
 #endif // __GX_DATABASE_PERSISTENT_BASE_HPP__
 // ----------------------------------------------------------- // 

@@ -97,6 +97,9 @@ std::string. Windows builds use Winsock 2.
 
 #include "gxstypes.h"
 
+namespace datareel {
+
+
 // Socket address that holds an IPv4 or IPv6 address and port
 class GXDLCODE_API gxsAddress
 {
@@ -246,6 +249,8 @@ protected:
   int system_error;           // errno or WSAGetLastError() for that error
   bool is_connected;
 };
+
+} // namespace datareel
 
 #endif // __GX_SOCKET_HPP__
 // ----------------------------------------------------------- //

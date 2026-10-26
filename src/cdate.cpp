@@ -50,6 +50,9 @@ month above 12 or a day above 31.
 
 #include "cdate.h"
 
+namespace datareel {
+
+
 std::string CDate::str() const
 {
   return std::to_string((unsigned)Month) + "/" + 
@@ -128,6 +131,8 @@ bool CDate::SetDate(std::string_view date, char delimiter)
   Year = (__UWORD__)fields[2];
   return true;
 }
+} // namespace datareel
+
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

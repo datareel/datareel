@@ -62,14 +62,12 @@ option(DATAREEL_NATIVE_TYPES
 option(DATAREEL_BUILD_EXAMPLES "Build the examples and utilities"
   ${PROJECT_IS_TOP_LEVEL})
 
-# Every source file except the Schannel code, which gxssl.cpp includes,
-# and the Windows DLL entry point
+# Every source file except the Schannel code, which gxssl.cpp includes
 file(GLOB DATAREEL_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
-list(FILTER DATAREEL_SOURCES EXCLUDE REGEX "/(gxsschan|stdafx|gxdlcode)\\.cpp$")
+list(FILTER DATAREEL_SOURCES EXCLUDE REGEX "/gxsschan\\.cpp$")
 file(GLOB DATAREEL_HEADERS CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
-list(FILTER DATAREEL_HEADERS EXCLUDE REGEX "/(stdafx|gxdlincs)\\.h$")
 
 add_library(datareel ${DATAREEL_SOURCES})
 add_library(DataReel::datareel ALIAS datareel)
@@ -203,6 +201,7 @@ install(FILES
 if(DATAREEL_BUILD_EXAMPLES)
   add_subdirectory(examples)
   add_subdirectory(utils)
+  add_subdirectory(tests)
 endif()
 
 message(STATUS "DataReel ${PROJECT_VERSION}: SSL=${DATAREEL_SSL} "

@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxint64.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/05/1997
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -56,13 +56,17 @@ directive is defined.
 #include "gxdtypes.h"
 #include "gxdtyp64.h"
 
+#include <iomanip>
+#include <iostream>
+#include <string>
+
+namespace datareel {
+
+
 #if defined (__USE_NATIVE_INT_TYPES__)
 typedef __LLWORD__ gxINT64;
 #else
 
-#include <iostream>
-#include <string>
-#include <iomanip>
 
 // Data structure for platform independent signed 64 bit integer values.
 class GXDLCODE_API gxINT64
@@ -288,6 +292,8 @@ private:
 };
 #endif // __USE_NATIVE_INT_TYPES__
 
+
+} // namespace datareel
 
 #endif // __GX_INT64_HPP__
 // ----------------------------------------------------------- // 

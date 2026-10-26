@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: pod.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/18/1997
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -58,6 +58,9 @@ POD database or the data and index files individually.
 
 #include "gxdbase.h"
 #include "gxbtree.h"
+
+namespace datareel {
+
 
 const unsigned POD_MAX_INDEX = 255;  // Max number of index files per database
 
@@ -206,6 +209,8 @@ private:
   int exists;                  // True if data file already exists
   int using_index;             // True if using the indexing sub-system
 };
+
+} // namespace datareel
 
 #endif // __GX_POD_HPP__
 // ----------------------------------------------------------- // 

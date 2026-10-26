@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxscomm.h
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -101,6 +101,9 @@ gxSerialComm error code enumeration.
 #else
 #error You must define a target platform: __WIN32__ or __UNIX__
 #endif
+
+namespace datareel {
+
 
 // Type definitions
 #if defined (__WIN32__)
@@ -247,6 +250,8 @@ protected: // WIN32 extensions
   unsigned long modem_line_status;
 #endif
 };
+
+} // namespace datareel
 
 #endif // __GX_SCOMM_HPP__
 // ----------------------------------------------------------- // 

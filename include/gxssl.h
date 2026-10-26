@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -84,13 +84,6 @@ the source code and documentation supplied with the third party library.
 #include <schannel.h>
 #include <ncrypt.h>
 
-// Schannel context and connection objects. The gxSSL interface uses
-// these in place of the OpenSSL SSL_CTX and SSL objects.
-struct gxSchannelCTX;
-struct gxSchannelConn;
-typedef gxSchannelCTX gxSSL_CTX_t;
-typedef gxSchannelConn gxSSL_t;
-
 #else // Use OpenSSL by default
 // --------------------------------------------------------------
 // Open SSL include files 
@@ -111,14 +104,22 @@ typedef gxSchannelConn gxSSL_t;
 #include <openssl/evp.h>
 #endif
 // --------------------------------------------------------------
+#endif // __USE_GX_SCHANNEL__
 
-// 07/31/2021: Include support for openssl 1.0.1
+namespace datareel {
 
+#if defined (__USE_GX_SCHANNEL__)
+// Schannel context and connection objects. The gxSSL interface uses
+// these in place of the OpenSSL SSL_CTX and SSL objects.
+struct gxSchannelCTX;
+struct gxSchannelConn;
+typedef gxSchannelCTX gxSSL_CTX_t;
+typedef gxSchannelConn gxSSL_t;
+#else
 // 10/24/2026: Types used by the gxSSL interface for both SSL libraries
 typedef SSL_CTX gxSSL_CTX_t;
 typedef SSL gxSSL_t;
-
-#endif // __USE_GX_SCHANNEL__
+#endif
 
 // --------------------------------------------------------------
 // Enumerations
@@ -461,6 +462,8 @@ protected: // Error reporting objects
   std::string app_err_str; // Custom Application Error Strings
 };
 
+
+} // namespace datareel
 
 #endif // __GX_SECURE_SOCKET_LAYER_HPP__
 // ----------------------------------------------------------- // 

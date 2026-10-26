@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: btcache.h
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/09/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -87,6 +87,9 @@ across multiple platforms.
 
 #include "gxdbase.h"
 #include "btnode.h"
+
+namespace datareel {
+
 
 // Set minimum number of cache segments. NOTE: The gxBtree tree insert  
 // function requires a minimum of 2 cached nodes (left and right 
@@ -277,6 +280,8 @@ private:
   BtreeBucket *bucket; // Current cache bucket
   BtreeCache *cache;   // Pointer to this object's cache
 };
+} // namespace datareel
+
 #endif // __USE_BTREE_CACHE__
 
 #endif // __BTREE_CACHE_HPP__

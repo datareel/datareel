@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxint64.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/05/1997
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -52,6 +52,9 @@ to work with the GNU MINGW32 compiler.
 #include <memory.h>
 #include <cstdlib>
 #include <string>
+
+namespace datareel {
+
 
 gxINT64::gxINT64(__LLWORD__ val)
 {
@@ -848,6 +851,8 @@ GXDLCODE_API std::istream &operator>>(std::istream &os, gxINT64 &val)
   val.FromString(sbuf);
   return os;
 }
+
+} // namespace datareel
 
 #endif // __USE_NATIVE_INT_TYPES__ 
 

@@ -66,6 +66,9 @@ month above 12 or a day above 31.
 #include "gxdtypes.h"
 #include "gxuint16.h"
 
+namespace datareel {
+
+
 // Date type class. The 4-byte layout (month, day, 16-bit year) is
 // part of the gxRDBMS file format and must not change.
 class GXDLCODE_API CDate
@@ -119,6 +122,8 @@ private:
   __UBYTE__ Day;
   gxUINT16 Year;
 };
+
+} // namespace datareel
 
 #endif  // __GX_CDATE_HPP__
 // ----------------------------------------------------------- // 

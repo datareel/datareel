@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxrdbdef.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/09/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -40,7 +40,9 @@ DataReel RDBMS definition file format.
 #include "strutil.h"
 #include "systime.h"
 
-using namespace datareel;
+namespace datareel {
+
+
 
 
 GXDLCODE_API void gxrdFormatMessage(std::string &mesg, 
@@ -264,6 +266,8 @@ GXDLCODE_API int gxrdReadGroupDef(const std::string &fname,
   return gxrdReadDefFile(fname, process_name, "DEFINE GROUP ACCESS", 
 			 group_def, error_message);
 }
+
+} // namespace datareel
 
 // ----------------------------------------------------------- //
 // ------------------------------- //

@@ -51,6 +51,9 @@ a diagnostic tool, like telnet.
 
 #include "gxsocket.h"
 
+namespace datareel {
+
+
 struct GXDLCODE_API gxsPingResult
 {
   bool ok = false;      // True if an echo reply arrived in time
@@ -78,6 +81,8 @@ private:
   int timeout_ms = 1000;
   unsigned short sequence = 0;
 };
+
+} // namespace datareel
 
 #endif // __GX_PING__HPP__
 // ----------------------------------------------------------- //

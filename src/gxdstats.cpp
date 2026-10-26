@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Source Code File Name: gxdstats.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/03/1997  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -52,7 +52,9 @@ the __USE_NATIVE_INT_TYPES__ preprocessor directive.
 #include <string>
 #include "strutil.h"
 
-using namespace datareel;
+namespace datareel {
+
+
 
 
 GXDLCODE_API void DatabaseStats(gxDatabase *f)
@@ -314,6 +316,8 @@ GXDLCODE_API void EchoDatabaseVersion(gxDatabase *f)
   }
 #endif // Display type for stats messaging
 }
+
+} // namespace datareel
 
 // ----------------------------------------------------------- //
 // ------------------------------- //

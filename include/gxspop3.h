@@ -50,6 +50,9 @@ results are returned as std::string values.
 #include "gxsmtp.h" // gxsMailSecurity
 #include "gxstls.h"
 
+namespace datareel {
+
+
 // POP3 client (RFC 1939, STLS from RFC 2595) that only uses TLS
 class GXDLCODE_API gxsPOP3Client
 {
@@ -93,6 +96,8 @@ private:
   std::string last_reply;
   std::string error;
 };
+
+} // namespace datareel
 
 #endif // __GX_EMBEDDED_POP3_LIB_HPP__
 // ----------------------------------------------------------- //

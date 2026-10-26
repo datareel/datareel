@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -47,7 +47,9 @@ the source code and documentation supplied with the third party library.
 #include "gxssl.h"
 #include "strutil.h"
 
-using namespace datareel;
+namespace datareel {
+
+
 
 // Initialize all static variables and data members
 int gxSSL::lib_init = 0;
@@ -1211,6 +1213,8 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
 
 #endif // !__USE_GX_SCHANNEL__
 
+
+} // namespace datareel
 
 #if defined(__USE_GX_SCHANNEL__)
 // 10/24/2026: The Windows Schannel version of the gxSSL class is in

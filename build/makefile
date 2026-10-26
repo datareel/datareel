@@ -24,9 +24,8 @@ include ../env/linux.env
 PROJECT = libdatareel
 
 # gxsschan.cpp is the Windows Schannel version of gxssl.cpp and is
-# compiled as part of it; gxdlcode.cpp and stdafx.cpp are Windows only.
-SOURCES = $(filter-out ../src/gxsschan.cpp ../src/gxdlcode.cpp \
-	../src/stdafx.cpp, $(wildcard ../src/*.cpp))
+# compiled as part of it
+SOURCES = $(filter-out ../src/gxsschan.cpp, $(wildcard ../src/*.cpp))
 OBJECTS = $(notdir $(SOURCES:.cpp=$(OBJ_EXT)))
 DEPENDS = $(OBJECTS:$(OBJ_EXT)=.d)
 
