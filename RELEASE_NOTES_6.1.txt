@@ -9,8 +9,9 @@ marked with a "10/25/2026" comment.
 
 The library version in version.txt is 6.1 and the shared library
 version (SHAREDLIB_VERSION in env/linux.env) is 6.1, so the Linux
-shared library is built as libdatareel.so.6.1. There are no interface
-changes from 6.0. Programs must be recompiled and relinked.
+shared library is built as libdatareel.so.6.1. The only interface
+change from 6.0 is the new gxDatabase::SetWriteHook(). Programs must be
+recompiled and relinked.
 
 SECURITY FIXES
 --------------
@@ -31,6 +32,22 @@ SECURITY FIXES
 - InfoHog::GetMember(), GetMemberLen() and SetMember() checked
   index > num_members instead of index >= num_members, and accessed
   one element past the member array.
+- gxBtree search, insert and delete walks stop with
+  gxDBASE_BADBLOCK_ERROR after gxBtreeMaxNodeReads (4096) node reads,
+  so a node in a damaged or crafted index file that points back up the
+  tree cannot make them loop forever. The BtreeCache variants are not
+  changed.
+- InfoHog Find(), CompareIndex() and RebuildIndexFile() no longer loop
+  forever on a data file block length shorter than a block header, and
+  skip objects that cannot be read.
+
+NEW FUNCTION
+------------
+- gxDatabase::SetWriteHook() sets a function that is called after each
+  successful Write(), so an application can tell its own changes to a
+  file from changes made by others. The Encrypted Password Database
+  uses it to update its database MAC. gxDatabase has two new members,
+  so programs must be recompiled.
 
 HOW THE CHANGES WERE TESTED
 ---------------------------
@@ -39,6 +56,9 @@ HOW THE CHANGES WERE TESTED
   (heap corruption abort and segmentation fault), are rejected with an
   error by programs built with 6.1.
 - Unchanged database and index files read the same as with 6.0.
+- An index file whose node points to itself is rejected with an error
+  instead of looping, and the database examples give the same results
+  as with 6.0.
 
 SUPPORTED PLATFORMS
 -------------------
