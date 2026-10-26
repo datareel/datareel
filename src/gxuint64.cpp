@@ -49,7 +49,8 @@ to work with the GNU MINGW32 compiler.
 #include <string.h>
 #include <memory.h>
 
-#include "strutil.h"
+#include <cstdlib>
+#include <string>
 
 gxUINT64::gxUINT64(__ULLWORD__ val)
 {
@@ -840,54 +841,30 @@ GXDLCODE_API int operator>=(const __UBYTE__ &al, const gxUINT64 &b)
   return (__ULLWORD__)al == b.PackBits() || (__ULLWORD__)al > b.PackBits();
 }
 
-char *gxUINT64::c_str(char *sbuf, int radix)
-// Returns a null terminated string representing this object's
-// 64-bit value. NOTE: This function assumes that the proper
-// amount of memory has been allocated for the "sbuf" string
-// buffer. The string buffer "sbuf" is redundantly returned by
-// this function.
+std::string gxUINT64::str() const
+// Returns this object's 64-bit value as a decimal string
 {
-  __ULLWORD__ val = PackBits();
-  return ULLWORDToString(sbuf, val, radix);
+  return std::to_string((unsigned long long)PackBits());
 }
 
-char *gxUINT64::c_str(char *sbuf, int radix) const
-// Returns a null terminated string representing this object's
-// 64-bit value. NOTE: This function assumes that the proper
-// amount of memory has been allocated for the "sbuf" string
-// buffer. The string buffer "sbuf" is redundantly returned by
-// this function.
+gxUINT64 &gxUINT64::FromString(const std::string &s)
 {
-  __ULLWORD__ val = PackBits();
-  return ULLWORDToString(sbuf, val, radix);
-}
-
-gxUINT64 &gxUINT64::StringToUINT64(const char *str)
-{
-  *this = StringToULLWORD(str);
-  return *this;
-}
-
-gxUINT64 &gxUINT64::StringToUINT64(char *str)
-{
-  *this = StringToULLWORD(str);
+  *this = (__ULLWORD__)std::strtoull(s.c_str(), nullptr, 10);
   return *this;
 }
 
 GXDLCODE_API std::ostream &operator<<(std::ostream &os, 
 					const gxUINT64 &val)
 {
-  char sbuf[64];
-  return os << val.c_str(sbuf);
+  return os << val.str();
 }
 
 GXDLCODE_API std::istream &operator>>(std::istream &os, 
 					gxUINT64 &val) 
 {
-  char sbuf[25];
-  for(unsigned i = 0; i < 25; i++) sbuf[i] = 0;
-  os >> std::setw(25) >> sbuf;
-  val.StringToUINT64(sbuf);
+  std::string sbuf;
+  os >> sbuf;
+  val.FromString(sbuf);
   return os;
 }
 

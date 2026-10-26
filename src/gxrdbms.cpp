@@ -35,7 +35,34 @@ library gxDatabase, gxBtree, and gxStream classes.
 
 #include "gxrdbms.h"
 #include "dbugmgr.h"
-#include "dfileb.h"
+#include "strutil.h"
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <system_error>
+
+using namespace datareel;
+
+static bool file_exists(const std::string &fname)
+{
+  std::error_code ec;
+  return std::filesystem::exists(fname, ec);
+}
+
+// Returns 0 on success, like remove()
+static int file_remove(const std::string &fname)
+{
+  std::error_code ec;
+  return std::filesystem::remove(fname, ec) ? 0 : -1;
+}
+
+// Returns 0 on success, like rename()
+static int file_rename(const std::string &from, const std::string &to)
+{
+  std::error_code ec;
+  std::filesystem::rename(from, to, ec);
+  return ec ? -1 : 0;
+}
 #include <math.h> // 10/14/2026: For floor() in Search()
 
 
@@ -84,13 +111,13 @@ static int gxrd_key_field_match(gxrdDatabaseRecord &a, gxrdDatabaseRecord &b,
     case gxrdBLOB :
       return 1;
     case gxrdCHAR : case gxrdVCHAR : {
-      gxString sa, sb;
+      std::string sa, sb;
       __ULWORD__ i;
       for(i = 0; i < len_a; i++) if(pa[i] == 0) break;
-      sa.InsertAt(0, pa, (unsigned)i);
+      sa.assign(pa, i);
       for(i = 0; i < len_b; i++) if(pb[i] == 0) break;
-      sb.InsertAt(0, pb, (unsigned)i);
-      if(!case_cmp) { sa.ToUpper(); sb.ToUpper(); }
+      sb.assign(pb, i);
+      if(!case_cmp) { sa = to_upper(sa); sb = to_upper(sb); }
       return sa == sb;
     }
     case gxrdBINARY :
@@ -221,14 +248,14 @@ gxDatabaseError gxRDBMS::Write(gxrdDatabaseRecord *r, FAU_t &block_address,
 
   // Create a disk record that will be stored in a single
   // contiguous block of disk space
-  MemoryBuffer disk_record(r->SizeOf()+ sizeof(gxrdRecordHeader));
+  std::vector<unsigned char> disk_record(r->SizeOf()+ sizeof(gxrdRecordHeader));
   gxDatabaseError dberr = r->CreateDiskRecord(disk_record);
   if(dberr != gxDBASE_NO_ERROR) {
     return pod->SetDataFileError(dberr);
   }
 
   FAU_t record_address = \
-    pod->OpenDataFile()->Alloc(disk_record.length(), method);
+    pod->OpenDataFile()->Alloc(disk_record.size(), method);
 
   // Check for any allocation errors
   if(record_address == (FAU_t)0) {
@@ -239,7 +266,7 @@ gxDatabaseError gxRDBMS::Write(gxrdDatabaseRecord *r, FAU_t &block_address,
   block_address = record_address-pod->OpenDataFile()->BlockHeaderSize();
 
   // Write the disk record
-  if(pod->OpenDataFile()->Write(disk_record.m_buf(), disk_record.length(),
+  if(pod->OpenDataFile()->Write(disk_record.data(), disk_record.size(),
 				gxCurrAddress, flushdb) != gxDBASE_NO_ERROR) {
     return pod->GetDataFileError();
   }
@@ -300,13 +327,10 @@ gxDatabaseError gxRDBMS::Read(gxrdDatabaseRecord *r, gxBlockHeader &blk,
   // for the record header. Account for variable length records
   // by using the pre-read length stored in the block header instead
   // of the record size set by the table definition.
-  MemoryBuffer disk_record(length);
-  
-  // Clear the disk record
-  disk_record.MemSet(0, 0, length);
+  std::vector<unsigned char> disk_record(length, 0);
 
   // Read the record stored on disk
-  if(pod->OpenDataFile()->Read(disk_record.m_buf(), length) 
+  if(pod->OpenDataFile()->Read(disk_record.data(), length) 
      != gxDBASE_NO_ERROR) {
     return pod->GetDataFileError();
   }
@@ -391,8 +415,8 @@ gxDatabaseError gxRDBMS::Close()
   return err;
 }
 
-gxDatabaseError gxRDBMS::CreateTable(const gxString &tdef, 
-				     const gxString &kdef)
+gxDatabaseError gxRDBMS::CreateTable(const std::string &tdef, 
+				     const std::string &kdef)
 {
   gxDatabaseError err = table.CreateTable(tdef);
   if(err != gxDBASE_NO_ERROR) {
@@ -405,29 +429,29 @@ gxDatabaseError gxRDBMS::CreateTable(const gxString &tdef,
   return create_or_open(0);
 }
 
-gxDatabaseError gxRDBMS::CreateTable(const gxString &tdef, 
-				     const gxString &kdef,
-				     const gxString &dir)
+gxDatabaseError gxRDBMS::CreateTable(const std::string &tdef, 
+				     const std::string &kdef,
+				     const std::string &dir)
 {
   db_dir = dir;
   return CreateTable(tdef, kdef);
 }
 
-gxDatabaseError gxRDBMS::CreateTable(const gxString &tdef, 
-				     const gxString &kdef,
-				     const gxString &fdef, 
-				     const gxString &fkdef)
+gxDatabaseError gxRDBMS::CreateTable(const std::string &tdef, 
+				     const std::string &kdef,
+				     const std::string &fdef, 
+				     const std::string &fkdef)
 {
   form_def = fdef;
   fkey_def = fkdef;
   return CreateTable(tdef, kdef);
 }
 
-gxDatabaseError gxRDBMS::CreateTable(const gxString &tdef, 
-				     const gxString &kdef,
-				     const gxString &fdef, 
-				     const gxString &fkdef,
-				     const gxString &dir)
+gxDatabaseError gxRDBMS::CreateTable(const std::string &tdef, 
+				     const std::string &kdef,
+				     const std::string &fdef, 
+				     const std::string &fkdef,
+				     const std::string &dir)
 {
   form_def = fdef;
   fkey_def = fkdef;
@@ -435,14 +459,14 @@ gxDatabaseError gxRDBMS::CreateTable(const gxString &tdef,
   return CreateTable(tdef, kdef);
 }
 
-gxDatabaseError gxRDBMS::Create(const gxString &tdef,
-				const gxString &dir)
+gxDatabaseError gxRDBMS::Create(const std::string &tdef,
+				const std::string &dir)
 {
   db_dir = dir;
   return Create(tdef);
 }
 
-gxDatabaseError gxRDBMS::Create(const gxString &tdef)
+gxDatabaseError gxRDBMS::Create(const std::string &tdef)
 {
   gxDatabaseError err = table.CreateTable(tdef);
   if(err != gxDBASE_NO_ERROR) {
@@ -491,19 +515,19 @@ gxDatabaseError gxRDBMS::create_or_open(int rewrite_header)
     if(!openindexfile) {
       return gxDBASE_MEM_ALLOC_ERROR;
     }
-    if(!futils_exists(datafile_name.c_str())) { 
+    if(!file_exists(datafile_name)) { 
       // The data file does not exist
       for(i = 0; i < num_trees; i++) {
 	// Remove all the index files and recreate them
-	if(futils_exists(indexfile_names[i].c_str())) {
-	  futils_remove(indexfile_names[i].c_str());
+	if(file_exists(indexfile_names[i])) {
+	  file_remove(indexfile_names[i]);
 	}
       }
     }
     int num_indexs = 0;
     int delete_all_indexs = 0;
     for(i = 0; i < num_trees; i++) {
-      if(futils_exists(indexfile_names[i].c_str())) {
+      if(file_exists(indexfile_names[i])) {
 	num_indexs++;
       }
       else {
@@ -515,8 +539,8 @@ gxDatabaseError gxRDBMS::create_or_open(int rewrite_header)
       // index files.
       for(i = 0; i < num_trees; i++) { 
 	// Remove all the index files and recreate them
-	if(futils_exists(indexfile_names[i].c_str())) {
-	  futils_remove(indexfile_names[i].c_str());
+	if(file_exists(indexfile_names[i])) {
+	  file_remove(indexfile_names[i]);
 	}
       }      
     }
@@ -1207,13 +1231,13 @@ gxDatabaseError gxRDBMS::WriteTableHeader(gxDatabase *f,
   return gxDBASE_NO_ERROR;
 }
 
-gxDatabaseError gxRDBMS::DefineTable(const gxString &tdef)
+gxDatabaseError gxRDBMS::DefineTable(const std::string &tdef)
 {
   return table.CreateTable(tdef);
 }
 
-gxDatabaseError gxRDBMS::DefineTable(const gxString &tdef, 
-				     const gxString &kdef) 
+gxDatabaseError gxRDBMS::DefineTable(const std::string &tdef, 
+				     const std::string &kdef) 
 {
   gxDatabaseError err = table.CreateTable(tdef);
   if(err != gxDBASE_NO_ERROR) {
@@ -1222,33 +1246,29 @@ gxDatabaseError gxRDBMS::DefineTable(const gxString &tdef,
   return DefineKeys(kdef);
 }
 
-gxDatabaseError gxRDBMS::DefineKeys(const gxString &kdef) 
+gxDatabaseError gxRDBMS::DefineKeys(const std::string &kdef) 
 {
   gxrdDatabaseRecord record;
-  key_def.Clear(); // Clear the current key_def
+  key_def.clear(); // Clear the current key_def
   gxDatabaseError err = record.CreateRecord(table.record_def);
   if(err != gxDBASE_NO_ERROR) {
     return err;
   }
 
-  if(kdef.IFind("PRI") == -1) {
+  if(ifind(kdef, "PRI") == std::string::npos) {
     // No primary key defined
     return gxDBASE_BAD_KEY_DEF;
   }
 
   // Parse the record definition
-  char words[MAXWORDS][MAXWORDLENGTH];
-  int num_words, parse_err;
-  parse_err = parse(kdef.c_str(), words, &num_words, ',');
-  if(parse_err != 0) {
-    return gxDBASE_BAD_KEY_DEF;
-  }
+  std::vector<std::string> words = parse_fields(kdef, ',');
+  int num_words = (int)words.size();
   if(num_words < 1) {
     return gxDBASE_BAD_KEY_DEF;
   }
   
-  gxString key_fields;
-  gxString sbuf;
+  std::string key_fields;
+  std::string sbuf;
   int i, field_num, bt_node_order;
   int num_pri_keys = 0;
 
@@ -1270,14 +1290,13 @@ gxDatabaseError gxRDBMS::DefineKeys(const gxString &kdef)
   }
 
   for(i = 0; i < num_words; i++) {
-    if(*words[i]) {
+    if(!words[i].empty()) {
       field_num = 0;
       sbuf = words[i];
-      sbuf.TrimLeadingSpaces();
-      sbuf.TrimTrailingSpaces();
-      sbuf.ToUpper();
-      if(sbuf.IFind("PRI") != -1) {
-	if(sbuf.IFind("COL") == -1) {
+      trim_in_place(sbuf);
+      sbuf = to_upper(sbuf);
+      if(ifind(sbuf, "PRI") != std::string::npos) {
+	if(ifind(sbuf, "COL") == std::string::npos) {
 	  delete[] sec_key_fields;
 	  sec_key_fields = 0;
 	  return gxDBASE_BAD_KEY_DEF;
@@ -1287,15 +1306,14 @@ gxDatabaseError gxRDBMS::DefineKeys(const gxString &kdef)
 	  sec_key_fields = 0;
 	  return gxDBASE_BAD_KEY_DEF;
 	}
-	sbuf.DeleteBeforeIncluding("COL");
-	sbuf.TrimLeadingSpaces();
-	sbuf.TrimTrailingSpaces();
-	if(sbuf.IFind("NONE") != -1) {
+	delete_before_including(sbuf, "COL");
+	trim_in_place(sbuf);
+	if(ifind(sbuf, "NONE") != std::string::npos) {
 	  primary_key = -1;
 	  num_pri_keys++;
 	}
 	else {
-	  field_num = sbuf.Atoi();
+	  field_num = to_int(sbuf);
 	  if(field_num == 0) {
 	    delete[] sec_key_fields;
 	    sec_key_fields = 0;
@@ -1305,16 +1323,15 @@ gxDatabaseError gxRDBMS::DefineKeys(const gxString &kdef)
 	  num_pri_keys++;
 	}
       } 
-      if(sbuf.IFind("SEC") != -1) {
-	if(sbuf.IFind("COL") == -1) {
+      if(ifind(sbuf, "SEC") != std::string::npos) {
+	if(ifind(sbuf, "COL") == std::string::npos) {
 	  delete[] sec_key_fields;
 	  sec_key_fields = 0;
 	  return gxDBASE_BAD_KEY_DEF;
 	}
-	sbuf.DeleteBeforeIncluding("COL");
-	sbuf.TrimLeadingSpaces();
-	sbuf.TrimTrailingSpaces();
-	field_num = sbuf.Atoi();
+	delete_before_including(sbuf, "COL");
+	trim_in_place(sbuf);
+	field_num = to_int(sbuf);
 	if(field_num == 0) {
 	  delete[] sec_key_fields;
 	  sec_key_fields = 0;
@@ -1330,21 +1347,20 @@ gxDatabaseError gxRDBMS::DefineKeys(const gxString &kdef)
 	num_sec_keys++;
       } 
 
-      if(sbuf.IFind("ATTRIB") != -1) {
-	if(sbuf.IFind("NOCASE") != -1) {
+      if(ifind(sbuf, "ATTRIB") != std::string::npos) {
+	if(ifind(sbuf, "NOCASE") != std::string::npos) {
 	  compare_case = 0;
 	}
-	else if(sbuf.IFind("ANCOMPARE") != -1) {
+	else if(ifind(sbuf, "ANCOMPARE") != std::string::npos) {
 	  compare_alpha = 1;
 	}
-	else if(sbuf.IFind("ALLOWDUP") != -1) {
+	else if(ifind(sbuf, "ALLOWDUP") != std::string::npos) {
 	  dup = 1;
 	}
-	else if(sbuf.IFind("ORDER") != -1) {
-	  sbuf.DeleteBeforeIncluding("=");
-	  sbuf.TrimLeadingSpaces();
-	  sbuf.TrimTrailingSpaces();
-	  bt_node_order = sbuf.Atoi();
+	else if(ifind(sbuf, "ORDER") != std::string::npos) {
+	  delete_before_including(sbuf, "=");
+	  trim_in_place(sbuf);
+	  bt_node_order = to_int(sbuf);
 	  if(bt_node_order == 0) {
 	    delete[] sec_key_fields;
 	    sec_key_fields = 0;
@@ -1354,10 +1370,9 @@ gxDatabaseError gxRDBMS::DefineKeys(const gxString &kdef)
 	    order = bt_node_order;
 	  }
 	}
-	else if(sbuf.IFind("RECLAIM") != -1) {
-	  sbuf.DeleteBeforeIncluding("=");
-	  sbuf.TrimLeadingSpaces();
-	  sbuf.TrimTrailingSpaces();
+	else if(ifind(sbuf, "RECLAIM") != std::string::npos) {
+	  delete_before_including(sbuf, "=");
+	  trim_in_place(sbuf);
 	  if((sbuf == "NONE") || (sbuf == "none")) {
 	    method = gxDBASE_RECLAIM_NONE;
 	  }
@@ -1466,7 +1481,7 @@ int gxRDBMS::OverWriteRecord(gxrdDatabaseRecord *r, FAU_t &block_address,
   
   // Create a disk record that will be stored in a single
   // contiguous block of disk space
-  MemoryBuffer disk_record(r->SizeOf()+ sizeof(gxrdRecordHeader));
+  std::vector<unsigned char> disk_record(r->SizeOf()+ sizeof(gxrdRecordHeader));
   gxDatabaseError err = r->CreateDiskRecord(disk_record);
   if(err != gxDBASE_NO_ERROR) {
     pod->SetDataFileError(err);
@@ -1474,7 +1489,7 @@ int gxRDBMS::OverWriteRecord(gxrdDatabaseRecord *r, FAU_t &block_address,
   }
 
   // Overwrite the disk record
-  if(f->Write(disk_record.m_buf(), disk_record.length(),
+  if(f->Write(disk_record.data(), disk_record.size(),
 	      gxCurrAddress, flushdb) != gxDBASE_NO_ERROR) {
     return 0;
   }
@@ -1734,21 +1749,21 @@ int gxRDBMS::ChangeRecordField(const void *data, __ULWORD__ bytes,
   return 1;
 }
 
-gxDatabaseError gxRDBMS::GenFileNames(const gxString &tdef, 
-				      const gxString &kdef,
-				      const gxString &fdef, 
-				      const gxString &fkdef)
+gxDatabaseError gxRDBMS::GenFileNames(const std::string &tdef, 
+				      const std::string &kdef,
+				      const std::string &fdef, 
+				      const std::string &fkdef)
 {
   form_def = fdef;
   fkey_def = fkdef;
   return GenFileNames(tdef, kdef);
 }
 
-gxDatabaseError gxRDBMS::GenFileNames(const gxString &tdef, 
-				      const gxString &kdef,
-				      const gxString &fdef, 
-				      const gxString &fkdef,
-				      const gxString &dir)
+gxDatabaseError gxRDBMS::GenFileNames(const std::string &tdef, 
+				      const std::string &kdef,
+				      const std::string &fdef, 
+				      const std::string &fkdef,
+				      const std::string &dir)
 {
   form_def = fdef;
   fkey_def = fkdef;
@@ -1756,8 +1771,8 @@ gxDatabaseError gxRDBMS::GenFileNames(const gxString &tdef,
   return GenFileNames(tdef, kdef);
 }
 
-gxDatabaseError gxRDBMS::GenFileNames(const gxString &tdef, 
-				      const gxString &kdef) 
+gxDatabaseError gxRDBMS::GenFileNames(const std::string &tdef, 
+				      const std::string &kdef) 
 {
   gxDatabaseError err = table.CreateTable(tdef);
   if(err != gxDBASE_NO_ERROR) {
@@ -1770,9 +1785,9 @@ gxDatabaseError gxRDBMS::GenFileNames(const gxString &tdef,
   return gen_file_names();
 }
 
-gxDatabaseError gxRDBMS::GenFileNames(const gxString &tdef, 
-				      const gxString &kdef,
-				      const gxString &dir) 
+gxDatabaseError gxRDBMS::GenFileNames(const std::string &tdef, 
+				      const std::string &kdef,
+				      const std::string &dir) 
 {
   db_dir = dir;
   return GenFileNames(tdef, kdef);
@@ -1789,64 +1804,64 @@ gxDatabaseError gxRDBMS::gen_file_names()
     num_trees += num_sec_keys;
   }
 
-  gxString index_file;
-  datafile_name.Clear();
-  index_file.Clear();
+  std::string index_file;
+  datafile_name.clear();
+  index_file.clear();
   int i;
   
-  if(!db_dir.is_null()) {
+  if(!db_dir.empty()) {
 #if defined (__WIN32__)
     char path_sep = '\\';
     db_dir.ReplaceChar('/', '\\');
 #else 
     char path_sep = '/';
-    db_dir.ReplaceChar('\\', '/');
+    std::replace(db_dir.begin(), db_dir.end(), '\\', '/');
 #endif
-    datafile_name << db_dir;
+    str_append(datafile_name, db_dir);
     if(datafile_name[datafile_name.length()-1] != path_sep) {
-      datafile_name << path_sep;
+      str_append(datafile_name, path_sep);
     }
-    index_file << db_dir;
+    str_append(index_file, db_dir);
     if(index_file[index_file.length()-1] != path_sep) {
-      index_file << path_sep;
+      str_append(index_file, path_sep);
     }
   }
-  datafile_name << table.table_name.c_str();
-  index_file << table.table_name.c_str();
-  datafile_name << datafile_ext;
-  index_file << indexfile_ext;
+  str_append(datafile_name, table.table_name.c_str());
+  str_append(index_file, table.table_name.c_str());
+  str_append(datafile_name, datafile_ext);
+  str_append(index_file, indexfile_ext);
   
   if(indexfile_names) delete[] indexfile_names;
-  indexfile_names = new gxString[num_trees];
+  indexfile_names = new std::string[num_trees];
   if(!indexfile_names) {
     return gxDBASE_MEM_ALLOC_ERROR;
   }
   if((num_sec_keys > 0) && (num_trees > 1)) {
     for(i = 0; i < num_trees; i++) {
-      indexfile_names[i].Clear();
-      indexfile_names[i] << index_file << (i+1);
+      indexfile_names[i].clear();
+      str_append(indexfile_names[i], index_file, (i+1));
     }
   }
   else {
-    indexfile_names[0].Clear();
-    indexfile_names[0] << index_file;
+    indexfile_names[0].clear();
+    str_append(indexfile_names[0], index_file);
   }
   return gxDBASE_NO_ERROR;
 }
 
 gxDatabaseError gxRDBMS::init_table_header()
 {
-  gxString tdef = table.table_def;
+  std::string tdef = table.table_def;
   table.table_header.Clear();
   gxDatabaseError err = table.CreateTable(tdef);
   if(err != gxDBASE_NO_ERROR) {
     return err;
   }
   table.table_header.SetKeyDef(key_def.c_str());
-  if(!form_def.is_null()) {
+  if(!form_def.empty()) {
     table.table_header.SetFormDef(form_def.c_str());
   }
-  if(!fkey_def.is_null()) {
+  if(!fkey_def.empty()) {
     table.table_header.SetFKeyDef(fkey_def.c_str());
   }
   return gxDBASE_NO_ERROR;
@@ -1959,18 +1974,16 @@ gxDatabaseError gxRDBMS::ReadAppSpace(gxDatabase *f,
 // BEGIN: Fault detection and recovery functions
 // --------------------------------------------------------------
 gxDatabaseError gxRDBMS::CheckDataFile(int &rebuild_df, int &rebuild_ix, 
-				       gxString *mesg)
+				       std::string *mesg)
 {
   rebuild_df = rebuild_ix = 0;
 
-  if(mesg) mesg->Clear();
+  if(mesg) mesg->clear();
 
-  if(!futils_exists(DataFileName().c_str())) {
+  if(!file_exists(DataFileName())) {
     if(mesg) {
-      *(mesg) << table.table_name << " data file does not exist"
-	      << "\n";
-      *(mesg) << "Warning: all associated index files will be recreated" 
-	      << "\n";
+      str_append(*mesg, table.table_name, " data file does not exist", "\n",
+		 "Warning: all associated index files will be recreated", "\n");
     }
     return create_or_open(0);
   }
@@ -1982,7 +1995,7 @@ gxDatabaseError gxRDBMS::CheckDataFile(int &rebuild_df, int &rebuild_ix,
   gxDatabaseDebugManager f;
   if(f.BlindOpen(datafile_name.c_str(), df_rev_letter) != gxDBASE_NO_ERROR) {
     if(pod) pod->SetDataFileError(f.GetDatabaseError());
-    if(mesg) *(mesg) << f.status_message;
+    if(mesg) str_append(*(mesg), f.status_message);
     return f.GetDatabaseError();
   }
   gxDatabaseError err = f.AnalyzeHeader(0, 0);
@@ -1993,7 +2006,7 @@ gxDatabaseError gxRDBMS::CheckDataFile(int &rebuild_df, int &rebuild_ix,
     }
     else {
       if(pod) pod->SetDataFileError(err);
-      if(mesg) *(mesg) << f.status_message;
+      if(mesg) str_append(*(mesg), f.status_message);
       f.Close();
       rebuild_df = rebuild_ix = 1;
       return err;
@@ -2001,13 +2014,12 @@ gxDatabaseError gxRDBMS::CheckDataFile(int &rebuild_df, int &rebuild_ix,
   }
 
   if(mesg) {
-    *(mesg) << "Analyzing gxRDBMS table header" << "\n";
+    str_append(*(mesg), "Analyzing gxRDBMS table header", "\n");
   }
   gxRDBMSHeader file_id, compare_file_id;
   if(f.StaticArea() != HeaderSize()) {
     if(mesg) {
-      *(mesg) << "Static data area size mismatch" << "\n"
-	      << "Cannot read table header from file" << "\n";
+      str_append(*(mesg), "Static data area size mismatch", "\n", "Cannot read table header from file", "\n");
     }
     rebuild_df = rebuild_ix = 1;
     return gxDBASE_BAD_TABLE_HEADER;
@@ -2016,8 +2028,7 @@ gxDatabaseError gxRDBMS::CheckDataFile(int &rebuild_df, int &rebuild_ix,
   f.Read(&file_id, sizeof(file_id), f.FileHeaderSize());
   if(f.GetDatabaseError() != gxDBASE_NO_ERROR) {
     if(mesg) {
-      *(mesg) << "Error reading gxRDBMS file ID string" << "\n" 
-	      << f.DatabaseExceptionMessage() << "\n";
+      str_append(*(mesg), "Error reading gxRDBMS file ID string", "\n", f.DatabaseExceptionMessage(), "\n");
     }
     if(pod) pod->SetDataFileError(f.GetDatabaseError());
     return f.GetDatabaseError();
@@ -2025,21 +2036,21 @@ gxDatabaseError gxRDBMS::CheckDataFile(int &rebuild_df, int &rebuild_ix,
   if(!file_id.TestHeader(compare_file_id)) {
     rebuild_df = rebuild_ix = 1;
     if(mesg) {
-      *(mesg) << "Bad gxRDBMS table header" << "\n";
+      str_append(*(mesg), "Bad gxRDBMS table header", "\n");
     }
     if(!file_id.TestFileID(compare_file_id)) {
       if(mesg) {
-	*(mesg) << "Bad gxRDBMS file identification string" << "\n";
+	str_append(*(mesg), "Bad gxRDBMS file identification string", "\n");
       }
     }
     if(!file_id.TestRevLetter(compare_file_id)) {
       if(mesg) {
-	*(mesg) << "Revision letter mismatch" << "\n";
+	str_append(*(mesg), "Revision letter mismatch", "\n");
       }
     }
     if(!file_id.TestVersion(compare_file_id)) {
       if(mesg) {
-	*(mesg) << "Version number mismatch" << "\n";
+	str_append(*(mesg), "Version number mismatch", "\n");
       }
     }
     if(pod) pod->SetDataFileError(gxDBASE_BAD_TABLE_HEADER);
@@ -2051,8 +2062,7 @@ gxDatabaseError gxRDBMS::CheckDataFile(int &rebuild_df, int &rebuild_ix,
   err = ReadTableHeader(&f, table_header, file_id, 0);
   if(err != gxDBASE_NO_ERROR) {
     if(mesg) {
-      *(mesg) << "Error reading gxRDBMS table header" << "\n" 
-	      << f.DatabaseExceptionMessage() << "\n";
+      str_append(*(mesg), "Error reading gxRDBMS table header", "\n", f.DatabaseExceptionMessage(), "\n");
     }
     if(pod) pod->SetDataFileError(err);
     return err;
@@ -2060,11 +2070,11 @@ gxDatabaseError gxRDBMS::CheckDataFile(int &rebuild_df, int &rebuild_ix,
 
   // NOTE: The table_def and key_def should be set by a previous 
   // GenFileNames() call.
-  if(table.table_def.is_null()) {
+  if(table.table_def.empty()) {
     if(pod) pod->SetDataFileError(gxDBASE_BAD_TABLE_DEF);
     return gxDBASE_BAD_TABLE_DEF;
   }
-  if(key_def.is_null()) {
+  if(key_def.empty()) {
     if(pod) pod->SetDataFileError(gxDBASE_BAD_KEY_DEF);
     return gxDBASE_BAD_KEY_DEF;
   }
@@ -2077,8 +2087,7 @@ gxDatabaseError gxRDBMS::CheckDataFile(int &rebuild_df, int &rebuild_ix,
 
   if(!table_header.VerifyFieldTypes()) {
     if(mesg) {
-      *(mesg) << "Bad gxRDBMS table header" << "\n"
-	      << "The table header read from file is not valid" << "\n";
+      str_append(*(mesg), "Bad gxRDBMS table header", "\n", "The table header read from file is not valid", "\n");
     }
     if(pod) pod->SetDataFileError(gxDBASE_BAD_TABLE);
     rebuild_df = rebuild_ix = 1;
@@ -2087,9 +2096,7 @@ gxDatabaseError gxRDBMS::CheckDataFile(int &rebuild_df, int &rebuild_ix,
 
   if(!table_header.TestFieldTypes(table.table_header)) {
     if(mesg) {
-      *(mesg) << "Bad gxRDBMS field type" << "\n"
-	      << "The table header read from file does not match DEF" 
-	      << "\n";
+      str_append(*(mesg), "Bad gxRDBMS field type", "\n", "The table header read from file does not match DEF", "\n");
     }
     if(pod) pod->SetDataFileError(gxDBASE_BAD_TABLE_FIELD);
     return gxDBASE_BAD_TABLE_FIELD;
@@ -2097,9 +2104,7 @@ gxDatabaseError gxRDBMS::CheckDataFile(int &rebuild_df, int &rebuild_ix,
 
   if(!table_header.TestKeyDef(table.table_header)) {
     if(mesg) {
-      *(mesg) << "The key DEF has changed" << "\n"
-	      << "The indexing subsystem must be rebuilt" 
-	      << "\n";
+      str_append(*(mesg), "The key DEF has changed", "\n", "The indexing subsystem must be rebuilt", "\n");
     }
     rebuild_ix = 1;
     if(pod) pod->SetDataFileError(gxDBASE_BAD_KEY_DEF);
@@ -2107,17 +2112,14 @@ gxDatabaseError gxRDBMS::CheckDataFile(int &rebuild_df, int &rebuild_ix,
 
   if(!table_header.TestFKeyDef(table.table_header)) {
     if(mesg) {
-      *(mesg) << "The foreign key DEF has changed" << "\n"
-	      << "The indexing subsystem must be rebuilt" 
-	      << "\n";
+      str_append(*(mesg), "The foreign key DEF has changed", "\n", "The indexing subsystem must be rebuilt", "\n");
     }
     rebuild_ix = 1;
     if(pod) pod->SetDataFileError(gxDBASE_BAD_FKEY_DEF);
   }
 
   if(mesg) {
-    *(mesg) << "Database file header checks good." << "\n" 
-	    << "gxRDBMS table header checks good." << "\n";
+    str_append(*(mesg), "Database file header checks good.", "\n", "gxRDBMS table header checks good.", "\n");
   }
 
   f.Close();
@@ -2155,7 +2157,7 @@ int gxRDBMS::VerifyDataFile(FAU_t &records, int auto_fix, int &rebuild_df,
   pod->TestDataFile();
 
   records = (FAU_t)0;
-  if(!futils_exists(DataFileName().c_str())) {
+  if(!file_exists(DataFileName())) {
     // The database does not exist, so create the database and recreate
     // all associated index files. 10/14/2026: The gxDatabaseError result
     // was returned as the int result, so success read as failure.
@@ -2259,23 +2261,21 @@ int gxRDBMS::VerifyDataFile(FAU_t &records, int auto_fix, int &rebuild_df,
 }
 
 gxDatabaseError gxRDBMS::CheckIndex(__ULWORD__ index_number, 
-				    int &rebuild, gxString *mesg)
+				    int &rebuild, std::string *mesg)
 {
   rebuild = 0;
-  if(mesg) mesg->Clear();
+  if(mesg) mesg->clear();
   
   if(index_number > __ULWORD__(num_trees-1)) { // Stay in bounds
     if(mesg) {
-      *(mesg) << "Specified index number is out of range" 
-	      << "\n";
+      str_append(*(mesg), "Specified index number is out of range", "\n");
     }
     if(pod) pod->SetDataFileError(gxDBASE_BAD_INDEX_NUMBER); 
     return gxDBASE_BAD_INDEX_NUMBER;
   }
   if(!indexfile_names) {
     if(mesg) {
-      *(mesg) << "No index files names were generated" 
-	      << "\n";
+      str_append(*(mesg), "No index files names were generated", "\n");
     }
     if(pod) pod->SetDataFileError(gxDBASE_BAD_INDEX_NAME);
     return gxDBASE_BAD_INDEX_NAME;
@@ -2289,7 +2289,7 @@ gxDatabaseError gxRDBMS::CheckIndex(__ULWORD__ index_number,
   if(f.BlindOpen(indexfile_names[index_number].c_str(), if_rev_letter) 
      != gxDBASE_NO_ERROR) {
     if(pod) pod->SetDataFileError(f.GetDatabaseError());
-    if(mesg) *(mesg) << f.status_message;
+    if(mesg) str_append(*(mesg), f.status_message);
     return f.GetDatabaseError();
   }
   gxDatabaseError err = f.AnalyzeHeader(0, 0);
@@ -2300,7 +2300,7 @@ gxDatabaseError gxRDBMS::CheckIndex(__ULWORD__ index_number,
     }
     else {
       if(pod) pod->SetDataFileError(err);
-      if(mesg) *(mesg) << f.status_message;
+      if(mesg) str_append(*(mesg), f.status_message);
       f.Close();
       rebuild = 1;
       return err;
@@ -2308,15 +2308,14 @@ gxDatabaseError gxRDBMS::CheckIndex(__ULWORD__ index_number,
   }
 
   if(mesg) {
-    *(mesg) << "Analyzing index file header" << "\n";
+    str_append(*(mesg), "Analyzing index file header", "\n");
   }
   
   // The static data area must be large enough to hold at 
   // least on B-tree header.
   if(f.StaticArea() < FAU_t(sizeof(gxBtreeHeader))) {
     if(mesg) {
-      *(mesg) << "Static data area size mismatch" << "\n"
-	      << "Cannot read table header from file" << "\n";
+      str_append(*(mesg), "Static data area size mismatch", "\n", "Cannot read table header from file", "\n");
     }
     rebuild = 1;
     return gxDBASE_BAD_INDEX_FILE;
@@ -2326,15 +2325,14 @@ gxDatabaseError gxRDBMS::CheckIndex(__ULWORD__ index_number,
   f.Read(&hdr, sizeof(hdr), f.FileHeaderSize());
   if(f.GetDatabaseError() != gxDBASE_NO_ERROR) {
     if(mesg) {
-      *(mesg) << "Error reading index file header" << "\n" 
-	      << f.DatabaseExceptionMessage() << "\n";
+      str_append(*(mesg), "Error reading index file header", "\n", f.DatabaseExceptionMessage(), "\n");
     }
     if(pod) pod->SetDataFileError(f.GetDatabaseError());
     return f.GetDatabaseError();
   }
   if(hdr.num_trees > (BtreeSize_t)num_trees) {
     if(mesg) {
-      *(mesg) << "Bad index file header" << "\n";
+      str_append(*(mesg), "Bad index file header", "\n");
     }
     if(pod) pod->SetDataFileError(gxDBASE_BAD_INDEX_FILE);
     rebuild = 1;
@@ -2343,14 +2341,13 @@ gxDatabaseError gxRDBMS::CheckIndex(__ULWORD__ index_number,
 
   rebuild = 0;
   if(mesg) {
-    *(mesg) << "Database file header checks good." << "\n" 
-	    << "Index file header checks good." << "\n";
+    str_append(*(mesg), "Database file header checks good.", "\n", "Index file header checks good.", "\n");
   }
 
   f.Close();
 
   if(mesg) {
-    *(mesg) << "Checking index file consistency" << "\n";
+    str_append(*(mesg), "Checking index file consistency", "\n");
   }
 
   // Ensure the database is connected to this object
@@ -2370,13 +2367,13 @@ gxDatabaseError gxRDBMS::CheckIndex(__ULWORD__ index_number,
   if(btx->NumKeys() == (BtreeSize_t)0) {
     if(f2->NormalBlocks() == (FAU_t)0) { // No blocks found
       if(mesg) {
-	*(mesg) << "Database is empty" << "\n";
+	str_append(*(mesg), "Database is empty", "\n");
       }
       return gxDBASE_NO_ERROR;
     }
     else {
       if(mesg) {
-	*(mesg) << "Index file failed consistency check" << "\n";
+	str_append(*(mesg), "Index file failed consistency check", "\n");
       }
       rebuild = 1;
       return pod->SetDataFileError(gxDBASE_BAD_INDEX_FILE);
@@ -2384,7 +2381,7 @@ gxDatabaseError gxRDBMS::CheckIndex(__ULWORD__ index_number,
   }
   if(f2->NormalBlocks() != btx->NumKeys()) {
     if(mesg) {
-      *(mesg) << "Index file failed consistency check" << "\n";
+      str_append(*(mesg), "Index file failed consistency check", "\n");
     }
     rebuild = 1;
     return pod->SetDataFileError(gxDBASE_BAD_INDEX_FILE);
@@ -2770,18 +2767,16 @@ int gxRDBMS::rebuild_data_file(__SBYTE__ rev, FAU_t static_area,
 
 {
   // Set the temp file name
-  gxString fname;
+  std::string fname;
   int ext = 1;
   int has_pod = 0;
   if(pod) has_pod = 1;
   if(!tempfile) { // Create a unique temp file name
-    fname.Clear();
-    fname << datafile_name << "_rebuild_temp_file" << datafile_ext
-	  << ".00" << ext;
-    while(futils_exists(fname.c_str())) {
-      fname.Clear();
-      fname << datafile_name << "_rebuild_temp_file" << datafile_ext
-	    << ".00" << ++ext;
+    fname.clear();
+    str_append(fname, datafile_name, "_rebuild_temp_file", datafile_ext, ".00", ext);
+    while(file_exists(fname)) {
+      fname.clear();
+      str_append(fname, datafile_name, "_rebuild_temp_file", datafile_ext, ".00", ++ext);
     }
   }
   else {
@@ -2818,11 +2813,11 @@ int gxRDBMS::rebuild_data_file(__SBYTE__ rev, FAU_t static_area,
   } 
   f.Close();
 
-  if(futils_remove(datafile_name.c_str()) != 0) {
+  if(file_remove(datafile_name) != 0) {
     if(pod) pod->SetDataFileError(gxDBASE_FILE_DELETE_ERROR);
     return -4;
   }
-  if(futils_rename(fname.c_str(), datafile_name.c_str()) != 0) {
+  if(file_rename(fname, datafile_name) != 0) {
     if(pod) pod->SetDataFileError(gxDBASE_FILE_RENAME_ERROR);
     return -5;
   }
@@ -2872,17 +2867,15 @@ int gxRDBMS::rebuild_data_file(__SBYTE__ rev, FAU_t static_area,
   ext = 1;
   int num_prev_to_find = 10;
   while(num_prev_to_find--) {
-    fname.Clear();
-    fname << datafile_name << "_rebuild_temp_file" << datafile_ext
-	  << ".00" << ext;
-    if(futils_exists(fname.c_str())) break;
+    fname.clear();
+    str_append(fname, datafile_name, "_rebuild_temp_file", datafile_ext, ".00", ext);
+    if(file_exists(fname)) break;
     ext++;
   }
-  while(futils_exists(fname.c_str())) {
-    if(futils_remove(fname.c_str()) != 0) break;
-    fname.Clear();
-    fname << datafile_name << "_rebuild_temp_file" << datafile_ext
-	  << ".00" << ++ext;
+  while(file_exists(fname)) {
+    if(file_remove(fname) != 0) break;
+    fname.clear();
+    str_append(fname, datafile_name, "_rebuild_temp_file", datafile_ext, ".00", ++ext);
   }
   
   return 1;
@@ -2932,7 +2925,7 @@ void gxRDBMS::set_record_parms(gxrdDatabaseRecord *r,
 } 
 
 gxDatabaseError gxRDBMS::SortOrderList(
-				   gxBStree<gxrdDatabaseRecord> &virtual_list,
+				   std::set<gxrdDatabaseRecord> &virtual_list,
 				       __ULWORD__ index_number, 
 				       __ULWORD__ key_number,
 				       int case_cmp, int alpha_cmp, 
@@ -2941,8 +2934,8 @@ gxDatabaseError gxRDBMS::SortOrderList(
 // Function used to build a sort ordered list. Returns gxDBASE_NO_ERROR if
 // no errors occur. 
 {
-  gxString sbuf;
-  virtual_list.Clear(); // Clear any existing list entries
+  std::string sbuf;
+  virtual_list.clear(); // Clear any existing list entries
 
   // Test for database error conditions before building the list
   if(IsClosed()) return gxDBASE_NO_DATABASE_OPEN;
@@ -2974,7 +2967,6 @@ gxDatabaseError gxRDBMS::SortOrderList(
   gxDatabaseError err;
   FAU_t record_count = (FAU_t)0;
   FAU_t key_count = (FAU_t)0;
-  int exists;
   __ULWORD__ field = 0;
   if(key_number == (__ULWORD__)-1) {
     field = (__ULWORD__)-1;
@@ -3013,11 +3005,7 @@ gxDatabaseError gxRDBMS::SortOrderList(
       }
       // Use the primary key to build the sort order list
       set_record_parms(&record, pk, compare_case, compare_alpha);
-      if(!virtual_list.Insert(record, &exists)) {
-	if(!exists) { // A fatal error occured during tree insert
-	  return pod->SetDataFileError(gxDBASE_VIRTUAL_LIST_ERROR);
-	}
-      }
+      virtual_list.insert(record); // Duplicate records are skipped
       set_record_parms(&record, field, case_cmp, alpha_cmp);
       record_count++;
     }
@@ -3036,11 +3024,7 @@ gxDatabaseError gxRDBMS::SortOrderList(
 
 	// Use the primary key to build the sort order list
 	set_record_parms(&record, pk, compare_case, compare_alpha);
-	if(!virtual_list.Insert(record, &exists)) {
-	  if(!exists) { // A fatal error occured during tree insert
-	    return pod->SetDataFileError(gxDBASE_VIRTUAL_LIST_ERROR);
-	  }
-	}
+	virtual_list.insert(record); // Duplicate records are skipped
 	set_record_parms(&record, field, case_cmp, alpha_cmp);
 	record_count++;
       }
@@ -3050,15 +3034,15 @@ gxDatabaseError gxRDBMS::SortOrderList(
   return pod->SetDataFileError(gxDBASE_NO_ERROR);
 }
 
-gxDatabaseError gxRDBMS::Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
+gxDatabaseError gxRDBMS::Search(std::set<gxrdDatabaseRecord> &virtual_list,
 				gxrdDatabaseRecord &compare_record,
 				__ULWORD__ index_number,
 				__ULWORD__ search_field,
 				int case_cmp, int alpha_cmp, 
 				int find_all_matches, FAU_t list_limit)
 {
-  gxString sbuf;
-  virtual_list.Clear(); // Clear any existing list entries
+  std::string sbuf;
+  virtual_list.clear(); // Clear any existing list entries
 
   // Test for database error conditions before building the list
   if(IsClosed()) return gxDBASE_NO_DATABASE_OPEN;
@@ -3081,7 +3065,6 @@ gxDatabaseError gxRDBMS::Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
   gxrdDatabaseKey key, compare_key;
   gxBtree *btx = GetDatabase()->Index(index_number);
   gxrdDatabaseRecord record;
-  int exists;
   gxDatabaseError err;
   FAU_t record_count = (FAU_t)0;
   __ULWORD__ field = 0;
@@ -3124,11 +3107,7 @@ gxDatabaseError gxRDBMS::Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
 		      alpha_cmp, find_all_matches) == 0) {
       // Use the primary key to build the sort order list
       set_record_parms(&record, pk, compare_case, compare_alpha);
-      if(!virtual_list.Insert(record, &exists)) {
-	if(!exists) { // A fatal error occured during tree insert
-	  return pod->SetDataFileError(gxDBASE_VIRTUAL_LIST_ERROR);
-	}
-      }
+      virtual_list.insert(record); // Duplicate records are skipped
       set_record_parms(&record, field, case_cmp, alpha_cmp);
     }
     record_count++;
@@ -3145,11 +3124,7 @@ gxDatabaseError gxRDBMS::Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
 			alpha_cmp, find_all_matches) == 0) {
 	// Use the primary key to build the sort order list
 	set_record_parms(&record, pk, compare_case, compare_alpha);
-	if(!virtual_list.Insert(record, &exists)) {
-	  if(!exists) { // A fatal error occured during tree insert
-	    return pod->SetDataFileError(gxDBASE_VIRTUAL_LIST_ERROR);
-	  }
-	}
+	virtual_list.insert(record); // Duplicate records are skipped
 	set_record_parms(&record, field, case_cmp, alpha_cmp);
       }
       record_count++;
@@ -3158,15 +3133,15 @@ gxDatabaseError gxRDBMS::Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
   return pod->SetDataFileError(gxDBASE_NO_ERROR);
 }
 
-gxDatabaseError gxRDBMS::Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
-				gxString &search_string,
+gxDatabaseError gxRDBMS::Search(std::set<gxrdDatabaseRecord> &virtual_list,
+				std::string &search_string,
 				__ULWORD__ index_number,
 				__ULWORD__ search_field, int case_cmp, 
 				int alpha_cmp, int find_all_matches, 
 				FAU_t list_limit)
 {
-  gxString sbuf;
-  virtual_list.Clear(); // Clear any existing list entries
+  std::string sbuf;
+  virtual_list.clear(); // Clear any existing list entries
 
   // Test for database error conditions before building the list
   if(IsClosed()) return gxDBASE_NO_DATABASE_OPEN;
@@ -3214,7 +3189,7 @@ gxDatabaseError gxRDBMS::Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
   __ULWORD__ length;
   switch(compare_record.FieldType(field)) {
     case gxrdBOOL :
-      sbuf = search_string; sbuf.ToUpper();
+      sbuf = search_string; sbuf = to_upper(sbuf);
       if((sbuf == "Y") || (sbuf == "YES") ||
 	 (sbuf == "TRUE") || (sbuf == "1") ||
 	 (sbuf == "CHECKED")) {
@@ -3235,38 +3210,38 @@ gxDatabaseError gxRDBMS::Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
 	  length = compare_record.FieldLength(field);
 	}
       }
-      compare_record.SetField(search_string.GetSPtr(), length, field);
+      compare_record.SetField(search_string.data(), length, field);
       break;
       
     case gxrdBINARY : 
-      compare_record.SetField(search_string.GetSPtr(), search_string.length(),
+      compare_record.SetField(search_string.data(), search_string.length(),
 			      field);
       break;
       
     case gxrdBLOB :
-      compare_record.SetField(search_string.GetSPtr(), search_string.length(),
+      compare_record.SetField(search_string.data(), search_string.length(),
 			      field);
       break;
       
     case gxrdINT16 :
-      i16buf = (short)search_string.Atoi();
+      i16buf = (short)to_int(search_string);
       compare_record.SetField(&i16buf, sizeof(i16buf), field);
       break;
       
     case gxrdINT32 :
-      i32buf = search_string.Atol();
+      i32buf = to_long(search_string);
       compare_record.SetField(&i32buf, sizeof(i32buf), field);
       break;
       
     case gxrdINT64 :
 #if defined (__64_BIT_DATABASE_ENGINE__)
-      i64buf = search_string.Atoi64();
+      i64buf = to_llong(search_string);
       compare_record.SetField(&i64buf, sizeof(i64buf), field);
 #else
       // 10/14/2026: The value was stored as a 64-bit float, which never
       // matches INT64 field data. It is now stored as low and high 32-bit
       // words, the layout CreateKey() and Compare() read in this build.
-      dval = search_string.Atof();
+      dval = to_double(search_string);
       high_part = floor(dval / 4294967296.0);
       low_part = dval - (high_part * 4294967296.0);
       i64words[0] = (__LWORD__)(__ULWORD__)low_part;
@@ -3276,7 +3251,7 @@ gxDatabaseError gxRDBMS::Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
       break;
       
     case gxrdFLOAT : case gxrdCURRENCY :
-      f64buf = search_string.Atof();
+      f64buf = to_double(search_string);
       compare_record.SetField(&f64buf, sizeof(f64buf), field);
       break;
       
@@ -3299,14 +3274,14 @@ gxDatabaseError gxRDBMS::Search(gxBStree<gxrdDatabaseRecord> &virtual_list,
 // --------------------------------------------------------------
 // BEGIN: Standalone functions
 // --------------------------------------------------------------
-GXDLCODE_API void gxrdDefaultPIDName(gxString &fname)
+GXDLCODE_API void gxrdDefaultPIDName(std::string &fname)
 {
   fname = "gxRDBMS.pid";
 }
 
 GXDLCODE_API int gxrdWritePID(const char *pid_file_name) 
 {
-  gxString fname;
+  std::string fname;
   if(pid_file_name) {
     fname = pid_file_name;
   }
@@ -3314,36 +3289,33 @@ GXDLCODE_API int gxrdWritePID(const char *pid_file_name)
     gxrdDefaultPIDName(fname);
   }
 
-  DiskFileB outfile;
-  if(outfile.df_Create(fname.c_str()) != DiskFileB::df_NO_ERROR) {
-    return 0;
-  }
-  return 1;
+  std::ofstream outfile(fname, std::ios::out | std::ios::trunc);
+  return outfile.is_open() ? 1 : 0;
 }
 
 GXDLCODE_API int gxrdHasPIDFile(const char *pid_file_name) 
 {
-  gxString fname;
+  std::string fname;
   if(pid_file_name) {
     fname = pid_file_name;
   }
   else {
     gxrdDefaultPIDName(fname);
   }
-  return futils_exists(fname.c_str());
+  return file_exists(fname);
 }
 
 GXDLCODE_API int gxrdRemovePID(const char *pid_file_name)
 {
-  gxString fname;
+  std::string fname;
   if(pid_file_name) {
     fname = pid_file_name;
   }
   else {
     gxrdDefaultPIDName(fname);
   }
-  if(futils_exists(fname.c_str())) {
-    if(futils_remove(fname.c_str()) != 0) {
+  if(file_exists(fname)) {
+    if(file_remove(fname) != 0) {
       return 0;
     }
   }

@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: cdate.cpp
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/21/1997 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -36,206 +36,99 @@ Changes:
 to avoid any possible name conflicts.
 
 09/19/2005: Using simplified version of the == and != overloads. 
+
+10/26/2026: DataReel 7: CDate is the 4-byte date type stored in 
+gxRDBMS date fields, so its layout is unchanged. The c_str() 
+functions, which returned a new heap buffer on every call, are 
+replaced by str() functions returning std::string. The 
+interactive operator>> is removed. SetDate() returns false for a 
+month above 12 or a day above 31.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#include <string.h>
-#include <stdio.h>
-#include <ctype.h>
 #include "cdate.h"
 
-
-// String length for date strings
-const int cdateMaxStrLen = 25;
-
-CDate::CDate(const CDate& ob)
+std::string CDate::str() const
 {
-  Month = ob.Month;
-  Day = ob.Day;
-  Year = ob.Year;
+  return std::to_string((unsigned)Month) + "/" + 
+    std::to_string((unsigned)Day) + "/" + std::to_string((unsigned long)Year);
 }
 
-CDate& CDate::operator=(const CDate& ob)
+std::string CDate::month_str() const
 {
-  if(this != &ob) {
-    Month = ob.Month;
-    Day = ob.Day;
-    Year = ob.Year;
-  }
-  return *this;
+  return std::to_string((unsigned)Month);
 }
 
-char *CDate::c_str()
-// Returns null terminated date string
+std::string CDate::day_str() const
 {
-  char date_str[cdateMaxStrLen];
-  sprintf(date_str, "%u/%u/%u", (unsigned)Month,(unsigned)Day,(unsigned)Year);
-  int len = strlen(date_str);
-  char *buf = new char[len+1];
-  buf[len] = '\0';
-  memmove(buf, date_str, len);
-  return buf;
+  return std::to_string((unsigned)Day);
 }
 
-char *CDate::month_c_str()
-// Returns null terminated date string
+std::string CDate::year_str() const
 {
-  char date_str[cdateMaxStrLen];
-  sprintf(date_str, "%u", (unsigned)Month);
-  int len = strlen(date_str);
-  char *buf = new char[len+1];
-  buf[len] = '\0';
-  memmove(buf, date_str, len);
-  return buf;
-}
-
-char *CDate::day_c_str()
-// Returns null terminated date string
-{
-  char date_str[cdateMaxStrLen];
-  sprintf(date_str, "%u", (unsigned)Day);
-  int len = strlen(date_str);
-  char *buf = new char[len+1];
-  buf[len] = '\0';
-  memmove(buf, date_str, len);
-  return buf;
-}
-
-char *CDate::year_c_str()
-// Returns null terminated date string
-{
-  char date_str[cdateMaxStrLen];
-  sprintf(date_str, "%u", (unsigned)Year);
-  int len = strlen(date_str);
-  char *buf = new char[len+1];
-  buf[len] = '\0';
-  memmove(buf, date_str, len);
-  return buf;
+  return std::to_string((unsigned long)Year);
 }
 
 GXDLCODE_API std::ostream &operator<<(std::ostream &os, const CDate &ob)
 {
-  os << (unsigned)ob.Month << "/"
-     << (unsigned)ob.Day << "/"
-     << ob.Year;
-  return os;
+  return os << ob.str();
 }
 
-GXDLCODE_API void operator>>(std::istream &is, CDate &ob)
+GXDLCODE_API bool operator==(const CDate &a, const CDate &b)
 {
-  unsigned  buf;
-
-  std::cout << "Month (XX):  ";
-  is >> buf;
-  ob.SetMonth((__UBYTE__)buf);
-
-  std::cout << "Day (XX):    ";
-  is >> buf;
-  ob.SetDay((__UBYTE__)buf);
-
-  std::cout << "Year (XXXX): ";
-  is >> buf;
-  // Ignore BCC32 conversion warning
-  ob.SetYear(buf);
+  return a.Year == b.Year && a.Month == b.Month && a.Day == b.Day;
 }
 
-GXDLCODE_API int operator==(const CDate &a, const CDate &b)
+GXDLCODE_API bool operator!=(const CDate &a, const CDate &b)
 {
-  return !(a != b); 
+  return !(a == b);
 }
 
-GXDLCODE_API int operator!=(const CDate &a, const CDate &b)
+GXDLCODE_API bool operator<(const CDate &a, const CDate &b)
 {
-  if(a.Year != b.Year) return 1;
-  if(a.Month != b.Month) return 1;
-  if(a.Day != b.Day) return 1;
-  return 0; 
+  if(a.Year != b.Year) return a.Year < b.Year;
+  if(a.Month != b.Month) return a.Month < b.Month;
+  return a.Day < b.Day;
 }
 
-GXDLCODE_API int operator<(const CDate &a, const CDate &b)
+GXDLCODE_API bool operator>(const CDate &a, const CDate &b)
 {
-  if(a.Year < b.Year) return 1;
-  if(a.Year == b.Year) {
-    if(a.Month < b.Month) {
-      return 1;
-    }
-    if(a.Month == b.Month) {
-      if(a.Day < b.Day) return 1;
-    }
-  }
-  
-  return 0;
+  return b < a;
 }
 
-GXDLCODE_API int operator>(const CDate &a, const CDate &b)
+bool CDate::SetDate(std::string_view date, char delimiter)
+// Sets the date from a string in M/D/YYYY notation. Returns false
+// and leaves the date at 0/0/0 if the string is not formatted
+// correctly.
 {
-  // PC-lint 05/25/2002: Calling overloaded == and < operators in 
-  // overloaded > function generates bad type error.
-  if(a == b) return 0;
-  if(a < b) return 0;
-  return 1;
-}
-
-int CDate::SetDate(const char *date, char delimiter)
-// Sets the date using a null terminated character string.
-// Return false if the string is not formatted correctly using
-// The MM/DD/YYYY notation.
-{
-  // Reset the current value
   Month = 0;
   Day = 0;
-  Year = (gxUINT16)0;
+  Year = (__UWORD__)0;
 
-  int i, j = 0;
-  char buf[cdateMaxStrLen];
-  memset(buf, 0, cdateMaxStrLen);
-  char *p = (char *)date;
-  int len = strlen(p);
-  const int MaxBytes = 4;
-  unsigned char date_str[MaxBytes];
-  memset(date_str, 0, MaxBytes);
-  int byte_count = 0;
-  int val;
-  int num_delimiter = 0;
-
-  for(i = 0, j = 0; i < len && i != cdateMaxStrLen; i++, p++) {
-    if(*p == delimiter) {
-      num_delimiter++;
-      if(byte_count > MaxBytes) return 0;
-      sscanf(buf, "%d", &val);
-      // PC-lint 04/21/2004: Possible access of out-of-bounds pointer
-      if(byte_count < (MaxBytes-1)) {
-	date_str[byte_count++] = (unsigned char)(val & 0xFF);
-      }
-      memset(buf, 0, cdateMaxStrLen); // Reset the string buffer
-      j = 0; 
+  unsigned long fields[3] = { 0, 0, 0 };
+  int field = 0;
+  int digits = 0;
+  for(char c : date) {
+    if(c == delimiter) {
+      if(digits == 0 || ++field > 2) return false;
+      digits = 0;
+      continue;
     }
-    if(num_delimiter > 2) return 0;
-    if(*p != delimiter) { // Skip over the delimiter
-      if(isdigit(*p)) {
-	buf[j++] = *p;
-      }
-      else {
-	return 0;
-      }
-    }
+    if(c < '0' || c > '9') return false;
+    if(++digits > 4) return false;
+    fields[field] = fields[field] * 10 + (unsigned long)(c - '0');
   }
+  if(field != 2 || digits == 0) return false;
+  if(fields[0] > 12 || fields[1] > 31) return false;
 
-  // String after the last delimiter
-  sscanf(buf, "%d", &val);
-
-  // Set the date
-  Month = date_str[0];
-  Day = date_str[1];
-  Year = (gxUINT16)val;
-
-  return 1;
+  Month = (__UBYTE__)fields[0];
+  Day = (__UBYTE__)fields[1];
+  Year = (__UWORD__)fields[2];
+  return true;
 }
-
-// ----------------------------------------------------------- //
+// ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //
 // ------------------------------- //
-

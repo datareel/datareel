@@ -54,52 +54,14 @@ the source code and documentation supplied with the third party library.
 // --------------------------------------------------------------
 #include "gxdfptr.h"
 #include "gxsocket.h"
-#include "gxstring.h"
-#include "membuf.h"
+#include <string>
+#include <vector>
 // --------------------------------------------------------------
-
-// 06/17/2016: Moved gxRandom class outside of __USE_GX_SSL_EXTENSIONS__
-// 06/17/2016: conditional directive. This allows the random class to 
-// 06/17/2016: to be used by application not requiring the SSL functions.
-// Portable random number generator class. NOTE: This class should
-// only be used in the absence of a good hardware based random
-// number generator. 
-class GXDLCODE_API gxRandom
-{
-public:
-  gxRandom(unsigned max_seeds = 256);
-  ~gxRandom();
-  
-public: // User interface
-  unsigned *PRNGTable(unsigned table_size, unsigned long r_seed = 0);
-  unsigned *PRNGTable(unsigned *table1, unsigned table_size, 
-		      unsigned long r_seed = 0);
-  unsigned RandomNumber(unsigned long r_seed = 0);
-  void SeedTable(unsigned max_seeds = 256, unsigned long r_seed = 0);
-  unsigned Seed(int reuse = 1);
-  unsigned Seed(unsigned &a, unsigned &b, unsigned &c, unsigned &d);
-
-private: // Internal processing functions
-  unsigned *gen_prng_table(unsigned table_size, unsigned long r_seed);
-  unsigned *gen_prng_table(unsigned *table, unsigned table_size, 
-			   unsigned long r_seed);
-  unsigned gen_random_number(unsigned long r_seed);
-  unsigned entropy_number();
-  unsigned entropy_number(unsigned &a, unsigned &b, unsigned &c, unsigned &d);
-  int test_tables(unsigned *table1, unsigned *table2, unsigned table_size);
-
-private:
-  unsigned *seed_table;
-  unsigned curr_seed;
-  unsigned num_seeds;
-};
-
-#if defined (__USE_GX_SSL_EXTENSIONS__)
 
 #if defined (__USE_GX_SCHANNEL__)
 // --------------------------------------------------------------
 // 10/24/2026: Windows native TLS (Schannel) include files. Define
-// __USE_GX_SCHANNEL__ with __USE_GX_SSL_EXTENSIONS__ to build the gxSSL
+// __USE_GX_SCHANNEL__ to build the gxSSL
 // class with the Windows Schannel SSP instead of OpenSSL. Link with
 // secur32.lib, crypt32.lib and ncrypt.lib.
 // --------------------------------------------------------------
@@ -151,10 +113,6 @@ typedef gxSchannelConn gxSSL_t;
 // --------------------------------------------------------------
 
 // 07/31/2021: Include support for openssl 1.0.1
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-#define OBJ_get0_data(o) ((o)->data)
-#define OBJ_length(o) ((o)->length)
-#endif
 
 // 10/24/2026: Types used by the gxSSL interface for both SSL libraries
 typedef SSL_CTX gxSSL_CTX_t;
@@ -165,17 +123,12 @@ typedef SSL gxSSL_t;
 // --------------------------------------------------------------
 // Enumerations
 // --------------------------------------------------------------
+// 10/26/2026: SSL 2, SSL 3, TLS 1.0 and TLS 1.1 are no longer supported
 enum gxSSLMethod {
-  gxSSL_SSLv23,  // Supported protocols are SSLv2, SSLv3, TLSv1, TLSv1.1 and TLSv1.2
-  gxSSL_SSLv2,   // Only understand SSLv2
-  gxSSL_SSLv3,   // Only understand SSLv3
-  gxSSL_TLSv1,   // Only understand TLSv1
-  gxSSL_TLS,     // Supported protocols SSLv3, TLSv1, TLSv1.1 and TLSv1.2
-  gxSSL_TLSv1_1, // Only understand TLSv1.1
-  gxSSL_TLSv1_2, // Only understand TLSv1.2
-  gxSSL_DTLS,  
-  gxSSL_DTLSv1,  
-  gxSSL_DTLSv1_2
+  gxSSL_TLS,     // TLS 1.2 or TLS 1.3 (default)
+  gxSSL_TLSv1_2, // Only TLS 1.2
+  gxSSL_TLSv1_3, // Only TLS 1.3
+  gxSSL_DTLS     // DTLS 1.2 (OpenSSL only)
 };
 
 enum gxSSLCertType {
@@ -287,28 +240,28 @@ struct gxCertIssuerInfo
   void CopyCert(gxCertIssuerInfo &ob);
 
   // Certificate issuer fields
-  gxString C;  // Country Name = C
-  gxString ST; // State or Province Name = ST
-  gxString L;  // Locality Name = L
-  gxString O;  // Organization Name = O
-  gxString OU; // Organizational Unit Name = OU
-  gxString CN; // Common Name = CN
+  std::string C;  // Country Name = C
+  std::string ST; // State or Province Name = ST
+  std::string L;  // Locality Name = L
+  std::string O;  // Organization Name = O
+  std::string OU; // Organizational Unit Name = OU
+  std::string CN; // Common Name = CN
   int sn;      // Cert serial number
   int days;    // Days to expire 
 
   // Optional values and or settings
-  gxString passwd;        // Optional challenge password
-  gxString company_name;  // Optional company name 
-  gxString email_address; // Optional Email address
+  std::string passwd;        // Optional challenge password
+  std::string company_name;  // Optional company name 
+  std::string email_address; // Optional Email address
   
   // Standard extensions
-  gxString basic_constraints;
-  gxString key_usage;
-  gxString subject_key_identifier;
+  std::string basic_constraints;
+  std::string key_usage;
+  std::string subject_key_identifier;
   
   // Netscape specific extensions
-  gxString netscape_cert_type;
-  gxString netscape_comment;
+  std::string netscape_cert_type;
+  std::string netscape_comment;
 };
 // --------------------------------------------------------------
 
@@ -316,6 +269,8 @@ class GXDLCODE_API gxSSL
 {
 public:
   gxSSL() { init_data_members(); }
+  // Use a context owned by another gxSSL object, such as a server's.
+  // The context is not freed when this object is destroyed.
   gxSSL(gxSSL_CTX_t *p) { init_data_members(); ctx = p; }
   virtual ~gxSSL();
 
@@ -333,12 +288,11 @@ public: // External exception handling functions
   const char *SSLErrorMessage() { return SSLExceptionMessage(); } 
   int SetAppError(const char *s);
   int HasError() { return ssl_error != gxSSL_NO_ERROR; } 
-  void ResetAppError() { app_err_str.Clear(); }
-  static void GlobalSSLError(gxString &err_str);
+  void ResetAppError() { app_err_str.clear(); }
+  static void GlobalSSLError(std::string &err_str);
 
 public: // SSL and Context functions
   gxSSL_CTX_t *InitCTX();
-  int LoadDHParms(const char *fname);
   void DestroyCTX();
   void DestroySSL();
   void SetSSLProto(gxSSLMethod m) { ssl_proto = m; }
@@ -350,6 +304,7 @@ public: // Socket functions
   int AcceptSSLSocket();
   int RawWriteSSLSocket(const void *buf, int bytes);
   int RawReadSSLSocket(void *buf, int bytes);
+  int ReadSomeSSLSocket(void *buf, int bytes, int timeout_ms = -1);
   int SendSSLSocket(const void *buf, int bytes);
   int RecvSSLSocket(void *buf, int bytes);
   int RecvSSLSocket(void *buf, int bytes, int seconds, int useconds);
@@ -404,24 +359,25 @@ public:  // Key, cert, and passwd functions
   void SetPasswd(const char *s) { passwd = s; }
   void SetCertType(gxSSLCertType t) { cert_type = t; }
   gxSSLCertType CertType() { return cert_type; }
+  // Check the peer certificate chain against the CA list or the system
+  // certificate store, and check that it was issued for hostname (or
+  // IP address). Call it after ConnectSSLSocket(). Clients verify by
+  // default; NoVerifyCert() turns that off for test servers that use
+  // self-signed certificates.
   int VerifyCert(const char *hostname, long *X509_return_code = 0);
   // 10/24/2026: Pass back the subject and issuer names of the peer's
   // certificate and return a string for a VerifyCert() return code
-  int GetPeerCertInfo(gxString &subject, gxString &issuer);
+  int GetPeerCertInfo(std::string &subject, std::string &issuer);
   static const char *CertVerifyErrorString(long X509_return_code);
   int HasVerifyCert() { return verify_cert == 1; } 
   int RequireVerifyCert() { return verify_cert = 1; }
   int NoVerifyCert() { return verify_cert = 0; }
   int InitPRNG(const char *r_file, int check_prng_init = 1);
   int InitPRNG(int check_prng_init = 1);
-  int MakeRSAEphKey(int key_len = 512);
-  int MakeRSAPrivateKey(const char *key_fname, int key_len = 512,
+  int MakeRSAPrivateKey(const char *key_fname, int key_len = 3072,
 			KeyGenCallbackFunc cb_func = 0, void *cb_arg = 0);
   int MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
 		  const char *req_fname);
-  int MakeDHParms(const char *dh_fname, 
-		  unsigned char *dh1024_p = 0, int dh1024_p_len = 0,  
-		  unsigned char *dh1024_g = 0, int dh1024_g_len = 0);
 
 public: // Thread functions
   // 10/14/2026: Release() clears every pointer without freeing it. The
@@ -435,7 +391,7 @@ public: // Thread functions
   void Relase() { Release(); }
   void ReleaseCTX() { ctx = 0; }
   void ReleaseSSL() { ssl = 0; }
-  void SetCTX(gxSSL_CTX_t *p) { ctx = p; }
+  void SetCTX(gxSSL_CTX_t *p) { DestroyCTX(); ctx = p; } // Not owned
   void SetSSL(gxSSL_t *p) { ssl = p; }
 #if !defined (__USE_GX_SCHANNEL__)
   void ReleaseSBIO() { socket_bio = 0; }
@@ -470,23 +426,24 @@ protected: // Internal functions
   void sc_set_status(long status);
 #else
   int check_ssl_error(int rv);
-  int add_cert_ext(X509 *cert, int nid, char *value);
+  int add_cert_ext(X509 *cert, int nid, const char *value);
 #endif
 
 protected: // OpenSSL passwords, keys, and certs
-  gxString random_file;  // Random file used to seed random num generator
-  gxString key_file;     // Private key file
-  gxString cert_file;    // Certificate file
-  gxString ca_list;      // Certificate authority list
-  gxString passwd;       // Cert or key passphrase
+  std::string random_file;  // Random file used to seed random num generator
+  std::string key_file;     // Private key file
+  std::string cert_file;    // Certificate file
+  std::string ca_list;      // Certificate authority list
+  std::string passwd;       // Cert or key passphrase
   int verify_cert;
 
 protected: // SSL library objects 
   gxSSL_CTX_t *ctx; // Context object
+  int owns_ctx;     // True if DestroyCTX() frees ctx
   gxSSL_t *ssl;     // SSL object
   gxSSLMethod ssl_proto;
   gxSSLCertType cert_type;
-  gxString host_name; // Server name sent by clients (SNI)
+  std::string host_name; // Server name sent by clients (SNI)
 
 protected: // SSL I/O objects
 #if !defined (__USE_GX_SCHANNEL__)
@@ -501,10 +458,9 @@ protected: // SSL I/O objects
 
 protected: // Error reporting objects
   gxSSLError ssl_error; // Holds the last error reported code
-  gxString app_err_str; // Custom Application Error Strings
+  std::string app_err_str; // Custom Application Error Strings
 };
 
-#endif // __USE_GX_SSL_EXTENSIONS__
 
 #endif // __GX_SECURE_SOCKET_LAYER_HPP__
 // ----------------------------------------------------------- // 

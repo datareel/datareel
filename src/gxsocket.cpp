@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxsocket.cpp
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -88,19 +88,34 @@ Still using old version under Solaris until new version is tested.
 
 12/19/2005: Added new error codes to the gxsSocketExceptionMessages
 array.
+
+10/26/2026: DataReel 7 rewrites gxSocket for IPv4 and IPv6 with 
+getaddrinfo(), connect timeouts, poll() based receive timeouts 
+and Winsock 2. Sends on Linux use MSG_NOSIGNAL so a closed peer 
+returns an error instead of raising SIGPIPE.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#include<string.h>
-#include <fcntl.h>
+#include <cerrno>
+#include <cstring>
+#include <mutex>
 #include "gxsocket.h"
 
-#if defined(__UNIX__) && !defined(__BSD_UNIX__)  
-#include <sys/utsname.h> // Used for host name information
-#endif // __UNIX__
+#if defined (_WIN32)
+#pragma comment(lib, "ws2_32.lib")
+#else
+#include <fcntl.h>
+#include <poll.h>
+#include <netinet/tcp.h>
+#endif
 
+#if defined (MSG_NOSIGNAL)
+const int gxsSEND_FLAGS = MSG_NOSIGNAL;
+#else
+const int gxsSEND_FLAGS = 0;
+#endif
 
 // NOTE: This array must contain the same number of exceptions as the
 // gxSocketError enumeration. 
@@ -174,1614 +189,566 @@ const char *gxsSocketExceptionMessages[gxsMaxSocketExceptionMessages] = {
   "Socket application reported an error", // APPDEF_ERROR 
 };
 
-gxSocket::gxSocket()
-// Socket constructor that performs no initialization other then
-// setting default values for the socket data members.
+static int last_system_error()
 {
-  // Reset all the gxSocket variables
-  Clear();
-}
-
-void gxSocket::Clear() 
-// Function used to reset all the gxSocket variables.
-// NOTE: This function should only be called prior to
-// socket initialization. 
-{
-  address_family = AF_INET;      // Default address family
-  socket_type = SOCK_STREAM;     // Default socket type
-  protocol_family = IPPROTO_TCP; // Default protocol family
-  port_number = gxSOCKET_DEFAULT_PORT; // Default port number
-  gxsocket = -1;
-  remote_socket = -1;
-  bytes_read = bytes_moved = 0;
-  is_connected = 0;
-  is_bound = 0;
-  socket_error = gxSOCKET_NO_ERROR;
-  socket_version = gxSOCKET_WSAVER_ONEONE;
-
-  // Zero-out the Internet address structures
-  memset(&sin, 0, sizeof(gxsSocketAddress));
-  memset(&remote_sin, 0, sizeof(gxsSocketAddress));
-
-#if defined (__WIN32__)
-  // Zero-out the WINSOCK socket data structure
-  memset(&socket_data, 0, sizeof(WSADATA)); 
+#if defined (_WIN32)
+  return WSAGetLastError();
+#else
+  return errno;
 #endif
 }
 
-gxSocket::gxSocket(gxsAddressFamily af, gxsSocket_t st, gxsProtocolFamily pf,
-		   int port, char *hostname)
-// Socket constructor used to initialize the socket according to the
-// address family, socket type, and protocol family. A hostname name should
-// only be specified for client sockets.
+// --------------------------------------------------------------
+// gxsAddress
+// --------------------------------------------------------------
+gxsAddress::gxsAddress(const sockaddr *sa, gxsSocketLength_t sa_len)
 {
-  // Reset all the gxSocket variables
   Clear();
-
-  // Initialize the socket. NOTE: Any errors detected during initialization
-  // will be recorded in the socket_error member.
-  if(InitSocketLibrary() == 0) InitSocket(af, st, pf, port, hostname);
+  if(sa && sa_len > 0 && (std::size_t)sa_len <= sizeof(storage)) {
+    memcpy(&storage, sa, (std::size_t)sa_len);
+    length = sa_len;
+  }
 }
 
-gxSocket::gxSocket(gxsSocket_t st, gxsPort_t port, char *hostname) 
-// Socket constructor used to initialize the socket according to the
-// socket type. A hostname name should only be specified for client
-// sockets.
+void gxsAddress::Clear()
 {
-  // Reset all the gxSocket variables
-  Clear();
-
-  // Initialize the socket. NOTE: Any errors detected during initialization
-  // will be recorded in the socket_error member.
-  if(InitSocketLibrary() == 0) InitSocket(st, port, hostname);
+  memset(&storage, 0, sizeof(storage));
+  length = 0;
 }
 
-gxSocket::gxSocket(gxsSocket_t st, gxsSocketAddress *host_sin)
-// Socket constructor used to initialize the socket according to the
-// socket type and Internet address. 
+int gxsAddress::Port() const
 {
-  // Reset all the gxSocket variables
-  Clear();
-
-  // Initialize the socket. NOTE: Any errors detected during initialization
-  // will be recorded in the socket_error member.
-  if(InitSocketLibrary() == 0) InitSocket(st, host_sin);
+  if(Family() == AF_INET) {
+    return ntohs(((const sockaddr_in *)&storage)->sin_port);
+  }
+  if(Family() == AF_INET6) {
+    return ntohs(((const sockaddr_in6 *)&storage)->sin6_port);
+  }
+  return 0;
 }
 
-gxSocket::gxSocket(gxsSocket_t st, gxsProtocolFamily pf,
-		   gxsSocketAddress *host_sin) 
-// Socket constructor used to initialize the socket according to the
-// socket type, protocol family, and Internet address.
+void gxsAddress::SetPort(int port)
 {
-  // Reset all the gxSocket variables
-  Clear();
+  if(Family() == AF_INET) {
+    ((sockaddr_in *)&storage)->sin_port = htons((unsigned short)port);
+  }
+  else if(Family() == AF_INET6) {
+    ((sockaddr_in6 *)&storage)->sin6_port = htons((unsigned short)port);
+  }
+}
 
-  // Initialize the socket. NOTE: Any errors detected during initialization
-  // will be recorded in the socket_error member.
-  if(InitSocketLibrary() == 0) InitSocket(st, pf, host_sin);
+std::string gxsAddress::IPAddress() const
+{
+  if(length == 0) return std::string();
+  char host[NI_MAXHOST];
+  if(getnameinfo(SockAddr(), length, host, sizeof(host), 0, 0, 
+		 NI_NUMERICHOST) != 0) {
+    return std::string();
+  }
+  return host;
+}
+
+std::string gxsAddress::ToString() const
+{
+  std::string ip = IPAddress();
+  if(ip.empty()) return ip;
+  if(Family() == AF_INET6) ip = "[" + ip + "]";
+  return ip + ":" + std::to_string(Port());
+}
+
+int gxsAddress::Resolve(const std::string &host, int port, 
+			std::vector<gxsAddress> &addresses,
+			int socket_type, int family, bool passive)
+{
+  addresses.clear();
+  gxSocket::InitSocketLibrary();
+  addrinfo hints;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = family;
+  hints.ai_socktype = socket_type;
+  hints.ai_flags = AI_NUMERICSERV;
+  if(passive) hints.ai_flags |= AI_PASSIVE;
+#if defined (AI_ADDRCONFIG)
+  if(!passive) hints.ai_flags |= AI_ADDRCONFIG;
+#endif
+  std::string service = std::to_string(port);
+  addrinfo *res = 0;
+  int rv = getaddrinfo(host.empty() ? 0 : host.c_str(), service.c_str(), 
+		       &hints, &res);
+  if(rv != 0) return rv;
+  for(addrinfo *ai = res; ai; ai = ai->ai_next) {
+    addresses.emplace_back(ai->ai_addr, (gxsSocketLength_t)ai->ai_addrlen);
+  }
+  freeaddrinfo(res);
+  return addresses.empty() ? EAI_NONAME : 0;
+}
+
+// --------------------------------------------------------------
+// gxSocket
+// --------------------------------------------------------------
+gxSocket::gxSocket() : gxsocket(gxsINVALID_SOCKET), 
+  socket_error(gxSOCKET_NO_ERROR), system_error(0), is_connected(false)
+{
+  InitSocketLibrary();
+}
+
+gxSocket::gxSocket(gxsSocket_t s) : gxsocket(s), 
+  socket_error(gxSOCKET_NO_ERROR), system_error(0), 
+  is_connected(s != gxsINVALID_SOCKET)
+{
+  InitSocketLibrary();
 }
 
 gxSocket::~gxSocket()
 {
-  // PC-lint 09/08/2005: Function may throw exception in destructor
   Close();
 }
 
-gxsSocket_t gxSocket::Socket()
-// Create a socket. Returns a valid socket descriptor or
-// -1 if the socket cannot be initialized.
+gxSocket::gxSocket(gxSocket &&ob) noexcept : gxsocket(ob.gxsocket), 
+  peer(ob.peer), socket_error(ob.socket_error), 
+  system_error(ob.system_error), is_connected(ob.is_connected)
 {
-  gxsocket = socket(address_family, socket_type, protocol_family);
-
-#if defined(__WIN32__)
-  // The SOCKET type is unsigned in the WinSock library
-  if(gxsocket == INVALID_SOCKET) // Defined as (SOCKET)(~0)
-#elif defined (__UNIX__)
-  if(gxsocket < 0)
-#else
-#error You must define a target platform:\n  __WIN32__ or __UNIX__
-#endif
-    {
-      socket_error = gxSOCKET_INIT_ERROR;
-      return -1;
-    }
-
-  return gxsocket;
+  ob.gxsocket = gxsINVALID_SOCKET;
+  ob.is_connected = false;
 }
 
-gxsSocket_t gxSocket::InitSocket(gxsAddressFamily af,
-				 gxsSocket_t st,
-				 gxsProtocolFamily pf,
-				 int port, char *hostname)
-// Create and initialize a socket according to the address family,
-// socket type, and protocol family. The "hostname" variable is an
-// optional parameter that allows clients to specify a server name.
-// Returns a valid socket descriptor or -1 if the socket cannot be
-// initialized. NOTE: Under all UNIX platforms you must have root 
-// privileges to use raw sockets. Windows 95/98/ME/NT only works 
-// with the IPPROTO_ICMP protocol when using raw sockets and does
-// not support the IPPROTO_RAW protocol.
+gxSocket &gxSocket::operator=(gxSocket &&ob) noexcept
 {
-
-  address_family = af;
-  socket_type = st;
-  protocol_family = pf;
-  port_number = port;
-
-  // Put the server information into the server structure.
-  // Ignore BCC32 conversion warning
-  sin.sin_family = address_family;
-
-  if(hostname) {
-#if defined(__LINUX__)
-    // 08/25/2016: Added thread safe code to replace gethostbyname() call
-    struct addrinfo hints, *res;
-    memset (&hints, 0, sizeof (hints));
-    hints.ai_family = af;
-    hints.ai_socktype = st;
-    hints.ai_protocol = pf;
-    hints.ai_flags |= AI_PASSIVE; // return socket addresses for use with connect(),sendto(), or sendmsg()
-    if(getaddrinfo(hostname, 0, &hints, &res) != 0) {
-      socket_error = gxSOCKET_HOSTNAME_ERROR;
-      return -1;
-    }
-    if(!res) {
-      socket_error = gxSOCKET_HOSTNAME_ERROR;
-      return -1;
-    }
-    sin.sin_addr.s_addr = ((struct sockaddr_in *)(res->ai_addr))->sin_addr.s_addr; 
-    freeaddrinfo(res);
-#else
-    // Get the server's Internet address
-    gxsHostNameInfo *hostnm = gethostbyname(hostname); 
-    if(hostnm == (struct hostent *) 0) {
-      socket_error = gxSOCKET_HOSTNAME_ERROR;
-      return -1;
-    }
-    // Put the server information into the client structure.
-    // 08/24/2016: Prevent core dump if not set
-    if(!hostnm->h_addr) {
-       socket_error = gxSOCKET_HOSTNAME_ERROR;
-       return -1;
-    }
-    sin.sin_addr.s_addr = *((unsigned long *)hostnm->h_addr);
-#endif
+  if(this != &ob) {
+    Close();
+    gxsocket = ob.gxsocket;
+    peer = ob.peer;
+    socket_error = ob.socket_error;
+    system_error = ob.system_error;
+    is_connected = ob.is_connected;
+    ob.gxsocket = gxsINVALID_SOCKET;
+    ob.is_connected = false;
   }
-  else {   
-    sin.sin_addr.s_addr = INADDR_ANY; // Use my IP address
-  }
-
-  // The port must be put into network byte order.
-  // htons()--"Host to Network Short" 
-  // htonl()--"Host to Network Long" 
-  // ntohs()--"Network to Host Short" 
-  // ntohl()--"Network to Host Long" 
-  // Ignore BCC32 conversion warning
-  sin.sin_port = htons(port_number); 
-
-  // Create a TCP/IP
-  if(Socket() < 0) {
-    socket_error = gxSOCKET_INIT_ERROR;
-    return -1;
-  }
-
-  return gxsocket;
-}
-
-gxsSocket_t gxSocket::InitSocket(gxsSocket_t st, gxsSocketAddress *host_sin)
-// Create and initialize a socket according to the socket type and 
-// socket internet address. The "host_sin" variable must be initialized 
-// prior to calling function. This cross-platform function will only accept 
-// SOCK_STREAM and SOCK_DGRAM socket types. Returns a valid socket 
-// descriptor or -1 if the socket cannot be initialized.
-{
-  if(st == SOCK_STREAM) {
-    socket_type = SOCK_STREAM;
-    protocol_family = IPPROTO_TCP;
-  }
-  else if(st == SOCK_DGRAM) {
-    socket_type = SOCK_DGRAM;
-    protocol_family = IPPROTO_UDP;
-  }
-  else {
-    socket_error = gxSOCKET_SOCKETTYPE_ERROR;
-    return -1;
-  }
-  
-  return InitSocket(socket_type, protocol_family, host_sin);
-}
-
-gxsSocket_t gxSocket::InitSocket(gxsSocket_t st, gxsProtocolFamily pf,
-				 gxsSocketAddress *host_sin)
-// Create and initialize a socket according to the socket type and protocol 
-// family. The "host_sin" variable must be initialized prior to calling
-// function. Returns a valid socket descriptor or -1 if the socket cannot be
-// initialized. NOTE: Under all UNIX platforms you must have root 
-// privileges to use raw sockets. Windows 95/98/ME/NT only works 
-// with the IPPROTO_ICMP protocol when using raw sockets and does
-// not support the IPPROTO_RAW protocol.
-{
-
-  // Set the socket varaibles
-  socket_type = st;
-  protocol_family = pf;
-  address_family = host_sin->sin_family;
-  port_number = host_sin->sin_port;
-
-  if(&sin != host_sin) { // Do not set if the object's sin is used
-    memmove(&sin, host_sin, sizeof(gxsSocketAddress));
-  }
-
-  // Create a TCP/IP
-  if(Socket() < 0) {
-    socket_error = gxSOCKET_INIT_ERROR;
-    return -1;
-  }
-
-  return gxsocket;
-}
-
-int gxSocket::InitSIN(gxsSocketAddress *host_sin, gxsAddressFamily af, 
-		      int port, char *hostname)
-// Helper function used to initialize a socket Internet address data 
-// structure. To use the Internet address of this host pass a null 
-// pointer to hostname variable. Returns -1 if an error occurs.
-{
-  // Reset the current SIN
-  memset(host_sin, 0, sizeof(gxsSocketAddress));
-
-  // Put the server information into the server structure.
-  host_sin->sin_family = address_family;
-
-  if(hostname) {
-#if defined(__LINUX__)
-    // 08/28/2016: Added thread safe code to replace gethostbyname() call
-    struct addrinfo hints, *res;
-    memset (&hints, 0, sizeof (hints));
-    hints.ai_family = af;
-    hints.ai_socktype = 0;
-    hints.ai_protocol = 0;
-    hints.ai_flags |= AI_PASSIVE; // return socket addresses for use with connect(),sendto(), or sendmsg()
-    if(getaddrinfo(hostname, 0, &hints, &res) != 0) {
-      socket_error = gxSOCKET_HOSTNAME_ERROR;
-      return -1;
-    }
-    if(!res) {
-      socket_error = gxSOCKET_HOSTNAME_ERROR;
-      return -1;
-    }
-    sin.sin_addr.s_addr = ((struct sockaddr_in *)(res->ai_addr))->sin_addr.s_addr; 
-    freeaddrinfo(res);
-#else
-    // Get the Internet address
-    gxsHostNameInfo *hostnm = gethostbyname(hostname); 
-    if(hostnm == (struct hostent *) 0) {
-      socket_error = gxSOCKET_HOSTNAME_ERROR;
-      return -1;
-    }
-    // Put the server information into the client structure.
-    host_sin->sin_addr.s_addr = *((unsigned long *)hostnm->h_addr);
-#endif
-  }
-  else {  
-    host_sin->sin_addr.s_addr = INADDR_ANY; // Use my IP address
-  }
-
-  port_number = port ; // Assigne the port number
-
-  // The port must be put into network byte order.
-  host_sin->sin_port = htons(port_number); 
-  return 0;
-}
-
-gxsSocket_t gxSocket::InitSocket(gxsSocket_t st, gxsPort_t port,
-				 char *hostname)
-// Create and initialize a socket according to the socket type. This 
-// cross-platform function will only accept SOCK_STREAM and SOCK_DGRAM
-// socket types. The "hostname" variable is an optional parameter that 
-// allows clients to specify a server name. Returns a valid socket 
-// descriptor or -1 if the socket cannot be initialized. NOTE: Port 
-// numbers are divided into three ranges: the Well Known Ports, the 
-// Registered Ports, and the Dynamic and/or Private Ports. A complete 
-// list of all assigned port numbers is maintained by IANA: 
-//
-// http://www.iana.org
-//
-// The Well Known Ports are those from 0 through 1023.
-// The Registered Ports are those from 1024 through 49151
-// The Dynamic and/or Private Ports are those from 49152 through 65535
-{
-  if(st == SOCK_STREAM) {
-    socket_type = SOCK_STREAM;
-    protocol_family = IPPROTO_TCP;
-  }
-  else if(st == SOCK_DGRAM) {
-    socket_type = SOCK_DGRAM;
-    protocol_family = IPPROTO_UDP;
-  }
-  else {
-    socket_error = gxSOCKET_SOCKETTYPE_ERROR;
-    return -1;
-  }
-
-  return InitSocket(AF_INET, socket_type, 
-		    protocol_family, port, hostname);
-}
-
-int gxSocket::Bind()
-// Bind the socket to a name so that other processes can
-// reference it and allow this socket to receive messages.
-// Returns -1 if an error occurs.
-{
-  int rv = bind(gxsocket, (struct sockaddr *)&sin, sizeof(sin));
-  if(rv >= 0) {
-    is_bound = 1;
-  } 
-  else {
-    socket_error = gxSOCKET_BIND_ERROR;
-    is_bound = 0;
-  }
-  return rv;
-}
-
-int gxSocket::Bind(gxsSocket_t s, gxsSocketAddress *sa)
-// Bind the socket to a name so that other processes can
-// reference it and allow this socket to receive messages.
-// Returns -1 if an error occurs.
-{
-  int rv = bind(s, (struct sockaddr *)sa, sizeof(gxsSocketAddress));
-  if(rv < 0) socket_error = gxSOCKET_BIND_ERROR;
-  return rv;
-}
-
-int gxSocket::Connect(gxsSocket_t s, gxsSocketAddress *sa)
-// Connect a specified socket to a client or server. On the client 
-// side a connect call is used to initiate a connection. 
-// Returns -1 if an error occurs.
-{
-  int rv = connect(s, (struct sockaddr *)sa, sizeof(gxsSocketAddress));
-  if(rv < 0) socket_error = gxSOCKET_CONNECT_ERROR;
-  return rv;
-}
-
-int gxSocket::Connect()
-// Connect the socket to a client or server. On the client side
-// a connect call is used to initiate a connection.
-// Returns -1 if an error occurs.
-{
-  int rv = connect(gxsocket, (struct sockaddr *)&sin, sizeof(sin));
-  if(rv >= 0) {
-    is_connected = 1; 
-  }
-  else {
-    socket_error = gxSOCKET_CONNECT_ERROR;
-    is_connected = 0;
-  }
-  return rv;
-}
-
-int gxSocket::ReadSelect(gxsSocket_t s, int seconds, int useconds)
-// Function used to multiplex reads without polling. Returns false if a 
-// reply time is longer then the timeout values. 
-{
-  struct timeval timeout;
-  fd_set fds;
-  FD_ZERO(&fds);
-  FD_SET(s, &fds);
-  
-  timeout.tv_sec = seconds;
-  timeout.tv_usec = useconds;
-
-  // This function calls select() giving it the file descriptor of
-  // the socket. The kernel reports back to this function when the file
-  // descriptor has woken it up.
-  //CWS  return select(s+1, &fds, 0, 0, &timeout);
-  if(s < 0) return 0;	//CWS - socket was disconnected?
-  return select(s+1, &fds, 0, 0, &timeout);
-
-}
-
-int gxSocket::Recv(void *buf, int bytes, int flags)
-// Receive a block of data from the bound socket and do not return
-// until all the bytes have been read. Returns the total number of 
-// bytes received or -1 if an error occurs.
-{
-  return Recv(gxsocket, buf, bytes, flags);
-}
-
-int gxSocket::Recv(void *buf, int bytes, int seconds, int useconds, int flags)
-// Receive a block of data from the bound socket and do not return
-// until all the bytes have been read or the timeout value has been 
-// exceeded. Returns the total number of bytes received or -1 if an 
-// error occurs.
-{
-  return Recv(gxsocket, buf, bytes, seconds, useconds, flags);
-}
-
-int gxSocket::Send(const void *buf, int bytes, int flags)
-// Send a block of data to the bound socket and do not return
-// until all the bytes have been written. Returns the total number 
-// of bytes sent or -1 if an error occurs.
-{
-  return Send(gxsocket, buf, bytes, flags);
-}
-
-int gxSocket::Recv(gxsSocket_t s, void *buf, int bytes, int flags)
-// Receive a block of data from a specified socket and do not return
-// until all the bytes have been read. Returns the total number of
-// bytes received or -1 if an error occurs.
-{
-  // no timeout receive
-  return Recv(s, buf, bytes, 0, 0, 0, flags);
-}
-
-
-int gxSocket::Recv(gxsSocket_t s, void *buf, int bytes, 
-		   int seconds, int useconds, int flags)
-// Receive a block of data from a specified socket and do not return
-// until all the bytes have been read or the timeout value has been 
-// exceeded. Returns the total number of bytes received or -1 if an 
-// error occurs.
-{
-  // timeout receive
-  return Recv(s, buf, bytes, 1, seconds, useconds, flags);
-}
-
-int gxSocket::Recv(gxsSocket_t s, void *buf, int bytes, 
-		   int useTimeout, int seconds, int useconds, int flags)
-// Receive a block of data from a specified socket and do not return
-// until all the bytes have been read. Returns the total number of
-// bytes received or -1 if an error occurs and 0 bytes read.
-// CWS - optional timeout specified; may have 0 timeout to return immediately
-// so added 'useTimeout' flag rather than checking for 0 seconds to indicate 
-// no timeout.
-{
-  bytes_read = 0;        // Reset the byte counter
-  int num_read = 0;      // Actual number of bytes read
-  int num_req = bytes;   // Number of bytes requested 
-  char *p = (char *)buf; // Pointer to the buffer
-
-  while(bytes_read < bytes) { // Loop until the buffer is full
-    if(useTimeout && (!ReadSelect(s, seconds, useconds))) {
-      //CWS - problem if has bytes and timeout occurs need to return bytes read
-      if (bytes_read > 0) return bytes_read;
-      socket_error = gxSOCKET_REQUEST_TIMEOUT;
-      return -1; // Exceeded the timeout value
-    }
-    if((num_read = recv(s, p, num_req-bytes_read, flags)) > 0) {
-      bytes_read += num_read;   // Increment the byte counter
-      p += num_read;            // Move the buffer pointer for the next read
-    }
-    else {
-      if(num_read == 0) {// Gracefully closed
-	socket_error = gxSOCKET_DISCONNECTED_ERROR;
-      }
-      else {
-	socket_error = gxSOCKET_RECEIVE_ERROR;
-      }
-
-      // CWS - If something has been read, do not return -1 or 
-      // will lose the count
-      if (bytes_read > 0) return bytes_read;
-
-      return -1; // An error occurred during the read
-    }
-  }
-  return bytes_read;
-}
-
-int gxSocket::Send(gxsSocket_t s, const void *buf, int bytes, int flags)
-// Send a block of data to a specified socket and do not return
-// until all the bytes have been written. Returns the total number of
-// bytes sent or -1 if an error occurs.
-{
-  bytes_moved = 0;       // Reset the byte counter
-  int num_moved = 0;     // Actual number of bytes written
-  int num_req = bytes;   // Number of bytes requested 
-  char *p = (char *)buf; // Pointer to the buffer
-
-  while(bytes_moved < bytes) { // Loop until the buffer is empty
-    if((num_moved = send(s, p, num_req-bytes_moved, flags)) > 0) {
-      bytes_moved += num_moved;  // Increment the byte counter
-      p += num_moved;            // Move the buffer pointer for the next read
-    }
-    if(num_moved < 0) {
-      socket_error = gxSOCKET_TRANSMIT_ERROR;
-      return -1; // An error occurred during the read
-    }
-  }
-
-  return bytes_moved;
-}
-
-int gxSocket::RemoteRecv(void *buf, int bytes, int seconds, int useconds, 
-			 int flags)
-// Receive a block of data from a remote socket in blocking mode with a
-// specified timeout value. Returns the total number of bytes received or 
-// -1 if an error occurs.
-{
-  return Recv(remote_socket, buf, bytes, seconds, useconds, flags);
-}
-
-int gxSocket::RemoteRecv(void *buf, int bytes, int flags)
-// Receive a block of data from a remote socket in blocking mode.
-// Returns the total number of bytes received or -1 if an error occurs.
-{
-  return Recv(remote_socket, buf, bytes, flags);
-}
-
-int gxSocket::RemoteSend(const void *buf, int bytes, int flags)
-// Send a block of data to a remote socket and do not return
-// until all the bytes have been written. Returns the total 
-// number of bytes received or -1 if an error occurs.
-{
-  return Send(remote_socket, buf, bytes, flags);
-}
-
-void gxSocket::ShutDown(int how)
-// Used to close and un-initialize a full-duplex socket.
-{
-  bytes_moved = 0;
-  bytes_read = 0;
-  is_connected = 0;
-  is_bound = 0;
-
-  // NOTE 05/25/2000: The last error is no longer reset following
-  // a close call to allow the application to close the socket
-  // and catch the last exception reported if the socket has to be
-  // closed after a Bind(), Listen(), or any other initialization
-  // failure.
-  // socket_error = gxSOCKET_NO_ERROR;
- 
-  // 0 = User is no longer interested in reading data
-  // 1 = No more data will be sent
-  // 2 = No data is to be sent or received
-  if(gxsocket != -1) shutdown(gxsocket, how);
-  if(remote_socket != -1) shutdown(remote_socket, how);
-
-  gxsocket = -1;
-  remote_socket = -1;
-}
-
-void gxSocket::ShutDown(gxsSocket_t &s, int how)
-// Used to close and un-initialize the specified full-duplex socket.
-{
-  if(s != -1) shutdown(s, how);
-  s = -1;
-}
-
-void gxSocket::ShutDownSocket(int how)
-// Used to close a full-duplex server side socket.
-{
-  if(gxsocket != -1) shutdown(gxsocket, how);
-  gxsocket = -1;
-}
-
-void gxSocket::ShutDownRemoteSocket(int how)
-// Used to close a full-duplex client side socket.
-{
-  if(remote_socket != -1) shutdown(remote_socket, how);
-  remote_socket = -1;
-}
-
-void gxSocket::Close()
-// Close any and un-initialize any bound sockets.
-{
-  bytes_moved = 0;
-  bytes_read = 0;
-  is_connected = 0;
-  is_bound = 0;
-
-  // NOTE 05/25/2000: The last error is no longer reset following
-  // a close call to allow the application to close the socket
-  // and catch the last exception reported if the socket has to be
-  // closed after a Bind(), Listen(), or any other initialization
-  // failure.
-  // socket_error = gxSOCKET_NO_ERROR;
-#if defined (__WIN32__)
-  if(gxsocket != -1) closesocket(gxsocket);
-  if(remote_socket != -1) closesocket(remote_socket);
-#elif defined (__UNIX__)
-  if(gxsocket != -1) close(gxsocket);
-  if(remote_socket != -1) close(remote_socket);
-#else
-#error You must define a target platform: __WIN32__ or __UNIX__
-#endif
-}
-
-void gxSocket::Close(gxsSocket_t &s)
-// Close the specified socket
-{
-#if defined (__WIN32__)
-  if(s != -1) closesocket(s);
-#elif defined (__UNIX__)
-  if(s != -1) close(s);
-#else
-#error You must define a target platform: __WIN32__ or __UNIX__
-#endif
-  s = -1;
-}
-
-void gxSocket::CloseSocket()
-// Close the server side socket
-{
-#if defined (__WIN32__)
-  if(gxsocket != -1) closesocket(gxsocket);
-#elif defined (__UNIX__)
-  if(gxsocket != -1) close(gxsocket);
-#else
-#error You must define a target platform: __WIN32__ or __UNIX__
-#endif
-  gxsocket = -1;
-}
-
-void gxSocket::CloseRemoteSocket()
-// Close the client socket
-{
-#if defined (__WIN32__)
-  if(remote_socket != -1) closesocket(remote_socket);
-#elif defined (__UNIX__)
-  if(remote_socket != -1) close(remote_socket);
-#else
-#error You must define a target platform: __WIN32__ or __UNIX__
-#endif
-  remote_socket = -1;
-}
-
-int gxSocket::Listen(gxsSocket_t s, int max_connections)
-// Listen for connections on the specified socket.
-// The "max_connections" variable determines how many
-// pending connections the queue will hold. Returns -1
-// if an error occurs.
-{
-  int rv = listen(s,                // Bound socket
-		  max_connections); // Number of connection request queue
-  if(rv < 0) socket_error = gxSOCKET_LISTEN_ERROR;
-  return rv;
-}
-
-int gxSocket::Listen(int max_connections)
-// Listen for connections if configured as a server.
-// The "max_connections" variable determines how many
-// pending connections the queue will hold. Returns -1
-// if an error occurs.
-{
-  return listen(gxsocket, max_connections);
-}
-
-gxsSocket_t gxSocket::Accept(gxsSocket_t s, gxsSocketAddress *sa)
-// Accept a connect from a specified socket. An Accept() 
-// call blocks the server until the a client requests 
-// service. Returns a valid socket descriptor or -1 
-// if an error occurs.
-
-{
-  // Length of client address
-  gxsSocketLength_t addr_size = (gxsSocketLength_t)sizeof(gxsSocketAddress); 
-
-  gxsSocket_t client_socket = accept(s, (struct sockaddr *)sa, &addr_size);
-
-#if defined(__WIN32__)
-  // The SOCKET type is unsigned in the WinSock library
-  if(client_socket == INVALID_SOCKET) // Defined as (SOCKET)(~0)
-#elif defined (__UNIX__)
-  if(client_socket < 0)
-#else
-#error You must define a target platform: __WIN32__ or __UNIX__
-#endif
-    {
-      socket_error = gxSOCKET_ACCEPT_ERROR;
-      return -1;
-    }
-
-  return client_socket;
-}
-
-gxsSocket_t gxSocket::Accept()
-// Accept a connect from a remote socket. An Accept() 
-// call blocks the server until the a client requests 
-// service. Returns a valid socket descriptor or -1 
-// if an error occurs.
-{
-  // Length of client address
-  gxsSocketLength_t addr_size = (gxsSocketLength_t)sizeof(remote_sin); 
-
-  remote_socket = accept(gxsocket, (struct sockaddr *)&remote_sin, &addr_size);
-
-#if defined(__WIN32__)
-  // The SOCKET type is unsigned in the WinSock library
-  if(remote_socket == INVALID_SOCKET) // Defined as (SOCKET)(~0)
-#elif defined (__UNIX__)
-  if(remote_socket < 0)
-#else
-#error You must define a target platform: __WIN32__ or __UNIX__
-#endif
-    {
-      socket_error = gxSOCKET_ACCEPT_ERROR;
-      return -1;
-    }
-
-  return remote_socket;
-}
-
-int gxSocket::GetSockName(gxsSocket_t s, gxsSocketAddress *sa)
-// Retrieves the current name for the specified socket descriptor.
-// It is used on a bound and/or connected socket and returns the
-// local association. This function is especially useful when a
-// connect call has been made without doing a bind first in which
-// case this function provides the only means by which you can
-// determine the local association which has been set by the system.
-// Returns -1 if an error occurs.
-{
-  gxsSocketLength_t namelen = (gxsSocketLength_t)sizeof(gxsSocketAddress);
-  int rv = getsockname(s, (struct sockaddr *)sa, &namelen);
-  if(rv < 0) socket_error = gxSOCKET_SOCKNAME_ERROR;
-  return rv;
-}
-
-int gxSocket::GetSockName()
-// Retrieves the current name for this objects socket descriptor.
-// Returns -1 if an error occurs.
-{
-  return GetSockName(gxsocket, &sin);
-}
-
-int gxSocket::GetPeerName(gxsSocket_t s, gxsSocketAddress *sa)
-// Retrieves the current name of the specified socket descriptor.
-// Returns -1 if an error occurs.
-{
-  gxsSocketLength_t namelen = (gxsSocketLength_t)sizeof(gxsSocketAddress);
-  // 07/31/2009: modified by Eduardo Garcia
-  //int rv = getpeername(s, (struct sockaddr *)&sa, &namelen); 
-  int rv = getpeername(s, (struct sockaddr *)sa, &namelen);  
-  if(rv < 0) socket_error = gxSOCKET_PEERNAME_ERROR;  
-  return rv; 
-}
-
-int gxSocket::GetPeerName()
-// Retrieves the current name for the remote socket descriptor.
-// Returns -1 if an error occurs.
-{
-  return GetPeerName(remote_socket, &remote_sin);
-}
-
-int gxSocket::GetSockOpt(gxsSocket_t s, int level, int optName, 
-			 void *optVal, unsigned *optLen)
-// Gets the current socket option for the specified option level or name.
-// Returns -1 if an error occurs.
-{
-#if defined (__WIN32__)
-  int rv = getsockopt(s, level, optName, (char *)optVal, 
-		      (gxsSocketLength_t *)optLen);
-#else
-  int rv = getsockopt(s, level, optName, optVal, (gxsSocketLength_t *)optLen);
-#endif
-  if(rv < 0) socket_error = gxSOCKET_SETOPTION_ERROR;
-  return rv;
-}
-
-int gxSocket::GetSockOpt(int level, int optName, void *optVal, 
-			 unsigned *optLen)
-// Gets the current socket option for the specified option level or name.
-// Returns -1 if an error occurs.
-{
-  return GetSockOpt(gxsocket, level, optName, optVal, optLen);
-}
-
-int gxSocket::SetSockOpt(gxsSocket_t s, int level, int optName,
-			 const void *optVal, unsigned optLen)
-// Sets the current socket option for the specified option level or name.
-// Returns -1 if an error occurs.
-{
-#if defined (__WIN32__)
-  int rv = setsockopt(s, level, optName, (const char *)optVal, 
-		      (gxsSocketLength_t)optLen);
-#else
-  int rv = setsockopt(s, level, optName, optVal, (gxsSocketLength_t)optLen);
-#endif
-  if(rv < 0) socket_error = gxSOCKET_SETOPTION_ERROR;
-  return rv;
-}
-
-int gxSocket::SetSockOpt(int level, int optName, const void *optVal, 
-			 unsigned optLen)
-// Sets the current socket option for the specified option level or name.
-// Returns -1 if an error occurs.
-{
-  return SetSockOpt(gxsocket, level, optName, optVal, optLen);
-}
-
-gxsServent *gxSocket::GetServiceInformation(char *name, char *protocol)
-// Function used to obtain service information about a specified name. 
-// The source of this information is dependent on the calling function's
-// platform configuration which should be a local services file or NIS 
-// database. Returns a pointer to a gxsServent data structure if service
-// information is available or a null value if the service cannot be
-// found. NOTE: The calling function must free the memory allocated
-// for gxsServent data structure upon each successful return.
-{
-  // If the "protocol" pointer is NULL, getservbyname returns
-  // the first service entry for which the name matches the s_name
-  // or one of the s_aliases. Otherwise getservbyname matches both
-  // the name and the proto.
-  gxsServent *sp = getservbyname(name, protocol);
-  if(sp == 0) return 0;
-
-  gxsServent *buf = new gxsServent;
-  if(!buf) return 0; // Memory allocation error
-  memmove(buf, sp, sizeof(gxsServent));
-  return buf;
-}
-
-gxsServent *gxSocket::GetServiceInformation(int port, char *protocol)
-// Function used to obtain service information about a specified port. 
-// The source of this information is dependent on the calling function's
-// platform configuration which should be a local services file or NIS 
-// database. Returns a pointer to a gxsServent data structure if service
-// information is available or a null value if the service cannot be
-// found. NOTE: The calling function must free the memory allocated
-// for gxsServent data structure upon each successful return.
-{
-  // If the "protocol" pointer is NULL, getservbyport returns the
-  // first service entry for which the port matches the s_port.
-  // Otherwise getservbyport matches both the port and the proto.
-  gxsServent *sp = getservbyport(port, protocol);
-  if(sp == 0) return 0;
-
-  gxsServent *buf = new gxsServent;
-  if(!buf) return 0; // Memory allocation error
-  memmove(buf, sp, sizeof(gxsServent));
-  return buf;
-}
-
-int gxSocket::GetServByName(char *name, char *protocol)
-// Set service information corresponding to a service name and protocol.
-// Returns -1 if an unknown service or protocol is requested. NOTE: This
-// information is obtained from this machines local services file or
-// from a NIS database.
-{
-  // If the "protocol" pointer is NULL, getservbyname returns
-  // the first service entry for which the name matches the s_name
-  // or one of the s_aliases. Otherwise getservbyname matches both
-  // the name and the proto.
-  gxsServent *sp = getservbyname(name, protocol);
-  if(sp == 0) {
-    socket_error = gxSOCKET_PROTOCOL_ERROR;
-    return -1;
-  }
-  sin.sin_port = sp->s_port;
-  return 0;
-}
-
-int gxSocket::GetServByPort(int port, char *protocol)
-// Set service information corresponding to a port number and protocol.
-// Returns -1 if an unknown service or protocol is requested. NOTE: This
-// information is obtained from this machines local services file or
-// from a NIS database.
-{
-  // If the "protocol" pointer is NULL, getservbyport returns the
-  // first service entry for which the port matches the s_port.
-  // Otherwise getservbyport matches both the port and the proto.
-  gxsServent *sp = getservbyport(port, protocol);
-  if(sp == 0) {
-    socket_error = gxSOCKET_PROTOCOL_ERROR;
-    return -1;
-  }
-  sin.sin_port = sp->s_port;
-  return 0;
-}
-
-int gxSocket::GetPortNumber()
-// Return the port number actually set by the system. Use this function
-// after a call to gxSocket::GetSockName();
-{
-  return ntohs(sin.sin_port);
-}
-
-int gxSocket::GetRemotePortNumber()
-// Return the port number of the client socket.
-{
-  return ntohs(remote_sin.sin_port);
-}
-
-gxsAddressFamily gxSocket::GetAddressFamily()
-// Returns the address family of this socket
-{
-  return sin.sin_family;
-}
-
-gxsAddressFamily gxSocket::GetRemoteAddressFamily()
-// Returns the address family of the remote socket.
-{
-  return remote_sin.sin_family;  
-}
-
-gxsHostNameInfo *gxSocket::GetHostInformation(char *hostname)
-// Function used to obtain hostname information about a specified host. 
-// The source of this information is dependent on the calling function's
-// platform configuration which should be a DNS, local host table, and/or
-// NIS database. Returns a pointer to a gxsHostNameInfo data structure
-// if information is available or a null value if the hostname cannot be
-// found. NOTE: The calling function must free the memory allocated
-// for gxsHostNameInfo data structure upon each successful return.
-{
-  gxsInternetAddress hostia;
-  gxsHostNameInfo *hostinfo;
-  hostia.s_addr = inet_addr(hostname);
-
-
-  if(hostia.s_addr == INADDR_NONE) { // Look up host by name
-    hostinfo = gethostbyname(hostname); 
-  }
-  else {  // Look up host by IP address
-    hostinfo = gethostbyaddr((const char *)&hostia, 
-			     sizeof(gxsInternetAddress), AF_INET);
-  }
-  if(hostinfo == (gxsHostNameInfo *) 0) { // No host name info avialable
-    return 0;
-  }
-
-  gxsHostNameInfo *buf = new gxsHostNameInfo;
-  if(!buf) return 0; // Memory allocation error
-  memmove(buf, hostinfo, sizeof(gxsHostNameInfo));
-  return buf;
-}
-  
-int gxSocket::GetHostName(char *sbuf)
-// Pass back the host name of this machine in the "sbuf" variable.
-// A memory buffer equal to "gxsMAX_NAME_LEN" must be pre-allocated
-// prior to using this function. Return -1 if an error occurs.
-{
-  // Prevent crashes if memory has not been allocated
-  int hasbuf = 1;
-  if(!sbuf) {
-    sbuf = new char[gxsMAX_NAME_LEN]; 
-    hasbuf = 0;
-  }
-  int rv = gethostname(sbuf, gxsMAX_NAME_LEN);
-  if(rv < 0) { 
-    // PC-lint 09/12/2005: Possible memory leak if the caller passed
-    // a null sbuf to this function
-    if(!hasbuf) delete[] sbuf;
-    socket_error = gxSOCKET_HOSTNAME_ERROR;
-  }
-  return rv;
-}
-
-int gxSocket::GetIPAddress(char *sbuf)
-// Pass back the IP Address of this machine in the "sbuf" variable.
-// A memory buffer equal to "gxsMAX_NAME_LEN" must be pre-allocated
-// prior to using this function. Return -1 if an error occurs.
-{
-  char hostname[gxsMAX_NAME_LEN];
-  int rv = GetHostName(hostname);
-  if(rv < 0) return rv;
-
-  gxsInternetAddress *ialist;
-  gxsHostNameInfo *hostinfo = GetHostInformation(hostname);
-  if(!hostinfo) {
-    socket_error = gxSOCKET_HOSTNAME_ERROR;
-    return -1;
-  }
-  ialist = (gxsInternetAddress *)hostinfo->h_addr_list[0];
-
-  // 10/14/2026: A null buffer is an error. It used to allocate a local
-  // buffer the caller never received, which leaked.
-  if(!sbuf) return -1;
-
-  strcpy(sbuf, inet_ntoa(*ialist));
-  delete hostinfo;
-  return 0;
-}
-
-int gxSocket::GetDomainName(char *sbuf)
-// Pass back the domain name of this machine in the "sbuf" variable.
-// A memory buffer equal to "gxsMAX_NAME_LEN" must be pre-allocated
-// prior to using this function. Return -1 if an error occurs.
-{
-  char hostname[gxsMAX_NAME_LEN];
-  int rv = GetHostName(hostname);
-  if(rv < 0) return rv;
-
-  gxsHostNameInfo *hostinfo = GetHostInformation(hostname);
-  if(!hostinfo) {
-    socket_error = gxSOCKET_HOSTNAME_ERROR;
-    return -1;
-  }
-  // 10/14/2026: A null buffer is an error. It used to allocate a local
-  // buffer the caller never received, which leaked.
-  if(!sbuf) return -1;
-
-  strcpy(sbuf, hostinfo->h_name);
-  int i; int len = strlen(sbuf);
-  for(i = 0; i < len; i++) {
-    if(sbuf[i] == '.') break;
-  }
-  if(++i < len) {
-    len -= i;
-    memmove(sbuf, sbuf+i, len);
-    sbuf[len] = 0; // Null terminate the string
-  }
-  delete hostinfo;
-  return 0;
-}
-
-int gxSocket::GetBoundIPAddress(char *sbuf)
-// Pass back the local or server IP address in the "sbuf" variable.
-// A memory buffer equal to "gxsMAX_NAME_LEN" must be pre-allocated
-// prior to using this function. Return -1 if an error occurs.
-{
-  char *s = inet_ntoa(sin.sin_addr);
-  if(s == 0) {
-    socket_error = gxSOCKET_HOSTNAME_ERROR;
-    return -1;
-  }
-
-  // 10/14/2026: A null buffer is an error. It used to allocate a local
-  // buffer the caller never received, which leaked.
-  if(!sbuf) return -1;
-
-  strcpy(sbuf, s);
-  return 0;
-}
-
-int gxSocket::GetRemoteHostName(char *sbuf)
-// Pass back the client host name client in the "sbuf" variable.
-// A memory buffer equal to "gxsMAX_NAME_LEN" must be pre-allocated
-// prior to using this function. Return -1 if an error occurs.
-{
-  
-#if defined(__LINUX__)
-  // 08/25/2016: Added thread safe code to replace inet_ntoa call
-  char client_name[gxsMAX_NAME_LEN];
-  memset(client_name, 0, gxsMAX_NAME_LEN);
-  inet_ntop(AF_INET, &remote_sin.sin_addr, client_name, gxsMAX_NAME_LEN);
-
-  // 10/14/2026: A null buffer is an error. It used to allocate a local
-  // buffer the caller never received, which leaked.
-  if(!sbuf) return -1;
-  strncpy(sbuf, client_name, (gxsMAX_NAME_LEN-1));
-  sbuf[gxsMAX_NAME_LEN-1] = 0; // 10/14/2026: strncpy may not terminate
-#else
-  char *s = inet_ntoa(remote_sin.sin_addr);
-  if(s == 0) {
-    socket_error = gxSOCKET_HOSTNAME_ERROR;
-    return -1;
-  }
-
-  // 10/14/2026: A null buffer is an error. It used to allocate a local
-  // buffer the caller never received, which leaked.
-  if(!sbuf) return -1;
-
-  strcpy(sbuf, s);
-#endif
-  return 0;
-}
-
-int gxSocket::RawRead(void *buf, int bytes, int flags)
-// Receive a block of data from the bound socket. NOTE: A
-// raw read may return before all the bytes have been read.
-// Returns -1 if an error occurs.
-{
-  return RawRead(gxsocket, buf, bytes, flags);
-}
-
-int gxSocket::RawWrite(const void *buf, int bytes, int flags)
-// Send a block of data to the bound socket. NOTE: A raw write
-// may return before all the bytes have been written. Returns -1
-// if an error occurs.
-{
-  return RawWrite(gxsocket, buf, bytes, flags);
-}
-
-int gxSocket::RawRead(gxsSocket_t s, void *buf, int bytes, int flags)
-// Receive a block of data from a specified socket. NOTE: A
-// raw read may return before all the bytes have been read.
-// Returns -1 if an error occurs.
-{
-  bytes_read = 0;
-  bytes_read = recv(s, (char *)buf, bytes, flags);
-  if(bytes_read < 0) { // An error occurred during the read
-    socket_error = gxSOCKET_RECEIVE_ERROR;
-  }
-  if(bytes_read == 0) { // Gracefully closed
-    socket_error = gxSOCKET_DISCONNECTED_ERROR;
-  }
-  return bytes_read;
-}
-
-int gxSocket::RawWrite(gxsSocket_t s, const void *buf, int bytes,
-		       int flags)
-// Send a block of data to a specified socket. NOTE: A raw write
-// may return before all the bytes have been written. Returns -1 if an
-// error occurs.
-{
-  bytes_moved = 0;
-  bytes_moved = send(s, (char *)buf, bytes, flags);
-  if(bytes_moved < 0) socket_error = gxSOCKET_TRANSMIT_ERROR;
-  return bytes_moved;
-}
-
-int gxSocket::RawRemoteRead(void *buf, int bytes, int flags)
-// Receive a block of data from a remote socket.  NOTE: A
-// raw read may return before all the bytes have been read.
-// Returns -1 if an error occurs.
-{
-  return RawRead(remote_socket, buf, bytes, flags);
-}
-
-int gxSocket::RawRemoteWrite(const void *buf, int bytes, int flags)
-// Send a block of data to a remote socket. NOTE: A raw write
-// may return before all the bytes have been written. Returns
-// -1 if an error occurs.
-{
-  return RawWrite(remote_socket, buf, bytes, flags);
-}
-
-const char *gxSocket::SocketExceptionMessage()
-// Returns a null terminated string that can
-// be used to log or print a socket exception.
-{
-  if((int)socket_error > (gxsMaxSocketExceptionMessages-1))
-    socket_error = gxSOCKET_INVALID_ERROR_CODE;
-  
-  // Find the corresponding message in the exception array
-  int error = (int)socket_error;
-  return gxsSocketExceptionMessages[error];
-}
-
-const char *gxSocket::TestExceptionMessage(int err)
-// Returns a null terminated string that can
-// be used to test socket exception messages.
-{
-  if(err > (gxsMaxSocketExceptionMessages-1)) err = gxSOCKET_INVALID_ERROR_CODE;
-  if(err < 0) err = gxSOCKET_INVALID_ERROR_CODE;
-
-  // Find the corresponding message in the exception array
-  return gxsSocketExceptionMessages[err];
-}
-
-void gxSocket::GetClientInfo(char *client_name, int &r_port)
-// Get the client's host name and port number. NOTE: This
-// function assumes that a block of memory equal to the
-// gxsMAX_NAME_LEN constant has already been allocated.
-{
-  int rv = GetRemoteHostName(client_name);
-  if(rv < 0) {
-    char *unc = (char *)"UNKNOWN";
-    memset(client_name, 0,  gxsMAX_NAME_LEN);
-    strncpy(client_name, unc, (gxsMAX_NAME_LEN-1));
-  }
-  r_port = GetRemotePortNumber();
-}
-
-int gxSocket::RecvFrom(gxsSocket_t s, gxsSocketAddress *sa, void *buf,
-		       int bytes, int seconds, int useconds, int flags)
-// Receive a block of data from a remote datagram socket 
-// and do not return until all the bytes have been read 
-// or the timeout value has been exceeded. Returns the total 
-// number of bytes received or -1 if an error occurs.
-{
-  // Length of client address
-  gxsSocketLength_t addr_size = (gxsSocketLength_t)sizeof(gxsSocketAddress); 
-  bytes_read = 0;        // Reset the byte counter
-  int num_read = 0;      // Actual number of bytes read
-  int num_req = bytes;   // Number of bytes requested 
-  char *p = (char *)buf; // Pointer to the buffer
-
-  while(bytes_read < bytes) { // Loop until the buffer is full
-    if(!ReadSelect(s, seconds, useconds)) {
-      socket_error = gxSOCKET_REQUEST_TIMEOUT;
-      return -1; // Exceeded the timeout value
-    }
-    if((num_read = recvfrom(s, p, num_req-bytes_read, flags, \
-			    (struct sockaddr *)sa, &addr_size)) > 0) {
-      bytes_read += num_read;   // Increment the byte counter
-      p += num_read;            // Move the buffer pointer for the next read
-    }
-    if(num_read == 0) { // Gracefully closed
-      socket_error = gxSOCKET_DISCONNECTED_ERROR;
-      return -1; // An error occurred during the read
-    }
-    if(num_read < 0) {
-      socket_error = gxSOCKET_RECEIVE_ERROR;
-      return -1; // An error occurred during the read
-    }
-  }
-  return bytes_read;
-}
-
-int gxSocket::RecvFrom(gxsSocket_t s, gxsSocketAddress *sa, void *buf,
-		       int bytes, int flags)
-// Receive a block of data from a remote datagram socket 
-// and do not return until all the bytes have been read. 
-// Returns the total number of bytes received or -1 if 
-// an error occurs.
-{
-  // Length of client address
-  gxsSocketLength_t addr_size = (gxsSocketLength_t)sizeof(gxsSocketAddress); 
-  bytes_read = 0;        // Reset the byte counter
-  int num_read = 0;      // Actual number of bytes read
-  int num_req = bytes;   // Number of bytes requested 
-  char *p = (char *)buf; // Pointer to the buffer
-
-  while(bytes_read < bytes) { // Loop until the buffer is full
-    if((num_read = recvfrom(s, p, num_req-bytes_read, flags, \
-			    (struct sockaddr *)sa, &addr_size)) > 0) {
-      bytes_read += num_read;   // Increment the byte counter
-      p += num_read;            // Move the buffer pointer for the next read
-    }
-    if(num_read == 0) { // Gracefully closed
-      socket_error = gxSOCKET_DISCONNECTED_ERROR;
-      return -1; // An error occurred during the read
-    }
-    if(num_read < 0) {
-      socket_error = gxSOCKET_RECEIVE_ERROR;
-      return -1; // An error occurred during the read
-    }
-  }
-  return bytes_read;
-}
-
-int gxSocket::SendTo(gxsSocket_t s, gxsSocketAddress *sa, 
-		     const void *buf, int bytes, int flags)
-// Send a block of data to a datagram socket and do not return
-// until all the bytes have been written. Returns the total number
-// of bytes sent or -1 if an error occurs.
-{
-  // Length of address
-  gxsSocketLength_t addr_size = (gxsSocketLength_t)sizeof(gxsSocketAddress);
-  bytes_moved = 0;       // Reset the byte counter
-  int num_moved = 0;     // Actual number of bytes written
-  int num_req = bytes;   // Number of bytes requested 
-  char *p = (char *)buf; // Pointer to the buffer
-
-  while(bytes_moved < bytes) { // Loop until the buffer is full
-    if((num_moved = sendto(s, p, num_req-bytes_moved, flags, \
-			   (const struct sockaddr *)sa, addr_size)) > 0) {
-      bytes_moved += num_moved;  // Increment the byte counter
-      p += num_moved;            // Move the buffer pointer for the next read
-    }
-    if(num_moved < 0) {
-      socket_error = gxSOCKET_TRANSMIT_ERROR;
-      return -1; // An error occurred during the read
-    }
-  }
-  return bytes_moved;
-}
-
-int gxSocket::RawReadFrom(gxsSocket_t s, gxsSocketAddress *sa, void *buf,
-			  int bytes, int flags)
-// Receive a block of data from a remote datagram socket. NOTE: 
-// A raw read may return before all the bytes have been read.
-// Returns -1 if an error occurs.
-{
-  // Length of client address
-  gxsSocketLength_t addr_size = (gxsSocketLength_t)sizeof(gxsSocketAddress);
-  bytes_read = 0;
-  bytes_read = recvfrom(s, (char *)buf, bytes, flags,
-			(struct sockaddr *)sa, &addr_size);
-  if(bytes_read < 0) { // An error occurred during the read
-    socket_error = gxSOCKET_RECEIVE_ERROR;
-  }
-  if(bytes_read == 0) { // Gracefully closed
-    socket_error = gxSOCKET_DISCONNECTED_ERROR;
-  }
-  return bytes_read;
-}
-
-int gxSocket::RawWriteTo(gxsSocket_t s, gxsSocketAddress *sa, 
-			 const void *buf, int bytes, int flags)
-// Send a block of data to a datagram socket. NOTE: A raw write
-// may return before all the bytes have been written. Returns -1
-// if an error occurs.
-{
-  // Length of address
-  gxsSocketLength_t addr_size = (gxsSocketLength_t)sizeof(gxsSocketAddress);
-  bytes_moved = 0;
-  bytes_moved = sendto(s, (char *)buf, bytes, flags,
-		       (const struct sockaddr *)sa, addr_size);
-  if(bytes_moved < 0) socket_error = gxSOCKET_TRANSMIT_ERROR;
-  return bytes_moved;
+  return *this;
 }
 
 int gxSocket::InitSocketLibrary()
-// Perform any platform specific initialization required
-// before network communication can be established.
-// Returns zero if no errors occur, -1 if an error occurs
-// and the error can be mapped internally, or a value greater
-// then zero if an error occurs and the error cannot be
-// determined.
 {
-#if defined (__WIN32__)
-  // Initialize the WinSock DLL with the specified version.
-  WORD wVersionRequested;
-  switch(socket_version) { 
-    // NOTE: An application can successfully use a Windows Sockets
-    // DLL if there is any overlap in the version ranges. 
-    case gxSOCKET_WSAVER_ONEZERO:
-      // Included for test purposes only
-      // Ignore BCC32 parentheses warning
-      wVersionRequested = MAKEWORD(1, 0);
-      break;
-    case gxSOCKET_WSAVER_ONEONE:
-      // Windows 95A/B/C, 98, 98SE, ME, NT4.0, 2000, XP compatiable
-      // Ignore BCC32 parentheses warning
-      wVersionRequested = MAKEWORD(1, 1);
-      break;
-    case gxSOCKET_WSAVER_TWOZERO:
-      // Ignore BCC32 parentheses warning
-      // Windows 98, 98SE, ME, 2000, XP compatiable
-      wVersionRequested = MAKEWORD(2, 0);
-      break;
-    case gxSOCKET_WSAVER_TWOTWO:
-      // Ignore BCC32 parentheses warning
-      // Windows 98SE, ME, 2000, XP compatiable
-      wVersionRequested = MAKEWORD(2, 2);
-      break;
-    default:
-      // Ignore BCC32 parentheses warning
-      // Should work on all WIN32 platforms
-      wVersionRequested = MAKEWORD(1, 1);
-      break;
+#if defined (_WIN32)
+  static std::once_flag once;
+  static int rv = 0;
+  std::call_once(once, [] {
+    WSADATA data;
+    rv = WSAStartup(MAKEWORD(2, 2), &data);
+  });
+  return rv;
+#else
+  return 0;
+#endif
+}
+
+void gxSocket::ReleaseSocketLibrary()
+{
+  // Winsock is released when the process exits
+}
+
+gxSocketError gxSocket::set_error(gxSocketError err)
+{
+  system_error = (err == gxSOCKET_NO_ERROR) ? 0 : last_system_error();
+  return socket_error = err;
+}
+
+void gxSocket::close_socket(gxsSocket_t &s)
+{
+  if(s == gxsINVALID_SOCKET) return;
+#if defined (_WIN32)
+  closesocket(s);
+#else
+  ::close(s);
+#endif
+  s = gxsINVALID_SOCKET;
+}
+
+void gxSocket::Close()
+{
+  close_socket(gxsocket);
+  is_connected = false;
+}
+
+gxsSocket_t gxSocket::Release()
+{
+  gxsSocket_t s = gxsocket;
+  gxsocket = gxsINVALID_SOCKET;
+  is_connected = false;
+  return s;
+}
+
+void gxSocket::ShutDown(int how)
+{
+  if(IsOpen()) shutdown(gxsocket, how);
+}
+
+static void set_blocking(gxsSocket_t s, bool blocking)
+{
+#if defined (_WIN32)
+  u_long mode = blocking ? 0 : 1;
+  ioctlsocket(s, FIONBIO, &mode);
+#else
+  int flags = fcntl(s, F_GETFL, 0);
+  if(flags < 0) return;
+  fcntl(s, F_SETFL, blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK));
+#endif
+}
+
+static int wait_for_socket(gxsSocket_t s, bool for_write, int timeout_ms)
+// Returns 1 when ready, 0 on a timeout and -1 on an error
+{
+#if defined (_WIN32)
+  fd_set fds;
+  FD_ZERO(&fds);
+  FD_SET(s, &fds);
+  timeval tv, *ptv = 0;
+  if(timeout_ms >= 0) {
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    ptv = &tv;
+  }
+  int rv = for_write ? select(0, 0, &fds, &fds, ptv) : 
+    select(0, &fds, 0, 0, ptv);
+  return rv < 0 ? -1 : (rv > 0 ? 1 : 0);
+#else
+  pollfd pfd;
+  pfd.fd = s;
+  pfd.events = for_write ? POLLOUT : POLLIN;
+  pfd.revents = 0;
+  int rv;
+  do {
+    rv = poll(&pfd, 1, timeout_ms);
+  } while(rv < 0 && errno == EINTR);
+  return rv < 0 ? -1 : (rv > 0 ? 1 : 0);
+#endif
+}
+
+int gxSocket::Connect(const std::string &host, int port, int timeout_sec,
+		      int family)
+{
+  Close();
+  std::vector<gxsAddress> addresses;
+  if(gxsAddress::Resolve(host, port, addresses, SOCK_STREAM, family) != 0) {
+    return set_error(gxSOCKET_HOSTNAME_ERROR);
   }
 
-  // Initialize the WinSock DLL. Every Windows Sockets application
-  // MUST make a WSAStartup call before issuing any other Windows
-  // Sockets API calls. 
-  int rv = WSAStartup(wVersionRequested, &socket_data);
-  if(rv != 0) {
-    switch(rv) {
-      // NOTE: Application calls to WSAGetLastError to determine the WinSock
-      // error code cannot be here used since the Windows Sockets DLL may
-      // not have established the client data area where the "last error"
-      // information is stored. 
-      case WSASYSNOTREADY:
-	// Network subsystem is not ready for network communication
-	socket_error = gxSOCKET_WINSOCKNETWORK_ERROR;
-	return -1;
-      case WSAVERNOTSUPPORTED:
-	// The requested WinSock version is not supported
-	socket_error = gxSOCKET_WINSOCKVERSION_ERROR;
-	return -1;
-      case WSAEINVAL:
-	// The WinSock version specified is not supported by this DLL	
-	socket_error = gxSOCKET_WINSOCKEINVAL_ERROR;
-	return -1;
-      default:
-	socket_error = gxSOCKET_WINSOCKINIT_ERROR;
-	return rv; // Can't map this error so return the WIN32 error code
+  for(const gxsAddress &addr : addresses) {
+    gxsSocket_t s = socket(addr.Family(), SOCK_STREAM, IPPROTO_TCP);
+    if(s == gxsINVALID_SOCKET) {
+      set_error(gxSOCKET_INIT_ERROR);
+      continue;
+    }
+    int rv;
+    if(timeout_sec > 0) {
+      set_blocking(s, false);
+      rv = connect(s, addr.SockAddr(), addr.Length());
+      if(rv != 0) {
+	int err = last_system_error();
+#if defined (_WIN32)
+	bool in_progress = (err == WSAEWOULDBLOCK);
+#else
+	bool in_progress = (err == EINPROGRESS);
+#endif
+	if(in_progress && wait_for_socket(s, true, timeout_sec * 1000) == 1) {
+	  int so_error = 0;
+	  gxsSocketLength_t len = sizeof(so_error);
+	  getsockopt(s, SOL_SOCKET, SO_ERROR, (char *)&so_error, &len);
+	  rv = so_error == 0 ? 0 : -1;
+	}
+	else {
+	  rv = -1;
+	}
+      }
+      set_blocking(s, true);
+    }
+    else {
+      rv = connect(s, addr.SockAddr(), addr.Length());
+    }
+    if(rv == 0) {
+      gxsocket = s;
+      peer = addr;
+      is_connected = true;
+      return set_error(gxSOCKET_NO_ERROR);
+    }
+    set_error(gxSOCKET_CONNECT_ERROR);
+    close_socket(s);
+  }
+  return socket_error;
+}
+
+int gxSocket::Listen(int port, const std::string &bind_address,
+		     int max_connections, int family)
+{
+  Close();
+  std::vector<gxsAddress> addresses;
+  if(bind_address.empty() && family == AF_UNSPEC) {
+    // Prefer one dual-stack IPv6 socket, then fall back to IPv4
+    gxsAddress::Resolve("::", port, addresses, SOCK_STREAM, AF_INET6, true);
+    std::vector<gxsAddress> v4;
+    gxsAddress::Resolve("0.0.0.0", port, v4, SOCK_STREAM, AF_INET, true);
+    addresses.insert(addresses.end(), v4.begin(), v4.end());
+  }
+  else if(gxsAddress::Resolve(bind_address, port, addresses, SOCK_STREAM, 
+			      family, true) != 0) {
+    return set_error(gxSOCKET_HOSTNAME_ERROR);
+  }
+
+  for(const gxsAddress &addr : addresses) {
+    gxsSocket_t s = socket(addr.Family(), SOCK_STREAM, IPPROTO_TCP);
+    if(s == gxsINVALID_SOCKET) {
+      set_error(gxSOCKET_INIT_ERROR);
+      continue;
+    }
+#if !defined (_WIN32)
+    int on = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char *)&on, sizeof(on));
+#endif
+    if(addr.Family() == AF_INET6) {
+      int off = 0; // Accept IPv4 clients on the IPv6 socket as well
+      setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&off, 
+		 sizeof(off));
+    }
+    if(bind(s, addr.SockAddr(), addr.Length()) != 0) {
+      set_error(gxSOCKET_BIND_ERROR);
+      close_socket(s);
+      continue;
+    }
+    if(listen(s, max_connections) != 0) {
+      set_error(gxSOCKET_LISTEN_ERROR);
+      close_socket(s);
+      continue;
+    }
+    gxsocket = s;
+    return set_error(gxSOCKET_NO_ERROR);
+  }
+  return socket_error;
+}
+
+gxSocket gxSocket::Accept()
+{
+  gxSocket client;
+  if(!IsOpen()) {
+    set_error(gxSOCKET_ACCEPT_ERROR);
+    return client;
+  }
+  sockaddr_storage ss;
+  gxsSocketLength_t len = sizeof(ss);
+  gxsSocket_t s;
+  do {
+    s = accept(gxsocket, (sockaddr *)&ss, &len);
+#if defined (_WIN32)
+  } while(false);
+#else
+  } while(s == gxsINVALID_SOCKET && errno == EINTR);
+#endif
+  if(s == gxsINVALID_SOCKET) {
+    set_error(gxSOCKET_ACCEPT_ERROR);
+    return client;
+  }
+  set_error(gxSOCKET_NO_ERROR);
+  client.gxsocket = s;
+  client.peer = gxsAddress((sockaddr *)&ss, len);
+  client.is_connected = true;
+  return client;
+}
+
+int gxSocket::OpenDatagram(int family, int port, 
+			   const std::string &bind_address)
+{
+  Close();
+  gxsSocket_t s = socket(family, SOCK_DGRAM, IPPROTO_UDP);
+  if(s == gxsINVALID_SOCKET) return set_error(gxSOCKET_INIT_ERROR);
+  if(family == AF_INET6) {
+    int off = 0;
+    setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&off, sizeof(off));
+  }
+  if(port > 0) {
+    std::vector<gxsAddress> addresses;
+    std::string host = bind_address;
+    if(host.empty()) host = (family == AF_INET6) ? "::" : "0.0.0.0";
+    if(gxsAddress::Resolve(host, port, addresses, SOCK_DGRAM, family, true) 
+       != 0) {
+      close_socket(s);
+      return set_error(gxSOCKET_HOSTNAME_ERROR);
+    }
+    if(bind(s, addresses[0].SockAddr(), addresses[0].Length()) != 0) {
+      set_error(gxSOCKET_BIND_ERROR);
+      close_socket(s);
+      return socket_error;
     }
   }
+  gxsocket = s;
+  return set_error(gxSOCKET_NO_ERROR);
+}
 
-  // Confirm that the WinSock DLL supports the requested version
-  if(socket_data.wVersion != wVersionRequested) return -1;
-  switch(socket_version) { 
-    case gxSOCKET_WSAVER_ONEZERO:
-      if(LOBYTE(socket_data.wVersion ) != 1 ||
-	 HIBYTE(socket_data.wVersion ) != 0) {
-	socket_error = gxSOCKET_WINSOCKVERSION_ERROR;
-	return -1; 
-      }
-      break;
-    case gxSOCKET_WSAVER_ONEONE:
-      if(LOBYTE(socket_data.wVersion ) != 1 ||
-	 HIBYTE(socket_data.wVersion ) != 1) {
-	socket_error = gxSOCKET_WINSOCKVERSION_ERROR;
-	return -1; 
-      }
-      break;
-    case gxSOCKET_WSAVER_TWOZERO:
-      if(LOBYTE(socket_data.wVersion ) != 2 ||
-	 HIBYTE(socket_data.wVersion ) != 0) {
-	socket_error = gxSOCKET_WINSOCKVERSION_ERROR;
-	return -1; 
-      }
-      break;
-    case gxSOCKET_WSAVER_TWOTWO:
-      if(LOBYTE(socket_data.wVersion ) != 2 ||
-	 HIBYTE(socket_data.wVersion ) != 2) {
-	socket_error = gxSOCKET_WINSOCKVERSION_ERROR;
-	return -1; 
-      }
-      break;
-    default:
-      socket_error = gxSOCKET_WINSOCKVERSION_ERROR;
-      return -1; 
+int gxSocket::SendTo(const gxsAddress &to, const void *buf, int bytes)
+{
+  if(!IsOpen()) { set_error(gxSOCKET_TRANSMIT_ERROR); return -1; }
+  int rv = (int)sendto(gxsocket, (const char *)buf, bytes, gxsSEND_FLAGS,
+		       to.SockAddr(), to.Length());
+  if(rv < 0) { set_error(gxSOCKET_TRANSMIT_ERROR); return -1; }
+  set_error(gxSOCKET_NO_ERROR);
+  return rv;
+}
+
+int gxSocket::RecvFrom(gxsAddress &from, void *buf, int bytes, 
+		       int timeout_sec)
+{
+  if(!IsOpen()) { set_error(gxSOCKET_RECEIVE_ERROR); return -1; }
+  if(timeout_sec >= 0) {
+    int w = WaitReadable(timeout_sec * 1000);
+    if(w == 0) { set_error(gxSOCKET_REQUEST_TIMEOUT); return -1; }
+    if(w < 0) { set_error(gxSOCKET_RECEIVE_ERROR); return -1; }
   }
-#endif
-
-  return 0;
+  sockaddr_storage ss;
+  gxsSocketLength_t len = sizeof(ss);
+  int rv = (int)recvfrom(gxsocket, (char *)buf, bytes, 0, 
+			 (sockaddr *)&ss, &len);
+  if(rv < 0) { set_error(gxSOCKET_RECEIVE_ERROR); return -1; }
+  from = gxsAddress((sockaddr *)&ss, len);
+  set_error(gxSOCKET_NO_ERROR);
+  return rv;
 }
 
-int gxSocket::ReleaseSocketLibrary()
-// Perform any platform specific operations required
-// to release the socket library and free any resources
-// associated with it. Returns -1 if any errors occur.
+int gxSocket::WaitReadable(int timeout_ms)
 {
-#if defined (__WIN32__)
-  // All WIN32 applications or DLLs are required to perform a successful
-  // WSAStartup() call before they can use Windows Sockets services. When
-  // finished the application or DLL must call WSACleanup() to deregister
-  // itself from a Windows Sockets implementation. Any pending blocking or
-  // asynchronous calls issued by any thread in this process are canceled
-  // without posting any notification messages, or signaling any event
-  // objects. NOTE: There must be a call to WSACleanup() for every successful
-  // call to WSAStartup() made by a task. Only the final WSACleanup() for that
-  // task does the actual cleanup. The preceding calls decrement an internal
-  // reference count in the Windows Sockets DLL. In multithreaded environments
-  // WSACleanup() terminates Windows Sockets operations for all threads.
+  if(!IsOpen()) return -1;
+  return wait_for_socket(gxsocket, false, timeout_ms);
+}
 
-  // Will return zero if the operation was successful. Otherwise the value
-  // SOCKET_ERROR is returned, and a specific error number may be retrieved
-  // by calling int WSAGetLastError(void);
-  if(WSACleanup() != 0) {
-    socket_error = gxSOCKET_WINSOCKCLEANUP_ERROR;
-    return -1;
+int gxSocket::WaitReadable(gxsSocket_t s, int timeout_ms)
+{
+  if(s == gxsINVALID_SOCKET) return -1;
+  return wait_for_socket(s, false, timeout_ms);
+}
+
+int gxSocket::RawWrite(const void *buf, int bytes)
+{
+  if(!IsOpen()) { set_error(gxSOCKET_TRANSMIT_ERROR); return -1; }
+  int rv = (int)send(gxsocket, (const char *)buf, bytes, gxsSEND_FLAGS);
+  if(rv < 0) { set_error(gxSOCKET_TRANSMIT_ERROR); return -1; }
+  set_error(gxSOCKET_NO_ERROR);
+  return rv;
+}
+
+int gxSocket::RawRead(void *buf, int bytes)
+{
+  if(!IsOpen()) { set_error(gxSOCKET_RECEIVE_ERROR); return -1; }
+  int rv = (int)recv(gxsocket, (char *)buf, bytes, 0);
+  if(rv < 0) { set_error(gxSOCKET_RECEIVE_ERROR); return -1; }
+  if(rv == 0) {
+    set_error(gxSOCKET_DISCONNECTED_ERROR);
+    is_connected = false;
+    return 0;
   }
+  set_error(gxSOCKET_NO_ERROR);
+  return rv;
+}
+
+int gxSocket::Send(const void *buf, int bytes)
+{
+  const char *p = (const char *)buf;
+  int sent = 0;
+  while(sent < bytes) {
+    int rv = RawWrite(p + sent, bytes - sent);
+    if(rv < 0) {
+#if !defined (_WIN32)
+      if(system_error == EINTR) continue;
 #endif
-  return 0;
+      return -1;
+    }
+    sent += rv;
+  }
+  return sent;
 }
 
-// BEGIN - Client side Datagram functions
-// --------------------------------------------------------------
-int gxSocket::RawReadFrom(void *buf, int bytes, int flags)
-// Receive a block of data from a remote datagram socket. NOTE: 
-// A raw read may return before all the bytes have been read.
-// Returns -1 if an error occurs.
+int gxSocket::RecvSome(void *buf, int bytes, int timeout_sec)
 {
-  // Read data from a remote server and record the Internet
-  // address of the server in the remote sin. NOTE: The Internet
-  // address of the server should always be compared to the Internet
-  // address of the server set when the datagram client was
-  // constructed. Testing the Internet address will ensure that 
-  // the correct server is sending datagrams to this client.
-  return RawReadFrom(gxsocket, &remote_sin, buf, bytes, flags);
+  if(timeout_sec >= 0) {
+    int w = WaitReadable(timeout_sec * 1000);
+    if(w == 0) { set_error(gxSOCKET_REQUEST_TIMEOUT); return -1; }
+    if(w < 0) { set_error(gxSOCKET_RECEIVE_ERROR); return -1; }
+  }
+  return RawRead(buf, bytes);
 }
 
-int gxSocket::RecvFrom(void *buf, int bytes, int flags)
-// Receive a block of data from a remote datagram socket 
-// and do not return until all the bytes have been read. 
-// Returns the total number of bytes received or -1 if 
-// an error occurs.
+int gxSocket::Recv(void *buf, int bytes, int timeout_sec)
 {
-  // Read data from a remote server and record the Internet
-  // address of the server in the remote sin. NOTE: The Internet
-  // address of the server should always be compared to the Internet
-  // address of the server set when the datagram client was
-  // constructed. Testing the Internet address will ensure that 
-  // the correct server is sending datagrams to this client.
-  return RecvFrom(gxsocket, &remote_sin, buf, bytes, flags);
+  char *p = (char *)buf;
+  int got = 0;
+  while(got < bytes) {
+    int rv = RecvSome(p + got, bytes - got, timeout_sec);
+    if(rv <= 0) break;
+    got += rv;
+  }
+  return got;
 }
 
-int gxSocket::RecvFrom(void *buf, int bytes, int seconds, int useconds, 
-		       int flags)
-// Receive a block of data from a remote datagram socket 
-// and do not return until all the bytes have been read 
-// or the timeout value has been exceeded. Returns the total 
-// number of bytes received or -1 if an error occurs.
+int gxSocket::SetSockOpt(int level, int opt_name, const void *opt_val, 
+			 gxsSocketLength_t opt_len)
 {
-  // Read data from a remote server and record the Internet
-  // address of the server in the remote sin. NOTE: The Internet
-  // address of the server should always be compared to the Internet
-  // address of the server set when the datagram client was
-  // constructed. Testing the Internet address will ensure that 
-  // the correct server is sending datagrams to this client.
-  return RecvFrom(gxsocket, &remote_sin, buf, bytes, seconds, useconds, flags);
+  if(setsockopt(gxsocket, level, opt_name, (const char *)opt_val, opt_len) 
+     != 0) {
+    return set_error(gxSOCKET_SETOPTION_ERROR);
+  }
+  return set_error(gxSOCKET_NO_ERROR);
 }
 
-int gxSocket::RawWriteTo(const void *buf, int bytes, int flags)
-// Send a block of data to a datagram socket. NOTE: A raw write
-// may return before all the bytes have been written. Returns -1
-// if an error occurs.
+int gxSocket::GetSockOpt(int level, int opt_name, void *opt_val, 
+			 gxsSocketLength_t *opt_len)
 {
-  // Write data to a remote server using the Internet
-  // address of the server set when the datagram client was
-  // constructed. 
-  return RawWriteTo(gxsocket, &sin, buf, bytes, flags);
+  if(getsockopt(gxsocket, level, opt_name, (char *)opt_val, opt_len) != 0) {
+    return set_error(gxSOCKET_GETOPTION_ERROR);
+  }
+  return set_error(gxSOCKET_NO_ERROR);
 }
 
-int gxSocket::SendTo(const void *buf, int bytes, int flags)
-// Send a block of data to a datagram socket and do not return
-// until all the bytes have been written. Returns the total number
-// of bytes sent or -1 if an error occurs.
+int gxSocket::SetNoDelay(bool on)
 {
-  // Write data to a remote server using the Internet
-  // address of the server set when the datagram client was
-  // constructed. 
-  return SendTo(gxsocket, &sin, buf, bytes, flags);
+  int v = on ? 1 : 0;
+  return SetSockOpt(IPPROTO_TCP, TCP_NODELAY, &v, sizeof(v));
 }
-// --------------------------------------------------------------
-// END - Client side Datagram functions
 
-// BEGIN - Server side Datagram functions
-// --------------------------------------------------------------
-int gxSocket::RemoteRawReadFrom(void *buf, int bytes, int flags)
-// Receive a block of data from a remote datagram socket. NOTE: 
-// A raw read may return before all the bytes have been read.
-// Returns -1 if an error occurs.
+int gxSocket::SetKeepAlive(bool on)
 {
-  // Read data from a remote client and record the Internet
-  // address of the client in the remote sin. NOTE: After the 
-  // first ReadFrom call the client's Internet address should
-  // be recorded and used for comparisons during subsequent 
-  // server side ReadFrom and WriteTo calls. Testing the Internet
-  // address will ensure that the correct client is sending
-  // datagrams to this server.
-  return RawReadFrom(gxsocket, &remote_sin, buf, bytes, flags);
+  int v = on ? 1 : 0;
+  return SetSockOpt(SOL_SOCKET, SO_KEEPALIVE, &v, sizeof(v));
 }
 
-int gxSocket::RemoteRecvFrom(void *buf, int bytes, int flags)
-// Receive a block of data from a remote datagram socket 
-// and do not return until all the bytes have been read. 
-// Returns the total number of bytes received or -1 if 
-// an error occurs.
+gxsAddress gxSocket::LocalAddress() const
 {
-  // Read data from a remote client and record the Internet
-  // address of the client in the remote sin. NOTE: After the 
-  // first RecvFrom call the client's Internet address should
-  // be recorded and used for comparisons during subsequent 
-  // server side RecvFrom and SendTo calls. Testing the Internet
-  // address will ensure that the correct client is sending
-  // datagrams to this server.
-  return RecvFrom(gxsocket, &remote_sin, buf, bytes, flags);
+  sockaddr_storage ss;
+  gxsSocketLength_t len = sizeof(ss);
+  if(!IsOpen() || getsockname(gxsocket, (sockaddr *)&ss, &len) != 0) {
+    return gxsAddress();
+  }
+  return gxsAddress((sockaddr *)&ss, len);
 }
 
-int gxSocket::RemoteRecvFrom(void *buf, int bytes, 
-			     int seconds, int useconds, int flags)
-// Receive a block of data from a remote datagram socket 
-// and do not return until all the bytes have been read 
-// or the timeout value has been exceeded. Returns the total 
-// number of bytes received or -1 if an error occurs.
+std::string gxSocket::HostName()
 {
-  // Read data from a remote client and record the Internet
-  // address of the client in the remote sin. NOTE: After the 
-  // first RecvFrom call the client's Internet address should
-  // be recorded and used for comparisons during subsequent 
-  // server side RecvFrom and SendTo calls. Testing the Internet
-  // address will ensure that the correct client is sending
-  // datagrams to this server.
-  return RecvFrom(gxsocket, &remote_sin, buf, bytes, seconds, useconds, flags);
+  InitSocketLibrary();
+  char name[256];
+  memset(name, 0, sizeof(name));
+  if(gethostname(name, sizeof(name) - 1) != 0) return std::string();
+  return name;
 }
 
-int gxSocket::RemoteRawWriteTo(const void *buf, int bytes, int flags)
-// Send a block of data to a datagram socket. NOTE: A raw write
-// may return before all the bytes have been written. Returns -1
-// if an error occurs.
+const char *gxSocket::ExceptionMessage(gxSocketError err)
 {
-  // Write data to a remote client using the Internet
-  // address of the client set during a previous ReadFrom 
-  // call.
-  return RawWriteTo(gxsocket, &remote_sin, buf, bytes, flags);
+  int e = (int)err;
+  if(e < 0 || e > (gxsMaxSocketExceptionMessages-1)) {
+    e = (int)gxSOCKET_INVALID_ERROR_CODE;
+  }
+  return gxsSocketExceptionMessages[e];
 }
 
-int gxSocket::RemoteSendTo(const void *buf, int bytes, int flags)
-// Send a block of data to a datagram socket and do not return
-// until all the bytes have been written. Returns the total number
-// of bytes sent or -1 if an error occurs.
+const char *gxSocket::SocketExceptionMessage() const
 {
-  // Write data to a remote client using the Internet
-  // address of the client set during a previous RecvFrom
-  // call.
-  return SendTo(gxsocket, &remote_sin, buf, bytes, flags);
+  return ExceptionMessage(socket_error);
 }
-// --------------------------------------------------------------
-// END - Server side Datagram functions
-
-void gxSocket::SetRemotePortNumber(gxsPort_t p)
-{
-  remote_sin.sin_port = htons(p); 
-}
-
-void gxSocket::SetRemoteIPAddress(char *IPAddress)
-{
-  gxsHostNameInfo *hostnm = gethostbyname(IPAddress);
-  remote_sin.sin_addr.s_addr = *((unsigned long *)hostnm->h_addr); 
-}
-
-
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //
 // ------------------------------- //
-

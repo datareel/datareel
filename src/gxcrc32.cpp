@@ -55,19 +55,6 @@ GXDLCODE_API unsigned long calcCRC32(const char *buf, unsigned len)
  return CRC ^ 0xffffffffL;
 }
 
-GXDLCODE_API unsigned long calcCRC32(char *buf, unsigned len)
-// Calculate a 32-bit CRC for a raw pattern of bytes.
-// Returns a 32-bit checksum.
-{
- unsigned long CRC=0xffffffffL;
- unsigned int n = len;
- char *p = (char *)buf;
- while(n--) 
-   CRC=crc32tab[(CRC ^ (*p++)) & 0xFF] ^ ((CRC>>8) & 0x00ffffffL);
-
- return CRC ^ 0xffffffffL;
-}
-
 GXDLCODE_API unsigned long calcCRC32(unsigned char c, unsigned long CRC)
 // Calculate a 32-bit CRC table value for a single byte.
 // NOTE: The initial CRC value must be set to 0xffffffffL
@@ -81,29 +68,25 @@ GXDLCODE_API unsigned long calcCRC32(unsigned char c, unsigned long CRC)
   return CRC;
 }
 
-#ifdef __USE_CRC32_TABLE_FUNCTIONS__
-GXDLCODE_API unsigned long calcCRC32(DiskFileB &infile)
-// Calculate a 32-bit CRC for a file. Assumes the stream
-// is already open. Returns a 32-bit checksum.
+GXDLCODE_API unsigned long calcCRC32(std::istream &infile)
 {
- unsigned long CRC=0xffffffffL;
- char c;
- unsigned int i;
+  unsigned long CRC=0xffffffffL;
+  char buf[4096];
 
- // Rewind to the start of the stream
- infile.df_Rewind();
-
- while(!infile.df_EOF()) {
-   if(infile.df_Get(c) != DiskFileB::df_NO_ERROR) return 0;
-
-   // PC-lint 09/08/2005: Suspicious cast warning
-   i = (unsigned int)c;
-
-   i &= 0xFF; // Reset all the bits
-   CRC=crc32tab[(CRC ^ i) & 0xFF] ^ ((CRC>>8) & 0x00ffffffL);
- }
- return CRC ^ 0xffffffffL;
+  if(!infile) return 0;
+  while(infile) {
+    infile.read(buf, sizeof(buf));
+    std::streamsize n = infile.gcount();
+    for(std::streamsize i = 0; i < n; i++) {
+      CRC=crc32tab[(CRC ^ (unsigned char)buf[i]) & 0xFF] ^ ((CRC>>8) & 0x00ffffffL);
+    }
+  }
+  if(infile.bad()) return 0;
+  return CRC ^ 0xffffffffL;
 }
+
+#ifdef __USE_CRC32_TABLE_FUNCTIONS__
+#include <iomanip>
 
 GXDLCODE_API int makeCRC32(std::ostream &stream)
 // Write a CRC 32 table for a byte-wise 32-bit CRC calculation

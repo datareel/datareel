@@ -116,22 +116,17 @@ gxSocketError gxsTelnetClient::ConnectClient(const char *host, int port)
 // Function used to connect a telnet client to a server. Returns zero if no
 // errors occur.
 {
-  if(InitSocketLibrary() == 0) {
-    if(InitSocket(SOCK_STREAM, port, (char *)host) < 0) return socket_error;
-  }
-  else {
-    return socket_error;
-  }
-
-  if(Connect() < 0) return socket_error;
-
-  return socket_error = gxSOCKET_NO_ERROR;
+  // 10/26/2026: Telnet is the one protocol that stays plain text. Use it
+  // only on trusted networks.
+  if(!host) return socket_error = gxSOCKET_HOSTNAME_ERROR;
+  Connect(host, port, time_out_sec > 0 ? time_out_sec : 30);
+  return socket_error;
 }
 
 int gxsTelnetClient::WaitForReply()
 // Returns false if a reply time is longer then the timeout values. 
 {
-  return ReadSelect(gxsocket, time_out_sec, time_out_usec);
+  return ReadSelect(time_out_sec, time_out_usec);
 }
 
 gxSocketError gxsTelnetClient::SendString(const char *buf, int bytes)
@@ -142,7 +137,7 @@ gxSocketError gxsTelnetClient::SendString(const char *buf, int bytes)
     if(Send("\n", 1) < 0) return socket_error = gxSOCKET_TRANSMIT_ERROR;
   }
   else { // Windows Server
-    if(Send("\r\n", 1) < 0) return socket_error = gxSOCKET_TRANSMIT_ERROR;
+    if(Send("\r\n", 2) < 0) return socket_error = gxSOCKET_TRANSMIT_ERROR;
   }
 
   return socket_error = gxSOCKET_NO_ERROR;
@@ -155,13 +150,16 @@ gxSocketError gxsTelnetClient::RecvString(char *buf, int bytes,
 // the timeout period this function will return a non-zero value to indicate 
 // an error. Returns zero if no errors occur.
 {
-  bytes_read = 0;             // Reset the byte counter
+  if(!buf || bytes <= 0) return socket_error = gxSOCKET_BUFOVER_ERROR;
+  int bytes_read = 0;         // Bytes from the last read
   const int rxBufSize = 4096; // Receive buffer size
   char rx_buffer[rxBufSize];  // Receive buffer
   unsigned char filtered_output; // NVT or VT100F filtered output
   int byte_count = 0;   // Number of byte inserted in the buf variable
 
-  while(byte_count < bytes) { // Loop until the buffer is full
+  // 10/26/2026: Leave room for the null terminator; the buffer was
+  // written one byte past its end when it filled up
+  while(byte_count < (bytes - 1)) { // Loop until the buffer is full
     if(!WaitForReply()) { 
       if(byte_count >= 0) buf[byte_count] = 0;
       return socket_error = gxSOCKET_REQUEST_TIMEOUT;      
@@ -179,7 +177,7 @@ gxSocketError gxsTelnetClient::RecvString(char *buf, int bytes,
 	}
 	if(GetChar(filtered_output)) { 
 	  // Copy the NVT characters into the string buffer 
-	  buf[byte_count++] = filtered_output;
+	  if(byte_count < (bytes - 1)) buf[byte_count++] = filtered_output;
 	}
       }
 
@@ -224,7 +222,7 @@ gxSocketError gxsTelnetClient::RecvInitSeq()
   char rx_buffer[rxBufSize];  // Receive buffer
 
   if(!WaitForReply()) return socket_error = gxSOCKET_REQUEST_TIMEOUT;
-  bytes_read = RawRead((char *)rx_buffer, rxBufSize);
+  int bytes_read = RawRead((char *)rx_buffer, rxBufSize);
   if(bytes_read > -1) {
     if(bytes_read == 0) {
       // Signal that the socket has been gracefully closed

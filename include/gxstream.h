@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxstream.h
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -29,106 +29,98 @@ USA
 
 The GXStream class is used to stream data from a client to a 
 server over a TCP/IP connection.
+
+Changes:
+==============================================================
+10/26/2026: DataReel 7 rewrites gxStream on gxsTLSConnection, so 
+database blocks always travel over TLS. The block header format 
+is unchanged. A client calls Connect(); a server accepts a client 
+with gxsTLSServer::Accept(stream.Connection()). Block lengths read 
+from the network are checked against SetMaxBlockSize() before any 
+memory is allocated, and requested blocks are returned in a 
+std::vector instead of a new[] buffer.
+==============================================================
 */
-// ----------------------------------------------------------- //   
+// ----------------------------------------------------------- //
 #ifndef __GX_STREAM_HPP__
 #define __GX_STREAM_HPP__
 
 #include "gxdlcode.h"
 
-#include "gxsocket.h"
+#include <string>
+#include <vector>
+
 #include "gxheader.h"
+#include "gxstls.h"
 
 const int gxSTREAM_DEF_TIMEOUT = 7200;
+const gxUINT32 gxSTREAM_DEF_MAX_BLOCK = 64*1024*1024;
 
-class GXDLCODE_API gxStream : public gxSocket
+// Database block client/server protocol over TLS. Each block is a
+// gxBlockHeader followed by block_length bytes.
+class GXDLCODE_API gxStream
 {
 public:
-  gxStream() { 
-    time_out_sec = gxSTREAM_DEF_TIMEOUT; // Blocking timeout value   
-    time_out_usec = 0;
-  }
+  gxStream() { conn.SetTimeout(gxSTREAM_DEF_TIMEOUT); }
   ~gxStream() { }
 
-public: // Client/Server configuration
-  int StreamServer(int port, int max_connections = SOMAXCONN);
-  int StreamClient(int port, char *host);
-  int PortNumber(int &port);
-  int RemotePortNumber(int &port);
-  int HostName(char *hs);
-  int RemoteHostName(char *hs);
-  
-public: // High-level database block functions
-  int WriteBlock(const void *buf, int bytes);
-  int TerminateConnection();
-  int RestartConnection();
-  int CloseConnection();
-  int ReadClientHeader(gxBlockHeader &gxs);
-  int ReadRemoteBlock(void *buf, gxBlockHeader &gx);
-  int WriteRemoteBlock(void *buf, int bytes);
-  void *RequestBlock(const void *request, gxBlockHeader &request_header, 
-		     gxBlockHeader &requested_block_header);
+public: // Connection
+  // Client: connect to a gxStream server over TLS. Returns 0 if
+  // successful.
+  int Connect(const std::string &host, int port = gxsDATA_PORT);
+  void Close() { conn.Close(); }
+  gxsTLSConnection &Connection() { return conn; }
+  void SetTimeOut(int seconds = gxSTREAM_DEF_TIMEOUT) { 
+    conn.SetTimeout(seconds); 
+  }
+  void SetMaxBlockSize(gxUINT32 bytes) { max_block = bytes; }
+
+public: // Block functions. Each returns 0 if successful.
+  void SetBlockStatus(gxBlockHeader &gx, __SBYTE__ net_status,
+		      __SBYTE__ file_status = gxRemoteDeviceBlock);
+  static __SBYTE__ BlockStatus(const gxBlockHeader &gx) {
+    return (__SBYTE__)((((__ULWORD__)gx.block_status) & 0xFF00) >> 8);
+  }
+  int WriteHeader(gxBlockHeader &gx);
+  int WriteBlock(const void *buf, int bytes); // gxSendBlock
+  int WriteBlock(const void *buf, gxBlockHeader &gx);
+  int ReadHeader(gxBlockHeader &gx);
+  int ReadBlock(std::vector<unsigned char> &buf, const gxBlockHeader &gx);
+
+  // Send a request block and read the block sent back
+  int RequestBlock(const void *request, gxBlockHeader &request_header,
+		   gxBlockHeader &reply_header, 
+		   std::vector<unsigned char> &reply);
   int AddBlock(const void *block, gxBlockHeader &block_header);
   int ChangeBlock(const void *request, const void *block, 
 		  gxBlockHeader &request_header, gxBlockHeader &block_header);
   int DeleteBlock(const void *request, gxBlockHeader &request_header);
   int WriteAckBlock();
-  int WriteRemoteAckBlock();
   int ReadAckBlock();
-  int ReadRemoteAckBlock();
-
-  // Optional status information exchange between TCP client and server.
   int WriteResultBlock(int result_code);
-  int WriteRemoteResultBlock(int result_code);
   int ReadResultBlock(int &result_code);
-  int ReadRemoteResultBlock(int &result_code);
-  
-public: // Low-level database block functions
-  void SetBlockStatus(gxBlockHeader &gx, __SBYTE__ net_status,
-		      __SBYTE__ file_status = gxRemoteDeviceBlock);
-  int WriteBlock(gxsSocket_t s, const void *buf, int bytes);
-  int WriteBlock(gxsSocket_t s, const void *buf, gxBlockHeader &gx);
-  int WriteHeader(gxsSocket_t s, gxBlockHeader &gx);
-  int ReadBlock(gxsSocket_t s, void *buf, gxBlockHeader &gx,
-		int seconds = gxSTREAM_DEF_TIMEOUT, int useconds = 0);
-  int ReadHeader(gxsSocket_t s, gxBlockHeader &gx, 
-		 int seconds = gxSTREAM_DEF_TIMEOUT, int useconds = 0);
-  void *RequestBlock(gxsSocket_t s, const void *request,
-		     gxBlockHeader &request_header, 
-		     gxBlockHeader &requested_block_header,
-		     int seconds = gxSTREAM_DEF_TIMEOUT, int useconds = 0);
-  int AddBlock(gxsSocket_t s, const void *block, gxBlockHeader &block_header);
-  int DeleteBlock(gxsSocket_t s, const void *request,
-		  gxBlockHeader &request_header);
-  int ChangeBlock(gxsSocket_t s, const void *request, 
-		  const void *block, gxBlockHeader &request_header,
-		  gxBlockHeader &block_header);
-  int WriteAckBlock(gxsSocket_t s);
-  int ReadAckBlock(gxsSocket_t s, 
-		   int seconds = gxSTREAM_DEF_TIMEOUT, int useconds = 0);
-
-  // Optional status information exchange between TCP client and server.
-  int WriteResultBlock(gxsSocket_t s, int result_code);
-  int ReadResultBlock(gxsSocket_t s, int &result_code,
-		      int seconds = gxSTREAM_DEF_TIMEOUT, int useconds = 0);
-  
-  int TerminateConnection(gxsSocket_t s);
-  int RestartConnection(gxsSocket_t s);
-  int CloseConnection(gxsSocket_t s);
-
-public: // Timer functions
-  void SetTimeOut(int seconds = gxSTREAM_DEF_TIMEOUT, int useconds = 0) {
-    time_out_sec = seconds;
-    time_out_usec = useconds;
-  }
+  int TerminateConnection(); // Ask the server to shut down
+  int RestartConnection();   // Ask the server to restart
+  int CloseConnection();     // Tell the server this client is done
 
 public:
-  int time_out_sec;  // Number of seconds before a blocking timeout
-  int time_out_usec; // Number of microseconds before a blocking timeout
+  gxSocketError GetSocketError() const { return stream_error; }
+  const char *SocketExceptionMessage() const {
+    return gxSocket::ExceptionMessage(stream_error);
+  }
+  const std::string &Error() const { return conn.Error(); }
+
+private:
+  int set_error(gxSocketError err) { return stream_error = err; }
+
+private:
+  gxsTLSConnection conn;
+  gxUINT32 max_block = gxSTREAM_DEF_MAX_BLOCK;
+  gxSocketError stream_error = gxSOCKET_NO_ERROR;
 };
 
 #endif // __GX_STREAM_HPP__
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //
 // ------------------------------- //

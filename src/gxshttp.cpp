@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxshttp.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -49,382 +49,250 @@ to the gxshttp.h include file.
 
 05/05/2003: Added server side members to the gxsHTTPHeader
 data structure.
+
+10/26/2026: DataReel 7 replaces gxsHTTPHeader, the cookie list and 
+the method and status code arrays with gxsHTTPMessage, which holds 
+a request or response line, its headers and its body as std::string 
+values, and functions to read and write one over a TLS connection.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
+#include <cstdlib>
 #include "gxshttp.h"
+#include "gxstls.h"
+#include "strutil.h"
 
-// HTTP connection methods
-const char *gxsHTTP_METHOD[gxsMAX_HTTP_METHODS] = {
-  "UNKNOWN",    // String used for internal processing
-  "GET",        // Retrieve whatever data is identified by the URI.
-  "HEAD",       // Returns only HTTP headers and no document body. 
-  "PUT",        // Store the data under the supplied URL.
-  "DELETE",     // Delete the information corresponding to the given URL.
-  "POST",       // Creates a new object linked to the specified object. 
-  "LINK",       // Links an existing object to the specified object. 
-  "UNLINK",     // Removes link (or other meta-) information from an object. 
-  // 07/24/2006: HTTP 1.1 Request methods
-  "TRACE",      // Echo back request to see what's sadded or changed.
-  "OPTIONS",    // Returns the HTTP methods that the server supports.
-  "CONNECT"     // Use with a proxy that can change to being an SSL tunnel.
-};
+using namespace datareel;
 
-// HTTP status messages
-const char *gxsHTTP_STATUS_CODES[gxsMAX_HTTP_STATUS_CODES] = {
-  "HTTP status: Encountered an HTTP error condition",   // Default message
-  "100 HTTP status: Continue request",                  // CONTINUE 
-  "101 HTTP status: Switching protocols",               // SWITCHING_PROTOCOLS
-  "200 HTTP status: Document OK",                       // OK
-  "201 HTTP status: Document created",                  // CREATED
-  "202 HTTP status: Document accepted",                 // ACCEPTED
-  "203 HTTP status: Non-authoritative information",     // NON_AUTH_INFO
-  "204 HTTP status: Document has no content",           // NO_CONTENT
-  "205 HTTP status: Reset document content",            // RESET_CONTENT
-  "206 HTTP status: Partial document content",          // PARTIAL_CONTENT
-  "300 HTTP status: Multiple choices",                  // MULTIPLE_CHOICES
-  "301 HTTP status: Document has moved permanently",    // MOVED_PERMANENTLY
-  "302 HTTP status: Document has moved temporarily",    // MOVED_TEMPORARILY
-  "303 HTTP status: Document using other URL",          // SEE_OTHER 
-  "304 HTTP status: Document has not been modified",    // NOT_MODIFIED
-  "305 HTTP status: Document available via proxy",      // USE_PROXY
-  "306 HTTP status: Unused status code",                // 306_UNUSED
-  "307 HTTP status: Document temporarily redirected",   // TEMPORARY_REDIRECT
-  "400 HTTP client error: Bad client request",          // BAD_REQUEST
-  "401 HTTP client error: Unauthorized client request", // UNAUTHORIZED
-  "402 HTTP client error: Unused status code",          // PAYMENT_REQUIRED
-  "403 HTTP client error: Forbidden client request",    // FORBIDDEN
-  "404 HTTP client error: Document not found",          // NOT_FOUND
-  "405 HTTP client error: Method not allowed",          // METHOD_NOT_ALLOWED
-  "406 HTTP client error: Method not acceptable",       // NOT_ACCEPTABLE
-  "407 HTTP client error: Proxy authentication required", // PROXY_AUTH_REQUIRED
-  "408 HTTP client error: Request timeout",             // REQUEST_TIMEOUT 
-  "409 HTTP client error: Resource conflict",           // CONFLICT
-  "410 HTTP client error: Resource no longer available", // GONE
-  "411 HTTP client error: Content length required",     // LENGTH_REQUIRED
-  "412 HTTP client error: Precondition failed",         // PRECONDITION_FAILED 
-  "413 HTTP client error: Request entity too large",    // REQUEST_ENTITY_TOO_LARGE
-  "414 HTTP client error: Request uri too long",        // REQUEST_URI_TOO_LONG
-  "415 HTTP client error: Unsupported media type",      // UNSUPPORTED_MEDIA_TYPE
-  "416 HTTP client error: Requested range not satisfiable", // REQUESTED_RANGE_NOT_SATISFIABLE
-  "417 HTTP client error: Expectation_failed",          // EXPECTATION_FAILED
-  "500 HTTP server error: Internal server error",       // INTERNAL
-  "501 HTTP server error: Service not implemented",     // NOT_IMPLEMENTED
-  "502 HTTP server error: Bad gateway or proxy",        // BAD_GATEWAY
-  "503 HTTP server error: Status unavailable",          // UNAVAILABLE
-  "504 HTTP server error: Gateway timeout",             // GATEWAY_TIMEOUT
-  "505 HTTP server error: HTTP version not supported",  // HTTP_VERSION_NOT_SUPPORTED
-
-  // 09/27/2001: Status codes added for internal client error
-  "HTTP status: Encountered a client disk error",       // Disk Error
-  "HTTP status: Encountered a client network error",    // Network Error
-  "HTTP status: Encountered an internal client error"   // Internal Error
-};
-
-GXDLCODE_API const char *gxsHTTPMethodMessage(int method)
+void gxsHTTPMessage::Clear()
 {
-  if(method > (gxsMAX_HTTP_METHODS-1)) method = gxHTTP_UNKNOWN;
-  return gxsHTTP_METHOD[method];
+  method.clear(); target.clear(); reason.clear(); body.clear();
+  version = "HTTP/1.1";
+  status = 0;
+  headers.clear();
+}
+
+std::string gxsHTTPMessage::Header(std::string_view name) const
+{
+  for(const auto &h : headers) {
+    if(iequals(h.first, name)) return h.second;
+  }
+  return std::string();
+}
+
+bool gxsHTTPMessage::HasHeader(std::string_view name) const
+{
+  for(const auto &h : headers) {
+    if(iequals(h.first, name)) return true;
+  }
+  return false;
+}
+
+void gxsHTTPMessage::SetHeader(std::string_view name, std::string_view value)
+{
+  RemoveHeader(name);
+  AddHeader(name, value);
+}
+
+void gxsHTTPMessage::AddHeader(std::string_view name, std::string_view value)
+{
+  headers.emplace_back(std::string(name), std::string(value));
+}
+
+void gxsHTTPMessage::RemoveHeader(std::string_view name)
+{
+  for(std::size_t i = 0; i < headers.size(); ) {
+    if(iequals(headers[i].first, name)) headers.erase(headers.begin() + i);
+    else i++;
+  }
+}
+
+static bool has_crlf(std::string_view s)
+{
+  return s.find('\r') != std::string_view::npos || 
+    s.find('\n') != std::string_view::npos;
+}
+
+static int write_message(gxsTLSConnection &conn, gxsHTTPMessage &msg,
+			 const std::string &start_line)
+{
+  // An empty body keeps a Content-Length set by the caller, which is
+  // how a response to HEAD gives the size of the resource
+  if(!msg.HasHeader("Transfer-Encoding") &&
+     !(msg.body.empty() && msg.HasHeader("Content-Length"))) {
+    msg.SetHeader("Content-Length", std::to_string(msg.body.size()));
+  }
+  std::string out = start_line + "\r\n";
+  for(const auto &h : msg.headers) {
+    // Refuse header injection through CR or LF in a name or value
+    if(has_crlf(h.first) || has_crlf(h.second)) return -1;
+    out += h.first + ": " + h.second + "\r\n";
+  }
+  out += "\r\n";
+  out += msg.body;
+  return conn.Send(out) < 0 ? -1 : 0;
+}
+
+GXDLCODE_API int gxsHTTPWriteRequest(gxsTLSConnection &conn, 
+				     gxsHTTPMessage &msg)
+{
+  if(has_crlf(msg.method) || has_crlf(msg.target)) return -1;
+  std::string target = msg.target.empty() ? std::string("/") : msg.target;
+  return write_message(conn, msg, msg.method + " " + target + " " + 
+		       msg.version);
+}
+
+GXDLCODE_API int gxsHTTPWriteResponse(gxsTLSConnection &conn, 
+				      gxsHTTPMessage &msg)
+{
+  std::string reason = msg.reason.empty() ? 
+    std::string(gxsHTTPStatusCodeMessage(msg.status)) : msg.reason;
+  if(has_crlf(reason)) return -1;
+  return write_message(conn, msg, msg.version + " " + 
+		       std::to_string(msg.status) + " " + reason);
+}
+
+static int read_headers(gxsTLSConnection &conn, gxsHTTPMessage &msg)
+{
+  std::string line;
+  std::size_t total = 0;
+  for(;;) {
+    if(!conn.ReadLine(line, 16384)) return -1;
+    if(line.empty()) return 0;
+    total += line.size();
+    if(total > 256*1024 || msg.headers.size() > 200) return -1;
+    if(line[0] == ' ' || line[0] == '\t') { // Obsolete folded header
+      if(msg.headers.empty()) return -1;
+      msg.headers.back().second += " " + trim(line);
+      continue;
+    }
+    std::size_t colon = line.find(':');
+    if(colon == std::string::npos || colon == 0) return -1;
+    msg.headers.emplace_back(trim(line.substr(0, colon)), 
+			     trim(line.substr(colon + 1)));
+  }
+}
+
+static int read_body(gxsTLSConnection &conn, gxsHTTPMessage &msg,
+		     std::size_t max_body, bool read_to_close)
+{
+  msg.body.clear();
+  if(ifind(msg.Header("Transfer-Encoding"), "chunked") != std::string::npos) {
+    std::string line, chunk;
+    for(;;) {
+      if(!conn.ReadLine(line, 1024)) return -1;
+      std::size_t semi = line.find(';'); // Ignore chunk extensions
+      std::string size_str = trim(line.substr(0, semi));
+      if(size_str.empty()) return -1;
+      char *end = 0;
+      unsigned long long n = std::strtoull(size_str.c_str(), &end, 16);
+      if(*end != '\0') return -1;
+      if(n == 0) break;
+      if(n > max_body || msg.body.size() + n > max_body) return -1;
+      if(conn.Read(chunk, (std::size_t)n) != (int)n) return -1;
+      msg.body += chunk;
+      if(!conn.ReadLine(line, 2) || !line.empty()) return -1;
+    }
+    // Trailer headers end with an empty line
+    for(;;) {
+      if(!conn.ReadLine(line, 16384)) return -1;
+      if(line.empty()) break;
+    }
+    return 0;
+  }
+  std::string len = msg.Header("Content-Length");
+  if(!len.empty()) {
+    char *end = 0;
+    unsigned long long n = std::strtoull(len.c_str(), &end, 10);
+    if(*end != '\0' || n > max_body) return -1;
+    if(conn.Read(msg.body, (std::size_t)n) != (int)n) return -1;
+    return 0;
+  }
+  if(read_to_close) {
+    return conn.ReadAll(msg.body, max_body) ? 0 : -1;
+  }
+  return 0;
+}
+
+GXDLCODE_API int gxsHTTPReadRequest(gxsTLSConnection &conn, 
+				    gxsHTTPMessage &msg, std::size_t max_body)
+{
+  msg.Clear();
+  std::string line;
+  do { // Ignore empty lines before the request line
+    if(!conn.ReadLine(line, 16384)) return -1;
+  } while(line.empty());
+  std::vector<std::string> parts = split(line, ' ', true);
+  if(parts.size() != 3 || !starts_with(parts[2], "HTTP/")) return -1;
+  msg.method = parts[0];
+  msg.target = parts[1];
+  msg.version = parts[2];
+  if(read_headers(conn, msg) != 0) return -1;
+  return read_body(conn, msg, max_body, false);
+}
+
+GXDLCODE_API int gxsHTTPReadResponse(gxsTLSConnection &conn, 
+				     gxsHTTPMessage &msg, bool head_request,
+				     std::size_t max_body)
+{
+  for(;;) {
+    msg.Clear();
+    std::string line;
+    if(!conn.ReadLine(line, 16384)) return -1;
+    if(!starts_with(line, "HTTP/")) return -1;
+    std::size_t sp1 = line.find(' ');
+    if(sp1 == std::string::npos) return -1;
+    msg.version = line.substr(0, sp1);
+    msg.status = std::atoi(line.c_str() + sp1 + 1);
+    std::size_t sp2 = line.find(' ', sp1 + 1);
+    if(sp2 != std::string::npos) msg.reason = line.substr(sp2 + 1);
+    if(msg.status < 100 || msg.status > 999) return -1;
+    if(read_headers(conn, msg) != 0) return -1;
+    if(msg.status >= 100 && msg.status < 200) continue; // 100 Continue
+    if(head_request || msg.status == 204 || msg.status == 304) return 0;
+    return read_body(conn, msg, max_body, true);
+  }
 }
 
 GXDLCODE_API const char *gxsHTTPStatusCodeMessage(int status)
 {
   switch(status) {
-    // 09/27/2001: Added default error message
-    case gxsHTTP_STATUS_UNKNOWN:
-      return gxsHTTP_STATUS_CODES[0]; // Default message
-
-    case gxsHTTP_STATUS_CONTINUE: // 100
-      return gxsHTTP_STATUS_CODES[1];
-
-    case gxsHTTP_STATUS_SWITCHING_PROTOCOLS: //101
-      return gxsHTTP_STATUS_CODES[2];
-
-    case gxsHTTP_STATUS_OK: // 200
-      return gxsHTTP_STATUS_CODES[3];
-
-    case gxsHTTP_STATUS_CREATED: // 201
-      return gxsHTTP_STATUS_CODES[4];
-
-    case gxsHTTP_STATUS_ACCEPTED: // 202
-      return gxsHTTP_STATUS_CODES[5];
-
-    case gxsHTTP_STATUS_NON_AUTH_INFO: // 203
-      return gxsHTTP_STATUS_CODES[6];
-
-    case gxsHTTP_STATUS_NO_CONTENT: // 204
-      return gxsHTTP_STATUS_CODES[7];
-
-    case gxsHTTP_STATUS_RESET_CONTENT: // 205
-      return gxsHTTP_STATUS_CODES[8];    
-
-    case gxsHTTP_STATUS_PARTIAL_CONTENT: // 206
-      return gxsHTTP_STATUS_CODES[9];
-
-    case gxsHTTP_STATUS_MULTIPLE_CHOICES: // 300
-      return gxsHTTP_STATUS_CODES[10];
-
-    case gxsHTTP_STATUS_MOVED_PERMANENTLY: // 301
-      return gxsHTTP_STATUS_CODES[11];
-
-    case gxsHTTP_STATUS_MOVED_TEMPORARILY: // 302
-      return gxsHTTP_STATUS_CODES[12];
-
-    case gxsHTTP_STATUS_SEE_OTHER: // 303
-      return gxsHTTP_STATUS_CODES[13];
-
-    case gxsHTTP_STATUS_NOT_MODIFIED: // 304
-      return gxsHTTP_STATUS_CODES[14];
-
-    case gxsHTTP_STATUS_USE_PROXY: // 305
-      return gxsHTTP_STATUS_CODES[15];
-
-    case gxsHTTP_STATUS_306_UNUSED: // 306
-      return gxsHTTP_STATUS_CODES[16];
-
-    case gxsHTTP_STATUS_TEMPORARY_REDIRECT: // 307
-      return gxsHTTP_STATUS_CODES[17];
-
-    case gxsHTTP_STATUS_BAD_REQUEST: // 400
-      return gxsHTTP_STATUS_CODES[18];
-
-    case gxsHTTP_STATUS_UNAUTHORIZED: // 401
-      return gxsHTTP_STATUS_CODES[19];
-
-    case gxsHTTP_STATUS_PAYMENT_REQUIRED: // 402
-      return gxsHTTP_STATUS_CODES[20];
-
-    case gxsHTTP_STATUS_FORBIDDEN: // 403
-      return gxsHTTP_STATUS_CODES[21];
-
-    case gxsHTTP_STATUS_NOT_FOUND: // 404
-      return gxsHTTP_STATUS_CODES[22];
-
-    case gxsHTTP_STATUS_METHOD_NOT_ALLOWED: // 405
-      return gxsHTTP_STATUS_CODES[23];
-
-    case gxsHTTP_STATUS_NOT_ACCEPTABLE: // 406
-      return gxsHTTP_STATUS_CODES[24];
-
-    case gxsHTTP_STATUS_PROXY_AUTH_REQUIRED: // 407
-      return gxsHTTP_STATUS_CODES[25];
-
-    case gxsHTTP_STATUS_REQUEST_TIMEOUT: // 408
-      return gxsHTTP_STATUS_CODES[26];
-
-    case gxsHTTP_STATUS_CONFLICT: // 409
-      return gxsHTTP_STATUS_CODES[27];
-
-    case gxsHTTP_STATUS_GONE: // 410
-      return gxsHTTP_STATUS_CODES[28];
-
-    case gxsHTTP_STATUS_LENGTH_REQUIRED: // 411
-      return gxsHTTP_STATUS_CODES[29];
-
-    case gxsHTTP_STATUS_PRECONDITION_FAILED: // 412
-      return gxsHTTP_STATUS_CODES[30];
-
-    case gxsHTTP_STATUS_REQUEST_ENTITY_TOO_LARGE: // 413
-      return gxsHTTP_STATUS_CODES[31];
-
-    case gxsHTTP_STATUS_REQUEST_URI_TOO_LONG: // 414
-      return gxsHTTP_STATUS_CODES[32];
-
-    case gxsHTTP_STATUS_UNSUPPORTED_MEDIA_TYPE: // 415
-      return gxsHTTP_STATUS_CODES[33];
-
-    case gxsHTTP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE: // 416
-      return gxsHTTP_STATUS_CODES[34];
-
-    case gxsHTTP_STATUS_EXPECTATION_FAILED: // 417
-      return gxsHTTP_STATUS_CODES[35];
-
-    case gxsHTTP_STATUS_INTERNAL: // 500
-      return gxsHTTP_STATUS_CODES[36];
-
-    case gxsHTTP_STATUS_NOT_IMPLEMENTED: // 501
-      return gxsHTTP_STATUS_CODES[37];
-
-    case gxsHTTP_STATUS_BAD_GATEWAY: // 502
-      return gxsHTTP_STATUS_CODES[38];
-
-    case gxsHTTP_STATUS_UNAVAILABLE: // 503
-      return gxsHTTP_STATUS_CODES[39];
-
-    case gxsHTTP_STATUS_GATEWAY_TIMEOUT: // 504
-      return gxsHTTP_STATUS_CODES[40];
-
-    case gxsHTTP_STATUS_HTTP_VERSION_NOT_SUPPORTED: // 505
-      return gxsHTTP_STATUS_CODES[41];
-
-    // 09/27/2001: Status codes added for internal client error
-    case gxsHTTP_STATUS_DISK_ERROR: // Client disk error
-      return gxsHTTP_STATUS_CODES[42]; 
-
-    case gxsHTTP_STATUS_NETWORK_ERROR: // Client network error
-      return gxsHTTP_STATUS_CODES[43]; 
-
-    case gxsHTTP_STATUS_CLIENT_ERROR: // Internal client error
-      return gxsHTTP_STATUS_CODES[44]; 
-
-    default:
-      break;
+    case 100: return "Continue";
+    case 101: return "Switching Protocols";
+    case 200: return "OK";
+    case 201: return "Created";
+    case 202: return "Accepted";
+    case 204: return "No Content";
+    case 206: return "Partial Content";
+    case 301: return "Moved Permanently";
+    case 302: return "Found";
+    case 303: return "See Other";
+    case 304: return "Not Modified";
+    case 307: return "Temporary Redirect";
+    case 308: return "Permanent Redirect";
+    case 400: return "Bad Request";
+    case 401: return "Unauthorized";
+    case 403: return "Forbidden";
+    case 404: return "Not Found";
+    case 405: return "Method Not Allowed";
+    case 408: return "Request Timeout";
+    case 409: return "Conflict";
+    case 411: return "Length Required";
+    case 413: return "Content Too Large";
+    case 414: return "URI Too Long";
+    case 415: return "Unsupported Media Type";
+    case 429: return "Too Many Requests";
+    case 500: return "Internal Server Error";
+    case 501: return "Not Implemented";
+    case 502: return "Bad Gateway";
+    case 503: return "Service Unavailable";
+    case 504: return "Gateway Timeout";
+    case 505: return "HTTP Version Not Supported";
+    default: break;
   }
-  return gxsHTTP_STATUS_CODES[0];
-}
-
-gxsNetscapeCookie::gxsNetscapeCookie()
-{
-  host = name = value = expires = domain = path = "\0";
-  secure = 0;
-}
-
-gxsNetscapeCookie::~gxsNetscapeCookie()
-{
-
-}
-
-void gxsNetscapeCookie::Copy(const gxsNetscapeCookie &ob)
-{
-  // 01/14/2009: Avoid self copying
-  if(this == &ob) return;
-
-  expires = ob.expires;
-  domain = ob.domain;
-  path = ob.path;
-  host = ob.host;
-  name = ob.name;
-  value = ob.value;
-  secure = ob.secure;
-}
-
-GXDLCODE_API int operator==(const gxsNetscapeCookie &a, 
-			    const gxsNetscapeCookie &b)
-// Overloaded == operator added to work with gxs linked list class.
-{
-  if(a.expires != b.expires) return 0;
-  if(a.domain != b.domain) return 0;
-  if(a.path != b.path) return 0;
-  if(a.host != b.host) return 0;
-  if(a.name != b.name) return 0;
-  if(a.value != b.value) return 0;
-  if(a.secure != b.secure) return 0;
-  return 1;
-}
-
-void gxsHTTPHeader::Reset() 
-{
-  http_header.Clear(); 
-  authentication_scheme.Clear(); 
-  realm.Clear(); auth_cookie.Clear();
-  current_server.Clear(); 
-  location.Clear(); 
-  http_last_modified.Clear();  
-  date.Clear(); 
-  http_expires.Clear(); 
-  file_extension.Clear(); 
-  content_type.Clear(); 
-  mime_type.Clear(); 
-  etag.Clear(); 
-  content_encoding.Clear(); 
-  pragma.Clear(); 
-  cache_control.Clear();
-  method.Clear(); 
-  fname.Clear(); 
-  post_data.Clear();
-
-  // Default settings
-  http_version = 1.0F;
-  http_status = gxsHTTP_STATUS_OK;
-  authentication_needed = 0;
-  not_found = 0;
-  keep_alive = 0;
-  timeout = -1;   // -1 indicates that this value has not been set
-  max_conns = -1; // -1 indicates that this value has not been set
-  length = -1;    // -1 indicates that this value has not been set
-  no_cache = 0;
-  accept_ranges = 0;
-  use_cookies = 1;
-
-  // 01/14/2009: Added members below
-  current_host.Clear();
-  host_port = 80;
-  user_agent.Clear();
-  accept.Clear();
-  accept_language.Clear();
-  accept_encodeing.Clear();
-  accept_charset.Clear();
-  proxy_connection.Clear();
-  proxy_auth.Clear();
-  referer.Clear();
-  connection.Clear();
-}
-
-void gxsHTTPHeader::Copy(const gxsHTTPHeader &ob)
-{
-  // 01/14/2009: Avoid self copying
-  if(this == &ob) return;
-
-  http_header = ob.http_header;
-  authentication_scheme = ob.authentication_scheme;
-  realm = ob.realm;
-  current_server = ob.current_server;
-  location = ob.location;
-  http_last_modified = ob.http_last_modified;
-  date = ob.date;
-  http_expires = ob.http_expires;
-  file_extension = ob.file_extension;
-  content_type = ob.content_type;
-  mime_type = ob.mime_type;
-  etag = ob.etag;
-  pragma = ob.pragma;
-  cache_control = ob.cache_control;
-  content_encoding = ob.content_encoding;
-  http_version = ob.http_version;
-  http_status = ob.http_status;
-  authentication_needed = ob.authentication_needed;
-  not_found = ob.not_found;
-  keep_alive = ob.keep_alive;
-  timeout = ob.timeout;
-  max_conns = ob.max_conns;
-  length = ob.length;
-  no_cache = ob.no_cache;
-  accept_ranges = ob.accept_ranges;
-  auth_cookie = ob.auth_cookie;
-  use_cookies = ob.use_cookies;
-  method = ob.method;
-  fname = ob.fname;
-  post_data = ob.post_data;
-
-  // Copy the list
-  gxListNode<gxsNetscapeCookie> *ptr = ob.netscape_cookies.GetHead();
-  netscape_cookies.ClearList();
-  while(ptr) {
-    netscape_cookies.Add(ptr->data);
-    ptr = ptr->next;
-  }
-
-  // 01/14/2009: Add members below
-  current_host = ob.current_host;
-  host_port = ob.host_port;
-  user_agent = ob.user_agent;
-  accept = ob.accept;
-  accept_language = ob.accept_language;
-  accept_encodeing = ob.accept_encodeing;
-  accept_charset = ob.accept_charset;
-  proxy_connection = ob.proxy_connection;
-  proxy_connection = ob.proxy_connection;
-  proxy_auth = ob.proxy_auth;
-  referer = ob.referer;
-  connection = ob.connection;
-}
-
-GXDLCODE_API int operator==(const gxsHTTPHeader &a, const gxsHTTPHeader &b)
-{
-  if(a.http_header != b.http_header) return 0;
-  return 1;
+  return "Unknown";
 }
 // ----------------------------------------------------------- //
 // ------------------------------- //

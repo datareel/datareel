@@ -129,7 +129,7 @@ public: // POD database functions
 		       gxDatabaseAccessMode mode = gxDBASE_READWRITE,
 		       FAU_t static_size = (FAU_t)0,
 		        __SBYTE__ df_rev_letter = gxDatabaseRevisionLetter);
-  gxDatabaseError Open(const char *dfname, char *ifname[POD_MAX_INDEX],
+  gxDatabaseError Open(const char *dfname, const char *ifname[POD_MAX_INDEX],
 		       unsigned num_indexes, DatabaseKeyB &key_type,
 		       BtreeNodeOrder_t order = POD_DEFAULT_ORDER,
 		       gxDatabaseAccessMode mode = gxDBASE_READWRITE,

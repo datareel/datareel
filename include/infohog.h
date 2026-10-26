@@ -73,7 +73,7 @@ purpose member.
 #include "gxdlcode.h"
 
 #include "gpersist.h"
-#include "membuf.h"
+#include <vector>
 
 // Constants
 const unsigned InfoHogMinMembers = 1;   // Minimum number of members
@@ -170,8 +170,7 @@ public:
   InfoHog(const POD *pod, const TYPE &key, 
 	  unsigned members = InfoHogDefMembers);
   InfoHog();
-  InfoHog(const InfoHog<TYPE> &ob) { 
-    ih_members = 0;
+  InfoHog(const InfoHog<TYPE> &ob) : gxPersistent(), num_members(0) { 
     Copy(ob); 
   }
   void operator=(const InfoHog<TYPE> &ob) { Copy(ob); }
@@ -180,7 +179,9 @@ public:
 public:
   int SetMember(const void *ob, unsigned len, unsigned index);
   int Copy(const InfoHog<TYPE> &ob, int copy_pod_vars = 1);
-  MemoryBuffer *GetMemberArray() { return ih_members; }
+  std::vector<std::vector<unsigned char>> &GetMemberArray() { 
+    return ih_members; 
+  }
   unsigned char *GetMember(unsigned index);
   unsigned GetMemberLen(unsigned index);
   unsigned GetNumMembers() { return num_members; }
@@ -233,7 +234,7 @@ protected: // Persistent data members
   // the object and the copy stored on disk. If the member alignment
   // is changed all database files using this structure will have to
   // be rebuilt.
-  MemoryBuffer *ih_members; // Infohog data member array
+  std::vector<std::vector<unsigned char>> ih_members; // Data member array
 };
 
 template<class TYPE>
@@ -288,7 +289,6 @@ int InfoHogKey<TYPE>::CompareKey(const DatabaseKeyB& k) const
 template<class TYPE>
 InfoHog<TYPE>::InfoHog() 
 { 
-  ih_members = 0; 
   num_members = 0; 
   class_id = ClassInfoHogID;
 }
@@ -297,7 +297,7 @@ template<class TYPE>
 InfoHog<TYPE>::InfoHog(POD *pod, unsigned members) :
   gxPersistent(pod) 
 { 
-  ih_members = 0; // Initialize the array before allocating memory
+  num_members = 0;
   AllocArray(members);
   class_id = ClassInfoHogID;
 }
@@ -306,7 +306,7 @@ template<class TYPE>
 InfoHog<TYPE>::InfoHog(const POD *pod, unsigned members) : 
   gxPersistent(pod)
 {
-  ih_members = 0; // Initialize the array before allocating memory
+  num_members = 0;
   AllocArray(members);
   class_id = ClassInfoHogID;
 }
@@ -315,7 +315,7 @@ template<class TYPE>
 InfoHog<TYPE>::InfoHog(POD *pod, const TYPE &key, unsigned members) :
   gxPersistent(pod)
 {
-  ih_members = 0; // Initialize the array before allocating memory
+  num_members = 0;
   AllocArray(members);
   class_id = ClassInfoHogID;
   SetMember(&key, sizeof(key), 0); // Set the key name
@@ -325,7 +325,7 @@ template<class TYPE>
 InfoHog<TYPE>::InfoHog(const POD *pod, const TYPE &key, unsigned members) :
   gxPersistent(pod)
 {
-  ih_members = 0; // Initialize the array before allocating memory
+  num_members = 0;
   AllocArray(members);
   class_id = ClassInfoHogID;
   SetMember(&key, sizeof(key), 0); // Set the key name
@@ -344,8 +344,8 @@ unsigned char *InfoHog<TYPE>::GetMember(unsigned index)
 // for the member array this function will return a null value.
 { 
   if(index >= num_members) return 0; // 10/25/2026: Was index > num_members
-  if(!ih_members) return 0;
-  return ih_members[index].m_buf(); 
+  if(ih_members.empty()) return 0;
+  return ih_members[index].data(); 
 }
 
 template<class TYPE>
@@ -355,8 +355,8 @@ unsigned InfoHog<TYPE>::GetMemberLen(unsigned index)
 // for the member array this function will return zero.
 { 
   if(index >= num_members) return 0; // 10/25/2026: Was index > num_members
-  if(!ih_members) return 0;
-  return ih_members[index].length();
+  if(ih_members.empty()) return 0;
+  return ih_members[index].size();
 }
 
 template<class TYPE>
@@ -365,9 +365,11 @@ int InfoHog<TYPE>::SetMember(const void *ob, unsigned len, unsigned index)
 // be index number 0. Returns true if the member was set or false if
 // an error occurred.
 {
-  if(!ih_members) return 0;
+  if(ih_members.empty()) return 0;
   if(index >= num_members) return 0; // 10/25/2026: Was index > num_members
-  if(!ih_members[index].Load(ob, len)) return 0;
+  const unsigned char *p = (const unsigned char *)ob;
+  if(len && !p) return 0;
+  ih_members[index].assign(p, p + len);
   return 1;
 }
 
@@ -375,7 +377,7 @@ template<class TYPE>
 int InfoHog<TYPE>::AllocArray(unsigned num)
 // Allocate memory for the object array. The length of the
 // member array will be equal to the number of array elements
-// multiplied by the size of a MemoryBuffer object. NOTE: This
+// multiplied by the size of a member buffer. NOTE: This
 // function will not allocate memory for the array if the 
 // current object array is large enough to hold the number
 // of elements requested. Returns true if allocation is
@@ -385,24 +387,13 @@ int InfoHog<TYPE>::AllocArray(unsigned num)
   if(num == 0) num = InfoHogMinMembers;
   if(num > InfoHogMaxMembers) num = InfoHogMaxMembers;
 
-  if(ih_members) { // Memory has been allocated for the array
-    if(num_members >= num) { // Do not re-allocate
-      num_members = num; 
-      return 1;
-    }
-    else {
-      DeleteArray(); // Free existing memory in use
-    }
+  if(!ih_members.empty() && num_members >= num) { // Do not re-allocate
+    num_members = num; 
+    return 1;
   }
 
-  MemoryBuffer *buf = new MemoryBuffer[num];
-  if(!buf) { 
-    num_members = 0;
-    ih_members = 0;
-    return 0; // An memory allocation error occurred
-  }
-
-  ih_members = buf;
+  ih_members.clear(); // Start with empty members, as 6.x did
+  ih_members.resize(num);
   num_members = num; // Set the length of the array
   return 1;
 }
@@ -412,8 +403,7 @@ void InfoHog<TYPE>::DeleteArray()
 // Free the memory used for the object array and reset the
 // array variables.
 {
-  if(ih_members) delete[] ih_members;
-  ih_members = 0;
+  ih_members.clear();
   num_members = 0;
 }
 
@@ -427,7 +417,7 @@ __UWORD__ InfoHog<TYPE>::ObjectLength()
   len += (num_members * sizeof(gxUINT32)); // Persistent length record
   
   for(unsigned i = 0; i  < num_members; i++) {
-    len += ih_members[i].length(); // Length of the data member 
+    len += ih_members[i].size(); // Length of the data member 
   }
   return len;
 }
@@ -462,13 +452,13 @@ gxDatabaseError InfoHog<TYPE>::Write()
 
   // Record the length of each object and write object 
   for(unsigned i = 0; i  < num_members; i++) {
-    gxUINT32 len = (__ULWORD__)ih_members[i].length();
+    gxUINT32 len = (__ULWORD__)ih_members[i].size();
     if(pod->OpenDataFile()->Write(&len, sizeof(gxUINT32)) != 
        gxDBASE_NO_ERROR) {
       return pod->GetDataFileError();
     }
     if(len > (__ULWORD__)0) {
-      if(pod->OpenDataFile()->Write(ih_members[i].m_buf(), len) != 
+      if(pod->OpenDataFile()->Write(ih_members[i].data(), len) != 
 	 gxDBASE_NO_ERROR) {
 	return pod->GetDataFileError();
       }   
@@ -477,7 +467,7 @@ gxDatabaseError InfoHog<TYPE>::Write()
 
   // Add the entry to the Index file
   if(UsingIndex()) {
-    InfoHogKey<TYPE> key(*((TYPE *)ih_members[0].m_buf()), 
+    InfoHogKey<TYPE> key(*((TYPE *)ih_members[0].data()), 
 			   oh.ObjectID, oh.ClassID);
     InfoHogKey<TYPE> compare_key;
     if(!AddKey(key, compare_key)) {
@@ -540,7 +530,7 @@ gxDatabaseError InfoHog<TYPE>::Read(FAU object_address)
     }
     if(len > (__ULWORD__)0) {
       ih_members[i].resize((__ULWORD__)len, 0);
-      if(pod->OpenDataFile()->Read(ih_members[i].m_buf(), len) != 
+      if(pod->OpenDataFile()->Read(ih_members[i].data(), len) != 
 	 gxDBASE_NO_ERROR) {
 	return pod->GetDataFileError();
       }   
@@ -548,7 +538,7 @@ gxDatabaseError InfoHog<TYPE>::Read(FAU object_address)
   }
 
   // 10/25/2026: Member 0 is the key and is cast to TYPE by the callers
-  if(ih_members[0].length() != (__ULWORD__)sizeof(TYPE)) {
+  if(ih_members[0].size() != (__ULWORD__)sizeof(TYPE)) {
     return pod->SetDataFileError(gxDBASE_BAD_OBJECT_ADDRESS);
   }
 
@@ -562,7 +552,7 @@ int InfoHog<TYPE>::Find()
 {
   // Search the index file for this entry
   if(UsingIndex()) {
-    InfoHogKey<TYPE> key(*((TYPE *)ih_members[0].m_buf()));
+    InfoHogKey<TYPE> key(*((TYPE *)ih_members[0].data()));
     InfoHogKey<TYPE> compare_key;
     if(!FindKey(key, compare_key)) return 0;
     objectaddress = key.ObjectID();
@@ -687,7 +677,7 @@ template<class TYPE>
 int InfoHog<TYPE>::Delete()
 {
   if(UsingIndex()) {
-    InfoHogKey<TYPE> key(*((TYPE *)ih_members[0].m_buf()));
+    InfoHogKey<TYPE> key(*((TYPE *)ih_members[0].data()));
     InfoHogKey<TYPE> compare_key;
     if(!FindKey(key, compare_key)) return 0; // Could not find the key
     objectaddress = key.ObjectID();
@@ -752,7 +742,7 @@ int InfoHog<TYPE>::CompareIndex(unsigned index_number)
 	    continue;
 	  }
 	  objects++; // Increment the object count
-	  key.SetObjectName(*((TYPE *)infohog.ih_members[0].m_buf()));
+	  key.SetObjectName(*((TYPE *)infohog.ih_members[0].data()));
 	  key.SetObjectID(oa);
 	  key.SetClassID(oh.ClassID);
 	  if(FindKey(key, compare_key, index_number)) {
@@ -822,7 +812,7 @@ int InfoHog<TYPE>::RebuildIndexFile(const char *fname, unsigned index_number,
 	    continue;
 	  }
 	  objects++; // Increment the object count
-	  key.SetObjectName(*((TYPE *)infohog.ih_members[0].m_buf()));	
+	  key.SetObjectName(*((TYPE *)infohog.ih_members[0].data()));	
 	  key.SetObjectID(oa);
 	  key.SetClassID(oh.ClassID);
 
@@ -860,7 +850,7 @@ int InfoHog<TYPE>::OverWriteObject(FAU_t object_address)
   // Skip over num_members record, key length record,
   // and the data key
   member_address += (sizeof(gxUINT32) * 2);
-  member_address += ih_members[0].length();
+  member_address += ih_members[0].size();
   pod->OpenDataFile()->SeekTo(member_address);
   if(pod->GetDataFileError() != gxDBASE_NO_ERROR) return 0;
 
@@ -868,9 +858,9 @@ int InfoHog<TYPE>::OverWriteObject(FAU_t object_address)
     member_address += sizeof(gxUINT32); // Skip length record
     pod->OpenDataFile()->SeekTo(member_address);
     if(pod->GetDataFileError() != gxDBASE_NO_ERROR) return 0;
-    gxUINT32 len = (__ULWORD__)ih_members[i].length();
+    gxUINT32 len = (__ULWORD__)ih_members[i].size();
     if(len > (__ULWORD__)0) {
-      if(pod->OpenDataFile()->Write(ih_members[i].m_buf(), len) != 
+      if(pod->OpenDataFile()->Write(ih_members[i].data(), len) != 
 	 gxDBASE_NO_ERROR) {
 	return 0;
       }
@@ -902,7 +892,7 @@ int InfoHog<TYPE>::ChangeObject(InfoHog<TYPE> &ob, int find_object)
 
   // Test key member
   if(this->ih_members[0] != ob.ih_members[0]) {
-    if(!ChangeMember(ob.ih_members[0].m_buf(), ob.ih_members[0].length(), 0)) {
+    if(!ChangeMember(ob.ih_members[0].data(), ob.ih_members[0].size(), 0)) {
       return 0;
     }
   }
@@ -913,17 +903,17 @@ int InfoHog<TYPE>::ChangeObject(InfoHog<TYPE> &ob, int find_object)
   // Skip over num_members record, key length record,
   // and the data key
   member_address += (sizeof(gxUINT32) * 2);
-  member_address += ih_members[0].length();
+  member_address += ih_members[0].size();
   pod->OpenDataFile()->SeekTo(member_address);
   if(pod->GetDataFileError() != gxDBASE_NO_ERROR) return 0;
   for(unsigned i = 1; i <= num_members-1; i++) {
     member_address += sizeof(gxUINT32); // Skip length record
     pod->OpenDataFile()->SeekTo(member_address);
     if(pod->GetDataFileError() != gxDBASE_NO_ERROR) return 0;
-    gxUINT32 len = (__ULWORD__)ob.ih_members[i].length();
+    gxUINT32 len = (__ULWORD__)ob.ih_members[i].size();
     if((len > (__ULWORD__)0) && (this->ih_members[i] != ob.ih_members[i])) {
-      SetMember(ob.ih_members[i].m_buf(), len, i); // Set the member
-      if(pod->OpenDataFile()->Write(ih_members[i].m_buf(), len) != 
+      SetMember(ob.ih_members[i].data(), len, i); // Set the member
+      if(pod->OpenDataFile()->Write(ih_members[i].data(), len) != 
 	 gxDBASE_NO_ERROR) {
 	return 0;
       }
@@ -951,7 +941,7 @@ int InfoHog<TYPE>::ChangeMember(const void *ob, unsigned len, unsigned index,
     if(!ReadObject()) return 0;
   }
 
-  if(len != ih_members[index].length()) { // Must reallocate this object
+  if(len != ih_members[index].size()) { // Must reallocate this object
     if(!DeleteObject()) return 0; // Could not remove this entry
     SetMember(ob, len, index); // Set the member
     return WriteObject();
@@ -962,7 +952,7 @@ int InfoHog<TYPE>::ChangeMember(const void *ob, unsigned len, unsigned index,
     (sizeof(gxObjectHeader) + sizeof(gxINT32));
   for(unsigned i = 0; i < index; i++) {
     member_address += sizeof(gxUINT32); // Skip length record
-    member_address += ih_members[i].length();
+    member_address += ih_members[i].size();
   }
   pod->OpenDataFile()->SeekTo(member_address);
   if(pod->GetDataFileError() != gxDBASE_NO_ERROR) return 0;
@@ -971,7 +961,7 @@ int InfoHog<TYPE>::ChangeMember(const void *ob, unsigned len, unsigned index,
   pod->OpenDataFile()->SeekTo(member_address);
   if(pod->GetDataFileError() != gxDBASE_NO_ERROR) return 0;
   if(len > (__ULWORD__)0) {
-    if(pod->OpenDataFile()->Write(ih_members[index].m_buf(), len) != 
+    if(pod->OpenDataFile()->Write(ih_members[index].data(), len) != 
        gxDBASE_NO_ERROR) {
       return 0;
     }
@@ -991,7 +981,7 @@ int InfoHog<TYPE>::ChangeKeyMember(TYPE &k, int find_object)
     if(!ReadObject()) return 0;
   }
   if(UsingIndex()) { // Update the index file and maintain sort order
-    InfoHogKey<TYPE> old_key(*((TYPE *)ih_members[0].m_buf()), 
+    InfoHogKey<TYPE> old_key(*((TYPE *)ih_members[0].data()), 
 			     objectaddress, GetClassID());
     InfoHogKey<TYPE> key(k, objectaddress, GetClassID());
     InfoHogKey<TYPE> compare_key;
@@ -1013,9 +1003,9 @@ int InfoHog<TYPE>::ChangeKeyMember(TYPE &k, int find_object)
   }
  
   // Write the key member and check for errors
-  gxUINT32 len = (__ULWORD__)ih_members[0].length();
+  gxUINT32 len = (__ULWORD__)ih_members[0].size();
   if(len > (__ULWORD__)0) {
-    if(pod->OpenDataFile()->Write(ih_members[0].m_buf(), len) != 
+    if(pod->OpenDataFile()->Write(ih_members[0].data(), len) != 
        gxDBASE_NO_ERROR) {
       return 0;
     }

@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxspop3.cpp
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -34,208 +34,130 @@ Changes:
 ==============================================================
 09/22/2005:Modified gxsPOP3Client::RecvResponse() to signal 
 a graceful socket disconnect.
+
+10/26/2026: DataReel 7 rewrites gxsPOP3Client on gxsTLSConnection. 
+Mail is only read over TLS: implicit TLS (port 995) or STLS (port 
+110). A server that does not accept STLS is refused. Multi-line 
+replies are read to the terminating dot and un-stuffed, and the 
+results are returned as std::string values.
 ==============================================================
 */
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
 #include "gxdlcode.h"
 
+#include <cstdlib>
 #include "gxspop3.h"
-#include <string.h>
-#include <stdio.h>
-#include <time.h>
+#include "strutil.h"
 
-gxSocketError gxsPOP3Client::ConnectClient(const char *host, int port)
-// Function used to connect a POP3 client to a server. Returns zero if no
-// errors occur.
+using namespace datareel;
+
+int gxsPOP3Client::read_status()
 {
-  if(InitSocketLibrary() == 0) {
-    if(InitSocket(SOCK_STREAM, port, (char *)host) < 0) return socket_error;
+  if(!conn.ReadLine(last_reply, 4096)) {
+    return fail("POP3 exception: No reply from server" + 
+		(conn.Error().empty() ? std::string() : ": " + conn.Error()));
   }
-  else {
-    return socket_error;
+  if(!starts_with(last_reply, "+OK")) {
+    return fail("POP3 exception: " + last_reply);
   }
-
-  if(Connect() < 0) return socket_error;
-
-  // Read the server's response
-  if(!RecvResponse(reply_buf, gxsBUF_SIZE, "+OK")) return socket_error;
-  return socket_error = gxSOCKET_NO_ERROR;
-}
-
-gxSocketError gxsPOP3Client::SendCommand(const char *command, 
-					 const char *response, 
-					 const char *args)
-// Function used to send a command to a POP3 server and read the server's
-// response. Returns zero if no errors occur.
-{
-  if(args) {
-    sprintf(command_buf, "%s %s\r\n", command, args);
-  }
-  else {
-    sprintf(command_buf, "%s\r\n", command);
-  }
-  int len = strlen(command_buf);
-  
-  // Send POP3 command using a blocking write
-  if(Send(command_buf, len) < 0) return socket_error;
-  
-  // Read the server's response
-  if(!RecvResponse(reply_buf, gxsBUF_SIZE, response)) return socket_error;
-  return socket_error = gxSOCKET_NO_ERROR;
-}
-
-gxSocketError gxsPOP3Client::POP3Login(const char *username, 
-				       const char *password) 
-// Function used to logon to a POP3 server. Returns zero 
-// no errors occur.
-{
-  if(SendCommand("USER", "+OK", username) != gxSOCKET_NO_ERROR) 
-    return socket_error;
-  if(SendCommand("PASS", "+OK", password) != gxSOCKET_NO_ERROR) 
-    return socket_error;
-
-  return socket_error = gxSOCKET_NO_ERROR;
-}
-
-gxSocketError gxsPOP3Client::POP3Logout()
-// Function used to send the POP3 "QUIT" command. Returns zero 
-// if no errors occur.
-{
-  return SendCommand("QUIT", "+OK");
-}
-
-gxSocketError gxsPOP3Client::POP3RSet()
-// Function used to send the POP3 "Reset" command. Returns zero 
-// if no errors occur.
-{
-  return SendCommand("RSET", "+OK");
-}
-
-gxSocketError gxsPOP3Client::POP3List(char *buf, int bytes)
-// Function used to list all the message numbers on the POP3 server.
-// Returns zero if no errors occur.
-{
-  strcpy(command_buf, "LIST\r\n");
-  int len = strlen(command_buf);
-  
-  // Send POP3 command using a blocking write
-  if(Send(command_buf, len) < 0) return socket_error;
-
-  // Read the server's response
-  if(!RecvResponse(buf, bytes, "\r\n.\r\n")) return socket_error;
-  return socket_error = gxSOCKET_NO_ERROR;
-}
-
-gxSocketError gxsPOP3Client::POP3Retr(int message_number, 
-				      char *buf, int bytes)
-// Function used to retrieve a message from the POP3 server.
-// Returns zero if no errors occur.
-{
-  sprintf(command_buf, "RETR %d\r\n", message_number);
-  int len = strlen(command_buf);
-  
-  // Send POP3 command using a blocking write
-  if(Send(command_buf, len) < 0) return socket_error;
-
-  // Read the server's response
-  if(!RecvResponse(buf, bytes, "\r\n.\r\n")) return socket_error;
-  return socket_error = gxSOCKET_NO_ERROR;
-}
-
-gxSocketError gxsPOP3Client::POP3Delete(int message_number,
-					char *buf, int bytes)
-// Function used to delete a message from the POP3 server.
-// Returns zero if no errors occur.
-{
-  sprintf(command_buf, "DELE %d\r\n", message_number);
-  int len = strlen(command_buf);
-  
-  // Send POP3 command using a blocking write
-  if(Send(command_buf, len) < 0) return socket_error;
-
-  // Read the server's response
-  if(!RecvResponse(buf, bytes, "+OK")) return socket_error;
-  return socket_error = gxSOCKET_NO_ERROR;
-}
-
-gxSocketError gxsPOP3Client::POP3Top(int message_number, char *buf, int bytes)
-// Function used to retrieve a message header from the POP3 server.
-// Returns zero if no errors occur.
-{
-  sprintf(command_buf, "TOP %d 0\r\n", message_number);
-  int len = strlen(command_buf);
-  
-  // Send POP3 command using a blocking write
-  if(Send(command_buf, len) < 0) return socket_error;
-
-  // Read the server's response
-  if(!RecvResponse(buf, bytes, "\r\n.\r\n")) return socket_error;
-  return socket_error = gxSOCKET_NO_ERROR;
-}
-
-int gxsPOP3Client::WaitForReply()
-// Returns false if a reply time is longer then the timeout values. 
-{
-  return ReadSelect(gxsocket, time_out_sec, time_out_usec);
-}
-
-int gxsPOP3Client::RecvResponse(char *buf, int bytes, const char *response)
-// Blocking receive function used to read a reply from an POP3 server
-// following a command. If the specified response is not received within
-// the timeout period this function will return false to indicate an error.
-// Returns true if successful.
-{
-  bytes_read = 0;           // Reset the byte counter
-  int num_read = 0;         // Actual number of bytes read
-  int num_req = (int)bytes; // Number of bytes requested 
-  char *p = buf;            // Pointer to the buffer
-
-  while(bytes_read < bytes) { // Loop until the buffer is full
-    if(!WaitForReply()) { 
-      socket_error = gxSOCKET_REQUEST_TIMEOUT;      
-      if(bytes_read >= 0) buf[bytes_read] = 0;
-      return 0;
-    }
-    if((num_read = recv(gxsocket, p, num_req-bytes_read, 0)) > 0) {
-      bytes_read += num_read;   // Increment the byte counter
-      p += num_read;            // Move the buffer pointer for the next read
-      
-      // Search for a matching string
-      char *pattern = (char *)response;
-      char *next = buf;
-      int i = 0;
-      while(i < bytes_read && *pattern) {
-	if(*next == *pattern) {
-	  pattern++;
-	  if(*pattern == 0) {
-	    if(bytes_read >= 0) buf[bytes_read] = 0;
-	    return 1; // Found matching string
-	  }
-	  next++;
-	}
-	else {
-	  i++;
-	  next++;
-	  pattern = (char *)response;
-	}
-      } 
-    }
-    if(num_read == 0) {
-      if(bytes_read >= 0) buf[bytes_read] = 0;
-      socket_error = gxSOCKET_DISCONNECTED_ERROR;
-      return 0; // An error occurred during the read
-    }
-    if(num_read < 0) {
-      if(bytes_read >= 0) buf[bytes_read] = 0;
-      socket_error = gxSOCKET_RECEIVE_ERROR;
-      return 0; // An error occurred during the read
-    }
-  }
-
-  // The receieve buffer is full - buffer overflow
-  socket_error = gxSOCKET_BUFOVER_ERROR;
-  if(bytes_read >= 0) buf[bytes_read] = 0;
   return 0;
+}
+
+int gxsPOP3Client::read_multiline(std::string &data)
+{
+  data.clear();
+  std::string line;
+  for(;;) {
+    if(!conn.ReadLine(line, 1024*1024)) {
+      return fail("POP3 exception: Incomplete reply" +
+		  (conn.Error().empty() ? std::string() : ": " + conn.Error()));
+    }
+    if(line == ".") return 0;
+    if(!line.empty() && line[0] == '.') line.erase(0, 1); // Dot stuffing
+    data += line;
+    data += "\r\n";
+  }
+}
+
+int gxsPOP3Client::Command(const std::string &cmd)
+{
+  if(cmd.find('\r') != std::string::npos || cmd.find('\n') != std::string::npos) {
+    return fail("POP3 exception: Command contains a line break");
+  }
+  if(conn.SendLine(cmd) < 0) return fail("POP3 exception: " + conn.Error());
+  return read_status();
+}
+
+int gxsPOP3Client::Connect(const std::string &host, int port,
+			   gxsMailSecurity security)
+{
+  error.clear();
+  if(conn.Connect(host, port, security == gxsMAIL_IMPLICIT_TLS) != 0) {
+    return fail(conn.Error());
+  }
+  if(read_status() != 0) return -1;
+  if(security == gxsMAIL_STARTTLS) {
+    if(Command("STLS") != 0) {
+      conn.Close();
+      return fail("POP3 exception: " + host + " does not accept STLS");
+    }
+    if(conn.StartTLS() != 0) return fail(conn.Error());
+  }
+  return 0;
+}
+
+int gxsPOP3Client::Login(const std::string &user, const std::string &passwd)
+{
+  if(Command("USER " + user) != 0) return -1;
+  return Command("PASS " + passwd);
+}
+
+int gxsPOP3Client::Stat(int &num_messages, long long &total_bytes)
+{
+  num_messages = 0;
+  total_bytes = 0;
+  if(Command("STAT") != 0) return -1;
+  std::vector<std::string> f = split(last_reply, ' ', true);
+  if(f.size() < 3) return fail("POP3 exception: Bad STAT reply: " + last_reply);
+  num_messages = std::atoi(f[1].c_str());
+  total_bytes = std::atoll(f[2].c_str());
+  return 0;
+}
+
+int gxsPOP3Client::List(std::string &listing)
+{
+  if(Command("LIST") != 0) return -1;
+  return read_multiline(listing);
+}
+
+int gxsPOP3Client::Retr(int message_number, std::string &message)
+{
+  if(Command("RETR " + std::to_string(message_number)) != 0) return -1;
+  return read_multiline(message);
+}
+
+int gxsPOP3Client::Top(int message_number, int lines, std::string &message)
+{
+  if(Command("TOP " + std::to_string(message_number) + " " + 
+	     std::to_string(lines)) != 0) return -1;
+  return read_multiline(message);
+}
+
+int gxsPOP3Client::Delete(int message_number)
+{
+  return Command("DELE " + std::to_string(message_number));
+}
+
+int gxsPOP3Client::Reset()
+{
+  return Command("RSET");
+}
+
+int gxsPOP3Client::Quit()
+{
+  int rv = Command("QUIT");
+  conn.Close();
+  return rv;
 }
 // ----------------------------------------------------------- //
 // ------------------------------- //

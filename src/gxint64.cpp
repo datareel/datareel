@@ -50,7 +50,8 @@ to work with the GNU MINGW32 compiler.
 #ifndef __USE_NATIVE_INT_TYPES__
 #include <string.h>
 #include <memory.h>
-#include "strutil.h"
+#include <cstdlib>
+#include <string>
 
 gxINT64::gxINT64(__LLWORD__ val)
 {
@@ -822,53 +823,29 @@ GXDLCODE_API int operator>=(const __UBYTE__ &al, const gxINT64 &b)
   return (__LLWORD__)al == b.PackBits() || (__LLWORD__)al > b.PackBits();
 }
 
-char *gxINT64::c_str(char *sbuf, int radix)
-// Returns a null terminated string representing this object's
-// 64-bit value. NOTE: This function assumes that the proper
-// amount of memory has been allocated for the "sbuf" string
-// buffer. The string buffer "sbuf" is redundantly returned by
-// this function.
+std::string gxINT64::str() const
+// Returns this object's 64-bit value as a decimal string
 {
-  __ULLWORD__ val = (__ULLWORD__)PackBits();
-  return LLWORDToString(sbuf, val, radix);
+  return std::to_string((long long)PackBits());
 }
 
-char *gxINT64::c_str(char *sbuf, int radix) const
-// Returns a null terminated string representing this object's
-// 64-bit value. NOTE: This function assumes that the proper
-// amount of memory has been allocated for the "sbuf" string
-// buffer. The string buffer "sbuf" is redundantly returned by
-// this function.
+gxINT64 &gxINT64::FromString(const std::string &s)
 {
-  __ULLWORD__ val = (__ULLWORD__)PackBits();
-  return LLWORDToString(sbuf, val, radix);
-}
-
-gxINT64 &gxINT64::StringToINT64(const char *str)
-{
-  *this = StringToLLWORD(str);
-  return *this;
-}
-
-gxINT64 &gxINT64::StringToINT64(char *str)
-{
-  *this = StringToLLWORD((const char *)str);
+  *this = (__LLWORD__)std::strtoll(s.c_str(), nullptr, 10);
   return *this;
 }
 
 GXDLCODE_API std::ostream &operator<<(std::ostream &os, 
 					const gxINT64 &val)
 {
-  char sbuf[64];
-  return os << val.c_str(sbuf);
+  return os << val.str();
 }
 
 GXDLCODE_API std::istream &operator>>(std::istream &os, gxINT64 &val) 
 {
-  char sbuf[25];
-  for(unsigned i = 0; i < 25; i++) sbuf[i] = 0;
-  os >> std::setw(25) >> sbuf;
-  val.StringToINT64(sbuf);
+  std::string sbuf;
+  os >> sbuf;
+  val.FromString(sbuf);
   return os;
 }
 

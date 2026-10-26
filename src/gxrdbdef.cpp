@@ -33,124 +33,118 @@ DataReel RDBMS definition file format.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
+#include <cerrno>
+#include <cstring>
+#include <fstream>
 #include "gxrdbdef.h"
-#include "dfileb.h"
+#include "strutil.h"
 #include "systime.h"
 
+using namespace datareel;
 
-GXDLCODE_API void gxrdFormatMessage(gxString &mesg, 
-				    const gxString &process_name)
+
+GXDLCODE_API void gxrdFormatMessage(std::string &mesg, 
+				    const std::string &process_name)
 {
-  SysTime systime;
-  gxString sbuf(mesg);
-  mesg.Clear();
-  mesg << systime.GetSyslogTime() << " " << process_name
-       << ": " << sbuf;
+  mesg = syslog_time() + " " + process_name + ": " + mesg;
 }
 
-GXDLCODE_API int gxrdReadDefFile(const gxString &fname, 
-				 const gxString &process_name,
-				 const char *TAG, gxString &def, 
-				 gxString &error_message)
+GXDLCODE_API int gxrdReadDefFile(const std::string &fname, 
+				 const std::string &process_name,
+				 const char *TAG, std::string &def, 
+				 std::string &error_message)
 {
-  DiskFileB def_file;
-  def.Clear();
-  error_message.Clear();
-  gxString sbuf, mesg;
-  const int lbuf_size = 255;
+  def.clear();
+  error_message.clear();
+  std::string sbuf, mesg;
   int found_start_tag = 0;
   int found_end_tag = 0;
-  char lbuf[lbuf_size];
+  std::string line;
 
-  if(def_file.df_Open(fname.c_str(), DiskFileB::df_READONLY) != 
-     DiskFileB::df_NO_ERROR) {
-    mesg.Clear();
-    mesg << "Cannot open def file: " << fname;
+  std::ifstream def_file(fname, std::ios::in | std::ios::binary);
+  if(!def_file) {
+    mesg.clear();
+    str_append(mesg, "Cannot open def file: ", fname);
     gxrdFormatMessage(mesg, process_name);
-    error_message.Clear();
-    error_message << mesg << "\n";
-    mesg.Clear();
-    mesg << def_file.df_ExceptionMessage();
+    error_message.clear();
+    str_append(error_message, mesg, "\n");
+    mesg.clear();
+    str_append(mesg, std::strerror(errno));
     gxrdFormatMessage(mesg, process_name);
-    error_message << mesg;
+    str_append(error_message, mesg);
     return 0;
   }
   
-  while(!def_file.df_EOF()) {
-    def_file.df_GetLine(lbuf, lbuf_size, '\n', 1);
-    if(def_file.df_GetError() != DiskFileB::df_NO_ERROR) {
-      mesg.Clear();
-      mesg << "Error reading def file: " << fname;
+  while(std::getline(def_file, line)) {
+    if(def_file.bad()) {
+      mesg.clear();
+      str_append(mesg, "Error reading def file: ", fname);
       gxrdFormatMessage(mesg, process_name);
-      error_message.Clear();
-      error_message << mesg << "\n";
-      mesg.Clear();
-      mesg << def_file.df_ExceptionMessage();
+      error_message.clear();
+      str_append(error_message, mesg, "\n");
+      mesg.clear();
+      str_append(mesg, std::strerror(errno));
       gxrdFormatMessage(mesg, process_name);
-      error_message << mesg;
-      def_file.df_Close();
+      str_append(error_message, mesg);
       return 0;
     }
-    sbuf = lbuf;
+    sbuf = line;
     
     // Trim leading spaces
-    sbuf.TrimLeadingSpaces();
-    sbuf.TrimTrailingSpaces();
+    trim_in_place(sbuf);
     
     // Filter comment strings, nulls, and blank lines
     if(sbuf[0] == '#') continue;
     if(sbuf == "") continue;
     if(sbuf == " ") continue;
 
-    if(sbuf.IFind(TAG) != -1) {
+    if(ifind(sbuf, TAG) != std::string::npos) {
       found_start_tag = 1;
     }
     if(found_start_tag == 1) {
-      def << sbuf;
-      if(sbuf.IFind("};") != -1) {
+      str_append(def, sbuf);
+      if(ifind(sbuf, "};") != std::string::npos) {
 	found_end_tag = 1;
 	break;
       }
     }
   } 
-  def_file.df_Close();
+  def_file.close();
   if(!found_start_tag) {
-    mesg.Clear();
-    mesg << "Syntax error in def file: " << fname;
+    mesg.clear();
+    str_append(mesg, "Syntax error in def file: ", fname);
     gxrdFormatMessage(mesg, process_name);
-    error_message.Clear();
-    error_message << mesg << "\n";
-    mesg.Clear();
-    mesg << TAG << " missing start tag in def file: " 
-	 << fname;
+    error_message.clear();
+    str_append(error_message, mesg, "\n");
+    mesg.clear();
+    str_append(mesg, TAG, " missing start tag in def file: ", fname);
     gxrdFormatMessage(mesg, process_name);
-    error_message << mesg;
+    str_append(error_message, mesg);
   }
   
   if(!found_end_tag) {
-    mesg.Clear();
-    mesg << "Syntax error in def file: " << fname;
+    mesg.clear();
+    str_append(mesg, "Syntax error in def file: ", fname);
     gxrdFormatMessage(mesg, process_name);
-    error_message.Clear();
-    error_message << mesg << "\n";
-    mesg.Clear();
-    mesg << TAG << " missing end tag in def file: " 
-	 << fname;
+    error_message.clear();
+    str_append(error_message, mesg, "\n");
+    mesg.clear();
+    str_append(mesg, TAG, " missing end tag in def file: ", fname);
     gxrdFormatMessage(mesg, process_name);
-    error_message << mesg;
+    str_append(error_message, mesg);
   }
 
-  def.DeleteBeforeIncluding("{");
-  def.DeleteAfterIncluding("};");
+  delete_before_including(def, "{");
+  delete_after_including(def, "};");
 
   return 1;
 }
 
-GXDLCODE_API int gxrdReadDefFile(const gxString &fname, 
-				 const gxString &process_name,
-				 gxString &table_def,
-				 gxString &key_def,
-				 gxString &error_message)
+GXDLCODE_API int gxrdReadDefFile(const std::string &fname, 
+				 const std::string &process_name,
+				 std::string &table_def,
+				 std::string &key_def,
+				 std::string &error_message)
 {
   if(!gxrdReadTableDef(fname, process_name, table_def, error_message)) {
     return 0;
@@ -161,13 +155,13 @@ GXDLCODE_API int gxrdReadDefFile(const gxString &fname,
   return 1;
 }
 
-GXDLCODE_API int gxrdReadDefFile(const gxString &fname, 
-				 const gxString &process_name,
-				 gxString &table_def,
-				 gxString &key_def,
-				 gxString &form_def,
-				 gxString &fkey_def,
-				 gxString &error_message)
+GXDLCODE_API int gxrdReadDefFile(const std::string &fname, 
+				 const std::string &process_name,
+				 std::string &table_def,
+				 std::string &key_def,
+				 std::string &form_def,
+				 std::string &fkey_def,
+				 std::string &error_message)
 {
   if(!gxrdReadTableDef(fname, process_name, table_def, error_message)) {
     return 0;
@@ -184,15 +178,15 @@ GXDLCODE_API int gxrdReadDefFile(const gxString &fname,
   return 1;
 }
 
-GXDLCODE_API int gxrdReadDefFile(const gxString &fname, 
-				 const gxString &process_name,
-				 gxString &table_def,
-				 gxString &key_def,
-				 gxString &form_def,
-				 gxString &fkey_def,
-				 gxString &user_def,
-				 gxString &group_def,
-				 gxString &error_message)
+GXDLCODE_API int gxrdReadDefFile(const std::string &fname, 
+				 const std::string &process_name,
+				 std::string &table_def,
+				 std::string &key_def,
+				 std::string &form_def,
+				 std::string &fkey_def,
+				 std::string &user_def,
+				 std::string &group_def,
+				 std::string &error_message)
 {
   if(!gxrdReadTableDef(fname, process_name, table_def, error_message)) {
     return 0;
@@ -215,57 +209,57 @@ GXDLCODE_API int gxrdReadDefFile(const gxString &fname,
   return 1;
 }
 
-GXDLCODE_API int gxrdReadTableDef(const gxString &fname, 
-				  const gxString &process_name,
-				  gxString &table_def, 
-				  gxString &error_message)
+GXDLCODE_API int gxrdReadTableDef(const std::string &fname, 
+				  const std::string &process_name,
+				  std::string &table_def, 
+				  std::string &error_message)
 {
   return gxrdReadDefFile(fname, process_name, "DEFINE TABLE", table_def,
 			 error_message);
 
 }
 
-GXDLCODE_API int gxrdReadKeyDef(const gxString &fname, 
-				const gxString &process_name,
-				gxString &key_def, 
-				gxString &error_message)
+GXDLCODE_API int gxrdReadKeyDef(const std::string &fname, 
+				const std::string &process_name,
+				std::string &key_def, 
+				std::string &error_message)
 {
   return gxrdReadDefFile(fname, process_name, "DEFINE KEYS", key_def,
 			  error_message);
 }
 
-GXDLCODE_API int gxrdReadFormDef(const gxString &fname, 
-				   const gxString &process_name,
-				   gxString &form_def, 
-				   gxString &error_message)
+GXDLCODE_API int gxrdReadFormDef(const std::string &fname, 
+				   const std::string &process_name,
+				   std::string &form_def, 
+				   std::string &error_message)
 {
  return gxrdReadDefFile(fname, process_name, "DEFINE FORM", form_def,
 			error_message);
 }
 
-GXDLCODE_API int gxrdReadFKeyDef(const gxString &fname, 
-				 const gxString &process_name,
-				 gxString &fkey_def, 
-				 gxString &error_message)
+GXDLCODE_API int gxrdReadFKeyDef(const std::string &fname, 
+				 const std::string &process_name,
+				 std::string &fkey_def, 
+				 std::string &error_message)
 {
  return gxrdReadDefFile(fname, process_name, "DEFINE FKEYS", fkey_def,
 			error_message);
 }
 
-GXDLCODE_API int gxrdReadUserDef(const gxString &fname, 
-				 const gxString &process_name,
-				 gxString &user_def, 
-				 gxString &error_message)
+GXDLCODE_API int gxrdReadUserDef(const std::string &fname, 
+				 const std::string &process_name,
+				 std::string &user_def, 
+				 std::string &error_message)
 {
  return gxrdReadDefFile(fname, process_name, "DEFINE USER ACCESS", 
 			user_def, error_message);
 
 }
 
-GXDLCODE_API int gxrdReadGroupDef(const gxString &fname, 
-				  const gxString &process_name,
-				  gxString &group_def, 
-				  gxString &error_message)
+GXDLCODE_API int gxrdReadGroupDef(const std::string &fname, 
+				  const std::string &process_name,
+				  std::string &group_def, 
+				  std::string &error_message)
 {
   return gxrdReadDefFile(fname, process_name, "DEFINE GROUP ACCESS", 
 			 group_def, error_message);

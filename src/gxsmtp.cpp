@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxsmtp.cpp
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -45,274 +45,237 @@ SMTP response has been received.
 
 09/22/2005: Modified gxsSMTPClient::RecvResponse() to signal 
 a graceful socket disconnect.
+
+10/26/2026: DataReel 7 rewrites gxsSMTPClient on gxsTLSConnection. 
+Mail is only sent over TLS: implicit TLS (port 465) or STARTTLS 
+(port 587). A server that does not offer STARTTLS is refused, 
+never used in plain text. Login() uses AUTH PLAIN or AUTH LOGIN, 
+multi-line replies are read in full, and message bodies are dot 
+stuffed. SendMessage() writes RFC 5322 headers.
 ==============================================================
 */
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
 #include "gxdlcode.h"
 
+#include <cstdlib>
+#include <ctime>
 #include "gxsmtp.h"
+#include "gxs_b64.h"
+#include "strutil.h"
 #include "systime.h"
-#include <string.h>
-#include <stdio.h>
 
-gxSocketError gxsSMTPClient::ConnectClient(const char *host, int port)
-// Function used to connect a SMTP client to a server. Returns zero if no
-// errors occur.
+using namespace datareel;
+
+int gxsSMTPClient::fail(const std::string &msg)
 {
-  if(InitSocketLibrary() == 0) {
-    if(InitSocket(SOCK_STREAM, port, (char *)host) < 0) return socket_error;
-  }
-  else {
-    return socket_error;
-  }
-
-  if(Connect() < 0) return socket_error;
-
-  // Read the server's response
-  // PC-lint 04/26/2005: Possible access of out-of-bounds pointer
-  if(!RecvResponse(reply_buf, (gxsBUF_SIZE-1), "220")) return socket_error;
-  return socket_error = gxSOCKET_NO_ERROR;
+  error = msg;
+  return -1;
 }
 
-gxSocketError gxsSMTPClient::SendCommand(const char *command, 
-					 const char *response, 
-					 const char *args)
-// Function used to send a command to an SMTP server and read the server's
-// response. Returns zero if no errors occur.
+int gxsSMTPClient::read_reply()
+// Read a reply, which may span several "250-" lines. Returns the
+// reply code or -1 if the connection failed.
 {
-  if(args) {
-    sprintf(command_buf, "%s %s\r\n", command, args);
-  }
-  else {
-    sprintf(command_buf, "%s\r\n", command);
-  }
-  int len = strlen(command_buf);
-  
-  // Send SMTP command using a blocking write
-  if(Send(command_buf, len) < 0) return socket_error;
-
-  // Read the server's response
-  // PC-lint 04/26/2005: Possible access of out-of-bounds pointer
-  if(!RecvResponse(reply_buf, (gxsBUF_SIZE-1), response)) return socket_error;
-  return socket_error = gxSOCKET_NO_ERROR;
-}
-
-gxSocketError gxsSMTPClient::SMTPLogin(const char *domain_name) 
-// Function used to send the SMTP "Hello" command. Returns zero if 
-// no errors occur.
-{
-  return SendCommand("HELO", "250", domain_name);
-}
-
-gxSocketError gxsSMTPClient::ESMTPLogin(const char *client_name) 
-// Login for ESMTP mail servers if roaming. Returns zero if 
-// no errors occur.
-{
-  return SendCommand("EHLO", "250", client_name);
-}
-
-gxSocketError gxsSMTPClient::ESMTPAuthLogin(const char *b64_username, 
-					    const char *b64_password)
-{
-  if(SendCommand("AUTH LOGIN", "334") != gxSOCKET_NO_ERROR) 
-    return socket_error;
-  if(SendCommand(b64_username, "334") != gxSOCKET_NO_ERROR) 
-    return socket_error;
-  if(SendCommand(b64_password, "235") != gxSOCKET_NO_ERROR) 
-    return socket_error;
-  
-  return socket_error = gxSOCKET_NO_ERROR;
-}
-
-gxSocketError gxsSMTPClient::SMTPLogout()
-// Function used to send the SMTP "QUIT" command. Returns zero if
-// no errors occur.
-{
-  return SendCommand("QUIT", "221");
-}
-
-gxSocketError gxsSMTPClient::SMTPRSet()
-// Function used to send the SMTP "Reset" command. Returns zero if
-// no errors occur.
-{
-  return SendCommand("RSET", "250");
-}
-
-gxSocketError gxsSMTPClient::SMTPMailFrom(const char *from_email_address)
-// Function used to send the SMTP "MAIL FROM" command. Returns zero if 
-// no errors occur.
-{
-  return SendCommand("MAIL FROM:", "250", from_email_address);
-}
-
-gxSocketError gxsSMTPClient::SMTPRcptTo(const char *to_email_address)
-// Function used to send the SMTP "RCPT TO" command. Returns zero if
-// no errors occur.
-{
-  return SendCommand("RCPT TO:", "250", to_email_address);
-}
-
-gxSocketError gxsSMTPClient::SMTPData(const char *body_text, int body_len)
-// Function used to send a text body. Returns zero if no errors occur.
-{
-  if(SendCommand("DATA", "354") != gxSOCKET_NO_ERROR) return socket_error;
-
-  // Send the message body
-  if(Send(body_text, body_len) < 0) return socket_error;
-
-  // Send the end of message sequence
-  strcpy(command_buf, "\r\n.\r\n");
-  int len = strlen(command_buf);
-  if(Send(command_buf, len) < 0) return socket_error;
-  
-  // Read the server's response
-  // PC-lint 04/26/2005: Possible access of out-of-bounds pointer
-  if(!RecvResponse(reply_buf, (gxsBUF_SIZE-1), "250")) return socket_error;
-  return socket_error = gxSOCKET_NO_ERROR;
-}
-
-int gxsSMTPClient::WaitForReply()
-// Returns false if a reply time is longer then the timeout values. 
-{
-  return ReadSelect(gxsocket, time_out_sec, time_out_usec);
-}
-
-int gxsSMTPClient::RecvResponse(char *buf, int bytes, const char *response)
-// Blocking receive function used to read a reply from an SMTP server
-// following a command. If the specified response is not received within
-// the timeout period this function will return false to indicate an error.
-// Returns true if successful.
-{
-  bytes_read = 0;           // Reset the byte counter
-  int num_read = 0;         // Actual number of bytes read
-  int num_req = (int)bytes; // Number of bytes requested 
-  char *p = buf;            // Pointer to the buffer
-  int len = 3;
-
-  while(bytes_read < bytes) { // Loop until the buffer is full
-    if(!WaitForReply()) { 
-      socket_error = gxSOCKET_REQUEST_TIMEOUT;      
-      if(bytes_read >= 0) buf[bytes_read] = 0;
-      return 0;
+  last_reply.clear();
+  last_code = 0;
+  std::string line;
+  for(int lines = 0; lines < 1000; lines++) {
+    if(!conn.ReadLine(line, 4096)) {
+      fail("SMTP exception: No reply from server" + 
+	   (conn.Error().empty() ? std::string() : ": " + conn.Error()));
+      return -1;
     }
-    if((num_read = recv(gxsocket, p, num_req-bytes_read, 0)) > 0) {
-      bytes_read += num_read;   // Increment the byte counter
-      p += num_read;            // Move the buffer pointer for the next read
-
-      if(buf[bytes_read-1] == '\n') { // We received the entire reply line
-	buf[bytes_read] = 0; // NULL terminate the reply
-	if(bytes_read > len) { // Look for numeric response code
-	  if(strncmp(response, buf, len) == 0) {
-	    return 1; // Found matching numeric reply code
-	  }
-	  else {
-	    // Server replied with an error
-	    socket_error = gxSOCKET_SMTP_ERROR;
-	    return 0;
-	  }
-	}
-	else { // Invalid reply code
-	  socket_error = gxSOCKET_SMTP_ERROR;
-	  return 0;
-	}
-      }
-    }
-    if(num_read == 0) {
-      if(bytes_read >= 0) buf[bytes_read] = 0;
-      socket_error = gxSOCKET_DISCONNECTED_ERROR;
-      return 0; // An error occurred during the read
-    }
-    if(num_read < 0) {
-      if(bytes_read >= 0) buf[bytes_read] = 0;
-      socket_error = gxSOCKET_RECEIVE_ERROR;
-      return 0; // An error occurred during the read
+    if(line.size() < 3) { fail("SMTP exception: Bad reply: " + line); return -1; }
+    if(!last_reply.empty()) last_reply += "\n";
+    last_reply += line;
+    if(line.size() == 3 || line[3] != '-') {
+      last_code = std::atoi(line.substr(0, 3).c_str());
+      return last_code;
     }
   }
+  fail("SMTP exception: Reply is too long");
+  return -1;
+}
 
-  // The receieve buffer is full - buffer overflow
-  socket_error = gxSOCKET_BUFOVER_ERROR;
-  if(bytes_read >= 0) buf[bytes_read] = 0;
+int gxsSMTPClient::Command(const std::string &cmd, const std::string &expect)
+{
+  if(cmd.find('\r') != std::string::npos || cmd.find('\n') != std::string::npos) {
+    return fail("SMTP exception: Command contains a line break");
+  }
+  if(conn.SendLine(cmd) < 0) return fail("SMTP exception: " + conn.Error());
+  if(read_reply() < 0) return -1;
+  if(!starts_with(std::to_string(last_code), expect)) {
+    return fail("SMTP exception: " + last_reply);
+  }
   return 0;
 }
 
-
-gxSocketError gxsSMTPClient::SMTPSendMessage(const char *to, 
-					     const char *from, 
-					     const char *subject, 
-					     const char *body)
-// Function used to send a formatted message. Returns zero if no errors
-// occur.
+int gxsSMTPClient::ehlo()
 {
-  if(SMTPRSet() != gxSOCKET_NO_ERROR) return socket_error;
-  if(SMTPMailFrom(from) != gxSOCKET_NO_ERROR)
-    return socket_error;
-  if(SMTPRcptTo(to) != gxSOCKET_NO_ERROR)
-    return socket_error;
-  if(SendCommand("DATA", "354") != gxSOCKET_NO_ERROR) return socket_error;
-
-  // Construct a message header
-  char systime[gxsBUF_SIZE];
-  GetSMTPTimeStamp(systime);
-  unsigned header_len = strlen(from) + strlen(to) + strlen(subject) + \
-    strlen(systime);
-
-  header_len += 50; // Allocate space for additional formatting
-  char *message_header = new char[header_len+1];
-  if(!message_header) return socket_error = gxSOCKET_BUFOVER_ERROR;
-  
-  // Format the message header
-  // 11/17/2007: Fix for LF problem
-  // SMTP protocol reported an error condition
-  // 451 See http://pobox.com/~djb/docs/smtplf.html
-  // http://cr.yp.to/docs/smtplf.html
-  sprintf(message_header, "Date: %s\r\nFrom: %s\r\nTo: %s\r\nSubject: %s\r\n",
-	  systime, from, to, subject);
-
-  // Send the message header
-  if(Send(message_header, (int)strlen(message_header)) < 0) {
-    // PC-lint 04/26/2005: Avoid inappropriate de-allocation error,
-    // but message_header is not a user defined type so there is no destructor
-    // to call for the array members.
-    delete[] message_header;
-    return socket_error;
+  std::string name = client_name.empty() ? gxSocket::HostName() : client_name;
+  if(name.empty()) name = "localhost";
+  if(Command("EHLO " + name, "250") != 0) return -1;
+  extensions.clear();
+  std::vector<std::string> lines = split(last_reply, '\n');
+  for(std::size_t i = 1; i < lines.size(); i++) {
+    if(lines[i].size() > 4) extensions.push_back(to_upper(lines[i].substr(4)));
   }
-
-  // Send the body of the message
-  if(Send(body, (int)strlen(body)) < 0) {
-    // PC-lint 04/26/2005: Avoid inappropriate de-allocation error,
-    // but message_header is not a user defined type so there is no destructor
-    // to call for the array members.
-    delete[] message_header;
-    return socket_error;
-  }
-  
-  // Send the end of message sequence
-  // PC-lint 04/26/2005: Avoid inappropriate de-allocation error,
-  // but message_header is not a user defined type so there is no destructor
-  // to call for the array members.
-  delete[] message_header;
-
-  strcpy(command_buf, "\r\n.\r\n");
-  int len = strlen(command_buf);
-  if(Send(command_buf, len) < 0) return socket_error;
-  
-  // Read the server's response
-  if(!RecvResponse(reply_buf, gxsBUF_SIZE, "250")) return socket_error;
-  return socket_error = gxSOCKET_NO_ERROR;
+  return 0;
 }
 
-char *gxsSMTPClient::GetSMTPTimeStamp(char *sbuf)
-// Passes back an SMTP time string in the following format:
-// Weekday, Day Month Year HH:MM:SS - Timezone
+bool gxsSMTPClient::HasExtension(const std::string &name) const
 {
-  // Prevent program crash if sbuf is null
-  if(!sbuf) {
-    sbuf = new char[gxsBUF_SIZE];
-    if(!sbuf) return 0;
+  std::string n = to_upper(name);
+  for(const auto &e : extensions) {
+    if(e == n || starts_with(e, n + " ")) return true;
   }
-  SysTime smtp_timedate;
-  strcpy(sbuf, smtp_timedate.GetSMTPTime());
-  return sbuf;
+  return false;
+}
+
+int gxsSMTPClient::Connect(const std::string &host, int port,
+			   gxsMailSecurity security)
+{
+  error.clear();
+  if(conn.Connect(host, port, security == gxsMAIL_IMPLICIT_TLS) != 0) {
+    return fail(conn.Error());
+  }
+  if(read_reply() < 0) return -1;
+  if(last_code != 220) return fail("SMTP exception: " + last_reply);
+  if(ehlo() != 0) return -1;
+  if(security == gxsMAIL_STARTTLS) {
+    if(!HasExtension("STARTTLS")) {
+      conn.Close();
+      return fail("SMTP exception: " + host + " does not offer STARTTLS");
+    }
+    if(Command("STARTTLS", "220") != 0) return -1;
+    if(conn.StartTLS() != 0) return fail(conn.Error());
+    if(ehlo() != 0) return -1; // Ask again over TLS
+  }
+  return 0;
+}
+
+int gxsSMTPClient::Login(const std::string &user, const std::string &passwd)
+{
+  std::string auth;
+  for(const auto &e : extensions) {
+    if(starts_with(e, "AUTH ")) auth = e;
+  }
+  if(auth.find(" PLAIN") != std::string::npos || auth.empty()) {
+    std::string creds;
+    creds += '\0';
+    creds += user;
+    creds += '\0';
+    creds += passwd;
+    return Command("AUTH PLAIN " + gxsBase64Encode(creds), "235");
+  }
+  if(Command("AUTH LOGIN", "334") != 0) return -1;
+  if(Command(gxsBase64Encode(user), "334") != 0) return -1;
+  return Command(gxsBase64Encode(passwd), "235");
+}
+
+static std::string angle(const std::string &address)
+{
+  std::string a = trim(address);
+  if(!a.empty() && a[0] == '<') return a;
+  // "Name <user@host>" keeps only the address part
+  std::size_t lt = a.find('<');
+  if(lt != std::string::npos) return a.substr(lt);
+  return "<" + a + ">";
+}
+
+int gxsSMTPClient::MailFrom(const std::string &address)
+{
+  return Command("MAIL FROM:" + angle(address), "250");
+}
+
+int gxsSMTPClient::RcptTo(const std::string &address)
+{
+  return Command("RCPT TO:" + angle(address), "25");
+}
+
+int gxsSMTPClient::Data(const std::string &message)
+{
+  if(Command("DATA", "354") != 0) return -1;
+  // Normalize line ends to CR LF and dot stuff lines that start with '.'
+  std::string out;
+  out.reserve(message.size() + 64);
+  bool line_start = true;
+  for(std::size_t i = 0; i < message.size(); i++) {
+    char c = message[i];
+    if(line_start && c == '.') out += '.';
+    if(c == '\r') {
+      if(i + 1 < message.size() && message[i+1] == '\n') continue;
+      c = '\n';
+    }
+    if(c == '\n') {
+      out += "\r\n";
+      line_start = true;
+      continue;
+    }
+    out += c;
+    line_start = false;
+  }
+  if(!line_start) out += "\r\n";
+  out += ".\r\n";
+  if(conn.Send(out) < 0) return fail("SMTP exception: " + conn.Error());
+  if(read_reply() < 0) return -1;
+  if(last_code != 250) return fail("SMTP exception: " + last_reply);
+  return 0;
+}
+
+int gxsSMTPClient::Reset()
+{
+  return Command("RSET", "250");
+}
+
+int gxsSMTPClient::Quit()
+{
+  int rv = Command("QUIT", "221");
+  conn.Close();
+  return rv;
+}
+
+int gxsSMTPClient::SendMessage(const std::string &from, 
+			       const std::vector<std::string> &to,
+			       const std::string &subject, 
+			       const std::string &body)
+{
+  if(to.empty()) return fail("SMTP exception: No recipients");
+  for(const std::string *h : { &from, &subject }) {
+    if(h->find('\r') != std::string::npos || h->find('\n') != std::string::npos) {
+      return fail("SMTP exception: Header contains a line break");
+    }
+  }
+  if(MailFrom(from) != 0) return -1;
+  std::string to_header;
+  for(const auto &t : to) {
+    if(t.find('\r') != std::string::npos || t.find('\n') != std::string::npos) {
+      return fail("SMTP exception: Header contains a line break");
+    }
+    if(RcptTo(t) != 0) return -1;
+    if(!to_header.empty()) to_header += ", ";
+    to_header += t;
+  }
+  std::string domain = "localhost";
+  std::size_t at = from.rfind('@');
+  if(at != std::string::npos) {
+    domain = from.substr(at + 1);
+    std::size_t gt = domain.find('>');
+    if(gt != std::string::npos) domain.erase(gt);
+  }
+  std::string msg;
+  msg += "Date: " + smtp_time() + "\r\n";
+  msg += "From: " + from + "\r\n";
+  msg += "To: " + to_header + "\r\n";
+  msg += "Subject: " + subject + "\r\n";
+  msg += "Message-ID: <" + std::to_string((long long)std::time(0)) + "." + 
+    std::to_string(std::rand()) + "@" + domain + ">\r\n";
+  msg += "MIME-Version: 1.0\r\n";
+  msg += "Content-Type: text/plain; charset=utf-8\r\n";
+  msg += "Content-Transfer-Encoding: 8bit\r\n";
+  msg += "\r\n";
+  msg += body;
+  return Data(msg);
 }
 // ----------------------------------------------------------- //
 // ------------------------------- //

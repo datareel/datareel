@@ -38,6 +38,7 @@ core.*
 
 # CMake build trees
 cmake-build/
+cmake-build*/
 
 # Example and utility program binaries (Linux builds)
 examples_*/*/testprog
@@ -49,3 +50,6 @@ utils/*/ffind
 utils/*/hexdump
 utils/*/ix_debug
 utils/*/txfilter
+
+# Makefile build dependency files
+*.d

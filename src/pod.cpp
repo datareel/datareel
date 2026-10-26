@@ -247,7 +247,7 @@ gxDatabaseError POD::Open(const char *dfname, PODIndexFile *ix_ptr,
   return gxDBASE_NO_ERROR;
 }
 
-gxDatabaseError POD::Open(const char *dfname, char *ifname[POD_MAX_INDEX],
+gxDatabaseError POD::Open(const char *dfname, const char *ifname[POD_MAX_INDEX],
 			  unsigned num_indexes, DatabaseKeyB &key_type,
 			  BtreeNodeOrder_t order, gxDatabaseAccessMode mode,
  			  FAU_t static_size, int num_trees,

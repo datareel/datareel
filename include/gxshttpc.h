@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Header File Name: gxshttpc.h
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -55,298 +55,90 @@ gxsHTTPClient::ResetTimeOut(), and gxsHTTPClient::ResetRecv().
 
 12/19/2005: Added SSL class and functions used to support HTTPS
 connections.
+
+10/26/2026: DataReel 7 replaces gxsHTTPClient and gxsHTTPSClient 
+with one HTTPS-only client built on gxsTLSConnection. http:// URLs 
+and redirects to them are refused. The server certificate and host 
+name are checked by default. Responses can be chunked, and bodies 
+are returned in a std::string or written to a file.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
-#ifndef __GX_SOCKET_HTTP_CLIENT__HPP__
-#define __GX_SOCKET_HTTP_CLIENT__HPP__
+#ifndef __GX_HTTP_CLIENT_HPP__
+#define __GX_HTTP_CLIENT_HPP__
 
 #include "gxdlcode.h"
 
-#include "gxdfptr.h"
-#include "devcache.h"
-#include "gxsocket.h"
-#include "gxsurl.h"
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
 #include "gxshttp.h"
-#include "membuf.h"
+#include "gxstls.h"
+#include "gxsurl.h"
 
-#if defined (__USE_GX_SSL_EXTENSIONS__)
-#include "gxssl.h"
-#endif
-
-// --------------------------------------------------------------
-// Constants 
-// --------------------------------------------------------------
-const int __HTTP_DEFAULT_CACHE_SIZE__  = 10;   // Default cache size  
-const int __HTTP_DEFAULT_PACKET_SIZE__ = 4096; // Max buffer length
-
-// Adjust these values for maximum performance
-const int __HTTP_CACHE_SIZE__  = 10;   // Number of cache buckets used
-const int __HTTP_PACKET_SIZE__ = 4096; // Maximum HTTP buffer size
-// --------------------------------------------------------------
-
-// --------------------------------------------------------------
-// Type Definitions
-// --------------------------------------------------------------
-typedef int (*HTTPClientDisplayFunc)(const gxString &mesg); 
-// --------------------------------------------------------------
-
-class GXDLCODE_API gxsHTTPClient : public gxSocket, public gxDeviceCache
+// HTTPS client. Each request opens a new TLS connection.
+class GXDLCODE_API gxsHTTPClient
 {
 public:
-  gxsHTTPClient(int CacheSize = __HTTP_DEFAULT_CACHE_SIZE__,
-		int seconds =  __HTTP_RECV_TIMEOUT_SECS__,
-		int useconds =  __HTTP_RECV_TIMEOUT_USECS__);
-  ~gxsHTTPClient();
+  gxsHTTPClient() { }
+
+public: // Settings
+  void SetTimeout(int seconds) { timeout_sec = seconds; }
+  void SetCAFile(const std::string &fname) { ca_file = fname; }
+  void SetVerifyPeer(bool on) { verify_peer = on; }
+  void SetUserAgent(const std::string &s) { user_agent = s; }
+  void SetMaxRedirects(int n) { max_redirects = n; }
+  void SetMaxBodySize(std::size_t n) { max_body = n; }
+  void SetBasicAuth(const std::string &user, const std::string &passwd) {
+    auth_user = user; auth_passwd = passwd;
+  }
+  // Extra headers sent with every request
+  void AddHeader(const std::string &name, const std::string &value) {
+    extra_headers.emplace_back(name, value);
+  }
+  void ClearHeaders() { extra_headers.clear(); }
+
+public: // Requests. Each returns 0 if a response was received.
+  int Get(const std::string &url, gxsHTTPMessage &response);
+  int Head(const std::string &url, gxsHTTPMessage &response);
+  int Post(const std::string &url, const std::string &body,
+	   const std::string &content_type, gxsHTTPMessage &response);
+  int Request(const std::string &method, const std::string &url,
+	      const std::string &body, const std::string &content_type,
+	      gxsHTTPMessage &response);
+
+  // GET url and write the body to fname. Returns 0 if the response
+  // status was 2xx and the file was written.
+  int Download(const std::string &url, const std::string &fname,
+	       gxsHTTPMessage &response);
 
 public:
-  void Flush() { cache.Flush(); } // Flush the cache buckets
-  unsigned BucketsInUse() { return cache.BucketsInUse(); }
-  int ConnectClient(const char *host, int port = gxSOCKET_HTTP_PORT);
-  int RequestHeader(const gxsURLInfo &u, gxsHTTPHeader &hdr);
-  int SimpleRequest(const gxsURLInfo &u, gxdFPTR *stream);
-  int SimpleRequest(const gxsURLInfo &u, MemoryBuffer &mbuf);
-
-  // 09/27/2001: Replacement request file functions optimized for speedy
-  // downloads by requesting the document plus header in one operation.
-  int Request(const gxsURLInfo &u, gxsHTTPHeader &hdr, gxdFPTR *stream, 
-	      gxsHTTPHeader *compare_hdr = 0, 
-	      HTTPClientDisplayFunc display = 0);
-  int Request(const gxsURLInfo &u, gxsHTTPHeader &hdr, MemoryBuffer &mbuf);
-  char *GetMethod(int method);
-  char *GetProtocolString(int protocol);
-  void BuildRequestString(const gxsURLInfo &u, int method, gxString &request);
-  void BuildSimpleRequestString(const gxsURLInfo &u, int method,
-				gxString &request);
-  int ParseHTTPHeader(const gxsURLInfo &u, const gxString &header,
-		      gxsHTTPHeader &hdr);
-
-private: // Device cache base class interface
-  void Read(void *buf, unsigned Bytes, gxDeviceTypes dev);
-  void Write(const void *buf, unsigned Bytes, gxDeviceTypes dev);
-
-public: // Client header information that can or must be modified
-        // according to the application. These values will be used
-        // when a request string is built.
-
-  // HTTP 1.0 and 1.1 Header Field Definitions
-  // http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html
-  gxString HTTP_VERSION_STRING; // HTTP requested version string
-  gxString HTTP_AGENT_STRING;   // Application name;
-  gxString HTTP_ACCEPT_STRING;  // All accept strings 
-  gxString HTTP_PRAGMA_STRING;  // Implementation-specific directives 
-
-  // Used to provide information left earlier by some server.
-  // Usage: "Cookie: persistent data\r\n"
-  gxString HTTP_COOKIE_STRING; 
-  
-  // Default file name used if no file is specified. NOTE: defaults to " /"
-  gxString HTTP_DEFAULT_FILE_REQUEST_STRING;
-
-  // This value will be set to null by default. The application must set
-  // this value in order to include it in the request string. NOTE: The
-  // following syntax must be used when setting this value:
-  // "Referrer: http://www.w3.org/hypertext/DataSources/Overview.html\r\n"
-  gxString HTTP_REFERER_STRING; // The Referrer request-header field allows
-                                // the client to specify, for the server's
-                                // benefit, the address (URI) of the resource
-                                // from which the Request-URI was obtained. 
-  
-  // This value will be set to null by default. The application must set
-  // this value in order to include it in the request string. NOTE: The
-  // following syntax must be used when setting this value:
-  // "If-Modified-Since: Sat, 29 Oct 1999 19:43:31 GMT\r\n"
-  // There are three accepted date formats: RFC 822, RFC 850, asctime()
-  gxString HTTP_IF_MOD_STRING; // Used with the GET method to make it
-                               // conditional: if the requested resource has
-                               // not been modified since the time specified
-                               // in this field, a copy of the resource will
-                               // not be returned from the server; instead, a
-                               // 304 (not modified) response will be returned
-                               // without any Entity-Body. 
-
-
-  // 07/25/2006: Addtional values used to support HTTP 1.1
-  gxString HTTP_KEEP_ALIVE_STRING; // Keep alive value.
-  gxString HTTP_CONNECTION_STRING; // All connections strings
-  
-  // Any additonal header content to appended to the request string
-  gxString HTTP_CUSTOM_STRINGS;
-
-  gxString HTTP_CUSTOM_CLIENT_HEADER; // User supplied client header
+  const std::string &Error() const { return error; }
+  const std::string &FinalURL() const { return final_url; }
 
 private:
-  gxsURL url;              // Used to process URL information
-  int write_error;         // Holds the last write error, if any
-  int read_error;          // Holds the last read error, if any
-  unsigned bytes_received; // Number of bytes read from an open socket
-
-private: // I/O device members
-  gxdFPTR *file_ptr;                 // Pointer to an open file
-  char rxBuffer[__HTTP_PACKET_SIZE__]; // Receiver memory buffer
-
-private: // Device cache
-  gxDeviceBucketCache cache;
-
-public: // Functions used to get the current device cache
-  gxDeviceBucketCache *GetCache() { return &cache; }
-
-public: // Depreciated functions
-  int RequestFile(const gxsURLInfo &u, const gxsHTTPHeader &hdr,
-		  gxdFPTR *stream);
-  int RequestFile(const gxsURLInfo &u, const gxsHTTPHeader &hdr,
-		  MemoryBuffer &mbuf);
-
-public: // 10/30/2002 - Functions used to set timeout values
-  void SetTimeOut(int seconds = __HTTP_RECV_TIMEOUT_SECS__, 
-		  int useconds =  __HTTP_RECV_TIMEOUT_USECS__) {
-    time_out_sec = seconds;
-    time_out_usec = useconds;
-  }
-  void TerminateRecv() { recv_loop = 0; }
-  void ResetRecv() {  recv_loop = 1; }
-  void ResetTimeOut() {
-    time_out_sec = __HTTP_RECV_TIMEOUT_SECS__;
-    time_out_usec = __HTTP_RECV_TIMEOUT_SECS__;
-  }
-
-public: // 10/03/2002 - Timing variables to prevent infinite receive loops
-  int recv_loop;     // Used to break receive loops 
-  int time_out_sec;  // Number of seconds before a blocking timeout
-  int time_out_usec; // Number of microseconds before a blocking timeout
-
-public: // 07/23/2006: Added to record http header exchanges
-  int record_proto;      // True if user want to record the session
-  gxString proto_string; // Recorded protocol strings
-};
-
-#if defined (__USE_GX_SSL_EXTENSIONS__)
-
-class GXDLCODE_API gxsHTTPSClient : public gxSocket, public gxDeviceCache
-{
-public:
-  gxsHTTPSClient(int CacheSize = __HTTP_DEFAULT_CACHE_SIZE__,
-		int seconds =  __HTTP_RECV_TIMEOUT_SECS__,
-		int useconds =  __HTTP_RECV_TIMEOUT_USECS__);
-  ~gxsHTTPSClient();
-
-public:
-  void Flush() { cache.Flush(); } // Flush the cache buckets
-  unsigned BucketsInUse() { return cache.BucketsInUse(); }
-  int ConnectClient(const char *host, int port = gxSOCKET_HTTPS_PORT);
-  int RequestHeader(const gxsURLInfo &u, gxsHTTPHeader &hdr);
-  int SimpleRequest(const gxsURLInfo &u, gxdFPTR *stream);
-  int SimpleRequest(const gxsURLInfo &u, MemoryBuffer &mbuf);
-  int Request(const gxsURLInfo &u, gxsHTTPHeader &hdr, gxdFPTR *stream, 
-	      gxsHTTPHeader *compare_hdr = 0, 
-	      HTTPClientDisplayFunc display = 0);
-  int Request(const gxsURLInfo &u, gxsHTTPHeader &hdr, MemoryBuffer &mbuf);
-  char *GetMethod(int method);
-  char *GetProtocolString(int protocol);
-  void BuildRequestString(const gxsURLInfo &u, int method, gxString &request);
-  void BuildSimpleRequestString(const gxsURLInfo &u, int method,
-				gxString &request);
-  int ParseHTTPHeader(const gxsURLInfo &u, const gxString &header,
-		      gxsHTTPHeader &hdr);
-
-private: // Device cache base class interface
-  void Read(void *buf, unsigned Bytes, gxDeviceTypes dev);
-  void Write(const void *buf, unsigned Bytes, gxDeviceTypes dev);
-
-public: // Client header information that can or must be modified
-        // according to the application. These values will be used
-        // when a request string is built.
-
-  // HTTP 1.0 and 1.1 Header Field Definitions
-  // http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html
-  gxString HTTP_VERSION_STRING; // HTTP requested version string
-  gxString HTTP_AGENT_STRING;   // Application name;
-  gxString HTTP_ACCEPT_STRING;  // All accept strings 
-  gxString HTTP_PRAGMA_STRING;  // Implementation-specific directives 
-
-  // Used to provide information left earlier by some server.
-  // Usage: "Cookie: persistent data\r\n"
-  gxString HTTP_COOKIE_STRING; 
-  
-  // Default file name used if no file is specified. NOTE: defaults to " /"
-  gxString HTTP_DEFAULT_FILE_REQUEST_STRING;
-
-  // This value will be set to null by default. The application must set
-  // this value in order to include it in the request string. NOTE: The
-  // following syntax must be used when setting this value:
-  // "Referrer: http://www.w3.org/hypertext/DataSources/Overview.html\r\n"
-  gxString HTTP_REFERER_STRING; // The Referrer request-header field allows
-                                // the client to specify, for the server's
-                                // benefit, the address (URI) of the resource
-                                // from which the Request-URI was obtained. 
-  
-  // This value will be set to null by default. The application must set
-  // this value in order to include it in the request string. NOTE: The
-  // following syntax must be used when setting this value:
-  // "If-Modified-Since: Sat, 29 Oct 1999 19:43:31 GMT\r\n"
-  // There are three accepted date formats: RFC 822, RFC 850, asctime()
-  gxString HTTP_IF_MOD_STRING; // Used with the GET method to make it
-                               // conditional: if the requested resource has
-                               // not been modified since the time specified
-                               // in this field, a copy of the resource will
-                               // not be returned from the server; instead, a
-                               // 304 (not modified) response will be returned
-                               // without any Entity-Body. 
-  
-  // 07/25/2006: Addtional values used to support HTTP 1.1
-  gxString HTTP_KEEP_ALIVE_STRING; // Keep alive value.
-  gxString HTTP_CONNECTION_STRING; // All connections strings
-  
-  // Any additonal header content to appended to the request string
-  gxString HTTP_CUSTOM_STRINGS;
-  
-  gxString HTTP_CUSTOM_CLIENT_HEADER; // User supplied client header
+  int fail(const std::string &msg) { error = msg; return -1; }
+  int send_one(const std::string &method, const gxsURLInfo &u,
+	       const std::string &body, const std::string &content_type,
+	       gxsHTTPMessage &response);
 
 private:
-  gxsURL url;              // Used to process URL information
-  int write_error;         // Holds the last write error, if any
-  int read_error;          // Holds the last read error, if any
-  unsigned bytes_received; // Number of bytes read from an open socket
-
-private: // I/O device members
-  gxdFPTR *file_ptr;                 // Pointer to an open file
-  char rxBuffer[__HTTP_PACKET_SIZE__]; // Receiver memory buffer
-
-private: // Device cache
-  gxDeviceBucketCache cache;
-
-public: // Functions used to get the current device cache
-  gxDeviceBucketCache *GetCache() { return &cache; }
-
-public: // Functions used to set timeout values
-  void SetTimeOut(int seconds = __HTTP_RECV_TIMEOUT_SECS__, 
-		  int useconds =  __HTTP_RECV_TIMEOUT_USECS__) {
-    time_out_sec = seconds;
-    time_out_usec = useconds;
-  }
-  void TerminateRecv() { recv_loop = 0; }
-  void ResetRecv() {  recv_loop = 1; }
-  void ResetTimeOut() {
-    time_out_sec = __HTTP_RECV_TIMEOUT_SECS__;
-    time_out_usec = __HTTP_RECV_TIMEOUT_SECS__;
-  }
-
-public:
-  int recv_loop;     // Used to break receive loops 
-  int time_out_sec;  // Number of seconds before a blocking timeout
-  int time_out_usec; // Number of microseconds before a blocking timeout
-
-public: // OpenSSL data memebers
-  gxSSL openssl;
-
-public: // 07/23/2006: Added to record http header exchanges
-  int record_proto;      // True if user want to record the session
-  gxString proto_string; // Recorded protocol strings
+  int timeout_sec = 60;
+  bool verify_peer = true;
+  int max_redirects = 5;
+  std::size_t max_body = 1024*1024*1024;
+  std::string ca_file;
+  std::string user_agent = "DataReel/7";
+  std::string auth_user, auth_passwd;
+  std::string auth_host; // Host of the first request in a redirect chain
+  std::vector<std::pair<std::string, std::string>> extra_headers;
+  std::string error;
+  std::string final_url;
 };
 
-#endif // __USE_GX_SSL_EXTENSIONS__
-
-#endif // __GX_SOCKET_HTTP_CLIENT__HPP__
+#endif // __GX_HTTP_CLIENT_HPP__
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

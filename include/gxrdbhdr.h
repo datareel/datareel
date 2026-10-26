@@ -47,9 +47,11 @@ records are created and loaded.
 // --------------------------------------------------------------
 #include "gxdlcode.h"
 
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include "pod.h"
-#include "gxstring.h"
-#include "membuf.h"
 #include "gxint16.h"
 #include "cdate.h"
 #include "gxfloat.h"
@@ -184,7 +186,7 @@ private:
 struct GXDLCODE_API gxrdRecordHeader
 {
   gxrdRecordHeader() { Clear(); }
-  gxrdRecordHeader(const gxString &table_name, gxUINT32 nfields) {
+  gxrdRecordHeader(const std::string &table_name, gxUINT32 nfields) {
     SetTableID(table_name);
     num_fields = nfields;
   }
@@ -199,9 +201,9 @@ struct GXDLCODE_API gxrdRecordHeader
     table_id = num_fields = (gxUINT32)0;
   }
   void Copy(const gxrdRecordHeader &ob);
-  void SetTableID(const gxString &table_name);
-  gxUINT32 GetCRC(const gxString &table_name);
-  int TestTableID(const gxString &table_name) {
+  void SetTableID(const std::string &table_name);
+  gxUINT32 GetCRC(const std::string &table_name);
+  int TestTableID(const std::string &table_name) {
     return table_id == GetCRC(table_name);
   }
 
@@ -249,7 +251,8 @@ struct GXDLCODE_API gxrdTableHeader
   int AllocHeader(__ULWORD__ nfields);
   void DestroyHeader();
   int GetField(gxrdTableHeaderField *fh, __ULWORD__ nfield);
-  int SetField(char field_type_id, char format_specifier, char *field_name, 
+  int SetField(char field_type_id, char format_specifier, 
+	       std::string_view field_name, 
 	       gxUINT32 column_length, gxUINT32 array_length, 
 	       __ULWORD__ nfield);
   void SetTableName(const char *s);
@@ -263,7 +266,7 @@ struct GXDLCODE_API gxrdTableHeader
   int TestFormDef(const gxrdTableHeader &ob);
   int TestFKeyDef(const gxrdTableHeader &ob);
   int TestFieldVars(const gxrdTableHeader &ob);
-  gxString TableDef() const;
+  std::string TableDef() const;
 
   // Table infomation null terminated strings.
   char table_name[tableNAME_LEN]; // Name of this table
@@ -311,21 +314,21 @@ class GXDLCODE_API gxrdDatabaseRecord
 public:
   gxrdDatabaseRecord(__ULWORD__ cmp_field = (__ULWORD__)-1, 
 		     int case_cmp = 1, int alpha_cmp = 0) { 
-    db_record = 0; num_fields = 0; Clear(); 
+    num_fields = 0; Clear(); 
     compare_field = cmp_field; // Primary key 
     compare_case = case_cmp;   // Compare string case
     compare_alpha = alpha_cmp; // Perform alphanumeric compare
   }
-  gxrdDatabaseRecord(const gxString &def, 
+  gxrdDatabaseRecord(const std::string &def, 
 		     __ULWORD__ cmp_field = (__ULWORD__)-1, 
 		     int case_cmp = 1, int alpha_cmp = 0) {
     // NOTE: Use this constructor with known good record definitions.
-    db_record = 0; num_fields = 0; Clear();
+    num_fields = 0; Clear();
     CreateRecord(def, cmp_field, case_cmp, alpha_cmp);
   }
   ~gxrdDatabaseRecord() { DeleteArray(); }
   gxrdDatabaseRecord(const gxrdDatabaseRecord &ob) { 
-    db_record = 0; num_fields = 0; Clear();
+    num_fields = 0; Clear();
     Copy(ob); 
   }
   void operator=(const gxrdDatabaseRecord &ob) { Copy(ob); }
@@ -343,11 +346,11 @@ public: // Record functions
 				  __ULWORD__ col_number);
   gxDatabaseError FieldDataDiskOffset(__ULWORD__ &offset, 
 				      __ULWORD__ col_number);
-  gxDatabaseError CreateRecord(const gxString &def, int clear_rec = 1);
-  gxDatabaseError CreateRecord(const gxString &def, __ULWORD__ cmp_field, 
+  gxDatabaseError CreateRecord(const std::string &def, int clear_rec = 1);
+  gxDatabaseError CreateRecord(const std::string &def, __ULWORD__ cmp_field, 
 			       int case_cmp, int alpha_cmp);
-  gxDatabaseError CreateDiskRecord(MemoryBuffer &disk_record);
-  gxDatabaseError LoadDiskRecord(const MemoryBuffer &disk_record);
+  gxDatabaseError CreateDiskRecord(std::vector<unsigned char> &disk_record);
+  gxDatabaseError LoadDiskRecord(const std::vector<unsigned char> &disk_record);
  
   void Clear();
   void Copy(const gxrdDatabaseRecord &ob);
@@ -355,9 +358,12 @@ public: // Record functions
   __ULWORD__ SizeOfBuffer() const;
   __ULWORD__ SizeOfField(__ULWORD__ col_number) const;
   __ULWORD__ NumFields() const { return num_fields; }
-  MemoryBuffer *GetRecord() const { return db_record; }
-  const gxString& TableName() const { return table_name; }
-  const gxString& RecordDef() const { return record_def; }
+  // Field buffers: a 1-byte type ID, a gxUINT32 byte count, then the data
+  const std::vector<std::vector<unsigned char>> &GetRecord() const { 
+    return db_record; 
+  }
+  const std::string& TableName() const { return table_name; }
+  const std::string& RecordDef() const { return record_def; }
   int CompareField() const { return compare_field; }
   int NoCaseCompare() const { return compare_case == 0; }
   int CaseCompare() const { return compare_case == 1; }
@@ -415,13 +421,17 @@ public: // Overloaded operators required for tree and list structures
   }
 
 private: // Internal processing functions
-  gxDatabaseError InitRecord(const gxString &def);
+  gxDatabaseError InitRecord(const std::string &def);
   int AllocArray(__ULWORD__ nfields);
   void DeleteArray();
+  unsigned char *FieldBuf(__ULWORD__ i) { return db_record[i].data(); }
+  const unsigned char *FieldBuf(__ULWORD__ i) const { 
+    return db_record[i].data(); 
+  }
 
 private:
-  gxString table_name;   // Associated table name
-  gxString record_def;   // Record sting definition 
+  std::string table_name;   // Associated table name
+  std::string record_def;   // Record sting definition 
   __ULWORD__ num_fields; // Number of record fields
   int compare_field;     // Field(s) used for comparison
   int compare_case;      // True if comparing string case
@@ -430,7 +440,7 @@ private:
   // The record fields will be stored in an array of non-contiguous memory. 
   // This allows each field to be resized with having to resize the entire 
   // array.
-  MemoryBuffer *db_record; // Array of record fields
+  std::vector<std::vector<unsigned char>> db_record; // Array of record fields
 
 public:
   // Public memeber used to allow specified fields to be excluded
@@ -447,15 +457,15 @@ public:
   void operator=(const gxrdDatabaseTable &ob) { Copy(ob); }
 
 public:
-  gxDatabaseError CreateTable(const gxString &tdef);
+  gxDatabaseError CreateTable(const std::string &tdef);
   void Copy(const gxrdDatabaseTable &ob);
   __ULWORD__ SizeOf();
   void Clear();
 
 public:
-  gxString table_name; // Name of this table
-  gxString record_def; // Record definition
-  gxString table_def;  // Table definition
+  std::string table_name; // Name of this table
+  std::string record_def; // Record definition
+  std::string table_def;  // Table definition
   gxrdTableHeader table_header; // Persistent table header
 };
 

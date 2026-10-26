@@ -61,6 +61,7 @@ typedef __LLWORD__ gxINT64;
 #else
 
 #include <iostream>
+#include <string>
 #include <iomanip>
 
 // Data structure for platform independent signed 64 bit integer values.
@@ -80,10 +81,8 @@ public: // Conversion functions
   operator __LLWORD__() const;
 
 public: // String functions added to print 64-bit types
-  char *c_str(char *sbuf, int radix = 10);
-  char *c_str(char *sbuf, int radix = 10) const;
-  gxINT64 &StringToINT64(const char *str);
-  gxINT64 &StringToINT64(char *str);
+  std::string str() const;
+  gxINT64 &FromString(const std::string &s);
 
 public: // Class type to ostream type conversions
   GXDLCODE_API friend std::ostream &operator<<(std::ostream &os, 

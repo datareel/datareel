@@ -42,20 +42,19 @@ remainder 32-bit, which is the checksum.
 
 #include "gxdlcode.h"
 
-GXDLCODE_API unsigned long calcCRC32(char *buf, unsigned len);
+#include <istream>
+#include <ostream>
+
 GXDLCODE_API unsigned long calcCRC32(const char *buf, unsigned len);
 GXDLCODE_API unsigned long calcCRC32(unsigned char c, unsigned long CRC);
 
+// CRC of everything from the current position to the end of a stream.
+// Returns 0 if the stream cannot be read.
+GXDLCODE_API unsigned long calcCRC32(std::istream &infile);
+
 // This code is used for test purposes only
 #ifdef __USE_CRC32_TABLE_FUNCTIONS__
-#include <iostream>
-#include <fstream>
-#include <iomanip>
-
-#include "dfileb.h"
-
 GXDLCODE_API int makeCRC32(std::ostream &stream);
-GXDLCODE_API unsigned long calcCRC32(DiskFileB &infile);
 #endif
 
 #endif  // __GX_CRC32_HPP__

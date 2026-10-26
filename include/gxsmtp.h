@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Header File Name: gxsmtp.h
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -44,58 +44,86 @@ to SMTP commands.
 gxsSMTPClient::ESMTPAuthLogin() functions to allow mail clients 
 the use SMTP authentication as require by ESMTP servers when 
 a client is accessing the mail server from a different domain.
+
+10/26/2026: DataReel 7 rewrites gxsSMTPClient on gxsTLSConnection. 
+Mail is only sent over TLS: implicit TLS (port 465) or STARTTLS 
+(port 587). A server that does not offer STARTTLS is refused, 
+never used in plain text. Login() uses AUTH PLAIN or AUTH LOGIN, 
+multi-line replies are read in full, and message bodies are dot 
+stuffed. SendMessage() writes RFC 5322 headers.
 ==============================================================
 */
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
 #ifndef __GX_EMBEDDED_SMTP_LIB_HPP__
 #define __GX_EMBEDDED_SMTP_LIB_HPP__
 
 #include "gxdlcode.h"
 
-#include "gxsocket.h"
+#include <string>
+#include <vector>
 
-// SMTP client - See RFC 821 for specifications
-// http://www.sendmail.org
-class GXDLCODE_API gxsSMTPClient : public gxSocket
+#include "gxstls.h"
+
+enum gxsMailSecurity {
+  gxsMAIL_IMPLICIT_TLS, // TLS from the start (SMTP 465, POP3 995, FTPS 990)
+  gxsMAIL_STARTTLS      // Plain greeting, then STARTTLS/STLS/AUTH TLS
+};
+
+// SMTP client (RFC 5321) that only sends mail over TLS
+class GXDLCODE_API gxsSMTPClient
 {
 public:
-  gxsSMTPClient() { 
-    time_out_sec = 60; // Default blocking timeout value   
-    time_out_usec = 0;
-    reply_buf[0] = 0; 
-    command_buf[0] = 0;
-  }
-  ~gxsSMTPClient() { }
+  gxsSMTPClient() { }
+  ~gxsSMTPClient() { Close(); }
+
+public: // Settings used before Connect()
+  void SetTimeout(int seconds) { conn.SetTimeout(seconds); }
+  void SetCAFile(const std::string &fname) { conn.SetCAFile(fname); }
+  void SetVerifyPeer(bool on) { conn.SetVerifyPeer(on); }
+  void SetClientName(const std::string &s) { client_name = s; }
 
 public:
-  gxSocketError ConnectClient(const char *host, 
-			       int port = gxSOCKET_SMTP_PORT);
-  gxSocketError SendCommand(const char *command, const char *response, 
-			     const char *args = 0);
-  gxSocketError SMTPLogin(const char *domain_name);
-  gxSocketError ESMTPLogin(const char *client_name);
-  gxSocketError ESMTPAuthLogin(const char *b64_username, 
-			       const char *b64_password);
-  gxSocketError SMTPLogout();
-  gxSocketError SMTPRSet();
-  gxSocketError SMTPMailFrom(const char *from_email_address);
-  gxSocketError SMTPRcptTo(const char *to_email_address);
-  gxSocketError SMTPData(const char *body_text, int body_len);
-  int RecvResponse(char *buf, int bytes, const char *response);
-  int WaitForReply();
-  void SetTimeOut(int seconds, int useconds) {
-    time_out_sec = seconds;
-    time_out_usec = useconds;
-  }
-  gxSocketError SMTPSendMessage(const char *to, const char *from, 
-				const char *subject, const char *body);
-  char *GetSMTPTimeStamp(char *sbuf);
+  // Connect, read the greeting, send EHLO and start TLS. Returns 0 if
+  // successful.
+  int Connect(const std::string &host, int port = gxSOCKET_SMTPS_PORT,
+	      gxsMailSecurity security = gxsMAIL_IMPLICIT_TLS);
+  int Login(const std::string &user, const std::string &passwd);
+  int MailFrom(const std::string &address);
+  int RcptTo(const std::string &address);
+  int Data(const std::string &message); // Headers and body, CR LF or LF
+  int Reset();
+  int Quit();
+  void Close() { conn.Close(); }
+
+  // Send one plain text message. Connect() (and Login() if the server
+  // needs it) must be called first. Returns 0 if successful.
+  int SendMessage(const std::string &from, 
+		  const std::vector<std::string> &to,
+		  const std::string &subject, const std::string &body);
+
+  // Send a command and read the reply. Returns 0 if the reply code
+  // starts with expect, such as "250" or "3".
+  int Command(const std::string &cmd, const std::string &expect);
 
 public:
-  char reply_buf[gxsBUF_SIZE];   // Buffer used to hold the last reply
-  char command_buf[gxsBUF_SIZE]; // Buffer used to hold the last command
-  int time_out_sec;  // Number of seconds before a blocking timeout
-  int time_out_usec; // Number of microseconds before a blocking timeout
+  bool HasExtension(const std::string &name) const; // From EHLO, such as "AUTH"
+  int LastCode() const { return last_code; }
+  const std::string &LastReply() const { return last_reply; }
+  const std::string &Error() const { return error; }
+  gxsTLSConnection &Connection() { return conn; }
+
+private:
+  int read_reply();
+  int ehlo();
+  int fail(const std::string &msg);
+
+private:
+  gxsTLSConnection conn;
+  std::string client_name;
+  std::vector<std::string> extensions;
+  int last_code = 0;
+  std::string last_reply;
+  std::string error;
 };
 
 #endif // __GX_EMBEDDED_SMTP_LIB_HPP__

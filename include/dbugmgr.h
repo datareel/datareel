@@ -37,7 +37,7 @@ and repair damaged or corrupt gxDatabase files.
 #include "gxdlcode.h"
 
 #include "gxdstats.h"
-#include "gxstring.h"
+#include <string>
 
 class GXDLCODE_API gxDatabaseDebugManager : public gxDatabase
 {
@@ -69,7 +69,7 @@ public: // Database debug utilities
   void ResetFileHeader(gxFileHeader &fh);
 
 public:
-  gxString status_message;
+  std::string status_message;
 };
 
 #endif // __GX_DATABASE_DEBUG_MANAGER_HPP__

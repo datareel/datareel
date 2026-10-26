@@ -35,7 +35,7 @@ database files.
 Changes:
 ==============================================================
 03/25/2002: Modified all functions that print 64-bit native 
-integers to the console to use the UString class overloads.
+integers to the console to use the std::string class overloads.
 This correction was made to allow code to be compilers using 
 the __USE_NATIVE_INT_TYPES__ preprocessor directive.
 ==============================================================
@@ -49,13 +49,16 @@ the __USE_NATIVE_INT_TYPES__ preprocessor directive.
 #endif // __CONSOLE__
 
 #include "gxdstats.h"
-#include "ustring.h"
+#include <string>
+#include "strutil.h"
+
+using namespace datareel;
 
 
 GXDLCODE_API void DatabaseStats(gxDatabase *f)
 {
 #if defined (__CONSOLE__)
-  UString intbuf;
+  std::string intbuf;
   std::cout << "\n";
   const char *FName = f->DatabaseName();
   char rev_letter = f->GetRevLetter();
@@ -69,16 +72,16 @@ GXDLCODE_API void DatabaseStats(gxDatabase *f)
     std::cout << "Revision Letter:   " << "Zero" << "\n";
   else
     std::cout << "Revision Letter:   " << rev_letter << "\n";
-  intbuf.Clear();
-  intbuf << (FAU_t)f->GetVersion();
+  intbuf.clear();
+  str_append(intbuf, (FAU_t)f->GetVersion());
   std::cout << "Library Version:   " << intbuf.c_str() << "\n";
   std::cout << "File Header Size:  " << f->FileHeaderSize() << "\n";
   std::cout << "Block Header Size: " << f->BlockHeaderSize() << "\n";
-  intbuf.Clear();
-  intbuf << (FAU_t)f->StaticArea();
+  intbuf.clear();
+  str_append(intbuf, (FAU_t)f->StaticArea());
   std::cout << "Static area size:  " << intbuf.c_str() << "\n";
-  intbuf.Clear();
-  intbuf << (FAU_t)f->FileSize(FName);
+  intbuf.clear();
+  str_append(intbuf, (FAU_t)f->FileSize(FName));
   std::cout << "Static file size:  " << intbuf.c_str() << "\n";
   std::cout << "\n";
   std::cout << "----- Dynamic Information -----" << "\n";
@@ -87,17 +90,17 @@ GXDLCODE_API void DatabaseStats(gxDatabase *f)
   if(f->ReadyForWriting()) std::cout << "Read/Write "; 
   else std::cout << "Read/Only ";
   std::cout << "\n";
-  intbuf.Clear();
-  intbuf << (FAU_t)f->GetDatabaseFreeSpace();
+  intbuf.clear();
+  str_append(intbuf, (FAU_t)f->GetDatabaseFreeSpace());
   std::cout << "Free Space:      " << intbuf.c_str() << "\n";
-  intbuf.Clear();
-  intbuf << (FAU_t)f->GetEOF();
+  intbuf.clear();
+  str_append(intbuf, (FAU_t)f->GetEOF());
   std::cout << "End of File:     " << intbuf.c_str() << "\n";
-  intbuf.Clear();
-  intbuf << (FAU_t)f->GetHeapStart();
+  intbuf.clear();
+  str_append(intbuf, (FAU_t)f->GetHeapStart());
   std::cout << "Heap Start:      " << intbuf.c_str() << "\n";
-  intbuf.Clear();
-  intbuf << (FAU_t)f->GetHighestBlock();
+  intbuf.clear();
+  str_append(intbuf, (FAU_t)f->GetHighestBlock());
   std::cout << "Highest Block:   " << intbuf.c_str() << "\n";
   
   // Calculate the total number of normal and deleted blocks
@@ -112,20 +115,20 @@ GXDLCODE_API void DatabaseStats(gxDatabase *f)
     nb = tb - tl;
   }
 
-  intbuf.Clear();
-  intbuf << tb;
+  intbuf.clear();
+  str_append(intbuf, tb);
   std::cout << "Total Blocks:    " << intbuf.c_str() << "\n";
-  intbuf.Clear();
-  intbuf << nb;
+  intbuf.clear();
+  str_append(intbuf, nb);
   std::cout << "Normal Blocks:   " << intbuf.c_str() << "\n";
-  intbuf.Clear();
-  intbuf << dl;
+  intbuf.clear();
+  str_append(intbuf, dl);
   std::cout << "Deleted/Removed: " << intbuf.c_str() << "/";
-  intbuf.Clear();
-  intbuf << rm;
+  intbuf.clear();
+  str_append(intbuf, rm);
   std::cout << intbuf.c_str() << " (";
-  intbuf.Clear();
-  intbuf << tl;
+  intbuf.clear();
+  str_append(intbuf, tl);
   std::cout << intbuf.c_str() << ")" << "\n";
 
   gxFileLockHeader flh;
@@ -154,7 +157,7 @@ GXDLCODE_API void DatabaseStats(gxDatabase *f)
 GXDLCODE_API  void BlockStats(gxDatabase *f, FAU oa)
 {
 #if defined (__CONSOLE__)
-  UString intbuf;
+  std::string intbuf;
   gxBlockHeader blk_hdr;
   FAU blk_address = oa - f->BlockHeaderSize();
   f->Read(&blk_hdr, sizeof(gxBlockHeader), blk_address);
@@ -178,8 +181,8 @@ GXDLCODE_API  void BlockStats(gxDatabase *f, FAU oa)
 	      << "\n";
   std::cout << "Status       = " << (__SBYTE__)(blk_hdr.block_status & 0xff) 
 	      << "\n";
-  intbuf.Clear();
-  intbuf << (FAU_t)blk_hdr.block_nd_fptr;
+  intbuf.clear();
+  str_append(intbuf, (FAU_t)blk_hdr.block_nd_fptr);
   std::cout << "Next Deleted = " << intbuf.c_str() << "\n";
   std::cout << "\n";
   std::cout << "----- Object Statistics -----" << "\n";
@@ -297,10 +300,10 @@ GXDLCODE_API void EchoDatabaseVersion(gxDatabase *f)
   // with the "Default Database Library" labels used for the library
   // defaults. The stream format was also changed and not restored, 
   // although the version is printed as an integer string.
-  UString intbuf;
+  std::string intbuf;
   char rev_letter = f->GetRevLetter();
-  intbuf.Clear();
-  intbuf << (FAU_t)f->GetVersion();
+  intbuf.clear();
+  str_append(intbuf, (FAU_t)f->GetVersion());
   std::cout << "Database File Version:  " << intbuf.c_str()
 	      << "\n";
   if((rev_letter == '\0') || (rev_letter == ' ')) {

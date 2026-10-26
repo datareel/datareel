@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxconfig.cpp
-// Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/19/1996 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -48,600 +48,243 @@ parameter from const UString type to const char * type.
 
 10/13/2002: Remove all function with non-const char * type
 arguments.
+
+10/26/2026: DataReel 7 rewrites gxConfig on std::string, 
+std::vector and std::fstream.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <ctype.h>
+#include <fstream>
 #include "gxconfig.h"
-#include "dfileb.h"
+#include "strutil.h"
 
+namespace datareel {
 
-gxConfig::~gxConfig()
-{
-  // PC-lint 09/08/2005: Function may throw exception in destructor
-  UnLoad();
-}
-
-void gxConfig::UnLoad()
-{
-  ClearList();
-}         
-
-int gxConfig::Load(const char *fname)
+bool gxConfig::Load(const std::string &fname)
 {
   FileName = fname;
   return Load();
 }
 
-int gxConfig::Load(const gxString &fname)
-{
-  FileName = fname;
-  return Load();
-}
-
-int gxConfig::ReLoad()
+bool gxConfig::ReLoad()
 {
   UnLoad();
   return Load();
 }
 
-int gxConfig::ReLoad(const char *fname)
+bool gxConfig::ReLoad(const std::string &fname)
 {
   UnLoad();
   return Load(fname);
 }
 
-int gxConfig::ReLoad(const gxString &fname)
+bool gxConfig::Load()
 {
-  UnLoad();
-  return Load(fname);
+  std::ifstream infile(FileName, std::ios::in | std::ios::binary);
+  if(!infile) return false; // Cannot open the file
+
+  std::string line;
+  while(std::getline(infile, line)) {
+    if(!line.empty() && line.back() == '\r') line.pop_back();
+    StoreCfgData(line);
+  }
+  return true;
 }
 
-void gxConfig::FilterLineFeed(char &c)
-// Added to filter the end of line sequence from a line of text.
+void gxConfig::StoreCfgData(std::string_view cfg_line)
 {
-  switch(c) {
-    case '\r':
-      c = '\0';
-      break;
-    case '\n':
-      c = '\0';
-      break;
-    default:
-      break;
-  }
-}
+  std::string_view buf = trim_right_view(trim_left_view(cfg_line));
+  if(buf.empty()) return;
 
-int gxConfig::Load()
-{
-  const int MaxLine = 1024;
-  char LineBuffer[MaxLine];
-  int Status, i;
-  
-  DiskFileB infile(FileName.c_str(), 
-		   DiskFileB::df_READONLY, DiskFileB::df_NO_CREATE);
-  if(!infile) return 0; // Cannot open the file
-
-  while(!infile.df_EOF()) {
-    // Clear the line buffer before each read
-    for(i = 0; i < MaxLine; i++) LineBuffer[i] = '\0';
-    
-    // Read in config file line by line
-    if(infile.df_GetLine(LineBuffer, MaxLine, '\n', 1) != 
-       DiskFileB::df_NO_ERROR) {
-      break; // Error reading file
-    }
-
-    // Load config file data into singly-linked list
-    Status = StoreCfgData((const char *)LineBuffer);
-    if(!Status) return 0;
-  }
-
-  infile.df_Close();
-  return 1; // Indicates success
-}
-
-int gxConfig::StoreCfgData(const char *cfg_line)
-{
-  gxConfigListNode *chsptr;
-  gxString buf(cfg_line);
-  
-  // Trim leading and trailing spaces
-  buf.TrimLeadingSpaces(); buf.TrimTrailingSpaces();
-
-  if(filter_comments) { // Ignore all lines starting with a comment ID
-    if(buf[0] == comment_char)
-      return 1; 
-  }
+  // Ignore all lines starting with a comment ID
+  if(filter_comments && buf[0] == comment_char) return;
   
   // Look for lines containing a parm ID string
-  int offset = buf.Find(parm_ID.c_str());
-  if(offset != -1) {
-    gxString Name(buf);
-    gxString Value(buf);
+  if(parm_ID.empty()) return;
+  std::size_t offset = buf.find(parm_ID);
+  if(offset == std::string_view::npos) return;
 
-    // Separate the parameter name and value
-    Name.DeleteAt(offset, (Name.length() - offset));
-    offset = Name.Find(" "); // Remove any trailing spaces
-    if(offset != -1) Name.DeleteAt(offset, 1);
-    chsptr = Add(Name); // Store the parameter name
-    if(!chsptr) return 0;
+  std::string name = trim(buf.substr(0, offset));
+  std::string_view value = trim_left_view(buf.substr(offset + parm_ID.size()));
 
-    // Store the config file parameter value 
-    offset = Value.Find(parm_ID.c_str());
-    Value.DeleteAt(0, (offset+parm_ID.length()));
-    offset = Value.Find(" "); // Remove any leading spaces
-    if(offset == 0) Value.DeleteAt(offset, 1);
-    offset = Value.Find(" "); // Look for any trailing spaces or other chars
-    if(offset != -1) {
-      // Remove any comments following a space but leave long
-      // character strings for values such as file names with
-      // white spaces or multiple config values on one line
-      if(filter_comments) {
-      if(Value[offset+1] == comment_char) 
-	Value.DeleteAt(offset, (Value.length() - offset));
-      }
-    }
-    chsptr = Add(Value);
-    if(!chsptr) return 0;
+  // Remove a comment following a space, but leave values such as
+  // file names that contain spaces
+  if(filter_comments) {
+    char pat[3] = { ' ', comment_char, 0 };
+    std::size_t c = value.find(pat);
+    if(c != std::string_view::npos) value = value.substr(0, c);
   }
-
-  return 1; // Indicate success
+  entries.emplace_back(std::move(name), trim(value));
 }
 
-gxConfigListNode *gxConfig::Add(const gxString &s)
+const std::string *gxConfig::FindValue(std::string_view name, 
+				       bool full_name) const
 {
-  gxConfigListNode *node = new gxConfigListNode(s);
-  if(!node) return 0; // Could not allocate memory for the node
-  InsertAtTail((gxListNodeB *)node);
-  return node;
-}
-
-gxListNodeB *gxConfig::Add(void *)
-// 10/24/2026: Untyped data cannot be stored in the config list. Every
-// node must be a gxConfigListNode, so nothing is added.
-{
-  return 0;
-}
-
-gxConfigListNode *gxConfig::FindAny(const gxString &s, gxConfigListNode *ptr)
-{
-  if(ptr == 0) ptr = (gxConfigListNode *)GetHead();
-
-  int offset = 0;
-  
-  while(ptr) { // Scan until end of list
-    offset = 0;
-    offset = ptr->node_data.Find(s.c_str());
-    if(offset != -1) return ptr; // Match found
-    ptr = (gxConfigListNode *)ptr->next;
-  }
-  return 0; // No match
-}
-
-gxConfigListNode *gxConfig::Find(const gxString &s, gxConfigListNode *ptr)
-{
-  if(ptr == 0) ptr = (gxConfigListNode *)GetHead();
-
-  while(ptr) { // Scan until end of list
-    if(ptr->node_data == s) return ptr; // Match found
-    ptr = (gxConfigListNode *)ptr->next;
-  }
-  return 0; // No match
-}
-
-char* gxConfig::GetStrValue(const gxString &Name, int fn)
-// Search for string matching the "Name" variable. Will search
-// using the full name unless the "fn" variable is false.
-{
-  gxConfigListNode *ptr;
-
-  if(fn)
-    ptr = Find(Name);
-  else
-    ptr = FindAny(Name);
-  
-  if(ptr) {
-    gxString *s = (gxString *)ptr->next->data;
-    if(s) return s->c_str();
-  }
-
-  // Return NULL if config value is not found
-  return 0;
-}
-
-char* gxConfig::GetStrValue(const char *Name, int fn)
-{
-  gxString buf(Name);
-  return GetStrValue(buf, fn);
-}
-
-int gxConfig::GetIntValue(const gxString &Name, int fn)
-// Search for string matching the "Name" variable. Will search
-// using the full name unless the "fn" variable is false.
-{
-  gxConfigListNode *ptr;
-
-  if(fn)
-    ptr = Find(Name);
-  else
-    ptr = FindAny(Name);
-  
-  if(ptr) {
-    gxString *s = (gxString *)ptr->next->data;
-    if(s) return s->Atoi();
-  }
-
-  //Return NULL if config value is not found
-  return 0;
-}
-
-int gxConfig::GetIntValue(const char *Name, int fn)
-{
-  gxString buf(Name);
-  return GetIntValue(buf, fn);
-}
-
-double gxConfig::GetFloatValue(const gxString &Name, int fn)
-// Search for string matching the "Name" variable. Will search
-// using the full name unless the "fn" variable is false.
-{
-  gxConfigListNode *ptr;
-
-  if(fn)
-    ptr = Find(Name);
-  else
-    ptr = FindAny(Name);
-
-  if(ptr) {
-    gxString *s = (gxString *)ptr->next->data;
-    if(s) return s->Atof();
-  }
-
-  //Return NULL if config value is not found
-  return 0;
-}
-
-double gxConfig::GetFloatValue(const char *Name, int fn)
-{
-  gxString buf(Name);
-  return GetFloatValue(buf, fn);
-}
-
-double gxConfig::GetDFPValue(const gxString &Name, int fn)
-{
-  return GetFloatValue(Name, fn);
-}
-
-double gxConfig::GetDFPValue(const char *Name, int fn)
-{
-  gxString buf(Name);
-  return GetFloatValue(buf, fn);
-}
-
-long gxConfig::GetLongValue(const gxString &Name, int fn)
-// Search for string matching the "Name" variable. Will search
-// using the full name unless the "fn" variable is false.
-{
-  gxConfigListNode *ptr;
-
-  if(fn)
-    ptr = Find(Name);
-  else
-    ptr = FindAny(Name);
-
-
-  if(ptr) {
-    gxString *s = (gxString *)ptr->next->data;
-    if(s) return s->Atol();
-  }
-
-  //Return NULL if config value is not found
-  return 0;
-}
-
-long gxConfig::GetLongValue(const char *Name, int fn)
-{
-  gxString buf(Name);
-  return GetLongValue(buf, fn);
-}
-
-int gxConfig::WriteConfigLine(const gxString &parm, const gxString &value)
-// Write a line to the config file.  NOTE: All parameter values should
-// not contain a parameter ID label at the end of the string. The 
-// parameter ID label will be added to mark it as a config file parameter.
-// By default an equal sign will be used as a parameter ID.
-{
-  DiskFileB outfile(FileName.c_str(), DiskFileB::df_READWRITE, 
-		    DiskFileB::df_NO_CREATE, DiskFileB::df_APPEND);
-  if(!outfile) return 0; // Cannot open the file
-
-  outfile << parm.c_str() << parm_ID.c_str() << value.c_str() << "\n";
-  outfile.df_Close();
-  return 1;
-}  
-
-int gxConfig::WriteConfigLine(const char *parm, const char *value)
-{
-  gxString p(parm); gxString v(value);
-  return WriteConfigLine(p, v);
-}
-
-int gxConfig::WriteCommentLine(const gxString &s)
-// Write a comment line to the config file.  NOTE: Do not include the
-// comment ID character. The comment ID will by automatically inserted.
-{
-  DiskFileB outfile(FileName.c_str(), DiskFileB::df_READWRITE, 
-		    DiskFileB::df_NO_CREATE, DiskFileB::df_APPEND);
-  if(!outfile) return 0; // Cannot open the file
-
-  outfile << comment_char << ' ' << s.c_str() << "\n";
-  outfile.df_Close();
-  return 1;
-}  
-
-int gxConfig::WriteCommentLine(const char *s)
-{
-  gxString cm(s);
-  return WriteCommentLine(cm);
-}
-
-int gxConfig::WriteLine(const gxString &s)
-// Write a line of text to the config file.  
-{
-  DiskFileB outfile(FileName.c_str(), DiskFileB::df_READWRITE, 
-		    DiskFileB::df_NO_CREATE, DiskFileB::df_APPEND);
-  if(!outfile) return 0; // Cannot open the file
-
-  outfile << s.c_str() << "\n";
-  outfile.df_Close();
-  return 1;
-}  
-
-int gxConfig::WriteLine(const char *s)
-{
-  gxString line(s);
-  return WriteLine(line);
-}
-
-int gxConfig::ChangeConfigLine(const gxString &string_to_replace,
-			       const gxString &string_to_insert,
-			       int check_case, int append_lines)
-// This function is used to replace strings in the config file.
-// Returns the number of strings processed or zero if an error occurs.
-{
-  const int MAX_LINE = 1024;   // Maximum characters per line
-  char LineBuffer[MAX_LINE];
-  char rawLineBuffer[MAX_LINE];
-  gxString LineData;
-  gxString appendLineBuffer;
-  gxConfig list;
-  int i, j;
-  int offset = 0;
-  int num_processed = 0;      
-  
-  DiskFileB infile(FileName.c_str(), 
-		   DiskFileB::df_READONLY, DiskFileB::df_NO_CREATE);
-  if(!infile) return 0; // Cannot open the file
-	
-  while(!infile.df_EOF()) { // Read in the file line by line
-
-    // Clear the buffers
-    for(i = 0; i < MAX_LINE; i++) LineBuffer[i] = '\0';
-    for(i = 0; i < MAX_LINE; i++) rawLineBuffer[i] = '\0';
-    LineData.DeleteAt(0, LineData.length());
-    offset = 0; // Reset string offset
-    
-    if(infile.df_GetLine(rawLineBuffer, MAX_LINE) != DiskFileB::df_NO_ERROR) {
-      break; // Error reading file
-    }
-        
-    // Filter each line of text
-    // 10/14/2026: Stop one short of the end so LineBuffer is always null
-    // terminated, and check for an empty line before looking at the last
-    // character (strlen()-1 read before the buffer on blank lines).
-    for(i = 0, j = 0; i < (MAX_LINE-1); i++) {
-      if((rawLineBuffer[i] == '\r') || (rawLineBuffer[i] == '\n')) break;
-      LineBuffer[j++] = rawLineBuffer[i];
-    }
-
-    // Detect backslashes used to mark the continuation of a line
-    size_t line_len = strlen(LineBuffer);
-    if((line_len > 0) && (LineBuffer[line_len-1] == '\\') &&
-       (append_lines == 1)) {
-      appendLineBuffer += LineBuffer;
-      appendLineBuffer += '\n'; // Insert LF after the backslash 
-      continue;  // Goto the top of loop and append next line
-    }
-    if(appendLineBuffer.length() > 0) { // Append the next line
-      appendLineBuffer += LineBuffer;
-      LineData = appendLineBuffer;
-      appendLineBuffer.DeleteAt(0, appendLineBuffer.length());
-    }
-    else
-      LineData = LineBuffer;
-    
-    // Get rid of EOF marker
-    if((strcmp(LineData.c_str(), "\0") == 0) && (infile.df_EOF())) break;
-
-    // Routine to replace a line
-    // ----------------------------------------------------------- 
-    if(check_case) { // Find entire match checking the case of the string
-      offset = LineData.Find((char *)string_to_replace.c_str(),
-			     string_to_replace.length(), 0);
+  for(const auto &e : entries) {
+    if(full_name) {
+      if(e.first == name) return &e.second;
     }
     else {
-      offset = LineData.IFind((char *)string_to_replace.c_str(),
-			      string_to_replace.length(), 0);
+      if(e.first.find(name) != std::string::npos) return &e.second;
     }
-
-    if(offset == -1) { // The configurable parameter was not found
-      list.Add(LineData); // Store the line and continue
-      continue;
-    }
-    
-    int parm_id_offset = LineData.Find(parm_ID.c_str());
-    if(parm_id_offset == -1) { // This is not a configurable parameter
-      list.Add(LineData); // Store the line and continue
-      continue;
-    }
-    
-    offset += string_to_replace.length();
-
-    // Ensure the complete string is matched before modifying the parameter
-    if((LineData[offset] == ' ') || 
-       (LineData[offset] == parm_ID[0])) {
-      LineData.DeleteAt(offset, (LineData.length() - offset));
-      LineData.InsertAt(offset, parm_ID.c_str()); // Insert parameter ID string
-      LineData.InsertAt(++offset, string_to_insert);
-      num_processed++;    // Record number of string processed for this file
-    }
-    list.Add(LineData); // Store all the lines and continue
   }
-  infile.df_Close(); // Close the input file
+  return nullptr;
+}
+
+const char *gxConfig::GetStrValue(std::string_view name, bool full_name) const
+{
+  const std::string *s = FindValue(name, full_name);
+  return s ? s->c_str() : nullptr;
+}
+
+std::string gxConfig::GetString(std::string_view name, 
+				const std::string &default_value,
+				bool full_name) const
+{
+  const std::string *s = FindValue(name, full_name);
+  return s ? *s : default_value;
+}
+
+int gxConfig::GetIntValue(std::string_view name, bool full_name) const
+{
+  const std::string *s = FindValue(name, full_name);
+  return s ? to_int(*s) : 0;
+}
+
+long gxConfig::GetLongValue(std::string_view name, bool full_name) const
+{
+  const std::string *s = FindValue(name, full_name);
+  return s ? to_long(*s) : 0;
+}
+
+double gxConfig::GetFloatValue(std::string_view name, bool full_name) const
+{
+  const std::string *s = FindValue(name, full_name);
+  return s ? to_double(*s) : 0;
+}
+
+bool gxConfig::AppendToFile(const std::string &text)
+{
+  std::ofstream outfile(FileName, std::ios::out | std::ios::app);
+  if(!outfile) return false;
+  outfile << text;
+  return bool(outfile);
+}
+
+bool gxConfig::WriteConfigLine(std::string_view parm, std::string_view value)
+// Write a parameter line to the config file. The parameter ID string
+// is inserted between the name and value, an equal sign by default.
+{
+  std::string line(parm);
+  line += parm_ID;
+  line += value;
+  line += '\n';
+  return AppendToFile(line);
+}  
+
+bool gxConfig::WriteCommentLine(std::string_view s)
+// Write a comment line to the config file. Do not include the comment
+// ID character, which is inserted automatically.
+{
+  std::string line(1, comment_char);
+  line += ' ';
+  line += s;
+  line += '\n';
+  return AppendToFile(line);
+}  
+
+bool gxConfig::WriteLine(std::string_view s)
+{
+  std::string line(s);
+  line += '\n';
+  return AppendToFile(line);
+}  
+
+int gxConfig::ChangeConfigLine(std::string_view string_to_replace,
+			       std::string_view string_to_insert,
+			       bool check_case, bool append_lines)
+// Replace the value of a parameter in the config file. Returns the 
+// number of lines changed or zero if none were changed.
+{
+  std::ifstream infile(FileName, std::ios::in | std::ios::binary);
+  if(!infile) return 0; // Cannot open the file
+
+  std::vector<std::string> lines;
+  std::string raw, pending;
+  int num_processed = 0;
+
+  while(std::getline(infile, raw)) {
+    while(!raw.empty() && (raw.back() == '\r' || raw.back() == '\n')) {
+      raw.pop_back();
+    }
+
+    // A trailing backslash continues the line on the next line
+    if(append_lines && !raw.empty() && raw.back() == '\\') {
+      pending += raw;
+      pending += '\n';
+      continue;
+    }
+    std::string line = pending + raw;
+    pending.clear();
+
+    std::size_t offset = check_case ? line.find(string_to_replace) :
+      ifind(line, string_to_replace);
+    std::size_t parm_id_offset = line.find(parm_ID);
+    if(offset == std::string::npos || parm_id_offset == std::string::npos) {
+      lines.push_back(std::move(line));
+      continue;
+    }
+    
+    offset += string_to_replace.size();
+
+    // Ensure the complete name matched before changing the value
+    if(offset < line.size() && 
+       (line[offset] == ' ' || line.compare(offset, parm_ID.size(), parm_ID) == 0)) {
+      line.erase(offset);
+      line += parm_ID;
+      line += string_to_insert;
+      num_processed++;
+    }
+    lines.push_back(std::move(line));
+  }
+  if(!pending.empty()) lines.push_back(pending);
+  infile.close();
   
-  // If any strings were replaced in the file, rewrite the file
-  // ----------------------------------------------------------- 
-  if(num_processed > 0) {
-    const char *EndOfLineSequence;
-    
-    DiskFileB outfile(FileName.c_str(), DiskFileB::df_READWRITE, 
-		    DiskFileB::df_CREATE);
-    if(!outfile) return 0; // Cannot open the file
-    
+  if(num_processed == 0) return 0;
+
+  // Rewrite the file with the changed lines
 #if defined(__WIN32__)
-    EndOfLineSequence = "\r\n"; 
+  const char *eol = "\r\n"; 
 #else 
-    EndOfLineSequence = "\n"; 
+  const char *eol = "\n"; 
 #endif
-    
-    gxConfigListNode *list_ptr = (gxConfigListNode *)list.GetHead();
-    while(list_ptr) {
-      if(list_ptr->data) {
-	if(outfile.df_Write(list_ptr->node_data.c_str(), 
-			    list_ptr->node_data.length()) != 
-	   DiskFileB::df_NO_ERROR) {
-	  break; // Error writing to the file
-	}
-	if(outfile.df_Write(EndOfLineSequence, strlen(EndOfLineSequence)) !=
-	   DiskFileB::df_NO_ERROR) {
-	  break; // Error writing to the file
-	}  
-      }
-      list_ptr = (gxConfigListNode *)list_ptr->next; 
-    }
-    
-    outfile.df_Close(); // Close the output file
-    
-    // Make the changes to the config list in already in memory
-    ReLoad();
-  }
+  std::ofstream outfile(FileName, std::ios::out | std::ios::binary | 
+			std::ios::trunc);
+  if(!outfile) return 0;
+  for(const auto &l : lines) outfile << l << eol;
+  outfile.close();
   
-  list.ClearList();
+  // Make the changes to the config values in memory
+  ReLoad();
   return num_processed;
 }
 
-int gxConfig::ChangeConfigValue(const gxString &parm, const gxString &value)
-// Modify the config file. NOTE: All parameter values should not contain 
-// a parameter ID label at the end of the string. The parameter ID label
-// will be added to mark it as a config file parameter. By default an
-// equal sign will be used as a parameter ID.
+int gxConfig::ChangeConfigValue(std::string_view parm, std::string_view value)
+// Change a parameter in the config file, or append it if it does not
+// exist. Do not include the parameter ID string in parm or value.
 {
-  int rv = ChangeConfigLine(parm, value, 1, 1);
+  int rv = ChangeConfigLine(parm, value, true, true);
+  if(rv) return rv;
 
   // Write the parameter if it does not exist
-  if(!rv) return WriteConfigLine(parm, value);
-
-  return rv;
+  if(!WriteConfigLine(parm, value)) return 0;
+  entries.emplace_back(std::string(parm), std::string(value));
+  return 1;
 }
 
-int gxConfig::ChangeConfigValue(const char *parm, const gxString &value)
-{
-  gxString p(parm); gxString v(value);
-  return ChangeConfigValue(p, v);
-}
-
-int gxConfig::ChangeConfigValue(const gxString &parm, const char *value)
-{
-  gxString p(parm); gxString v(value);
-  return ChangeConfigValue(p, v);
-}
-
-int gxConfig::ChangeConfigValue(const char *parm, const char *value)
-{
-  gxString p(parm); gxString v(value);
-  return ChangeConfigValue(p, v);
-}
-
-int gxConfig::ChangeConfigValue(const gxString &parm, int value)
-{
-  gxString val;
-  val << value;
-  return ChangeConfigValue(parm, val);
-}
-
-int gxConfig::ChangeConfigValue(const char *parm, int value)
-{
-  gxString p(parm);
-  return ChangeConfigValue(p, value);
-}
-
-int gxConfig::ChangeConfigValue(const gxString &parm, unsigned value)
-{
-  gxString val;
-  val << value;
-  return ChangeConfigValue(parm, val);
-}
-
-int gxConfig::ChangeConfigValue(const char *parm, unsigned value)
-{
-  gxString p(parm);
-  return ChangeConfigValue(p, value);
-}
-
-int gxConfig::ChangeConfigValue(const gxString &parm, long value)
-{
-  gxString val;
-  val << value;
-  return ChangeConfigValue(parm, val);
-}
-
-int gxConfig::ChangeConfigValue(const char *parm, long value)
-{
-  gxString p(parm);
-  return ChangeConfigValue(p, value);
-}
-
-int gxConfig::ChangeConfigValue(const gxString &parm, float value)
-{
-  gxString val;
-  val << value;
-  return ChangeConfigValue(parm, val);
-}
-
-int gxConfig::ChangeConfigValue(const char *parm, float value)
-{
-  gxString p(parm);
-  return ChangeConfigValue(p, value);
-}
-  
-int gxConfig::ChangeConfigValue(const gxString &parm, double value)
-{
-  gxString val;
-  val << value;
-  return ChangeConfigValue(parm, val);
-}
-
-int gxConfig::ChangeConfigValue(const char *parm, double value)
-{
-  gxString p(parm);
-  return ChangeConfigValue(p, value);
-}
+} // namespace datareel
 
 // ----------------------------------------------------------- //
 // ------------------------------- //

@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: cdate.h
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/21/1997 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -44,6 +44,13 @@ directive is defined.
 operator=(const char *date) assignment operator, and 
 CDate::SetDate(const char *date) function to set a date value 
 using a null-terminate C string.
+
+10/26/2026: DataReel 7: CDate is the 4-byte date type stored in 
+gxRDBMS date fields, so its layout is unchanged. The c_str() 
+functions, which returned a new heap buffer on every call, are 
+replaced by str() functions returning std::string. The 
+interactive operator>> is removed. SetDate() returns false for a 
+month above 12 or a day above 31.
 ==============================================================
 */
 // ----------------------------------------------------------- //   
@@ -52,26 +59,31 @@ using a null-terminate C string.
 
 #include "gxdlcode.h"
 
-#include <iostream>
+#include <ostream>
+#include <string>
+#include <string_view>
 
 #include "gxdtypes.h"
 #include "gxuint16.h"
 
-// Date type class
+// Date type class. The 4-byte layout (month, day, 16-bit year) is
+// part of the gxRDBMS file format and must not change.
 class GXDLCODE_API CDate
 {
 public:
-  CDate() { }
+  CDate() : Month(0), Day(0), Year((__UWORD__)0) { }
   CDate(__UBYTE__ month, __UBYTE__ day, gxUINT16 year) {
     Month = month, Day = day, Year = year;
   }
-  CDate(const char *date, char delimiter = '/') {
+  explicit CDate(std::string_view date, char delimiter = '/') {
     SetDate(date, delimiter);
   }
-  CDate(const CDate& ob);
-  CDate& operator=(const CDate& ob);
-  CDate& operator=(const char *date) {
+  CDate& operator=(std::string_view date) {
     SetDate(date);
+    return *this;
+  }
+  CDate& operator=(const char *date) {
+    SetDate(date ? std::string_view(date) : std::string_view());
     return *this;
   }
 
@@ -82,26 +94,25 @@ public:
   void SetDate(__UBYTE__ month, __UBYTE__ day, gxUINT16 year) {
     Month = month, Day = day, Year = year;
   }
-  int SetDate(const char *date, char delimiter = '/');
-  __UBYTE__ GetDay() { return Day; }
-  __UBYTE__ GetMonth() { return Month; }
-  gxUINT16 GetYear() { return Year; }
-  char *c_str();
-  char *month_c_str();
-  char *day_c_str();
-  char *year_c_str();
-  unsigned SizeOf() { return sizeof(Month)+sizeof(Day)+sizeof(Year); }
+
+  // Parse M/D/YYYY. Returns false if the string is not a valid date.
+  bool SetDate(std::string_view date, char delimiter = '/');
+  __UBYTE__ GetDay() const { return Day; }
+  __UBYTE__ GetMonth() const { return Month; }
+  gxUINT16 GetYear() const { return Year; }
+  std::string str() const;      // M/D/YYYY
+  std::string month_str() const;
+  std::string day_str() const;
+  std::string year_str() const;
+  unsigned SizeOf() const { return sizeof(Month)+sizeof(Day)+sizeof(Year); }
   
 public: // Overloaded operators
-  GXDLCODE_API friend int operator==(const CDate &a, const CDate &b);
-  GXDLCODE_API friend int operator!=(const CDate &a, const CDate &b);
-  GXDLCODE_API friend int operator<(const CDate &a, const CDate &b);
-  GXDLCODE_API friend int operator>(const CDate &a, const CDate &b);
-
-public:
+  GXDLCODE_API friend bool operator==(const CDate &a, const CDate &b);
+  GXDLCODE_API friend bool operator!=(const CDate &a, const CDate &b);
+  GXDLCODE_API friend bool operator<(const CDate &a, const CDate &b);
+  GXDLCODE_API friend bool operator>(const CDate &a, const CDate &b);
   GXDLCODE_API friend std::ostream &operator<<(std::ostream &os, 
-						 const CDate &ob);
-  GXDLCODE_API friend void operator>>(std::istream &is, CDate &ob);
+					       const CDate &ob);
   
 private:
   __UBYTE__ Month;

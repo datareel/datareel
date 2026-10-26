@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxsping.h
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -29,43 +29,58 @@ USA
 
 Embedded ping program using ICMP (Internet Control Message Protocol)
 and raw sockets.
+
+Changes:
+==============================================================
+10/26/2026: DataReel 7 rewrites gxsPing for IPv4 and IPv6. Linux 
+uses unprivileged ICMP datagram sockets when the system allows 
+them (net.ipv4.ping_group_range) and raw sockets otherwise. 
+Windows uses the IcmpSendEcho functions, which need no 
+administrator rights. Round trip times are measured with 
+std::chrono in milliseconds. ICMP cannot be encrypted, so ping is 
+a diagnostic tool, like telnet.
+==============================================================
 */
-// ----------------------------------------------------------- //   
+// ----------------------------------------------------------- //
 #ifndef __GX_PING__HPP__
 #define __GX_PING__HPP__
 
 #include "gxdlcode.h"
 
-#include "gxsutils.h"
+#include <string>
+
+#include "gxsocket.h"
+
+struct GXDLCODE_API gxsPingResult
+{
+  bool ok = false;      // True if an echo reply arrived in time
+  double rtt_ms = 0;    // Round trip time in milliseconds
+  int ttl = -1;         // Reply time to live, -1 if not known
+  std::string address;  // Numeric address that was pinged
+  std::string error;    // Reason for a failure
+};
 
 class GXDLCODE_API gxsPing
 {
 public:
-  gxsPing(gxSocket *s) {
-    raw_socket = s; time_sent = elapsed_time = time_to_live = 0;
-  }
-  ~gxsPing() { }
+  gxsPing() { }
 
-public: // User interface
-  gxSocketError Ping(int time_out_sec = 1, int time_out_usec = 0);
-
-public: // Internal processing functions
-  gxSocketError SendEchoRequest();
-  gxSocketError RecvEchoReply();  
-  int WaitForEchoReply(int time_out_sec = 1, int time_out_usec = 0);
-  
 public:
-  gxSocket *raw_socket;        // Ping socket
-  gxsEchoRequest echo_request; // Echo request header
-  gxsEchoReply echo_reply;     // Echo reply header
+  void SetTimeout(int milliseconds) { timeout_ms = milliseconds; }
 
-  int time_sent;    // Time the packet was sent
-  int elapsed_time; // Time in millisecond for the packet to return 
-  int time_to_live; // Time to live
+  // Send one ICMP or ICMPv6 echo request to host and wait for the
+  // reply. family is AF_UNSPEC, AF_INET or AF_INET6. Returns 0 if a
+  // reply arrived.
+  int Ping(const std::string &host, gxsPingResult &result, 
+	   int family = AF_UNSPEC);
+
+private:
+  int timeout_ms = 1000;
+  unsigned short sequence = 0;
 };
 
 #endif // __GX_PING__HPP__
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //
 // ------------------------------- //

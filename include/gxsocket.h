@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxsocket.h
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -75,221 +75,180 @@ gxsSocket_t InitSocket(gxsSocket_t st, gxsProtocolFamily pf,
 09/19/2005: Added the int gxSocket::Recv(gxsSocket_t s, void *buf, 
 int bytes, int useTimeout, int seconds, int useconds, int flags);
 function. 
+
+10/26/2026: DataReel 7 rewrites gxSocket. Addresses are resolved 
+with getaddrinfo() and stored in gxsAddress (sockaddr_storage), 
+so IPv4 and IPv6 both work. Connect() takes a host name and port 
+and tries every address the name resolves to. Listen() binds a 
+dual-stack IPv6 socket that also accepts IPv4 clients. Accept() 
+returns the client connection as a new gxSocket instead of 
+keeping it in remote_socket. Host names and addresses are 
+std::string. Windows builds use Winsock 2.
 ==============================================================
 */
-// ----------------------------------------------------------- //   
+// ----------------------------------------------------------- // 
 #ifndef __GX_SOCKET_HPP__
 #define __GX_SOCKET_HPP__
 
 #include "gxdlcode.h"
 
+#include <string>
+#include <vector>
+
 #include "gxstypes.h"
 
-// gxSocket class 
+// Socket address that holds an IPv4 or IPv6 address and port
+class GXDLCODE_API gxsAddress
+{
+public:
+  gxsAddress() { Clear(); }
+  gxsAddress(const sockaddr *sa, gxsSocketLength_t sa_len);
+
+public:
+  void Clear();
+  bool IsSet() const { return length > 0; }
+  int Family() const { return ((const sockaddr *)&storage)->sa_family; }
+  int Port() const;
+  void SetPort(int port);
+  std::string IPAddress() const; // Numeric address, such as 192.0.2.1 or ::1
+  std::string ToString() const;  // 192.0.2.1:80 or [2001:db8::1]:80
+  sockaddr *SockAddr() { return (sockaddr *)&storage; }
+  const sockaddr *SockAddr() const { return (const sockaddr *)&storage; }
+  gxsSocketLength_t Length() const { return length; }
+  void SetLength(gxsSocketLength_t len) { length = len; }
+  gxsSocketLength_t Capacity() const { return sizeof(storage); }
+
+  // Resolve a host name or numeric address. An empty host with
+  // passive true gives the wildcard address for binding. family is
+  // AF_UNSPEC, AF_INET or AF_INET6; socket_type is SOCK_STREAM or
+  // SOCK_DGRAM. Returns 0 if successful or the getaddrinfo() error.
+  static int Resolve(const std::string &host, int port, 
+		     std::vector<gxsAddress> &addresses,
+		     int socket_type = SOCK_STREAM, 
+		     int family = AF_UNSPEC, bool passive = false);
+
+private:
+  sockaddr_storage storage;
+  gxsSocketLength_t length;
+};
+
 class GXDLCODE_API gxSocket
 {
 public:
-  gxSocket(); 
-  gxSocket(gxsSocket_t st, gxsPort_t port, char *hostname = 0); 
-  gxSocket(gxsAddressFamily af, gxsSocket_t st, gxsProtocolFamily pf,
-	   int port, char *hostname = 0);
-  gxSocket(gxsSocket_t st, gxsSocketAddress *host_sin);
-  gxSocket(gxsSocket_t st, gxsProtocolFamily pf,
-	   gxsSocketAddress *host_sin);
+  gxSocket();
+  explicit gxSocket(gxsSocket_t s); // Take ownership of an open socket
   virtual ~gxSocket();
-  
-private: // Disallow copying and assignment
-  gxSocket(const gxSocket &) { }
-  void operator=(const gxSocket &) { }
-  
-public: // Functions used to set the socket parameters
-  void SetAddressFamily(gxsAddressFamily af) { address_family = af; }
-  void SetProtocolFamily(gxsProtocolFamily pf) { protocol_family = pf; }
-  gxsProtocolFamily GetProtocolFamily() { return protocol_family; }
-  void SetSocketType(gxsSocket_t st) { socket_type = st; }
-  gxsSocket_t GetSocketType() { return socket_type; }
-  void SetPortNumber(gxsPort_t p) { port_number = p; }
-  gxsSocket_t GetBoundSocket() { return gxsocket; } 
-  gxsSocket_t GetSocket() { return gxsocket; }  
-  gxsSocket_t GetRemoteSocket() { return remote_socket; }
-  void SetSocket(gxsSocket_t s) { gxsocket = s; }
-  void SetRemoteSocket(gxsSocket_t s) { remote_socket = s; }
 
-public: // Socket functions
-  gxsSocket_t Socket();
-  gxsSocket_t InitSocket(gxsSocket_t st, int port, char *hostname = 0);
-  gxsSocket_t InitSocket(gxsAddressFamily af, gxsSocket_t st, 
-			 gxsProtocolFamily pf, int port, char *hostname = 0);
-  gxsSocket_t InitSocket(gxsSocket_t st, gxsSocketAddress *host_sin);
-  gxsSocket_t InitSocket(gxsSocket_t st, gxsProtocolFamily pf,
-			 gxsSocketAddress *host_sin);
+  gxSocket(gxSocket &&ob) noexcept;
+  gxSocket &operator=(gxSocket &&ob) noexcept;
+  gxSocket(const gxSocket &) = delete;
+  gxSocket &operator=(const gxSocket &) = delete;
+
+public: // TCP client and server functions
+  // Connect to host:port, trying each address the name resolves to.
+  // timeout_sec limits each connection attempt; 0 waits for the
+  // operating system timeout. Returns 0 if successful.
+  int Connect(const std::string &host, int port, int timeout_sec = 30,
+	      int family = AF_UNSPEC);
+
+  // Bind and listen on port. An empty bind_address listens on every
+  // interface, IPv6 and IPv4. Returns 0 if successful.
+  int Listen(int port, const std::string &bind_address = std::string(),
+	     int max_connections = SOMAXCONN, int family = AF_UNSPEC);
+
+  // Wait for a client and return its connection. The returned socket
+  // is not valid (IsOpen() is false) if an error occurred.
+  gxSocket Accept();
+
+public: // UDP functions
+  // Open a datagram socket. A port above 0 binds it for receiving.
+  int OpenDatagram(int family = AF_INET6, int port = 0,
+		   const std::string &bind_address = std::string());
+  int SendTo(const gxsAddress &to, const void *buf, int bytes);
+  int RecvFrom(gxsAddress &from, void *buf, int bytes, 
+	       int timeout_sec = -1);
+
+public: // Data transfer functions
+  // Send every byte. Returns bytes sent or -1 on error.
+  int Send(const void *buf, int bytes);
+  int Send(const std::string &s) { return Send(s.data(), (int)s.size()); }
+
+  // Receive up to bytes, waiting at most timeout_sec seconds (-1 waits
+  // forever). Returns the number of bytes received, 0 if the peer
+  // closed the connection, or -1 on an error or timeout.
+  int RecvSome(void *buf, int bytes, int timeout_sec = -1);
+
+  // Receive exactly bytes unless the connection closes, an error 
+  // occurs or the timeout passes. Returns the number received.
+  int Recv(void *buf, int bytes, int timeout_sec = -1);
+
+  // Single send() and recv() calls with no retry
+  int RawWrite(const void *buf, int bytes);
+  int RawRead(void *buf, int bytes);
+
+  // Wait until the socket is readable. Returns 1 if readable, 0 on a
+  // timeout and -1 on an error. A negative timeout waits forever.
+  int WaitReadable(int timeout_ms);
+  static int WaitReadable(gxsSocket_t s, int timeout_ms);
+  int ReadSelect(int seconds, int useconds) {
+    return WaitReadable(seconds * 1000 + useconds / 1000);
+  }
+
+public: // Socket control functions
+  bool IsOpen() const { return gxsocket != gxsINVALID_SOCKET; }
+  bool IsConnected() const { return is_connected; }
+  gxsSocket_t GetSocket() const { return gxsocket; }
+  gxsSocket_t Release(); // Give up ownership without closing
   void Close();
-  void Close(gxsSocket_t &s);
-  void CloseSocket();
-  void CloseRemoteSocket();
-  gxsSocket_t Accept();
-  int Bind();
-  int Connect();
-  int Listen(int max_connections = SOMAXCONN);
-  gxsSocket_t Accept(gxsSocket_t s, gxsSocketAddress *sa);
-  int Bind(gxsSocket_t s, gxsSocketAddress *sa);
-  int Connect(gxsSocket_t s, gxsSocketAddress *sa);
-  int Listen(gxsSocket_t s, int max_connections);
-  int Recv(void *buf, int bytes, int flags = 0);
-  int Recv(gxsSocket_t s, void *buf, int bytes, int flags = 0);
-  int Recv(void *buf, int bytes, int seconds, int useconds, int flags = 0);
-  int Recv(gxsSocket_t s, void *buf, int bytes, int seconds, int useconds, 
-	   int flags = 0);
-  int Recv(gxsSocket_t s, void *buf, int bytes, int useTimeout, int seconds,
-	   int useconds, int flags);
-  int Send(const void *buf, int bytes, int flags = 0);
-  int Send(gxsSocket_t s, const void *buf, int bytes, int flags = 0);
-  int RemoteRecv(void *buf, int bytes, int seconds, int useconds, 
-		 int flags = 0);
-  int RemoteRecv(void *buf, int bytes, int flags = 0);
-  int RemoteSend(const void *buf, int bytes, int flags = 0);
-  int RawRead(void *buf, int bytes, int flags = 0);
-  int RawRead(gxsSocket_t s, void *buf, int bytes, int flags = 0);
-  int RawRemoteRead(void *buf, int bytes, int flags = 0);
-  int RawWrite(const void *buf, int bytes, int flags = 0);
-  int RawWrite(gxsSocket_t s, const void *buf, int bytes, int flags = 0);
-  int RawRemoteWrite(const void *buf, int bytes, int flags = 0);
-  void ResetRead() { bytes_read = 0; }
-  void ResetWrite() { bytes_moved = 0; } 
   void ShutDown(int how);
-  void ShutDown(gxsSocket_t &s, int how);
-  void ShutDownSocket(int how);
-  void ShutDownRemoteSocket(int how);
-  int GetPeerName(gxsSocket_t s, gxsSocketAddress *sa);
-  int GetPeerName();
-  int GetSockName(gxsSocket_t s, gxsSocketAddress *sa);
-  int GetSockName();
-  int GetSockOpt(gxsSocket_t s, int level, int optName, 
-		 void *optVal, unsigned *optLen);
-  int GetSockOpt(int level, int optName, void *optVal, unsigned *optLen);
-  int SetSockOpt(gxsSocket_t s, int level, int optName, 
-		 const void *optVal, unsigned optLen);
-  int SetSockOpt(int level, int optName, const void *optVal, unsigned optLen);
-  int GetServByName(char *name, char *protocol = 0);
-  int GetServByPort(int port, char *protocol = 0); 
-  gxsServent *GetServiceInformation(char *name, char *protocol = 0);
-  gxsServent *GetServiceInformation(int port, char *protocol = 0);
-  int GetPortNumber(); 
-  int GetRemotePortNumber();
-  int GetHostName(char *sbuf);
-  int GetIPAddress(char *sbuf);
-  int GetDomainName(char *sbuf);
-  int GetBoundIPAddress(char *sbuf);
-  int GetRemoteHostName(char *sbuf);
-  gxsHostNameInfo *GetHostInformation(char *hostname);
-  void GetClientInfo(char *client_name, int &r_port);
-  gxsAddressFamily GetAddressFamily();
-  gxsAddressFamily GetRemoteAddressFamily();
-  
-  // Process control functions
-  int ReadSelect(gxsSocket_t s, int seconds, int useconds); 
-  int BytesRead() { return bytes_read; }
-  int BytesMoved() { return bytes_moved; }
-  int SetBytesRead(int bytes = 0) { return bytes_read = bytes; }
-  int SetBytesMoved(int bytes = 0) { return bytes_moved = bytes; }
-  int *GetBytesRead() { return &bytes_read; }
-  int *GetBytesMoved() { return &bytes_moved; }
-  int IsConnected() { return is_connected == 1; }
-  int IsBound() { return is_bound == 1; }
-  void ReleaseSocket() { gxsocket = (gxsSocket_t)-1; }
-  void ReleaseRemoteSocket() { remote_socket = (gxsSocket_t)-1; }
+  int SetSockOpt(int level, int opt_name, const void *opt_val, 
+		 gxsSocketLength_t opt_len);
+  int GetSockOpt(int level, int opt_name, void *opt_val, 
+		 gxsSocketLength_t *opt_len);
+  int SetNoDelay(bool on = true);
+  int SetKeepAlive(bool on = true);
 
-  // Client/Server Datagram functions
-  int RawReadFrom(gxsSocket_t s, gxsSocketAddress *sa, void *buf,
-		  int bytes, int flags = 0);
-  int RecvFrom(gxsSocket_t s, gxsSocketAddress *sa, void *buf,
-	       int bytes, int flags = 0);
-  int RecvFrom(gxsSocket_t s, gxsSocketAddress *sa, void *buf,
-	       int bytes, int seconds, int useconds, int flags = 0);
-  int RawWriteTo(gxsSocket_t s, gxsSocketAddress *sa, const void *buf,
-		 int bytes, int flags = 0);
-  int SendTo(gxsSocket_t s, gxsSocketAddress *sa, const void *buf,
-	     int bytes, int flags = 0);
-  
-  // Client side Datagram functions
-  int RawReadFrom(void *buf, int bytes, int flags = 0);
-  int RecvFrom(void *buf, int bytes, int flags = 0);
-  int RecvFrom(void *buf, int bytes, int seconds, int useconds, 
-	       int flags = 0);
-  int RawWriteTo(const void *buf, int bytes, int flags = 0);
-  int SendTo(const void *buf, int bytes, int flags = 0);
+public: // Address information
+  const gxsAddress &PeerAddress() const { return peer; }
+  gxsAddress LocalAddress() const;
+  std::string PeerIPAddress() const { return peer.IPAddress(); }
+  int PeerPort() const { return peer.Port(); }
+  int LocalPort() const { return LocalAddress().Port(); }
+  static std::string HostName();
 
-  // Server side Datagram functions
-  int RemoteRawReadFrom(void *buf, int bytes, int flags = 0);
-  int RemoteRecvFrom(void *buf, int bytes, int flags = 0);
-  int RemoteRecvFrom(void *buf, int bytes, int seconds, int useconds, 
-		     int flags = 0);
-  int RemoteRawWriteTo(const void *buf, int bytes, int flags = 0);
-  int RemoteSendTo(const void *buf, int bytes, int flags = 0);
-
-  // Exception handling functions
-  gxSocketError GetSocketError() { return socket_error; }
+public: // Exception handling functions
   gxSocketError GetSocketError() const { return socket_error; }
   gxSocketError SetSocketError(gxSocketError err) {
     return socket_error = err;
   }
-  gxSocketError ResetSocketError() {
-    return socket_error = gxSOCKET_NO_ERROR;
-  }
-  gxSocketError ResetError() {
-    return socket_error = gxSOCKET_NO_ERROR;
-  }
-  const char *SocketExceptionMessage();
-  const char *TestExceptionMessage(int err);
+  gxSocketError ResetSocketError() { return socket_error = gxSOCKET_NO_ERROR; }
+  gxSocketError ResetError() { return socket_error = gxSOCKET_NO_ERROR; }
+  const char *SocketExceptionMessage() const;
+  static const char *ExceptionMessage(gxSocketError err);
+  int SystemError() const { return system_error; } // errno or WSA code
 
-  // Helper functions
-  int InitSIN(gxsSocketAddress *host_sin, gxsAddressFamily af, 
-	      int port, char *hostname);
-  void Clear();
+  // Platform specific initialization. Winsock is started on first use
+  // and these are no-ops on other platforms.
+  static int InitSocketLibrary();
+  static void ReleaseSocketLibrary();
 
-  // Platform specific initialization functions
-  int InitSocketLibrary();
-  int ReleaseSocketLibrary();
-
-  // 07/25/2006: Helper functions to set remote port number and IP address 
-  void SetRemotePortNumber(gxsPort_t p);
-  void SetRemoteIPAddress(char *IPAddress);
-
-public: // Overloaded operators
+public:
   int operator!() const { return socket_error != gxSOCKET_NO_ERROR; }
-  int operator!() { return socket_error != gxSOCKET_NO_ERROR; }
-  operator int () const { return socket_error == gxSOCKET_NO_ERROR; }
-  operator int () { return socket_error == gxSOCKET_NO_ERROR; }
 
-protected: // Socket variables 
-  gxsAddressFamily address_family;   // Object's address family
-  gxsProtocolFamily protocol_family; // Object's protocol family
-  gxsSocket_t socket_type;           // Object's socket type
-  gxsPort_t port_number;             // Object's port number
-  gxsSocket_t gxsocket;              // Socket this object is bound to
-  gxsSocket_t remote_socket;         // Socket used for remote connections
-  gxSocketError socket_error;        // The last reported socket error
+protected:
+  gxSocketError set_error(gxSocketError err);
+  void close_socket(gxsSocket_t &s);
 
-protected: // Process control variables
-  int bytes_read;   // Number of bytes read following a read operation
-  int bytes_moved;  // Number of bytes written following a write operation
-  int is_connected; // True if the socket is connected
-  int is_bound;     // True if the socket is bound
-  
-public: // Data structures used to set the internet domain and addresses
-  gxsSocketAddress sin;        // Sock Internet address
-  gxsSocketAddress remote_sin; // Remote socket Internet address
-
-public:  // Platform specific library extensions
-  gxsSocketLibraryVersion socket_version; 
-
-#if defined (__WIN32__)
-  WSADATA socket_data; 
-#endif
+protected:
+  gxsSocket_t gxsocket;       // Socket this object owns
+  gxsAddress peer;            // Remote address of a connected socket
+  gxSocketError socket_error; // The last reported socket error
+  int system_error;           // errno or WSAGetLastError() for that error
+  bool is_connected;
 };
 
 #endif // __GX_SOCKET_HPP__
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //
 // ------------------------------- //

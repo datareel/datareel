@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Header File Name: gxsftp.h
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -52,75 +52,86 @@ used internally to toggle passive FTP mode on and off.
 06/10/2002: Added the gxsFTPClient::FTPPassive() and 
 gxsFTPClient::FTPActive() functions used to toggle passive FTP
 mode on and off.
+
+10/26/2026: DataReel 7 rewrites gxsFTPClient as an FTPS client on 
+gxsTLSConnection. The control connection uses explicit TLS (AUTH 
+TLS on port 21) or implicit TLS (port 990), and every data 
+connection is encrypted with PROT P and reuses the control 
+connection's TLS session. Transfers are passive only (EPSV, then 
+PASV), and the data connection always goes to the server's own 
+address, never to the address in a PASV reply. Files are read and 
+written with std::fstream.
 ==============================================================
 */
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
 #ifndef __GX_EMBEDDED_FTP_LIB_HPP__
 #define __GX_EMBEDDED_FTP_LIB_HPP__
 
-// Set the reply buffer size
-const unsigned gxsFTP_BUF_SIZE = 8192;
-
 #include "gxdlcode.h"
 
-#include "gxsocket.h"
-#include "dfileb.h"
+#include <string>
 
-// FTP client - See RFC 959 for specifications
-class GXDLCODE_API gxsFTPClient : public gxSocket
+#include "gxsmtp.h" // gxsMailSecurity
+#include "gxstls.h"
+
+// FTPS client (RFC 959 with RFC 4217 TLS). Plain FTP is not supported.
+class GXDLCODE_API gxsFTPClient
 {
 public:
-  gxsFTPClient() { 
-    time_out_sec = 5; // Default blocking timeout value   
-    time_out_usec = 0;
-    reply_buf[0] = 0; 
-    command_buf[0] = 0;
-    ftp_data_port = 0;
-    passive_mode = 0;
-  }
-  ~gxsFTPClient() { }
+  gxsFTPClient() { }
+  ~gxsFTPClient() { Close(); }
+
+public: // Settings used before Connect()
+  void SetTimeout(int seconds) { conn.SetTimeout(seconds); timeout_sec = seconds; }
+  void SetCAFile(const std::string &fname) { conn.SetCAFile(fname); }
+  void SetVerifyPeer(bool on) { conn.SetVerifyPeer(on); }
+
+public: // Each returns 0 if successful
+  // gxsMAIL_STARTTLS sends AUTH TLS after the greeting (explicit FTPS)
+  int Connect(const std::string &host, int port = gxSOCKET_FTP_PORT,
+	      gxsMailSecurity security = gxsMAIL_STARTTLS);
+  int Login(const std::string &user, const std::string &passwd);
+  int Type(char type = 'I'); // 'I' binary, 'A' ASCII
+  int List(const std::string &path, std::string &listing, bool full = true);
+  int ChDir(const std::string &dir);
+  int MkDir(const std::string &dir);
+  int RmDir(const std::string &dir);
+  int PWD(std::string &dir);
+  int Size(const std::string &path, long long &bytes);
+  int Delete(const std::string &path);
+  int Rename(const std::string &from, const std::string &to);
+  int Get(const std::string &remote, const std::string &local_fname, 
+	  long long &bytes);
+  int Put(const std::string &local_fname, const std::string &remote, 
+	  long long &bytes);
+  int GetString(const std::string &remote, std::string &data);
+  int PutString(const std::string &data, const std::string &remote);
+  int Quit();
+  void Close() { conn.Close(); }
+
+  // Send a command and read the reply. Returns 0 if the reply code
+  // starts with expect, such as "2" or "250".
+  int Command(const std::string &cmd, const std::string &expect);
 
 public:
-  gxSocketError ConnectClient(const char *host, int port = gxSOCKET_FTP_PORT);
-  gxSocketError SendCommand(const char *command, const char *response, 
-			    const char *args = 0);
-  gxSocketError FTPLogin(const char *username, const char *password);
-  gxSocketError FTPLogout();
-  gxSocketError FTPImageType(char type = 'I');
-  gxSocketError FTPList(char *sbuf, unsigned bytes, int full = 1,
-			const char *args = 0);
-  gxSocketError FTPChDir(const char *dname);
-  gxSocketError FTPMkDir(const char *dname);
-  gxSocketError FTPRmDir(const char *dname);
-  gxSocketError FTPPWD();
-  gxSocketError FTPStat();
-  gxSocketError FTPSize(const char *fname);
-  gxSocketError FTPDelete(const char *fname);
-  gxSocketError FTPMove(const char *from, const char *to);
-  gxSocketError FTPGet(const char *fname, DiskFileB &stream, FAU_t &bytes);
-  gxSocketError FTPPut(const char *fname, DiskFileB &stream, FAU_t &bytes);
-  gxSocketError OpenDataPort();
-  void FTPPassive() { passive_mode = 1; }
-  void FTPActive() { passive_mode = 0; }
-  int ReadDataPort(void *buf, unsigned bytes);
-  int WriteDataPort(void *buf, unsigned bytes);
-  void CloseDataPort();
-  int RecvResponse(char *buf, int bytes, const char *response);
-  int RecvResponse(gxsSocket_t s, char *buf, int bytes, const char *response);
-  int WaitForReply(gxsSocket_t s);
-  void SetTimeOut(int seconds, int useconds) {
-    time_out_sec = seconds;
-    time_out_usec = useconds;
-  }
+  int LastCode() const { return last_code; }
+  const std::string &LastReply() const { return last_reply; }
+  const std::string &Error() const { return error; }
+  gxsTLSConnection &Connection() { return conn; }
 
-public:
-  gxSocket ftp_data; // Socket used to transfer data to this client
-  int ftp_data_port; // FTP data port client is listening on
-  char reply_buf[gxsFTP_BUF_SIZE]; // Buffer used to hold the last reply
-  char command_buf[gxsBUF_SIZE];   // Buffer used to hold the last command
-  int time_out_sec;  // Number of seconds before a blocking timeout
-  int time_out_usec; // Number of microseconds before a blocking timeout
-  int passive_mode;  // True if this client is in passive FTP mode
+private:
+  int read_reply();
+  int open_data(gxsTLSConnection &data, const std::string &cmd);
+  int finish_data(gxsTLSConnection &data);
+  int fail(const std::string &msg) { error = msg; return -1; }
+
+private:
+  gxsTLSConnection conn;
+  std::string host_name;
+  int timeout_sec = 60;
+  int last_code = 0;
+  std::string last_reply;
+  std::string error;
 };
 
 #endif // __GX_EMBEDDED_FTP_LIB_HPP__

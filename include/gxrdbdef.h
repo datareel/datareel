@@ -39,57 +39,57 @@ DataReel RDBMS definition file format.
 #include "gxrdbhdr.h"
 #include "gxrdbms.h"
 
-GXDLCODE_API void gxrdFormatMessage(gxString &mesg, 
-				    const gxString &process_name);
-GXDLCODE_API int gxrdReadDefFile(const gxString &fname, 
-				 const gxString &process_name,
-				 const char *TAG, gxString &def, 
-				 gxString &error_message);
-GXDLCODE_API int gxrdReadDefFile(const gxString &fname, 
-				 const gxString &process_name,
-				 gxString &table_def,
-				 gxString &key_def,
-				 gxString &error_message);
-GXDLCODE_API int gxrdReadDefFile(const gxString &fname, 
-				 const gxString &process_name,
-				 gxString &table_def,
-				 gxString &key_def,
-				 gxString &form_def,
-				 gxString &fkey_def,
-				 gxString &error_message);
-GXDLCODE_API int gxrdReadDefFile(const gxString &fname, 
-				 const gxString &process_name,
-				 gxString &table_def,
-				 gxString &key_def,
-				 gxString &form_def,
-				 gxString &fkey_def,
-				 gxString &user_def,
-				 gxString &group_def,
-				 gxString &error_message);
-GXDLCODE_API int gxrdReadTableDef(const gxString &fname, 
-				  const gxString &process_name,
-				  gxString &table_def, 
-				  gxString &error_message);
-GXDLCODE_API int gxrdReadKeyDef(const gxString &fname, 
-				const gxString &process_name,
-				gxString &key_def, 
-				gxString &error_message);
-GXDLCODE_API int gxrdReadFormDef(const gxString &fname, 
-				 const gxString &process_name,
-				 gxString &form_def, 
-				 gxString &error_message);
-GXDLCODE_API int gxrdReadFKeyDef(const gxString &fname, 
-				 const gxString &process_name,
-				 gxString &fkey_def, 
-				 gxString &error_message);
-GXDLCODE_API int gxrdReadUserDef(const gxString &fname, 
-				 const gxString &process_name,
-				 gxString &user_def, 
-				 gxString &error_message);
-GXDLCODE_API int gxrdReadGroupDef(const gxString &fname, 
-				  const gxString &process_name,
-				  gxString &group_def, 
-				  gxString &error_message);
+GXDLCODE_API void gxrdFormatMessage(std::string &mesg, 
+				    const std::string &process_name);
+GXDLCODE_API int gxrdReadDefFile(const std::string &fname, 
+				 const std::string &process_name,
+				 const char *TAG, std::string &def, 
+				 std::string &error_message);
+GXDLCODE_API int gxrdReadDefFile(const std::string &fname, 
+				 const std::string &process_name,
+				 std::string &table_def,
+				 std::string &key_def,
+				 std::string &error_message);
+GXDLCODE_API int gxrdReadDefFile(const std::string &fname, 
+				 const std::string &process_name,
+				 std::string &table_def,
+				 std::string &key_def,
+				 std::string &form_def,
+				 std::string &fkey_def,
+				 std::string &error_message);
+GXDLCODE_API int gxrdReadDefFile(const std::string &fname, 
+				 const std::string &process_name,
+				 std::string &table_def,
+				 std::string &key_def,
+				 std::string &form_def,
+				 std::string &fkey_def,
+				 std::string &user_def,
+				 std::string &group_def,
+				 std::string &error_message);
+GXDLCODE_API int gxrdReadTableDef(const std::string &fname, 
+				  const std::string &process_name,
+				  std::string &table_def, 
+				  std::string &error_message);
+GXDLCODE_API int gxrdReadKeyDef(const std::string &fname, 
+				const std::string &process_name,
+				std::string &key_def, 
+				std::string &error_message);
+GXDLCODE_API int gxrdReadFormDef(const std::string &fname, 
+				 const std::string &process_name,
+				 std::string &form_def, 
+				 std::string &error_message);
+GXDLCODE_API int gxrdReadFKeyDef(const std::string &fname, 
+				 const std::string &process_name,
+				 std::string &fkey_def, 
+				 std::string &error_message);
+GXDLCODE_API int gxrdReadUserDef(const std::string &fname, 
+				 const std::string &process_name,
+				 std::string &user_def, 
+				 std::string &error_message);
+GXDLCODE_API int gxrdReadGroupDef(const std::string &fname, 
+				  const std::string &process_name,
+				  std::string &group_def, 
+				  std::string &error_message);
 
 #endif // __GX_RDBMS_DEF_HPP__
 // ----------------------------------------------------------- // 

@@ -71,7 +71,7 @@ latest version..." << "\n";
 
   char fname[255];
   int retry = 3;
-  UString intbuf;
+  std::string intbuf;
 
   while(1) { // Loop until a good file name is found
     std::cout << "Enter new name of file to build>";
@@ -142,7 +142,7 @@ void FindBlock(gxDatabaseDebugManager *f, int verbose, int walk)
   gxBlockHeader blk;
   int count = 0;
   int badgx = 0;
-  UString intbuf;
+  std::string intbuf;
 
   std::cout << "\n";
   std::cout << "Searching file for all database blocks..." << "\n";
@@ -187,7 +187,7 @@ void FindBlock(gxDatabaseDebugManager *f, int verbose, int walk)
     else {
       badgx++;
       std::cout << "\n";
-      intbuf << clear << addr;
+      intbuf = std::to_string((long long)(addr));
       std::cout << "Found bad database block at address " << intbuf.c_str() 
 		  << "\n";
       std::cout << "Searching for next good database block..." << "\n";
@@ -296,7 +296,7 @@ int main(int argc, char **argv)
   }
 
   // Check for status messages
-  if(!f->status_message.is_null()) {
+  if(!f->status_message.empty()) {
     std::cout << f->status_message.c_str();
   }
 

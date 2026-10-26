@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Header File Name: gxspop3.h 
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -29,51 +29,69 @@ USA
 
 Post Office Protocol 3 (POP3) classes used with applications
 that require use of embedded POP3 client/server functions.
+
+Changes:
+==============================================================
+10/26/2026: DataReel 7 rewrites gxsPOP3Client on gxsTLSConnection. 
+Mail is only read over TLS: implicit TLS (port 995) or STLS (port 
+110). A server that does not accept STLS is refused. Multi-line 
+replies are read to the terminating dot and un-stuffed, and the 
+results are returned as std::string values.
+==============================================================
 */
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
 #ifndef __GX_EMBEDDED_POP3_LIB_HPP__
 #define __GX_EMBEDDED_POP3_LIB_HPP__
 
 #include "gxdlcode.h"
 
-#include "gxsocket.h"
+#include <string>
 
-// POP3 client - See RFC 1225, 1460, 1725 for specifications
-class GXDLCODE_API gxsPOP3Client : public gxSocket
+#include "gxsmtp.h" // gxsMailSecurity
+#include "gxstls.h"
+
+// POP3 client (RFC 1939, STLS from RFC 2595) that only uses TLS
+class GXDLCODE_API gxsPOP3Client
 {
 public:
-  gxsPOP3Client() { 
-    time_out_sec = 60; // Default blocking timeout value   
-    time_out_usec = 0;
-    reply_buf[0] = 0; 
-    command_buf[0] = 0;
-  }
-  ~gxsPOP3Client() { }
+  gxsPOP3Client() { }
+  ~gxsPOP3Client() { Close(); }
+
+public: // Settings used before Connect()
+  void SetTimeout(int seconds) { conn.SetTimeout(seconds); }
+  void SetCAFile(const std::string &fname) { conn.SetCAFile(fname); }
+  void SetVerifyPeer(bool on) { conn.SetVerifyPeer(on); }
+
+public: // Each returns 0 if the server replied +OK
+  int Connect(const std::string &host, int port = gxSOCKET_SPOP3_PORT,
+	      gxsMailSecurity security = gxsMAIL_IMPLICIT_TLS);
+  int Login(const std::string &user, const std::string &passwd);
+  int Stat(int &num_messages, long long &total_bytes);
+  int List(std::string &listing);  // "number size" lines
+  int Retr(int message_number, std::string &message);
+  int Top(int message_number, int lines, std::string &message);
+  int Delete(int message_number);
+  int Reset();
+  int Quit();
+  void Close() { conn.Close(); }
+
+  // Send a command and read a one-line reply
+  int Command(const std::string &cmd);
 
 public:
-  gxSocketError ConnectClient(const char *host, 
-			       int port = gxSOCKET_POP3_PORT);
-  gxSocketError SendCommand(const char *command, const char *response, 
-			     const char *args = 0);
-  gxSocketError POP3Login(const char *username, const char *password);
-  gxSocketError POP3Logout();
-  gxSocketError POP3RSet();
-  gxSocketError POP3List(char *buf, int bytes);
-  gxSocketError POP3Retr(int message_number, char *buf, int bytes);
-  gxSocketError POP3Delete(int message_number, char *buf, int bytes);
-  gxSocketError POP3Top(int message_number, char *buf, int bytes);
-  int RecvResponse(char *buf, int bytes, const char *response);
-  int WaitForReply();
-  void SetTimeOut(int seconds, int useconds) {
-    time_out_sec = seconds;
-    time_out_usec = useconds;
-  }
+  const std::string &LastReply() const { return last_reply; }
+  const std::string &Error() const { return error; }
+  gxsTLSConnection &Connection() { return conn; }
 
-public:
-  char reply_buf[gxsBUF_SIZE];   // Buffer used to hold the last reply
-  char command_buf[gxsBUF_SIZE]; // Buffer used to hold the last command
-  int time_out_sec;  // Number of seconds before a blocking timeout
-  int time_out_usec; // Number of microseconds before a blocking timeout
+private:
+  int read_status();
+  int read_multiline(std::string &data);
+  int fail(const std::string &msg) { error = msg; return -1; }
+
+private:
+  gxsTLSConnection conn;
+  std::string last_reply;
+  std::string error;
 };
 
 #endif // __GX_EMBEDDED_POP3_LIB_HPP__

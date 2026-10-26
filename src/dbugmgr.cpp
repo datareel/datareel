@@ -36,6 +36,10 @@ and repair damaged or corrupt database files.
 #include "dbugmgr.h"
 
 #include <new>
+#include <string>
+#include "strutil.h"
+
+using namespace datareel;
 
 
 // 10/14/2026: Internal helper used by the rebuild function. The memory
@@ -61,7 +65,7 @@ gxDatabaseError gxDatabaseDebugManager::BlindOpen(const char *fname,
 						  __SBYTE__ last_rev)
 // Open the file in read only mode without check the file type
 {
-  status_message.Clear();
+  status_message.clear();
 
   // Set a default revision letter incase this open call cannot
   // read the revision letter stored in the file header.
@@ -131,12 +135,10 @@ gxDatabaseError gxDatabaseDebugManager::BlindOpen(const char *fname,
 	    (gxSignatureSize-1)); 
     // Set the revision letter
     rev_letter = file_header.gxd_sig[gxSignatureSize-1];
-    status_message.Clear();
-    status_message << "Detected version " 
-		   << (int)file_header.gxd_ver << "\n" << "Signature ";
-    status_message.InsertAt(status_message.length(), file_header.gxd_sig, 
-			    (gxSignatureSize-1));
-    status_message << "\n";
+    status_message.clear();
+    str_append(status_message, "Detected version ", (int)file_header.gxd_ver, "\n", "Signature ");
+    status_message.append(file_header.gxd_sig, (gxSignatureSize-1));
+    str_append(status_message, "\n");
   }
   else if((int)file_header.gxd_ver < 4000) {
     // Version 3 compatibility mode
@@ -146,12 +148,10 @@ gxDatabaseError gxDatabaseDebugManager::BlindOpen(const char *fname,
 	    (gxSignatureSize-1));
     // Set the revision letter
     rev_letter = file_header.gxd_sig[gxSignatureSize-1];
-    status_message.Clear();
-    status_message << "Detected version " 
-		   << (int)file_header.gxd_ver << "\n" << "Signature ";
-    status_message.InsertAt(status_message.length(), file_header.gxd_sig, 
-			    (gxSignatureSize-1));
-    status_message << "\n";
+    status_message.clear();
+    str_append(status_message, "Detected version ", (int)file_header.gxd_ver, "\n", "Signature ");
+    status_message.append(file_header.gxd_sig, (gxSignatureSize-1));
+    str_append(status_message, "\n");
   }
 
   return gxd_error = gxDBASE_NO_ERROR;
@@ -225,29 +225,27 @@ gxDatabaseError gxDatabaseDebugManager::AnalyzeHeader(const char *sig,
   FAU_t StaticEOF = FileSize(DatabaseName());
 
   // Clear the status message
-  status_message.Clear();
-  status_message << "Analyzing database file header" << "\n";
+  status_message.clear();
+  str_append(status_message, "Analyzing database file header", "\n");
 
   Read(&fh, sizeof(gxFileHeader), (FAU_t)0);
   if(gxd_error != gxDBASE_NO_ERROR) {
-    status_message << "Cannot read gxDatabase file header" << "\n";
-    status_message << DatabaseExceptionMessage() << "\n";
+    str_append(status_message, "Cannot read gxDatabase file header", "\n");
+    str_append(status_message, DatabaseExceptionMessage(), "\n");
     return gxd_error;
   }
 
-  status_message << "Checking database signature" << "\n";
+  str_append(status_message, "Checking database signature", "\n");
   if(memcmp(fh.gxd_sig, sig, (sig_len-1))) {
     // Test file type
-    status_message << "Database file header is damaged or does not exist" 
-		   << "\n";
+    str_append(status_message, "Database file header is damaged or does not exist", "\n");
     return gxd_error = gxDBASE_BAD_HEADER;
   }
 
-  status_message << "Checking the revision letter" << "\n";
+  str_append(status_message, "Checking the revision letter", "\n");
   char rev = fh.gxd_sig[sig_len-1];
   if(!VerifyRevLetter(rev)) {
-    status_message << "Bad revision letter file header is not valid" 
-		   << "\n";
+    str_append(status_message, "Bad revision letter file header is not valid", "\n");
     return gxd_error = gxDBASE_BAD_HEADER;
   }
   
@@ -257,100 +255,87 @@ gxDatabaseError gxDatabaseDebugManager::AnalyzeHeader(const char *sig,
   if(rev != curr_rev) {
     if(test_rev) { // Report rev mismatch warning
       gxd_error = header_warning = gxDBASE_REV_MISMATCH;
-      status_message << "NOTE: The database file revision letters do \
-not match." << "\n";
+      str_append(status_message, "NOTE: The database file revision letters do not match.", "\n");
       if(curr_rev == 0)
-	status_message << "Current database library revision = Zero" << "\n";
+	str_append(status_message, "Current database library revision = Zero", "\n");
       else
-	status_message << "Current database library revision = " 
-		       << curr_rev << "\n";
+	str_append(status_message, "Current database library revision = ", curr_rev, "\n");
       if(rev == 0)
-	status_message << "File revision = Zero" << "\n";
+	str_append(status_message, "File revision = Zero", "\n");
       else
-	status_message << "File revision = " << rev << "\n";
-      status_message << "Backward compatibility rules will be enforced." 
-		     << "\n";
+	str_append(status_message, "File revision = ", rev, "\n");
+      str_append(status_message, "Backward compatibility rules will be enforced.", "\n");
     }
   }
 
-  status_message << "Checking the database version number" << "\n";
+  str_append(status_message, "Checking the database version number", "\n");
   if(!VerifyVersion((long)fh.gxd_ver)) {
-    status_message << "Bad version number file header is not valid" 
-		   << "\n";
+    str_append(status_message, "Bad version number file header is not valid", "\n");
     return gxd_error = gxDBASE_BAD_HEADER;
   }
 
   if(fh.gxd_ver != ver) {
     if(test_ver) { // Report ver mismatch warning
       gxd_error = header_warning = gxDBASE_VER_MISMATCH;
-      status_message << "NOTE: The version numbers do not match." << "\n";
+      str_append(status_message, "NOTE: The version numbers do not match.", "\n");
       // 10/14/2026: Report the version being tested, not the static version
-      status_message << "Current database File Version = " 
-		     << ver << "\n";
-      status_message << "The file reads: " << fh.gxd_ver << "\n";
-      status_message << "Backward compatibility rules will be enforced." 
-		     << "\n";
+      str_append(status_message, "Current database File Version = ", (long long)ver, "\n");
+      str_append(status_message, "The file reads: ", (long long)fh.gxd_ver, "\n");
+      str_append(status_message, "Backward compatibility rules will be enforced.", "\n");
     }
   }
 
-  status_message << "Checking for End of File errors" << "\n";
+  str_append(status_message, "Checking for End of File errors", "\n");
   if(fh.gxd_eof < (FAU_t)0) {
     gxd_error = gxDBASE_DBEOF_ERROR;
-    status_message << "Bad end of file mark in file: " << DatabaseName() 
-		   << "\n";
+    str_append(status_message, "Bad end of file mark in file: ", DatabaseName(), "\n");
     errors++;
     if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
   }
   else if(StaticEOF > fh.gxd_eof) {
     gxd_error = gxDBASE_DBEOF_ERROR;
-    status_message << "End of file error in file: " << DatabaseName() << "\n";
-    status_message << "The actual length is longer then the allocated length!" 
-		   << "\n";
+    str_append(status_message, "End of file error in file: ", DatabaseName(), "\n");
+    str_append(status_message, "The actual length is longer then the allocated length!", "\n");
     errors++;
     if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
   }
 
-  status_message << "Checking the heap start value" << "\n";
+  str_append(status_message, "Checking the heap start value", "\n");
   // 10/14/2026: The heap start checks tested the highest block
   // pointer (gxd_hb_fptr) in place of the heap start (gxd_hs_fptr).
   // The highest block is still used to detect a file with no blocks.
   if((fh.gxd_hs_fptr < (FAU_t)FileHeaderSize()) || 
      (fh.gxd_hs_fptr > StaticEOF)) {
     gxd_error = gxDBASE_HEAPSTART_ERROR;
-    status_message << "Bad heap start value in file: " << DatabaseName() 
-		   << "\n";
+    str_append(status_message, "Bad heap start value in file: ", DatabaseName(), "\n");
     errors++;
     if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
   }
   else {
     if(fh.gxd_hb_fptr == (FAU_t)0) {  // This is a new file
-      status_message << "No database blocks allocated" << "\n";
+      str_append(status_message, "No database blocks allocated", "\n");
     }
     else {
       if((FAU_t)(fh.gxd_hs_fptr + sizeof(gxBlockHeader)) > StaticEOF) {
 	gxd_error = gxDBASE_HEAPSTART_ERROR;
-	status_message << "Bad heap start value in file: " << DatabaseName() 
-		       << "\n";
-	status_message << "The heap start is past the end of file" << "\n";
+	str_append(status_message, "Bad heap start value in file: ", DatabaseName(), "\n");
+	str_append(status_message, "The heap start is past the end of file", "\n");
 	errors++;
 	if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
       }
       else {
 	Read(&blk, sizeof(gxBlockHeader), fh.gxd_hs_fptr);
 	if(gxd_error != gxDBASE_NO_ERROR) {
-	  status_message << "Error reading block header at heap start" 
-			 << "\n";
-	  status_message << DatabaseExceptionMessage() << "\n";
+	  str_append(status_message, "Error reading block header at heap start", "\n");
+	  str_append(status_message, DatabaseExceptionMessage(), "\n");
 	  errors++;
 	  if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
 	}
 	else {
 	  if(!VerifyBlockHeader(blk)) { 
 	    gxd_error = gxDBASE_HEAPSTART_ERROR;
-	    status_message << "Bad heap start value in file: " 
-			   << DatabaseName() << "\n";
-	    status_message << "No database block found at file address: "
-			   << fh.gxd_hs_fptr << "\n";
+	    str_append(status_message, "Bad heap start value in file: ", DatabaseName(), "\n");
+	    str_append(status_message, "No database block found at file address: ", (long long)fh.gxd_hs_fptr, "\n");
 	    errors++;
 	    if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
 	  }
@@ -359,49 +344,43 @@ not match." << "\n";
     }
   }
 
-  status_message << "Checking the free space value" << "\n";
+  str_append(status_message, "Checking the free space value", "\n");
   if(fh.gxd_fs_fptr == (FAU_t)0) {
-    status_message << "Free space list is empty" << "\n";
+    str_append(status_message, "Free space list is empty", "\n");
   }
   else if(fh.gxd_fs_fptr == gxCurrAddress) {
     gxd_error = gxDBASE_FREESPACE_ERROR;
-    status_message << "Bad free space list in file: " << DatabaseName() 
-		   << "\n";
+    str_append(status_message, "Bad free space list in file: ", DatabaseName(), "\n");
     errors++;
     if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
   }
   else if(fh.gxd_fs_fptr < (FAU_t)0) {
     gxd_error = gxDBASE_FREESPACE_ERROR;
-    status_message << "Bad free space value in file: " << DatabaseName() 
-		   << "\n";
+    str_append(status_message, "Bad free space value in file: ", DatabaseName(), "\n");
     errors++;
     if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
   }
   else if(fh.gxd_fs_fptr != (FAU_t)0) {
     if((FAU_t)(fh.gxd_fs_fptr + sizeof(gxBlockHeader)) > StaticEOF) {
       gxd_error = gxDBASE_FREESPACE_ERROR;
-      status_message << "Bad free space value in file: " << DatabaseName() 
-		     << "\n";
-      status_message << "Free space is past the end of file"<< "\n";
+      str_append(status_message, "Bad free space value in file: ", DatabaseName(), "\n");
+      str_append(status_message, "Free space is past the end of file", "\n");
       errors++;
       if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
     }
     else {
       Read(&blk, sizeof(gxBlockHeader), fh.gxd_fs_fptr);
       if(gxd_error != gxDBASE_NO_ERROR) {
-	status_message << "Error reading block header at free space start" 
-		       << "\n";
-	status_message << DatabaseExceptionMessage() << "\n";
+	str_append(status_message, "Error reading block header at free space start", "\n");
+	str_append(status_message, DatabaseExceptionMessage(), "\n");
 	errors++;
 	if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
       }
       else {
 	if(!VerifyBlockHeader(blk)) { 
 	  gxd_error = gxDBASE_FREESPACE_ERROR;
-	  status_message << "Bad free space value in file: " << DatabaseName() 
-			 << "\n";
-	  status_message << "No database block found at file address: "
-			 << fh.gxd_fs_fptr << "\n";
+	  str_append(status_message, "Bad free space value in file: ", DatabaseName(), "\n");
+	  str_append(status_message, "No database block found at file address: ", fh.gxd_fs_fptr, "\n");
 	  errors++;
 	  if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
 	}
@@ -409,11 +388,10 @@ not match." << "\n";
     }
   }
 
-  status_message << "Checking the highest block value" << "\n";
+  str_append(status_message, "Checking the highest block value", "\n");
   if(fh.gxd_hb_fptr < (FAU_t)0) {
     gxd_error = gxDBASE_HIGHBLOCK_ERROR;
-    status_message << "Bad highest block value in file: " << DatabaseName() 
-		   << "\n";
+    str_append(status_message, "Bad highest block value in file: ", DatabaseName(), "\n");
     errors++;
     if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
     
@@ -421,33 +399,29 @@ not match." << "\n";
   else {
     if(fh.gxd_hb_fptr == (FAU_t)0) {
       // This is a new file
-      status_message << "No database blocks allocated" << "\n";
+      str_append(status_message, "No database blocks allocated", "\n");
     }
     else { // Test the highest block
       if((FAU_t)(fh.gxd_hb_fptr + sizeof(gxBlockHeader)) > StaticEOF) {
 	gxd_error = gxDBASE_HIGHBLOCK_ERROR;
-	status_message << "Bad highest block value in file: " 
-		       << DatabaseName() << "\n";
-	status_message << "The highest block is past the end of file" << "\n";
+	str_append(status_message, "Bad highest block value in file: ", DatabaseName(), "\n");
+	str_append(status_message, "The highest block is past the end of file", "\n");
 	errors++;
 	if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
       }
       else {
 	Read(&blk, sizeof(gxBlockHeader), fh.gxd_hb_fptr);
 	if(gxd_error != gxDBASE_NO_ERROR) {
-	  status_message << "Error reading block header at highest block \
-address" << "\n";
-	  status_message << DatabaseExceptionMessage() << "\n";
+	  str_append(status_message, "Error reading block header at highest block address", "\n");
+	  str_append(status_message, DatabaseExceptionMessage(), "\n");
 	  errors++;
 	  if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
 	}
 	else {
 	  if(!VerifyBlockHeader(blk)) { 
 	    gxd_error = gxDBASE_HIGHBLOCK_ERROR;
-	    status_message << "Bad highest block value in file: " 
-			   << DatabaseName() << "\n";
-	    status_message << "No database block found at file address: "
-			   << fh.gxd_hb_fptr << "\n";
+	    str_append(status_message, "Bad highest block value in file: ", DatabaseName(), "\n");
+	    str_append(status_message, "No database block found at file address: ", fh.gxd_hb_fptr, "\n");
 	    errors++;
 	    if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
 	  }
@@ -457,11 +431,11 @@ address" << "\n";
   }
 
   if(errors) {
-    status_message << "Database file header has errors!" << "\n";
+    str_append(status_message, "Database file header has errors!", "\n");
     gxd_error = header_error;
   }
   else {
-    status_message << "Database file header checks good." << "\n";
+    str_append(status_message, "Database file header checks good.", "\n");
     gxd_error = header_warning;
   }
 
@@ -504,19 +478,19 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 // same fname can be overwritten. 
 {
   // Clear the status message
-  status_message.Clear();
-  status_message << "Rebuild results for: " << fname << "\n";
+  status_message.clear();
+  str_append(status_message, "Rebuild results for: ", fname, "\n");
 
   // Record the EOF mark
   FAU_t StaticEOF = FileSize(DatabaseName());
 
   if((rev == '\0') || (rev == ' ')) {
-    status_message << "Database revision: Zero" << "\n";
+    str_append(status_message, "Database revision: Zero", "\n");
   }
   else {
-    status_message << "Database revision: " << rev << "\n";
+    str_append(status_message, "Database revision: ", rev, "\n");
   }
-  status_message << "Database version: " << ver << "\n";
+  str_append(status_message, "Database version: ", (long long)ver, "\n");
 
   gxFileHeader fh;
   gxBlockHeader blk;
@@ -542,16 +516,15 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
   // header.
   Read(&fh, sizeof(gxFileHeader), (FAU_t)0);
   if(gxd_error != gxDBASE_NO_ERROR) { // Cannot read the file header
-    status_message << "Error reading database file header" << "\n";
-    status_message << DatabaseExceptionMessage() << "\n";
+    str_append(status_message, "Error reading database file header", "\n");
+    str_append(status_message, DatabaseExceptionMessage(), "\n");
     errors++;
   }
   else {
     // Check the database file header's signature. 
     if (memcmp(fh.gxd_sig, gxDatabase::gxSignature, (gxSignatureSize-1))) {
       gxd_error = gxDBASE_BAD_HEADER;
-      status_message << "Database file header is damaged or does not exist" 
-		     << "\n";
+      str_append(status_message, "Database file header is damaged or does not exist", "\n");
       errors++; // Header is damaged and cannot be read
     }
 
@@ -562,25 +535,25 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
       if((fh.gxd_hs_fptr < (FAU_t)FileHeaderSize()) ||
 	 (fh.gxd_hs_fptr > StaticEOF)) {
 	gxd_error = gxDBASE_HEAPSTART_ERROR; 
-	status_message << "Database has a bad heap start value" << "\n";
+	str_append(status_message, "Database has a bad heap start value", "\n");
 	errors++;
       }
       else if(fh.gxd_hb_fptr != (FAU_t)0) {
 	if((FAU_t)(fh.gxd_hs_fptr + sizeof(gxBlockHeader)) > StaticEOF) {
 	  gxd_error = gxDBASE_HEAPSTART_ERROR;
-	  status_message << "Database has a bad heap start value" << "\n";
-	  status_message << "The heap start is past the end of file" << "\n";
+	  str_append(status_message, "Database has a bad heap start value", "\n");
+	  str_append(status_message, "The heap start is past the end of file", "\n");
 	  errors++;
 	}
 	else {
 	  Read(&blk, sizeof(gxBlockHeader), fh.gxd_hs_fptr);
 	  if(gxd_error != gxDBASE_NO_ERROR) {
-	    status_message << "Database has a bad heap start value" << "\n";
+	    str_append(status_message, "Database has a bad heap start value", "\n");
 	    errors++;
 	  }
 	  else {
 	    if(!VerifyBlockHeader(blk)) { 
-	      status_message << "Database has a bad heap start value" << "\n";
+	      str_append(status_message, "Database has a bad heap start value", "\n");
 	      errors++;
 	    }
 	  }
@@ -604,15 +577,14 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
   if((sig) && (sig_len > 0)) memmove(gxDatabase::gxSignature, sig, sig_len);
 
   if(addr == (FAU_t)0) {
-    status_message << "No database blocks found in file: "
-	 << DatabaseName() << "\n";
+    str_append(status_message, "No database blocks found in file: ", DatabaseName(), "\n");
     gxd_error = gxDBASE_NOBLOCK_ERROR;
 
     // Create an empty file with no blocks and return
     NewFile.Create(fname, static_area, rev);
     if(NewFile.gxd_error != gxDBASE_NO_ERROR) {
-      status_message << "Error creating new database file" << "\n";
-      status_message << NewFile.DatabaseExceptionMessage() << "\n";
+      str_append(status_message, "Error creating new database file", "\n");
+      str_append(status_message, NewFile.DatabaseExceptionMessage(), "\n");
       gxd_error = NewFile.gxd_error;
       // 10/14/2026: Restore the static version information
       gxdRestoreVersionInfo(prev_sig, prev_ver, prev_check_word);
@@ -623,7 +595,7 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
     // if the file header was damaged, as the full rebuild does.
     gxdRestoreVersionInfo(prev_sig, prev_ver, prev_check_word);
     if(errors) {
-      status_message << DatabaseName() << " file header is damaged!" << "\n";
+      str_append(status_message, DatabaseName(), " file header is damaged!", "\n");
       return 0;
     }
     return 1;
@@ -633,8 +605,8 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
   // the same name.
   NewFile.Create(fname, static_area, rev);
   if(NewFile.gxd_error != gxDBASE_NO_ERROR) {
-    status_message << "Error creating new database file" << "\n";
-    status_message << NewFile.DatabaseExceptionMessage() << "\n";
+    str_append(status_message, "Error creating new database file", "\n");
+    str_append(status_message, NewFile.DatabaseExceptionMessage(), "\n");
     gxd_error = NewFile.gxd_error;
     // 10/14/2026: Restore the static version information
     gxdRestoreVersionInfo(prev_sig, prev_ver, prev_check_word);
@@ -653,17 +625,17 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
     if(!v) {
       rebuild_errors++; // 10/14/2026: Count the error
       gxd_error = gxDBASE_MEM_ALLOC_ERROR;
-      status_message << "Error copying static data area" << "\n";
-      status_message << DatabaseExceptionMessage() << "\n";
-      status_message << "No static data copied" << "\n";
+      str_append(status_message, "Error copying static data area", "\n");
+      str_append(status_message, DatabaseExceptionMessage(), "\n");
+      str_append(status_message, "No static data copied", "\n");
       static_area = (FAU_t)0;
     }
     else {
       // Do not read past the end of file
       if((FAU_t)(static_area + FileHeaderSize()) > StaticEOF) {
-	status_message << "Error copying static data area" << "\n";
-	status_message << "Static data area is past the end of file" << "\n";
-	status_message << "No static data copied" << "\n";
+	str_append(status_message, "Error copying static data area", "\n");
+	str_append(status_message, "Static data area is past the end of file", "\n");
+	str_append(status_message, "No static data copied", "\n");
 	rebuild_errors++; // 10/14/2026: Count the error
 	static_area = (FAU_t)0;
 	// PC-lint 09/08/2005: Inappropriate deallocation delete for new[]
@@ -672,9 +644,9 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
       else {
 	Read(v, (__ULWORD__)static_area, (FAU_t)FileHeaderSize());
 	if(gxd_error != gxDBASE_NO_ERROR) {
-	  status_message << "Error copying static data area" << "\n";
-	  status_message << DatabaseExceptionMessage() << "\n";
-	  status_message << "No static data copied" << "\n";
+	  str_append(status_message, "Error copying static data area", "\n");
+	  str_append(status_message, DatabaseExceptionMessage(), "\n");
+	  str_append(status_message, "No static data copied", "\n");
 	  rebuild_errors++; // 10/14/2026: Count the error
 	  static_area = (FAU_t)0;
 	  // PC-lint 09/08/2005: Inappropriate deallocation delete for new[]
@@ -687,9 +659,9 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	  NewFile.Write(v, (__ULWORD__)static_area, 
 			(FAU_t)NewFile.FileHeaderSize());
 	  if(NewFile.gxd_error != gxDBASE_NO_ERROR) {
-	    status_message << "Error copying static data area" << "\n";
-	    status_message << NewFile.DatabaseExceptionMessage() << "\n";
-	    status_message << "No static data copied" << "\n";
+	    str_append(status_message, "Error copying static data area", "\n");
+	    str_append(status_message, NewFile.DatabaseExceptionMessage(), "\n");
+	    str_append(status_message, "No static data copied", "\n");
 	    rebuild_errors++; // 10/14/2026: Count the error
 	    // PC-lint 09/08/2005: Inappropriate deallocation delete for new[]
 	    delete[] v;
@@ -718,8 +690,7 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
     if((FAU_t)(addr + BlockHeaderSize()) >= StaticEOF) {
       if(curr_addr != StaticEOF) {
 	// Report EOF warning here if an error is detected
-	status_message << "Reached the end of file mark rebuild stopped"
-		       << "\n";
+	str_append(status_message, "Reached the end of file mark rebuild stopped", "\n");
       }
       break;
     }
@@ -728,9 +699,8 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
     Read(&blk, sizeof(gxBlockHeader), addr);
     curr_addr = FAU_t(addr + sizeof(gxBlockHeader));
     if(gxd_error != gxDBASE_NO_ERROR) {
-      status_message << "Error reading database block header" 
-		     << "\n";
-      status_message << DatabaseExceptionMessage() << "\n";
+      str_append(status_message, "Error reading database block header", "\n");
+      str_append(status_message, DatabaseExceptionMessage(), "\n");
       badgx++;
       addr = BlockSearch(curr_addr); // Search for the next good block
       if(addr == (FAU_t)0) break; 
@@ -742,8 +712,7 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
     if((TestBlockHeader(blk)) && 
        (((FAU_t)blk.block_length < (FAU_t)BlockHeaderSize()) ||
 	((FAU_t)(addr + blk.block_length) > StaticEOF))) {
-      status_message << "Bad block length found at file address: "
-	     << addr << "\n";
+      str_append(status_message, "Bad block length found at file address: ", addr, "\n");
       badgx++;
       addr = BlockSearch(curr_addr); // Search for the next good block
       if(addr == (FAU_t)0) break; 
@@ -760,8 +729,7 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	    break;
 	}
 	if(object_length < (FAU_t)0) { // 10/14/2026: See above
-	  status_message << "Bad block length found at file address: "
-			 << addr << "\n";
+	  str_append(status_message, "Bad block length found at file address: ", addr, "\n");
 	  badgx++;
 	  addr = BlockSearch(curr_addr); // Search for the next good block
 	  if(addr == (FAU_t)0) break; 
@@ -774,16 +742,15 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	  // Seek past the record lock header
 	  curr_addr += sizeof(gxRecordLockHeader);
 	  if(curr_addr >= StaticEOF) { // Do not seek past the end of file
-	    status_message << "Reached the end of file mark rebuild stopped"
-			   << "\n";
+	    str_append(status_message, "Reached the end of file mark rebuild stopped", "\n");
 	    break;
 	  } 
 
 	  // Seek past the record lock header and set the current address
 	  SeekTo(curr_addr);
 	  if(gxd_error != gxDBASE_NO_ERROR) {
-	    status_message << "Error seeking in file" << "\n";
-	    status_message << DatabaseExceptionMessage() << "\n";
+	    str_append(status_message, "Error seeking in file", "\n");
+	    str_append(status_message, DatabaseExceptionMessage(), "\n");
 	    badgx++;
 	    addr = BlockSearch(curr_addr); // Search for the next good block
 	    if(addr == (FAU_t)0) break; 
@@ -795,7 +762,7 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	// lengths over 2GB in the 64-bit engine. See gxdDebugAlloc().
 	v = gxdDebugAlloc((__ULWORD__)object_length);
 	if(!v) {
-	  status_message << "Memory allocation error rebuild stopped" << "\n";
+	  str_append(status_message, "Memory allocation error rebuild stopped", "\n");
 	  gxd_error = gxDBASE_MEM_ALLOC_ERROR;
 	  rebuild_errors++; // 10/14/2026: Count the error
 	  break;
@@ -805,16 +772,15 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	curr_addr += object_length;
 	if(curr_addr > StaticEOF) {
 	  // Do not read past the end of file
-	  status_message << "Reached the end of file mark rebuild stopped"
-			 << "\n";
+	  str_append(status_message, "Reached the end of file mark rebuild stopped", "\n");
 	  // PC-lint 09/08/2005: Inappropriate deallocation delete for new[]
 	  delete[] v;
 	  break;
 	} 
 	Read(v, (__ULWORD__)object_length);
 	if(gxd_error != gxDBASE_NO_ERROR) {
-	  status_message << "Error reading database block" << "\n";
-	  status_message << DatabaseExceptionMessage() << "\n";
+	  str_append(status_message, "Error reading database block", "\n");
+	  str_append(status_message, DatabaseExceptionMessage(), "\n");
 	  // PC-lint 09/08/2005: Inappropriate deallocation delete for new[]
 	  delete[] v;
 	  badgx++;
@@ -836,9 +802,8 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	NewFile.Write(v, (__ULWORD__)object_length,
 		      NewFile.Alloc((__ULWORD__)object_length));
 	if(NewFile.gxd_error != gxDBASE_NO_ERROR) {
-	  status_message << "Error writing block to specified database file"
-			 << "\n";
-	  status_message << NewFile.DatabaseExceptionMessage() << "\n";
+	  str_append(status_message, "Error writing block to specified database file", "\n");
+	  str_append(status_message, NewFile.DatabaseExceptionMessage(), "\n");
 	  // PC-lint 09/08/2005: Inappropriate deallocation delete for new[]
 	  delete[] v;
 	  gxd_error = NewFile.gxd_error;
@@ -858,9 +823,8 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	  checksum = calcCRC32(v, (__ULWORD__)object_length);
 	  NewFile.Write(&checksum, sizeof(checksum));
 	  if(NewFile.gxd_error != gxDBASE_NO_ERROR) {
-	    status_message << "Error writing persistent checksum value"
-			   << "\n";
-	    status_message << NewFile.DatabaseExceptionMessage() << "\n";
+	    str_append(status_message, "Error writing persistent checksum value", "\n");
+	    str_append(status_message, NewFile.DatabaseExceptionMessage(), "\n");
 	    gxd_error = NewFile.gxd_error;
 	    rebuild_errors++; // 10/14/2026: Count the error
 	  }
@@ -884,28 +848,22 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
   // Total number of objects restored
   if(num_objects) *num_objects = count;
 
-  status_message << "Wrote " << count << " good database blocks to file: "
-		 << NewFile.DatabaseName() << "\n";
+  str_append(status_message, "Wrote ", count, " good database blocks to file: ", NewFile.DatabaseName(), "\n");
   
   if((static_area != (FAU_t)0) && (copy_static_data)) { 
-    status_message << "Wrote " << static_area << " bytes of Static area data."
-		   << "\n";
+    str_append(status_message, "Wrote ", static_area, " bytes of Static area data.", "\n");
   }
   if(rebuild_errors) { // 10/14/2026: Report errors found during the rebuild
-    status_message << "Found " << rebuild_errors 
-	   << " errors during the rebuild" << "\n";
+    str_append(status_message, "Found ", rebuild_errors, " errors during the rebuild", "\n");
   }
   if(badgx) {
     gxd_error = gxDBASE_BADBLOCK_ERROR;
-    status_message << "Did not write " << badgx 
-		   << " bad blocks found in file: "
-		   << DatabaseName() << "\n";
+    str_append(status_message, "Did not write ", badgx, " bad blocks found in file: ", DatabaseName(), "\n");
   }
   if(errors) {
     gxd_error = gxDBASE_BAD_HEADER;
-    status_message << DatabaseName() << " file header is damaged!" << "\n";
-    status_message << "No header information was copied to "
-		   << NewFile.DatabaseName() << "\n";
+    str_append(status_message, DatabaseName(), " file header is damaged!", "\n");
+    str_append(status_message, "No header information was copied to ", NewFile.DatabaseName(), "\n");
   }
 
   // 10/14/2026: Close the new file with its version information set,

@@ -45,269 +45,9 @@ the source code and documentation supplied with the third party library.
 #include "gxdlcode.h"
 
 #include "gxssl.h"
+#include "strutil.h"
 
-// 08/06/2009: Moved gxRandom class outside of __USE_GX_SSL_EXTENSIONS__
-// 08/06/2009: conditional directive. This allows the random class to 
-// 08/06/2009: to be used by application not requiring the SSL functions.
-gxRandom::gxRandom(unsigned max_seeds) 
-{
-  seed_table = 0;
-  num_seeds = 0;
-  curr_seed = 0;
-  SeedTable(max_seeds);
-}
-
-gxRandom::~gxRandom() 
-{
-  if(seed_table) {
-    delete[] seed_table; // 10/14/2026: Was a scalar delete of new[]
-    seed_table = 0;
-  }
-}
-
-unsigned gxRandom::Seed(int reuse)
-// Returns a random seed from the seed table. If  
-// reuse is true the same seed table will be used
-// when the number of seed in the table is exceeded.  
-{
-  if(!seed_table) {
-    SeedTable(num_seeds);
-  }
-  if(seed_table) {
-    if(curr_seed >= (num_seeds-1)) {
-      if(reuse) {
-	curr_seed = 0;
-      }
-      else {
-	SeedTable(num_seeds);
-      }
-    }
-    if(seed_table) {
-      return seed_table[curr_seed++];
-    }
-  }
-  return entropy_number();
-}  
-
-unsigned gxRandom::Seed(unsigned &a, unsigned &b, unsigned &c, unsigned &d)
-// Returns a random seed using the entropy function. 
-{
-  return entropy_number(a, b, c, d);
-}
-
-unsigned gxRandom::entropy_number()
-// Internal entropy function used to generate a number used to seed 
-// the random number generator. Returns a random seed. 
-{
-  unsigned a, b, c, d;
-  return entropy_number(a, b, c, d);
-}
-
-unsigned gxRandom::entropy_number(unsigned &a, unsigned &b, 
-				  unsigned &c, unsigned &d)
-// Internal entropy function used to generate a number used to seed 
-// the random number generator. Returns a random seed. 
-// Passed back 4 byte values in the a, b, c, and d variables.
-{
-  char *bytes = new char[4];
-  a = b = c = d = 0;
-
-  // 10/24/2026: Use size_t so the pointer casts do not truncate on 64-bit
-  // Windows, where unsigned long is 32 bits.
-  size_t ob_addr = (size_t)this;
-  size_t arib_addr = (size_t)&bytes;
-  ob_addr &= arib_addr;
-  unsigned r_seed = (unsigned)time(0);
-  r_seed -= ob_addr;
-  r_seed += arib_addr;
-  unsigned buf;
-  memmove(&buf, bytes, 4);
-  r_seed += buf;
-  buf = r_seed;
-  if(arib_addr > 1244948) arib_addr = 1244948;
-  if(arib_addr == 0) arib_addr = 1244948;
-  if(buf < 290635773) buf = 290635773;
-  for(unsigned i = 0; i < (buf%arib_addr); i++) r_seed += (unsigned)clock();
-
-  a = (unsigned)(r_seed & 0xFF);
-  b = (unsigned)((r_seed & 0xFF00)>>8);
-  c = (unsigned)((r_seed & 0xFF0000)>>16);
-  d = (unsigned)((r_seed & 0xFF000000)>>24);
-
-  delete[] bytes; bytes = 0;
-  return r_seed;
-}
-
-void gxRandom::SeedTable(unsigned max_seeds, unsigned long r_seed)
-// Function used to generate the random seed table containing max_seeds. 
-// The r_seed value is the number used to seed the random number generator. 
-{
-  if(max_seeds < 16) max_seeds = 16;
-  curr_seed = 0;
-  if(seed_table) {
-    if(!r_seed) r_seed = (seed_table[7]+entropy_number());
-    if(num_seeds == max_seeds) {
-      gen_prng_table(seed_table, max_seeds, r_seed);
-      return;
-    }
-    delete[] seed_table; // 10/14/2026: Was a scalar delete of new[]
-    seed_table = 0;
-  }
-  if(!r_seed) r_seed = entropy_number();
-  num_seeds = max_seeds;
-  seed_table = gen_prng_table(max_seeds, r_seed);
-}
-
-unsigned gxRandom::RandomNumber(unsigned long r_seed)
-// Returns a random number.
-{
-  if(!r_seed) r_seed = Seed();
-  int random_number = gen_random_number(r_seed);
-
-#ifndef RAND_MAX
-#define RAND_MAX 32767
-#endif
-
-  random_number &= RAND_MAX;
-  double f = (double)(r_seed*3) * random_number / (RAND_MAX + 1.3);
-  random_number = gen_random_number((unsigned long)f);
-  random_number &= RAND_MAX;
-  f = (double)(r_seed*8) * random_number / (RAND_MAX + 1.8);
-
-  return (unsigned)f;
-}
-
-unsigned gxRandom::gen_random_number(unsigned long r_seed)
-// Internal function used to generate a random number using a random seed. 
-{
-  // Seed the random number generator using the call's
-  // random seed.
-#if defined (__WIN32__)
-  srand((unsigned)r_seed);
-  return (unsigned)rand();
-#elif defined(__UNIX__)
-  // Reentrant UNIX call added to replace srand() and rand()
-  unsigned int seed = (unsigned int)r_seed;
-  return (unsigned)rand_r(&seed);
-#else // Default to the using the srand() function 
-  srand((unsigned)r_seed);
-  return (unsigned)rand();
-#endif
-}
-
-unsigned *gxRandom::gen_prng_table(unsigned table_size, unsigned long r_seed)
-// Internal function used to generate a new pseudo random number table to the size of 
-// table_size. The r_seed value is the number used to seed the random number 
-// generator.
-{
-  unsigned *table = new unsigned[table_size];
-  if(!table) return 0;
-  return gen_prng_table(table, table_size, r_seed);
-}
-
-unsigned *gxRandom::gen_prng_table(unsigned *table, unsigned table_size, 
-				   unsigned long r_seed)
-// Function used to generate pseudo random numbers reusing a previously 
-// allocated table the size of table_size. The r_seed value is the number 
-// used to seed the random number generator.
-{
-  if(!table) return 0;
-
-#if defined (__WIN32__)
-  srand(r_seed); // Seed the random number generator
-  for(unsigned i = 0; i < table_size; i++) {
-    table[i] = (unsigned)(rand() + i);
-  }
-#elif defined(__UNIX__)
-  // Reentrant safe UNIX call added to replace srand() and rand()
-  unsigned l_seed = r_seed; // Seed the random number generator
-  for(unsigned i = 0; i < table_size; i++) {
-    table[i] = (unsigned)(rand_r(&l_seed) + i);
-  }
-#else // Default to the using the srand() function 
-  srand(r_seed); // Seed the random number generator
-  for(unsigned i = 0; i < table_size; i++) {
-    table[i] = (unsigned)(rand() + i);
-  }
-#endif
-
-  return table;
-}
-
-unsigned *gxRandom::PRNGTable(unsigned *table1, unsigned table_size, 
-			      unsigned long r_seed)
-// Function used to generate pseudo random numbers reusing a previously 
-// allocated table the size of table_size. The r_seed value is the number 
-// used to seed the random number generator.
-{
-  if(!table1) return 0;
-  if(table_size < 1) table_size = 1;
-  if(!r_seed) r_seed = entropy_number();
-
-  if(!gen_prng_table(table1, table_size, RandomNumber(r_seed))) return 0;
-  unsigned *table2 = gen_prng_table(table_size, RandomNumber(r_seed));
-  if(!table2) return 0;
-  test_tables(table1, table2, table_size);
-  delete[] table2; // 10/14/2026: Was a scalar delete of new[]
-
-  return table1;
-}
-
-int gxRandom::test_tables(unsigned *table1, unsigned *table2, 
-			  unsigned table_size)
-// Internal function used to test previously allocated pseudo 
-// random number tables for randomness.  Returns true after
-// adjusting the table values.
-{
-  if(!table1) return 0;
-  if(!table2) return 0;
-
-  unsigned i, j, matches, total_matches;
-  unsigned max_loop = table_size * (table_size/2);
-  if(max_loop > 4096) max_loop %= max_loop/table_size;
-  if(max_loop < 256) max_loop = 64; 
-  while(max_loop--) {
-    total_matches = 0;
-    for(i = 0; i < table_size; i++) {
-      matches = 0;
-      for(j = 0; j < table_size; j++) {
-	// Looking for duplicate entries
-	if(table1[i] == table2[j]) matches++;
-	if(matches > 1) { // Found duplicate entry
-	  table1[i] = RandomNumber();
-	  total_matches++;
-	}
-      }
-    }
-    if(total_matches == 0) break;
-  }
-
-  return 1;
-}
-
-unsigned *gxRandom::PRNGTable(unsigned table_size, unsigned long r_seed)
-// Function used to generate a new pseudo random number table to the size of 
-// table_size. The r_seed value is the number used to seed the random number 
-// generator.
-{
-  if(table_size < 1) table_size = 1;
-
-  if(!r_seed) r_seed = entropy_number();
-
-  unsigned *table1 = gen_prng_table(table_size, RandomNumber(r_seed));
-  if(!table1) return 0;
-  unsigned *table2 = gen_prng_table(table_size, RandomNumber(r_seed));
-  if(!table2) {
-    delete[] table1; // 10/14/2026: Was a scalar delete of new[]
-    return 0;
-  }
-  test_tables(table1, table2, table_size);  
-  delete[] table2; // 10/14/2026: Was a scalar delete of new[]
-
-  return table1;
-}
-
-#if defined (__USE_GX_SSL_EXTENSIONS__)
+using namespace datareel;
 
 // Initialize all static variables and data members
 int gxSSL::lib_init = 0;
@@ -359,7 +99,7 @@ const char *gxsOpenSSLExceptionMessages[gxsMaxOpenSSLExceptionMessages] = {
   "SSL exception: Memory BIO not initialized",         // MBIO_INIT_ERROR
   "SSL exception: Accessing a null pointer",           // NULL_PTR_ERROR
   "SSL exception: Error processing password",          // PASSWD_ERROR
-  "SSL exception: Common name doesn't match hostname", // PEERCN_ERROR
+  "SSL exception: Certificate was not issued for this host", // PEERCN_ERROR
   "SSL exception: Peer did not present certificate",   // PEERCERT_ERROR
   "SSL exception: Pseudo random number error",         // PRNG_ERROR   
   "SSL exception: Error setting requested protocol",   // PROTOCOL_ERROR
@@ -397,22 +137,22 @@ const char *gxsOpenSSLExceptionMessages[gxsMaxOpenSSLExceptionMessages] = {
 
 void gxCertIssuerInfo::ResetCert() 
 {
-  C.Clear();
-  ST.Clear();
-  L.Clear();
-  O.Clear();
-  OU.Clear();
-  CN.Clear();
+  C.clear();
+  ST.clear();
+  L.clear();
+  O.clear();
+  OU.clear();
+  CN.clear();
   sn = 0;
   days = 365;
-  passwd.Clear();
-  company_name.Clear();
-  email_address.Clear();
-  basic_constraints.Clear();
-  key_usage.Clear();
-  subject_key_identifier.Clear();
-  netscape_cert_type.Clear();
-  netscape_comment.Clear();
+  passwd.clear();
+  company_name.clear();
+  email_address.clear();
+  basic_constraints.clear();
+  key_usage.clear();
+  subject_key_identifier.clear();
+  netscape_cert_type.clear();
+  netscape_comment.clear();
 }
 
 void gxCertIssuerInfo::CopyCert(gxCertIssuerInfo &ob) {
@@ -443,7 +183,7 @@ int password_cb2(char *buf,int num, int /* rwflag */, void *userdata)
 {
   gxSSL *openssl = (gxSSL *)userdata;
 
-  if(openssl->passwd.is_null()) return 0;
+  if(openssl->passwd.empty()) return 0;
   if(num < (int)(openssl->passwd.length()+1)) return 0;
   memset(buf, 0, num);
   memmove(buf, openssl->passwd.c_str(), openssl->passwd.length());
@@ -463,18 +203,18 @@ gxSSL::~gxSSL()
 int gxSSL::SetAppError(const char *s) 
 // Function used to set application error strings.
 {
-  app_err_str << clear << s;
+  app_err_str = str_cat(s);
   return ssl_error = gxSSL_APPDEF_ERROR;
 }
 
-void gxSSL::GlobalSSLError(gxString &err_str)
+void gxSSL::GlobalSSLError(std::string &err_str)
 // Passes back the global SSL error string in the
 // err_str variable.
 {
   char sbuf[1024];
   memset(sbuf, 0, 1024);
   ERR_error_string(ERR_get_error(), sbuf);
-  err_str << clear << "SSL global exception: " << sbuf;
+  err_str = str_cat("SSL global exception: ", sbuf);
 }
 
 int gxSSL::OpenSSLSocket(gxsSocket_t s)
@@ -506,7 +246,7 @@ int gxSSL::ConnectSSLSocket()
 {
   if(is_ssl_null()) return ssl_error;
   // 10/24/2026: Send the server name (SNI) if the caller set one
-  if(!host_name.is_null()) {
+  if(!host_name.empty()) {
     SSL_set_tlsext_host_name(ssl, host_name.c_str());
   }
   if(check_ssl_error(SSL_connect(ssl)) != SSL_ERROR_NONE) {
@@ -527,7 +267,6 @@ int gxSSL::AcceptSSLSocket()
   return ssl_error = gxSSL_NO_ERROR;
 }
 
-// 07/31/2021: Include support for openssl 1.0.1
 int gxSSL::CloseSSLSocket(int destroy_ssl)
 // Function used to close an SSL socket connection.
 // Returns 0 if successful. 
@@ -536,13 +275,9 @@ int gxSSL::CloseSSLSocket(int destroy_ssl)
   if(!ssl) return ssl_error;
   int rv = SSL_shutdown(ssl);
   if(!rv) {
-    int open_socket;
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    BIO_get_fd(ssl->rbio, &open_socket);
-#else
+    int open_socket = -1;
     BIO_get_fd(SSL_get_rbio(ssl), &open_socket);
-#endif
-    shutdown(open_socket, 1);
+    if(open_socket >= 0) shutdown(open_socket, 1);
     rv = SSL_shutdown(ssl);
   }
   if(rv != 1) {
@@ -598,6 +333,37 @@ int gxSSL::RawReadSSLSocket(void *buf, int bytes)
   return rv;
 }
 
+int gxSSL::ReadSomeSSLSocket(void *buf, int bytes, int timeout_ms)
+// Return up to bytes of decrypted data, waiting at most timeout_ms
+// (-1 waits forever). Returns the number of bytes read, 0 if the peer
+// closed the connection, or -1 on an error or timeout.
+{
+  bytes_read = 0;
+  if(is_ssl_null()) return -1;
+  int fd = -1;
+  BIO_get_fd(SSL_get_rbio(ssl), &fd);
+  for(;;) {
+    // Data already decrypted by OpenSSL does not make the socket readable
+    if(timeout_ms >= 0 && SSL_pending(ssl) == 0) {
+      int w = gxSocket::WaitReadable((gxsSocket_t)fd, timeout_ms);
+      if(w == 0) { ssl_error = gxSSL_REQUEST_TIMEOUT; return -1; }
+      if(w < 0) { ssl_error = gxSSL_RECEIVE_ERROR; return -1; }
+    }
+    int rv = SSL_read(ssl, buf, bytes);
+    if(rv > 0) {
+      ssl_error = gxSSL_NO_ERROR;
+      bytes_read = rv;
+      return rv;
+    }
+    int err = check_ssl_error(rv);
+    if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+      continue; // A partial record or a TLS 1.3 ticket, read again
+    }
+    if(err == SSL_ERROR_ZERO_RETURN) return 0;
+    return -1;
+  }
+}
+
 int gxSSL::SendSSLSocket(const void *buf, int bytes)
 // Send a block of data to the bound socket and do not return
 // until all the bytes have been written. Returns the total number 
@@ -651,7 +417,6 @@ int gxSSL::RecvSSLSocket(void *buf, int bytes, int seconds, int useconds)
   return RecvSSLSocket(buf, bytes, 1, seconds, useconds);
 }
 
-// 07/31/2021: Include support for openssl 1.0.1
 int gxSSL::RecvSSLSocket(void *buf, int bytes, int useTimeout, int seconds,
 			 int useconds)
 // Receive a block of data from a specified socket and do not return
@@ -668,17 +433,14 @@ int gxSSL::RecvSSLSocket(void *buf, int bytes, int useTimeout, int seconds,
   int num_req = bytes;   // Number of bytes requested 
   char *p = (char *)buf; // Pointer to the buffer
 
-  int open_socket;
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    BIO_get_fd(ssl->rbio, &open_socket);
-#else
-    BIO_get_fd(SSL_get_rbio(ssl), &open_socket);
-#endif
-  
-  gxSocket gxsocket_object;
+  int open_socket = -1;
+  BIO_get_fd(SSL_get_rbio(ssl), &open_socket);
+  int timeout_ms = seconds * 1000 + useconds / 1000;
   
   while(bytes_read < bytes) { // Loop until the buffer is full
-    if(useTimeout && (!gxsocket_object.ReadSelect(open_socket, seconds, useconds))) {
+    // Data already decrypted by OpenSSL does not make the socket readable
+    if(useTimeout && SSL_pending(ssl) == 0 &&
+       gxSocket::WaitReadable((gxsSocket_t)open_socket, timeout_ms) != 1) {
       ssl_error = gxSSL_REQUEST_TIMEOUT;
       if(bytes_read > 0) {
 	return bytes_read; 
@@ -731,237 +493,24 @@ SSL_CTX *gxSSL::InitCTX(const char *cert_fname, const char *key_fname,
   return InitCTX();
 } 
 
-// 07/31/2021: Include support for openssl 1.0.1
 SSL_CTX *gxSSL::InitCTX() 
-// Function used to initialize an SSL context object. 
-// Returns a pointer to the context object or a null value 
-// if an error occurs.
+// Function used to initialize an SSL context object. TLS 1.2 is the
+// lowest protocol version allowed. Returns a pointer to the context
+// object or a null value if an error occurs.
 {
   InitSSLibrary();
+  DestroyCTX();
 
   const SSL_METHOD *meth = 0;
-  
-  // Set the SSL protocol
-  switch(ssl_proto) {
-    case gxSSL_SSLv23:
-      if(is_client) {
-	meth = SSLv23_client_method();
-      }
-      else if(is_server) {
-	meth = SSLv23_server_method();
-      }
-      else {
-	meth = SSLv23_method();
-      }
-      break;
-
-#if OPENSSL_VERSION_NUMBER >= 0x1000200fL
-    case gxSSL_TLS:
-      if(is_client) {
-	meth = TLS_client_method();
-      }
-      else if(is_server) {
-	meth = TLS_server_method();
-      }
-      else {
-	meth = TLS_method();
-      }
-      break;
-    case gxSSL_DTLS:
-      if(is_client) {
-	meth = DTLS_client_method();
-      }
-      else if(is_server) {
-	meth = DTLS_server_method();
-      }
-      else {
-	meth = DTLS_method();
-      }
-      break;
-#endif
-
-#ifndef OPENSSL_NO_SSL2
-    case gxSSL_SSLv2:
-      if(is_client) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = SSLv2_client_method();
-#else
-	meth = SSLv23_client_method();
-#endif
-      }
-      else if(is_server) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = SSLv2_server_method();
-#else
-	meth = SSLv23_server_method();
-#endif
-      }
-      else {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = SSLv2_method();
-#else
-	meth = SSLv23_method();
-#endif
-      }
-      break;
-#endif
-#ifndef OPENSSL_NO_SSL3_METHOD
-    case gxSSL_SSLv3:
-      if(is_client) {
-	meth = SSLv3_client_method();
-      }
-      if(is_server) {
-	meth = SSLv3_server_method();
-      }
-      else {
-	meth = SSLv3_method();
-      }
-      break;
-#endif
-
-#ifndef OPENSSL_NO_TLS1_METHOD
-    case gxSSL_TLSv1:
-      if(is_client) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = TLSv1_client_method();
-#else
-	meth = TLS_client_method();
-#endif
-      }
-      else if(is_server) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = TLSv1_server_method();
-#else
-	meth = TLS_server_method();
-#endif
-      }
-      else {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = TLSv1_method();
-#else
-	meth = TLS_method();
-#endif
-      }
-      break;
-#endif
-
-#ifndef OPENSSL_NO_TLS1_1_METHOD
-    case gxSSL_TLSv1_1:
-      if(is_client) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = TLSv1_1_client_method();
-#else
-	meth = TLS_client_method();
-#endif
-      }
-      else if(is_server) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = TLSv1_1_server_method();
-#else
-	meth = TLS_server_method();
-#endif
-      }
-      else {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = TLSv1_1_method();
-#else
-	meth = TLS_method();
-#endif
-      }
-      break;
-#endif
-
-#ifndef OPENSSL_NO_TLS1_2_METHOD
-    case gxSSL_TLSv1_2:
-      if(is_client) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = TLSv1_2_client_method();
-#else
-	meth = TLS_client_method();
-#endif
-      }
-      else if(is_server) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = TLSv1_2_server_method();
-#else
-	meth = TLS_server_method();
-#endif
-      }
-      else {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = TLSv1_2_method();
-#else
-	meth = TLS_method();
-#endif
-      }
-      break;
-
-#endif
-
-#ifndef OPENSSL_NO_DTLS1_METHOD
-    case gxSSL_DTLSv1:
-      if(is_client) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = DTLSv1_client_method();
-#else
-	meth = DTLS_client_method();
-#endif
-      }
-      else if(is_server) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = DTLSv1_server_method();
-#else
-	meth = DTLS_server_method();
-#endif
-      }
-      else {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = DTLSv1_method();
-#else
-	meth = DTLS_method();
-#endif
-      }
-      break;
-#endif
-
-#if OPENSSL_VERSION_NUMBER >= 0x1000200fL
-#ifndef OPENSSL_NO_DTLS1_2_METHOD
-    case gxSSL_DTLSv1_2:
-      if(is_client) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-        meth = DTLSv1_2_client_method();
-#else
-	meth = DTLS_client_method();
-#endif
-      }
-      else if(is_server) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = DTLSv1_2_server_method();
-#else
-	meth = DTLS_server_method();
-#endif
-      }
-      else {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	meth = DTLSv1_2_method();
-#else
-	meth = DTLS_method();
-#endif
-      }
-      break;
-#endif
-#endif
-    default:
-      if(is_client) {
-	meth = SSLv23_client_method();
-      }
-      else if(is_server) {
-	meth = SSLv23_server_method();
-      }
-      else {
-	meth = SSLv23_method();
-      }
-      break;
+  bool datagram = (ssl_proto == gxSSL_DTLS);
+  if(is_client) {
+    meth = datagram ? DTLS_client_method() : TLS_client_method();
+  }
+  else if(is_server) {
+    meth = datagram ? DTLS_server_method() : TLS_server_method();
+  }
+  else {
+    meth = datagram ? DTLS_method() : TLS_method();
   }
   if(!meth) {
     ssl_error = gxSSL_PROTOCOL_ERROR;
@@ -969,68 +518,80 @@ SSL_CTX *gxSSL::InitCTX()
   }
 
   ctx = SSL_CTX_new(meth);
-  if(!meth) {
-    ssl_error = gxSSL_PROTOCOL_ERROR;
-    return 0;
-  }
   if(!ctx) {
     ssl_error = gxSSL_CTX_INIT_ERROR;
     return 0;
   }
+  owns_ctx = 1;
 
-  int ssl_cert_type;
-  switch(cert_type) {
-    case gxSSL_PEM:
-      ssl_cert_type = SSL_FILETYPE_PEM;
-      break;
-    case gxSSL_ASN1:
-      ssl_cert_type = SSL_FILETYPE_ASN1;
-      break;
-    default:
-      ssl_cert_type = SSL_FILETYPE_PEM;
-      break;
-  };
+  // 10/26/2026: SSL 2, SSL 3, TLS 1.0 and TLS 1.1 are no longer allowed
+  int min_version = TLS1_2_VERSION, max_version = 0;
+  switch(ssl_proto) {
+    case gxSSL_TLSv1_2: min_version = max_version = TLS1_2_VERSION; break;
+    case gxSSL_TLSv1_3: min_version = TLS1_3_VERSION; break;
+    case gxSSL_DTLS: min_version = DTLS1_2_VERSION; break;
+    default: break;
+  }
+  if(!SSL_CTX_set_min_proto_version(ctx, min_version) ||
+     (max_version && !SSL_CTX_set_max_proto_version(ctx, max_version))) {
+    ssl_error = gxSSL_PROTOCOL_ERROR;
+    DestroyCTX();
+    return 0;
+  }
 
-  if(!cert_file.is_null()) {
-    if(SSL_CTX_use_certificate_file(ctx, 
-				    cert_file.c_str(), ssl_cert_type) <= 0) {
+  int ssl_cert_type = (cert_type == gxSSL_ASN1) ? SSL_FILETYPE_ASN1 : 
+    SSL_FILETYPE_PEM;
+
+  if(!passwd.empty()) {
+    SSL_CTX_set_default_passwd_cb_userdata(ctx, (void *)this);
+    SSL_CTX_set_default_passwd_cb(ctx, password_cb2);
+  }
+  if(!cert_file.empty()) {
+    int rv = (ssl_cert_type == SSL_FILETYPE_PEM) ?
+      SSL_CTX_use_certificate_chain_file(ctx, cert_file.c_str()) :
+      SSL_CTX_use_certificate_file(ctx, cert_file.c_str(), ssl_cert_type);
+    if(rv <= 0) {
       ssl_error = gxSSL_CERT_ERROR;
       DestroyCTX();
       return 0;
     }
   }
-  if(!passwd.is_null()) {
-    SSL_CTX_set_default_passwd_cb_userdata(ctx, (void *)this);
-    SSL_CTX_set_default_passwd_cb(ctx, password_cb2);
-  }
-  if(!key_file.is_null()) {
+  if(!key_file.empty()) {
     if(SSL_CTX_use_PrivateKey_file(ctx, key_file.c_str() , ssl_cert_type) <= 0) {
       ssl_error = gxSSL_KEY_ERROR;
       DestroyCTX();
       return 0;
     }
+    if(!SSL_CTX_check_private_key(ctx)) {
+      ssl_error = gxSSL_KEY_ERROR;
+      DestroyCTX();
+      return 0;
+    }
   }
-  if(!ca_list.is_null()) {
+
+  // Trusted CA certificates used by VerifyCert(): the CA list if one
+  // was set, or the system certificate store
+  if(!ca_list.empty()) {
     if(!(SSL_CTX_load_verify_locations(ctx, ca_list.c_str(), 0))) {
       ssl_error = gxSSL_CALIST_ERROR;
       DestroyCTX();
       return 0;
     }
   }
+  else {
+    SSL_CTX_set_default_verify_paths(ctx);
+  }
 
-#if OPENSSL_VERSION_NUMBER < 0x00905100L
-  SSL_CTX_set_verify_depth(ctx, 1);
-#endif
-  
   ssl_error = gxSSL_NO_ERROR;
   return ctx;
 }
 
 void gxSSL::DestroyCTX()
-// Destroys the context object.
+// Destroys the context object if this object created it.
 {
-  if(ctx) SSL_CTX_free(ctx);
+  if(ctx && owns_ctx) SSL_CTX_free(ctx);
   ctx = 0;
+  owns_ctx = 0;
 }
 
 void gxSSL::DestroySSL()
@@ -1040,23 +601,14 @@ void gxSSL::DestroySSL()
   ssl = 0;
 }
 
-// 07/31/2021: Include support for openssl 1.0.1
 int gxSSL::InitSSLibrary()
 // Function used to initialize the SSL library. 
 // Returns true after initialization or if the 
 // library was previously initialized.
 {
-  // Global SSL library init
   if(!gxSSL::lib_init) {
-    SSL_library_init();       // Initialize SSL library
-    SSL_load_error_strings(); // Map SSL error numbers to strings
-
-    // This is no longer needed as OpenSSL 1.1.0 as this is done automatically.
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    SSLeay_add_all_algorithms ();
-#endif
-    
-    SSLeay_add_ssl_algorithms ();
+    OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS | 
+		     OPENSSL_INIT_LOAD_CRYPTO_STRINGS, 0);
     gxSSL::lib_init = 1;
   }
   return 1;
@@ -1075,13 +627,14 @@ void gxSSL::init_data_members()
 // Internal function used to initialized data members.
 {
   ctx = 0;
+  owns_ctx = 0;
   ssl = 0;
   socket_bio = file_bio = memory_bio = 0;
   bytes_moved = bytes_read = 0;
   ssl_proto = gxSSL_TLS;
   cert_type = gxSSL_PEM;
   ssl_error = gxSSL_NO_ERROR;
-  verify_cert = 0;
+  verify_cert = 1;
   is_client = is_server = 0;
   clear_strings();
   ResetAppError();
@@ -1090,11 +643,11 @@ void gxSSL::init_data_members()
 void gxSSL::clear_strings()
 // Internal function used to clear all string members.
 {
-  random_file.Clear();
-  key_file.Clear();
-  ca_list.Clear();
-  passwd.Clear();
-  cert_file.Clear();
+  random_file.clear();
+  key_file.clear();
+  ca_list.clear();
+  passwd.clear();
+  cert_file.clear();
 }
 
 int gxSSL::is_ssl_null()
@@ -1242,25 +795,33 @@ int gxSSL::VerifyCert(const char *hostname, long *X509_return_code)
     return ssl_error = gxSSL_CERT_VER_ERROR;
   }
 
-  char peer_common_name[256];
-  memset(peer_common_name, 0, 256);
-  X509_NAME_get_text_by_NID(X509_get_subject_name(cert), 
-			    NID_commonName, peer_common_name, 256);
-
+  // 10/26/2026: Check the subject alternative names, with wildcards, as
+  // well as the common name. A numeric host is checked as an IP address.
+  int host_ok;
+  ASN1_OCTET_STRING *ip = a2i_IPADDRESS(hostname);
+  if(ip) {
+    host_ok = X509_check_ip(cert, ASN1_STRING_get0_data(ip), 
+			    ASN1_STRING_length(ip), 0) == 1;
+    ASN1_OCTET_STRING_free(ip);
+  }
+  else {
+    host_ok = X509_check_host(cert, hostname, 0, 
+			      X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS, 0) == 1;
+  }
   X509_free(cert);
-  if(CaseICmp(peer_common_name, hostname) != 0) {
+  if(!host_ok) {
     return ssl_error = gxSSL_PEERCN_ERROR;
   }
 
   return ssl_error = gxSSL_NO_ERROR;
 }
 
-int gxSSL::GetPeerCertInfo(gxString &subject, gxString &issuer)
+int gxSSL::GetPeerCertInfo(std::string &subject, std::string &issuer)
 // 10/24/2026: Passes back the subject and issuer names of the peer's
 // certificate. Returns 0 if successful or a non-zero value if the peer
 // did not present a certificate.
 {
-  subject.Clear(); issuer.Clear();
+  subject.clear(); issuer.clear();
   if(is_ssl_null()) return ssl_error;
   X509 *cert = SSL_get_peer_certificate(ssl);
   if(!cert) return ssl_error = gxSSL_PEERCERT_ERROR;
@@ -1279,187 +840,6 @@ const char *gxSSL::CertVerifyErrorString(long X509_return_code)
 // 10/24/2026: Returns a string for a VerifyCert() return code
 {
   return X509_verify_cert_error_string(X509_return_code);
-}
-
-// 07/31/2021: Include support for openssl 1.0.1
-int gxSSL::MakeDHParms(const char *dh_fname, 
-		       unsigned char *dh1024_p, int dh1024_p_len,  
-		       unsigned char *dh1024_g, int dh1024_g_len)
-// Write Diffie-Hellman parameters to the dh_fname file. 
-// Returns 0 if successful. 
-// Returns a non-zero value if the function fails.
-{
-  // 10/14/2026: The default group is now the RFC 7919 ffdhe2048 group
-  // (2048-bit prime, generator 2). The previous 1024-bit default prime is
-  // rejected by OpenSSL 3 at its default security level ("dh key too
-  // small") and is too weak to use (Logjam).
-  unsigned char dh1024_p_default[256] = {
-    0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xAD,0xF8,0x54,0x58,
-    0xA2,0xBB,0x4A,0x9A,0xAF,0xDC,0x56,0x20,0x27,0x3D,0x3C,0xF1,
-    0xD8,0xB9,0xC5,0x83,0xCE,0x2D,0x36,0x95,0xA9,0xE1,0x36,0x41,
-    0x14,0x64,0x33,0xFB,0xCC,0x93,0x9D,0xCE,0x24,0x9B,0x3E,0xF9,
-    0x7D,0x2F,0xE3,0x63,0x63,0x0C,0x75,0xD8,0xF6,0x81,0xB2,0x02,
-    0xAE,0xC4,0x61,0x7A,0xD3,0xDF,0x1E,0xD5,0xD5,0xFD,0x65,0x61,
-    0x24,0x33,0xF5,0x1F,0x5F,0x06,0x6E,0xD0,0x85,0x63,0x65,0x55,
-    0x3D,0xED,0x1A,0xF3,0xB5,0x57,0x13,0x5E,0x7F,0x57,0xC9,0x35,
-    0x98,0x4F,0x0C,0x70,0xE0,0xE6,0x8B,0x77,0xE2,0xA6,0x89,0xDA,
-    0xF3,0xEF,0xE8,0x72,0x1D,0xF1,0x58,0xA1,0x36,0xAD,0xE7,0x35,
-    0x30,0xAC,0xCA,0x4F,0x48,0x3A,0x79,0x7A,0xBC,0x0A,0xB1,0x82,
-    0xB3,0x24,0xFB,0x61,0xD1,0x08,0xA9,0x4B,0xB2,0xC8,0xE3,0xFB,
-    0xB9,0x6A,0xDA,0xB7,0x60,0xD7,0xF4,0x68,0x1D,0x4F,0x42,0xA3,
-    0xDE,0x39,0x4D,0xF4,0xAE,0x56,0xED,0xE7,0x63,0x72,0xBB,0x19,
-    0x0B,0x07,0xA7,0xC8,0xEE,0x0A,0x6D,0x70,0x9E,0x02,0xFC,0xE1,
-    0xCD,0xF7,0xE2,0xEC,0xC0,0x34,0x04,0xCD,0x28,0x34,0x2F,0x61,
-    0x91,0x72,0xFE,0x9C,0xE9,0x85,0x83,0xFF,0x8E,0x4F,0x12,0x32,
-    0xEE,0xF2,0x81,0x83,0xC3,0xFE,0x3B,0x1B,0x4C,0x6F,0xAD,0x73,
-    0x3B,0xB5,0xFC,0xBC,0x2E,0xC2,0x20,0x05,0xC5,0x8E,0xF1,0x83,
-    0x7D,0x16,0x83,0xB2,0xC6,0xF3,0x4A,0x26,0xC1,0xB2,0xEF,0xFA,
-    0x88,0x6B,0x42,0x38,0x61,0x28,0x5C,0x97,0xFF,0xFF,0xFF,0xFF,
-    0xFF,0xFF,0xFF,0xFF
-  };
-  unsigned char dh1024_g_default[1] = { 0x02 };
-  
-  // 10/14/2026: Uses the OpenSSL 3 EVP_PKEY interface when available (the
-  // DH_* functions are deprecated), checks every allocation and frees
-  // the prime and generator numbers on every error path.
-  BIGNUM *p = 0, *g = 0;
-  if(dh1024_p) {
-    if(dh1024_p_len <= 0) return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
-    p = BN_bin2bn(dh1024_p, dh1024_p_len, 0);
-  }
-  else {
-    p = BN_bin2bn(dh1024_p_default, sizeof(dh1024_p_default), 0);
-  }
-  if(dh1024_g) {
-    if(dh1024_g_len <= 0) {
-      BN_free(p);
-      return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
-    }
-    g = BN_bin2bn(dh1024_g, dh1024_g_len, 0);
-  }
-  else {
-    g = BN_bin2bn(dh1024_g_default, sizeof(dh1024_g_default), 0);
-  }
-  if((p == 0) || (g == 0)) {
-    BN_free(p); BN_free(g);
-    return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
-  }
-
-  FILE *fp = fopen(dh_fname, "w+b");
-  if(!fp) {
-    app_err_str << clear << "SSL exception: Can't write DH parms file " 
-		<< dh_fname;
-    BN_free(p); BN_free(g);
-    return ssl_error = gxSSL_APPDEF_ERROR;
-  }
-
-  int written = 0;
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L
-  OSSL_PARAM_BLD *bld = OSSL_PARAM_BLD_new();
-  OSSL_PARAM *params = 0;
-  EVP_PKEY_CTX *pctx = 0;
-  EVP_PKEY *dh_key = 0;
-  BIO *out = 0;
-  if(bld &&
-     OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_FFC_P, p) &&
-     OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_FFC_G, g) &&
-     (params = OSSL_PARAM_BLD_to_param(bld)) != 0 &&
-     (pctx = EVP_PKEY_CTX_new_from_name(0, "DH", 0)) != 0 &&
-     EVP_PKEY_fromdata_init(pctx) == 1 &&
-     EVP_PKEY_fromdata(pctx, &dh_key, EVP_PKEY_KEY_PARAMETERS, params) == 1 &&
-     (out = BIO_new_fp(fp, BIO_NOCLOSE)) != 0) {
-    written = PEM_write_bio_Parameters(out, dh_key);
-  }
-  BIO_free(out);
-  EVP_PKEY_free(dh_key);
-  EVP_PKEY_CTX_free(pctx);
-  OSSL_PARAM_free(params);
-  OSSL_PARAM_BLD_free(bld);
-  BN_free(p); BN_free(g);
-#elif OPENSSL_VERSION_NUMBER >= 0x10100000L
-  DH *dh = DH_new();
-  if(dh && DH_set0_pqg(dh, p, 0, g) == 1) {
-    p = g = 0; // Now owned by dh
-    written = PEM_write_DHparams(fp, dh);
-  }
-  BN_free(p); BN_free(g);
-  if(dh) DH_free(dh);
-#else
-  DH *dh = DH_new();
-  if(dh) {
-    dh->p = p; dh->g = g;
-    p = g = 0; // Now owned by dh
-    written = PEM_write_DHparams(fp, dh);
-    DH_free(dh);
-  }
-  BN_free(p); BN_free(g);
-#endif
-
-  fclose(fp);
-  if(!written) return ssl_error = gxSSL_DHPARMS_GEN_ERROR;
-  return ssl_error = gxSSL_NO_ERROR;
-}
-
-int gxSSL::LoadDHParms(const char *fname)
-// Load Diffie-Hellman parameters store in fname. 
-// Returns 0 if successful. 
-// Returns a non-zero value if the function fails.
-{
-  // 10/14/2026: Frees the file BIO on every path, treats any result other than
-  // 1 as a failure (the old "< 0" test never failed) and uses the
-  // OpenSSL 3 EVP_PKEY interface when available.
-  if(!ctx) return ssl_error = gxSSL_DHPARMS_ERROR;
-  BIO *tmp_bio = BIO_new_file(fname, "r");
-  if(tmp_bio == 0) { 
-    return ssl_error = gxSSL_DHPARMS_ERROR;
-  }
-
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L
-  EVP_PKEY *dh_key = PEM_read_bio_Parameters(tmp_bio, 0);
-  BIO_free(tmp_bio);
-  if(!dh_key) return ssl_error = gxSSL_DHPARMS_ERROR;
-  if(SSL_CTX_set0_tmp_dh_pkey(ctx, dh_key) != 1) { // ctx owns dh_key on success
-    EVP_PKEY_free(dh_key);
-    return ssl_error = gxSSL_DHPARMS_ERROR;
-  }
-#else
-  DH *ret = PEM_read_bio_DHparams(tmp_bio, 0, 0, 0);
-  BIO_free(tmp_bio);
-  if(!ret) return ssl_error = gxSSL_DHPARMS_ERROR;
-  if(SSL_CTX_set_tmp_dh(ctx, ret) != 1) {
-    DH_free(ret);
-    return ssl_error = gxSSL_DHPARMS_ERROR;
-  }
-  DH_free(ret);
-#endif
-
-  return ssl_error = gxSSL_NO_ERROR;
-}
-
-int gxSSL::MakeRSAEphKey(int key_len)
-// Generate ephemeral RSA (Rivest, Shamir, Adleman) key. 
-// Returns 0 if successful. 
-// Returns a non-zero value if the function fails.
-{
-  if(InitPRNG() != gxSSL_NO_ERROR) return ssl_error;
-
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-  if(key_len < 512) key_len = 512;
-  RSA *rsa = RSA_generate_key(key_len, RSA_F4, 0, 0);
-  if(!rsa) {
-    return ssl_error = gxSSL_RSAGEN_ERROR;
-  }
-  if(!SSL_CTX_set_tmp_rsa(ctx, rsa)) {
-    return ssl_error = gxSSL_RSAGEN_ERROR;
-  }
-  RSA_free(rsa);
-#else
-  // 10/14/2026: Since OpenSSL 1.1.0 SSL_CTX_set_tmp_rsa() does nothing (TLS no
-  // longer uses ephemeral RSA keys), so no key is generated here.
-  (void)key_len;
-#endif
-  
-  return ssl_error = gxSSL_NO_ERROR;
 }
 
 int gxSSL::InitPRNG(const char *r_file, int check_prng_init)
@@ -1487,7 +867,7 @@ int gxSSL::InitPRNG(int check_prng_init)
     }
   }
 
-  if(!random_file.is_null()) {
+  if(!random_file.empty()) {
     RAND_load_file(random_file.c_str(), 16384);
     if(RAND_status()) { 
       return ssl_error = gxSSL_NO_ERROR;
@@ -1497,62 +877,10 @@ int gxSSL::InitPRNG(int check_prng_init)
     }
   }
 
-  MemoryBuffer mbuf1;
-  const unsigned max_rand = 256;
-  unsigned i;
-
-  gxRandom prng1(max_rand); 
-  unsigned *rand_table = prng1.PRNGTable(max_rand);
-  if(!rand_table) {
-    return ssl_error = gxSSL_PRNG_ERROR;
-  }
-
-  for(i = 0; i < 16; i++) {
-    mbuf1.Cat(rand_table, (max_rand*sizeof(unsigned)));
-    if(!prng1.PRNGTable(rand_table, max_rand)) {
-      delete[] rand_table; // 10/14/2026: Was a scalar delete of new[]
-      return ssl_error = gxSSL_PRNG_ERROR;
-    }
-  }
-
-  unsigned int random_number;
-  unsigned num_bytes = mbuf1.length()/4;
-  unsigned a, b, c ,d;
-
-  i = 0;
-  while(num_bytes--) {
-    a = b = c = d = 0;
-    if(i < (mbuf1.length()-1)) a = (unsigned)mbuf1[i++];
-    if(i < (mbuf1.length()-1)) b += (unsigned)mbuf1[i++];
-    if(i < (mbuf1.length()-1)) c += (unsigned)mbuf1[i++];
-    if(i < (mbuf1.length()-1)) d += (unsigned)mbuf1[i++];
-    a = a & 0xFF;
-    b = (b<<8) & 0xFF00;
-    c = (c<<16) & 0xFF0000;
-    d = (d<<24) & 0xFF000000;
-    random_number = a + b + c + d;
-    RAND_seed(&random_number, sizeof(random_number));
-  }
-
-  gxRandom prng2(max_rand);  
-  if(!prng2.PRNGTable(rand_table, max_rand)) {
-    delete[] rand_table; // 10/14/2026: Was a scalar delete of new[]
-    return ssl_error = gxSSL_PRNG_ERROR;
-  }
-
-  MemoryBuffer mbuf2;
-  for(i = 0; i < 16; i++) {
-    mbuf2.Cat(rand_table, (max_rand*sizeof(unsigned)));
-    if(!prng2.PRNGTable(rand_table, max_rand)) {
-      delete[] rand_table; // 10/14/2026: Was a scalar delete of new[]
-      return ssl_error = gxSSL_PRNG_ERROR;
-    }
-  }
-
-  delete[] rand_table; // 10/14/2026: Was a scalar delete of new[]
-  a = b = c = d = 0;
-  RAND_add(mbuf2.m_buf(), mbuf2.length(), 
-	   (double)prng2.Seed(a, b, c, d));
+  // 10/26/2026: OpenSSL 1.1 and later seed the generator from the
+  // operating system. The table of gxRandom values mixed in here added
+  // no real entropy and is no longer used.
+  RAND_poll();
 
   if(RAND_status() == 0) {
     return ssl_error = gxSSL_PRNG_ERROR;
@@ -1581,7 +909,7 @@ int gxSSL::MakeRSAPrivateKey(const char *key_fname, int key_len,
 			     KeyGenCallbackFunc cb_func, void *cb_arg)
 // Function used to write a private RSA (Rivest, Shamir, Adleman) key to 
 // the key_fname file. The length of the key is set by the key_len variable, 
-// which must be a minimum of 512. An optional callback function can be used 
+// which must be a minimum of 2048. An optional callback function can be used 
 // with an optional callback argument if any additional processing must be 
 // preformed during key generation.
 // Returns 0 if successful. 
@@ -1590,7 +918,7 @@ int gxSSL::MakeRSAPrivateKey(const char *key_fname, int key_len,
   // 10/14/2026: Generates the key before opening the file, closes the file and
   // frees the key, exponent and callback objects on every path, and uses
   // the OpenSSL 3 EVP_PKEY interface when available (RSA_* is deprecated).
-  if(key_len < 512) key_len = 512;
+  if(key_len < 2048) key_len = 2048; // 10/26/2026: Was a 512-bit minimum
   if(InitPRNG(1) != gxSSL_NO_ERROR) return ssl_error;
 
   EVP_PKEY *private_key = 0;
@@ -1609,7 +937,7 @@ int gxSSL::MakeRSAPrivateKey(const char *key_fname, int key_len,
     if(EVP_PKEY_keygen(kctx, &private_key) != 1) private_key = 0;
   }
   EVP_PKEY_CTX_free(kctx);
-#elif OPENSSL_VERSION_NUMBER >= 0x10100000L
+#else
   BIGNUM *bne = BN_new();
   BN_GENCB *pcb = BN_GENCB_new();
   RSA *rsa = RSA_new();
@@ -1632,24 +960,13 @@ int gxSSL::MakeRSAPrivateKey(const char *key_fname, int key_len,
   if(rsa) RSA_free(rsa);
   if(pcb) BN_GENCB_free(pcb);
   if(bne) BN_free(bne);
-#else
-  private_key = EVP_PKEY_new();
-  if(private_key) {
-    RSA *rsa = RSA_generate_key(key_len, RSA_F4, cb_func, cb_arg);
-    if(!rsa || !EVP_PKEY_assign_RSA(private_key, rsa)) {
-      if(rsa) RSA_free(rsa);
-      EVP_PKEY_free(private_key);
-      private_key = 0;
-    }
-  }
 #endif
 
   if(!private_key) return ssl_error = gxSSL_RSAGEN_ERROR;
 
   FILE *fp = fopen(key_fname, "w+b");
   if(!fp) {
-    app_err_str << clear << "SSL exception: Can't write RSA private key file " 
-		<< key_fname;
+    app_err_str = str_cat("SSL exception: Can't write RSA private key file ", key_fname);
     EVP_PKEY_free(private_key);
     return ssl_error = gxSSL_APPDEF_ERROR;
   }
@@ -1661,7 +978,7 @@ int gxSSL::MakeRSAPrivateKey(const char *key_fname, int key_len,
   return ssl_error = gxSSL_NO_ERROR;
 }
 
-int gxSSL::add_cert_ext(X509 *cert, int nid, char *value)
+int gxSSL::add_cert_ext(X509 *cert, int nid, const char *value)
 // Internal function used to add extensions to an X509 certificate.
 // Returns 0 if successful. 
 // Returns a non-zero value if the function fails.
@@ -1697,8 +1014,7 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
 {
   FILE *fp = fopen(key_fname, "rb");
   if(!fp) {
-    app_err_str << clear << "SSL exception: Can't read RSA private key file " 
-		<< key_fname;
+    app_err_str = str_cat("SSL exception: Can't read RSA private key file ", key_fname);
     return ssl_error = gxSSL_APPDEF_ERROR;
   }
 
@@ -1731,7 +1047,7 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
   }
 
   // Set the certificate issuer fields
-  if(!ci.C.is_null()) {
+  if(!ci.C.empty()) {
     if(!X509_NAME_add_entry_by_txt(name, "C", // Country Name = C
 				   MBSTRING_ASC, 
 				   (unsigned char *)ci.C.c_str(), 
@@ -1739,11 +1055,11 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
       X509_free(x);
       EVP_PKEY_free(private_key);
       CRYPTO_cleanup_all_ex_data();
-      app_err_str << clear << "SSL exception: Bad country name in cert req";
+      app_err_str = str_cat("SSL exception: Bad country name in cert req");
       return ssl_error = gxSSL_APPDEF_ERROR;
     }
   }
-  if(!ci.ST.is_null()) {
+  if(!ci.ST.empty()) {
     if(!X509_NAME_add_entry_by_txt(name, "ST", // State or Province Name = ST
 				   MBSTRING_ASC, 
 				   (unsigned char *)ci.ST.c_str(), 
@@ -1751,12 +1067,11 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
       X509_free(x);
       EVP_PKEY_free(private_key);
       CRYPTO_cleanup_all_ex_data();
-      app_err_str << clear 
-		  << "SSL exception: Bad state or province in cert req";
+      app_err_str = str_cat("SSL exception: Bad state or province in cert req");
       return ssl_error = gxSSL_APPDEF_ERROR;
     }
   }
-  if(!ci.L.is_null()) {
+  if(!ci.L.empty()) {
     if(!X509_NAME_add_entry_by_txt(name, "L", // Locality Name = L
 				   MBSTRING_ASC, 
 				   (unsigned char *)ci.L.c_str(), 
@@ -1764,11 +1079,11 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
       X509_free(x);
       EVP_PKEY_free(private_key);
       CRYPTO_cleanup_all_ex_data();
-      app_err_str << clear << "SSL exception: Bad locality in cert req";
+      app_err_str = str_cat("SSL exception: Bad locality in cert req");
       return ssl_error = gxSSL_APPDEF_ERROR;
     }
   }
-  if(!ci.O.is_null()) {
+  if(!ci.O.empty()) {
     if(!X509_NAME_add_entry_by_txt(name, "O", // Organization Name = O
 				   MBSTRING_ASC, 
 				   (unsigned char *)ci.O.c_str(), 
@@ -1776,12 +1091,11 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
       X509_free(x);
       EVP_PKEY_free(private_key);
       CRYPTO_cleanup_all_ex_data();
-      app_err_str << clear 
-		  << "SSL exception: Bad organization name in cert req";
+      app_err_str = str_cat("SSL exception: Bad organization name in cert req");
       return ssl_error = gxSSL_APPDEF_ERROR;
     }
   }
-  if(!ci.OU.is_null()) {
+  if(!ci.OU.empty()) {
     if(!X509_NAME_add_entry_by_txt(name, "OU", // Organizational Unit Name = OU
 				   MBSTRING_ASC, 
 				   (unsigned char *)ci.OU.c_str(), 
@@ -1789,12 +1103,11 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
       X509_free(x);
       EVP_PKEY_free(private_key);
       CRYPTO_cleanup_all_ex_data();
-      app_err_str << clear 
-		  << "SSL exception: Bad organization unit in cert req";
+      app_err_str = str_cat("SSL exception: Bad organization unit in cert req");
       return ssl_error = gxSSL_APPDEF_ERROR;
     }
   }
-  if(!ci.CN.is_null()) {
+  if(!ci.CN.empty()) {
     if(!X509_NAME_add_entry_by_txt(name, "CN", // Common Name = CN
 				   MBSTRING_ASC, 
 				   (unsigned char *)ci.CN.c_str(), 
@@ -1802,7 +1115,7 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
       X509_free(x);
       EVP_PKEY_free(private_key);
       CRYPTO_cleanup_all_ex_data();
-      app_err_str << clear << "SSL exception: Bad common name in cert req";
+      app_err_str = str_cat("SSL exception: Bad common name in cert req");
       return ssl_error = gxSSL_APPDEF_ERROR;
     }
   }
@@ -1811,7 +1124,7 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
   X509_set_issuer_name(x, name);
   
   // Standard extensions
-  if(!ci.basic_constraints.is_null()) {
+  if(!ci.basic_constraints.empty()) {
     if(add_cert_ext(x, NID_basic_constraints, ci.basic_constraints.c_str()) != 
        gxSSL_NO_ERROR) {
       X509_free(x);
@@ -1820,7 +1133,7 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
       return ssl_error;
     }
   }
-  if(!ci.key_usage.is_null()) {
+  if(!ci.key_usage.empty()) {
     if(add_cert_ext(x, NID_key_usage, ci.key_usage.c_str()) != gxSSL_NO_ERROR) {
       X509_free(x);
       EVP_PKEY_free(private_key);
@@ -1828,7 +1141,7 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
       return ssl_error;
     }
   }
-  if(!ci.subject_key_identifier.is_null()) {
+  if(!ci.subject_key_identifier.empty()) {
     if(add_cert_ext(x, NID_subject_key_identifier, ci.subject_key_identifier.c_str()) !=
        gxSSL_NO_ERROR) {
       X509_free(x);
@@ -1839,7 +1152,7 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
   }
 
   // Netscape specific extensions
-  if(!ci.netscape_cert_type.is_null()) {
+  if(!ci.netscape_cert_type.empty()) {
    if(add_cert_ext(x, NID_netscape_cert_type, ci.netscape_cert_type.c_str()) !=
       gxSSL_NO_ERROR) {
      X509_free(x);
@@ -1848,7 +1161,7 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
      return ssl_error;
    }
   }
-  if(!ci.netscape_comment.is_null()) {
+  if(!ci.netscape_comment.empty()) {
     if(add_cert_ext(x, NID_netscape_comment, ci.netscape_comment.c_str()) !=
        gxSSL_NO_ERROR) {
       X509_free(x);
@@ -1864,14 +1177,13 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
     X509_free(x);
     EVP_PKEY_free(private_key);
     CRYPTO_cleanup_all_ex_data();
-    app_err_str << clear << "SSL exception: Error self signing cert req";
+    app_err_str = str_cat("SSL exception: Error self signing cert req");
     return ssl_error = gxSSL_APPDEF_ERROR;
   }
 
   fp = fopen(req_fname, "w+b");
   if(!fp) {
-    app_err_str << clear << "SSL exception: Can't write cert request file " 
-		<< req_fname;
+    app_err_str = str_cat("SSL exception: Can't write cert request file ", req_fname);
     X509_free(x);
     EVP_PKEY_free(private_key);
     CRYPTO_cleanup_all_ex_data();
@@ -1881,9 +1193,7 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
     X509_free(x);
     EVP_PKEY_free(private_key);
     CRYPTO_cleanup_all_ex_data();
-    app_err_str << clear 
-		<< "SSL exception: Error writing X509 cert req " 
-		<< req_fname;
+    app_err_str = str_cat("SSL exception: Error writing X509 cert req ", req_fname);
     return ssl_error = gxSSL_APPDEF_ERROR;
   }
 
@@ -1897,9 +1207,8 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
 
 #endif // !__USE_GX_SCHANNEL__
 
-#endif // __USE_GX_SSL_EXTENSIONS__
 
-#if defined (__USE_GX_SSL_EXTENSIONS__) && defined (__USE_GX_SCHANNEL__)
+#if defined(__USE_GX_SCHANNEL__)
 // 10/24/2026: The Windows Schannel version of the gxSSL class is in
 // gxsschan.cpp, which is compiled as part of this file so the build
 // files do not need another object file.

@@ -2,176 +2,65 @@
 #### Start of File ####
 #######################
 # --------------------------------------------------------------- 
-# Makefile Contents: make file to build datareel library
-# C/C++ Compiler Used: GNU, Intel, Cray
+# Makefile Contents: Linux makefile for the DataReel library
+# C/C++ Compiler Used: GNU g++ 8 or higher (C++17)
 # Produced By: DataReel Software Development Team
 # File Creation Date: 05/25/2001
-# Date Last Modified: 10/24/2026
+# Date Last Modified: 10/26/2026
 # --------------------------------------------------------------- 
-# Setup my path to the gxcode library
+# 10/26/2026: DataReel 7 compiles every source file in ../src and
+# tracks header dependencies with -MMD, so this makefile no longer
+# lists the objects. CMakeLists.txt is the main build; use this file
+# for "cd build; make; make install" style builds.
+#
+#   make            Build libdatareel.a and libdatareel.so.7.0
+#   make install    Copy the libraries to ../lib
+#   make LARGEFILES=1 FINAL=1    64-bit database engine, release build
+# --------------------------------------------------------------- 
 GCODE_LIB_DIR = ..
 
 include ../env/linux.env
 
-# Define a name for the static library
-# 10/24/2026: SSL is built into libdatareel by default. The separate
-# libdatareel_ssl library and makefile_ssl are no longer used.
 PROJECT = libdatareel
 
-# Build dependency rules
-# ===============================================================
-include ../env/glibdeps.mak
-# ===============================================================
+# gxsschan.cpp is the Windows Schannel version of gxssl.cpp and is
+# compiled as part of it; gxdlcode.cpp and stdafx.cpp are Windows only.
+SOURCES = $(filter-out ../src/gxsschan.cpp ../src/gxdlcode.cpp \
+	../src/stdafx.cpp, $(wildcard ../src/*.cpp))
+OBJECTS = $(notdir $(SOURCES:.cpp=$(OBJ_EXT)))
+DEPENDS = $(OBJECTS:$(OBJ_EXT)=.d)
 
-# Compile the object files and build the library
-# ===============================================================
-all: CREATE_ALL_LIBS
+all: $(PROJECT)$(LIB_EXT) $(PROJECT)$(SHAREDLIB_EXT)
 
-include ../env/glibobjs.mak
+%$(OBJ_EXT): ../src/%.cpp
+	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) $(LIBCOMPILE_FLAGS) -MMD -MP $< \
+	$(OUTPUT) $@
 
-COMPILE_FLAGS := $(COMPILE_FLAGS) $(LIBCOMPILE_FLAGS)
+$(PROJECT)$(LIB_EXT): $(OBJECTS)
+	$(LIBUTIL) $(LIBUTIL_FLAGS) $@ $(OBJECTS)
+	$(RANLIB_UTIL) $@
 
-# Core database library components
-GLIB_DATABASE_CORE_OBJECTS =  gxint32$(OBJ_EXT) \
-	gxint64$(OBJ_EXT) \
-	gxuint32$(OBJ_EXT) \
-	gxuint64$(OBJ_EXT) \
-	gxcrc32$(OBJ_EXT) \
-	gxdbase$(OBJ_EXT) \
-	gxderror$(OBJ_EXT) \
-	gxdfp64$(OBJ_EXT) \
-	gxdfptr$(OBJ_EXT)
+$(PROJECT)$(SHAREDLIB_EXT): $(OBJECTS)
+	$(SHARED_LIBUTIL) -Wl,-soname,$(PROJECT)$(SHAREDLIB_EXT) \
+	-o $@ $(OBJECTS) $(LINK_LIBRARIES) $(LINKER_FLAGS)
 
-# Extra database library components
-GLIB_DATABASE_EX_OBJECTS = btstack$(OBJ_EXT) \
-	btcache$(OBJ_EXT) \
-	btnode$(OBJ_EXT) \
-	dbasekey$(OBJ_EXT) \
-	gpersist$(OBJ_EXT) \
-	gxbtree$(OBJ_EXT) \
-	pod$(OBJ_EXT) \
-	gxint16$(OBJ_EXT) \
-	gxuint16$(OBJ_EXT) \
-	gxfloat$(OBJ_EXT) \
-	dbfcache$(OBJ_EXT) \
-	dbugmgr$(OBJ_EXT)
+-include $(DEPENDS)
 
-# RDBMS library components
-GLIB_RDBMS_OBJECTS =  gxrdbdef$(OBJ_EXT) \
-	gxrdbhdr$(OBJ_EXT) \
-	gxrdbms$(OBJ_EXT)
+install: all
+	mkdir -p $(LIB_INSTALL_DIR)
+	cp -f $(PROJECT)$(LIB_EXT) $(LIB_INSTALL_DIR)/$(PROJECT)$(LIB_EXT)
+	cp -f $(PROJECT)$(SHAREDLIB_EXT) $(LIB_INSTALL_DIR)/$(PROJECT)$(SHAREDLIB_EXT)
+	$(LN_S) $(PROJECT)$(SHAREDLIB_EXT) $(LIB_INSTALL_DIR)/$(PROJECT)$(DLIB_EXT)
 
-# Core socket library components
-GLIB_SOCKET_CORE_OBJECTS = gxsocket$(OBJ_EXT)
+clean:
+	rm -f *$(OBJ_EXT) *.d $(PROJECT)$(LIB_EXT) $(PROJECT)$(SHAREDLIB_EXT)
 
-# Extra socket library components
-GLIB_SOCKET_EX_OBJECTS = gxshttp$(OBJ_EXT) \
-	gxshttpc$(OBJ_EXT) \
-	gxsmtp$(OBJ_EXT) \
-	gxsping$(OBJ_EXT) \
-	gxspop3$(OBJ_EXT) \
-	gxsftp$(OBJ_EXT) \
-	gxsurl$(OBJ_EXT) \
-	gxsutils$(OBJ_EXT) \
-	gxs_b64$(OBJ_EXT) \
-	gxtelnet$(OBJ_EXT) \
-	wserror$(OBJ_EXT) \
-	gxssl$(OBJ_EXT)
-
-# Database socket library components
-GLIB_SOCKET_DB_OBJECTS = gxdatagm$(OBJ_EXT) \
-	gxstream$(OBJ_EXT)
-
-# Core serial comm library components
-GLIB_SERIAL_CORE_OBJECTS = gxscomm$(OBJ_EXT)
-
-# Database serial com library components
-GLIB_SERIAL_DB_OBJECTS = scomserv$(OBJ_EXT)
-
-# Thread library components
-
-# General purpose library components
-GLIB_GP_OBJECTS = bstreei$(OBJ_EXT)  \
-	cdate$(OBJ_EXT)  \
-	devcache$(OBJ_EXT) \
-	dfileb$(OBJ_EXT) \
-	fstring$(OBJ_EXT) \
-	futils$(OBJ_EXT) \
-	gxconfig$(OBJ_EXT) \
-	gxip32$(OBJ_EXT) \
-	gxlistb$(OBJ_EXT) \
-	gxmac48$(OBJ_EXT) \
-	logfile$(OBJ_EXT) \
-	memblock$(OBJ_EXT) \
-	membuf$(OBJ_EXT) \
-	strutil$(OBJ_EXT) \
-	systime$(OBJ_EXT) \
-	ustring$(OBJ_EXT) 
-
-# Optional debug objects
-
-# Term I/O objects
-
-# Console/GUI messaging gxcode objects
-GLIB_MSG_OBJECTS = gxdstats$(OBJ_EXT)
-
-# Set the library components to compile here
-GLIB_OBJECTS = $(GLIB_DATABASE_CORE_OBJECTS) \
-	$(GLIB_DATABASE_EX_OBJECTS) \
-	$(GLIB_RDBMS_OBJECTS) \
-	$(GLIB_SOCKET_CORE_OBJECTS) \
-	$(GLIB_SOCKET_EX_OBJECTS) \
-	$(GLIB_SOCKET_DB_OBJECTS) \
-	$(GLIB_SERIAL_CORE_OBJECTS) \
-	$(GLIB_SERIAL_DB_OBJECTS) \
-	$(GLIB_GP_OBJECTS) \
-	$(GLIB_MSG_OBJECTS) \
-	$(GLIB_DEBUG_OBJECTS)
-
-# Add additional object files here
-OBJECTS = $(GLIB_OBJECTS) 
-
-CREATE_ALL_LIBS:	$(OBJECTS)
-	echo Building static libary
-	$(LIBUTIL) $(LIBUTIL_FLAGS) ./$(PROJECT)$(LIB_EXT) $(OBJECTS)
-	$(RANLIB_UTIL) ./$(PROJECT)$(LIB_EXT)
-
-	echo Building shared library
-	$(SHARED_LIBUTIL) $(SHAREDLIBUTIL_FLAGS) \
-	-o ./$(PROJECT)$(SHAREDLIB_EXT) $(OBJECTS) $(LINKER_FLAGS)
-# ===============================================================
-
-# install the library files
-# ===============================================================
-install:
-	echo Removing any old library files
+clean_lib:
 	rm -f $(LIB_INSTALL_DIR)/$(PROJECT)$(LIB_EXT)
 	rm -f $(LIB_INSTALL_DIR)/$(PROJECT)$(DLIB_EXT)
 	rm -f $(LIB_INSTALL_DIR)/$(PROJECT)$(SHAREDLIB_EXT)
 
-	echo Copying library files
-	cp $(PROJECT)$(LIB_EXT) $(LIB_INSTALL_DIR)/$(PROJECT)$(LIB_EXT)
-	cp $(PROJECT)$(SHAREDLIB_EXT) \
-	$(LIB_INSTALL_DIR)/$(PROJECT)$(SHAREDLIB_EXT)
-
-	echo Creating symbolic links
-	$(LN_S) $(LIB_INSTALL_DIR)/$(PROJECT)$(SHAREDLIB_EXT) \
-	$(LIB_INSTALL_DIR)/$(PROJECT)$(DLIB_EXT)
-
-# Remove object files and libary files from current directory 
-# ===============================================================
-clean:
-	echo Removing all OBJECT files from working directory...
-	rm -f *.o 
-
-	echo Removing static and shared libary files
-	rm -f $(PROJECT)$(LIB_EXT)
-	rm -f $(PROJECT)$(SHAREDLIB_EXT)
-
-clean_lib:
-	rm -fv $(LIB_INSTALL_DIR)/$(PROJECT)$(LIB_EXT)
-	rm -fv $(LIB_INSTALL_DIR)/$(PROJECT)$(DLIB_EXT)
-	rm -fv $(LIB_INSTALL_DIR)/$(PROJECT)$(SHAREDLIB_EXT)
+.PHONY: all install clean clean_lib
 # --------------------------------------------------------------- 
 #####################
 #### End of File ####

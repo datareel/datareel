@@ -28,15 +28,14 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 Windows Schannel version of the gxSSL class. This file is compiled as
-part of gxssl.cpp when __USE_GX_SSL_EXTENSIONS__ and __USE_GX_SCHANNEL__
-are defined. It uses the TLS support built into Windows, so programs
+part of gxssl.cpp when __USE_GX_SCHANNEL__ is defined. It uses the TLS support built into Windows, so programs
 do not need OpenSSL. Link with secur32.lib, crypt32.lib and ncrypt.lib.
 
 Differences from the OpenSSL version:
 
 - Clients do not verify the server certificate during the handshake,
-  the same as the OpenSSL version. Call VerifyCert() after the
-  handshake. VerifyCert() checks the certificate chain and the host
+  the same as the OpenSSL version. VerifyCert() is called after the
+  handshake (gxsTLSConnection does this unless NoVerifyCert() is set). VerifyCert() checks the certificate chain and the host
   name with the Windows certificate store, or with the CA list set by
   SetCAList(), and returns the Windows CERT_E_* code in place of the
   X509_V_* code. 0 means the certificate is valid in both versions.
@@ -51,17 +50,15 @@ Differences from the OpenSSL version:
   is imported into the current user's key store under a name made
   from the certificate thumbprint, and deleted by DestroyCTX().
 
-- Schannel picks the protocol version, cipher suites and key exchange
-  groups from the Windows settings. gxSSL_TLSv1_2 turns off TLS 1.3.
-  The other protocol settings use the Windows defaults, which on
-  Windows 10 and 11 are TLS 1.2 and TLS 1.3.
+- Schannel picks the cipher suites and key exchange groups from the
+  Windows settings. SSL 3, TLS 1.0 and TLS 1.1 are always turned off.
+  gxSSL_TLSv1_2 turns off TLS 1.3 and gxSSL_TLSv1_3 turns off TLS 1.2.
 
 - The OpenSSL key and certificate generation functions,
-  MakeRSAPrivateKey(), MakeCertReq() and MakeDHParms(), are not
-  supported. Use the openssl command line program or the Windows
-  certificate tools to make keys and certificates. LoadDHParms(),
-  InitPRNG() and MakeRSAEphKey() do nothing and return 0, because
-  Schannel handles key exchange and random numbers itself.
+  MakeRSAPrivateKey() and MakeCertReq(), are not supported. Use the
+  openssl command line program or the Windows certificate tools to
+  make keys and certificates. InitPRNG() does nothing and returns 0,
+  because Schannel uses the Windows random number generator.
 */
 // ----------------------------------------------------------- //
 #if defined (__GX_SSL_SCHANNEL_SOURCE__)
@@ -160,27 +157,35 @@ static int gxsc_grow(char *&buf, int &size, int used, int needed)
   return 0;
 }
 
-static int gxsc_read_file(const char *fname, MemoryBuffer &mbuf)
+static void gxsc_cat(std::vector<unsigned char> &buf, const void *p, 
+		     std::size_t n)
+// Append n bytes to buf
+{
+  const unsigned char *b = (const unsigned char *)p;
+  buf.insert(buf.end(), b, b + n);
+}
+
+static int gxsc_read_file(const char *fname, std::vector<unsigned char> &mbuf)
 // Read a whole file into mbuf. Returns 0 if successful.
 {
-  mbuf.Clear();
+  mbuf.clear();
   if(!fname) return -1;
   FILE *fp = fopen(fname, "rb");
   if(!fp) return -1;
   char buf[4096];
   size_t n;
   while((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
-    mbuf.Cat(buf, (__ULWORD__)n);
+    gxsc_cat(mbuf, buf, (__ULWORD__)n);
   }
   fclose(fp);
-  return mbuf.length() > 0 ? 0 : -1;
+  return mbuf.size() > 0 ? 0 : -1;
 }
 
-static int gxsc_is_pem(const MemoryBuffer &mbuf)
+static int gxsc_is_pem(const std::vector<unsigned char> &mbuf)
 // Returns true if the buffer holds PEM text
 {
-  const char *p = (const char *)mbuf.m_buf();
-  unsigned len = (unsigned)mbuf.length();
+  const char *p = (const char *)mbuf.data();
+  unsigned len = (unsigned)mbuf.size();
   const char *tag = "-----BEGIN ";
   unsigned tag_len = (unsigned)strlen(tag);
   for(unsigned i = 0; i + tag_len <= len; i++) {
@@ -189,20 +194,20 @@ static int gxsc_is_pem(const MemoryBuffer &mbuf)
   return 0;
 }
 
-static int gxsc_pem_next(const MemoryBuffer &mbuf, unsigned &offset,
-			 gxString &label, MemoryBuffer &der)
+static int gxsc_pem_next(const std::vector<unsigned char> &mbuf, unsigned &offset,
+			 std::string &label, std::vector<unsigned char> &der)
 // Find the next PEM block at or after offset. Passes back the label
 // ("CERTIFICATE", "PRIVATE KEY", etc.) and the decoded DER bytes, and
 // moves offset past the block. Returns 0 if a block was found.
 {
-  const char *p = (const char *)mbuf.m_buf();
-  unsigned len = (unsigned)mbuf.length();
+  const char *p = (const char *)mbuf.data();
+  unsigned len = (unsigned)mbuf.size();
   const char *begin_tag = "-----BEGIN ";
   const char *end_tag = "-----END ";
   unsigned bt_len = (unsigned)strlen(begin_tag);
   unsigned et_len = (unsigned)strlen(end_tag);
-  label.Clear();
-  der.Clear();
+  label.clear();
+  der.clear();
 
   unsigned i = offset;
   for(; i + bt_len <= len; i++) {
@@ -213,7 +218,7 @@ static int gxsc_pem_next(const MemoryBuffer &mbuf, unsigned &offset,
   unsigned lbl_end = lbl_start;
   while(lbl_end < len && p[lbl_end] != '-') lbl_end++;
   if(lbl_end >= len) return -1;
-  label.InsertAt(0, p + lbl_start, (lbl_end - lbl_start));
+  label.assign(p + lbl_start, (lbl_end - lbl_start));
   unsigned body_start = lbl_end;
   while(body_start < len && p[body_start] == '-') body_start++;
 
@@ -247,41 +252,41 @@ static int gxsc_pem_next(const MemoryBuffer &mbuf, unsigned &offset,
     delete[] dbuf;
     return -1;
   }
-  der.Load(dbuf, (__ULWORD__)der_len);
+  der.assign(dbuf, dbuf + der_len);
   delete[] dbuf;
   return 0;
 }
 
-static void gxsc_der_len(MemoryBuffer &out, unsigned len)
+static void gxsc_der_len(std::vector<unsigned char> &out, unsigned len)
 // Append a DER length
 {
   unsigned char b[5];
   if(len < 0x80) {
     b[0] = (unsigned char)len;
-    out.Cat(b, 1);
+    gxsc_cat(out, b, 1);
   }
   else if(len < 0x100) {
     b[0] = 0x81; b[1] = (unsigned char)len;
-    out.Cat(b, 2);
+    gxsc_cat(out, b, 2);
   }
   else if(len < 0x10000) {
     b[0] = 0x82; b[1] = (unsigned char)(len >> 8); b[2] = (unsigned char)len;
-    out.Cat(b, 3);
+    gxsc_cat(out, b, 3);
   }
   else {
     b[0] = 0x83; b[1] = (unsigned char)(len >> 16);
     b[2] = (unsigned char)(len >> 8); b[3] = (unsigned char)len;
-    out.Cat(b, 4);
+    gxsc_cat(out, b, 4);
   }
 }
 
-static void gxsc_der_tlv(MemoryBuffer &out, unsigned char tag,
+static void gxsc_der_tlv(std::vector<unsigned char> &out, unsigned char tag,
 			 const void *val, unsigned len)
 // Append a DER tag, length and value
 {
-  out.Cat(&tag, 1);
+  gxsc_cat(out, &tag, 1);
   gxsc_der_len(out, len);
-  if(len) out.Cat(val, (__ULWORD__)len);
+  if(len) gxsc_cat(out, val, (__ULWORD__)len);
 }
 
 static int gxsc_der_read(const unsigned char *p, unsigned len, unsigned &pos,
@@ -305,8 +310,8 @@ static int gxsc_der_read(const unsigned char *p, unsigned len, unsigned &pos,
   return 0;
 }
 
-static int gxsc_wrap_pkcs8(const MemoryBuffer &key, int is_ec,
-			   MemoryBuffer &pkcs8)
+static int gxsc_wrap_pkcs8(const std::vector<unsigned char> &key, int is_ec,
+			   std::vector<unsigned char> &pkcs8)
 // Wrap a PKCS#1 RSA key or a SEC1 EC key in a PKCS#8 PrivateKeyInfo.
 // Returns 0 if successful.
 {
@@ -317,11 +322,11 @@ static int gxsc_wrap_pkcs8(const MemoryBuffer &key, int is_ec,
   static const unsigned char ec_oid[] = {
     0x06,0x07,0x2A,0x86,0x48,0xCE,0x3D,0x02,0x01            // ecPublicKey
   };
-  MemoryBuffer alg;
+  std::vector<unsigned char> alg;
   if(is_ec) {
     // ECPrivateKey ::= SEQUENCE { version, privateKey, [0] parameters, ... }
-    const unsigned char *p = (const unsigned char *)key.m_buf();
-    unsigned len = (unsigned)key.length();
+    const unsigned char *p = (const unsigned char *)key.data();
+    unsigned len = (unsigned)key.size();
     unsigned pos = 0, vs, vl;
     unsigned char tag;
     if(gxsc_der_read(p, len, pos, tag, vs, vl) != 0 || tag != 0x30) return -1;
@@ -339,21 +344,21 @@ static int gxsc_wrap_pkcs8(const MemoryBuffer &key, int is_ec,
       }
     }
     if(!curve) return -1; // The curve must be named in the key
-    MemoryBuffer seq;
-    seq.Cat(ec_oid, sizeof(ec_oid));
-    seq.Cat(curve, (__ULWORD__)curve_len);
-    gxsc_der_tlv(alg, 0x30, seq.m_buf(), (unsigned)seq.length());
+    std::vector<unsigned char> seq;
+    gxsc_cat(seq, ec_oid, sizeof(ec_oid));
+    gxsc_cat(seq, curve, (__ULWORD__)curve_len);
+    gxsc_der_tlv(alg, 0x30, seq.data(), (unsigned)seq.size());
   }
   else {
     gxsc_der_tlv(alg, 0x30, rsa_alg, sizeof(rsa_alg));
   }
   static const unsigned char version[] = { 0x02, 0x01, 0x00 };
-  MemoryBuffer body;
-  body.Cat(version, sizeof(version));
-  body.Cat(alg.m_buf(), alg.length());
-  gxsc_der_tlv(body, 0x04, key.m_buf(), (unsigned)key.length());
-  pkcs8.Clear();
-  gxsc_der_tlv(pkcs8, 0x30, body.m_buf(), (unsigned)body.length());
+  std::vector<unsigned char> body;
+  gxsc_cat(body, version, sizeof(version));
+  gxsc_cat(body, alg.data(), alg.size());
+  gxsc_der_tlv(body, 0x04, key.data(), (unsigned)key.size());
+  pkcs8.clear();
+  gxsc_der_tlv(pkcs8, 0x30, body.data(), (unsigned)body.size());
   return 0;
 }
 
@@ -363,7 +368,7 @@ static int gxsc_has_ext(const char *fname, const char *ext)
   if(!fname || !ext) return 0;
   size_t fl = strlen(fname), el = strlen(ext);
   if(fl < el) return 0;
-  return CaseICmp(fname + fl - el, ext) == 0;
+  return iequals(fname + fl - el, ext);
 }
 
 static wchar_t *gxsc_to_wide(const char *s)
@@ -433,11 +438,11 @@ void gxSSL::sc_set_status(long status)
 int gxSSL::SetAppError(const char *s)
 // Function used to set application error strings.
 {
-  app_err_str << clear << s;
+  app_err_str = str_cat(s);
   return ssl_error = gxSSL_APPDEF_ERROR;
 }
 
-void gxSSL::GlobalSSLError(gxString &err_str)
+void gxSSL::GlobalSSLError(std::string &err_str)
 // Passes back the status of the last Schannel or Windows crypto call
 // in the err_str variable.
 {
@@ -446,9 +451,9 @@ void gxSSL::GlobalSSLError(gxString &err_str)
   DWORD code = (DWORD)gxSchannelLastStatus;
   char num[32];
   sprintf(num, "0x%08lX", (unsigned long)code);
-  err_str << clear << "SSL global exception: " << num;
+  err_str = str_cat("SSL global exception: ", num);
   if(code == 0) {
-    err_str << " No errors reported";
+    str_append(err_str, " No errors reported");
     return;
   }
   if(FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS,
@@ -456,7 +461,7 @@ void gxSSL::GlobalSSLError(gxString &err_str)
     // Remove the line break at the end of the system message
     size_t n = strlen(sbuf);
     while(n > 0 && (sbuf[n-1] == '\r' || sbuf[n-1] == '\n')) sbuf[--n] = 0;
-    err_str << " " << sbuf;
+    str_append(err_str, " ", sbuf);
   }
 }
 
@@ -498,12 +503,13 @@ void gxSSL::init_data_members()
 // Internal function used to initialized data members.
 {
   ctx = 0;
+  owns_ctx = 0;
   ssl = 0;
   bytes_moved = bytes_read = 0;
   ssl_proto = gxSSL_TLS;
   cert_type = gxSSL_PEM;
   ssl_error = gxSSL_NO_ERROR;
-  verify_cert = 0;
+  verify_cert = 1;
   is_client = is_server = 0;
   clear_strings();
   ResetAppError();
@@ -512,12 +518,12 @@ void gxSSL::init_data_members()
 void gxSSL::clear_strings()
 // Internal function used to clear all string members.
 {
-  random_file.Clear();
-  key_file.Clear();
-  ca_list.Clear();
-  passwd.Clear();
-  cert_file.Clear();
-  host_name.Clear();
+  random_file.clear();
+  key_file.clear();
+  ca_list.clear();
+  passwd.clear();
+  cert_file.clear();
+  host_name.clear();
 }
 
 int gxSSL::is_ssl_null()
@@ -572,21 +578,15 @@ gxSSL_CTX_t *gxSSL::InitCTX()
   InitSSLibrary();
   DestroyCTX();
 
-  switch(ssl_proto) { // Datagram TLS is not supported by this class
-    case gxSSL_DTLS: case gxSSL_DTLSv1: case gxSSL_DTLSv1_2:
-      ssl_error = gxSSL_PROTOCOL_ERROR;
-      return 0;
-    default:
-      break;
-  }
-
-  ctx = new gxSchannelCTX;
-  if(!ctx) {
-    ssl_error = gxSSL_CTX_INIT_ERROR;
+  if(ssl_proto == gxSSL_DTLS) { // Datagram TLS is not supported
+    ssl_error = gxSSL_PROTOCOL_ERROR;
     return 0;
   }
 
-  if(!cert_file.is_null()) {
+  ctx = new gxSchannelCTX;
+  owns_ctx = 1;
+
+  if(!cert_file.empty()) {
     if(sc_load_cert_and_key() != gxSSL_NO_ERROR) {
       gxSSLError err = ssl_error;
       DestroyCTX();
@@ -595,8 +595,8 @@ gxSSL_CTX_t *gxSSL::InitCTX()
     }
   }
 
-  if(!ca_list.is_null()) {
-    MemoryBuffer mbuf;
+  if(!ca_list.empty()) {
+    std::vector<unsigned char> mbuf;
     if(gxsc_read_file(ca_list.c_str(), mbuf) != 0) {
       DestroyCTX();
       ssl_error = gxSSL_CALIST_ERROR;
@@ -611,22 +611,22 @@ gxSSL_CTX_t *gxSSL::InitCTX()
     }
     int num_certs = 0;
     unsigned offset = 0;
-    gxString label;
-    MemoryBuffer der;
+    std::string label;
+    std::vector<unsigned char> der;
     if(gxsc_is_pem(mbuf)) {
       while(gxsc_pem_next(mbuf, offset, label, der) == 0) {
 	if(label != "CERTIFICATE" && label != "TRUSTED CERTIFICATE") continue;
 	if(CertAddEncodedCertificateToStore(ctx->ca_store, X509_ASN_ENCODING,
-					    (const BYTE *)der.m_buf(),
-					    (DWORD)der.length(),
+					    (const BYTE *)der.data(),
+					    (DWORD)der.size(),
 					    CERT_STORE_ADD_USE_EXISTING, 0)) {
 	  num_certs++;
 	}
       }
     }
     else if(CertAddEncodedCertificateToStore(ctx->ca_store, X509_ASN_ENCODING,
-					     (const BYTE *)mbuf.m_buf(),
-					     (DWORD)mbuf.length(),
+					     (const BYTE *)mbuf.data(),
+					     (DWORD)mbuf.size(),
 					     CERT_STORE_ADD_USE_EXISTING, 0)) {
       num_certs++;
     }
@@ -668,9 +668,17 @@ int gxSSL::sc_acquire_cred(int inbound)
   // TLS 1.3
   TLS_PARAMETERS tls_parms;
   memset(&tls_parms, 0, sizeof(tls_parms));
+  // 10/26/2026: SSL 3, TLS 1.0 and TLS 1.1 are never allowed
+  tls_parms.grbitDisabledProtocols = SP_PROT_SSL3_CLIENT | 
+    SP_PROT_SSL3_SERVER | SP_PROT_TLS1_0_CLIENT | SP_PROT_TLS1_0_SERVER |
+    SP_PROT_TLS1_1_CLIENT | SP_PROT_TLS1_1_SERVER;
   if(ssl_proto == gxSSL_TLSv1_2) {
-    tls_parms.grbitDisabledProtocols = SP_PROT_TLS1_3_CLIENT |
+    tls_parms.grbitDisabledProtocols |= SP_PROT_TLS1_3_CLIENT |
       SP_PROT_TLS1_3_SERVER;
+  }
+  else if(ssl_proto == gxSSL_TLSv1_3) {
+    tls_parms.grbitDisabledProtocols |= SP_PROT_TLS1_2_CLIENT |
+      SP_PROT_TLS1_2_SERVER;
   }
   SCH_CREDENTIALS sch_cred;
   memset(&sch_cred, 0, sizeof(sch_cred));
@@ -694,6 +702,7 @@ int gxSSL::sc_acquire_cred(int inbound)
     memset(&old_cred, 0, sizeof(old_cred));
     old_cred.dwVersion = SCHANNEL_CRED_VERSION;
     old_cred.dwFlags = flags;
+    old_cred.grbitEnabledProtocols = SP_PROT_TLS1_2_CLIENT | SP_PROT_TLS1_2_SERVER;
     if(ctx->cert) {
       old_cred.cCreds = 1;
       old_cred.paCred = certs;
@@ -719,11 +728,11 @@ int gxSSL::sc_load_pfx(const char *fname)
 // Internal function used to load a certificate and private key from a
 // PKCS#12 (.pfx or .p12) file. Returns 0 if successful.
 {
-  MemoryBuffer mbuf;
+  std::vector<unsigned char> mbuf;
   if(gxsc_read_file(fname, mbuf) != 0) return ssl_error = gxSSL_CERT_ERROR;
   CRYPT_DATA_BLOB blob;
-  blob.cbData = (DWORD)mbuf.length();
-  blob.pbData = (BYTE *)mbuf.m_buf();
+  blob.cbData = (DWORD)mbuf.size();
+  blob.pbData = (BYTE *)mbuf.data();
   wchar_t *wpw = gxsc_to_wide(passwd.c_str());
   if(!wpw) return ssl_error = gxSSL_PASSWD_ERROR;
   ctx->cert_store = PFXImportCertStore(&blob, wpw, CRYPT_USER_KEYSET |
@@ -773,7 +782,7 @@ int gxSSL::sc_load_cert_and_key()
   }
 
   // Load the certificate and any chain certificates that follow it
-  MemoryBuffer mbuf;
+  std::vector<unsigned char> mbuf;
   if(gxsc_read_file(cert_file.c_str(), mbuf) != 0) {
     return ssl_error = gxSSL_CERT_ERROR;
   }
@@ -784,14 +793,14 @@ int gxSSL::sc_load_cert_and_key()
   }
   if(gxsc_is_pem(mbuf)) {
     unsigned offset = 0;
-    gxString label;
-    MemoryBuffer der;
+    std::string label;
+    std::vector<unsigned char> der;
     while(gxsc_pem_next(mbuf, offset, label, der) == 0) {
       if(label != "CERTIFICATE") continue;
       PCCERT_CONTEXT c = 0;
       if(!CertAddEncodedCertificateToStore(ctx->cert_store, X509_ASN_ENCODING,
-					   (const BYTE *)der.m_buf(),
-					   (DWORD)der.length(),
+					   (const BYTE *)der.data(),
+					   (DWORD)der.size(),
 					   CERT_STORE_ADD_USE_EXISTING,
 					   ctx->cert ? 0 : &c)) {
 	sc_set_status((long)GetLastError());
@@ -802,8 +811,8 @@ int gxSSL::sc_load_cert_and_key()
   }
   else {
     if(!CertAddEncodedCertificateToStore(ctx->cert_store, X509_ASN_ENCODING,
-					 (const BYTE *)mbuf.m_buf(),
-					 (DWORD)mbuf.length(),
+					 (const BYTE *)mbuf.data(),
+					 (DWORD)mbuf.size(),
 					 CERT_STORE_ADD_USE_EXISTING,
 					 &ctx->cert)) {
       sc_set_status((long)GetLastError());
@@ -813,18 +822,18 @@ int gxSSL::sc_load_cert_and_key()
   if(!ctx->cert) return ssl_error = gxSSL_CERT_ERROR;
 
   // A client certificate or server certificate needs its private key
-  if(key_file.is_null()) return ssl_error = gxSSL_KEY_ERROR;
+  if(key_file.empty()) return ssl_error = gxSSL_KEY_ERROR;
 
   // Read the private key and convert it to PKCS#8
   if(gxsc_read_file(key_file.c_str(), mbuf) != 0) {
     return ssl_error = gxSSL_KEY_ERROR;
   }
-  MemoryBuffer pkcs8;
+  std::vector<unsigned char> pkcs8;
   int encrypted = 0;
   if(gxsc_is_pem(mbuf)) {
     unsigned offset = 0;
-    gxString label;
-    MemoryBuffer der;
+    std::string label;
+    std::vector<unsigned char> der;
     int found = 0;
     int rv;
     while((rv = gxsc_pem_next(mbuf, offset, label, der)) == 0) {
@@ -850,8 +859,8 @@ supported, convert the key to PKCS#8 with openssl pkcs8 -topk8");
     if(!found) return ssl_error = gxSSL_KEY_ERROR;
   }
   else { // DER key, PKCS#8 or PKCS#1 RSA
-    const unsigned char *p = (const unsigned char *)mbuf.m_buf();
-    unsigned len = (unsigned)mbuf.length();
+    const unsigned char *p = (const unsigned char *)mbuf.data();
+    unsigned len = (unsigned)mbuf.size();
     unsigned pos = 0, vs, vl;
     unsigned char tag;
     // A PKCS#8 key has a SEQUENCE after the version, a PKCS#1 key an INTEGER
@@ -921,7 +930,7 @@ supported, convert the key to PKCS#8 with openssl pkcs8 -topk8");
 
   NCRYPT_KEY_HANDLE key = 0;
   st = NCryptImportKey(prov, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB, &ndesc, &key,
-		       (PBYTE)pkcs8.m_buf(), (DWORD)pkcs8.length(),
+		       (PBYTE)pkcs8.data(), (DWORD)pkcs8.size(),
 		       NCRYPT_OVERWRITE_KEY_FLAG | NCRYPT_DO_NOT_FINALIZE_FLAG);
   if(wpw) {
     SecureZeroMemory(wpw, wcslen(wpw) * sizeof(wchar_t));
@@ -935,7 +944,7 @@ supported, convert the key to PKCS#8 with openssl pkcs8 -topk8");
     }
   }
   NCryptFreeObject(prov);
-  SecureZeroMemory(pkcs8.m_buf(), pkcs8.length());
+  SecureZeroMemory(pkcs8.data(), pkcs8.size());
   if(st != ERROR_SUCCESS) {
     sc_set_status((long)st);
     return ssl_error = encrypted ? gxSSL_PASSWD_ERROR : gxSSL_KEY_ERROR;
@@ -958,13 +967,14 @@ supported, convert the key to PKCS#8 with openssl pkcs8 -topk8");
 }
 
 void gxSSL::DestroyCTX()
-// Destroys the context object.
+// Destroys the context object if this object created it.
 {
-  if(ctx) {
+  if(ctx && owns_ctx) {
     gxsc_free_ctx(ctx);
     delete ctx;
   }
   ctx = 0;
+  owns_ctx = 0;
 }
 
 void gxSSL::DestroySSL()
@@ -1025,8 +1035,8 @@ int gxSSL::sc_recv_raw(int use_timeout, int seconds, int useconds)
     }
   }
   if(use_timeout) {
-    gxSocket gxsocket_object;
-    if(!gxsocket_object.ReadSelect((gxsSocket_t)ssl->s, seconds, useconds)) {
+    if(gxSocket::WaitReadable((gxsSocket_t)ssl->s, 
+			      seconds * 1000 + useconds / 1000) != 1) {
       ssl_error = gxSSL_REQUEST_TIMEOUT;
       return -2;
     }
@@ -1062,7 +1072,7 @@ int gxSSL::sc_handshake(int is_accept, int have_input)
     ASC_REQ_ALLOCATE_MEMORY | ASC_REQ_STREAM;
   DWORD out_flags = 0;
   TimeStamp expiry;
-  SEC_CHAR *target = host_name.is_null() ? 0 : (SEC_CHAR *)host_name.c_str();
+  SEC_CHAR *target = host_name.empty() ? 0 : (SEC_CHAR *)host_name.c_str();
   SECURITY_STATUS st;
   SecBuffer in_bufs[2], out_bufs[1];
   SecBufferDesc in_desc, out_desc;
@@ -1245,7 +1255,7 @@ int gxSSL::sc_shutdown()
 			       &ssl->ctxt, &out_desc, &out_flags, &expiry);
   }
   else {
-    SEC_CHAR *target = host_name.is_null() ? 0 :
+    SEC_CHAR *target = host_name.empty() ? 0 :
       (SEC_CHAR *)host_name.c_str();
     st = InitializeSecurityContextA(&ctx->cred, &ssl->ctxt, target,
 				    ISC_REQ_SEQUENCE_DETECT |
@@ -1453,6 +1463,19 @@ int gxSSL::RawReadSSLSocket(void *buf, int bytes)
   return rv;
 }
 
+int gxSSL::ReadSomeSSLSocket(void *buf, int bytes, int timeout_ms)
+// Return up to bytes of decrypted data, waiting at most timeout_ms
+// (-1 waits forever). Returns the number of bytes read, 0 if the peer
+// closed the connection, or -1 on an error or timeout.
+{
+  bytes_read = 0;
+  int rv = (timeout_ms < 0) ? sc_read_some(buf, bytes, 0, 0, 0) :
+    sc_read_some(buf, bytes, 1, timeout_ms / 1000, (timeout_ms % 1000) * 1000);
+  if(rv > 0) bytes_read = rv;
+  if(rv < 0) return -1;
+  return rv;
+}
+
 int gxSSL::SendSSLSocket(const void *buf, int bytes)
 // Send a block of data to the bound socket and do not return
 // until all the bytes have been written. Returns the total number
@@ -1609,12 +1632,12 @@ int gxSSL::VerifyCert(const char *hostname, long *X509_return_code)
   return ssl_error = gxSSL_NO_ERROR;
 }
 
-int gxSSL::GetPeerCertInfo(gxString &subject, gxString &issuer)
+int gxSSL::GetPeerCertInfo(std::string &subject, std::string &issuer)
 // Passes back the subject and issuer names of the peer's
 // certificate. Returns 0 if successful or a non-zero value if the peer
 // did not present a certificate.
 {
-  subject.Clear(); issuer.Clear();
+  subject.clear(); issuer.clear();
   if(is_ssl_null()) return ssl_error;
   if(!ssl->has_ctxt) return ssl_error = gxSSL_SSL_INIT_ERROR;
   PCCERT_CONTEXT cert = 0;
@@ -1654,19 +1677,6 @@ const char *gxSSL::CertVerifyErrorString(long X509_return_code)
   return sbuf;
 }
 
-int gxSSL::LoadDHParms(const char * /* fname */)
-// Schannel picks the key exchange groups itself, so DH parameter
-// files are not used. Returns 0.
-{
-  return ssl_error = gxSSL_NO_ERROR;
-}
-
-int gxSSL::MakeRSAEphKey(int /* key_len */)
-// Not used with Schannel. Returns 0.
-{
-  return ssl_error = gxSSL_NO_ERROR;
-}
-
 int gxSSL::InitPRNG(const char *r_file, int /* check_prng_init */)
 // Schannel uses the Windows random number generator. Returns 0.
 {
@@ -1678,15 +1688,6 @@ int gxSSL::InitPRNG(int /* check_prng_init */)
 // Schannel uses the Windows random number generator. Returns 0.
 {
   return ssl_error = gxSSL_NO_ERROR;
-}
-
-int gxSSL::MakeDHParms(const char * /* dh_fname */,
-		       unsigned char * /* dh1024_p */, int /* dh1024_p_len */,
-		       unsigned char * /* dh1024_g */, int /* dh1024_g_len */)
-// Not supported with Schannel. Returns a non-zero value.
-{
-  return SetAppError("SSL exception: MakeDHParms() is not supported with \
-Schannel, which does not need DH parameter files");
 }
 
 int gxSSL::MakeRSAPrivateKey(const char * /* key_fname */,

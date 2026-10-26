@@ -1,22 +1,22 @@
 // ------------------------------- //
 // -------- Start of File -------- //
 // ------------------------------- //
-// ----------------------------------------------------------- // 
-// C++ Header File Name: systime.cpp
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// ----------------------------------------------------------- //
+// C++ Header File Name: systime.h
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
-// File Creation Date: 12/11/1996 
-// Date Last Modified: 10/24/2026
+// File Creation Date: 09/20/1999
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
 // ---------- Include File Description and Details  ---------- //
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
 /*
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
 License as published by the Free Software Foundation; either
 version 2.1 of the License, or (at your option) any later version.
- 
+
 This library is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
@@ -24,196 +24,102 @@ Lesser General Public License for more details.
 
 You should have received a copy of the GNU Lesser General Public
 License along with this library; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  
+Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
-The SysTime class is used to convert the system time to various
-character string and integer formats.
+Thread-safe time stamp functions used by the log file, mail and
+HTTP classes. Use std::chrono for time arithmetic.
 
 Changes:
 ==============================================================
-08/12/2002: The SysTime destructor is no longer inlined and is 
-now defined in the systime.cpp file.
-
-09/03/2002: Added the SysTime::GetSMTPTime() function used
-to make SMTP time stamps.
-
-04/01/2003: Added the SysTime::GetSyslogTime() function used
-to make Syslog time stamps.
-
-06/05/2003: Added the SysTime::MakeFileModTime() and 
-SysTime::MakeGMTDateTime() functions used to make custom
-time stamps for file and directory functions.
+10/26/2026: DataReel 7 replaces the SysTime and SysTimeUnit
+classes with these header-only functions in the datareel
+namespace. smtp_time() now returns an RFC 5322 date with a
+numeric time zone offset.
 ==============================================================
 */
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
 #ifndef __GX_SYSTIME_HPP__
 #define __GX_SYSTIME_HPP__
 
-#include "gxdlcode.h"
+#include <ctime>
+#include <string>
 
-#include <time.h>
-#include "ustring.h"
+namespace datareel {
 
-// Year constants
-const int systimeYEAR_CONSTANT      = 365;
-const int systimeLEAP_YEAR_CONSTANT = 366;
-
-// SysTime constants
-const int systimeSTART_YEAR = 1900; // Starting point for time calculations 
-const int systimeEND_YEAR = 2038;   // Last valid year for time calculations 
-
-// Calender day constants
-const int systimeJANUARY   = 31;
-const int systimeFEBUARY   = 28;
-const int systimeFEB_LEAP  = 29;
-const int systimeMARCH     = 31;
-const int systimeAPRIL     = 30;
-const int systimeMAY       = 31;
-const int systimeJUNE      = 30;
-const int systimeJULY      = 31;
-const int systimeAUGUST    = 31;
-const int systimeSEPTEMBER = 30;
-const int systimeOCTOBER   = 31;
-const int systimeNOVEMBER  = 30;
-const int systimeDECEMBER  = 31;
-
-// Time unit data structure used to store time values
-struct GXDLCODE_API SysTimeUnit
+// Thread-safe localtime() and gmtime()
+inline std::tm local_tm(std::time_t t)
 {
-  SysTimeUnit() { hours = minutes = seconds = milliseconds = 0; }
-  SysTimeUnit(const SysTimeUnit &ob) {
-    hours = ob.hours; minutes = ob.minutes; seconds = ob.seconds;
-    milliseconds = ob.milliseconds;
-  }
-  SysTimeUnit& operator=(const SysTimeUnit &ob) {
-    hours = ob.hours; minutes = ob.minutes; seconds = ob.seconds;
-    milliseconds = ob.milliseconds;
-    return *this;
-  }
-  ~SysTimeUnit() { }
-  
-  char *c_str_Hours();
-  char *c_str_Minutes();
-  char *c_str_Seconds();
-  char *c_str_Milliseconds();
-  
-  unsigned hours;
-  unsigned minutes;
-  unsigned seconds;
-  unsigned milliseconds;
-};
-
-// System time class 
-class GXDLCODE_API SysTime
-{
-public:
-  SysTime();
-  ~SysTime();
-  
-  enum {              // Time formats
-    AMPM,             // AM or PM
-    Date,             // System date
-    DayOfTheMonth,    // Day of the month (01..31)
-    DayOfTheWeek,     // Display the day of the week (0..6, Sunday=0)
-    Hour,             // Hour (24 hour clock - 00..23)
-    JDay,             // Julian day
-    Minutes,          // Minutes (00..59)
-    Month,            // Month (01..12)
-    FullMonthName,    // Full month name 
-    MonthName,        // Abbreviated month name
-    Seconds,          // Seconds (00..59)
-    SystemTime,       // System time
-    TimeZoneName,     // Time zone name (null string if no time zone)
-    WeekDayName,      // Abbreviated weekday name
-    FullWeekDayName,  // Full weekday name
-    WeekOfYearSF,     // Week of the year (00..52, Sunday first)
-    WeekOfYearMF,     // Week of the year (00..52, Monday first)
-    Year,             // Year (0000..9999)
-    YearXX,           // Year (00..99)
-    InvalidTimeFormat = 0xffff // Error code for invalid format
-  };
-
-private:
-  SysTime(const SysTime &) { }        // Disallow copying
-  void operator=(const SysTime &) { } // Disallow assignment
-
-public:
-  void FormatTime(int Format);
-  void InitTimeBuffers();
-  char *GetStrTime(int Format) { FormatTime(Format); return SBuffer.c_str(); }
-  int GetIntTime(int Format) { FormatTime(Format); return IntTimeFormat; }
-
-public: // Date/Time formating functions
-  char *GetSystemTime();
-  char *GetSystemDate(int full_month_name = 0);
-  char *GetSystemDateTime(int full_month_name = 0);
-  char *GetGMTDateTime();
-  char *GetSMTPTime();
-  char *GetSyslogTime();
-  char *MakeFileModTime(time_t mod_time);
-  char *MakeGMTDateTime(time_t mod_time);
-  int DateSpan(char *s, unsigned days, int full_month_name = 0);
-  int IsLeapYear(int year);
-  int DaysOld(int jday, int year);
-  
-private:
-  UString SBuffer;
-  int IntTimeFormat;
-  
-public:
-  time_t STime;
-  struct tm *TimeBuffer;
-};
-
-// Standalone timer functions
-// --------------------------------------------------------------
-inline void systimeSleep(clock_t seconds)
-// Sleep for specified number of seconds.
-{
-  // Convert milliseconds to seconds
-  clock_t wait = ( seconds * CLOCKS_PER_SEC );
-  clock_t goal = wait + clock();
-  while( goal > clock() )
-    ;
+  std::tm tm_buf{};
+#if defined (_WIN32)
+  localtime_s(&tm_buf, &t);
+#else
+  localtime_r(&t, &tm_buf);
+#endif
+  return tm_buf;
 }
 
-inline void systimePauseFor(clock_t wait)
-// Pauses for a specified number of milliseconds. 
+inline std::tm utc_tm(std::time_t t)
 {
-  clock_t goal;
-  goal = wait + clock();
-  while( goal > clock() )
-    ;
+  std::tm tm_buf{};
+#if defined (_WIN32)
+  gmtime_s(&tm_buf, &t);
+#else
+  gmtime_r(&t, &tm_buf);
+#endif
+  return tm_buf;
 }
 
-inline clock_t systimeStart()
-// Mark the starting time for the routine.
+// Format a time with strftime() codes, local time unless utc is true
+inline std::string time_string(const char *fmt, std::time_t t,
+			       bool utc = false)
 {
-  return clock();
+  std::tm tm_buf = utc ? utc_tm(t) : local_tm(t);
+  char buf[256];
+  std::size_t n = std::strftime(buf, sizeof(buf), fmt, &tm_buf);
+  return std::string(buf, n);
 }
 
-inline clock_t systimeStop()
-// Mark the stop time for the routine. 
+inline std::string time_string(const char *fmt, bool utc = false)
 {
-  return clock();
+  return time_string(fmt, std::time(nullptr), utc);
 }
 
-inline clock_t systimeElapsedSeconds(clock_t begin, clock_t end)
-// Calculate the elapsed time in seconds.
+// Oct 26, 2026 14:05:09 (October with full_month_name)
+inline std::string date_time_string(bool full_month_name = false)
 {
-  return (end - begin) / CLOCKS_PER_SEC;
+  return time_string(full_month_name ? "%B %d, %Y %H:%M:%S" :
+		     "%b %d, %Y %H:%M:%S");
 }
 
-inline double systimeElapsedTime(clock_t begin, clock_t end)
-// Calculate the elapsed time in milliseconds. 
+// Oct 26 14:05:09
+inline std::string syslog_time()
 {
-  return (double)(end - begin) / CLOCKS_PER_SEC;
+  return time_string("%b %d %H:%M:%S");
 }
+
+// Mon, 26 Oct 2026 14:05:09 -0500 (RFC 5322, used by SMTP)
+inline std::string smtp_time()
+{
+  return time_string("%a, %d %b %Y %H:%M:%S %z");
+}
+
+// Mon, 26 Oct 2026 19:05:09 GMT (RFC 9110, used by HTTP)
+inline std::string http_time()
+{
+  return time_string("%a, %d %b %Y %H:%M:%S GMT", true);
+}
+
+// 2026-10-26T19:05:09Z
+inline std::string iso8601_utc()
+{
+  return time_string("%Y-%m-%dT%H:%M:%SZ", true);
+}
+
+} // namespace datareel
 
 #endif // __GX_SYSTIME_HPP__
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //
 // ------------------------------- //
-

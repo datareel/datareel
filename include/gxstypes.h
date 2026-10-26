@@ -65,51 +65,38 @@ closed during an revc() call when the recv() call returns zero bytes.
 
 // --------------------------------------------------------------
 // Platform specific include files
-// --------------------------------------------------------------
-#if defined (__WIN32__)
-#include <winsock.h> // Windows socket functions
-#include <time.h>    // Time value functions
-
-#elif defined (__UNIX__)
+#if defined (_WIN32)
+// Winsock 2 must be included before windows.h
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h> // Windows socket functions
+#include <ws2tcpip.h> // getaddrinfo() and IPv6
+#include <time.h>     // Time value functions
+#else
 #include <unistd.h>     // UNIX standard function definitions 
 #include <sys/types.h>  // Type definitions
-#include <netdb.h>      // Net DB structures
+#include <netdb.h>      // getaddrinfo()
 #include <arpa/inet.h>  // Inet functions
 #include <netinet/in.h> // Structures defined by the internet system
 #include <sys/socket.h> // Definitions related to sockets
 #include <sys/time.h>   // Time value functions
-#else
-#error You must define a target platform:\n __WIN32__ or __UNIX__
 #endif
-// --------------------------------------------------------------
 
-// --------------------------------------------------------------
 // Type definitions
-// --------------------------------------------------------------
 typedef int gxsAddressFamily;  // Address family to which a socket belongs
 typedef int gxsProtocolFamily; // Protocol family to which a socket belongs
-typedef int gxsSocket_t;       // Type used to ID sockets
 typedef int gxsPort_t;         // Data type used for port numbers
-typedef sockaddr_in gxsSocketAddress; // Socket Internet address
-typedef servent gxsServent;           // Service name and protocol information
-typedef hostent gxsHostNameInfo;      // Host name information
-typedef in_addr gxsInternetAddress;   // Internet address structure
-
-// 03/15/2001: Socket length definition
-// POSIX defines the socket length type as an unsigned integer value
-// NOTE: Under WIN32 and some UNIX platforms this value is defined as
-// an signed integer so a conditional directive has been added for each
-// platform with the default value of an unsigned integer.
-#if defined (__WIN32__)
+#if defined (_WIN32)
+typedef SOCKET gxsSocket_t;    // Type used to ID sockets
 typedef int gxsSocketLength_t;
-#elif defined(__UNIX__) && defined (__AIX__)
+const gxsSocket_t gxsINVALID_SOCKET = INVALID_SOCKET;
+#else
+typedef int gxsSocket_t;       // Type used to ID sockets
 typedef socklen_t gxsSocketLength_t;
-#else 
-typedef unsigned gxsSocketLength_t;
+const gxsSocket_t gxsINVALID_SOCKET = -1;
 #endif
-// --------------------------------------------------------------
 
-// --------------------------------------------------------------
 // Constants 
 // --------------------------------------------------------------
 const unsigned gxsBUF_SIZE     =  1024; // Fixed string buffer length
@@ -196,21 +183,9 @@ enum gxSocketError {    // gxSocket exception codes
   gxSOCKET_APPDEF_ERROR // Socket application reported an error
 };
 
-enum gxsSocketLibraryVersion {
-  // Platform specific library version constants
-
-  // WIN32 supported WSA versions. NOTE: The WSA constants have no
-  // meaning in UNIX implementations but will work transparently in
-  // all UNIX applications.
-  gxSOCKET_WSAVER_ONEZERO, // Testing purposes only
-  gxSOCKET_WSAVER_ONEONE,  // Windows 95A/B/C, 98, 98SE, NT4.0 compatible
-  gxSOCKET_WSAVER_TWOZERO, // Windows 98, 98SE, 2000 compatible
-  gxSOCKET_WSAVER_TWOTWO   // Windows 98SE, 2000 compatible
-};
-
 enum gxsServices {
 // Enumeration for common port numbers found in the /etc/services file
-// on UNIX platforms or the \windows\services file on WIN32 platforms.
+// on UNIX platforms or the services file on Windows.
 // A complete list of all assigned port numbers is maintained by IANA:
 // http://www.iana.org
 
@@ -237,10 +212,13 @@ enum gxsServices {
   gxSOCKET_SNMP_PORT       = 161, // SNMP port
   gxSOCKET_LDAP_PORT       = 389, // Lightweight directory access protocol
   gxSOCKET_HTTPS_PORT      = 443, // HTTPS port
+  gxSOCKET_SMTPS_PORT      = 465, // SMTP over implicit TLS
   gxSOCKET_SYSLOG_PORT     = 514, // UNIX syslog port
   gxSOCKET_PRINTER_PORT    = 515, // UNIX line printer (lp) port
+  gxSOCKET_SUBMISSION_PORT = 587, // Mail submission (SMTP with STARTTLS)
   gxSOCKET_SLDAP_PORT      = 636, // Secure LDAP
   gxSOCKET_RSYNC_PORT      = 873, // UNIX rsync port
+  gxSOCKET_FTPS_PORT       = 990, // FTP over implicit TLS
   gxSOCKET_SIMAP_PORT      = 993, // Secure IMAP
   gxSOCKET_SPOP3_PORT      = 995, // Secure POP3
 
@@ -248,22 +226,6 @@ enum gxsServices {
   gxSOCKET_DBS_PORT = 2073, // gxs-data-port (services file name)
   gxSOCKET_DEFAULT_PORT = 2073 // Default port if no port number is specified
 };
-
-enum gxsServerTypes {
-  gxSOCKET_STREAM_SERVER,
-  gxSOCKET_DATAGRAM_SERVER,
-  gxSOCKET_SERIAL_PORT_SERVER,
-  gxSOCKET_HTTP_SERVER,
-  gxSOCKET_LOCAL_FILE_SYSTEM
-};
-
-enum gxClientTypes {
-  gxSOCKET_STREAM_CLIENT,
-  gxSOCKET_DATAGRAM_CLIENT,
-  gxSOCKET_HTTP_CLIENT,
-  gxSOCKET_SERIAL_PORT_CLIENT
-};
-// --------------------------------------------------------------
 
 #endif // __GX_SOCKET_TYPES_HPP__
 // ----------------------------------------------------------- // 

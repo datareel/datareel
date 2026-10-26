@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Header File Name: gxconfig.h
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/19/1996 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -37,6 +37,13 @@ parameter from const UString type to const char * type.
 
 10/13/2002: Removed all function with non-const char * type
 arguments.
+
+10/26/2026: DataReel 7 rewrites gxConfig on std::string and 
+std::vector. It no longer derives from gxListB. Parameters are 
+stored as name/value pairs and lookups match names only. Load() 
+and the Write functions return true on success. GetStrValue() 
+returns a null pointer when the name is not found; GetString() 
+returns a default value instead.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -45,142 +52,102 @@ arguments.
 
 #include "gxdlcode.h"
 
-#include "gxlistb.h"
-#include "gxstring.h"
+#include <cstddef>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
-
-class GXDLCODE_API gxConfigListNode : public gxListNodeB
-{
-public:
-  gxConfigListNode() { data = (void *)&node_data; }
-  gxConfigListNode(const gxString &s) : node_data(s) {
-    data = (void *)&node_data;
-  }
-  ~gxConfigListNode() { }
-  
-public:
-  gxString node_data;
-};
+namespace datareel {
 
 // Configuration manager class
-class GXDLCODE_API gxConfig : public gxListB
+class GXDLCODE_API gxConfig
 {
 public:
-  gxConfig() {
-    FileName = "\0"; parm_ID = "="; comment_char = '#';
-    filter_comments = 1;
-  }
-  gxConfig(const gxString &fname) {
-    FileName = fname; parm_ID = "="; comment_char = '#';
-    filter_comments = 1;
-  }
-  gxConfig(const char *fname) {
-    FileName = fname; parm_ID = "="; comment_char = '#';
-    filter_comments = 1;
-  }
-
-  // Constructors add to set the parameter ID string: 09/17/1999
-  gxConfig(const gxString &fname, const gxString &p_id) {
-    FileName = fname; parm_ID = p_id;
-  }
-  gxConfig(const gxString &fname, const char *p_id) {
-    FileName = fname; parm_ID = p_id;
-  }
-  ~gxConfig();
-
-private:
-  gxConfig(const gxConfig &) : gxListB() { } // Disallow copying
-  void operator=(const gxConfig &) { } // Disallow assignment
+  gxConfig() { }
+  explicit gxConfig(const std::string &fname, 
+		    const std::string &p_id = "=") :
+    FileName(fname), parm_ID(p_id) { }
+  ~gxConfig() { }
 
 public: // Functions used to load and unload config file
-  int Load();
-  int Load(const char *fname);
-  int Load(const gxString &fname);
-  int ReLoad();
-  int ReLoad(const char *fname);
-  int ReLoad(const gxString &fname);
-  void UnLoad();
-  char *GetFileName() { return FileName.c_str(); }
-  void SetFileName(const gxString &s) { FileName = s; }
-  void SetFileName(const char *s) { FileName = s; }
+  bool Load();
+  bool Load(const std::string &fname);
+  bool ReLoad();
+  bool ReLoad(const std::string &fname);
+  void UnLoad() { entries.clear(); }
+  const std::string &GetFileName() const { return FileName; }
+  void SetFileName(const std::string &s) { FileName = s; }
   
 public: // Formatting functions
   // Treat all characters after the ID string as a parameter value
-  void SetParmID(const gxString &s) { parm_ID = s; }
-  void SetParmID(const char *s) { parm_ID = s; }
-  char *GetParmID() { return parm_ID.c_str(); }
-  char GetCommentChar() { return comment_char; }
+  void SetParmID(const std::string &s) { parm_ID = s; }
+  const std::string &GetParmID() const { return parm_ID; }
+  char GetCommentChar() const { return comment_char; }
   void SetCommentChar(char c) { comment_char = c; }
-  void FilterComments() { filter_comments = 1; }
-  void ReadComments() { filter_comments = 0; }
+  void FilterComments() { filter_comments = true; }
+  void ReadComments() { filter_comments = false; }
   
 public: // Functions used to read config file values
-  double GetFloatValue(const char *Name, int fn=1);    
-  double GetFloatValue(const gxString &Name, int fn=1); 
-  double GetDFPValue(const char *Name, int fn=1);              
-  double GetDFPValue(const gxString &Name, int fn=1);           
-  char* GetStrValue(const char *Name, int fn=1);    
-  char* GetStrValue(const gxString &Name, int fn=1); 
-  int GetIntValue(const char *Name, int fn=1);      
-  int GetIntValue(const gxString &Name, int fn=1);   
-  long GetLongValue(const char *Name, int fn=1);    
-  long GetLongValue(const gxString &Name, int fn=1); 
+  // Each lookup matches the whole parameter name, or any name that
+  // contains it when full_name is false. The first match wins.
+  const char *GetStrValue(std::string_view name, bool full_name = true) const;
+  std::string GetString(std::string_view name, 
+			const std::string &default_value = std::string(),
+			bool full_name = true) const;
+  bool HasValue(std::string_view name, bool full_name = true) const {
+    return GetStrValue(name, full_name) != nullptr;
+  }
+  int GetIntValue(std::string_view name, bool full_name = true) const;
+  long GetLongValue(std::string_view name, bool full_name = true) const;
+  double GetFloatValue(std::string_view name, bool full_name = true) const;
+
+  // Every name/value pair in file order
+  const std::vector<std::pair<std::string, std::string>> &Entries() const {
+    return entries;
+  }
 
 public: // Functions used to write config values
-  int WriteConfigLine(const gxString &parm, const gxString &value);
-  int WriteConfigLine(const char *parm, const char *value);
-  int WriteCommentLine(const gxString &s);
-  int WriteCommentLine(const char *s);
-  int WriteLine(const gxString &s);
-  int WriteLine(const char *s);
-  int ChangeConfigValue(const gxString &parm, const gxString &value);
-  int ChangeConfigValue(const char *parm, const gxString &value);
-  int ChangeConfigValue(const gxString &parm, const char *value);
-  int ChangeConfigValue(const char *parm, const char *value);
-  int ChangeConfigValue(const gxString &parm, int value);
-  int ChangeConfigValue(const char *parm, int value);
-  int ChangeConfigValue(const gxString &parm, unsigned value);
-  int ChangeConfigValue(const char *parm, unsigned value);
-  int ChangeConfigValue(const gxString &parm, long value);
-  int ChangeConfigValue(const char *parm, long value);
-  int ChangeConfigValue(const gxString &parm, float value);
-  int ChangeConfigValue(const char *parm, float value);
-  int ChangeConfigValue(const gxString &parm, double value);
-  int ChangeConfigValue(const char *parm, double value);
-  
-public: // Linked list functions
-  gxConfigListNode *Add(const gxString &s);
-  // 10/24/2026: Added so Add() with a char pointer stores a string
-  gxConfigListNode *Add(const char *s) { return Add(gxString(s)); }
-  gxConfigListNode *FindAny(const gxString &s, gxConfigListNode *ptr = 0);
-  gxConfigListNode *Find(const gxString &s, gxConfigListNode *ptr = 0);
-  
-private: 
-  // 10/24/2026: Overrides gxListB::Add(void *), which was hidden by the
-  // Add() functions above (-Woverloaded-virtual). Every node in this list
-  // must hold a gxString, so untyped data is not added. It is private so
-  // a call such as Add(char_buffer) uses Add(const char *).
-  gxListNodeB *Add(void *v);
+  bool WriteConfigLine(std::string_view parm, std::string_view value);
+  bool WriteCommentLine(std::string_view s);
+  bool WriteLine(std::string_view s);
 
+  // Change a parameter in the file, or append it if it is not there.
+  // Returns the number of lines changed, 1 for an append, 0 on error.
+  int ChangeConfigValue(std::string_view parm, std::string_view value);
+  int ChangeConfigValue(std::string_view parm, const char *value) {
+    return ChangeConfigValue(parm, std::string_view(value ? value : ""));
+  }
+  int ChangeConfigValue(std::string_view parm, const std::string &value) {
+    return ChangeConfigValue(parm, std::string_view(value));
+  }
+  template<class T, 
+	   class = std::enable_if_t<std::is_arithmetic<T>::value>>
+  int ChangeConfigValue(std::string_view parm, T value) {
+    return ChangeConfigValue(parm, std::string_view(std::to_string(value)));
+  }
+  
 private: // Internal proccessing functions
-  void FilterLineFeed(char &c);
-  int StoreCfgData(const char *cfg_line);
-  int ChangeConfigLine(const gxString &string_to_replace,
-		       const gxString &string_to_insert,
-		       int check_case, int append_lines);
+  void StoreCfgData(std::string_view cfg_line);
+  const std::string *FindValue(std::string_view name, bool full_name) const;
+  int ChangeConfigLine(std::string_view string_to_replace,
+		       std::string_view string_to_insert,
+		       bool check_case, bool append_lines);
+  bool AppendToFile(const std::string &text);
   
 private:
-  gxString FileName;   // Name of the configuration file
-  gxString parm_ID;    // String used identify parameters in the file
-  char comment_char;   // Char used to ID comments in the config file
-  int filter_comments; // If true all comments will be ignored
+  std::string FileName;     // Name of the configuration file
+  std::string parm_ID = "="; // String used identify parameters in the file
+  char comment_char = '#';  // Char used to ID comments in the config file
+  bool filter_comments = true; // If true all comments will be ignored
+  std::vector<std::pair<std::string, std::string>> entries;
 };
 
-
+} // namespace datareel
 
 #endif // __GX_CONFIG_HPP__
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //
 // ------------------------------- //
-

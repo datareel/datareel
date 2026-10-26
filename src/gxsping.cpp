@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Source Code File Name: gxsping.cpp
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -34,96 +34,196 @@ Changes:
 ==============================================================
 01/24/2002: Added time.h include file to make time functions
 visible during Linux library builds
+
+10/26/2026: DataReel 7 rewrites gxsPing for IPv4 and IPv6. Linux 
+uses unprivileged ICMP datagram sockets when the system allows 
+them (net.ipv4.ping_group_range) and raw sockets otherwise. 
+Windows uses the IcmpSendEcho functions, which need no 
+administrator rights. Round trip times are measured with 
+std::chrono in milliseconds. ICMP cannot be encrypted, so ping is 
+a diagnostic tool, like telnet.
 ==============================================================
 */
-// ----------------------------------------------------------- // 
+// ----------------------------------------------------------- //
 #include "gxdlcode.h"
 
-#include <string.h>
-#include <time.h>
+#include <cerrno>
+#include <chrono>
+#include <cstring>
+#include <vector>
 #include "gxsping.h"
 
+#if defined (_WIN32)
+#include <iphlpapi.h>
+#include <icmpapi.h>
+#pragma comment(lib, "iphlpapi.lib")
+#else
+#include <unistd.h>
+#include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/icmp6.h>
+#endif
 
-gxSocketError gxsPing::Ping(int time_out_sec, int time_out_usec)
+#if defined (_WIN32)
+
+int gxsPing::Ping(const std::string &host, gxsPingResult &result, int family)
 {
-  // Reset the time values
-  // PC-lint 09/14/2005: clock function is considered dangerous 
-  time_sent = (int)clock();
-  elapsed_time = time_to_live = 0;
-  
-  if(SendEchoRequest() != gxSOCKET_NO_ERROR) {
-    // PC-lint 09/14/2005: clock function is considered dangerous 
-    elapsed_time = int((clock() - time_sent) / CLOCKS_PER_SEC);
-    return raw_socket->GetSocketError();
+  result = gxsPingResult();
+  std::vector<gxsAddress> addrs;
+  if(gxsAddress::Resolve(host, 0, addrs, SOCK_RAW, family) != 0) {
+    result.error = "Ping exception: Could not resolve " + host;
+    return -1;
   }
-  
-  if(!WaitForEchoReply(time_out_sec, time_out_usec)) {
-    // PC-lint 09/14/2005: clock function is considered dangerous 
-    elapsed_time = int((clock() - time_sent) / CLOCKS_PER_SEC);
-    return raw_socket->SetSocketError(gxSOCKET_REQUEST_TIMEOUT);
+  const gxsAddress &a = addrs[0];
+  result.address = a.IPAddress();
+  char data[32];
+  for(int i = 0; i < (int)sizeof(data); i++) data[i] = (char)('a' + i % 26);
+  std::vector<unsigned char> reply(sizeof(ICMPV6_ECHO_REPLY) + 
+				   sizeof(ICMP_ECHO_REPLY) + sizeof(data) + 64);
+  DWORD n = 0;
+  if(a.Family() == AF_INET) {
+    HANDLE h = IcmpCreateFile();
+    if(h == INVALID_HANDLE_VALUE) {
+      result.error = "Ping exception: IcmpCreateFile failed";
+      return -1;
+    }
+    IPAddr dest = ((const sockaddr_in *)a.SockAddr())->sin_addr.s_addr;
+    n = IcmpSendEcho(h, dest, data, sizeof(data), 0, reply.data(),
+		     (DWORD)reply.size(), (DWORD)timeout_ms);
+    IcmpCloseHandle(h);
+    if(n > 0) {
+      ICMP_ECHO_REPLY *r = (ICMP_ECHO_REPLY *)reply.data();
+      if(r->Status == IP_SUCCESS) {
+	result.ok = true;
+	result.rtt_ms = (double)r->RoundTripTime;
+	result.ttl = r->Options.Ttl;
+	return 0;
+      }
+    }
   }
-
-  if(RecvEchoReply() != gxSOCKET_NO_ERROR) {
-    // PC-lint 09/14/2005: clock function is considered dangerous 
-    elapsed_time = int((clock() - time_sent) / CLOCKS_PER_SEC);
-    return raw_socket->GetSocketError();
+  else {
+    HANDLE h = Icmp6CreateFile();
+    if(h == INVALID_HANDLE_VALUE) {
+      result.error = "Ping exception: Icmp6CreateFile failed";
+      return -1;
+    }
+    sockaddr_in6 src;
+    memset(&src, 0, sizeof(src));
+    src.sin6_family = AF_INET6;
+    n = Icmp6SendEcho2(h, 0, 0, 0, &src, (sockaddr_in6 *)a.SockAddr(),
+		       data, sizeof(data), 0, reply.data(), 
+		       (DWORD)reply.size(), (DWORD)timeout_ms);
+    IcmpCloseHandle(h);
+    if(n > 0) {
+      ICMPV6_ECHO_REPLY *r = (ICMPV6_ECHO_REPLY *)reply.data();
+      if(r->Status == IP_SUCCESS) {
+	result.ok = true;
+	result.rtt_ms = (double)r->RoundTripTime;
+	return 0;
+      }
+    }
   }
-  
-  // Calculate the elapsed time in milliseconds. 
-  // time_sent = echo_reply.echo_request.time_sent;
-  // PC-lint 09/14/2005: clock function is considered dangerous 
-  elapsed_time = int((clock() - time_sent) / CLOCKS_PER_SEC);
-  time_to_live = (int)echo_reply.ip_header.time_to_live;
-
-  return gxSOCKET_NO_ERROR;
+  result.error = "Ping exception: Request timed out";
+  return -1;
 }
 
-gxSocketError gxsPing::SendEchoRequest()
-// Send the echo request header. 
+#else // POSIX
+
+static unsigned short icmp_checksum(const unsigned char *p, int len)
 {
-  // Initalize the echo request variables
-  echo_request.icmp_header.type = gxsICMP_ECHO_REQUEST;
-  echo_request.icmp_header.code = 0;
-  echo_request.icmp_header.checksum = 0;
-
-  // The echoer will return these same values in the echo reply
-  echo_request.icmp_header.identifier = 2; 
-  echo_request.icmp_header.sequence = 2;
-
-  // Data to send
-  // Ignore BCC32 conversion warning
-  for(int i = 0; i < gxsECHO_REQ_DATASIZE; i++) echo_request.data[i] = ' '+i;
-  
-  // Save tick count when sent
-  // PC-lint 09/14/2005: clock function is considered dangerous 
-  echo_request.time_sent = (int)clock();
-  
-  // Calculate the header's checksum
-  echo_request.icmp_header.checksum = InChecksum16((u_short *)&echo_request,
-						   sizeof(gxsEchoRequest));
-  
-  raw_socket->SendTo(&echo_request, sizeof(gxsEchoRequest));
-  return raw_socket->GetSocketError();
+  unsigned long sum = 0;
+  for(; len > 1; len -= 2, p += 2) sum += (unsigned long)((p[0] << 8) | p[1]);
+  if(len == 1) sum += (unsigned long)(p[0] << 8);
+  while(sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
+  return (unsigned short)~sum;
 }
 
-gxSocketError gxsPing::RecvEchoReply()
-// Receive the echo reply.
+int gxsPing::Ping(const std::string &host, gxsPingResult &result, int family)
 {
-  raw_socket->RawReadFrom(raw_socket->GetSocket(), &raw_socket->sin,
-			  &echo_reply, sizeof(gxsEchoReply));
-  return raw_socket->GetSocketError();
+  result = gxsPingResult();
+  std::vector<gxsAddress> addrs;
+  if(gxsAddress::Resolve(host, 0, addrs, SOCK_DGRAM, family) != 0) {
+    result.error = "Ping exception: Could not resolve " + host;
+    return -1;
+  }
+  const gxsAddress &a = addrs[0];
+  result.address = a.IPAddress();
+  bool v6 = (a.Family() == AF_INET6);
+  int proto = v6 ? (int)IPPROTO_ICMPV6 : (int)IPPROTO_ICMP;
+
+  // Unprivileged ICMP sockets first, then raw sockets (root or
+  // CAP_NET_RAW)
+  bool raw = false;
+  int s = socket(a.Family(), SOCK_DGRAM, proto);
+  if(s < 0) {
+    s = socket(a.Family(), SOCK_RAW, proto);
+    raw = true;
+  }
+  if(s < 0) {
+    result.error = std::string("Ping exception: Cannot open an ICMP socket: ") +
+      strerror(errno);
+    return -1;
+  }
+
+  unsigned short id = (unsigned short)(getpid() & 0xFFFF);
+  unsigned short seq = ++sequence;
+  unsigned char pkt[64];
+  memset(pkt, 0, sizeof(pkt));
+  pkt[0] = v6 ? (unsigned char)ICMP6_ECHO_REQUEST : (unsigned char)ICMP_ECHO;
+  pkt[4] = (unsigned char)(id >> 8); pkt[5] = (unsigned char)id;
+  pkt[6] = (unsigned char)(seq >> 8); pkt[7] = (unsigned char)seq;
+  for(int i = 8; i < (int)sizeof(pkt); i++) pkt[i] = (unsigned char)i;
+  if(!v6) { // The kernel computes the ICMPv6 checksum
+    unsigned short ck = icmp_checksum(pkt, sizeof(pkt));
+    pkt[2] = (unsigned char)(ck >> 8); pkt[3] = (unsigned char)ck;
+  }
+
+  auto start = std::chrono::steady_clock::now();
+  if(sendto(s, pkt, sizeof(pkt), 0, a.SockAddr(), a.Length()) < 0) {
+    result.error = std::string("Ping exception: ") + strerror(errno);
+    close(s);
+    return -1;
+  }
+
+  for(;;) {
+    auto now = std::chrono::steady_clock::now();
+    int left = timeout_ms - (int)std::chrono::duration_cast
+      <std::chrono::milliseconds>(now - start).count();
+    if(left <= 0 || gxSocket::WaitReadable(s, left) != 1) break;
+    unsigned char buf[1500];
+    ssize_t n = recv(s, buf, sizeof(buf), 0);
+    if(n <= 0) break;
+    const unsigned char *icmp = buf;
+    int ttl = -1;
+    if(raw && !v6) { // IPv4 raw sockets return the IP header first
+      int ihl = (buf[0] & 0x0F) * 4;
+      if(n < ihl + 8) continue;
+      ttl = buf[8];
+      icmp = buf + ihl;
+      n -= ihl;
+    }
+    if(n < 8) continue;
+    unsigned char reply_type = v6 ? (unsigned char)ICMP6_ECHO_REPLY : 
+      (unsigned char)ICMP_ECHOREPLY;
+    if(icmp[0] != reply_type) continue;
+    unsigned short rseq = (unsigned short)((icmp[6] << 8) | icmp[7]);
+    unsigned short rid = (unsigned short)((icmp[4] << 8) | icmp[5]);
+    // Datagram sockets replace the identifier with the local port
+    if(rseq != seq || (raw && rid != id)) continue;
+    auto end = std::chrono::steady_clock::now();
+    result.rtt_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    result.ttl = ttl;
+    result.ok = true;
+    close(s);
+    return 0;
+  }
+  close(s);
+  result.error = "Ping exception: Request timed out";
+  return -1;
 }
 
-int gxsPing::WaitForEchoReply(int time_out_sec, int time_out_usec)
-// Wait for the echo reply using the select function to signal when data
-// is waiting to be read. Returns false if the request times out when the
-// specified timeout value is reached.
-{  
-  return raw_socket->ReadSelect(raw_socket->GetSocket(), time_out_sec,
-				time_out_usec);
-}
-
-// ----------------------------------------------------------- // 
+#endif
+// ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //
 // ------------------------------- //

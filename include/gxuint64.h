@@ -59,6 +59,7 @@ typedef __ULLWORD__ gxUINT64;
 #else
 
 #include <iostream>
+#include <string>
 #include <iomanip>
 
 // Data structure for platform independent signed 32 bit integer values.
@@ -78,10 +79,8 @@ public: // Conversion functions
   operator __ULLWORD__() const;
 
 public: // String functions added to print 64-bit types
-  char *c_str(char *sbuf, int radix = 10);
-  char *c_str(char *sbuf, int radix = 10) const;
-  gxUINT64 &StringToUINT64(const char *str);
-  gxUINT64 &StringToUINT64(char *str);
+  std::string str() const;
+  gxUINT64 &FromString(const std::string &s);
 
 public: // Class type to ostream type conversions
   GXDLCODE_API friend std::ostream &operator<<(std::ostream &os, 

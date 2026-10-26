@@ -37,7 +37,7 @@ B-tree index file debugging utility for the gxBtree class.
 #include <string.h>
 #include "dbugmgr.h"
 #include "gxbtree.h"
-#include "ustring.h"
+#include <string>
 
 #if defined (__64_BIT_DATABASE_ENGINE__)
 const char *ProgramName = "ix_debug64";
@@ -64,7 +64,7 @@ void PausePrg()
 
 void DisplayBtreeHeader(gxBtreeHeader &bh, int tree_number = 1)
 {
-  UString intbuf;
+  std::string intbuf;
   std::cout << "\n";
   std::cout << "B-tree header stats for tree number " << tree_number
 	      << "\n";
@@ -73,7 +73,7 @@ void DisplayBtreeHeader(gxBtreeHeader &bh, int tree_number = 1)
   std::cout << "Number of keys    = " << bh.n_keys << "\n";
   std::cout << "Number of nodes   = " << bh.n_nodes << "\n";
   std::cout << "B-Tree height     = " << bh.btree_height << "\n";
-  intbuf << clear << (FAU_t)bh.root;
+  intbuf = std::to_string((long long)((FAU_t)bh.root));
   std::cout << "Root node address = " << intbuf.c_str() << "\n";
   std::cout << "Number of trees   = " << bh.num_trees << "\n";
   PausePrg();
@@ -155,8 +155,8 @@ header information" << "\n";
   // 10/14/2026: Only the first B-tree header was displayed. Display
   // every header stored in the static storage area.
   FAU_t num_trees = sa / (FAU_t)sizeof(gxBtreeHeader);
-  UString intbuf;
-  intbuf << clear << num_trees;
+  std::string intbuf;
+  intbuf = std::to_string((long long)(num_trees));
   std::cout << "Found room for " << intbuf.c_str() 
 	      << " B-tree header(s) in the static storage area" << "\n";
 

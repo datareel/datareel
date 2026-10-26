@@ -71,8 +71,8 @@ gxDatabaseError gxDatabaseSegment::Read(gxdFPTR *fp, __ULWORD__ bytes)
 // successful or a non-zero value to indicate a failure.
 {
   if(!fp) return gxDBASE_NULL_PTR;
-  unsigned char *buf = (unsigned char*)ds.Alloc(bytes);
-  if(!buf) return gxDBASE_MEM_ALLOC_ERROR;
+  ds.resize(bytes);
+  unsigned char *buf = ds.data();
 
   if(gxdFPTRSeek(fp, ds_address, gxDBASE_SEEK_BEG) == (FAU_t)-1) {
     return gxDBASE_FILE_SEEK_ERROR;
@@ -90,14 +90,14 @@ gxDatabaseError gxDatabaseSegment::Write(gxdFPTR *fp)
 // a failure.
 {
   if(!fp) return gxDBASE_NULL_PTR;
-  if(ds.is_null()) return gxDBASE_NO_ERROR;
+  if(ds.empty()) return gxDBASE_NO_ERROR;
 
   if(gxdFPTRSeek(fp, ds_address, gxDBASE_SEEK_BEG) == (FAU_t)-1) {
     return gxDBASE_FILE_SEEK_ERROR;
   }
 
-  __ULWORD__ bytes = ds.length();
-  if(gxdFPTRWrite(fp, (const unsigned char*)ds.m_buf(), bytes) != 
+  __ULWORD__ bytes = (__ULWORD__)ds.size();
+  if(gxdFPTRWrite(fp, ds.data(), bytes) != 
      bytes) {
     return gxDBASE_FILE_WRITE_ERROR;
   }
@@ -163,7 +163,7 @@ unsigned gxDatabaseCache::CacheSize()
   // PC-lint 04/21/2004: Possible use of null pointer
   if(!segment) return 0;
   do {
-    total_segment_size += segment->ds.dlength();
+    total_segment_size += (unsigned)segment->ds.capacity();
     segment = segment->next;
   } while(segment != head);
 
@@ -498,15 +498,8 @@ gxDatabaseSegment *gxDBCacheNode::CachedWrite(const void *buf,
 {
   segment = cache->AllocSegment(address, (__ULWORD__)0); 
   if(segment) {
-    // 10/14/2026: The return value of Load() was ignored, so a failed
-    // memory allocation still marked the segment dirty.
-    if(!segment->ds.Load(buf, bytes)) {
-      segment->ResetSegment();
-      cache->DemoteSegment(segment);
-      segment = 0;
-      ds_address = (FAU_t)-1;
-      return 0;
-    }
+    const unsigned char *p = (const unsigned char *)buf;
+    segment->ds.assign(p, p + bytes);
     ds_address = address;
     ds_length = bytes; // 10/24/2026: Length for Bind()
     segment->SetDirty();

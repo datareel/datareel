@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- // 
 // C++ Header File Name: gxs_b64.h
-// C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
+// C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -42,7 +42,14 @@ and integrated into the library so you do not need to include any
 other third party libraries when building code using this library. 
 If you need a comprehensive strong encryption toolkit please visit 
 the http://www.openssl.org Website to download the latest version 
-of OpenSSL.      
+of OpenSSL.
+
+Changes:
+==============================================================
+10/26/2026: DataReel 7 replaces the char buffer functions with 
+std::string functions. Decoding rejects characters outside the 
+base 64 alphabet instead of reading past the input.
+==============================================================
 */
 // ----------------------------------------------------------- // 
 #ifndef __GX_BASE64_HPP__
@@ -50,19 +57,29 @@ of OpenSSL.
 
 #include "gxdlcode.h"
 
-#include "gxstring.h"
+#include <cstddef>
+#include <string>
+#include <string_view>
 
-GXDLCODE_API int gxsCalculateBase64Length(int len);
-GXDLCODE_API void gxsBase64Encode(const char *s, char *strbuf, int length);
-GXDLCODE_API int gxsBase64ConvertToNumber(unsigned char c);
-GXDLCODE_API void gxsBase64Decode(const char *s, char *strbuf);
-GXDLCODE_API int gxsBasicAuthenticationEncode(const char *user, 
-					      const char *passwd,
-					      const char *header, 
-					      gxString &wwwauth);
-GXDLCODE_API void gxsBasicAuthenticationDecode(const gxString &wwwauth, 
-					       gxString &user,
-					       gxString &passwd);
+// Standard base 64 (RFC 4648) with = padding
+GXDLCODE_API std::string gxsBase64Encode(const void *data, std::size_t len);
+inline std::string gxsBase64Encode(std::string_view s) {
+  return gxsBase64Encode(s.data(), s.size());
+}
+
+// Decode into out (which may hold binary data). White space is
+// ignored. Returns false if the input is not valid base 64.
+GXDLCODE_API bool gxsBase64Decode(std::string_view s, std::string &out);
+
+// HTTP basic authentication: "Basic " followed by base64(user:passwd)
+GXDLCODE_API std::string gxsBasicAuthenticationEncode(std::string_view user,
+						      std::string_view passwd);
+
+// Decode an Authorization header value. Returns false if it is not
+// basic authentication.
+GXDLCODE_API bool gxsBasicAuthenticationDecode(std::string_view value, 
+					       std::string &user,
+					       std::string &passwd);
 
 #endif // __GX_BASE64_HPP__
 // ----------------------------------------------------------- //

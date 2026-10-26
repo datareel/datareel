@@ -69,7 +69,7 @@ multiple cache nodes connected to the same cache.
 
 #include "gxdfptr.h"
 #include "gxderror.h"
-#include "membuf.h"
+#include <vector>
 
 // Set minimum number of file segments. 
 const int MIN_DATABASE_SEGMENTS = 3;
@@ -82,19 +82,19 @@ public:
   gxDatabaseSegment(unsigned segment_size) {
     prev = next = 0;
     ResetSegment();
-    ds.Alloc(segment_size);
+    ds.reserve(segment_size);
   }
   ~gxDatabaseSegment() { }
 
 public: // Segment functions
   void ResetSegment() { // Reset the segment variables 
-    is_dirty = 0; ds_address = (FAU_t)-1; ds.Clear(0);
+    is_dirty = 0; ds_address = (FAU_t)-1; ds.clear();
   }
   int IsDirty() { return is_dirty == 1; }
   int IsDirty() const { return is_dirty == 1; }
   void SetDirty() { is_dirty = 1; }
-  int IsNull() { return ds.is_null(); }  
-  int IsNull() const { return ds.is_null(); }  
+  int IsNull() { return ds.empty(); }  
+  int IsNull() const { return ds.empty(); }  
 
 public: // 32/64-bit file functions
   gxDatabaseError Flush(gxdFPTR *fp);
@@ -110,7 +110,7 @@ public:
   FAU_t ds_address;        // File address of this database segment
 
 public: // Persistent data members
-  MemoryBuffer ds; // In memory copy of raw file data
+  std::vector<unsigned char> ds; // In memory copy of raw file data
 };
 
 class GXDLCODE_API gxDatabaseCache
