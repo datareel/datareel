@@ -38,3 +38,14 @@ core.*
 
 # CMake build trees
 cmake-build/
+
+# Example and utility program binaries (Linux builds)
+examples_*/*/testprog
+examples_*/*/server
+examples_*/*/client
+examples_*/*/tcp_send_file
+utils/*/db_debug
+utils/*/ffind
+utils/*/hexdump
+utils/*/ix_debug
+utils/*/txfilter
