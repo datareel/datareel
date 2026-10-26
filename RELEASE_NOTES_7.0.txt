@@ -1,5 +1,9 @@
-DataReel 7.0 Release Notes, 10/26/2026
+DataReel 7.0 Beta Release Notes, 10/26/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.0 is a beta release. DataReel 6.2 remains the stable
+release for production use until 7.0 is final; please report
+problems through https://datareel.com/contact.php.
 
 DataReel 7.0 is a modernization release. The library now requires
 C++17, uses the C++ standard library for strings, containers,

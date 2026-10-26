@@ -1,4 +1,4 @@
-DataReel 7.0 Readme File
+DataReel 7.0 Beta Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -39,6 +39,9 @@ rest:
 
 The library has no dependencies except the system TLS library
 (OpenSSL on Linux, Schannel or OpenSSL on Windows).
+
+DataReel 7.0 is a beta release. DataReel 6.2 remains the stable
+release for production use until 7.0 is final.
 
 The DataReel development package was produced by independent work and
 contract work released to the public through non-exclusive license
@@ -257,7 +260,7 @@ written for AI coding assistants but useful to anyone.
 
 RELEASE HISTORY
 ---------------
- 7.0  10/26/2026  Modern C++17 rewrite, TLS-only networking, IPv6,
+ 7.0  10/26/2026  Beta. Modern C++17 rewrite, TLS-only networking, IPv6,
                   datareel namespace, CMake (RELEASE_NOTES_7.0.txt)
  6.2  10/25/2026  Loop guards for damaged files, SetWriteHook()
  6.1  10/25/2026  Security fixes in gxBtree and InfoHog

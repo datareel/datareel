@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>DataReel 7.0 Release Notes</title>
+<title>DataReel 7.0 Beta Release Notes</title>
 <link rel="stylesheet" href="css/datareel.css">
 <link rel="icon" href="images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
@@ -18,7 +18,7 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>DataReel 7.0 Release Notes</h1>
+<h1>DataReel 7.0 Beta Release Notes</h1>
 <div class="dr-toc-title">Contents</div>
 <p class="dr-toc"><a href="#Requirements">Requirements</a><br>
 <a href="#RemovedAndWhatToUseInstead">Removed, and what to use instead</a><br>
@@ -29,6 +29,7 @@
 <a href="#GuidesForAiCodingAssistants">Guides for ai coding assistants</a><br>
 <a href="#HowTheReleaseWasTested">How the release was tested</a><br>
 <a href="#SupportedPlatforms">Supported platforms</a></p>
+<p>DataReel 7.0 is a beta release. DataReel 6.2 remains the stable release for production use until 7.0 is final; please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
 <p>DataReel 7.0 is a modernization release. The library now requires C++17, uses the C++ standard library for strings, containers, threads, files and time, and keeps the parts the standard library does not have: the object database, TLS networking and the portable file formats. Every network protocol except telnet and ping uses TLS.</p>
 <p>Database, index, InfoHog and gxRDBMS files are unchanged. The same programs built against 6.2 and 7.0 write byte-for-byte identical files, and 7.0 reads files written by 6.2.</p>
 <p>The library version is 7.0 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.0). The database file format version (gxDatabaseVersionNumber 4630) is unchanged.</p>
