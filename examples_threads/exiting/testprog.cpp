@@ -33,18 +33,11 @@ thread without terminating the whole process.
 // ----------------------------------------------------------- //   
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include "gxthread.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 // Constants
 const int THREADFAIL = 1;
@@ -86,9 +79,6 @@ void CheckExitCode(gxThread_t *thread)
 
 int main()
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   SimpleThread t;
  

@@ -35,11 +35,7 @@ format.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <string.h>
 #include <stdlib.h> 
@@ -51,9 +47,6 @@ format.
 #include "dfileb.h"
 #include "gxd_ver.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 // Txfilter version number and program name
 const double TXFilterVersionNumber = gxDatabaseVersion;
@@ -90,32 +83,32 @@ void HelpMessage(const char *program_name, const double version_number)
 {
   char gxuffer[255];
   sprintf(gxuffer, "%.3f", version_number);
-  GXSTD::cout << "\n";
-  GXSTD::cout << "ASCII Text file filter program version "
+  std::cout << "\n";
+  std::cout << "ASCII Text file filter program version "
        << gxuffer  << "\n";
-  GXSTD::cout << "Usage: " << program_name << " [switches] infile.txt " 
+  std::cout << "Usage: " << program_name << " [switches] infile.txt " 
 	      << "\n";
-  GXSTD::cout << "Switches:  -?      = Display this help message." << "\n";
-  GXSTD::cout << "           -A      = Output alphabetic characters only."
+  std::cout << "Switches:  -?      = Display this help message." << "\n";
+  std::cout << "           -A      = Output alphabetic characters only."
        << "\n";
-  GXSTD::cout << "           -d      = Output text file in DOS CR/LF format."
+  std::cout << "           -d      = Output text file in DOS CR/LF format."
        << "\n";
-  GXSTD::cout << "           -D      = Do not insert line feeds." << "\n";
-  GXSTD::cout << "           -M      = Output alphanumeric characters only."
+  std::cout << "           -D      = Do not insert line feeds." << "\n";
+  std::cout << "           -M      = Output alphanumeric characters only."
        << "\n";
-  GXSTD::cout << "           -n      = No text filtering (defaults to \
+  std::cout << "           -n      = No text filtering (defaults to \
 filtered)." << "\n";
-  GXSTD::cout << "           -N      = Output numeric characters only."
+  std::cout << "           -N      = Output numeric characters only."
        << "\n";
-  GXSTD::cout << "           -o      = Write output to the existing file \
+  std::cout << "           -o      = Write output to the existing file \
 (defaults to stdout)." << "\n";
-  GXSTD::cout << "           -P      = Output printable characters only \
+  std::cout << "           -P      = Output printable characters only \
 (default)." << "\n";
-  GXSTD::cout << "           -t      = Filter tabs." << "\n";
-  GXSTD::cout << "           -s      = Filter spaces." << "\n";
-  GXSTD::cout << "           -u      = Output text file in UNIX format \
+  std::cout << "           -t      = Filter tabs." << "\n";
+  std::cout << "           -s      = Filter spaces." << "\n";
+  std::cout << "           -u      = Output text file in UNIX format \
 (default)." << "\n";
-  GXSTD::cout << "\n";
+  std::cout << "\n";
   exit(0);
 }
 
@@ -187,10 +180,10 @@ int ProcessArgs(char *arg)
       break;
       
     default:
-      GXSTD::cerr << "\n";
-      GXSTD::cerr << "Unknown switch " << arg << "\n";
-      GXSTD::cerr << "Exiting..." << "\n";
-      GXSTD::cerr << "\n";
+      std::cerr << "\n";
+      std::cerr << "Unknown switch " << arg << "\n";
+      std::cerr << "Exiting..." << "\n";
+      std::cerr << "\n";
       return 0;
   }
   arg[0] = '\0';
@@ -223,7 +216,7 @@ int ConvertTextFile(DiskFileB &iofile)
     
     if(iofile.df_GetLine(LineBuffer, df_MAX_LINE_LENGTH, '\n', 1) != 
        DiskFileB::df_NO_ERROR) {
-      GXSTD::cout << iofile.df_ExceptionMessage() << "\n";
+      std::cout << iofile.df_ExceptionMessage() << "\n";
       iofile.df_Close();
       return 0;
     }
@@ -274,13 +267,13 @@ int ConvertTextFile(DiskFileB &iofile)
   if(write_to_stdio) {
     gxListNode<UString> *list_ptr = list.GetHead();
     while(list_ptr) {
-      GXSTD::cout << list_ptr->data.c_str();
+      std::cout << list_ptr->data.c_str();
       if(DOS_TEXT_FORMAT) {
-	GXSTD::cout.write(&carriage_return, 1);
-	GXSTD::cout.write(&line_feed, 1);
+	std::cout.write(&carriage_return, 1);
+	std::cout.write(&line_feed, 1);
       }
       if(UNIX_TEXT_FORMAT)
-	GXSTD::cout.write(&line_feed, 1);
+	std::cout.write(&line_feed, 1);
       list_ptr = list_ptr->next; 
     }
   }
@@ -288,10 +281,10 @@ int ConvertTextFile(DiskFileB &iofile)
     iofile.df_Close(); 
     iofile.df_Create(open_file);
     if(!iofile) {
-      GXSTD::cerr << "\n";
-      GXSTD::cerr << "Cannot write to: " << open_file << "\n";
-      GXSTD::cerr << "Exiting..." << "\n";
-      GXSTD::cerr << "\n";
+      std::cerr << "\n";
+      std::cerr << "Cannot write to: " << open_file << "\n";
+      std::cerr << "Exiting..." << "\n";
+      std::cerr << "\n";
       exit(0);
     }
 
@@ -299,18 +292,18 @@ int ConvertTextFile(DiskFileB &iofile)
     while(list_ptr) {
       iofile.df_Write(list_ptr->data.c_str(), list_ptr->data.length());
       if(iofile.df_CheckError()) {
-	GXSTD::cout << iofile.df_ExceptionMessage() << "\n";
+	std::cout << iofile.df_ExceptionMessage() << "\n";
 	break;
       }
       if(DOS_TEXT_FORMAT) {
 	iofile.df_Write(&carriage_return, 1);
 	if(iofile.df_CheckError()) {
-	  GXSTD::cout << iofile.df_ExceptionMessage() << "\n";
+	  std::cout << iofile.df_ExceptionMessage() << "\n";
 	  break;
 	}
 	iofile.df_Write(&line_feed, 1);
 	if(iofile.df_CheckError()) {
-	  GXSTD::cout << iofile.df_ExceptionMessage() << "\n";
+	  std::cout << iofile.df_ExceptionMessage() << "\n";
 	  break;
 	}
 	
@@ -318,7 +311,7 @@ int ConvertTextFile(DiskFileB &iofile)
       if(UNIX_TEXT_FORMAT) {
 	iofile.df_Write(&line_feed, 1);
 	if(iofile.df_CheckError()) {
-	  GXSTD::cout << iofile.df_ExceptionMessage() << "\n";
+	  std::cout << iofile.df_ExceptionMessage() << "\n";
 	  break;
 	}
 	   
@@ -342,9 +335,6 @@ int main(int argc,   // Number of strings in array argv.
 // library. All the UNIX compliers will expand wildcard characters
 // by default.
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   // If no argument is given print usage message to the screen 1
   if(argc < 2) {
@@ -365,14 +355,14 @@ int main(int argc,   // Number of strings in array argv.
 	  open_file = arg; // Update the open file name pointer
 	  DiskFileB iofile(open_file);
 	  if(!iofile) {
-	    GXSTD::cerr << "\n";
-	    GXSTD::cerr << "Cannot open file: " << open_file << "\n";
-	    GXSTD::cerr << "Exiting..." << "\n";
-	    GXSTD::cerr << "\n";
+	    std::cerr << "\n";
+	    std::cerr << "Cannot open file: " << open_file << "\n";
+	    std::cerr << "Exiting..." << "\n";
+	    std::cerr << "\n";
 	    return 0;
 	  }
 	  num_files++;
-	  if(!write_to_stdio) GXSTD::cout << "Processing: " << open_file 
+	  if(!write_to_stdio) std::cout << "Processing: " << open_file 
 					  << "\n";
 	  ConvertTextFile(iofile);
 	}
@@ -382,17 +372,17 @@ int main(int argc,   // Number of strings in array argv.
   }
     
   if(num_files == 0) {
-    GXSTD::cerr << "\n";
-    GXSTD::cerr << "You must enter a file name." << "\n";
-    GXSTD::cerr << "Exiting..." << "\n";
-    GXSTD::cerr << "\n";
+    std::cerr << "\n";
+    std::cerr << "You must enter a file name." << "\n";
+    std::cerr << "Exiting..." << "\n";
+    std::cerr << "\n";
     return 0;
   }
   
   if(!write_to_stdio) {
-    GXSTD::cout << "\n";
-    GXSTD::cout << "Processed " << num_files << " files." << "\n";
-    GXSTD::cout << "\n";
+    std::cout << "\n";
+    std::cout << "Processed " << num_files << " files." << "\n";
+    std::cout << "\n";
   }
 
   return 0;

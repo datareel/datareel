@@ -102,10 +102,6 @@ typedef in_addr gxsInternetAddress;   // Internet address structure
 // platform with the default value of an unsigned integer.
 #if defined (__WIN32__)
 typedef int gxsSocketLength_t;
-#elif defined (__UNIX__) && defined (__HPUX__)
-typedef int gxsSocketLength_t;
-#elif defined (__UNIX__) && defined (__SOLARIS__)
-typedef int gxsSocketLength_t;
 #elif defined(__UNIX__) && defined (__AIX__)
 typedef socklen_t gxsSocketLength_t;
 #else 

@@ -32,11 +32,7 @@ B-tree index file debugging utility for the gxBtree class.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <string.h>
 #include "dbugmgr.h"
@@ -51,35 +47,35 @@ const char *ProgramName = "ix_debug";
 
 void Version()
 {
-  GXSTD::cout << "\n";
+  std::cout << "\n";
   // 10/14/2026: Was "file recovery program". This program only reads
   // the index file and displays its B-tree headers.
-  GXSTD::cout << ProgramName << " gxBtree index file debug program." << "\n";
+  std::cout << ProgramName << " gxBtree index file debug program." << "\n";
   EchoDatabaseVersion();
-  GXSTD::cout << "\n";
+  std::cout << "\n";
 }
 
 void PausePrg()
 {
-  GXSTD::cout << "\n";
-  GXSTD::cout << "Press enter to continue..." << "\n";
-  GXSTD::cin.get();
+  std::cout << "\n";
+  std::cout << "Press enter to continue..." << "\n";
+  std::cin.get();
 }
 
 void DisplayBtreeHeader(gxBtreeHeader &bh, int tree_number = 1)
 {
   UString intbuf;
-  GXSTD::cout << "\n";
-  GXSTD::cout << "B-tree header stats for tree number " << tree_number
+  std::cout << "\n";
+  std::cout << "B-tree header stats for tree number " << tree_number
 	      << "\n";
-  GXSTD::cout << "B-Tree node order = " << bh.node_order << "\n";
-  GXSTD::cout << "B-Tree key size   = " << bh.key_size << "\n";
-  GXSTD::cout << "Number of keys    = " << bh.n_keys << "\n";
-  GXSTD::cout << "Number of nodes   = " << bh.n_nodes << "\n";
-  GXSTD::cout << "B-Tree height     = " << bh.btree_height << "\n";
+  std::cout << "B-Tree node order = " << bh.node_order << "\n";
+  std::cout << "B-Tree key size   = " << bh.key_size << "\n";
+  std::cout << "Number of keys    = " << bh.n_keys << "\n";
+  std::cout << "Number of nodes   = " << bh.n_nodes << "\n";
+  std::cout << "B-Tree height     = " << bh.btree_height << "\n";
   intbuf << clear << (FAU_t)bh.root;
-  GXSTD::cout << "Root node address = " << intbuf.c_str() << "\n";
-  GXSTD::cout << "Number of trees   = " << bh.num_trees << "\n";
+  std::cout << "Root node address = " << intbuf.c_str() << "\n";
+  std::cout << "Number of trees   = " << bh.num_trees << "\n";
   PausePrg();
 }
 
@@ -89,11 +85,11 @@ int main(int argc, char **argv)
   // file name, but no command was ever read. The program now takes
   // exactly one argument and reports an error for extra arguments.
   if(argc != 2) {
-    GXSTD::cout << "\n";
+    std::cout << "\n";
     Version();
-    GXSTD::cout << "Usage: " << ProgramName << " infile" << "\n";
-    GXSTD::cout << "Usage: " << ProgramName << " version" << "\n";
-    GXSTD::cout << "\n";
+    std::cout << "Usage: " << ProgramName << " infile" << "\n";
+    std::cout << "Usage: " << ProgramName << " version" << "\n";
+    std::cout << "\n";
     return 1;
   }
 
@@ -111,13 +107,13 @@ int main(int argc, char **argv)
 
   gxDatabaseDebugManager *f = new gxDatabaseDebugManager;   
   if(!f) {
-    GXSTD::cout << "Memory allocation error!" << "\n";
+    std::cout << "Memory allocation error!" << "\n";
     return 1;
   }
 
   if(!gxDatabase::Exists(fname)) {
-    GXSTD::cout << "The specified file does not exist!" << "\n";
-    GXSTD::cout << "Exiting..." << "\n";
+    std::cout << "The specified file does not exist!" << "\n";
+    std::cout << "Exiting..." << "\n";
     delete f;
     return 1;
   }
@@ -133,13 +129,13 @@ int main(int argc, char **argv)
   // exit status. They now return 1 so scripts can detect the error.
   FAU_t sa = (FAU_t)f->StaticArea();
   if(sa < (FAU_t)sizeof(gxBtreeHeader)) {
-    GXSTD::cout << "Cannot connect to B-tree header" << "\n";
+    std::cout << "Cannot connect to B-tree header" << "\n";
     if(sa <= (FAU_t)0) {
-      GXSTD::cout << "This gxDatabase file has no static storage area \
+      std::cout << "This gxDatabase file has no static storage area \
 allocated" << "\n";
     }
     else {
-      GXSTD::cout << "The static storage area is not large enough to store a \
+      std::cout << "The static storage area is not large enough to store a \
 B-tree header" << "\n";
     }
     delete f;
@@ -148,9 +144,9 @@ B-tree header" << "\n";
 
   int test_tree_hdr = (int)(sa % (FAU_t)sizeof(gxBtreeHeader));
   if(test_tree_hdr != 0) {
-    GXSTD::cout << "Detected a storage area error" << "\n";
+    std::cout << "Detected a storage area error" << "\n";
     // 10/14/2026: Corrected the spelling of "information"
-    GXSTD::cout << "The static storage area does not contain valid B-tree \
+    std::cout << "The static storage area does not contain valid B-tree \
 header information" << "\n"; 
     delete f;
     return 1;
@@ -161,13 +157,13 @@ header information" << "\n";
   FAU_t num_trees = sa / (FAU_t)sizeof(gxBtreeHeader);
   UString intbuf;
   intbuf << clear << num_trees;
-  GXSTD::cout << "Found room for " << intbuf.c_str() 
+  std::cout << "Found room for " << intbuf.c_str() 
 	      << " B-tree header(s) in the static storage area" << "\n";
 
   for(FAU_t i = (FAU_t)0; i < num_trees; i++) {
     if(i == (FAU_t)0) {
       // 10/14/2026: Corrected the word order of this message
-      GXSTD::cout << "Connecting to the first B-tree header..." << "\n";
+      std::cout << "Connecting to the first B-tree header..." << "\n";
     }
     gxBtreeHeader btree_header;
     FAU_t hdr_address = (FAU_t)f->FileHeaderSize() + 

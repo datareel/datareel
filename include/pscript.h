@@ -51,11 +51,7 @@ to support large files and NTFS file system enhancements.
 // This directive must be defined to use the postscript print driver
 #if defined (__USE_POSTSCRIPT_PRINTING__)
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <fstream>
-#else // Use the old iostream library by default
-#include <fstream.h>
-#endif // __USE_ANSI_CPP__
 
 #include "dfileb.h"
 
@@ -189,30 +185,30 @@ public: // Document header and trailer information
   void DrawHeaderLine() { draw_header_line = 1; }
   
 public: // Postscript printing functions 
-  void Epilogue(GXSTD::ostream &stream, int pc);
-  void EndPage(GXSTD::ostream &stream);
-  void StartPage(int n, GXSTD::ostream &stream);
-  void drawLine(GXSTD::ostream &stream, int points, int xpos, int ypos);
-  void drawThickLine(GXSTD::ostream &stream, int points, int xpos, int ypos);
-  void MoveTo(GXSTD::ostream &stream, int x, int y);
-  void ChangeFont(GXSTD::ostream &stream, PSFonts font, double size);
-  int ConvertTextFile(DiskFileB &infile, GXSTD::ostream &stream,
+  void Epilogue(std::ostream &stream, int pc);
+  void EndPage(std::ostream &stream);
+  void StartPage(int n, std::ostream &stream);
+  void drawLine(std::ostream &stream, int points, int xpos, int ypos);
+  void drawThickLine(std::ostream &stream, int points, int xpos, int ypos);
+  void MoveTo(std::ostream &stream, int x, int y);
+  void ChangeFont(std::ostream &stream, PSFonts font, double size);
+  int ConvertTextFile(DiskFileB &infile, std::ostream &stream,
 		      int wrap = 0, int cut = 1);
-  int ProcessText(char *in, GXSTD::ostream &stream, int cut = 1, 
+  int ProcessText(char *in, std::ostream &stream, int cut = 1, 
 		  int filter = 0);
-  int PrintLine(char *in, GXSTD::ostream &stream);
-  int PrintLine(char *s, unsigned max_len, GXSTD::ofstream &stream);
+  int PrintLine(char *in, std::ostream &stream);
+  int PrintLine(char *s, unsigned max_len, std::ofstream &stream);
   
   // Generates the PostScript header and includes the prologue.
   // Arguments are: pn - Program Name, hn - Hostname,
   // cd - Creation Date and un - Username.
-  void Prologue(GXSTD::ostream &stream, char *pn = 0, char *hn = 0,
+  void Prologue(std::ostream &stream, char *pn = 0, char *hn = 0,
 		char *cd = 0, char *un = 0);
   
   // Sets the physical sources and physical destinations for the media
   // source and destination to be used in the printer. These settings
   // are device dependent.
-  void MediaSetup(GXSTD::ostream &stream, int duplex = 0, int manualfeed = 0,
+  void MediaSetup(std::ostream &stream, int duplex = 0, int manualfeed = 0,
 		  int use_tray = 0, int tray_number = 0);
 
 private: // Document Settings

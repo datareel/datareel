@@ -51,10 +51,6 @@ to use the B-tree cache.
 #include <string.h>
 #include "gxbtree.h"
 
-#ifdef __BCC32__
-#pragma warn -8066
-#pragma warn -8080
-#endif
 
 gxBtree::gxBtree(DatabaseKeyB &key_type, BtreeNodeOrder_t order) 
 {
@@ -92,11 +88,7 @@ gxDatabaseError gxBtree::InitBtree(int create, FAU_t header_address,
 
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   if(create) {
@@ -163,11 +155,7 @@ gxDatabaseError gxBtree::Open(const char *fname, gxDatabaseAccessMode mode)
   }
   f = new gxDatabase;
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_MEM_ALLOC_ERROR;
-#endif
   }
 
   if(f->Open(fname, mode) != gxDBASE_NO_ERROR) {
@@ -200,11 +188,7 @@ gxDatabaseError gxBtree::Create(const char *fname, int num_trees,
   if(f) delete f;
   f = new gxDatabase;
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_MEM_ALLOC_ERROR;
-#endif
   }
   
   if(num_trees <= 0) num_trees = 1;
@@ -261,11 +245,7 @@ gxDatabaseError gxBtree::Open(const char *fname, FAU_t header_address,
   if(f) delete f;
   f = new gxDatabase;
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_MEM_ALLOC_ERROR;
-#endif
   }
 
   if(f->Open(fname, mode) != gxDBASE_NO_ERROR) {
@@ -283,11 +263,7 @@ gxDatabaseError gxBtree::WriteBtreeHeader()
 
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   if(f->ReadyForWriting()) {
@@ -319,11 +295,7 @@ gxDatabaseError gxBtree::ReadBtreeHeader()
 
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   if(f->Read(&btree_header, sizeof(gxBtreeHeader), btree_header_address) !=
@@ -342,11 +314,7 @@ gxDatabaseError gxBtree::ReadBtreeHeader(gxBtreeHeader &hdr,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   if(f->Read(&hdr, sizeof(gxBtreeHeader), header_address) !=
@@ -363,11 +331,7 @@ gxDatabaseError gxBtree::Flush(int write_header)
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   if(write_header) {
@@ -381,11 +345,7 @@ size_t gxBtree::TotalNodeSize()
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   BtreeNode node(btree_header.key_size, btree_header.node_order);
@@ -410,11 +370,7 @@ gxDatabaseError gxBtree::WriteNode(const BtreeNode &node, FAU_t node_address)
 
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   if(f->Write(&node.key_count, sizeof(node.key_count), node_address, 0, 0) 
@@ -461,11 +417,7 @@ gxDatabaseError gxBtree::ReadNode(BtreeNode &node, FAU_t node_address)
 
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   if(f->Read(&node.key_count, sizeof(node.key_count), node_address) !=
@@ -498,11 +450,7 @@ gxDatabaseError gxBtree::GrowNewRoot(DatabaseKeyB &key)
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   FAU_t old_root = btree_header.root;
@@ -524,11 +472,7 @@ gxDatabaseError gxBtree::CollapseRoot()
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   BtreeNode root_node(btree_header.key_size, btree_header.node_order);
@@ -555,11 +499,7 @@ gxDatabaseError gxBtree::CollapseRoot(BtreeNode &root_node)
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   // Ensure that the root node is empty and the height is greater then one
@@ -688,11 +628,7 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
   unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   BtreeKeyLocation_t key_location;
@@ -709,22 +645,14 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
       return f->GetDatabaseError();
     if(!node_stack.Push(curr_address)) {
       f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
 
     if(curr_node.FindKeyLocation(key, compare_key, key_location) == 0) {
       // Found a duplicate key
       node_stack.Clear();
       f->SetDatabaseError(gxDBASE_DUPLICATE_ENTRY);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
     
     // Continue the search until a node with no children is found
@@ -811,9 +739,6 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
   // The insertion was not completed
   node_stack.Clear();
   f->SetDatabaseError(gxDBASE_INSERTION_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-  throw gxCDatabaseException();
-#endif
   return f->GetDatabaseError();
 }
 
@@ -827,11 +752,7 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
   unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   BtreeKeyLocation_t key_location;
@@ -862,11 +783,7 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
 
   if(!found_key) {
     f->SetDatabaseError(gxDBASE_ENTRY_NOT_FOUND);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif    
   }
   
   if(sibling_address == (FAU_t)0) { // This is leaf node 
@@ -884,11 +801,7 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
     num_siblings++;
     if(!node_stack.Push(sibling_address)) {
       f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
     
     if(ReadNodeChecked(sibling_node, sibling_address, depth) != gxDBASE_NO_ERROR) {
@@ -906,11 +819,7 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
       if(!node_stack.Push(sibling_address)) {
 	node_stack.Clear();
 	f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return f->GetDatabaseError();
-#endif
       }
       num_siblings++;
     }
@@ -1001,11 +910,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
   unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   BtreeKeyLocation_t key_location;
@@ -1023,11 +928,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
   if(!node_stack.Push(btree_header.root)) {
     node_stack.Clear();
     f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif
   }
   
   // Search the B-tree for the specified key
@@ -1048,11 +949,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
     if(!node_stack.Push(curr_address)) {
       node_stack.Clear();
       f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
     
     // Continue the searching for the key
@@ -1061,11 +958,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
 
   if(!found_key) { // The key was not found
     f->SetDatabaseError(gxDBASE_ENTRY_NOT_FOUND);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif    
   }
 
   if(sibling_address != (FAU_t)0) { // This is a parent node
@@ -1073,11 +966,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
     if(!node_stack.Push(curr_address)) {
       node_stack.Clear();
       f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
     if(ReadNodeChecked(sibling_node, sibling_address, depth) != gxDBASE_NO_ERROR) {
       node_stack.Clear();
@@ -1091,11 +980,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
       if(!node_stack.Push(sibling_address)) {
 	node_stack.Clear();
 	f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return f->GetDatabaseError();
-#endif
       }
       sibling_address = sibling_node.left_child;
       if(ReadNodeChecked(sibling_node, sibling_address, depth) != gxDBASE_NO_ERROR) {
@@ -1202,11 +1087,7 @@ gxDatabaseError gxBtree::InsertBalance(BtreeNode &parent_node,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   FAU_t left_child = (FAU_t)0;
@@ -1293,11 +1174,7 @@ gxDatabaseError gxBtree::InsertRightRotation(BtreeNode &parent_node,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   FAU_t right_child = parent_node.GetBranch(key_location);
@@ -1350,11 +1227,7 @@ gxDatabaseError gxBtree::InsertLeftRotation(BtreeNode &parent_node,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   FAU_t right_child = parent_node.GetBranch(key_location);
@@ -1404,11 +1277,7 @@ gxDatabaseError gxBtree::Merge(BtreeNode &parent_node,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   FAU_t right_child = parent_node.GetBranch(key_location);
@@ -1454,11 +1323,7 @@ gxDatabaseError gxBtree::ReConnect(int tree_number)
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   // Write the current B-tree header and flush all disk buffers
@@ -1501,11 +1366,7 @@ int gxBtree::TestTree(FAU_t header_address, int reinit)
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   int error_number = 0;
@@ -1593,11 +1454,7 @@ int gxBtree::Find(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   // Ensure that the in memory buffers and the file data
@@ -1664,11 +1521,7 @@ int gxBtree::Find(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   f->SetDatabaseError(gxDBASE_ENTRY_NOT_FOUND);
@@ -1687,11 +1540,7 @@ int gxBtree::FindFirst(DatabaseKeyB &key, BtreeNode &curr_node, int test_tree)
   unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   // Ensure that the in memory buffers and the file data
@@ -1759,11 +1608,7 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   // Ensure that the in memory buffers and the file data
@@ -1876,11 +1721,7 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   // Ensure that the in memory buffers and the file data
@@ -1983,11 +1824,7 @@ int gxBtree::PartialFind(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   unsigned depth = 0; // 10/25/2026: Nodes read, see ReadNodeChecked()
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   // Ensure that the in memory buffers and the file data
@@ -2057,11 +1894,9 @@ int gxBtree::PartialFind(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   // 06/02/2002: Eliminate unreachable code in function warning under BCC32
   // PC-lint 05/02/2005: Ingore PC-lint unreachable code warning
   // Some compilers require a return value even if code is not reached
-#ifndef __BCC32__
   // Could not make a partial match
   f->SetDatabaseError(gxDBASE_ENTRY_NOT_FOUND);
   return 0;
-#endif
 }
 
 int gxBtree::ChangeKey(DatabaseKeyB &key, DatabaseKeyB &new_key_vals,
@@ -2152,11 +1987,7 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   BtreeKeyLocation_t key_location;
@@ -2166,11 +1997,7 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
   if((FAU_t)curr_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif
   }
 
   BtreeStack node_stack;
@@ -2180,22 +2007,14 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
   while((FAU_t)curr_node != (FAU_t)0) {
     if(!node_stack.Push((FAU_t)curr_node)) {
       f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
 
     if(curr_node->FindKeyLocation(key, compare_key, key_location) == 0) {
       // Found a duplicate key
       node_stack.Clear();
       f->SetDatabaseError(gxDBASE_DUPLICATE_ENTRY);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
     
     // Continue the search until a node with no children is found.
@@ -2208,11 +2027,7 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
     if((FAU_t)curr_node == (FAU_t)0) { 
       // Could not acquire a cache bucket
       f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
     
     if(num_splits > 0) {
@@ -2303,9 +2118,6 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
   // The insertion was not completed
   node_stack.Clear();
   f->SetDatabaseError(gxDBASE_INSERTION_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-  throw gxCDatabaseException();
-#endif
   return f->GetDatabaseError();
 }
 
@@ -2390,11 +2202,7 @@ int gxBtree::Find(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return 0;
-#endif
   }
 
   // Test this cached node to before using it.
@@ -2405,11 +2213,7 @@ int gxBtree::Find(DatabaseKeyB &key, DatabaseKeyB &compare_key,
     if((FAU_t)curr_node == (FAU_t)0) { 
       // Could not acquire a cache bucket
       f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return 0;
-#endif
     }
   }
 
@@ -2464,11 +2268,7 @@ int gxBtree::Find(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   if((FAU_t)curr_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return 0;
-#endif
   }
   
   while((FAU_t)curr_node != (FAU_t)0) {
@@ -2495,22 +2295,14 @@ int gxBtree::FindFirst(DatabaseKeyB &key, BtreeCacheNode &curr_node)
 
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return 0;
-#endif
   }
 
   curr_node = btree_header.root;
   if((FAU_t)curr_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return 0;
-#endif
   }
 
   while(curr_node->left_child != (FAU_t)0) {
@@ -2518,11 +2310,7 @@ int gxBtree::FindFirst(DatabaseKeyB &key, BtreeCacheNode &curr_node)
     if((FAU_t)curr_node == (FAU_t)0) { 
       // Could not acquire a cache bucket
       f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return 0;
-#endif
     }
   }
   if(curr_node->key_count <= (BtreeKeyCount)0) {
@@ -2550,11 +2338,7 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return 0;
-#endif
   }
 
   // Test this cached node to before using it.
@@ -2565,11 +2349,7 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
     if((FAU_t)curr_node == (FAU_t)0) { 
       // Could not acquire a cache bucket
       f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return 0;
-#endif
     }
   }
 
@@ -2582,22 +2362,14 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 	if((FAU_t)curr_node == (FAU_t)0) { 
 	  // Could not acquire a cache bucket
 	  f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	  throw gxCDatabaseException();
-#else
 	  return 0;
-#endif
 	}
 	while(curr_node->left_child != (FAU_t)0) { // Get left most node
           curr_node = curr_node->left_child;
 	  if((FAU_t)curr_node == (FAU_t)0) { 
 	    // Could not acquire a cache bucket
 	    f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	    throw gxCDatabaseException();
-#else
 	    return 0;
-#endif
 	  }
 	}
         if(curr_node->key_count <= (BtreeKeyCount_t)0) {
@@ -2622,11 +2394,7 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   if((FAU_t)curr_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return 0;
-#endif
   }
 
   int rv;
@@ -2641,22 +2409,14 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 	  if((FAU_t)curr_node == (FAU_t)0) { 
 	    // Could not acquire a cache bucket
 	    f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	    throw gxCDatabaseException();
-#else
 	    return 0;
-#endif
 	  }
 	while(curr_node->left_child != (FAU_t)0) { // Get left most node
           curr_node = curr_node->left_child;
 	  if((FAU_t)curr_node == (FAU_t)0) { 
 	    // Could not acquire a cache bucket
 	    f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	    throw gxCDatabaseException();
-#else
 	    return 0;
-#endif
 	  }
 	}
         if(curr_node->key_count <= (BtreeKeyCount_t)0) {
@@ -2691,11 +2451,7 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
       if((FAU_t)parent_node == (FAU_t)0) { 
 	// Could not acquire a cache bucket
 	f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return 0;
-#endif
       }
       sav_location = key_location;
     }
@@ -2726,11 +2482,7 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return 0;
-#endif
   }
 
   // Test this cached node to before using it.
@@ -2741,11 +2493,7 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
     if((FAU_t)curr_node == (FAU_t)0) { 
       // Could not acquire a cache bucket
       f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return 0;
-#endif
     }
   }
 
@@ -2759,11 +2507,7 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 	  if((FAU_t)curr_node == (FAU_t)0) { 
 	    // Could not acquire a cache bucket
 	    f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	    throw gxCDatabaseException();
-#else
 	    return 0;
-#endif
 	  }
           key_location = curr_node->key_count-1;
 	}
@@ -2775,11 +2519,7 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 	if((FAU_t)curr_node == (FAU_t)0) { 
 	  // Could not acquire a cache bucket
 	  f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	  throw gxCDatabaseException();
-#else
 	  return 0;
-#endif
 	}
         key_location = curr_node->key_count-1;
         while(curr_node->GetBranch(key_location) != (FAU_t)0) {
@@ -2787,11 +2527,7 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 	  if((FAU_t)curr_node == (FAU_t)0) { 
 	    // Could not acquire a cache bucket
 	    f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	    throw gxCDatabaseException();
-#else
 	    return 0;
-#endif
 	  }
           key_location = curr_node->key_count-1;
 	}
@@ -2807,11 +2543,7 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   if((FAU_t)curr_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return 0;
-#endif
   }
 
   BtreeCacheNode parent_node(curr_node);
@@ -2828,11 +2560,7 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 	  if((FAU_t)curr_node == (FAU_t)0) { 
 	    // Could not acquire a cache bucket
 	    f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	    throw gxCDatabaseException();
-#else
 	    return 0;
-#endif
 	  }
           key_location = curr_node->key_count-1;
 	}
@@ -2844,11 +2572,7 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 	if((FAU_t)curr_node == (FAU_t)0) { 
 	  // Could not acquire a cache bucket
 	  f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	  throw gxCDatabaseException();
-#else
 	  return 0;
-#endif
 	}
         key_location = curr_node->key_count-1;
         while(curr_node->GetBranch(key_location) != (FAU_t)0) {
@@ -2856,11 +2580,7 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 	  if((FAU_t)curr_node == (FAU_t)0) { 
 	    // Could not acquire a cache bucket
 	    f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	    throw gxCDatabaseException();
-#else
 	    return 0;
-#endif
 	  }
           key_location = curr_node->key_count-1;
 	}
@@ -2879,11 +2599,7 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
       if((FAU_t)parent_node == (FAU_t)0) { 
 	// Could not acquire a cache bucket
 	f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return 0;
-#endif
       }
       sav_location = key_location;
     }
@@ -2903,11 +2619,7 @@ int gxBtree::FindLast(DatabaseKeyB &key, BtreeCacheNode &curr_node)
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return 0;
-#endif
   }
 
   if (IsEmpty()) return 0;
@@ -2917,11 +2629,7 @@ int gxBtree::FindLast(DatabaseKeyB &key, BtreeCacheNode &curr_node)
   if((FAU_t)curr_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return 0;
-#endif
   }
 
   while(curr_node->GetBranch((BtreeKeyLocation_t)curr_node->key_count-1)) {
@@ -2930,11 +2638,7 @@ int gxBtree::FindLast(DatabaseKeyB &key, BtreeCacheNode &curr_node)
     if((FAU_t)curr_node == (FAU_t)0) { 
       // Could not acquire a cache bucket
       f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return 0;
-#endif
     }
   }
 
@@ -2956,22 +2660,14 @@ int gxBtree::PartialFind(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return 0;
-#endif
   }
   
   curr_node = btree_header.root;
   if((FAU_t)curr_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return 0;
-#endif
   }
 
   BtreeCacheNode parent_node(curr_node);
@@ -3007,11 +2703,7 @@ int gxBtree::PartialFind(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   if((FAU_t)search_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return 0;
-#endif
   }
   
   // Search for the next key where the search for an exact match failed.
@@ -3020,22 +2712,14 @@ int gxBtree::PartialFind(DatabaseKeyB &key, DatabaseKeyB &compare_key,
     if((FAU_t)search_node == (FAU_t)0) { 
       // Could not acquire a cache bucket
       f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return 0;
-#endif
     }
     while(search_node->left_child != (FAU_t)0) { // Get left most node
       search_node = search_node->left_child;
       if((FAU_t)search_node == (FAU_t)0) { 
 	// Could not acquire a cache bucket
 	f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return 0;
-#endif
       }
     }
     if(search_node->key_count <= (BtreeKeyCount_t)0) {
@@ -3055,11 +2739,7 @@ int gxBtree::PartialFind(DatabaseKeyB &key, DatabaseKeyB &compare_key,
       if((FAU_t)parent_node == (FAU_t)0) { 
 	// Could not acquire a cache bucket
 	f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return 0;
-#endif
       }
       if(parent_node->key_count <= (BtreeKeyCount_t)0) {
 	f->SetDatabaseError(gxDBASE_ENTRY_NOT_FOUND);
@@ -3107,11 +2787,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   BtreeKeyLocation_t key_location;
@@ -3129,21 +2805,13 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
   if((FAU_t)curr_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif
   }
 
   if(!node_stack.Push(btree_header.root)) {
     node_stack.Clear();
     f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif
   }
   
   // Search the B-tree for the specified key
@@ -3160,11 +2828,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
     if(!node_stack.Push((FAU_t)curr_node)) {
       node_stack.Clear();
       f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
     
     // Continue the searching for the key.
@@ -3174,11 +2838,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
 
   if(!found_key) { // The key was not found
     f->SetDatabaseError(gxDBASE_ENTRY_NOT_FOUND);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif    
   }
 
   if((FAU_t)sibling_node != (FAU_t)0) { // This is a parent node
@@ -3186,11 +2846,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
     if(!node_stack.Push((FAU_t)curr_node)) {
       node_stack.Clear();
       f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
     
     // Follow the siblings to the parent node's left most child
@@ -3200,11 +2856,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
       if(!node_stack.Push((FAU_t)sibling_node)) {
 	node_stack.Clear();
 	f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return f->GetDatabaseError();
-#endif
       }
       sibling_node = sibling_node->left_child;
     }
@@ -3246,11 +2898,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
       // Could not acquire a cache bucket
       node_stack.Clear();
       f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }      
     parent_node->FindKeyLocation(key, compare_key, key_location);
     if(InsertBalance(parent_node, key_location, compare_key, btree_cache) !=
@@ -3272,11 +2920,7 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
 	  // Could not acquire a cache bucket
 	  node_stack.Clear();
 	  f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	  throw gxCDatabaseException();
-#else
 	  return f->GetDatabaseError();
-#endif
 	}
         grandparent_node->FindKeyLocation(key, compare_key, key_location);
         if(InsertBalance(grandparent_node, key_location, compare_key, 
@@ -3316,11 +2960,7 @@ gxDatabaseError gxBtree::InsertBalance(BtreeCacheNode &parent_node,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   BtreeCacheNode right_node(btree_cache);
@@ -3332,11 +2972,7 @@ gxDatabaseError gxBtree::InsertBalance(BtreeCacheNode &parent_node,
     if((FAU_t)right_node == (FAU_t)0) { 
       // Could not acquire a cache bucket
       f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
 
     if(right_node->HasMany()) { // Take a key from the right child
@@ -3358,11 +2994,7 @@ gxDatabaseError gxBtree::InsertBalance(BtreeCacheNode &parent_node,
     if((FAU_t)left_node == (FAU_t)0) { 
       // Could not acquire a cache bucket
       f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
     if(left_node->HasMany()) { // Take a key from the left child
       if(InsertRightRotation(parent_node, key_location, compare_key,
@@ -3383,11 +3015,7 @@ gxDatabaseError gxBtree::InsertBalance(BtreeCacheNode &parent_node,
     if((FAU_t)left_node == (FAU_t)0) { 
       // Could not acquire a cache bucket
       f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
     
     if(left_node->HasMany()) { // Take a key from the left child
@@ -3401,11 +3029,7 @@ gxDatabaseError gxBtree::InsertBalance(BtreeCacheNode &parent_node,
       if((FAU_t)right_node == (FAU_t)0) { 
 	// Could not acquire a cache bucket
 	f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return f->GetDatabaseError();
-#endif
       }
       if(right_node->HasMany()) { // Take a key from the right child
         if(InsertLeftRotation(parent_node, key_location+1, compare_key,
@@ -3434,11 +3058,7 @@ gxDatabaseError gxBtree::InsertRightRotation(BtreeCacheNode &parent_node,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   BtreeCacheNode right_node(btree_cache);
@@ -3448,22 +3068,14 @@ gxDatabaseError gxBtree::InsertRightRotation(BtreeCacheNode &parent_node,
   if((FAU_t)right_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif
   }
   
   left_node = parent_node->GetBranch(key_location-1);
   if((FAU_t)left_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif
   }
 
   // Move the key from the parent node to the right most location of the
@@ -3499,11 +3111,7 @@ gxDatabaseError gxBtree::InsertLeftRotation(BtreeCacheNode &parent_node,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   BtreeCacheNode right_node(btree_cache);
@@ -3513,21 +3121,13 @@ gxDatabaseError gxBtree::InsertLeftRotation(BtreeCacheNode &parent_node,
   if((FAU_t)right_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif
   }
   left_node = parent_node->GetBranch(key_location-1);
   if((FAU_t)left_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif
   }
 
   // Move the key from the parent node to the left most location of the 
@@ -3564,11 +3164,7 @@ gxDatabaseError gxBtree::Merge(BtreeCacheNode &parent_node,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   BtreeCacheNode right_node(btree_cache);
@@ -3578,21 +3174,13 @@ gxDatabaseError gxBtree::Merge(BtreeCacheNode &parent_node,
   if((FAU_t)right_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif
   }
   left_node = parent_node->GetBranch(key_location-1);
   if((FAU_t)left_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif
   }
 
   // Move the key from the parent node to the left most location of the 
@@ -3640,11 +3228,7 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   BtreeKeyLocation_t key_location;
@@ -3659,11 +3243,7 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
   if((FAU_t)parent_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif
   }
 
   while((FAU_t)parent_node != (FAU_t)0) {
@@ -3680,11 +3260,7 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
 
   if(!found_key) {
     f->SetDatabaseError(gxDBASE_ENTRY_NOT_FOUND);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif    
   }
 
   if((FAU_t)sibling_node == (FAU_t)0) { // This is leaf node 
@@ -3703,22 +3279,14 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
     num_siblings++;
     if(!node_stack.Push((FAU_t)sibling_node)) {
       f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
     
     sibling_node = (FAU_t)sibling_node;
     if((FAU_t)sibling_node == (FAU_t)0) { 
       // Could not acquire a cache bucket
       f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return f->GetDatabaseError();
-#endif
     }
     
     // Follow the siblings to the parent node's left most child
@@ -3728,20 +3296,12 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
 	// Could not acquire a cache bucket
 	node_stack.Clear();
 	f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return f->GetDatabaseError();
-#endif
       }
       if(!node_stack.Push((FAU_t)sibling_node)) {
 	node_stack.Clear();
 	f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return f->GetDatabaseError();
-#endif
       }
       num_siblings++;
     }
@@ -3770,11 +3330,7 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
 	  // Could not acquire a cache bucket
 	  node_stack.Clear();
 	  f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-	  throw gxCDatabaseException();
-#else
 	  return f->GetDatabaseError();
-#endif
 	}
 	if(!sibling_node->IsEmpty()) break;
 	
@@ -3830,11 +3386,7 @@ gxDatabaseError gxBtree::CollapseRoot(BtreeCache *btree_cache)
 {
   // PC-lint 05/02/2005: Possible use of null pointer
   if(!f) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
  
   BtreeCacheNode root_node(btree_cache);
@@ -3842,11 +3394,7 @@ gxDatabaseError gxBtree::CollapseRoot(BtreeCache *btree_cache)
   if((FAU_t)root_node == (FAU_t)0) { 
     // Could not acquire a cache bucket
     f->SetDatabaseError(gxDBASE_CACHE_ERROR);
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return f->GetDatabaseError();
-#endif
   }
 
   // Ensure that the root node is empty and the height is greater then one
@@ -3953,10 +3501,6 @@ int gxBtree::ChangeOrAddKey(DatabaseKeyB &key, DatabaseKeyB &new_key_vals,
 // End - B-tree cache additions
 // =========================================================== //
 
-#ifdef __BCC32__
-#pragma warn .8066
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

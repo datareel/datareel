@@ -63,21 +63,11 @@ and EHandler::Terminate() functions.
 #if defined (__wxWIN168B__) && defined (__LINUX__)
 #include "wxincs.h"
 
-#elif defined (__wxWIN201__) && defined (__LINUX__)
-#include "wx2incs.h"
-
-#elif defined (__wxWIN291__) && defined (__LINUX__)
-#include "wx2incs.h"
-
 #elif defined (__wxWIN302__) && defined (__LINUX__)
 #include "wx3incs.h"
 
 #elif defined (__CONSOLE__)
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <stdlib.h>
 
@@ -103,11 +93,6 @@ void EHandler::DisplayException(const char *mesg)
 #if defined (__wxWIN168B__)
   wxMessageBox((char *)mesg, (char *)MessageBoxCaption, wxOK|wxCENTRE);
 
-#elif defined (__wxWIN201__) || defined (__wxWIN291__)
-  wxString message(mesg);
-  wxString caption(MessageBoxCaption);
-  wxMessageBox(message, caption, wxOK|wxCENTRE);
-
 #elif defined (__wxWIN302__)
   wxString message(mesg);
   wxString caption(MessageBoxCaption);
@@ -119,7 +104,7 @@ void EHandler::DisplayException(const char *mesg)
   terminal->AnyKey(0, 2);
 
 #elif defined (__CONSOLE__)
-  GXSTD::cout << "\n" << mesg << "\n" << GXSTD::flush;
+  std::cout << "\n" << mesg << "\n" << std::flush;
 
 #elif defined (__WIN32_ERROR_MSG__)
   MessageBox( NULL, (char *)mesg, (char *)MessageBoxCaption, MB_OK );
@@ -165,13 +150,6 @@ void EHandler::Message(const char *mesg1, const char *mesg2,
   // to call for the array members.
   delete[] comp;
 
-#elif defined (__wxWIN201__) || defined (__wxWIN291__)
-  wxString message(mesg1);
-  wxString caption("Program Message");
-  message += mesg2;
-  message += mesg3;
-  wxMessageBox(message, caption, wxOK|wxCENTRE|wxICON_EXCLAMATION);
-
 #elif defined (__wxWIN302__)
   wxString message(mesg1);
   wxString caption("Program Message");
@@ -180,11 +158,11 @@ void EHandler::Message(const char *mesg1, const char *mesg2,
   wxMessageBox(message, caption, wxOK|wxCENTRE|wxICON_EXCLAMATION);
 
 #elif defined (__CONSOLE__)
-  GXSTD::cout << "\n" << GXSTD::flush;
-  if(mesg1) GXSTD::cout << mesg1 << GXSTD::flush;
-  if(mesg2) GXSTD::cout << mesg2 << GXSTD::flush;
-  if(mesg3) GXSTD::cout << mesg3 << GXSTD::flush;
-  GXSTD::cout << "\n" << GXSTD::flush;
+  std::cout << "\n" << std::flush;
+  if(mesg1) std::cout << mesg1 << std::flush;
+  if(mesg2) std::cout << mesg2 << std::flush;
+  if(mesg3) std::cout << mesg3 << std::flush;
+  std::cout << "\n" << std::flush;
   
 #elif defined (__WIN32_ERROR_MSG__)
   int len = lstrlen(mesg1) + lstrlen(mesg2) + lstrlen(mesg3);
@@ -210,10 +188,6 @@ void EHandler::Terminate()
   // be used in an emergency: normally the top-level frame should
   // be deleted (after deleting all other frames) to terminate the
   // application. 
-
-#elif defined (__wxWIN201__) || defined (__wxWIN291__)
-  // Terminate the program using the wxExit() function.
-  wxExit();
 
 #elif defined (__wxWIN302__)
   // Terminate the program using the wxExit() function.

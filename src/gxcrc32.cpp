@@ -97,11 +97,7 @@ GXDLCODE_API unsigned long calcCRC32(DiskFileB &infile)
    if(infile.df_Get(c) != DiskFileB::df_NO_ERROR) return 0;
 
    // PC-lint 09/08/2005: Suspicious cast warning
-#if defined (__PCLINT_CHECK__)
-   i = (unsigned) (int)c;
-#else
    i = (unsigned int)c;
-#endif
 
    i &= 0xFF; // Reset all the bits
    CRC=crc32tab[(CRC ^ i) & 0xFF] ^ ((CRC>>8) & 0x00ffffffL);
@@ -109,7 +105,7 @@ GXDLCODE_API unsigned long calcCRC32(DiskFileB &infile)
  return CRC ^ 0xffffffffL;
 }
 
-GXDLCODE_API int makeCRC32(GXSTD::ostream &stream)
+GXDLCODE_API int makeCRC32(std::ostream &stream)
 // Write a CRC 32 table for a byte-wise 32-bit CRC calculation
 // based on the Autodin/Ethernet/ADCCP polynomial of 0x4C11DB7:
 // 0000 0100 1100 0001 0001 1101 1011 0111 (binary) or a poly of
@@ -161,11 +157,11 @@ GXDLCODE_API int makeCRC32(GXSTD::ostream &stream)
     }
 
     if(i % 5)
-      stream << ", 0x" << GXSTD::setfill('0') << GXSTD::setw(8) 
-	     << GXSTD::hex << c << "U";
+      stream << ", 0x" << std::setfill('0') << std::setw(8) 
+	     << std::hex << c << "U";
     else
-      stream << "," << "\n" << "  0x" << GXSTD::setfill('0') 
-	     << GXSTD::setw(8) << GXSTD::hex << c << "U";
+      stream << "," << "\n" << "  0x" << std::setfill('0') 
+	     << std::setw(8) << std::hex << c << "U";
   }
   stream << "\n";
   return 1;

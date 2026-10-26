@@ -201,27 +201,6 @@ GXDLCODE_API int gxThreadMutexInit(gxMutex_t *m, gxProcessType type)
     InitializeCriticalSection(&m->mutex);
   }
 
-#elif defined (__HPUX10__) && defined (__POSIX__)
-  int rv = gxThreadMutexAttributeInit(&m->mutex_attribute);
-  if(rv != 0) {
-    m->is_initialized = 0;
-    m->mutex_error = gxMUTEX_ATTR_INIT_ERROR;
-    return rv;
-  }
-
-  if(m->process_type == gxPROCESS_SHARED) {
-    // This UNIX variant does not support shared mutexs
-    m->process_type = gxPROCESS_PRIVATE;
-    m->mutex_error = gxMUTEX_SET_SHARE_ERROR;
-  }
-
-  rv = pthread_mutex_init(&m->mutex, m->mutex_attribute);
-  if(rv != 0) { // Could not initialize the mutex
-    m->is_initialized = 0;
-    m->mutex_error = gxMUTEX_INIT_ERROR;
-    return rv;
-  }
-
 #elif defined (__POSIX__)
   int rv; // Return value variable
   if(m->process_type == gxPROCESS_SHARED) {
@@ -424,11 +403,6 @@ GXDLCODE_API int gxThreadMutexAttributeInit(gxMutexAttribute *attr)
   // a NULL value. 
   *(attr) = (gxMutexAttribute)0;
 
-#elif defined (__HPUX10__) && defined (__POSIX__)
-  // HPUX 10.20 Common Multithread Architecture (CMA) services
-  int rv = pthread_mutexattr_create(attr);
-  if(rv != 0) return rv;
-
 #elif defined (__POSIX__)
   // Initialize the POSIX mutex attribute with the default settings.
   int rv = pthread_mutexattr_init(attr);
@@ -447,11 +421,6 @@ GXDLCODE_API int gxThreadMutexAttributeDestroy(gxMutexAttribute *attr)
 #if defined (__WIN32__)
   // Nothing to do for a null security descriptor
   if(*(attr) == (gxMutexAttribute)0) return 0; 
-
-#elif defined (__HPUX10__) && defined (__POSIX__)
-  // HPUX 10.20 Common Multithread Architecture (CMA) services
-  int rv = pthread_mutexattr_delete(attr);
-  if(rv != 0) return rv;
 
 #elif defined (__POSIX__)
   int rv = pthread_mutexattr_destroy(attr);
@@ -686,27 +655,6 @@ GXDLCODE_API int gxThreadConditionInit(gxCondition_t *c, gxProcessType type)
   if(gxThreadMutexInit(&c->waiters_count_lock, type) != 0) {
     // A mutex error occurred while initializing a shared condition 
     c->condition_error = gxCONDITION_INTERNAL_ERROR;
-  }
-
-#elif defined (__HPUX10__) && defined (__POSIX__)
-  int rv = gxThreadConditionAttributeInit(&c->condition_attribute);
-  if(rv != 0) {
-    c->is_initialized = 0;
-    c->condition_error = gxCONDITION_ATTR_INIT_ERROR;
-    return rv;
-  }
-
-  if(c->process_type == gxPROCESS_SHARED) {
-    // This UNIX variant does not support shared mutexs
-    c->process_type = gxPROCESS_PRIVATE;
-    c->condition_error = gxCONDITION_SET_SHARE_ERROR;
-  }
-
-  rv = pthread_cond_init(&c->condition, c->condition_attribute);
-  if(rv != 0) { // Could not initialize the mutex
-    c->is_initialized = 0;
-    c->condition_error = gxCONDITION_INIT_ERROR;
-    return rv;
   }
 
 #elif defined (__POSIX__)
@@ -1169,11 +1117,6 @@ GXDLCODE_API int gxThreadConditionAttributeInit(gxConditionAttribute *attr)
   // a NULL value. 
   *(attr) = (gxConditionAttribute)0;
 
-#elif defined (__HPUX10__) && defined (__POSIX__)
-  // HPUX 10.20 Common Multithread Architecture (CMA) services
-  int rv = pthread_condattr_create(attr);
-  if(rv != 0) return rv;
-
 #elif defined (__POSIX__)
   // Initialize the POSIX condition attribute with the default settings.
   int rv = pthread_condattr_init(attr);
@@ -1192,11 +1135,6 @@ GXDLCODE_API int gxThreadConditionAttributeDestroy(gxConditionAttribute *attr)
 #if defined (__WIN32__)
   // Nothing to do for a null security descriptor
   if(*(attr) == (gxConditionAttribute)0) return 0; 
-
-#elif defined (__HPUX10__) && defined (__POSIX__)
-  // HPUX 10.20 Common Multithread Architecture (CMA) services
-  int rv = pthread_condattr_delete(attr);
-  if(rv != 0) return rv;
 
 #elif defined (__POSIX__)
   int rv = pthread_condattr_destroy(attr);

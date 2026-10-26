@@ -47,20 +47,13 @@ library yet the BCC compiler will not recognize them.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <string.h>
 #include <stdlib.h>
 #include "gxsocket.h"
 
-#ifdef __BCC32__
-int main() { return 0; }
-#else
 int main(int argc, char **argv)
 {
   // Check arguments. Should be only one: the port number to bind to.
@@ -127,7 +120,6 @@ int main(int argc, char **argv)
   server.ReleaseSocketLibrary();
   return 0;
 }
-#endif // __BCC32__
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

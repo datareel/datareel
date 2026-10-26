@@ -38,10 +38,6 @@ library gxDatabase, gxBtree, and gxStream classes.
 #include "dfileb.h"
 #include <math.h> // 10/14/2026: For floor() in Search()
 
-#ifdef __BCC32__
-#pragma warn -8057
-#pragma warn -8080
-#endif
 
 // --------------------------------------------------------------
 // 10/14/2026: Internal helper functions
@@ -540,10 +536,6 @@ gxDatabaseError gxRDBMS::create_or_open(int rewrite_header)
       delete openindexfile; // 09/12/2005 - Prevent memory leak
       return err;
     }
-#if defined (__PCLINT_CHECK__)
-    // PC-lint 05/02/2005: Custodial pointer warning can be ignored
-    delete openindexfile;
-#endif
   }
   else {
     err = pod->Open(datafile_name.c_str(), indexfile_names[0].c_str(), 
@@ -2909,13 +2901,9 @@ void gxRDBMS::Release()
   // the caller is aware of another object bound to the same 
   // pointers. This object should not delete these variables 
   // to prevent data loss.
-#if defined(__PCLINT_CHECK__)
-  return;
-#else
   pod = 0;
   sec_key_fields = 0;
   indexfile_names = 0;
-#endif
 }
 // --------------------------------------------------------------
 // END: Fault detection and recovery functions
@@ -3365,10 +3353,6 @@ GXDLCODE_API int gxrdRemovePID(const char *pid_file_name)
 // END: Standalone functions
 // --------------------------------------------------------------
 
-#ifdef __BCC32__
-#pragma warn .8057
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

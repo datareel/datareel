@@ -43,9 +43,6 @@ the object.
 #include "gxthread.h"
 #include "thrapiw.h"
 
-#ifdef __BCC32__
-#pragma warn -8057
-#endif
 
 gxThread::gxThread()
 {
@@ -593,9 +590,6 @@ int gxThread::DestroyThreadPool(thrPool *thread_pool, int check_state)
   return 0;
 }
 
-#ifdef __BCC32__
-#pragma warn .8057
-#endif
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

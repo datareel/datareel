@@ -34,12 +34,8 @@ will attempt to automatically recover from the dead lock.
 // ----------------------------------------------------------- //   
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include "gxthread.h"
 #include "gxcond.h"

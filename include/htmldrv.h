@@ -50,11 +50,7 @@ operations.
 // This directive must be defined to use the HTML print driver
 #if defined (__USE_HTM_PRINTING__)
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <fstream>
-#else // Use the old iostream library by default
-#include <fstream.h>
-#endif // __USE_ANSI_CPP__
 
 // Constants
 const int DefaultPrecision = 2; // Default precision for floating points
@@ -90,76 +86,76 @@ enum htmFONTS {
 };
 
 // Functions used to print characters with special meaning 
-inline GXSTD::ostream& lt(GXSTD::ostream &s)   { return s << "<";  }
-inline GXSTD::ostream& gt(GXSTD::ostream &s)   { return s << ">";  }
-inline GXSTD::ostream& amp(GXSTD::ostream &s)  { return s << "&";  }
-inline GXSTD::ostream& quot(GXSTD::ostream &s) { return s << "\""; }
+inline std::ostream& lt(std::ostream &s)   { return s << "<";  }
+inline std::ostream& gt(std::ostream &s)   { return s << ">";  }
+inline std::ostream& amp(std::ostream &s)  { return s << "&";  }
+inline std::ostream& quot(std::ostream &s) { return s << "\""; }
 
 // Functions used to print special characters
-inline GXSTD::ostream& nbsp(GXSTD::ostream &s) { return s << "&nbsp;"; }
-inline GXSTD::ostream& hyphen(GXSTD::ostream &s) { return s << "&shy;"; }
-inline GXSTD::ostream& copyright(GXSTD::ostream &s) { return s << "&copy;"; } 
-inline GXSTD::ostream& registered(GXSTD::ostream &s) { return s << "&reg;"; }
+inline std::ostream& nbsp(std::ostream &s) { return s << "&nbsp;"; }
+inline std::ostream& hyphen(std::ostream &s) { return s << "&shy;"; }
+inline std::ostream& copyright(std::ostream &s) { return s << "&copy;"; } 
+inline std::ostream& registered(std::ostream &s) { return s << "&reg;"; }
 
 // Functions used to create HMTL tags
-inline GXSTD::ostream& stag(GXSTD::ostream &s) { return s << "<";  } // Start 
-inline GXSTD::ostream& etag(GXSTD::ostream &s) { return s << "</"; } // End tag
-inline GXSTD::ostream& ctag(GXSTD::ostream &s) { return s << ">";  } // Close  
+inline std::ostream& stag(std::ostream &s) { return s << "<";  } // Start 
+inline std::ostream& etag(std::ostream &s) { return s << "</"; } // End tag
+inline std::ostream& ctag(std::ostream &s) { return s << ">";  } // Close  
 
 // HTML document formatting functions
-inline GXSTD::ostream& anchor(GXSTD::ostream &s) { return s << "<A>"; }
-inline GXSTD::ostream& eanchor(GXSTD::ostream &s) { return s << "</A>"; }
-inline GXSTD::ostream& comment(GXSTD::ostream &s) { return s << "<!-- "; }
-inline GXSTD::ostream& ecomment(GXSTD::ostream &s) { return s << " -->"; }
-inline GXSTD::ostream& body(GXSTD::ostream &s) { return s << "<BODY>"; }
-inline GXSTD::ostream& ebody(GXSTD::ostream &s) { return s << "</BODY>"; }
-inline GXSTD::ostream& br(GXSTD::ostream &s) { return s << "<BR>"; }
-inline GXSTD::ostream& head(GXSTD::ostream &s) { return s << "<HEAD>"; }
-inline GXSTD::ostream& ehead(GXSTD::ostream &s) { return s << "</HEAD>"; }
-inline GXSTD::ostream& html(GXSTD::ostream &s) { return s << "<HTML>"; }
-inline GXSTD::ostream& ehtml(GXSTD::ostream &s) { return s << "</HTML>"; }
-inline GXSTD::ostream& hr(GXSTD::ostream &s) { return s << "<HR>"; }
-inline GXSTD::ostream& par(GXSTD::ostream &s) { return s << "<P>"; }     
-inline GXSTD::ostream& epar(GXSTD::ostream &s) { return s << "</P>"; }   
-inline GXSTD::ostream& pre(GXSTD::ostream &s) { return s << "<PRE>"; }   
-inline GXSTD::ostream& epre(GXSTD::ostream &s) { return s << "</PRE>"; } 
-inline GXSTD::ostream& title(GXSTD::ostream &s) { return s << "<TITLE>"; }
-inline GXSTD::ostream& etitle(GXSTD::ostream &s) { return s << "</TITLE>"; }
+inline std::ostream& anchor(std::ostream &s) { return s << "<A>"; }
+inline std::ostream& eanchor(std::ostream &s) { return s << "</A>"; }
+inline std::ostream& comment(std::ostream &s) { return s << "<!-- "; }
+inline std::ostream& ecomment(std::ostream &s) { return s << " -->"; }
+inline std::ostream& body(std::ostream &s) { return s << "<BODY>"; }
+inline std::ostream& ebody(std::ostream &s) { return s << "</BODY>"; }
+inline std::ostream& br(std::ostream &s) { return s << "<BR>"; }
+inline std::ostream& head(std::ostream &s) { return s << "<HEAD>"; }
+inline std::ostream& ehead(std::ostream &s) { return s << "</HEAD>"; }
+inline std::ostream& html(std::ostream &s) { return s << "<HTML>"; }
+inline std::ostream& ehtml(std::ostream &s) { return s << "</HTML>"; }
+inline std::ostream& hr(std::ostream &s) { return s << "<HR>"; }
+inline std::ostream& par(std::ostream &s) { return s << "<P>"; }     
+inline std::ostream& epar(std::ostream &s) { return s << "</P>"; }   
+inline std::ostream& pre(std::ostream &s) { return s << "<PRE>"; }   
+inline std::ostream& epre(std::ostream &s) { return s << "</PRE>"; } 
+inline std::ostream& title(std::ostream &s) { return s << "<TITLE>"; }
+inline std::ostream& etitle(std::ostream &s) { return s << "</TITLE>"; }
 
 // HTML font formatting functions
-inline GXSTD::ostream& bold(GXSTD::ostream &s) { return s << "<B>"; } 
-inline GXSTD::ostream& ebold(GXSTD::ostream &s) { return s << "</B>"; } 
-inline GXSTD::ostream& center(GXSTD::ostream &s) { return s << "<CENTER>"; } 
-inline GXSTD::ostream& ecenter(GXSTD::ostream &s) { return s << "</CENTER>"; } 
-inline GXSTD::ostream& font(GXSTD::ostream &s) { return s << "<FONT>"; }
-inline GXSTD::ostream& efont(GXSTD::ostream &s) { return s << "</FONT>"; }
-inline GXSTD::ostream& h1(GXSTD::ostream &s) { return s << "<H1>"; } 
-inline GXSTD::ostream& eh1(GXSTD::ostream &s) { return s << "</H1>"; } 
-inline GXSTD::ostream& h2(GXSTD::ostream &s) { return s << "<H2>"; } 
-inline GXSTD::ostream& eh2(GXSTD::ostream &s) { return s << "</H2>"; } 
-inline GXSTD::ostream& h3(GXSTD::ostream &s) { return s << "<H3>"; } 
-inline GXSTD::ostream& eh3(GXSTD::ostream &s) { return s << "</H3>"; }
-inline GXSTD::ostream& italic(GXSTD::ostream &s) { return s << "<I>"; }
-inline GXSTD::ostream& eitalic(GXSTD::ostream &s) { return s << "</I>"; }
-inline GXSTD::ostream& underline(GXSTD::ostream &s) { return s << "<U>"; }
-inline GXSTD::ostream& eunderline(GXSTD::ostream &s) { return s << "</U>"; }
+inline std::ostream& bold(std::ostream &s) { return s << "<B>"; } 
+inline std::ostream& ebold(std::ostream &s) { return s << "</B>"; } 
+inline std::ostream& center(std::ostream &s) { return s << "<CENTER>"; } 
+inline std::ostream& ecenter(std::ostream &s) { return s << "</CENTER>"; } 
+inline std::ostream& font(std::ostream &s) { return s << "<FONT>"; }
+inline std::ostream& efont(std::ostream &s) { return s << "</FONT>"; }
+inline std::ostream& h1(std::ostream &s) { return s << "<H1>"; } 
+inline std::ostream& eh1(std::ostream &s) { return s << "</H1>"; } 
+inline std::ostream& h2(std::ostream &s) { return s << "<H2>"; } 
+inline std::ostream& eh2(std::ostream &s) { return s << "</H2>"; } 
+inline std::ostream& h3(std::ostream &s) { return s << "<H3>"; } 
+inline std::ostream& eh3(std::ostream &s) { return s << "</H3>"; }
+inline std::ostream& italic(std::ostream &s) { return s << "<I>"; }
+inline std::ostream& eitalic(std::ostream &s) { return s << "</I>"; }
+inline std::ostream& underline(std::ostream &s) { return s << "<U>"; }
+inline std::ostream& eunderline(std::ostream &s) { return s << "</U>"; }
 
 // HTML table functions
-inline GXSTD::ostream& table(GXSTD::ostream &s) { return s << "<TABLE>"; } 
-inline GXSTD::ostream& otable(GXSTD::ostream &s) { return s << "<TABLE "; } 
-inline GXSTD::ostream& etable(GXSTD::ostream &s) { return s << "</TABLE>"; } 
-inline GXSTD::ostream& tr(GXSTD::ostream &s) { return s << "<TR>"; } 
-inline GXSTD::ostream& etr(GXSTD::ostream &s) { return s << "</TR>"; } 
-inline GXSTD::ostream& th(GXSTD::ostream &s) { return s << "<TH>"; } 
-inline GXSTD::ostream& eth(GXSTD::ostream &s) { return s << "</TH>"; } 
-inline GXSTD::ostream& td(GXSTD::ostream &s) { return s << "<TD>"; } 
-inline GXSTD::ostream& etd(GXSTD::ostream &s) { return s << "</TD>"; } 
+inline std::ostream& table(std::ostream &s) { return s << "<TABLE>"; } 
+inline std::ostream& otable(std::ostream &s) { return s << "<TABLE "; } 
+inline std::ostream& etable(std::ostream &s) { return s << "</TABLE>"; } 
+inline std::ostream& tr(std::ostream &s) { return s << "<TR>"; } 
+inline std::ostream& etr(std::ostream &s) { return s << "</TR>"; } 
+inline std::ostream& th(std::ostream &s) { return s << "<TH>"; } 
+inline std::ostream& eth(std::ostream &s) { return s << "</TH>"; } 
+inline std::ostream& td(std::ostream &s) { return s << "<TD>"; } 
+inline std::ostream& etd(std::ostream &s) { return s << "</TD>"; } 
 
 // HTML driver base class
 class GXDLCODE_API HyperTextDrv
 {
 public:
-  HyperTextDrv(GXSTD::ostream &s);
+  HyperTextDrv(std::ostream &s);
   virtual ~HyperTextDrv();
 
 protected: // Filtered output functions used to write HTML text 
@@ -194,7 +190,7 @@ public:
   void put_space() { non_breaking_sp = 0; }    // Use breaking spaces
   
 public: // Overloaded operators
-  GXSTD::ostream &operator<<(GXSTD::ostream & (*_f)(GXSTD::ostream&));
+  std::ostream &operator<<(std::ostream & (*_f)(std::ostream&));
   HyperTextDrv &operator<<(char *s);
   HyperTextDrv &operator<<(const char *s);
   HyperTextDrv &operator<<(unsigned char *s);
@@ -255,7 +251,7 @@ public: // HTML table functions
   void TR(char *s) { *(stream) << "<TR " << s << ">"; }
 
 protected:
-  GXSTD::ostream *stream;     // Stream to output HTML data
+  std::ostream *stream;     // Stream to output HTML data
   int dec_precision;   // Decimal point precision for floating points  
   int non_breaking_sp; // True if using non-breaking spaces
 };
@@ -263,7 +259,7 @@ protected:
 class GXDLCODE_API HyperText : public HyperTextDrv
 {
 public:
-  HyperText(GXSTD::ostream &s) : HyperTextDrv(s) { }
+  HyperText(std::ostream &s) : HyperTextDrv(s) { }
   ~HyperText() { }
   
 public: // Functions used to create HTML document templates

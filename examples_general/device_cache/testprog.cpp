@@ -32,12 +32,8 @@ This is a test program for the device cache classes.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -46,9 +42,6 @@ using namespace std; // Use unqualified names for Standard C++ library
 #include "memblock.h"
 #include "membuf.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 // Example class used to create the device cache
 class gxFileCache : public gxDeviceCache
@@ -183,9 +176,6 @@ int gxFileCache::OpenOutputFile(const char *out)
 
 int main(int argc, char **argv)
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   if(argc < 3) {
     cout << "\n";

@@ -49,12 +49,6 @@ thread API functions for each supported platform.
 typedef LPSECURITY_ATTRIBUTES gxMutexAttribute; 
 typedef LPSECURITY_ATTRIBUTES gxConditionAttribute;
 
-#elif defined (__HPUX10__) && defined (__POSIX__)
-// HPUX 10.20 Common Multithread Architecture (CMA) services
-// POSIX 1003.4 interface
-typedef cma_t_attr gxMutexAttribute;
-typedef cma_t_attr gxConditionAttribute;
-
 #elif defined (__POSIX__)
 // POSIX 1003.1c 1995 thread standard
 typedef pthread_mutexattr_t gxMutexAttribute;

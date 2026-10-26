@@ -32,19 +32,12 @@ This is a test program for the gxConfig class.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <stdio.h>
 #include "gxconfig.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 // Data structure use to store program gxConfiguration values
 struct ProgramgxConfig
@@ -232,9 +225,6 @@ void NewParmID(gxConfig *CfgData)
 
 int main()
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   gxConfig *CfgData = new gxConfig;
   ProgramgxConfig *cfg = new ProgramgxConfig;

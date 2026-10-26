@@ -32,12 +32,8 @@ Test program for the generic binary search tree class.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <stdio.h>
 #include <time.h>
@@ -46,9 +42,6 @@ using namespace std; // Use unqualified names for Standard C++ library
 #include "ustring.h"
 #include "dfileb.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 void InputData(UString &sbuf)
 // Input a line of text from the console
@@ -566,9 +559,6 @@ void ExtractInReverseOrder(gxBStree<UString> &tree)
 int main()
 // Test program's main thread of execution
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   Menu(); // Display the options menu
   

@@ -41,9 +41,6 @@ function that could occur during a database read error condition.
 
 #include "gpersist.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 gxDatabaseError gxPersistent::Connect(POD *DB) 
 {
@@ -259,9 +256,6 @@ int gxPersistent::ReadObject()
   return 1;
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

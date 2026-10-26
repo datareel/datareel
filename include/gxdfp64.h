@@ -69,7 +69,6 @@ throughout the library.
 
 #include "gxdlcode.h"
 
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
 
 // Non-platform specific include files
 #include <string.h>
@@ -97,16 +96,9 @@ struct GXDLCODE_API gxdFPTR64 {
 #if defined (__WIN32__) && defined (__MSVC__)
   // WIN32 file pointer type for MSVC
   HANDLE fptr;
-#elif defined (__WIN32__) && defined (__BCC32__)
-  // WIN32 file pointer type for BCC32
-  HANDLE fptr;
 #elif defined (__UNIX__) && defined (__LINUX__)
   // NOTE: Large file support for Linux is supported by RedHat
   // Linux 6.2 and higher.
-  FILE *fptr;
-#elif defined (__UNIX__) && defined (__HPUX__)
-  FILE *fptr;
-#elif defined (__UNIX__) && defined (__SOLARIS__)
   FILE *fptr;
 #else
 #error You must define a target platform and/or compiler
@@ -130,7 +122,6 @@ GXDLCODE_API __LLWORD__ gxdFPTR64Tell(gxdFPTR64 *stream);
 GXDLCODE_API int gxdFPTR64Exists(const char *fname);
 GXDLCODE_API __LLWORD__ gxdFPTR64FileSize(const char *fname);
 
-#endif // __64_BIT_DATABASE_ENGINE__ || __ENABLE_64_BIT_INTEGERS__
 
 #endif // __GX_DATABASE_FILE_POINTER_64_HPP__
 // ----------------------------------------------------------- // 

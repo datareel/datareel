@@ -36,9 +36,6 @@ sorted.
 
 #include "dbasekey.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 DatabaseKeyB::DatabaseKeyB(void *kptr)
 {
@@ -54,9 +51,6 @@ DatabaseKeyB::~DatabaseKeyB()
   // free store memory used for the db_key pointer.
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

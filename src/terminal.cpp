@@ -62,9 +62,6 @@ macro is defined during the library build.
 #include <sys/time.h>
 #endif
 
-#ifdef __BCC32__
-#pragma warn -8071
-#endif
 
 GXDLCODE_API Terminal I_TERM;              // Independent Terminal type object
 GXDLCODE_API Terminal *terminal = &I_TERM; // Global terminal pointer
@@ -363,16 +360,11 @@ void Terminal::Write(const unsigned char c, int x, int y) const
 // Write a unsigned character to the screen.
 {
   if (x != -1) move (y, x);
-#if defined ( __BCC32__)
-  addch(c);
-  refresh();
-#else
   char s[2];
   s[0] = c;    // Copy char into a string buffer
   s[1] = '\0'; // Null terminate the string
   addstr(s);
   refresh();
-#endif
 }
 
 void Terminal::Write(unsigned char c, int x, int y) 
@@ -380,48 +372,33 @@ void Terminal::Write(unsigned char c, int x, int y)
 {
   if (x != -1) move (y, x);
 
-#if defined (__BCC32__)
-  addch(c);
-  refresh();
-#else
   char s[2];
   s[0] = c;    // Copy char into a string buffer
   s[1] = '\0'; // Null terminate the string
   addstr(s);
   refresh();
-#endif
 }
 
 void Terminal::Write(const char c, int x, int y) const
 // Write a signed character to the screen.
 {
   if (x != -1) move (y, x);
-#if defined (__BCC32__)
-  addch(c);
-  refresh();
-#else
   char s[2];
   s[0] = c;    // Copy char into a string buffer
   s[1] = '\0'; // Null terminate the string
   addstr(s);
   refresh();
-#endif
 }
 
 void Terminal::Write(char c, int x, int y) 
 // Write a signed character to the screen.
 {
   if (x != -1) move (y, x);
-#if defined (__BCC32__)
-  addch(c);
-  refresh();
-#else
   char s[2];
   s[0] = c;    // Copy char into a string buffer
   s[1] = '\0'; // Null terminate the string
   addstr(s);
   refresh();
-#endif
 }
 
 void Terminal::Write(const char *s, int x, int y) const
@@ -429,11 +406,7 @@ void Terminal::Write(const char *s, int x, int y) const
 {
   if (x != -1) move (y, x);
 
-#ifdef __SOLARIS__
-  addstr((char *)s);
-#else
   addstr(s);
-#endif
   
   refresh();
 }
@@ -523,11 +496,7 @@ void Terminal::StandOut(const char *s, int x, int y) const
   if (x != -1) move (y, x);
   standout();
 
-#ifdef __SOLARIS__
-  addstr((char *)s);
-#else
   addstr(s);
-#endif
   
   standend();
   refresh();
@@ -566,7 +535,7 @@ int Terminal::KBWait() const
 // Test for a keyboard character waiting. Continue processing until
 // the user interrupts by hitting a key.
 {
-#if defined (__DOS__) || defined (__WIN32__)
+#if defined(__WIN32__)
   return kbhit();
 
 #elif defined (__UNIX__)
@@ -615,7 +584,7 @@ int Terminal::KBWait() const
 
 void Terminal::init()
 {
-#if defined (__DOS__) || defined (__WIN32__)
+#if defined(__WIN32__)
   // Simulate an initscr() call 
   printf("\033[m"); // Normal text attributes
   fflush(stdout);
@@ -672,7 +641,7 @@ void Terminal::SetMaxCols(int cols)
     maxcols = cols;
 }
 
-#if defined (__DOS__) || defined (__WIN32__)
+#if defined(__WIN32__)
 // ===============================================================
 // Stand alone functions used to port this code from UNIX to DOS,
 // Windows 3.11, and Windows 95. These functions are used to
@@ -776,9 +745,6 @@ GXDLCODE_API void NormalText()
 // ===============================================================
 #endif // __DOS__ || __WIN32__
 
-#ifdef __BCC32__
-#pragma warn .8071
-#endif
 
 #endif // __USE_TERMINAL_IO__
 // ----------------------------------------------------------- //

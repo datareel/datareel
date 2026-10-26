@@ -35,9 +35,6 @@ file pointers to database data files and index files.
 
 #include "pod.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 PODIndexFile::PODIndexFile(unsigned num_indexes)
 {
@@ -55,9 +52,6 @@ PODIndexFile::PODIndexFile(unsigned num_indexes)
   for(i = 0; i < n_indexes; i++) {
     index_file[i] = new PODIndexFile_t;
     if(!index_file[i]) { // Check for any memory allocation errors
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#endif
     }
   }
 }
@@ -83,11 +77,7 @@ gxDatabaseError PODIndexFile::Open(const char *ifname,
   // Construct a new Btree for the specified index
   gxBtree *btree = new gxBtree(key_type, order);
   if(!btree) { 
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_MEM_ALLOC_ERROR;
-#endif
   }
   index_file[index_number]->btree = btree;  
   curr_index = index_number;
@@ -286,11 +276,7 @@ gxDatabaseError POD::Open(const char *dfname, char *ifname[POD_MAX_INDEX],
   openindexfile = new PODIndexFile(num_indexes);
   if(!openindexfile) {  // Memory allocation error
     using_index = 0;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_MEM_ALLOC_ERROR;
-#endif
   }
   else {
     using_index = 1;
@@ -351,12 +337,8 @@ void POD::Release()
 // object is referencing this POD database and the database has
 // been closed or the file pointers have been deleted.
 {
-#if defined (__PCLINT_CHECK__)
-  return;
-#else 
   opendatafile = 0;
   openindexfile = 0;
-#endif
 }
 
 gxDatabaseError POD::Close()
@@ -420,11 +402,7 @@ gxDatabaseError POD::CreateDataFile(const char *fname, FAU_t static_size,
   }
   opendatafile = new gxDatabase;
   if(!opendatafile) { // Check for any memory allocation errors
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_MEM_ALLOC_ERROR;
-#endif
   }
   return opendatafile->Create(fname, static_size, rev_letter);
 }
@@ -441,11 +419,7 @@ gxDatabaseError POD::CreateIndex(const char *fname, unsigned index_number,
   
   gxBtree *btree = new gxBtree(key_type, order);
   if(!btree) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_MEM_ALLOC_ERROR;
-#endif
   }
 
   // PC-lint 09/15/2005: Possible use of null pointer
@@ -463,11 +437,7 @@ void POD::ReleaseDataFile()
 // referencing this file pointer and the file has been closed
 // or the pointer has been deleted.
 {
-#if defined (__PCLINT_CHECK__)
-  return;
-#else 
   opendatafile = 0;
-#endif
 }
 
 gxDatabaseError POD::CloseDataFile()
@@ -490,11 +460,7 @@ void POD::ReleaseIndexFile()
 // referencing this file pointer and the file has been closed
 // or the pointer has been deleted.
 {
-#if defined (__PCLINT_CHECK__)
-  return;
-#else 
   openindexfile = 0;
-#endif
 }
 
 gxDatabaseError POD::CloseIndex(unsigned index_number)
@@ -562,11 +528,7 @@ gxDatabaseError POD::OpenDataFile(const char *fname, gxDatabaseAccessMode mode)
 
   opendatafile = new gxDatabase;
   if(!opendatafile) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_MEM_ALLOC_ERROR;
-#endif
   }
   return opendatafile->Open(fname, mode);
 }
@@ -580,32 +542,20 @@ gxDatabaseError POD::OpenIndex(const char *fname, unsigned index_number,
   }
   gxBtree *btree = new gxBtree(key_type, order);
   if(!btree) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_MEM_ALLOC_ERROR;
-#endif
   }
 
   // PC-lint 09/15/2005: Possible use of null pointer
   if(!openindexfile) {
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     delete btree;
     return gxDBASE_NULL_PTR;
-#endif
   }
   // 10/14/2026: Check the index number and its entry (the index_file array
   // itself can never be null), and free the B-tree on both error paths
   if((index_number >= openindexfile->n_indexes) ||
      (!openindexfile->index_file[index_number])) {
     delete btree;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxDBASE_NULL_PTR;
-#endif
   }
 
   openindexfile->index_file[index_number]->btree = btree;
@@ -723,9 +673,6 @@ const char *POD::IndexFileExceptionMessage(unsigned index_number)
   return gxbtree->DatabaseExceptionMessage();
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

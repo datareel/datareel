@@ -32,22 +32,14 @@ This is a test program for the DiskFileB class.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 #include <iomanip>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#include <iomanip.h>
-#endif // __USE_ANSI_CPP__
 
 #include <string.h>
 #include <stdio.h>
 #include "dfileb.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 void PausePrg() 
 {
@@ -515,9 +507,6 @@ void OverLoadTest()
 
 int main()
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   cout << "\n";
 

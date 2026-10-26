@@ -65,15 +65,8 @@ conversion functions.
 
 #include "gxdlcode.h"
 
-#if defined (__USE_CPP_IOSTREAM__)
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 #include <iomanip>
-#else // Use the old iostream library by default
-#include <iostream.h>
-#include <iomanip.h>
-#endif // __USE_ANSI_CPP__
-#endif // __USE_CPP_IOSTREAM__
 
 #include <string.h>
 #include "strutil.h"
@@ -128,18 +121,16 @@ public: // Overloaded operators
   GXDLCODE_API friend int operator>(const FString &a, const FString &b);
   GXDLCODE_API friend int operator!=(const FString &a, const FString &b);
 
-#if defined (__USE_CPP_IOSTREAM__)
 public: // Class type to ostream type conversions
-  GXDLCODE_API friend GXSTD::ostream &operator<<(GXSTD::ostream &os, 
+  GXDLCODE_API friend std::ostream &operator<<(std::ostream &os, 
 						 const FString &s) {
     return os.write(s.sptr, strlen(s.sptr));
   }
-  GXDLCODE_API friend GXSTD::istream &operator>>(GXSTD::istream &os, 
+  GXDLCODE_API friend std::istream &operator>>(std::istream &os, 
 						 FString &s) {
-    os >> GXSTD::setw(FStringLength+1) >> s.sptr;
+    os >> std::setw(FStringLength+1) >> s.sptr;
     return os;
   }
-#endif // __USE_CPP_IOSTREAM__
        
 public: // The FString structure can have only one data member
   char sptr[FStringLength+1]; // Fixed string length plus null terminator

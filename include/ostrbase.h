@@ -45,13 +45,8 @@ operations.
 #include "gxdlcode.h"
 
 // This directive must be defined to use the OutputStreamB class
-#if defined (__USE_CPP_IOSTREAM__)
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <fstream>
-#else // Use the old iostream library by default
-#include <fstream.h>
-#endif // __USE_ANSI_CPP__
 
 // Constants
 const int ostrDefaultPrecision = 2; // Default precision for floating points
@@ -71,7 +66,7 @@ class GXDLCODE_API OutputStreamB
 {
 public:
   OutputStreamB();
-  OutputStreamB(GXSTD::ostream &s); 
+  OutputStreamB(std::ostream &s); 
   virtual ~OutputStreamB();
 
 protected: // Filtered output functions used to write text 
@@ -108,7 +103,7 @@ public: // Formatting functions
   void put_htm_space() { non_breaking_sp = 0; }  // Use breaking spaces
   
 public: // Overloaded operators
-  GXSTD::ostream &operator<<(GXSTD::ostream & (*_f)(GXSTD::ostream&));
+  std::ostream &operator<<(std::ostream & (*_f)(std::ostream&));
   OutputStreamB &operator<<(char *s);
   OutputStreamB &operator<<(const char *s);
   OutputStreamB &operator<<(unsigned char *s);
@@ -131,13 +126,12 @@ public: // Overloaded operators
   OutputStreamB &operator<<(double val);
   
 protected:
-  GXSTD::ostream *stream;     // ostream object set by the derived class
+  std::ostream *stream;     // ostream object set by the derived class
   int non_breaking_sp;        // True if using non-breaking spaces
   int dec_precision;          // Decimal point precision for floating points  
   ostrFilterMode filter_mode; // Set character filter mode
 };
 
-#endif // __USE_CPP_IOSTREAM__
 
 #endif // __GX_OUTPUT_STREAM_BASE_HPP__
 // ----------------------------------------------------------- // 

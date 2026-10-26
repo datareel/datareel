@@ -42,7 +42,6 @@ to work with the GNU MINGW32 compiler.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
 
 #include "gxuint64.h"
 
@@ -98,12 +97,7 @@ __ULLWORD__ gxUINT64::PackBits() const
   b = (b<<8) & 0xFF00;
   c = (c<<16) & 0xFF0000;
   d = (d<<24) & 0xFF000000;
-#if defined (__MINGW32__)
-  e = (e<<32) & 0xFF00000000LL;
-  f = (f<<40) & 0xFF0000000000LL;
-  g = (g<<48) & 0xFF000000000000LL;
-  h = (h<<56) & 0xFF00000000000000LL;
-#elif defined (__LINUX__)
+#if defined(__LINUX__)
   e = (e<<32) & 0xFF00000000LL;
   f = (f<<40) & 0xFF0000000000LL;
   g = (g<<48) & 0xFF000000000000LL;
@@ -123,12 +117,7 @@ void gxUINT64::UnPackBits(__ULLWORD__ val)
   byte[1] = (__SBYTE__)((val & 0xFF00)>>8);
   byte[2] = (__SBYTE__)((val & 0xFF0000)>>16);
   byte[3] = (__SBYTE__)((val & 0xFF000000)>>24);
-#if defined (__MINGW32__)
-  byte[4] = (__SBYTE__)((val & 0xFF00000000LL)>>32);
-  byte[5] = (__SBYTE__)((val & 0xFF0000000000LL)>>40);
-  byte[6] = (__SBYTE__)((val & 0xFF000000000000LL)>>48);
-  byte[7] = (__SBYTE__)((val & 0xFF00000000000000LL)>>56);
-#elif defined (__LINUX__)
+#if defined(__LINUX__)
   byte[4] = (__SBYTE__)((val & 0xFF00000000LL)>>32);
   byte[5] = (__SBYTE__)((val & 0xFF0000000000LL)>>40);
   byte[6] = (__SBYTE__)((val & 0xFF000000000000LL)>>48);
@@ -885,28 +874,25 @@ gxUINT64 &gxUINT64::StringToUINT64(char *str)
   return *this;
 }
 
-#if defined (__USE_CPP_IOSTREAM__)
-GXDLCODE_API GXSTD::ostream &operator<<(GXSTD::ostream &os, 
+GXDLCODE_API std::ostream &operator<<(std::ostream &os, 
 					const gxUINT64 &val)
 {
   char sbuf[64];
   return os << val.c_str(sbuf);
 }
 
-GXDLCODE_API GXSTD::istream &operator>>(GXSTD::istream &os, 
+GXDLCODE_API std::istream &operator>>(std::istream &os, 
 					gxUINT64 &val) 
 {
   char sbuf[25];
   for(unsigned i = 0; i < 25; i++) sbuf[i] = 0;
-  os >> GXSTD::setw(25) >> sbuf;
+  os >> std::setw(25) >> sbuf;
   val.StringToUINT64(sbuf);
   return os;
 }
-#endif // __USE_CPP_IOSTREAM__
 
 #endif // __USE_NATIVE_INT_TYPES__ 
 
-#endif // __64_BIT_DATABASE_ENGINE__ || __ENABLE_64_BIT_INTEGERS__
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

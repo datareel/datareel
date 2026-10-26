@@ -46,9 +46,6 @@ negative limit of 32,768.
 typedef short gxINT16;
 #else
 
-#ifdef __BCC32__
-#pragma warn -8071
-#endif
 
 // Data structure for signed 16 bit integer values.
 class GXDLCODE_API gxINT16
@@ -232,9 +229,6 @@ private:
   __SBYTE__ byte[2];
 };
 
-#ifdef __BCC32__
-#pragma warn .8071
-#endif
 
 #endif // __USE_NATIVE_INT_TYPES__
 

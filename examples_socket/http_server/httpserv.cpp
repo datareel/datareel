@@ -33,11 +33,7 @@ libraries.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <string.h>
 #include "httpserv.h"
@@ -120,12 +116,12 @@ void PrintMessage(const char *s1, const char *s2, const char *s3)
   servercfg->display_is_locked = 1; 
 
   // ********** Enter Critical Section ******************* //
-  GXSTD::cout << "\n";
-  if(s1) GXSTD::cout << s1;
-  if(s2) GXSTD::cout << s2;
-  if(s3) GXSTD::cout << s3;
-  GXSTD::cout << "\n";
-  GXSTD::cout.flush(); // Flush the ostream buffer to the stdio
+  std::cout << "\n";
+  if(s1) std::cout << s1;
+  if(s2) std::cout << s2;
+  if(s3) std::cout << s3;
+  std::cout << "\n";
+  std::cout.flush(); // Flush the ostream buffer to the stdio
   // ********** Leave Critical Section ******************* //
 
   // Tell other threads that this write is complete

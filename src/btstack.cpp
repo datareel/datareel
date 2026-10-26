@@ -35,9 +35,6 @@ during non-recursive insertions and deletions.
 
 #include "btstack.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 BtreeStack::~BtreeStack()
 {
@@ -226,9 +223,6 @@ FAU_t BtreeStack::Extract()
   return FreeNode(stack_node);
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

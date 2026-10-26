@@ -366,7 +366,7 @@ void PostScriptDrv::DocumentSetup(double LR_margin, double TB_margin, int man)
   }
 }
 
-void PostScriptDrv::Prologue(GXSTD::ostream &stream, char *pn, char *hn,
+void PostScriptDrv::Prologue(std::ostream &stream, char *pn, char *hn,
 			     char *cd, char *un)
 // Generates the PostScript header and includes the prologue.
 // Arguments are: pn - Program Name, hn - Hostname,
@@ -416,21 +416,21 @@ void PostScriptDrv::Prologue(GXSTD::ostream &stream, char *pn, char *hn,
   stream << "%%EndProlog" << "\n";
 }
 
-void PostScriptDrv::drawLine(GXSTD::ostream &stream, int points,
+void PostScriptDrv::drawLine(std::ostream &stream, int points,
 				       int xpos, int ypos)
 {
   stream << points << " " << xpos << " " << ypos << " drawLine"
 	 << "\n";
 }
 
-void PostScriptDrv::drawThickLine(GXSTD::ostream &stream, int points,
+void PostScriptDrv::drawThickLine(std::ostream &stream, int points,
 				  int xpos, int ypos)
 {
   stream << points << " " << xpos << " " << ypos << " drawThickLine"
 	 << "\n";
 }
 
-int PostScriptDrv::ProcessText(char *in, GXSTD::ostream &stream, int cut, 
+int PostScriptDrv::ProcessText(char *in, std::ostream &stream, int cut, 
 			       int filter)
 // Process a line of text before printing it. If cut is true the line
 // will be truncated to match the number of columns for this line. If
@@ -483,7 +483,7 @@ int PostScriptDrv::ProcessText(char *in, GXSTD::ostream &stream, int cut,
   }
 }
 
-int PostScriptDrv::PrintLine(char *in, GXSTD::ostream &stream)
+int PostScriptDrv::PrintLine(char *in, std::ostream &stream)
 // Print a line of PostScript text, escaping characters when
 // necessary and handling tabs.
 {
@@ -652,7 +652,7 @@ int PostScriptDrv::PrintLine(char *in, GXSTD::ostream &stream)
   return 1;
 }
 
-void PostScriptDrv::EndPage(GXSTD::ostream &stream)
+void PostScriptDrv::EndPage(std::ostream &stream)
 // Terminate the page and indicate the start of the next
 {
   if (page_count == MAXPAGES) return; // pagelimit reached;
@@ -660,7 +660,7 @@ void PostScriptDrv::EndPage(GXSTD::ostream &stream)
   page_count++;
 }
 
-void PostScriptDrv::ChangeFont(GXSTD::ostream &stream, PSFonts font, 
+void PostScriptDrv::ChangeFont(std::ostream &stream, PSFonts font, 
 			       double size)
 // Change the font before printing
 {
@@ -668,7 +668,7 @@ void PostScriptDrv::ChangeFont(GXSTD::ostream &stream, PSFonts font,
   stream << "findfont " << size << " scalefont setfont" << "\n"; 
 }
 
-void PostScriptDrv::StartPage(int n, GXSTD::ostream &stream)
+void PostScriptDrv::StartPage(int n, std::ostream &stream)
 // Start a new page
 {
   stream << "%%Page: ? " << n << "\n"; 
@@ -755,7 +755,7 @@ void PostScriptDrv::StartPage(int n, GXSTD::ostream &stream)
 }
 
 int PostScriptDrv::ConvertTextFile(DiskFileB &infile, 
-				   GXSTD::ostream &stream,
+				   std::ostream &stream,
 				   int wrap, int cut)
 // Convert the ASCII document to postscript. Returns 1 if successful.
 // If wrap is true the line will wrap around the page if the number
@@ -834,14 +834,14 @@ int PostScriptDrv::ConvertTextFile(DiskFileB &infile,
 
 // PC-lint 04/26/2005: Declaration of page_count changed to pc.
 // page_count is a member of the PostScriptDrv class.
-void PostScriptDrv::Epilogue(GXSTD::ostream &stream, int pc)
+void PostScriptDrv::Epilogue(std::ostream &stream, int pc)
 {
   stream << "%%Trailer" << "\n";
   stream << "%%Pages: " << pc << "\n";
 }
 
 
-void PostScriptDrv::MediaSetup(GXSTD::ostream &stream, int duplex, 
+void PostScriptDrv::MediaSetup(std::ostream &stream, int duplex, 
 			       int manualfeed,
 			       int use_tray, int tray_number)
 // Sets the physical sources and physical destinations for the media
@@ -885,7 +885,7 @@ void PostScriptDrv::MediaSetup(GXSTD::ostream &stream, int duplex,
   stream << "%%EndSetup" << "\n";
 }
 
-void PostScriptDrv::MoveTo(GXSTD::ostream &stream, int x, int y)
+void PostScriptDrv::MoveTo(std::ostream &stream, int x, int y)
 {
  stream << x << " "  << y << " " << MOVETO << "\n";
 }
@@ -903,7 +903,7 @@ int PostScriptDrv::StringLen(const char *s, int charWidth)
 }
 
 int PostScriptDrv::PrintLine(char *s, unsigned max_len, 
-			     GXSTD::ofstream &stream)
+			     std::ofstream &stream)
 {
   if(s == 0 || max_len <= 0) return 0;
   

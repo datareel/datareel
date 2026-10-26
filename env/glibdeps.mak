@@ -401,7 +401,6 @@ GXDLCODE_DEP = $(GLIB_INCLUDE_PATH)asprint.h \
 	$(GLIB_INCLUDE_PATH)gxrdbdef.h \
 	$(GLIB_INCLUDE_PATH)gxrdbhdr.h \
 	$(GLIB_INCLUDE_PATH)gxrdbms.h \
-	$(GLIB_INCLUDE_PATH)gxrdbsql.h \
 	$(GLIB_INCLUDE_PATH)gxs_b64.h \
 	$(GLIB_INCLUDE_PATH)gxs_ver.h \
 	$(GLIB_INCLUDE_PATH)gxscomm.h \
@@ -428,7 +427,6 @@ GXDLCODE_DEP = $(GLIB_INCLUDE_PATH)asprint.h \
 	$(GLIB_INCLUDE_PATH)htmldrv.h \
 	$(GLIB_INCLUDE_PATH)infohog.h \
 	$(GLIB_INCLUDE_PATH)keytypes.h \
-	$(GLIB_INCLUDE_PATH)leaktest.h \
 	$(GLIB_INCLUDE_PATH)logfile.h \
 	$(GLIB_INCLUDE_PATH)memblock.h \
 	$(GLIB_INCLUDE_PATH)membuf.h \
@@ -445,9 +443,7 @@ GXDLCODE_DEP = $(GLIB_INCLUDE_PATH)asprint.h \
 	$(GLIB_INCLUDE_PATH)thrpool.h \
 	$(GLIB_INCLUDE_PATH)thrtypes.h \
 	$(GLIB_INCLUDE_PATH)ustring.h \
-	$(GLIB_INCLUDE_PATH)wserror.h \
-	$(GLIB_INCLUDE_PATH)wx2incs.h \
-	$(GLIB_INCLUDE_PATH)wxincs.h
+	$(GLIB_INCLUDE_PATH)wserror.h
 
 GXDSTATS_DEP = $(GLIB_INCLUDE_PATH)dfileb.h \
 	$(GLIB_INCLUDE_PATH)futils.h \
@@ -628,45 +624,6 @@ GXRDBMS_DEP = $(GLIB_INCLUDE_PATH)btcache.h \
 	$(GLIB_INCLUDE_PATH)gxrdbms.h \
 	$(GLIB_INCLUDE_PATH)dbugmgr.h
 
-GXRDBSQL_DEP =  $(GLIB_INCLUDE_PATH)btcache.h \
-	$(GLIB_INCLUDE_PATH)btnode.h \
-	$(GLIB_INCLUDE_PATH)btstack.h \
-	$(GLIB_INCLUDE_PATH)dbasekey.h \
-	$(GLIB_INCLUDE_PATH)dfileb.h \
-	$(GLIB_INCLUDE_PATH)futils.h \
-	$(GLIB_INCLUDE_PATH)gxbtree.h \
-	$(GLIB_INCLUDE_PATH)gxcrc32.h \
-	$(GLIB_INCLUDE_PATH)gxd_ver.h \
-	$(GLIB_INCLUDE_PATH)gxdbase.h \
-	$(GLIB_INCLUDE_PATH)gxderror.h \
-	$(GLIB_INCLUDE_PATH)gxdfp64.h \
-	$(GLIB_INCLUDE_PATH)gxdfptr.h \
-	$(GLIB_INCLUDE_PATH)gxdlcode.h \
-	$(GLIB_INCLUDE_PATH)gxdtyp64.h \
-	$(GLIB_INCLUDE_PATH)gxdtypes.h \
-	$(GLIB_INCLUDE_PATH)gxheader.h \
-	$(GLIB_INCLUDE_PATH)gxint32.h \
-	$(GLIB_INCLUDE_PATH)gxint64.h \
-	$(GLIB_INCLUDE_PATH)gxuint32.h \
-	$(GLIB_INCLUDE_PATH)gxuint64.h \
-	$(GLIB_INCLUDE_PATH)keytypes.h \
-	$(GLIB_INCLUDE_PATH)pod.h \
-	$(GLIB_INCLUDE_PATH)strutil.h \
-	$(GLIB_INCLUDE_PATH)cdate.h \
-	$(GLIB_INCLUDE_PATH)gxuint16.h \
-	$(GLIB_INCLUDE_PATH)membuf.h \
-	$(GLIB_INCLUDE_PATH)gxfloat.h \
-	$(GLIB_INCLUDE_PATH)ustring.h \
-	$(GLIB_INCLUDE_PATH)gxstring.h \
-	$(GLIB_INCLUDE_PATH)dfileb.h \
-	$(GLIB_INCLUDE_PATH)bstnode.h \
-	$(GLIB_INCLUDE_PATH)bstreei.h \
-	$(GLIB_INCLUDE_PATH)gxdlcode.h \
-	$(GLIB_INCLUDE_PATH)gxlist.h \
-	$(GLIB_INCLUDE_PATH)gxrdbhdr.h \
-	$(GLIB_INCLUDE_PATH)gxrdbms.h \
-	$(GLIB_INCLUDE_PATH)systime.h \
-	$(GLIB_INCLUDE_PATH)gxrdbsql.h
 
 GXS_B64_DEP = $(GLIB_INCLUDE_PATH)gxdlcode.h \
 	$(GLIB_INCLUDE_PATH)gxdtyp64.h \
@@ -903,8 +860,6 @@ HTMLDRV_DEP = $(GLIB_INCLUDE_PATH)gxdlcode.h \
 	$(GLIB_INCLUDE_PATH)strutil.h \
 	$(GLIB_INCLUDE_PATH)ustring.h
 
-LEAKTEST_DEP = $(GLIB_INCLUDE_PATH)gxdlcode.h \
-	$(GLIB_INCLUDE_PATH)leaktest.h
 
 LOGFILE_DEP = $(GLIB_INCLUDE_PATH)dfileb.h \
 	$(GLIB_INCLUDE_PATH)futils.h \
@@ -1034,7 +989,6 @@ STDAFX_DEP = $(GLIB_INCLUDE_PATH)asprint.h \
 	$(GLIB_INCLUDE_PATH)gxrdbdef.h \
 	$(GLIB_INCLUDE_PATH)gxrdbhdr.h \
 	$(GLIB_INCLUDE_PATH)gxrdbms.h \
-	$(GLIB_INCLUDE_PATH)gxrdbsql.h \
 	$(GLIB_INCLUDE_PATH)gxs_b64.h \
 	$(GLIB_INCLUDE_PATH)gxs_ver.h \
 	$(GLIB_INCLUDE_PATH)gxscomm.h \
@@ -1061,7 +1015,6 @@ STDAFX_DEP = $(GLIB_INCLUDE_PATH)asprint.h \
 	$(GLIB_INCLUDE_PATH)htmldrv.h \
 	$(GLIB_INCLUDE_PATH)infohog.h \
 	$(GLIB_INCLUDE_PATH)keytypes.h \
-	$(GLIB_INCLUDE_PATH)leaktest.h \
 	$(GLIB_INCLUDE_PATH)logfile.h \
 	$(GLIB_INCLUDE_PATH)memblock.h \
 	$(GLIB_INCLUDE_PATH)membuf.h \
@@ -1078,9 +1031,7 @@ STDAFX_DEP = $(GLIB_INCLUDE_PATH)asprint.h \
 	$(GLIB_INCLUDE_PATH)thrpool.h \
 	$(GLIB_INCLUDE_PATH)thrtypes.h \
 	$(GLIB_INCLUDE_PATH)ustring.h \
-	$(GLIB_INCLUDE_PATH)wserror.h \
-	$(GLIB_INCLUDE_PATH)wx2incs.h \
-	$(GLIB_INCLUDE_PATH)wxincs.h
+	$(GLIB_INCLUDE_PATH)wserror.h
 
 STRUTIL_DEP = $(GLIB_INCLUDE_PATH)gxdlcode.h \
 	$(GLIB_INCLUDE_PATH)gxdtyp64.h \

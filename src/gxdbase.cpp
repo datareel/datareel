@@ -60,11 +60,6 @@ gDatabase::ReclaimBestFit(), and gxDatabase::ReclaimFirstFit().
 
 #include "gxdbase.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#pragma warn -8071
-#pragma warn -8072
-#endif
 
 // Initialize all static variables and data members
 static char gxDefaultFileName[gxMaxNameLength] = "closed.gxd";
@@ -160,11 +155,7 @@ gxDatabaseError gxDatabase::Create(const char *fname, FAU_t static_size,
   // name used to overflow.
   if((!fname) || (strlen(fname) >= (size_t)gxMaxNameLength)) {
     gxd_error = gxDBASE_FILE_OPEN_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxd_error;
-#endif
   }
 
   // Create and truncate existing files
@@ -176,11 +167,7 @@ gxDatabaseError gxDatabase::Create(const char *fname, FAU_t static_size,
     ready_for_writing = 0;
     ready_for_reading = 0;
     gxd_error = gxDBASE_FILE_CREATION_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxd_error;
-#endif
   }
   else {
     is_open = 1;
@@ -287,11 +274,7 @@ gxDatabaseError gxDatabase::Open(const char *fname,
   // name used to overflow.
   if((!fname) || (strlen(fname) >= (size_t)gxMaxNameLength)) {
     gxd_error = gxDBASE_FILE_OPEN_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxd_error;
-#endif
   }
 
   if(mode == gxDBASE_READONLY) { // Open with read only access
@@ -309,11 +292,7 @@ gxDatabaseError gxDatabase::Open(const char *fname,
     ready_for_reading = 0;
     ready_for_writing = 0;
     gxd_error = gxDBASE_FILE_OPEN_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxd_error;
-#endif
   }
   else {
     is_open = 1;
@@ -328,11 +307,7 @@ gxDatabaseError gxDatabase::Open(const char *fname,
 	      (gxSignatureSize-1))) { 
       gxd_error = gxDBASE_WRONG_FILE_TYPE;
       is_ok = 0;
-#ifdef __CPP_EXCEPTIONS__
-       throw gxCDatabaseException();
-#else
        return gxd_error;
-#endif
     }
   }
 
@@ -359,11 +334,7 @@ gxDatabaseError gxDatabase::Close()
 
     if(gxdFPTRClose(fp) != 0) {
       gxd_error = gxDBASE_FILE_CLOSE_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return gxd_error;
-#endif
     }
     strcpy(file_name, gxDefaultFileName); // Set the initial file name
   }
@@ -387,11 +358,7 @@ gxDatabaseError gxDatabase::Flush()
     if(WriteFileHdr() != gxDBASE_NO_ERROR) return gxd_error;
     if(gxdFPTRFlush(fp) != 0) {
       gxd_error = gxDBASE_FILE_WRITE_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return gxd_error;
-#endif
     }
     Seek((FAU_t)0, gxDBASE_SEEK_CUR);
   }
@@ -406,21 +373,13 @@ gxDatabaseError gxDatabase::Seek(FAU_t offset, gxDatabaseSeekMode mode)
   if(IsOK()) {
     if(gxdFPTRSeek(fp, offset, mode)  == (FAU_t)-1) {
       gxd_error = gxDBASE_FILE_SEEK_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return gxd_error;
-#endif
     }
     last_operation = gxDBASE_SEEK;
   }
   else {
     gxd_error = gxDBASE_FILE_NOT_READY;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxd_error;
-#endif
   }
   return gxd_error = gxDBASE_NO_ERROR;
 }
@@ -477,21 +436,13 @@ gxDatabaseError gxDatabase::Read(void *buf, __ULWORD__ bytes,
     if((bytes_read == 0) && (bytes == 0)) bytes_read = bytes;
     if(bytes_read != bytes) {
       gxd_error = gxDBASE_FILE_READ_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return gxd_error;
-#endif
     }
     last_operation = gxDBASE_READ;
   }
   else {
     gxd_error = gxDBASE_FILE_NOT_READY;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxd_error;
-#endif
   }
 
   return gxd_error = gxDBASE_NO_ERROR;
@@ -530,22 +481,14 @@ gxDatabaseError gxDatabase::Write(const void *buf, __ULWORD__ bytes,
     
     if(gxdFPTRWrite(fp, buf, bytes) != bytes) {
       gxd_error = gxDBASE_FILE_WRITE_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return gxd_error;
-#endif
     }
     last_operation = gxDBASE_WRITE;
     if(write_hook) (*write_hook)(write_hook_data); // 10/25/2026
   }
   else {
     gxd_error = gxDBASE_FILE_NOT_WRITEABLE;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxd_error;
-#endif
   }
 
   // Allow application to flush disk buffers after each write
@@ -554,11 +497,7 @@ gxDatabaseError gxDatabase::Write(const void *buf, __ULWORD__ bytes,
   if(flushdb) {  
     if(gxdFPTRFlush(fp) != 0) {
       gxd_error = gxDBASE_FILE_WRITE_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return gxd_error;
-#endif
     }
     if(Seek((FAU_t)0, gxDBASE_SEEK_CUR) != gxDBASE_NO_ERROR) 
       return gxd_error;
@@ -573,11 +512,7 @@ gxDatabaseError gxDatabase::Write(const void *buf, __ULWORD__ bytes,
     
     if(w_csum ^ r_csum) {
       gxd_error = gxDBASE_CHECKSUM_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return gxd_error;
-#endif
     }
   }
   return gxd_error = gxDBASE_NO_ERROR;
@@ -760,11 +695,7 @@ gxDatabaseError gxDatabase::ReadBlockHdr(gxBlockHeader &hdr,
     return gxd_error;
   if(!TestBlockHeader(hdr)) { 
     gxd_error = gxDBASE_SYNC_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxd_error;
-#endif
   }
   return gxd_error = gxDBASE_NO_ERROR;
 }
@@ -908,11 +839,7 @@ FAU_t gxDatabase::Alloc(__ULWORD__ bytes, gxDatabaseReclaimMethod method)
   }
   else {
     gxd_error = gxDBASE_FILE_NOT_WRITEABLE;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return (FAU_t)0;
-#endif
   }
   if(file_address > file_header.gxd_hb_fptr)
     file_header.gxd_hb_fptr = file_address;  
@@ -977,17 +904,11 @@ int gxDatabase::Delete(FAU_t object_address, int remove_object)
   }
   else {
     gxd_error = gxDBASE_FILE_NOT_WRITEABLE;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else 
     return 0;
-#endif
   }
 
   // 06/02/2002: Eliminate unreachable code in function warning under BCC32
-#if !defined (__BCC32__) && !defined(__PCLINT_CHECK__)
   return 0; // Ensure that all paths return a value
-#endif
 }
 
 gxStreamPos gxDatabase::FilePosition()
@@ -996,19 +917,12 @@ gxStreamPos gxDatabase::FilePosition()
 {
   if(!IsOK()) {
     gxd_error = gxDBASE_FILE_NOT_READY;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return (gxStreamPos)-1;
-#endif
   }
 
   gxStreamPos pos = gxdFPTRTell(fp);
   if(pos < 0) {
     gxd_error = gxDBASE_FILE_POSITION_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#endif
   }
   return pos;
 }
@@ -2304,11 +2218,7 @@ int gxDatabase::LockFile(gxDatabaseLockType l_type)
   // lock header.
   if(lock_header.file_lock_protect != (gxUINT32)0) {
     gxd_error = gxDBASE_FILELOCK_ACCESS_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxd_error;
-#endif
   }
   
   switch(l_type) {
@@ -2318,11 +2228,7 @@ int gxDatabase::LockFile(gxDatabaseLockType l_type)
       if((lock_header.file_read_lock != (gxUINT32)0) || 
 	 (lock_header.file_write_lock != (gxUINT32)0)) {
 	gxd_error = gxDBASE_FILELOCK_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return gxd_error;
-#endif
       }
       else {
 	lock_header.file_write_lock = 1;
@@ -2350,11 +2256,7 @@ int gxDatabase::LockFile(gxDatabaseLockType l_type)
       // until the thread holding this lock release the exclusive lock.
       if(lock_header.file_write_lock == 1) {
 	gxd_error = gxDBASE_FILELOCK_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return gxd_error;
-#endif
       }
       
       if(lock_header.file_read_lock < 0xFFFFFFFF) {
@@ -2362,11 +2264,7 @@ int gxDatabase::LockFile(gxDatabaseLockType l_type)
       }
       else {
 	gxd_error = gxDBASE_FILELOCK_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return gxd_error;
-#endif
       }
       
       lock_header.file_lock_protect = 1;
@@ -2386,11 +2284,7 @@ int gxDatabase::LockFile(gxDatabaseLockType l_type)
       
     default: // Invalid lock type specified
       gxd_error =  gxDBASE_INVALID_LOCK_TYPE;
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return gxd_error;
-#endif
   }
   
   return gxd_error = gxDBASE_NO_ERROR;
@@ -2419,11 +2313,7 @@ int gxDatabase::UnlockFile(gxDatabaseLockType l_type)
   // lock header.
   if(lock_header.file_lock_protect != (gxUINT32)0) {
     gxd_error = gxDBASE_FILELOCK_ACCESS_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxd_error;
-#endif
   }
   
   switch(l_type) {
@@ -2475,11 +2365,7 @@ int gxDatabase::UnlockFile(gxDatabaseLockType l_type)
 
     default: // Invalid lock type specified
       gxd_error =  gxDBASE_INVALID_LOCK_TYPE;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxd_error;
-#endif
   }
 
   return gxd_error = gxDBASE_NO_ERROR;
@@ -2584,11 +2470,7 @@ int gxDatabase::LockRecord(gxDatabaseLockType l_type, FAU_t block_address)
   // lock header.
   if(lock_header.record_lock_protect != (gxUINT32)0) {
     gxd_error = gxDBASE_RECORDLOCK_ACCESS_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxd_error;
-#endif
   }
   
   if(block_address == gxCurrAddress) block_address = FilePosition();
@@ -2600,11 +2482,7 @@ int gxDatabase::LockRecord(gxDatabaseLockType l_type, FAU_t block_address)
       // read lock queue have finished
       if(lock_header.record_read_lock != (gxUINT32)0) {
 	gxd_error = gxDBASE_RECORDLOCK_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return gxd_error;
-#endif
       }
 
       if(lock_header.record_write_lock == (gxUINT32)0) {
@@ -2612,11 +2490,7 @@ int gxDatabase::LockRecord(gxDatabaseLockType l_type, FAU_t block_address)
       }
       else { 
 	gxd_error = gxDBASE_RECORDLOCK_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return gxd_error;
-#endif
       }
       
       lock_header.record_lock_protect = 1;
@@ -2641,11 +2515,7 @@ int gxDatabase::LockRecord(gxDatabaseLockType l_type, FAU_t block_address)
       // until the thread holding this lock release the exclusive lock.
       if(lock_header.record_write_lock == 1) {
 	gxd_error = gxDBASE_RECORDLOCK_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return gxd_error;
-#endif
       }
 
       if(lock_header.record_read_lock < 0xFFFFFFFF) {
@@ -2653,11 +2523,7 @@ int gxDatabase::LockRecord(gxDatabaseLockType l_type, FAU_t block_address)
       }
       else {
 	gxd_error = gxDBASE_RECORDLOCK_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-	throw gxCDatabaseException();
-#else
 	return gxd_error;
-#endif
       }
       
       lock_header.record_lock_protect = 1;
@@ -2677,11 +2543,7 @@ int gxDatabase::LockRecord(gxDatabaseLockType l_type, FAU_t block_address)
 
     default: // Invalid lock type specified
       gxd_error =  gxDBASE_INVALID_LOCK_TYPE;
-#ifdef __CPP_EXCEPTIONS__
-      throw gxCDatabaseException();
-#else
       return gxd_error;
-#endif
   }
 
   return gxd_error = gxDBASE_NO_ERROR;
@@ -2710,11 +2572,7 @@ int gxDatabase::UnlockRecord(gxDatabaseLockType l_type, FAU_t block_address)
   // lock header.
   if(lock_header.record_lock_protect != (gxUINT32)0) {
     gxd_error = gxDBASE_RECORDLOCK_ACCESS_ERROR;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxd_error;
-#endif
   }
   
   if(block_address == gxCurrAddress) block_address = FilePosition();
@@ -2769,11 +2627,7 @@ int gxDatabase::UnlockRecord(gxDatabaseLockType l_type, FAU_t block_address)
 
     default: // Invalid lock type specified
       gxd_error =  gxDBASE_INVALID_LOCK_TYPE;
-#ifdef __CPP_EXCEPTIONS__
-    throw gxCDatabaseException();
-#else
     return gxd_error;
-#endif
   }
 
   return gxd_error = gxDBASE_NO_ERROR;
@@ -2846,11 +2700,6 @@ gxDatabaseError gxDatabase::ReadFileStatsHdr(gxFileStatsHeader &hdr)
 // Database File Stat Functions (END HERE)
 // ==============================================================
 
-#ifdef __BCC32__
-#pragma warn .8080
-#pragma warn .8071
-#pragma warn .8072
-#endif
 
 // ----------------------------------------------------------- //
 // ------------------------------- //

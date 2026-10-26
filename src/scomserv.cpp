@@ -36,9 +36,6 @@ blocks over a serial port.
 
 #include "scomserv.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 int gxSerialCommServer::InitCommServer(char *dev, int sp, char pr, int cs,
 				       int sb, int flow)
@@ -291,9 +288,6 @@ int gxSerialCommServer::CloseConnection()
   return scomm_error = gxSerialComm::scomm_NO_ERROR;  
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

@@ -32,18 +32,11 @@ Test program for the embedded POP3 client class.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include "gxspop3.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 int CheckError(gxsPOP3Client *pop3)
 {
@@ -170,9 +163,6 @@ void Top(gxsPOP3Client *pop3)
 
 int main(int argc, char **argv)
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   if(argc < 4) {
     cout << "Usage: " << argv[0] << " server username password" << "\n";

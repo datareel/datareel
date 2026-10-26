@@ -33,18 +33,11 @@ pool class.
 // ----------------------------------------------------------- //   
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include "gxthread.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 // Turn console message on or off before the thread are created
 int display_message = 1;
@@ -76,9 +69,6 @@ void *SimpleThread::ThreadEntryRoutine(gxThread_t *thread)
 
 int main()
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   const unsigned NUM_WORKERS = 10;
 

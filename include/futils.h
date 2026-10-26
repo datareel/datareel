@@ -112,7 +112,6 @@ permissions, user and group ID for UNIX files.
 // TODO: Have to add utime includes for HPUX and Solaris
 // after testing set timestamp function.
 
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
 #include "gxdtyp64.h"
 
 // Platform specific UNIX include files required for 
@@ -121,7 +120,6 @@ permissions, user and group ID for UNIX files.
 #include <sys/statfs.h>
 #elif defined (__UNIX__)
 #include <sys/statvfs.h>
-#endif
 #endif
 
 // Platform independent path and directory length definitions 
@@ -219,17 +217,11 @@ GXDLCODE_API int futils_stat(const char *name,
 			     int *link_size = 0);
 
 // 32-bit and 64-bit code
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
 GXDLCODE_API __LLWORD__ futils_filelength(const char *fname);
-#else
-GXDLCODE_API long futils_filelength(const char *fname);
-#endif
 
 // 64-bit only code
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
 int futils_GetDiskSpace(char *partition, __ULLWORD__ &free_space,
 			__ULLWORD__ &total_bytes, __ULLWORD__ &bytes_used);
-#endif
 // ----------------------------------------------------------- //
 
 // ----------------------------------------------------------- //

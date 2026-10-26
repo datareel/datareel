@@ -36,9 +36,6 @@ used to send and receive database blocks over a UDP connection.
 #include <string.h>
 #include "gxdatagm.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 // Datagram functions
 // --------------------------------------------------------------
@@ -438,9 +435,6 @@ int gxDatagram::ChangeBlock(const void *request, const void *block,
 		     request_header, block_header);
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

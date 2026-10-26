@@ -126,16 +126,9 @@ gxsSerialCommExceptionMessages[] character array.
 #include <fcntl.h>   // File control definitions
 #endif
 
-#if defined (__HPUX__)
-#include <sys/modem.h> // Modem control line definitions
-#endif
 
 #include "gxscomm.h" 
 
-#ifdef __BCC32__
-#pragma warn -8057
-#pragma warn -8071
-#endif
 
 // NOTE: This array must contain the same number of exceptions as the
 // internal error code enumeration. 
@@ -236,14 +229,6 @@ gxSerialComm::gxSerialComm()
   memset(&oldtios, 0, sizeof(oldtios));
 #endif
 
-#if defined (__PCLINT_CHECK__)
-  // PC-lint 05/02/2005: Initalization warning can be ignored
-  device_handle = 0;
-  bytes_read = 0;
-  bytes_moved = 0;
-  last_err = 0;
-  modem_line_status = 0;
-#endif
 }
 
 gxSerialComm::~gxSerialComm()
@@ -491,16 +476,10 @@ int gxSerialComm::InitSerialPort(int ignore_brk)
 
   switch(flow_control) {
     case scommHARD_FLOW :
-#if 1
       dcb.fRtsControl  = RTS_CONTROL_ENABLE;
       dcb.fOutxCtsFlow = 0;
       dcb.fDtrControl  = DTR_CONTROL_HANDSHAKE;
       dcb.fOutxDsrFlow = 1;
-#else
-      dcb.fDtrControl = DTR_CONTROL_ENABLE;
-      dcb.fOutxCtsFlow = 1;
-      dcb.fRtsControl  = DTR_CONTROL_HANDSHAKE;
-#endif
       break;
     case scommXON_XOFF: {
       // Ignore BCC32 conversion warnings
@@ -1130,10 +1109,6 @@ int gxSerialComm::DCD_Active()
   return 0;
 }
 
-#ifdef __BCC32__
-#pragma warn .8057
-#pragma warn .8071
-#endif
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

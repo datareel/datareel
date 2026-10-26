@@ -33,11 +33,7 @@ files using the device cache.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -96,7 +92,7 @@ void gxsFile::Write(const void *buf, unsigned Bytes, gxDeviceTypes dev)
 {
   switch(dev) {
     case gxDEVICE_CONSOLE:
-      GXSTD::cout.write((char *)buf, Bytes);
+      std::cout.write((char *)buf, Bytes);
       break;
 
     case gxDEVICE_DISK_FILE:
@@ -350,7 +346,7 @@ int gxsFile::CopySerialPortToFile(gxSerialCommServer *s, gxBlockHeader &gxs)
 void gxsFile::DeviceErrorHandler(const char *mesg)
 {
   // Display the device error and exit the program
-  GXSTD::cout << mesg << "\n";
+  std::cout << mesg << "\n";
   exit(0);
 }
 // ----------------------------------------------------------- //

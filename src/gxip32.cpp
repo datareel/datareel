@@ -34,9 +34,6 @@ data type.
 #include <stdlib.h>
 #include "gxip32.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 gxIP32::gxIP32(const gxIP32& ob)
 {
@@ -231,9 +228,6 @@ int gxIP32::SetIPAddress(const char *ip)
   return 1;
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

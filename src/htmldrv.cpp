@@ -73,7 +73,7 @@ const char *htmFonts[NumHTMLFonts] = {
   "Courier New"   // htmCOURIER,
 };
 
-HyperTextDrv::HyperTextDrv(GXSTD::ostream &s)
+HyperTextDrv::HyperTextDrv(std::ostream &s)
 {
   stream = &s;
   dec_precision = DefaultPrecision;
@@ -218,34 +218,34 @@ void HyperTextDrv::Write(unsigned int val)
 
 void HyperTextDrv::Write(double val)
 {
-  stream->setf(GXSTD::ios::showpoint | GXSTD::ios::fixed);
+  stream->setf(std::ios::showpoint | std::ios::fixed);
   stream->precision(dec_precision);
   *(stream) << val;
 }
 
 void HyperTextDrv::Write(const double val) const
 {
-  stream->setf(GXSTD::ios::showpoint | GXSTD::ios::fixed);
+  stream->setf(std::ios::showpoint | std::ios::fixed);
   stream->precision(dec_precision);
   *(stream) << val;
 }
 
 void HyperTextDrv::Write(float val)
 {
-  stream->setf(GXSTD::ios::showpoint | GXSTD::ios::fixed);
+  stream->setf(std::ios::showpoint | std::ios::fixed);
   stream->precision(dec_precision);
   *(stream) << val;
 }
 
 void HyperTextDrv::Write(const float val) const
 {
-  stream->setf(GXSTD::ios::showpoint | GXSTD::ios::fixed);
+  stream->setf(std::ios::showpoint | std::ios::fixed);
   stream->precision(dec_precision);
   *(stream) << val;
 }
 
-GXSTD::ostream& HyperTextDrv::operator<<(GXSTD::ostream & \
-					 (*_f)(GXSTD::ostream&))
+std::ostream& HyperTextDrv::operator<<(std::ostream & \
+					 (*_f)(std::ostream&))
 {
   (*_f)(*(stream));
   return *(stream);

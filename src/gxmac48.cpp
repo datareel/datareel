@@ -58,9 +58,6 @@ in all versions of the gxMAC48::SetMACAddress()function.
 #include "dfileb.h"
 #include "strutil.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 gxMAC48::gxMAC48(const gxMAC48& ob)
 {
@@ -492,9 +489,6 @@ GXDLCODE_API int FindVendor(const char *fname, const gxMAC48 &mac, char *name,
   return FindVendor(fname, mac.GetVendorCode(sbuf), name, comment);
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

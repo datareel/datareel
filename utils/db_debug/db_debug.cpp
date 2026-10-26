@@ -33,11 +33,7 @@ and repair damaged or corrupt database files.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <string.h>
 #include "dbugmgr.h"
@@ -49,7 +45,7 @@ const char *ProgramName = "db_debug";
 #endif
 
 // Function prototypes for display menu
-void ClearInputStream(GXSTD::istream &s);
+void ClearInputStream(std::istream &s);
 int Quit();
 void Menu(gxDatabaseDebugManager *f);
 void PausePrg();
@@ -63,30 +59,30 @@ void Rebuild(gxDatabaseDebugManager *f, int update_ver = 0);
 
 void Rebuild(gxDatabaseDebugManager *f, int update_ver)
 {
-  GXSTD::cout << "\n";
+  std::cout << "\n";
   if(update_ver) {
-    GXSTD::cout << "Rebuilding database file and updating to \
+    std::cout << "Rebuilding database file and updating to \
 latest version..." << "\n";
   }
   else {
-    GXSTD::cout << "Rebuilding damaged database file..." << "\n";
+    std::cout << "Rebuilding damaged database file..." << "\n";
   }
-  GXSTD::cout << "\n";
+  std::cout << "\n";
 
   char fname[255];
   int retry = 3;
   UString intbuf;
 
   while(1) { // Loop until a good file name is found
-    GXSTD::cout << "Enter new name of file to build>";
-    GXSTD::cin.getline(fname, sizeof(fname));
-    GXSTD::cout << "\n";
+    std::cout << "Enter new name of file to build>";
+    std::cin.getline(fname, sizeof(fname));
+    std::cout << "\n";
     if(!*fname) { // Return if nothing is entered
       Menu(f);
       return;
     }
     if(gxDatabase::Exists(fname)) {
-      GXSTD::cout << "File already exists!" << "\n" << "\n";
+      std::cout << "File already exists!" << "\n" << "\n";
        retry--;
       if(!retry) {
 	Menu(f);
@@ -97,15 +93,15 @@ latest version..." << "\n";
       break;
   }
 
-  GXSTD::cout << "Rebuilding: " << fname << "\n" << GXSTD::flush;
-  GXSTD::cout << "\n" << GXSTD::flush;
+  std::cout << "Rebuilding: " << fname << "\n" << std::flush;
+  std::cout << "\n" << std::flush;
 
   f->Rebuild(fname, update_ver);
-  GXSTD::cout << f->status_message.c_str();
+  std::cout << f->status_message.c_str();
 
-  GXSTD::cout << "\n" << GXSTD::flush;
-  GXSTD::cout << "Rebuild complete" << "\n" << GXSTD::flush;
-  GXSTD::cout << "\n" << GXSTD::flush;
+  std::cout << "\n" << std::flush;
+  std::cout << "Rebuild complete" << "\n" << std::flush;
+  std::cout << "\n" << std::flush;
 }
 
 void DisplayStats(gxDatabaseDebugManager *f)
@@ -117,9 +113,9 @@ void DisplayStats(gxDatabaseDebugManager *f)
   
   if(memcmp(fh.gxd_sig, gxDatabase::gxSignature, (gxSignatureSize-1))) {
     // Test file type
-    GXSTD::cout << "\n";
-    GXSTD::cout << "Database file header is damaged or does not exist" << "\n";
-    GXSTD::cout << "\n";
+    std::cout << "\n";
+    std::cout << "Database file header is damaged or does not exist" << "\n";
+    std::cout << "\n";
     return;
   }
 
@@ -128,16 +124,16 @@ void DisplayStats(gxDatabaseDebugManager *f)
 
 void AnalyzeHeader(gxDatabaseDebugManager *f)
 {
-  GXSTD::cout << "\n";
-  GXSTD::cout << "Analyzing..." << "\n";
-  GXSTD::cout << "\n";
+  std::cout << "\n";
+  std::cout << "Analyzing..." << "\n";
+  std::cout << "\n";
 
   f->AnalyzeHeader();
-  GXSTD::cout << f->status_message.c_str();
+  std::cout << f->status_message.c_str();
 
-  GXSTD::cout << "\n";
-  GXSTD::cout << "Analysis complete" << "\n";
-  GXSTD::cout << "\n";
+  std::cout << "\n";
+  std::cout << "Analysis complete" << "\n";
+  std::cout << "\n";
 }
 
 void FindBlock(gxDatabaseDebugManager *f, int verbose, int walk)
@@ -148,17 +144,17 @@ void FindBlock(gxDatabaseDebugManager *f, int verbose, int walk)
   int badgx = 0;
   UString intbuf;
 
-  GXSTD::cout << "\n";
-  GXSTD::cout << "Searching file for all database blocks..." << "\n";
+  std::cout << "\n";
+  std::cout << "Searching file for all database blocks..." << "\n";
   
   FAU_t StaticEOF = f->FileSize(f->DatabaseName());
   FAU_t addr = f->BlockSearch((FAU_t)0); // Search the entire file
   
   if(addr == (FAU_t)0) {
-    GXSTD::cout << "\n";
-    GXSTD::cout << "No database blocks found in file: "
+    std::cout << "\n";
+    std::cout << "No database blocks found in file: "
 	 << f->DatabaseName() << "\n";
-    GXSTD::cout << "\n";
+    std::cout << "\n";
     return;
   }
 
@@ -173,13 +169,13 @@ void FindBlock(gxDatabaseDebugManager *f, int verbose, int walk)
 	BlockStats((gxDatabase *)f, (addr+f->BlockHeaderSize()));
 	if(walk) {
 	  char c;
-	  GXSTD::cout << "\n";
-	  GXSTD::cout << "Press enter to continue or enter 'X' to exit >";
-	  GXSTD::cin.clear();
-	  GXSTD::cin.get(c);
+	  std::cout << "\n";
+	  std::cout << "Press enter to continue or enter 'X' to exit >";
+	  std::cin.clear();
+	  std::cin.get(c);
 	  switch(c) {
 	    case 'x' : case 'X' :
-	      GXSTD::cout << "\n";
+	      std::cout << "\n";
 	      return;
 	    default:
 	      break;
@@ -190,46 +186,46 @@ void FindBlock(gxDatabaseDebugManager *f, int verbose, int walk)
     }
     else {
       badgx++;
-      GXSTD::cout << "\n";
+      std::cout << "\n";
       intbuf << clear << addr;
-      GXSTD::cout << "Found bad database block at address " << intbuf.c_str() 
+      std::cout << "Found bad database block at address " << intbuf.c_str() 
 		  << "\n";
-      GXSTD::cout << "Searching for next good database block..." << "\n";
+      std::cout << "Searching for next good database block..." << "\n";
       addr = f->BlockSearch(addr); // Search for the next good block
       if(!addr) {
-	GXSTD::cout << "None found!" << "\n";
-	GXSTD::cout << "\n";
+	std::cout << "None found!" << "\n";
+	std::cout << "\n";
 	return;
       }
     }
   }
-  GXSTD::cout << "\n";
-  GXSTD::cout << "Found " << count << " good database blocks." << "\n";
-  if(badgx) GXSTD::cout << "Found " << badgx << " bad database blocks." 
+  std::cout << "\n";
+  std::cout << "Found " << count << " good database blocks." << "\n";
+  if(badgx) std::cout << "Found " << badgx << " bad database blocks." 
 			<< "\n";
-  GXSTD::cout << "\n";
+  std::cout << "\n";
 }
 
 void Menu(gxDatabaseDebugManager *f)
 {
-  GXSTD::cout << "\n";
-  GXSTD::cout << "Analyzing file: " << f->DatabaseName() << "\n";
-  GXSTD::cout << "Enter the letter of your selection at the prompt." << "\n";
-  GXSTD::cout << "\n";
-  GXSTD::cout << "(A, a)    - Analyze the database file header" << "\n";
-  GXSTD::cout << "(D, d)    - Dump every database block" << "\n";
-  GXSTD::cout << "(F, f)    - Find every database block in the file" << "\n";
-  GXSTD::cout << "(H, h, ?) - Displays this menu" << "\n";
-  GXSTD::cout << "(Q, q)    - Quit this program" << "\n";
-  GXSTD::cout << "(r)       - Rebuild a damaged database file" << "\n";
-  GXSTD::cout << "(R)       - Rebuild and update to current version/revision" 
+  std::cout << "\n";
+  std::cout << "Analyzing file: " << f->DatabaseName() << "\n";
+  std::cout << "Enter the letter of your selection at the prompt." << "\n";
+  std::cout << "\n";
+  std::cout << "(A, a)    - Analyze the database file header" << "\n";
+  std::cout << "(D, d)    - Dump every database block" << "\n";
+  std::cout << "(F, f)    - Find every database block in the file" << "\n";
+  std::cout << "(H, h, ?) - Displays this menu" << "\n";
+  std::cout << "(Q, q)    - Quit this program" << "\n";
+  std::cout << "(r)       - Rebuild a damaged database file" << "\n";
+  std::cout << "(R)       - Rebuild and update to current version/revision" 
 	      << "\n";
-  GXSTD::cout << "(S, s)    - Display database file statistics" << "\n";
-  GXSTD::cout << "(W, s)    - Walk through every database block" << "\n";
-  GXSTD::cout << "\n";
+  std::cout << "(S, s)    - Display database file statistics" << "\n";
+  std::cout << "(W, s)    - Walk through every database block" << "\n";
+  std::cout << "\n";
 }
 
-void ClearInputStream(GXSTD::istream &s)
+void ClearInputStream(std::istream &s)
 // Used to clear istream
 {
   char c;
@@ -239,24 +235,24 @@ void ClearInputStream(GXSTD::istream &s)
 
 void PausePrg()
 {
-  GXSTD::cout << "\n";
-  GXSTD::cout << "Press enter to continue..." << "\n";
-  GXSTD::cin.get();
+  std::cout << "\n";
+  std::cout << "Press enter to continue..." << "\n";
+  std::cin.get();
 }
 
 int Quit()
 {
   // Cleanup and exit the program
-  GXSTD::cout << "Exiting..." << "\n";
+  std::cout << "Exiting..." << "\n";
   return 0;
 }
 
 void Version()
 {
-  GXSTD::cout << "\n";
-  GXSTD::cout << ProgramName << " gxDatabase file recovery program." << "\n";
+  std::cout << "\n";
+  std::cout << ProgramName << " gxDatabase file recovery program." << "\n";
   EchoDatabaseVersion();
-  GXSTD::cout << "\n";
+  std::cout << "\n";
 }
 
 int main(int argc, char **argv)
@@ -270,24 +266,24 @@ int main(int argc, char **argv)
   }
 
   if(argc < 2) {
-    GXSTD::cout << "\n";
+    std::cout << "\n";
     Version();
-    GXSTD::cout << "Usage: " << ProgramName << " infile" << "\n";
-    GXSTD::cout << "Usage: " << ProgramName << " infile (command)" << "\n";
-    GXSTD::cout << "\n";
+    std::cout << "Usage: " << ProgramName << " infile" << "\n";
+    std::cout << "Usage: " << ProgramName << " infile (command)" << "\n";
+    std::cout << "\n";
     return 1;
    }
 
   gxDatabaseDebugManager *f = new gxDatabaseDebugManager;   
   if(!f) {
-    GXSTD::cout << "Memory allocation error!" << "\n";
+    std::cout << "Memory allocation error!" << "\n";
     return 1;
   }
 
   const char *fname = argv[1];
   if(!gxDatabase::Exists(fname)) {
-    GXSTD::cout << "The specified file does not exist!" << "\n";
-    GXSTD::cout << "Exiting..." << "\n";
+    std::cout << "The specified file does not exist!" << "\n";
+    std::cout << "Exiting..." << "\n";
     delete f;
     return 1;
   }
@@ -301,7 +297,7 @@ int main(int argc, char **argv)
 
   // Check for status messages
   if(!f->status_message.is_null()) {
-    GXSTD::cout << f->status_message.c_str();
+    std::cout << f->status_message.c_str();
   }
 
   char key;
@@ -314,28 +310,28 @@ int main(int argc, char **argv)
       rv = 0;
     }
     else {
-      if (!GXSTD::cin) { 
-	ClearInputStream(GXSTD::cin);
-	if (!GXSTD::cin) {
-          GXSTD::cout << "Input stream error" << "\n";
+      if (!std::cin) { 
+	ClearInputStream(std::cin);
+	if (!std::cin) {
+          std::cout << "Input stream error" << "\n";
           return 0;
 	}
       }
-      GXSTD::cout << '>';
-      GXSTD::cin >> key;
-      if (!GXSTD::cin) continue;
+      std::cout << '>';
+      std::cin >> key;
+      if (!std::cin) continue;
     }
     switch(key) {
       case 'a' : case 'A' :
-	if(argc <= 2) ClearInputStream(GXSTD::cin);
+	if(argc <= 2) ClearInputStream(std::cin);
 	AnalyzeHeader(f);
 	break;
       case 'f' : case 'F' :
-	if(argc <= 2) ClearInputStream(GXSTD::cin);
+	if(argc <= 2) ClearInputStream(std::cin);
 	FindBlock(f);
 	break;
       case 'd' : case 'D' :
-	if(argc <= 2) ClearInputStream(GXSTD::cin);
+	if(argc <= 2) ClearInputStream(std::cin);
 	FindBlock(f, 1);
 	break;
       case 'h' : case 'H' :
@@ -348,23 +344,23 @@ int main(int argc, char **argv)
 	rv = Quit();
 	break;
       case 'r' : 
-	if(argc <= 2) ClearInputStream(GXSTD::cin);
+	if(argc <= 2) ClearInputStream(std::cin);
 	Rebuild(f);
 	break;
       case 'R' :
-	if(argc <= 2) ClearInputStream(GXSTD::cin);
+	if(argc <= 2) ClearInputStream(std::cin);
 	Rebuild(f, 1);
 	break;
       case 's' : case 'S' :
-	if(argc <= 2) ClearInputStream(GXSTD::cin);
+	if(argc <= 2) ClearInputStream(std::cin);
 	DisplayStats(f);
 	break;
       case 'w' : case 'W' :
-	if(argc <= 2) ClearInputStream(GXSTD::cin);
+	if(argc <= 2) ClearInputStream(std::cin);
 	FindBlock(f, 1, 1);
 	break;
       default:
-        GXSTD::cout << "Unrecognized command" << "\n";
+        std::cout << "Unrecognized command" << "\n";
     }
   }
 

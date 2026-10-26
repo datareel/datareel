@@ -85,8 +85,7 @@ GLIB_DATABASE_EX_OBJECTS = btstack$(OBJ_EXT) \
 # RDBMS library components
 GLIB_RDBMS_OBJECTS =  gxrdbdef$(OBJ_EXT) \
 	gxrdbhdr$(OBJ_EXT) \
-	gxrdbms$(OBJ_EXT) \
-	gxrdbsql$(OBJ_EXT)
+	gxrdbms$(OBJ_EXT)
 
 # Core socket library components
 GLIB_SOCKET_CORE_OBJECTS = gxsocket$(OBJ_EXT)
@@ -153,7 +152,6 @@ GLIB_GP_OBJECTS = asprint$(OBJ_EXT) \
 # Optional debug objects
 # NOTE: The leak test functions requires the /D__MSVC_DEBUG__ compiler
 # flag and the /MDd or /MTd compiler flag. 
-# GLIB_DEBUG_OBJECTS = leaktest$(OBJ_EXT)
 
 # Term I/O objects
 GLIB_TERM_OBJECTS = terminal$(OBJ_EXT)

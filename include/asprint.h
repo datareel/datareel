@@ -45,11 +45,7 @@ operations.
 // This directive must be defined to use the ASCII print driver
 #if defined (__USE_TEXT_PRINTING__)
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <fstream> 
-#else // Use the old iostream library by default
-#include <fstream.h>
-#endif // __USE_ANSI_CPP__
 
 // Constants for print functions
 const int asPrintCols = 80;      // Columns for portrait printouts
@@ -61,20 +57,20 @@ const int asPrintRowsLong = 25;  // Rows for landscape printouts
 const char asLineFeed = '\n';
 
 // Function prototypes for standalone print functions
-GXDLCODE_API void ASPrint(const char *s, GXSTD::ostream &stream, int offset, 
+GXDLCODE_API void ASPrint(const char *s, std::ostream &stream, int offset, 
 			  int pos = 0, const char pad = ' ');
 GXDLCODE_API void ASPrint(const char *s, const char filter, 
-			  GXSTD::ostream &stream, int offset,
+			  std::ostream &stream, int offset,
 			  int pos = 0, const char pad = ' ');
-GXDLCODE_API void ASPrint(const char c, GXSTD::ostream &stream, int offset, 
+GXDLCODE_API void ASPrint(const char c, std::ostream &stream, int offset, 
 			  int pos = 0,
 			  const char pad = ' ');
-GXDLCODE_API void ASPrint(int val, GXSTD::ostream &stream, int offset, 
+GXDLCODE_API void ASPrint(int val, std::ostream &stream, int offset, 
 			  int pos = 0, const char pad = ' ');
-GXDLCODE_API void ASPrint(long val, GXSTD::ostream &stream, int offset, 
+GXDLCODE_API void ASPrint(long val, std::ostream &stream, int offset, 
 			  int pos = 0,
 			  const char pad = ' ');
-GXDLCODE_API void ASPrint(double val, GXSTD::ostream &stream, 
+GXDLCODE_API void ASPrint(double val, std::ostream &stream, 
 			  int offset, int pos = 0,
 			  const char pad = ' ');
 

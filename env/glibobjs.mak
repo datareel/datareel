@@ -183,9 +183,6 @@ gxrdbms$(OBJ_EXT):	$(GLIB_SRC_PATH)gxrdbms.cpp $(GXRDBMS_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxrdbms.cpp
 
-gxrdbsql$(OBJ_EXT):	$(GLIB_SRC_PATH)gxrdbsql.cpp $(GXRDBSQL_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxrdbsql.cpp
 
 gxscomm$(OBJ_EXT):	$(GLIB_SRC_PATH)gxscomm.cpp $(GXSCOMM_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -283,9 +280,6 @@ httpgrab$(OBJ_EXT):	$(GLIB_SRC_PATH)httpgrab.cpp $(HTTPGRAB_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)httpgrab.cpp
 
-leaktest$(OBJ_EXT):	$(GLIB_SRC_PATH)leaktest.cpp $(LEAKTEST_DEP)
-	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)leaktest.cpp
 
 logfile$(OBJ_EXT):	$(GLIB_SRC_PATH)logfile.cpp $(LOGFILE_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \

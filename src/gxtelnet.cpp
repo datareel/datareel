@@ -56,10 +56,6 @@ type before returning an end of line sequence.
 #include <stdlib.h>
 #include "gxtelnet.h"
 
-#ifdef __BCC32__
-#pragma warn -8057
-#pragma warn -8080
-#endif
 
 gxsTelnetClient::gxsTelnetClient() 
 { 
@@ -603,10 +599,6 @@ gxSocketError gxsTelnetClient::VT100FWrite(unsigned char data)
   return err;
 }
 
-#ifdef __BCC32__
-#pragma warn .8057
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

@@ -50,7 +50,6 @@ directive is defined.
 
 #include "gxdlcode.h"
 
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
 
 #include "gxdtypes.h"
 #include "gxdtyp64.h"
@@ -59,15 +58,8 @@ directive is defined.
 typedef __ULLWORD__ gxUINT64;
 #else
 
-#if defined (__USE_CPP_IOSTREAM__)
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 #include <iomanip>
-#else // Use the old iostream library by default
-#include <iostream.h>
-#include <iomanip.h>
-#endif // __USE_ANSI_CPP__
-#endif // __USE_CPP_IOSTREAM__
 
 // Data structure for platform independent signed 32 bit integer values.
 class GXDLCODE_API gxUINT64
@@ -91,13 +83,11 @@ public: // String functions added to print 64-bit types
   gxUINT64 &StringToUINT64(const char *str);
   gxUINT64 &StringToUINT64(char *str);
 
-#if defined (__USE_CPP_IOSTREAM__)
 public: // Class type to ostream type conversions
-  GXDLCODE_API friend GXSTD::ostream &operator<<(GXSTD::ostream &os, 
+  GXDLCODE_API friend std::ostream &operator<<(std::ostream &os, 
 						 const gxUINT64 &val);
-  GXDLCODE_API friend GXSTD::istream &operator>>(GXSTD::istream &os, 
+  GXDLCODE_API friend std::istream &operator>>(std::istream &os, 
 						 gxUINT64 &val);
-#endif // __USE_CPP_IOSTREAM__
 
 public: // Arithmetic operators that modify their operand
   gxUINT64 operator++(int);  // Postfix
@@ -297,7 +287,6 @@ private:
 };
 #endif // __USE_NATIVE_INT_TYPES__
 
-#endif // __64_BIT_DATABASE_ENGINE__ || __ENABLE_64_BIT_INTEGERS__
 
 #endif // __GX_UINT64_HPP__
 // ----------------------------------------------------------- // 

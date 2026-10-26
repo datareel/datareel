@@ -45,9 +45,6 @@ An gxUINT16 type has a base 10 positive limit of 65,535.
 typedef unsigned short gxUINT16;
 #else
 
-#ifdef __BCC32__
-#pragma warn -8071
-#endif
 
 // Data structure for unsigned 16 bit integer values.
 class GXDLCODE_API gxUINT16
@@ -230,9 +227,6 @@ private:
   __UBYTE__ byte[2];
 };
 
-#ifdef __BCC32__
-#pragma warn .8071
-#endif
 
 #endif // __USE_NATIVE_INT_TYPES__
 

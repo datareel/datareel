@@ -46,7 +46,7 @@ function.
 #include <stdio.h>
 #include <string.h>
 
-GXDLCODE_API void ASPrint(const char *s, GXSTD::ostream &stream, 
+GXDLCODE_API void ASPrint(const char *s, std::ostream &stream, 
 			  int offset, int pos, const char pad)
 // Prints a null terminated string to the stream starting at the
 // specified position or the current position if the pos variable
@@ -69,7 +69,7 @@ GXDLCODE_API void ASPrint(const char *s, GXSTD::ostream &stream,
 }
 
 GXDLCODE_API void ASPrint(const char *s, const char filter, 
-			  GXSTD::ostream &stream, int offset,
+			  std::ostream &stream, int offset,
 			  int pos, const char pad)
 // Prints a null terminated string to the stream starting and filters
 // any unwanted characters specified by the filter variable.
@@ -92,7 +92,7 @@ GXDLCODE_API void ASPrint(const char *s, const char filter,
   delete[] buf;
 }
 
-GXDLCODE_API void ASPrint(const char c, GXSTD::ostream &stream, 
+GXDLCODE_API void ASPrint(const char c, std::ostream &stream, 
 			  int offset, int pos, const char pad)
 // Prints a single character to the stream.
 {
@@ -102,7 +102,7 @@ GXDLCODE_API void ASPrint(const char c, GXSTD::ostream &stream,
   ASPrint(s, stream, offset, pos, pad);
 }
   
-GXDLCODE_API void ASPrint(int val, GXSTD::ostream &stream, int offset, 
+GXDLCODE_API void ASPrint(int val, std::ostream &stream, int offset, 
 			  int pos, const char pad)
 {
   // 10/24/2026: The number was formatted into a buffer of "offset"
@@ -113,7 +113,7 @@ GXDLCODE_API void ASPrint(int val, GXSTD::ostream &stream, int offset,
   ASPrint(buf, stream, offset, pos, pad);
 }
 
-GXDLCODE_API void ASPrint(long val, GXSTD::ostream &stream, int offset, 
+GXDLCODE_API void ASPrint(long val, std::ostream &stream, int offset, 
 			  int pos, const char pad)
 {
   // 10/24/2026: The number was formatted into a buffer of "offset"
@@ -126,7 +126,7 @@ GXDLCODE_API void ASPrint(long val, GXSTD::ostream &stream, int offset,
   ASPrint(buf, stream, offset, pos, pad);
 }
 
-GXDLCODE_API void ASPrint(double val, GXSTD::ostream &stream, int offset, 
+GXDLCODE_API void ASPrint(double val, std::ostream &stream, int offset, 
 			  int pos, const char pad)
 {
   // 10/24/2026: The number was formatted into a buffer of "offset"

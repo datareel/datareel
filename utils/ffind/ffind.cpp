@@ -32,11 +32,7 @@ This program is used to find and replace strings in a file.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <stdio.h>
 #include <string.h>
@@ -48,9 +44,6 @@ This program is used to find and replace strings in a file.
 #include "futils.h"
 #include "gxd_ver.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 // Version number and program name
 gxString VersionString = "4.40";
@@ -92,8 +85,8 @@ int no_escape_seq = 0;
 void HelpMessage();
 void VersionMessage();
 int ProcessArgs(char *arg);
-int ProcessTextFile(DiskFileB &iofile, GXSTD::ostream &stream);
-int ReplaceBySection(DiskFileB &iofile, GXSTD::ostream &stream);
+int ProcessTextFile(DiskFileB &iofile, std::ostream &stream);
+int ReplaceBySection(DiskFileB &iofile, std::ostream &stream);
 int InsertEscapeSeq(gxString &s);
 int FixInputStrings();
 
@@ -107,9 +100,6 @@ int main(int argc,   // Number of strings in array argv.
 // library. All the UNIX compliers will expand wildcard characters
 // by default.
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   // If no arguments are given print usage message to the screen 
   if(argc < 2) {
@@ -140,10 +130,10 @@ int main(int argc,   // Number of strings in array argv.
 	    continue; 
 	  }
 	  else { // Cannot open the specified file
-	    GXSTD::cerr << "\n";
-	    GXSTD::cerr << "Cannot open file: " << open_file << "\n";
-	    GXSTD::cerr << "Exiting..." << "\n";
-	    GXSTD::cerr << "\n";
+	    std::cerr << "\n";
+	    std::cerr << "Cannot open file: " << open_file << "\n";
+	    std::cerr << "Exiting..." << "\n";
+	    std::cerr << "\n";
 	    return 0;
 	  }
 	}
@@ -151,7 +141,7 @@ int main(int argc,   // Number of strings in array argv.
 
 	if(replace_section) {
 	  num_matches = 0; num_replaced = 0; num_processed = 0;
-	  if(!ReplaceBySection(iofile, GXSTD::cout)) return 0;
+	  if(!ReplaceBySection(iofile, std::cout)) return 0;
 	  arg = argv[++narg];
 	  if(num_files) iofile.df_Close();
 	  continue;
@@ -161,49 +151,49 @@ int main(int argc,   // Number of strings in array argv.
 	// ----------------------------------------------------------- 
 	if(replacing_string == 1) {
 	  if(string_to_insert.is_null()) {
-	    GXSTD::cerr << "\n";
-	    GXSTD::cerr << "The -R option must be used with the -W option." 
+	    std::cerr << "\n";
+	    std::cerr << "The -R option must be used with the -W option." 
 			<< "\n";
-	    GXSTD::cerr << "Usage: -R\"string\" -W\"replacement\"" << "\n";
-	    GXSTD::cerr << "\n";
+	    std::cerr << "Usage: -R\"string\" -W\"replacement\"" << "\n";
+	    std::cerr << "\n";
 	    return 0;
 	  }
 	  num_processed = 0; // Number of string processed for this file
-	  GXSTD::cout << "\n";
-	  GXSTD::cout << "Opening file: " << open_file << "\n";
-	  GXSTD::cout << "Replacing: " << string_to_replace.c_str() << "\n";
-	  GXSTD::cout << "With: " << string_to_insert.c_str() << "\n";
+	  std::cout << "\n";
+	  std::cout << "Opening file: " << open_file << "\n";
+	  std::cout << "Replacing: " << string_to_replace.c_str() << "\n";
+	  std::cout << "With: " << string_to_insert.c_str() << "\n";
 	}
 
 	if(replacing_line) {
 	  if(string_to_insert.is_null()) {
-	    GXSTD::cerr << "\n";
-	    GXSTD::cerr << "The -L option must be used with the -W option." 
+	    std::cerr << "\n";
+	    std::cerr << "The -L option must be used with the -W option." 
 			<< "\n";
-	    GXSTD::cerr << "Usage: -L\"string\" -W\"replacement\"" << "\n";
+	    std::cerr << "Usage: -L\"string\" -W\"replacement\"" << "\n";
 	    return 0;
 	  }
 	  num_processed = 0; // Number of string processed for this file
-	  GXSTD::cout << "\n";
-	  GXSTD::cout << "Opening file: " << open_file << "\n";
-	  GXSTD::cout << "Replacing line after: " << string_to_replace.c_str() << "\n";
-	  GXSTD::cout << "With: " << string_to_insert.c_str() << "\n";
+	  std::cout << "\n";
+	  std::cout << "Opening file: " << open_file << "\n";
+	  std::cout << "Replacing line after: " << string_to_replace.c_str() << "\n";
+	  std::cout << "With: " << string_to_insert.c_str() << "\n";
 	}
 
 	if(inserting_string ) {
 	  if(string_to_insert.is_null()) {
-	    GXSTD::cerr << "\n";
-	    GXSTD::cerr << "The -I option must be used with the -W option." 
+	    std::cerr << "\n";
+	    std::cerr << "The -I option must be used with the -W option." 
 			<< "\n";
-	    GXSTD::cerr << "Usage: -I\"string\" -W\"insert\"" << "\n";
-	    GXSTD::cerr << "\n";
+	    std::cerr << "Usage: -I\"string\" -W\"insert\"" << "\n";
+	    std::cerr << "\n";
 	    return 0;
 	  }
 	  num_processed = 0; // Number of string processed for this file
-	  GXSTD::cout << "\n";
-	  GXSTD::cout << "Opening file: " << open_file << "\n";
-	  GXSTD::cout << "Inserting: " << string_to_replace.c_str() << "\n";
-	  GXSTD::cout << "After: " << string_to_insert.c_str() << "\n";
+	  std::cout << "\n";
+	  std::cout << "Opening file: " << open_file << "\n";
+	  std::cout << "Inserting: " << string_to_replace.c_str() << "\n";
+	  std::cout << "After: " << string_to_insert.c_str() << "\n";
 	}
 
 	if(find_string) {
@@ -213,38 +203,38 @@ int main(int argc,   // Number of strings in array argv.
 
 	// Process the test file
 	num_matches = 0; num_replaced = 0; num_processed = 0;
-	ProcessTextFile(iofile, GXSTD::cout);
+	ProcessTextFile(iofile, std::cout);
 	if(num_files) iofile.df_Close();
 	
 	// Report the total number of strings replaced/inserted 
 	// ----------------------------------------------------------- 
 	if(replacing_string) {
-	  GXSTD::cout << "Replaced " << num_processed << " occurrence(s)." 
+	  std::cout << "Replaced " << num_processed << " occurrence(s)." 
 		      << "\n";
-	  GXSTD::cout << "\n";
+	  std::cout << "\n";
 	}
 
 	if(replacing_line) {
-	  GXSTD::cout << "Replaced " << num_processed << " occurrence(s)." 
+	  std::cout << "Replaced " << num_processed << " occurrence(s)." 
 		      << "\n";
-	  GXSTD::cout << "\n";
+	  std::cout << "\n";
 	}
 
 	if(inserting_string ) {
-	  GXSTD::cout << "Inserted " << num_processed << " line(s)." << "\n";
-	  GXSTD::cout << "\n";
+	  std::cout << "Inserted " << num_processed << " line(s)." << "\n";
+	  std::cout << "\n";
 	}
 
 	if(find_string) {
 	  if(find_all) {
 	    if(num_processed > 0) {
-	      GXSTD::cout << "\n";
-	      GXSTD::cout << "File name: " << open_file << " String: " 
+	      std::cout << "\n";
+	      std::cout << "File name: " << open_file << " String: " 
 			  << string_to_find.c_str() << "\n";
 	      if(num_processed > 1) 
-		GXSTD::cout << "Found " << num_processed << " matches" << "\n";
+		std::cout << "Found " << num_processed << " matches" << "\n";
 	      else
-		GXSTD::cout << "Found 1 match" << "\n";
+		std::cout << "Found 1 match" << "\n";
 	    }
 	  }
 	  if(num_matches == 0) { // Used by -f command if search fails
@@ -257,10 +247,10 @@ int main(int argc,   // Number of strings in array argv.
   }
   
   if(num_files == 0) {
-    GXSTD::cerr << "\n";
-    GXSTD::cerr << "You must enter a file name." << "\n";
-    GXSTD::cerr << "Exiting..." << "\n";
-    GXSTD::cerr << "\n";
+    std::cerr << "\n";
+    std::cerr << "You must enter a file name." << "\n";
+    std::cerr << "Exiting..." << "\n";
+    std::cerr << "\n";
     return 0;
   }
   
@@ -276,53 +266,53 @@ int main(int argc,   // Number of strings in array argv.
 
 void VersionMessage()
 {
-  GXSTD::cout << "\n";
-  GXSTD::cout << ProgramName.c_str() << " program version "
+  std::cout << "\n";
+  std::cout << ProgramName.c_str() << " program version "
 	      << VersionString.c_str()  << "\n";
 }
 
 void HelpMessage()
 {
   VersionMessage();
-  GXSTD::cout << "Usage: " << ProgramName.c_str() << " [switches] iofile.txt " 
+  std::cout << "Usage: " << ProgramName.c_str() << " [switches] iofile.txt " 
 	      << "\n"; 
-  GXSTD::cout << "Switches: " << "\n";
-  GXSTD::cout << "          -a = Do not append lines connected by a backslash"
+  std::cout << "Switches: " << "\n";
+  std::cout << "          -a = Do not append lines connected by a backslash"
 	      << "\n";
-  GXSTD::cout << "          -c = Concatenate file to stdout." << "\n";
-  GXSTD::cout << "          -f = Find first occurrence of specified string: "
+  std::cout << "          -c = Concatenate file to stdout." << "\n";
+  std::cout << "          -f = Find first occurrence of specified string: "
 	      << "-f\"string\"" << "\n";
-  GXSTD::cout << "          -F = Find all occurrences of specified string: "
+  std::cout << "          -F = Find all occurrences of specified string: "
 	      << "-F\"string\"" << "\n";
-  GXSTD::cout << "          -i = Perform case insensitive compare." << "\n";
-  GXSTD::cout << "\n";
-  GXSTD::cout << "          -R -W = Replace all occurrences of a string in a file." << "\n";
-  GXSTD::cout << "          Usage: -R\"string\" -W\"replacement\"" << "\n";
-  GXSTD::cout << "\n";
-  GXSTD::cout << "          -L -W = Replace entire line after the specified string." << "\n";
-  GXSTD::cout << "          Usage: -L\"string\" -W\"replacement\"" << "\n";
-  GXSTD::cout << "\n";
-  GXSTD::cout << "          -I -W = Insert a line after the specified string."
+  std::cout << "          -i = Perform case insensitive compare." << "\n";
+  std::cout << "\n";
+  std::cout << "          -R -W = Replace all occurrences of a string in a file." << "\n";
+  std::cout << "          Usage: -R\"string\" -W\"replacement\"" << "\n";
+  std::cout << "\n";
+  std::cout << "          -L -W = Replace entire line after the specified string." << "\n";
+  std::cout << "          Usage: -L\"string\" -W\"replacement\"" << "\n";
+  std::cout << "\n";
+  std::cout << "          -I -W = Insert a line after the specified string."
 	      << "\n";
-  GXSTD::cout << "          Usage: -I\"string\" -W\"insert\"" << "\n";
-  GXSTD::cout << "\n";
-  GXSTD::cout << "Press Enter for advanced options...";
-  GXSTD::cin.get();
-  GXSTD::cout << "          Advanced options: " << "\n";
-  GXSTD::cout << "          --infile=\"textfile.txt\"" << "         Supply file with replacement text" << "\n";
-  GXSTD::cout << "          --TrimLeading=\'char\'" << "            Filter char from input strings" << "\n";
-  GXSTD::cout << "          --TrimTrailing=\'char\'" << "           Filter char from input strings" << "\n";
-  GXSTD::cout << "          --SurroundBy=Quotes" << "             Put double quotes around replacement" << "\n";
-  GXSTD::cout << "          --SurroundBy=SingleQuotes" << "       Put single quotes around replacement" << "\n";
-  GXSTD::cout << "          --SurroundBy=\"string\"" << "           Put string around replacement" << "\n";
-  GXSTD::cout << "          --TerminateWith=\"string\"" << "        End replacement with string" << "\n";
-  GXSTD::cout << "          --ReplaceOnce" << "                   Replace string only once" << "\n";
-  GXSTD::cout << "          --ReplaceSection" << "                Section replace input string" << "\n";
-  GXSTD::cout << "          --ReplaceSection=\"textfile.txt\"" << " Supply file with text to replace" << "\n";
-  GXSTD::cout << "          --NoEscapeSeq" << "                   Do not interpret escape sequences" << "\n";
-  GXSTD::cout << "\n";
-  GXSTD::cout << "Escape sequence chars: \\n, \\r, \\t, %20" << "\n"; 
-  GXSTD::cout << "\n";
+  std::cout << "          Usage: -I\"string\" -W\"insert\"" << "\n";
+  std::cout << "\n";
+  std::cout << "Press Enter for advanced options...";
+  std::cin.get();
+  std::cout << "          Advanced options: " << "\n";
+  std::cout << "          --infile=\"textfile.txt\"" << "         Supply file with replacement text" << "\n";
+  std::cout << "          --TrimLeading=\'char\'" << "            Filter char from input strings" << "\n";
+  std::cout << "          --TrimTrailing=\'char\'" << "           Filter char from input strings" << "\n";
+  std::cout << "          --SurroundBy=Quotes" << "             Put double quotes around replacement" << "\n";
+  std::cout << "          --SurroundBy=SingleQuotes" << "       Put single quotes around replacement" << "\n";
+  std::cout << "          --SurroundBy=\"string\"" << "           Put string around replacement" << "\n";
+  std::cout << "          --TerminateWith=\"string\"" << "        End replacement with string" << "\n";
+  std::cout << "          --ReplaceOnce" << "                   Replace string only once" << "\n";
+  std::cout << "          --ReplaceSection" << "                Section replace input string" << "\n";
+  std::cout << "          --ReplaceSection=\"textfile.txt\"" << " Supply file with text to replace" << "\n";
+  std::cout << "          --NoEscapeSeq" << "                   Do not interpret escape sequences" << "\n";
+  std::cout << "\n";
+  std::cout << "Escape sequence chars: \\n, \\r, \\t, %20" << "\n"; 
+  std::cout << "\n";
   exit(0);
 }
 
@@ -344,12 +334,12 @@ int ProcessArgs(char *arg)
 
     case 'f':				
       if(arg[2] == '\0') {
-	GXSTD::cerr << "\n";
-	GXSTD::cerr << "You must enter a string following the -f option." 
+	std::cerr << "\n";
+	std::cerr << "You must enter a string following the -f option." 
 		    << "\n";
-	GXSTD::cerr << "Example usage: " << ProgramName << " -f\"string\"" 
+	std::cerr << "Example usage: " << ProgramName << " -f\"string\"" 
 		    << "\n"; 
-	GXSTD::cerr << "\n";
+	std::cerr << "\n";
 	return 0;
       }
       find_string = 1;
@@ -363,12 +353,12 @@ int ProcessArgs(char *arg)
 
     case 'F':				
       if(arg[2] == '\0') {
-	GXSTD::cerr << "\n";
-	GXSTD::cerr << "You must enter a string following the -F option." 
+	std::cerr << "\n";
+	std::cerr << "You must enter a string following the -F option." 
 		    << "\n";
-	GXSTD::cerr << "Example usage: " << ProgramName << " -F\"string\"" 
+	std::cerr << "Example usage: " << ProgramName << " -F\"string\"" 
 		    << "\n"; 
-	GXSTD::cerr << "\n";
+	std::cerr << "\n";
 	return 0;
       }
       find_string = 1;
@@ -386,12 +376,12 @@ int ProcessArgs(char *arg)
 
     case 'R':
       if(arg[2] == '\0') {
-	GXSTD::cerr << "\n";
-	GXSTD::cerr << "You must enter a string following the -R option." 
+	std::cerr << "\n";
+	std::cerr << "You must enter a string following the -R option." 
 		    << "\n";
-	GXSTD::cerr << "Example usage: " << ProgramName << " -R\"string\"" 
+	std::cerr << "Example usage: " << ProgramName << " -R\"string\"" 
 		    << "\n"; 
-	GXSTD::cerr << "\n";
+	std::cerr << "\n";
 	return 0;
       }
       string_to_replace = arg+2;
@@ -405,11 +395,11 @@ int ProcessArgs(char *arg)
 
     case 'L':
       if(arg[2] == '\0') {
-	GXSTD::cerr << "\n";
-	GXSTD::cerr << "You must enter a string following the -L option." 
+	std::cerr << "\n";
+	std::cerr << "You must enter a string following the -L option." 
 		    << "\n";
-	GXSTD::cerr << "Example usage: " << ProgramName << " -L\"string\"" 
-		    << "\n"; 	GXSTD::cerr << "\n";
+	std::cerr << "Example usage: " << ProgramName << " -L\"string\"" 
+		    << "\n"; 	std::cerr << "\n";
 	return 0;
       }
       string_to_replace = arg+2;
@@ -423,12 +413,12 @@ int ProcessArgs(char *arg)
 
     case 'I':
       if(arg[2] == '\0') {
-	GXSTD::cerr << "\n";
-	GXSTD::cerr << "You must enter a string following the -I option." 
+	std::cerr << "\n";
+	std::cerr << "You must enter a string following the -I option." 
 		    << "\n";
-	GXSTD::cerr << "Example usage: " << ProgramName << " -I\"string\"" 
+	std::cerr << "Example usage: " << ProgramName << " -I\"string\"" 
 		    << "\n"; 
-	GXSTD::cerr << "\n";
+	std::cerr << "\n";
 	return 0;
       }
       string_to_replace = arg+2;
@@ -443,20 +433,20 @@ int ProcessArgs(char *arg)
 
     case 'W':
       if(arg[2] == '\0') {
-	GXSTD::cerr << "\n";
-	GXSTD::cerr << "You must enter a string following the -W option." 
+	std::cerr << "\n";
+	std::cerr << "You must enter a string following the -W option." 
 		    << "\n";
-	GXSTD::cerr << "Example usage: " << ProgramName << " -W\"string\"" 
+	std::cerr << "Example usage: " << ProgramName << " -W\"string\"" 
 		    << "\n"; 
-	GXSTD::cerr << "\n";
+	std::cerr << "\n";
 	return 0;
       }
 
       if(string_to_replace.is_null()) {
-	GXSTD::cerr << "\n";
-	GXSTD::cerr << "The -W option must be used with the -R, -L, or -I option." << "\n";
-	GXSTD::cerr << "Usage: -R\"string\" -W\"replacement\"" << "\n";
-	GXSTD::cerr << "\n";
+	std::cerr << "\n";
+	std::cerr << "The -W option must be used with the -R, -L, or -I option." << "\n";
+	std::cerr << "Usage: -R\"string\" -W\"replacement\"" << "\n";
+	std::cerr << "\n";
 	return 0;
       }
 
@@ -466,12 +456,12 @@ int ProcessArgs(char *arg)
       
     case '-':
       if(arg[2] == '\0') {
-	GXSTD::cerr << "\n";
-	GXSTD::cerr << "You must enter an option and -- argument." 
+	std::cerr << "\n";
+	std::cerr << "You must enter an option and -- argument." 
 		    << "\n";
-	GXSTD::cerr << "Example usage: " << ProgramName << " --infile=\"textfile.txt\"" 
+	std::cerr << "Example usage: " << ProgramName << " --infile=\"textfile.txt\"" 
 		    << "\n"; 
-	GXSTD::cerr << "\n";
+	std::cerr << "\n";
 	return 0;
       }
 
@@ -487,21 +477,21 @@ int ProcessArgs(char *arg)
 
       if(dash_option == "infile") {
 	if(dash_option.is_null()) {
-	  GXSTD::cerr << "\n";
-	  GXSTD::cerr << "Error you must supply a file name with the --infile argument" 
+	  std::cerr << "\n";
+	  std::cerr << "Error you must supply a file name with the --infile argument" 
 		      << "\n";
-	  GXSTD::cerr << "Exiting..." << "\n";
-	  GXSTD::cerr << "\n";
+	  std::cerr << "Exiting..." << "\n";
+	  std::cerr << "\n";
 	  return 0;
 	}
 	input_file_name = dash_arg;
 	has_dash_arg = 1;
 	infile.df_Open(input_file_name.c_str());
 	if(infile.df_CheckError()) {
-	  GXSTD::cerr << "\n";
-	  GXSTD::cerr << "Error opening infile " << input_file_name.c_str() << "\n";
-	  GXSTD::cerr << "Exiting..." << "\n";
-	  GXSTD::cerr << "\n";
+	  std::cerr << "\n";
+	  std::cerr << "Error opening infile " << input_file_name.c_str() << "\n";
+	  std::cerr << "Exiting..." << "\n";
+	  std::cerr << "\n";
 	  return 0;
 	}
 	string_to_insert.Clear();
@@ -510,12 +500,12 @@ int ProcessArgs(char *arg)
 	  infile.df_Read(line_buf, sizeof(line_buf));
 	  if(infile.df_GetError() != DiskFileB::df_NO_ERROR) {
 	    if(infile.df_GetError() != DiskFileB::df_EOF_ERROR) {
-	      GXSTD::cerr << "Error reading from the text file" << "\n";
-	      GXSTD::cerr << infile.df_ExceptionMessage() << "\n";
-	      GXSTD::cerr << "\n";
-	      GXSTD::cerr << "Error reading infile " << input_file_name.c_str() << "\n";
-	      GXSTD::cerr << "Exiting..." << "\n";
-	      GXSTD::cerr << "\n";
+	      std::cerr << "Error reading from the text file" << "\n";
+	      std::cerr << infile.df_ExceptionMessage() << "\n";
+	      std::cerr << "\n";
+	      std::cerr << "Error reading infile " << input_file_name.c_str() << "\n";
+	      std::cerr << "Exiting..." << "\n";
+	      std::cerr << "\n";
 	      return 0;
 	    }
 	  }
@@ -547,11 +537,11 @@ int ProcessArgs(char *arg)
 
       if(dash_option == "TerminateWith") {
 	if(dash_option.is_null()) {
-	  GXSTD::cerr << "\n";
-	  GXSTD::cerr << "Error you must supply a string with the --TerminateWith argument" 
+	  std::cerr << "\n";
+	  std::cerr << "Error you must supply a string with the --TerminateWith argument" 
 		      << "\n";
-	  GXSTD::cerr << "Exiting..." << "\n";
-	  GXSTD::cerr << "\n";
+	  std::cerr << "Exiting..." << "\n";
+	  std::cerr << "\n";
 	  return 0;
 	}
 	has_dash_arg = 1;
@@ -562,11 +552,11 @@ int ProcessArgs(char *arg)
       
       if(dash_option == "TrimLeading") {
 	if(dash_option.is_null()) {
-	  GXSTD::cerr << "\n";
-	  GXSTD::cerr << "Error you must supply a string with the --TrimLeading argument" 
+	  std::cerr << "\n";
+	  std::cerr << "Error you must supply a string with the --TrimLeading argument" 
 		      << "\n";
-	  GXSTD::cerr << "Exiting..." << "\n";
-	  GXSTD::cerr << "\n";
+	  std::cerr << "Exiting..." << "\n";
+	  std::cerr << "\n";
 	  return 0;
 	}
 	has_dash_arg = 1;
@@ -576,11 +566,11 @@ int ProcessArgs(char *arg)
 
       if(dash_option == "TrimTrailing") {
 	if(dash_option.is_null()) {
-	  GXSTD::cerr << "\n";
-	  GXSTD::cerr << "Error you must supply a string with the --TrimTrialing argument" 
+	  std::cerr << "\n";
+	  std::cerr << "Error you must supply a string with the --TrimTrialing argument" 
 		      << "\n";
-	  GXSTD::cerr << "Exiting..." << "\n";
-	  GXSTD::cerr << "\n";
+	  std::cerr << "Exiting..." << "\n";
+	  std::cerr << "\n";
 	  return 0;
 	}
 	has_dash_arg = 1;
@@ -598,10 +588,10 @@ int ProcessArgs(char *arg)
 	  if(!replace_file_name.is_null()) {
 	    infile.df_Open(replace_file_name.c_str());
 	    if(infile.df_CheckError()) {
-	      GXSTD::cerr << "\n";
-	      GXSTD::cerr << "Error opening replace section file " << replace_file_name.c_str() << "\n";
-	      GXSTD::cerr << "Exiting..." << "\n";
-	      GXSTD::cerr << "\n";
+	      std::cerr << "\n";
+	      std::cerr << "Error opening replace section file " << replace_file_name.c_str() << "\n";
+	      std::cerr << "Exiting..." << "\n";
+	      std::cerr << "\n";
 	      return 0;
 	    }
 	    string_to_replace.Clear();
@@ -610,12 +600,12 @@ int ProcessArgs(char *arg)
 	      infile.df_Read(line_buf, sizeof(line_buf));
 	      if(infile.df_GetError() != DiskFileB::df_NO_ERROR) {
 		if(infile.df_GetError() != DiskFileB::df_EOF_ERROR) {
-		  GXSTD::cerr << "Error reading from the text file" << "\n";
-		  GXSTD::cerr << infile.df_ExceptionMessage() << "\n";
-		  GXSTD::cerr << "\n";
-		  GXSTD::cerr << "Error reading replace section file " << replace_file_name.c_str() << "\n";
-		  GXSTD::cerr << "Exiting..." << "\n";
-		  GXSTD::cerr << "\n";
+		  std::cerr << "Error reading from the text file" << "\n";
+		  std::cerr << infile.df_ExceptionMessage() << "\n";
+		  std::cerr << "\n";
+		  std::cerr << "Error reading replace section file " << replace_file_name.c_str() << "\n";
+		  std::cerr << "Exiting..." << "\n";
+		  std::cerr << "\n";
 		}
 	      }
 	      string_to_replace.Cat(line_buf, infile.df_gcount());
@@ -648,27 +638,27 @@ int ProcessArgs(char *arg)
       }
 
       if(!has_dash_arg) {
-	GXSTD::cerr << "\n";
-	GXSTD::cerr << "Invalid option and -- argument " << "\n";
-	GXSTD::cerr << arg << "\n";
-	GXSTD::cerr << "Exiting..." << "\n";
-	GXSTD::cerr << "\n";
+	std::cerr << "\n";
+	std::cerr << "Invalid option and -- argument " << "\n";
+	std::cerr << arg << "\n";
+	std::cerr << "Exiting..." << "\n";
+	std::cerr << "\n";
 	return 0;
       }
       break;
 
     default:
-      GXSTD::cerr << "\n";
-      GXSTD::cerr << "Unknown switch " << arg << "\n";
-      GXSTD::cerr << "Exiting..." << "\n";
-      GXSTD::cerr << "\n";
+      std::cerr << "\n";
+      std::cerr << "Unknown switch " << arg << "\n";
+      std::cerr << "Exiting..." << "\n";
+      std::cerr << "\n";
       return 0;
   }
   arg[0] = '\0';
   return 1; // All command line arguments were valid
 }
 
-int ProcessTextFile(DiskFileB &iofile, GXSTD::ostream &stream)
+int ProcessTextFile(DiskFileB &iofile, std::ostream &stream)
 {
   FixInputStrings();
 
@@ -728,10 +718,10 @@ int ProcessTextFile(DiskFileB &iofile, GXSTD::ostream &stream)
 	  rv = LineData.IFind(string_to_find);
 	if(rv != -1) {
 	  num_matches++; num_processed++;
-	  GXSTD::cout << "\n";
-	  GXSTD::cout << "File name: " << open_file << " String: " 
+	  std::cout << "\n";
+	  std::cout << "File name: " << open_file << " String: " 
 	       << string_to_find << "\n";
-	  GXSTD::cout << "Found match on line: #" << line_number << "\n";
+	  std::cout << "Found match on line: #" << line_number << "\n";
 	}
       }
     }
@@ -815,16 +805,16 @@ int ProcessTextFile(DiskFileB &iofile, GXSTD::ostream &stream)
     iofile.df_Create(open_file);
     
     if(!iofile) {
-      GXSTD::cerr << "\n";
-      GXSTD::cerr << "Cannot write to: " << open_file << "\n";
-      GXSTD::cerr << "Exiting..." << "\n";
-      GXSTD::cerr << "\n";
+      std::cerr << "\n";
+      std::cerr << "Cannot write to: " << open_file << "\n";
+      std::cerr << "Exiting..." << "\n";
+      std::cerr << "\n";
       exit(0);
     }
 
     gxListNode<gxString> *list_ptr = list.GetHead();
     while(list_ptr) {
-#if defined(__DOS__) || defined (__WIN32__)
+#if defined(__WIN32__)
       list_ptr->data.ReplaceString("\n", "\r\n");
       iofile << list_ptr->data.c_str() << "\r\n";
 #else 
@@ -832,11 +822,11 @@ int ProcessTextFile(DiskFileB &iofile, GXSTD::ostream &stream)
 #endif
 
       if(iofile.df_CheckError()) {
-	GXSTD::cerr << "\n";
-	GXSTD::cerr << "Error writing to: " << open_file << "\n";
-	GXSTD::cerr << iofile.df_ExceptionMessage() << "\n";
-	GXSTD::cerr << "Exiting..." << "\n";
-	GXSTD::cerr << "\n";
+	std::cerr << "\n";
+	std::cerr << "Error writing to: " << open_file << "\n";
+	std::cerr << iofile.df_ExceptionMessage() << "\n";
+	std::cerr << "Exiting..." << "\n";
+	std::cerr << "\n";
 	iofile.df_Close();
 	exit(0);
       }
@@ -850,25 +840,25 @@ int ProcessTextFile(DiskFileB &iofile, GXSTD::ostream &stream)
   return 1;
 }
 
-int ReplaceBySection(DiskFileB &iofile, GXSTD::ostream &stream)
+int ReplaceBySection(DiskFileB &iofile, std::ostream &stream)
 {
-  GXSTD::cerr << "\n";
-  GXSTD::cerr << "Replacing section in file " << open_file << "\n";
+  std::cerr << "\n";
+  std::cerr << "Replacing section in file " << open_file << "\n";
 
   if(string_to_insert.is_null()) {
-    GXSTD::cerr << "\n";
-    GXSTD::cerr << "Error you must an supply input string for section replace" 
+    std::cerr << "\n";
+    std::cerr << "Error you must an supply input string for section replace" 
 		<< "\n";
-    GXSTD::cerr << "Exiting..." << "\n";
-    GXSTD::cerr << "\n";
+    std::cerr << "Exiting..." << "\n";
+    std::cerr << "\n";
     exit(0);
   }
 
   if(string_to_replace.is_null()) {
-    GXSTD::cerr << "\n";
-    GXSTD::cerr << "Error you must supply a string to replace" << "\n";
-    GXSTD::cerr << "Exiting..." << "\n";
-    GXSTD::cerr << "\n";
+    std::cerr << "\n";
+    std::cerr << "Error you must supply a string to replace" << "\n";
+    std::cerr << "Exiting..." << "\n";
+    std::cerr << "\n";
     exit(0);
   }
 
@@ -884,11 +874,11 @@ int ReplaceBySection(DiskFileB &iofile, GXSTD::ostream &stream)
     iofile.df_Read(line_buf, sizeof(line_buf));
     if(iofile.df_GetError() != DiskFileB::df_NO_ERROR) {
       if(iofile.df_GetError() != DiskFileB::df_EOF_ERROR) {
-	GXSTD::cerr << "\n";
-	GXSTD::cerr << "Error reading from: " << open_file << "\n";
-	GXSTD::cerr << iofile.df_ExceptionMessage() << "\n";
-	GXSTD::cerr << "No sections were replaced" << "\n";
-	GXSTD::cerr << "\n";
+	std::cerr << "\n";
+	std::cerr << "Error reading from: " << open_file << "\n";
+	std::cerr << iofile.df_ExceptionMessage() << "\n";
+	std::cerr << "No sections were replaced" << "\n";
+	std::cerr << "\n";
 	iofile.df_Close();
 	return 0;
       }
@@ -925,24 +915,24 @@ int ReplaceBySection(DiskFileB &iofile, GXSTD::ostream &stream)
     iofile.df_Create(open_file);
     
     if(!iofile) {
-      GXSTD::cerr << "\n";
-      GXSTD::cerr << "Cannot write to: " << open_file << "\n";
-      GXSTD::cerr << "No sections were replaced" << "\n";
-      GXSTD::cerr << "\n";
+      std::cerr << "\n";
+      std::cerr << "Cannot write to: " << open_file << "\n";
+      std::cerr << "No sections were replaced" << "\n";
+      std::cerr << "\n";
       return 0;
     }
 
-#if defined(__DOS__) || defined (__WIN32__)
+#if defined(__WIN32__)
     memcopy.ReplaceString("\n", "\r\n");
 #endif
 
     if(iofile.df_Write(memcopy.c_str(), memcopy.length()) != 
        DiskFileB::df_NO_ERROR) {
-      GXSTD::cerr << "\n";
-      GXSTD::cerr << "Error writing to: " << open_file << "\n";
-      GXSTD::cerr << iofile.df_ExceptionMessage() << "\n";
-      GXSTD::cerr << "No sections were replaced" << "\n";
-      GXSTD::cerr << "\n";
+      std::cerr << "\n";
+      std::cerr << "Error writing to: " << open_file << "\n";
+      std::cerr << iofile.df_ExceptionMessage() << "\n";
+      std::cerr << "No sections were replaced" << "\n";
+      std::cerr << "\n";
       iofile.df_Close();
       return 0;
     }
@@ -950,18 +940,18 @@ int ReplaceBySection(DiskFileB &iofile, GXSTD::ostream &stream)
   }
 
   if(num_replaced == 0) {
-    GXSTD::cerr << "No sections were found to replaced" << "\n";
-    GXSTD::cerr << "\n";
+    std::cerr << "No sections were found to replaced" << "\n";
+    std::cerr << "\n";
   }
   else if(num_replaced == 1) {
-    GXSTD::cerr << "Replaced " << num_replaced << " section." 
+    std::cerr << "Replaced " << num_replaced << " section." 
 		<< "\n";
-    GXSTD::cerr << "\n";
+    std::cerr << "\n";
   }
   else {
-    GXSTD::cerr << "Replaced " << num_replaced << " sections." 
+    std::cerr << "Replaced " << num_replaced << " sections." 
 		<< "\n";
-    GXSTD::cerr << "\n";
+    std::cerr << "\n";
   }
 
   return 1;

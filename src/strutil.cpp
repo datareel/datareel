@@ -65,9 +65,6 @@ caller.
 
 #include "strutil.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 gxwchar::gxwchar(unsigned long wc)
 {
@@ -188,18 +185,7 @@ GXDLCODE_API wchar_t *gxstrcpy(wchar_t *to, const wchar_t *from)
 // function assumes that the caller has previously allocated enough memory 
 // for the destination string plus room for the string's null terminator. 
 {
-#if defined (__HAS_UNICODE__)
   return wcscpy(to, from);
-#else // Non-compiler specific Unicode string copy function
-  unsigned cs = sizeof(wchar_t);
-  unsigned nchars = gxstrlen(from);
-
-  // Cast to unsigned char * type so that the pointer will be
-  // incremented one byte at a time.
-  memmove((unsigned char *)to, (unsigned char *)from, (nchars*cs));
-  to[nchars] = (wchar_t)0; // Null terminate the string
-  return to;
-#endif // __HAS_UNICODE__
 }
 
 GXDLCODE_API wchar_t *gxstrcat(wchar_t *des, const wchar_t *src)
@@ -208,20 +194,7 @@ GXDLCODE_API wchar_t *gxstrcat(wchar_t *des, const wchar_t *src)
 // function assumes that the caller has previously allocated enough memory 
 // for the destination string plus room for the string's null terminator. 
 {
-#if defined (__HAS_UNICODE__)
   return wcscat(des, src);
-#else // Non-compiler specific Unicode string cat function
-  unsigned cs = sizeof(wchar_t);
-  unsigned nchars_d = gxstrlen(des);
-  unsigned nchars_s = gxstrlen(src);
-
-  // Cast to unsigned char * type so that the pointer will be
-  // incremented one byte at a time.
-  memmove((unsigned char *)des+(nchars_d*cs), (unsigned char *)src, 
-	  (nchars_s*cs));
-  des[nchars_d+nchars_s] = (wchar_t)0; // Null terminate the string
-  return des;
-#endif // __HAS_UNICODE__
 }
 
 GXDLCODE_API unsigned gxstrlen(const wchar_t *s)
@@ -232,28 +205,14 @@ GXDLCODE_API unsigned gxstrlen(const wchar_t *s)
 // Unicode string can be calculated by multiplying the string length by 
 // sizeof(wchar_t).
 {
-#if defined (__HAS_UNICODE__)
   return wcslen(s);
-#else // Non-compiler specific Unicode string function
-  wchar_t *p = (wchar_t *)s;
-  unsigned i = 0;
-  while(p[i++] != (wchar_t)0) ; 
-  return i - 1; // Return the length minus the null terminator
-#endif // __HAS_UNICODE__
 }
 
 GXDLCODE_API int gxstrcmp(const wchar_t *a, const wchar_t *b)
 // Cross compiler Unicode string function used to compare two null terminated 
 // Unicode strings. Returns -1 if a < b, 0 if a == b, and 1 if a > b
 {
-#if defined (__HAS_UNICODE__)
   return wcscmp(a, b);
-#else // Non-compiler specific Unicode string function
-  unsigned cs = sizeof(wchar_t);
-  unsigned nchars_a = gxstrlen(a);
-  unsigned nchars_b = gxstrlen(b);
-  return gxbyte_compare(a, (nchars_a*cs), b, (nchars_b*cs));
-#endif // __HAS_UNICODE__
 }
 
 GXDLCODE_API int gxbyte_compare(const void *a, unsigned a_bytes, 
@@ -301,13 +260,8 @@ GXDLCODE_API int gxbyte_icompare(const void *a, unsigned a_bytes,
     wchar_t *ap = (wchar_t *)a;
     wchar_t *bp = (wchar_t *)b;
     for(unsigned i = 0; i < sn; i++) {
-#if defined (__HAS_UNICODE__)
       if(towlower(ap[i]) < towlower(bp[i])) return -1;
       if(towlower(ap[i]) > towlower(bp[i])) return 1;
-#else
-      if(tolower(ap[i]) < tolower(bp[i])) return -1;
-      if(tolower(ap[i]) > tolower(bp[i])) return 1;
-#endif // __HAS_UNICODE__
     }
     if(a_bytes == b_bytes) return 0;
     if(a_bytes < b_bytes) return -1;
@@ -415,11 +369,7 @@ GXDLCODE_API int gxifind_pattern(const void *src, unsigned s_bytes,
     wchar_t *pattern = (wchar_t *)p; // next pattern element
 
     while(i < nchars_s && j <= nchars_p) {
-#if defined (__HAS_UNICODE__)
       if(towlower(*next) == towlower(*pattern)) {
-#else
-      if(tolower(*next) == tolower(*pattern)) {
-#endif // __HAS_UNICODE__
 	if(j == nchars_p) return (int)i; // Entire match was found
 	next++; pattern++; j++;
       }
@@ -946,7 +896,6 @@ GXDLCODE_API unsigned long StringToULWORD(const wchar_t *str)
   return i;
 }
 
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
 GXDLCODE_API wchar_t *ULLWORDToString(wchar_t *sbuf, __ULLWORD__ val, 
 				      int radix)
 // Returns a null terminated string representing the specified
@@ -1123,11 +1072,7 @@ GXDLCODE_API __ULLWORD__ StringToULLWORD(const char *str)
 
   return (__ULLWORD__)value;  
 }
-#endif
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

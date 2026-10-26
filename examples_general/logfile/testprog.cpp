@@ -32,26 +32,16 @@ This is a test program for the LogFile class.
 // ----------------------------------------------------------- //   
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include "logfile.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 static LogFile *SysLog;
 
 int main()
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   SysLog = new LogFile;
   char *fname = "logfile.log";

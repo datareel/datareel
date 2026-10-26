@@ -56,10 +56,6 @@ new code that will execute faster.
 #include "dfileb.h"
 #include "ustring.h"
 
-#ifdef __BCC32__
-#pragma warn -8057
-#pragma warn -8080
-#endif
 
 const char *df_FILE_ERROR_MESSAGES[df_MAX_FILE_ERRORS] = {
   "Disk file exception: No errors reported", // df_NO_ERROR
@@ -1417,10 +1413,6 @@ int DiskFileB::df_copy(const char *from, const char *to, unsigned buf_size,
   return df_last_error = DiskFileB::df_NO_ERROR;
 }
 
-#ifdef __BCC32__
-#pragma warn .8057
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

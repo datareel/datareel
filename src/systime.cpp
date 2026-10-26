@@ -101,9 +101,6 @@ that initialize the internal time buffers.
 #include <stdio.h>
 #include "systime.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 char *SysTimeUnit::c_str_Hours()
 {
@@ -160,7 +157,7 @@ SysTime::SysTime()
 
 SysTime::~SysTime()
 {
-#if defined (__UNIX__) && defined (__REENTRANT__)
+#if defined(__UNIX__)
   if(TimeBuffer) {
     delete TimeBuffer;
     TimeBuffer = 0;
@@ -175,7 +172,7 @@ void SysTime::InitTimeBuffers()
   time(&STime); // PC-lint 09/15/2005: time() function is considered dangerous
 #if defined (__WIN32__)
   TimeBuffer = localtime(&STime);
-#elif defined (__UNIX__) && defined (__REENTRANT__)
+#elif defined(__UNIX__)
   // Using the UNIX localtime_r() function instead of localtime()
   TimeBuffer = new tm;
   memset(TimeBuffer, 0, sizeof(struct tm));
@@ -321,7 +318,7 @@ char *SysTime::GetSystemDateTime(int full_month_name)
 
 #if defined (__WIN32__)
   TimeBuffer = localtime(&STime);
-#elif defined (__UNIX__) && defined (__REENTRANT__)
+#elif defined(__UNIX__)
   // Using the UNIX localtime_r() function instead of localtime()
   localtime_r(&STime, TimeBuffer);
 #else // Use localtime() by default
@@ -355,7 +352,7 @@ char *SysTime::GetSystemTime()
 
 #if defined (__WIN32__)
   TimeBuffer = localtime(&STime);
-#elif defined (__UNIX__) && defined (__REENTRANT__)
+#elif defined(__UNIX__)
   // Using the UNIX localtime_r() function instead of localtime()
   localtime_r(&STime, TimeBuffer);
 #else // Use localtime() by default
@@ -383,7 +380,7 @@ char *SysTime::GetSystemDate(int full_month_name)
 
 #if defined (__WIN32__)
   TimeBuffer = localtime(&STime);
-#elif defined (__UNIX__) && defined (__REENTRANT__)
+#elif defined(__UNIX__)
   // Using the UNIX localtime_r() function instead of localtime()
   localtime_r(&STime, TimeBuffer);
 #else // Use localtime() by default
@@ -418,7 +415,7 @@ int SysTime::DateSpan(char *s, unsigned days, int full_month_name)
 
 #if defined (__WIN32__)
   when = *localtime(&now);
-#elif defined (__UNIX__) && defined (__REENTRANT__)
+#elif defined(__UNIX__)
   // Using the UNIX localtime_r() function instead of localtime()
   localtime_r(&now, &when);
 #else // Use localtime() by default
@@ -486,7 +483,7 @@ int SysTime::DaysOld(int jday, int year)
   time_now = localtime(&system_time);
   strftime(julian_day_cur, 80, "%j", time_now );
   strftime(julian_year_cur, 80, "%Y", time_now );
-#elif defined (__UNIX__) && defined (__REENTRANT__)
+#elif defined(__UNIX__)
   // Using the UNIX localtime_r() function instead of localtime()
   struct tm time_now;
   localtime_r(&system_time, &time_now);
@@ -525,7 +522,7 @@ char *SysTime::GetSyslogTime()
 
 #if defined (__WIN32__)
   TimeBuffer = localtime(&STime);
-#elif defined (__UNIX__) && defined (__REENTRANT__)
+#elif defined(__UNIX__)
   // Using the UNIX localtime_r() function instead of localtime()
   localtime_r(&STime, TimeBuffer);
 #else // Use localtime() by default
@@ -556,7 +553,7 @@ char *SysTime::GetSMTPTime()
 
 #if defined (__WIN32__)
   TimeBuffer = localtime(&STime);
-#elif defined (__UNIX__) && defined (__REENTRANT__)
+#elif defined(__UNIX__)
   // Using the UNIX localtime_r() function instead of localtime()
   localtime_r(&STime, TimeBuffer);
 #else // Use localtime() by default
@@ -593,7 +590,7 @@ char *SysTime::GetGMTDateTime()
 
 #if defined (__WIN32__)
   TimeBuffer = gmtime(&STime);
-#elif defined (__UNIX__) && defined (__REENTRANT__)
+#elif defined(__UNIX__)
   // Using the UNIX gmtime_r() function instead of gmtime()
   gmtime_r(&STime, TimeBuffer);
 #else // Use gmtime() by default
@@ -628,7 +625,7 @@ char *SysTime::MakeFileModTime(time_t mod_time)
 
 #if defined (__WIN32__)
   TimeBuffer = localtime(&mod_time);
-#elif defined (__UNIX__) && defined (__REENTRANT__)
+#elif defined(__UNIX__)
   // Using the UNIX localtime_r() function instead of localtime()
   localtime_r(&mod_time, TimeBuffer);
 #else // Use localtime() by default
@@ -660,7 +657,7 @@ char *SysTime::MakeGMTDateTime(time_t mod_time)
 
 #if defined (__WIN32__)
   TimeBuffer = gmtime(&mod_time);
-#elif defined (__UNIX__) && defined (__REENTRANT__)
+#elif defined(__UNIX__)
   // Using the UNIX gmtime_r() function instead of gmtime()
   gmtime_r(&mod_time, TimeBuffer);
 #else // Use gmtime() by default
@@ -684,9 +681,6 @@ char *SysTime::MakeGMTDateTime(time_t mod_time)
   return SBuffer.c_str();
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

@@ -32,19 +32,12 @@ Test program for the embedded FTP client class.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <stdlib.h>
 #include "gxsftp.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 int CheckError(gxsFTPClient *ftp, int close_on_err = 1)
 {
@@ -269,9 +262,6 @@ void Put(gxsFTPClient *ftp)
 
 int main(int argc, char **argv)
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   if(argc < 4) {
     cout << "Usage: " << argv[0] << " server username password [port]" 

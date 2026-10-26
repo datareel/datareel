@@ -34,9 +34,6 @@ DataReel XML parser.
 
 #include "gxsxml.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 const int gxNumXMLEscapedElements = 5;
 const char *gxXMLEscapedElements[gxNumXMLEscapedElements] = {
@@ -2431,9 +2428,6 @@ void gxsXML::Handle_Sibling_Event(gxsXMLNode_t & /* n */)
 
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

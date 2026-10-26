@@ -37,14 +37,9 @@ cache classes.
 int main() { return 0; }
 #else
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 #include <iomanip>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#include <iomanip.h>
-#endif // __USE_ANSI_CPP__
 
 #include <string.h>
 #include <time.h>
@@ -54,9 +49,6 @@ using namespace std; // Use unqualified names for Standard C++ library
 #include "gxdstats.h"
 #include "ustring.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 // Various static data area sizes used to test large files
 const FAU_t STATIC_AREA_SIZE = 0;
@@ -120,9 +112,6 @@ void PausePrg()
 
 int main()
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   // Adjust this number to set the number of insertions
   const unsigned long INSERTIONS = 1 * 1000;       // 1K test

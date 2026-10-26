@@ -75,9 +75,6 @@ throughout the library.
 
 #include "gxdfptr.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 GXDLCODE_API gxdFPTR *gxdFPTRCreate(const char *fname)
 // Create a new file and truncate existing files.
@@ -668,9 +665,6 @@ ssize_t dio_getline(DIOFILE *fp, char **buf, size_t *bufsiz)
 }
 #endif
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

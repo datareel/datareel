@@ -34,9 +34,6 @@ DataReel RSS classes.
 
 #include "gxsrss.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 // 10/14/2026: Helper added to encode a field for output. The old code
 // only encoded the description fields, so a title, link or other field
@@ -365,9 +362,6 @@ int gxRSSfeed::write_rss1_feed(gxString &feed)
   return 1;
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

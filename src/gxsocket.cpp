@@ -101,11 +101,6 @@ array.
 #include <sys/utsname.h> // Used for host name information
 #endif // __UNIX__
 
-#ifdef __BCC32__
-#pragma warn -8057
-#pragma warn -8071
-#pragma warn -8084
-#endif
 
 // NOTE: This array must contain the same number of exceptions as the
 // gxSocketError enumeration. 
@@ -278,9 +273,7 @@ gxsSocket_t gxSocket::Socket()
 {
   gxsocket = socket(address_family, socket_type, protocol_family);
 
-#if defined (__PCLINT_CHECK__)
-  if(gxsocket < 0)
-#elif defined (__WIN32__) && !defined (__PCLINT_CHECK__)
+#if defined(__WIN32__)
   // The SOCKET type is unsigned in the WinSock library
   if(gxsocket == INVALID_SOCKET) // Defined as (SOCKET)(~0)
 #elif defined (__UNIX__)
@@ -309,12 +302,6 @@ gxsSocket_t gxSocket::InitSocket(gxsAddressFamily af,
 // with the IPPROTO_ICMP protocol when using raw sockets and does
 // not support the IPPROTO_RAW protocol.
 {
-#if defined (__WIN32__) && !defined (__WIN2000__)
-  if((st == SOCK_RAW) && (pf != IPPROTO_ICMP)) {
-    socket_error = gxSOCKET_SOCKETTYPE_ERROR;
-    return -1;
-  }
-#endif
 
   address_family = af;
   socket_type = st;
@@ -326,7 +313,7 @@ gxsSocket_t gxSocket::InitSocket(gxsAddressFamily af,
   sin.sin_family = address_family;
 
   if(hostname) {
-#if defined (__LINUX__) && defined (__REENTRANT__)
+#if defined(__LINUX__)
     // 08/25/2016: Added thread safe code to replace gethostbyname() call
     struct addrinfo hints, *res;
     memset (&hints, 0, sizeof (hints));
@@ -414,12 +401,6 @@ gxsSocket_t gxSocket::InitSocket(gxsSocket_t st, gxsProtocolFamily pf,
 // with the IPPROTO_ICMP protocol when using raw sockets and does
 // not support the IPPROTO_RAW protocol.
 {
-#if defined (__WIN32__) && !defined (__WIN2000__)
-  if((st == SOCK_RAW) && (pf != IPPROTO_ICMP)) {
-    socket_error = gxSOCKET_SOCKETTYPE_ERROR;
-    return -1;
-  }
-#endif
 
   // Set the socket varaibles
   socket_type = st;
@@ -453,7 +434,7 @@ int gxSocket::InitSIN(gxsSocketAddress *host_sin, gxsAddressFamily af,
   host_sin->sin_family = address_family;
 
   if(hostname) {
-#if defined (__LINUX__) && defined (__REENTRANT__)
+#if defined(__LINUX__)
     // 08/28/2016: Added thread safe code to replace gethostbyname() call
     struct addrinfo hints, *res;
     memset (&hints, 0, sizeof (hints));
@@ -583,7 +564,6 @@ int gxSocket::ReadSelect(gxsSocket_t s, int seconds, int useconds)
 // Function used to multiplex reads without polling. Returns false if a 
 // reply time is longer then the timeout values. 
 {
-#ifndef __SOLARIS__
   struct timeval timeout;
   fd_set fds;
   FD_ZERO(&fds);
@@ -599,29 +579,6 @@ int gxSocket::ReadSelect(gxsSocket_t s, int seconds, int useconds)
   if(s < 0) return 0;	//CWS - socket was disconnected?
   return select(s+1, &fds, 0, 0, &timeout);
 
-#else 
-  // As submitted by DataReel user the Solaris select() function 
-  // may not always be reliable. This fix was added but not tested. 
-  // If any Solaris users test the below code please email the 
-  // DataReel Software Development team.  
-
-  // pollfd read_fds[1];
-  // read_fds[0].fd = s;
-  // read_fds[0].events = POLLIN | POLLERR | POLLHUP;
-  // read_fds[0].revents = 0;
-  // return poll(read_fds, 1, (seconds!=-1)?seconds*1000:-1);
-
-  // Use old code until above version is full under Solaris.
-  struct timeval timeout;
-  fd_set fds;
-  FD_ZERO(&fds);
-  FD_SET(s, &fds);
-  timeout.tv_sec = seconds;
-  timeout.tv_usec = useconds;
-  if(s < 0) return 0;
-  return select(s+1, &fds, 0, 0, &timeout);
-
-#endif // __SOLARIS__
 }
 
 int gxSocket::Recv(void *buf, int bytes, int flags)
@@ -904,9 +861,7 @@ gxsSocket_t gxSocket::Accept(gxsSocket_t s, gxsSocketAddress *sa)
 
   gxsSocket_t client_socket = accept(s, (struct sockaddr *)sa, &addr_size);
 
-#if defined (__PCLINT_CHECK__)
-  if(client_socket < 0)
-#elif defined (__WIN32__) && !defined (__PCLINT_CHECK__)
+#if defined(__WIN32__)
   // The SOCKET type is unsigned in the WinSock library
   if(client_socket == INVALID_SOCKET) // Defined as (SOCKET)(~0)
 #elif defined (__UNIX__)
@@ -933,9 +888,7 @@ gxsSocket_t gxSocket::Accept()
 
   remote_socket = accept(gxsocket, (struct sockaddr *)&remote_sin, &addr_size);
 
-#if defined (__PCLINT_CHECK__)
-  if(remote_socket < 0)
-#elif defined (__WIN32__) && !defined (__PCLINT_CHECK__)
+#if defined(__WIN32__)
   // The SOCKET type is unsigned in the WinSock library
   if(remote_socket == INVALID_SOCKET) // Defined as (SOCKET)(~0)
 #elif defined (__UNIX__)
@@ -1156,11 +1109,6 @@ gxsHostNameInfo *gxSocket::GetHostInformation(char *hostname)
   gxsHostNameInfo *hostinfo;
   hostia.s_addr = inet_addr(hostname);
 
-#if defined (__SOLARIS__)
-#ifndef INADDR_NONE // IPv4 Internet address integer constant not defined
-#define INADDR_NONE 0xffffffff
-#endif
-#endif
 
   if(hostia.s_addr == INADDR_NONE) { // Look up host by name
     hostinfo = gethostbyname(hostname); 
@@ -1283,7 +1231,7 @@ int gxSocket::GetRemoteHostName(char *sbuf)
 // prior to using this function. Return -1 if an error occurs.
 {
   
-#if defined (__LINUX__) && defined (__REENTRANT__)
+#if defined(__LINUX__)
   // 08/25/2016: Added thread safe code to replace inet_ntoa call
   char client_name[gxsMAX_NAME_LEN];
   memset(client_name, 0, gxsMAX_NAME_LEN);
@@ -1831,11 +1779,6 @@ void gxSocket::SetRemoteIPAddress(char *IPAddress)
   remote_sin.sin_addr.s_addr = *((unsigned long *)hostnm->h_addr); 
 }
 
-#ifdef __BCC32__
-#pragma warn .8057
-#pragma warn .8071
-#pragma warn .8084
-#endif
 
 // ----------------------------------------------------------- // 
 // ------------------------------- //

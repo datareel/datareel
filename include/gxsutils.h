@@ -51,11 +51,7 @@ const int gxsICMP_ECHO_REQUEST = 8;   // ICMP echo request
 // Data structures
 // --------------------------------------------------------------
 // Ensure network structures are not padded
-#if defined (__HPUX__)
-#pragma pack 1
-#else
 #pragma pack(1)
-#endif
 
 // IP Header in accordance with RFC 791
 // http://www.faqs.org/rfcs/rfc791.html
@@ -102,13 +98,7 @@ struct GXDLCODE_API gxsEchoReply
 };
 
 // Revert back to the default byte alignment
-#if defined (__HPUX__)
-#pragma pack
-#elif defined (__SOLARIS__)
-#pragma pack(4) // The Solaris compiler will only accept 1, 2, or 4
-#else
 #pragma pack()
-#endif
 // --------------------------------------------------------------
 
 // --------------------------------------------------------------

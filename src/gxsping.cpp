@@ -43,9 +43,6 @@ visible during Linux library builds
 #include <time.h>
 #include "gxsping.h"
 
-#ifdef __BCC32__
-#pragma warn -8071
-#endif
 
 gxSocketError gxsPing::Ping(int time_out_sec, int time_out_usec)
 {
@@ -126,9 +123,6 @@ int gxsPing::WaitForEchoReply(int time_out_sec, int time_out_usec)
 				time_out_usec);
 }
 
-#ifdef __BCC32__
-#pragma warn .8071
-#endif
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

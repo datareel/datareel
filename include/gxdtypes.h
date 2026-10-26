@@ -54,9 +54,7 @@ typedef double __DPFLOAT__; // (D)ouble (P)recision (F)loating point (8 bytes)
 // --------------------------------------------------------------
 // Platform/compiler specific INT64 types
 // --------------------------------------------------------------
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
 #include "gxdtyp64.h" 
-#endif
 // --------------------------------------------------------------
 
 #endif // __GX_DATABASE__TYPES_HPP__

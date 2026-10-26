@@ -33,19 +33,12 @@ message functions for gxThread_t types.
 // ----------------------------------------------------------- //   
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <stdlib.h>
 #include "gxthread.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 // Constants
 const int THREAD_EXIT_CODE = 15; // Arbitrary exit code value
@@ -98,9 +91,6 @@ void SimpleThread::ThreadExitRoutine(gxThread_t *thread)
 // Main thread of execution
 int main()
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   SimpleThread t;
 

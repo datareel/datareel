@@ -149,21 +149,10 @@ to escape values with commas.
 #include "gxdlcode.h"
 #include "strutil.h"
 
-#if defined (__USE_CPP_IOSTREAM__)
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 #include <iomanip>
-#elif !defined(__WINCE__) // Use the old iostream library by default
-#include <iostream.h>
-#include <iomanip.h>
-#endif // __USE_ANSI_CPP__
-#endif // __USE_CPP_IOSTREAM__
 
 #if defined (__LINUX__)
-#if defined (__wxWIN201__) || defined (__wxWIN291__)
-// 10/13/2002: Added support for the wxString class
-#include "wx2incs.h"
-#endif
 #if defined (__wxWIN302__)
 #include "wx3incs.h"
 #endif
@@ -384,7 +373,6 @@ public: // Overloaded operators
   UStringB &operator>>(float &val);
   UStringB &operator>>(double &val);
 
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
   __LLWORD__ Atoi64();
   __ULLWORD__ Atou64();
   UStringB &operator<<(const __LLWORD__ val);
@@ -393,7 +381,6 @@ public: // Overloaded operators
   UStringB &operator>>(__ULLWORD__ &val);
   void SHN(__ULLWORD__ bytes);
   void WholeNumber(__ULLWORD__ bytes);
-#endif
 
 public: // Functions used by UStringB I/O manipulators
   void Dec() { output_hex = (char)0; }
@@ -439,21 +426,7 @@ protected: // Data types common to all string types
 protected:
   void *sptr; // Pointer to this object's null-terminated string
 
-#if defined (__wxWIN201__)
-// 10/13/2002: Added support for the wxString class
-public:
-  UStringB &operator+=(const wxString &s) { Cat(s.c_str()); return *this; }
-  UStringB &operator<<(const wxString &s) { return *this += s.c_str(); }
-  UStringB &operator>>(wxString &s);
-#endif
 
-#if defined (__wxWIN291__)
-// 02/17/2011: Added support for the wxString class support for 2.9.1
-public:
-  UStringB &operator+=(const wxString &s) { Cat((const char *)s.c_str()); return *this; }
-  UStringB &operator<<(const wxString &s) { return *this += (const char *)s.c_str(); }
-  UStringB &operator>>(wxString &s);
-#endif
 
 #if defined (__wxWIN302__)
 // 06/17/2016: Added support for the wxString class support for 3.0.2
@@ -550,22 +523,6 @@ public: // Friend functions requiring explicit operands
   GXDLCODE_API friend int operator<=(const wchar_t *a, const UString &b);
   GXDLCODE_API friend int operator<=(const UString &a, const wchar_t *b);
 
-#if defined (__wxWIN201__)
-// 10/13/2002: Added support for the wxString class
-public:
-  UString(const wxString &s) {
-    reset_all(); SetString(s.c_str(), s.length());
-  }
-  UString &operator=(const wxString &s);
-#endif
-#if defined (__wxWIN291__)
-// 10/13/2002: Added support for the wxString class
-public:
-  UString(const wxString &s) {
-    reset_all(); SetString((const char *)s.c_str(), s.length());
-  }
-  UString &operator=(const wxString &s);
-#endif
 
 #if defined (__wxWIN302__)
 // 06/17/2016: Added support for the wxString 3.0.2 
@@ -663,22 +620,6 @@ public: // Friend functions requiring explicit operands
   GXDLCODE_API friend int operator<=(const wchar_t *a, const UStringw &b);
   GXDLCODE_API friend int operator<=(const UStringw &a, const wchar_t *b);
 
-#if defined (__wxWIN201__)
-// 10/13/2002: Added support for the wxString class
-public:
-  UStringw(const wxString &s) {
-    reset_all(); SetString(s.c_str(), s.length());
-  }
-  UStringw &operator=(const wxString &s);
-#endif
-#if defined (__wxWIN291__)
-// 02/17/2011: Added support for the wxString 2.9.1
-public:
-  UStringw(const wxString &s) {
-    reset_all(); SetString((const char *)s.c_str(), s.length());
-  }
-  UStringw &operator=(const wxString &s);
-#endif
 
 #if defined (__wxWIN302__)
 // 06/17/2016: Added support for the wxString 3.0.2
@@ -753,12 +694,10 @@ GXDLCODE_API UString *ParseCVSLine(const UString &input_str, unsigned &num_arr,
 GXDLCODE_API UStringw *ParseCVSLine(const UStringw &input_str, unsigned &num_arr,
 				   int trim_spaces = 1, int trim_quotes = 1);
 
-#if defined (__USE_CPP_IOSTREAM__)
-GXDLCODE_API GXSTD::ostream &operator<<(GXSTD::ostream &os, const UString &s);
-GXDLCODE_API GXSTD::ostream &operator<<(GXSTD::ostream &os, const UStringw &s);
-GXDLCODE_API GXSTD::istream &operator>>(GXSTD::istream &os, UString &s);
-GXDLCODE_API GXSTD::istream &operator>>(GXSTD::istream &os, UStringw &s);
-#endif // __USE_CPP_IOSTREAM__
+GXDLCODE_API std::ostream &operator<<(std::ostream &os, const UString &s);
+GXDLCODE_API std::ostream &operator<<(std::ostream &os, const UStringw &s);
+GXDLCODE_API std::istream &operator>>(std::istream &os, UString &s);
+GXDLCODE_API std::istream &operator>>(std::istream &os, UStringw &s);
 
 #endif  // __GX_USER_DEFINED_STRING_HPP__
 // ----------------------------------------------------------- // 

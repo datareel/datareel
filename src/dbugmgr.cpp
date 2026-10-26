@@ -35,14 +35,8 @@ and repair damaged or corrupt database files.
 
 #include "dbugmgr.h"
 
-#if defined (__USE_ANSI_CPP__)
 #include <new>
-#endif
 
-#ifdef __BCC32__
-#pragma warn -8066
-#pragma warn -8080
-#endif
 
 // 10/14/2026: Internal helper used by the rebuild function. The memory
 // allocation checks after each new[] call could never be reached
@@ -50,11 +44,7 @@ and repair damaged or corrupt database files.
 // available so a failed allocation is reported in the status message.
 static char *gxdDebugAlloc(__ULWORD__ bytes)
 {
-#if defined (__USE_ANSI_CPP__)
   return new(std::nothrow) char[bytes];
-#else
-  return new char[bytes];
-#endif
 }
 
 // 10/14/2026: Internal helper used to restore the static gxDatabase
@@ -1091,10 +1081,6 @@ void gxDatabaseDebugManager::ResetFileHeader(gxFileHeader &fh)
   fh.gxd_sig[gxSignatureSize-1] = rev_letter;
 }
 
-#ifdef __BCC32__
-#pragma warn .8066
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

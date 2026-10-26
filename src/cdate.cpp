@@ -46,10 +46,6 @@ to avoid any possible name conflicts.
 #include <ctype.h>
 #include "cdate.h"
 
-#ifdef __BCC32__
-#pragma warn -8071
-#pragma warn -8080
-#endif
 
 // String length for date strings
 const int cdateMaxStrLen = 25;
@@ -119,8 +115,7 @@ char *CDate::year_c_str()
   return buf;
 }
 
-#ifdef __USE_CPP_IOSTREAM__
-GXDLCODE_API GXSTD::ostream &operator<<(GXSTD::ostream &os, const CDate &ob)
+GXDLCODE_API std::ostream &operator<<(std::ostream &os, const CDate &ob)
 {
   os << (unsigned)ob.Month << "/"
      << (unsigned)ob.Day << "/"
@@ -128,24 +123,23 @@ GXDLCODE_API GXSTD::ostream &operator<<(GXSTD::ostream &os, const CDate &ob)
   return os;
 }
 
-GXDLCODE_API void operator>>(GXSTD::istream &is, CDate &ob)
+GXDLCODE_API void operator>>(std::istream &is, CDate &ob)
 {
   unsigned  buf;
 
-  GXSTD::cout << "Month (XX):  ";
+  std::cout << "Month (XX):  ";
   is >> buf;
   ob.SetMonth((__UBYTE__)buf);
 
-  GXSTD::cout << "Day (XX):    ";
+  std::cout << "Day (XX):    ";
   is >> buf;
   ob.SetDay((__UBYTE__)buf);
 
-  GXSTD::cout << "Year (XXXX): ";
+  std::cout << "Year (XXXX): ";
   is >> buf;
   // Ignore BCC32 conversion warning
   ob.SetYear(buf);
 }
-#endif // __USE_CPP_IOSTREAM__
 
 GXDLCODE_API int operator==(const CDate &a, const CDate &b)
 {
@@ -240,10 +234,6 @@ int CDate::SetDate(const char *date, char delimiter)
   return 1;
 }
 
-#ifdef __BCC32__
-#pragma warn .8071
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

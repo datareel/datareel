@@ -37,9 +37,6 @@ operations.
 #include <stdlib.h>
 #include "gxsutils.h"
 
-#ifdef __BCC32__
-#pragma warn -8071
-#endif
 
 GXDLCODE_API int ParseServiceFileEntry(char *entry, char *service, int *port, 
 				       char *protocol, char *aliases, 
@@ -186,9 +183,6 @@ GXDLCODE_API u_short InChecksum16(u_short *addr, int len)
   return (answer);
 }
 
-#ifdef __BCC32__
-#pragma warn .8071
-#endif
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

@@ -45,9 +45,6 @@ function by deleting allocated buffer following a receive error.
 #include <string.h>
 #include "gxstream.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 // TCP/IP Stream functions
 // --------------------------------------------------------------
@@ -533,9 +530,6 @@ int gxStream::ReadRemoteResultBlock(int &result_code)
 			 time_out_sec, time_out_usec);
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

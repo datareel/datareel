@@ -76,9 +76,6 @@ does no exist the function will return file.
 
 #include "futils.h"
 
-#ifdef __BCC32__
-#pragma warn -8057
-#endif
 
 // -----------------------------------------------------------
 // BEGIN: Windows and UNIX Compatibility macros
@@ -1314,11 +1311,7 @@ GXDLCODE_API int futils_getcwd(char *dir, unsigned max_len)
   return 0;
 }
 
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
 GXDLCODE_API __LLWORD__ futils_filelength(const char *fname)
-#else
-GXDLCODE_API long futils_filelength(const char *fname)
-#endif
 // Returns the file size, in bytes, for the specified file.
 // Return a value of -1 to indicate an error.
 {
@@ -1392,7 +1385,7 @@ GXDLCODE_API long futils_filelength(const char *fname)
   else {
     return (__LLWORD__)buf.st_size;
   }
-#elif defined (__ENABLE_64_BIT_INTEGERS__) && defined (__WIN32__)
+#elif defined(__WIN32__)
   struct stat buf;
   int result = stat(fname, &buf);
 
@@ -1585,13 +1578,7 @@ GXDLCODE_API struct dirent *futils_readdir(DIR *dirp, dirent *entry)
     return readdir(dirp);
   }
   else { // Using reentrant readdir function
-#if defined (__REENTRANT__)
-#if defined (__SOLARIS__) && !defined(_POSIX_PTHREAD_SEMANTICS)
-    return readdir_r(dirp, entry); 
-#elif defined (__HPUX10__)
-    if(readdir_r(dirp, entry) != 0) return 0;
-    return entry;
-#elif defined (__LINUX__)
+#if defined(__LINUX__)
     // 10/14/2026: readdir_r() is deprecated. glibc readdir() is thread safe
     // when each thread reads its own directory stream, so copy the
     // entry into the caller's buffer.
@@ -1603,10 +1590,6 @@ GXDLCODE_API struct dirent *futils_readdir(DIR *dirp, dirent *entry)
     if(readdir_r(dirp, entry, &entry) != 0) return 0; 
     return entry;
 #endif 
-#else // Using non-reentrant readdir() function for UNIX platforms that
-      // do not define the readdir_r() function.
-    return readdir(dirp);
-#endif // __REENTRANT__
   }
 #else
 #error You must define a file system: __WIN32__ or __UNIX__
@@ -1650,7 +1633,6 @@ GXDLCODE_API void futils_rewinddir(DIR *dirp)
 #endif
 }
 
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
 int futils_GetDiskSpace(char *partition, __ULLWORD__ &free_space,
 			__ULLWORD__ &total_bytes, __ULLWORD__ &bytes_used)
 // Determine the free space in a partition. Returns a
@@ -1742,12 +1724,8 @@ int futils_GetDiskSpace(char *partition, __ULLWORD__ &free_space,
 
   return 0;
 } 
-#endif // __64_BIT_DATABASE_ENGINE__ || __ENABLE_64_BIT_INTEGERS__
 // ----------------------------------------------------------- //
 
-#ifdef __BCC32__
-#pragma warn .8057
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

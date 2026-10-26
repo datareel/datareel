@@ -43,9 +43,6 @@ after opening or overwriting a log file.
 #include "logfile.h"
 #include "systime.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 int LogFile::Open(const char *fname)
 // Public member function use to open an existing logfile without 
@@ -110,9 +107,6 @@ char *LogFile::GetSystemTime(char *s, int full_month_name)
   return s;
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

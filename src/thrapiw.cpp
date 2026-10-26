@@ -92,16 +92,12 @@ PTHREAD_STACK_MIN value defined.
 #include "gxmutex.h"
 #include "gxcond.h"
 
-#if defined (__POSIX__) && defined (__REENTRANT__)
+#if defined(__POSIX__)
 #include <time.h>
 #endif
 
 #if defined (__LINUX__)
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 #endif // __LINUX__
 
 int gxThreadAPIWrapper::apiCloseThread(gxThread_t *thread)
@@ -120,18 +116,6 @@ int gxThreadAPIWrapper::apiCloseThread(gxThread_t *thread)
     thread->thread_id = 0;
   }
 
-#elif defined (__HPUX10__) && defined (__POSIX__)
-  // HPUX 10.20 Common Multithread Architecture (CMA) services
-
-  // The HPUX 10.20 CMA services will not allow thread to be created
-  // in a detached state so detach the thread at this point whether
-  // it is joinable or detached
-  int rv = pthread_detach(&thread->thread_id);
-  if(rv != 0) {
-    thread->thread_error = gxTHREAD_CLOSE_ERROR;
-    return rv;
-  }
-  
 #elif defined (__POSIX__)
   // POSIX 1003.1c 1995 thread standard
   
@@ -384,27 +368,6 @@ int gxThreadAPIWrapper::apiCreateThread(gxThread_t *thread)
     return 1;
   }
 
-#elif defined (__HPUX10__) && defined (__POSIX__)
-// HPUX 10.20 Common Multithread Architecture (CMA) services
-
-  // Set the stack size if stack size greater then zero is specified 
-  if(thread->stack_size > ( gxStackSizeType)0) {
-    if(pthread_attr_setstacksize(&thread->thread_attribute,
-				 thread->stack_size)!= 0) {
-      thread->thread_error = gxTHREAD_STACK_ERROR;
-      thread->stack_size = 0;
-    }
-  }
-  
-  // Create the thread and execute the thread's entry routine
-  rv = pthread_create(&thread->thread_id, thread->thread_attribute,
-   (gxThreadStartRoutine)gxThreadAPIWrapper::apiThreadStartRoutine,
-		      (void *)(thread));
-  if(rv != 0) {
-    thread->thread_error = gxTHREAD_CREATE_ERROR;
-    return rv; // Could not create the thread
-  }
-
 #elif defined (__POSIX__)
 // POSIX 1003.1c 1995 thread standard
   
@@ -418,16 +381,6 @@ int gxThreadAPIWrapper::apiCreateThread(gxThread_t *thread)
   // contention scope (PTHREAD_SCOPE_PROCESS or PTHREAD_SCOPE_SYSTEM).
   // NOTE: The contention scope is set to SCOPE_SYSTEM to avoid contention
   // scope errors under HPUX 11.
-#if defined (__HPUX11__)
-  if(pthread_attr_setscope(&thread->thread_attribute,
-			   PTHREAD_SCOPE_SYSTEM) != 0) {
-
-    // NOTE: The AS/400 implementation of pthreads does not support
-    // this function so the SCOPE_ERROR should be ignored on AS/400
-    // platforms.
-    thread->thread_error = gxTHREAD_SCOPE_ERROR;
-  }
-#endif // __HPUX11__
 #endif // Contention scope 
 
   // Set the threads state
@@ -606,11 +559,6 @@ int gxThreadAPIWrapper::apiInitThreadAttribute(gxThreadAttribute *attr)
   // a NULL value. 
   *(attr) = (gxThreadAttribute)0;
 
-#elif defined (__HPUX10__) && defined (__POSIX__)
-// HPUX 10.20 Common Multithread Architecture (CMA) services
-  int rv = pthread_attr_create(attr);
-  if(rv != 0) return rv;
-
 #elif defined (__POSIX__)
   // Initialize the POSIX thread attribute with the default settings.
   // By default the detachstate is PTHREAD_JOINABLE and scheduling
@@ -630,11 +578,6 @@ int gxThreadAPIWrapper::apiDestroyThreadAttribute(gxThreadAttribute *attr)
 #if defined (__WIN32__)
   // Nothing to do for a null security descriptor
   if(*(attr) == (gxThreadAttribute)0) return 0; 
-
-#elif defined (__HPUX10__) && defined (__POSIX__)
-// HPUX 10.20 Common Multithread Architecture (CMA) services
-  int rv = pthread_attr_delete(attr);
-  if(rv != 0) return rv;
 
 #elif defined (__POSIX__)
   int rv = pthread_attr_destroy(attr);
@@ -881,11 +824,6 @@ int gxThreadAPIWrapper::apiThreadKeyCreate(gxThreadKey &key)
   key = TlsAlloc();
   if(key == 0xFFFFFFFF) return 1;
 
-#elif defined (__HPUX10__) && defined (__POSIX__)
-// HPUX 10.20 Common Multithread Architecture (CMA) services
-  int rv = pthread_keycreate(&key, 0);
-  if(rv != 0) return rv;
-
 #elif defined (__POSIX__)
   int rv = pthread_key_create(&key, 0);
   if(rv != 0) return rv;
@@ -907,10 +845,6 @@ int gxThreadAPIWrapper::apiThreadKeyDelete(gxThreadKey &key)
   if(!TlsFree(key)) return 1;
   return 0;
 
-#elif defined (__HPUX10__) && defined (__POSIX__)
-// HPUX 10.20 Common Multithread Architecture (CMA) services
-  return 0; // No CMA delete key function is defined
-
 #elif defined (__POSIX__)
   int rv = pthread_key_delete(key);
   if(rv != 0) return rv;
@@ -930,11 +864,6 @@ int gxThreadAPIWrapper::apiThreadSetSpecific(gxThreadKey &key,
   if(!TlsSetValue(key, (LPVOID)(value))) return 1;
 
 
-#elif defined (__HPUX10__) && defined (__POSIX__)
-// HPUX 10.20 Common Multithread Architecture (CMA) services
-  int rv = pthread_setspecific(key, (pthread_addr_t)value);
-  if(rv != 0) return rv;
-  
 #elif defined (__POSIX__)
   int rv = pthread_setspecific(key, value);
   if(rv != 0) return rv;
@@ -953,12 +882,6 @@ void *gxThreadAPIWrapper::apiThreadGetSpecific(gxThreadKey &key)
 #if defined (__WIN32__)
   return (void *)TlsGetValue(key);
 
-
-#elif defined (__HPUX10__) && defined (__POSIX__)
-// HPUX 10.20 Common Multithread Architecture (CMA) services
-  void **value;
-  pthread_getspecific(key, (pthread_addr_t *)value);
-  return *(value);
 
 #elif defined (__POSIX__)
   return pthread_getspecific(key);
@@ -1021,75 +944,7 @@ int gxThreadAPIWrapper:: apiSetThreadPriority(gxThread_t *thread)
       break;
   }
 
-#elif defined (__HPUX10__) && defined (__POSIX__)
-  // HPUX 10.20 Common Multithread Architecture (CMA) services
-
-  int policy, prio, min_prio, max_prio;
-  switch(thread->thread_priority_class) {
-    case gxTHREAD_PRIORITY_CLASS_OTHER:
-      policy = SCHED_OTHER;
-      max_prio = PRI_OTHER_MAX;
-      min_prio = PRI_OTHER_MIN;
-      break;
-    case gxTHREAD_PRIORITY_CLASS_FIFO:
-      policy = SCHED_FIFO;
-      max_prio = PRI_FIFO_MAX;
-      min_prio = PRI_FIFO_MIN;
-      break;
-    case gxTHREAD_PRIORITY_CLASS_RR:
-      policy = SCHED_RR;
-      max_prio = PRI_RR_MAX;
-      min_prio = PRI_RR_MIN;
-      break;
-    default:
-      policy = SCHED_OTHER;
-      max_prio = PRI_OTHER_MAX;
-      min_prio = PRI_OTHER_MIN;
-      break;
-  }
-
-  // Calculate the priority for normal threads requesting to have their 
-  // scheduling policy or priority changed.
-  int normal_prio = min_prio + (max_prio - min_prio)/2;
-
-  int rv;
-  if(thread->thread_priority == gxTHREAD_PRIORITY_HIGH) {
-    rv = pthread_setscheduler(thread->thread_id, policy, max_prio);
-    prio = max_prio;
-  }
-  else if(thread->thread_priority == gxTHREAD_PRIORITY_LOW) {
-    rv = pthread_setscheduler(thread->thread_id, policy, min_prio);
-    prio = min_prio;
-  }
-  else { // Assume this is a normal priority
-    rv = pthread_setscheduler(thread->thread_id, policy, normal_prio);
-    prio = normal_prio;
-  }
-
-  if(rv == -1) { // Could not set the priority or the policy
-    thread->thread_error = gxTHREAD_SCHED_ERROR;
-    return 1;
-  }
-
-  // Check to ensure that the priority and policy were set correctly 
-  int curr_policy = pthread_getscheduler(thread->thread_id);
-  int curr_prio = pthread_getprio(thread->thread_id);
-
-  if(curr_policy != policy) {
-    thread->thread_error = gxTHREAD_POLICY_ERROR;
-    thread->thread_priority = gxTHREAD_PRIORITY_INVALID;
-    thread->thread_priority_class = gxTHREAD_PRIORITY_CLASS_INVALID;
-    return 1;
-  }
- 
-  if(curr_prio != prio) { 
-    thread->thread_error = gxTHREAD_PRIORITY_ERROR;
-    thread->thread_priority = gxTHREAD_PRIORITY_INVALID;
-    thread->thread_priority_class = gxTHREAD_PRIORITY_CLASS_INVALID;
-    return 1;
-  }
-
-#elif defined (__POSIX__) && !defined(__SOLARIS__)
+#elif defined(__POSIX__)
 
   // Set the thread priority if POSIX scheduling are available
 #ifdef _POSIX_THREAD_PRIORITY_SCHEDULING

@@ -239,9 +239,6 @@ $(OUTDIR)\gxrdbms$(OBJ_EXT):	$(GLIB_SRC_PATH)gxrdbms.cpp $(GXRDBMS_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxrdbms.cpp
 
-$(OUTDIR)\gxrdbsql$(OBJ_EXT):	$(GLIB_SRC_PATH)gxrdbsql.cpp $(GXRDBSQL_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)gxrdbsql.cpp
 
 $(OUTDIR)\gxscomm$(OBJ_EXT):	$(GLIB_SRC_PATH)gxscomm.cpp $(GXSCOMM_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -335,9 +332,6 @@ $(OUTDIR)\httpgrab$(OBJ_EXT):	$(GLIB_SRC_PATH)httpgrab.cpp $(HTTPGRAB_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)httpgrab.cpp
 
-$(OUTDIR)\leaktest$(OBJ_EXT):	$(GLIB_SRC_PATH)leaktest.cpp $(LEAKTEST_DEP)
-	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
-	$(GLIB_SRC_PATH)leaktest.cpp
 
 $(OUTDIR)\logfile$(OBJ_EXT):	$(GLIB_SRC_PATH)logfile.cpp $(LOGFILE_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
@@ -435,8 +429,7 @@ GLIB_DATABASE_EX_OBJECTS = $(OUTDIR)\btstack$(OBJ_EXT) \
 # RDBMS library components
 GLIB_RDBMS_OBJECTS =  $(OUTDIR)\gxrdbdef$(OBJ_EXT) \
 	$(OUTDIR)\gxrdbhdr$(OBJ_EXT) \
-	$(OUTDIR)\gxrdbms$(OBJ_EXT) \
-	$(OUTDIR)\gxrdbsql$(OBJ_EXT)
+	$(OUTDIR)\gxrdbms$(OBJ_EXT)
 
 # Core socket library components
 GLIB_SOCKET_CORE_OBJECTS = $(OUTDIR)\gxsocket$(OBJ_EXT)
@@ -503,7 +496,6 @@ GLIB_GP_OBJECTS = $(OUTDIR)\asprint$(OBJ_EXT) \
 # Optional debug objects
 # NOTE: The leak test functions requires the /D__MSVC_DEBUG__ compiler
 # flag and the /MDd or /MTd compiler flag. 
-GLIB_DEBUG_OBJECTS = $(OUTDIR)\leaktest$(OBJ_EXT)
 
 # Term I/O objects
 GLIB_TERM_OBJECTS = $(OUTDIR)\terminal$(OBJ_EXT)

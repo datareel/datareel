@@ -32,21 +32,14 @@ Test program for the embedded telnet client class.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
 #include "gxtelnet.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 int CheckError(gxsTelnetClient *telnetc)
 // Checks the specified stream socket for an error condition
@@ -62,9 +55,6 @@ int CheckError(gxsTelnetClient *telnetc)
 
 int main(int argc, char **argv)
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   if(argc < 4) {
     cout << "You must specify host, username, and password" << "\n";

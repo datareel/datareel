@@ -185,11 +185,7 @@ unsigned gxRandom::gen_random_number(unsigned long r_seed)
 #if defined (__WIN32__)
   srand((unsigned)r_seed);
   return (unsigned)rand();
-#elif defined (__HPUX10__) && defined (__REENTRANT__)
-  // Reentrant UNIX call added to replace srand() and rand()
-  long seed = (long)r_seed; int result;
-  return (unsigned)rand_r(&seed, &result);
-#elif defined (__UNIX__) && defined (__REENTRANT__)
+#elif defined(__UNIX__)
   // Reentrant UNIX call added to replace srand() and rand()
   unsigned int seed = (unsigned int)r_seed;
   return (unsigned)rand_r(&seed);
@@ -222,14 +218,7 @@ unsigned *gxRandom::gen_prng_table(unsigned *table, unsigned table_size,
   for(unsigned i = 0; i < table_size; i++) {
     table[i] = (unsigned)(rand() + i);
   }
-#elif defined (__HPUX10__) && defined (__REENTRANT__)
-  // Reentrant safe UNIX call added to replace srand() and rand()
-  long l_seed = r_seed; // Seed the random number generator
-  int result;
-  for(unsigned i = 0; i < table_size; i++) {
-    table[i] = (unsigned)((rand_r((&l_seed + i), &result)));
-  }
-#elif defined (__UNIX__) && defined (__REENTRANT__)
+#elif defined(__UNIX__)
   // Reentrant safe UNIX call added to replace srand() and rand()
   unsigned l_seed = r_seed; // Seed the random number generator
   for(unsigned i = 0; i < table_size; i++) {
@@ -1029,7 +1018,7 @@ SSL_CTX *gxSSL::InitCTX()
     }
   }
 
-#if (OPENSSL_VERSION_NUMBER < 0x00905100L)
+#if OPENSSL_VERSION_NUMBER < 0x00905100L
   SSL_CTX_set_verify_depth(ctx, 1);
 #endif
   

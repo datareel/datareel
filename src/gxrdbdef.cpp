@@ -37,9 +37,6 @@ DataReel RDBMS definition file format.
 #include "dfileb.h"
 #include "systime.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 GXDLCODE_API void gxrdFormatMessage(gxString &mesg, 
 				    const gxString &process_name)
@@ -274,9 +271,6 @@ GXDLCODE_API int gxrdReadGroupDef(const gxString &fname,
 			 group_def, error_message);
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

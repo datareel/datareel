@@ -32,19 +32,12 @@ This program is used to test gxsURL classes.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include "gxsurl.h"
 #include "gxs_ver.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 // Version number and program name
 const double ProgramVersionNumber = gxSocketVersion;
@@ -179,9 +172,6 @@ int ProcessArgs(char *arg)
 
 int main(int argc, char **argv)
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   if(argc < 2) { 
     HelpMessage(ProgramName, ProgramVersionNumber);

@@ -76,40 +76,24 @@ library.
 #endif // __MSVC_DLL__
 
 // Force ANSI compatibility for Visual C++ .NET
-#if defined (__MSDEVNET__) && !defined (__USE_ANSI_CPP__)
-#define __USE_ANSI_CPP__
-#endif // __MSDEVNET__
 
 // Force ANSI compatibility for BCC32
-#if defined (__BCC32__) && !defined (__USE_ANSI_CPP__)
-#define __USE_ANSI_CPP__
-#endif // __BCC32__
 
-#if defined (__USE_ANSI_CPP__)
 // Macro used to define the std name space used by the ANSI 
 // Standard C++ library.
 #define GXSTD std
-#else // Use the old Standard C++ library by default  
-#define GXSTD
-#endif // __USE_ANSI_CPP__
 
 // 10/24/2026: Visual Studio 2026 (MSVC 14.50, _MSC_VER 1950) and
 // higher use the VS 2026 code paths without needing -D__VS2026__
-#if defined (_MSC_VER) && (_MSC_VER >= 1950) && !defined (__VS2026__)
+#if defined(_MSC_VER) && _MSC_VER >= 1950 && !defined(__VS2026__)
 #define __VS2026__
 #endif
 
 // Windows CE macros
-#if defined(_WIN32_WCE)
-#define __WINCE__
-#endif // Windows CE macros
 
 // 10/21/2025: Moved the wxWidgets includes here for Windows builds
 // the wx included must be delcared before windows.h when using VS2026
 #if defined (__WIN32__)
-#if defined (__wxWIN201__) || defined (__wxWIN291__)
-#include "wx2incs.h"
-#endif
 #if defined (__wxWIN302__)
 #include "wx3incs.h"
 #endif

@@ -176,17 +176,6 @@ GXDLCODE_API const char *gxDatabaseExceptionMessage(gxDatabaseError err);
 // Standalone function used to report database status messages
 GXDLCODE_API const char *gxDatabaseStatusMessage(gxDatabaseStatus status);
 
-#ifdef __CPP_EXCEPTIONS__
-// Class declarations for exceptions representing program errors. 
-// This implementation is provided for use C++'s built-in exception
-// handling routines.
-
-// A fatal file error condition has been reached. All database engine
-// calls must catch this exception and evaluate it by testing the
-// gxDatabase or gxDatabase64 internal error variable.
-class GXDLCODE_API gxCDatabaseException { };  
-
-#endif // __CPP_EXCEPTIONS__
 
 #endif // __GX_DATABASE_ERROR_HPP__
 // ----------------------------------------------------------- //

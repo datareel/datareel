@@ -37,17 +37,12 @@ functions.
 int main() { return 0; }
 #else
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include "gxdstats.h"
 #include "gxbtree.h"
 #include "ustring.h"
-#include "leaktest.h"
 
 const BtreeNodeOrder_t MyKeyClassOrder = 5;
 const __WORD__ MyKeyNameSize = 64;
@@ -472,9 +467,6 @@ int BuildTree(gxBtree &btx)
 
 int main(int argv, char **argc)
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest(); 
-#endif
 
   const char *fname = "testfile.btx"; // File name of this database
   char rev_letter = gxDatabaseRevisionLetter; // Set the default rev letter

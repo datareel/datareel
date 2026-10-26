@@ -52,13 +52,7 @@ using a null-terminate C string.
 
 #include "gxdlcode.h"
 
-#if defined (__USE_CPP_IOSTREAM__)
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
-#endif // __USE_CPP_IOSTREAM__
 
 #include "gxdtypes.h"
 #include "gxuint16.h"
@@ -104,12 +98,10 @@ public: // Overloaded operators
   GXDLCODE_API friend int operator<(const CDate &a, const CDate &b);
   GXDLCODE_API friend int operator>(const CDate &a, const CDate &b);
 
-#ifdef __USE_CPP_IOSTREAM__
 public:
-  GXDLCODE_API friend GXSTD::ostream &operator<<(GXSTD::ostream &os, 
+  GXDLCODE_API friend std::ostream &operator<<(std::ostream &os, 
 						 const CDate &ob);
-  GXDLCODE_API friend void operator>>(GXSTD::istream &is, CDate &ob);
-#endif
+  GXDLCODE_API friend void operator>>(std::istream &is, CDate &ob);
   
 private:
   __UBYTE__ Month;

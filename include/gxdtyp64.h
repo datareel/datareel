@@ -48,26 +48,8 @@ compiler.
 // --------------------------------------------------------------
 #if defined (__WIN32__) && defined (__MSVC__)
 // MSVC version 4.2 and higher
-#ifdef _lint
-// PC-lint 04/19/2004: Using MS compiler implementations to avoid 
-// PC-lint errors. The MS double underscore convention should not 
-// be used as identifier names.
-typedef __int64 __LLWORD__, *__LLWORD_PTR__; 
-typedef unsigned __int64 __ULLWORD__, *ULLWORD_PTR__; 
-#else
 typedef __int64 __LLWORD__;          
 typedef unsigned __int64 __ULLWORD__; 
-#endif // _lint
-
-#elif defined (__WIN32__) && defined (__BCC32__)
-// BCC32 version 5.5 and higher
-typedef __int64 __LLWORD__, *__LLWORD_PTR__; 
-typedef unsigned __int64 __ULLWORD__, *ULLWORD_PTR__; 
-
-#elif defined (__MINGW32__)
-// MINGW GCC Compiler
-typedef long long __LLWORD__;
-typedef unsigned long long __ULLWORD__;
 
 #elif defined (__UNIX__)
 // Default for all UNIX variants. NOTE: Place specific UNIX variants 

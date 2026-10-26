@@ -73,20 +73,6 @@ __SOLARIS_THREADS__ - Define for applications using Solaris threads.
 #include <windows.h> 
 #include <process.h>
 
-#elif defined (__SOLARIS__) && defined (__POSIX__)
-#ifndef __EXTENSIONS__
-#define __EXTENSIONS__
-#endif
-#include <pthread.h>
-#include <sched.h>
-
-#elif defined (__HPUX__) && defined (__POSIX__)
-#ifndef _INCLUDE_POSIX1C_SOURCE
-#define _INCLUDE_POSIX1C_SOURCE
-#endif
-#include <pthread.h>
-#include <sched.h>
-
 #elif defined (__POSIX__) // Generic UNIX OS with POSIX compliant extensions
 #include <pthread.h>
 #include <sched.h>
@@ -105,15 +91,6 @@ typedef DWORD gxStackSizeType;    // Type used to specify a stack size
 typedef DWORD gxThreadExitCode;   // Type used to hold a thread's exit code
 typedef DWORD gxThreadKey;        // Key type for thread-specific values
 typedef LPSECURITY_ATTRIBUTES gxThreadAttribute; // Security attributes
-
-#elif defined (__HPUX10__) && defined (__POSIX__)
-// HPUX 10.20 Common Multithread Architecture (CMA) services
-// POSIX 1003.4 interface
-typedef cma_t_attr gxThreadAttribute; // CMA thread attribute type
-typedef cma_t_thread gxThreadID; // Type used to identify a thread
-typedef long gxStackSizeType;    // Type used to specify a stack size
-typedef int gxThreadExitCode;    // Type used to hold a thread's exit code
-typedef cma_t_key gxThreadKey;   // Key type for thread-specific values
 
 #elif defined (__POSIX__)
 // POSIX 1003.1c 1995 thread standard
@@ -140,10 +117,6 @@ typedef long gxThreadClassID;  // Type used for class IDs
 // --------------------------------------------------------------
 #if defined (__WIN32__)
 typedef unsigned (__stdcall *gxThreadStartRoutine)(void *arg);
-
-#elif defined (__HPUX10__) && defined (__POSIX__)
-// HPUX 10.20 Common Multithread Architecture (CMA) services
-typedef cma_t_start_routine gxThreadStartRoutine;
 
 #elif defined (__POSIX__)
 typedef void *(*gxThreadStartRoutine)(void *arg); 

@@ -33,15 +33,9 @@ file, in both hexadecimal and ASCII, to the console.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 #include <iomanip>
 #include <fstream>
-#else // Use the old iostream library by default
-#include <iostream.h>
-#include <iomanip.h>
-#include <fstream.h>
-#endif // __USE_ANSI_CPP__
 
 #include <ctype.h>
 #include <stdio.h>
@@ -88,9 +82,9 @@ const char *bintab[16] = {
 // Program Functions 
 void ProcessArgs(int argc, char *argv[]);
 void HelpMessage(const char *program_name, const double version_number);
-int HexFileDump(DiskFileB &infile, GXSTD::ostream &stream);
-int CArrayDump(DiskFileB &infile, GXSTD::ostream &stream);
-int DecFileDump(DiskFileB &infile, GXSTD::ostream &stream);
+int HexFileDump(DiskFileB &infile, std::ostream &stream);
+int CArrayDump(DiskFileB &infile, std::ostream &stream);
+int DecFileDump(DiskFileB &infile, std::ostream &stream);
 void BuildBinaryFile(char *ifname, char *ofname);
 void TruncateLine(char *line, char tline[MAX_LINE], char delimiter1 = '\t',
 		  char delimiter2 = ';');
@@ -101,35 +95,35 @@ void HelpMessage(const char *program_name, const double version_number)
 {
   char gxuffer[255];
   sprintf(gxuffer, "%.3f", version_number);
-  GXSTD::cout << "\n";
-  GXSTD::cout << "Hexadecimal file dump program version "
+  std::cout << "\n";
+  std::cout << "Hexadecimal file dump program version "
        << gxuffer  << "\n";
-  GXSTD::cout << "Usage: " << program_name << " [switches] infile "
+  std::cout << "Usage: " << program_name << " [switches] infile "
        << "outfile (optional)" << "\n";
-  GXSTD::cout << "Switches:  -?      = Display this help message." << "\n";
-  GXSTD::cout << "           -a      = Display in a C array." << "\n";
-  GXSTD::cout << "           -c      = Display a 32-bit CRC checksum value." 
+  std::cout << "Switches:  -?      = Display this help message." << "\n";
+  std::cout << "           -a      = Display in a C array." << "\n";
+  std::cout << "           -c      = Display a 32-bit CRC checksum value." 
 	      << "\n";
-  GXSTD::cout << "           -C      = Display a 16-bit CRC checksum value." 
+  std::cout << "           -C      = Display a 16-bit CRC checksum value." 
 	      << "\n";
-  GXSTD::cout << "           -d      = Display in decimal mode (Default is \
+  std::cout << "           -d      = Display in decimal mode (Default is \
 HEX)." << "\n";
-  GXSTD::cout << "           -p#     = Prompting after displaying # line: \
+  std::cout << "           -p#     = Prompting after displaying # line: \
 -p10" << "\n";
-  GXSTD::cout << "           -r      = Rebuild binary file from hex dump text \
+  std::cout << "           -r      = Rebuild binary file from hex dump text \
 file.\n" << "                     Only works for files created in hex \
 mode." << "\n";
-  GXSTD::cout << "           -s      = Strip comments from output." << "\n";
-  GXSTD::cout << "\n";
-  GXSTD::cout << "           -x      = Convert 32-bit HEX number to DEC: \
+  std::cout << "           -s      = Strip comments from output." << "\n";
+  std::cout << "\n";
+  std::cout << "           -x      = Convert 32-bit HEX number to DEC: \
 -Xfefe" << "\n";
-  GXSTD::cout << "           -X      = Convert signed 32-bit HEX number to \
+  std::cout << "           -X      = Convert signed 32-bit HEX number to \
 DEC." << "\n";
-  GXSTD::cout << "           -B      = Convert 32-bit HEX number to binary: \
+  std::cout << "           -B      = Convert 32-bit HEX number to binary: \
 -Bfefe" << "\n";
-  GXSTD::cout << "           -D      = Convert DEC number to HEX: -D23" 
+  std::cout << "           -D      = Convert DEC number to HEX: -D23" 
 	      << "\n";
-  GXSTD::cout << "\n";
+  std::cout << "\n";
   exit(0);
 }
 
@@ -181,69 +175,69 @@ void ProcessArgs(int argc, char *argv[])
 
 	case 'x' : {
 	  sbuf = &argv[i][2];
-	  GXSTD::cout << "\n";
+	  std::cout << "\n";
 	  sscanf(sbuf, "%lx", &ulbuf); // 10/14/2026: %lx for unsigned long (was %x)
-	  GXSTD::cout.setf(GXSTD::ios::uppercase);
-	  GXSTD::cout << "0x" << GXSTD::hex << ulbuf << " = " << GXSTD::dec << ulbuf << "\n"; // 10/14/2026: GXSTD::hex/dec (hex/dec named DiskFileB manipulators and printed 1)
-	  GXSTD::cout << "\n";
+	  std::cout.setf(std::ios::uppercase);
+	  std::cout << "0x" << std::hex << ulbuf << " = " << std::dec << ulbuf << "\n"; // 10/14/2026: std::hex/dec (hex/dec named DiskFileB manipulators and printed 1)
+	  std::cout << "\n";
 	  exit(0);
 	  break;
 	}
 	  
 	case 'X' : {
 	  sbuf = &argv[i][2];
-	  GXSTD::cout << "\n";
+	  std::cout << "\n";
 	  sscanf(sbuf, "%lx", (unsigned long *)&lbuf); // 10/14/2026: %lx for long (was %x)
-	  GXSTD::cout.setf(GXSTD::ios::uppercase);
-	  GXSTD::cout << "0x" << GXSTD::hex << lbuf << " = " << GXSTD::dec << lbuf << "\n";
-	  GXSTD::cout << "\n";
+	  std::cout.setf(std::ios::uppercase);
+	  std::cout << "0x" << std::hex << lbuf << " = " << std::dec << lbuf << "\n";
+	  std::cout << "\n";
 	  exit(0);
 	  break;
 	}
 	
 	case 'D' : {
 	  sbuf = &argv[i][2];
-	  GXSTD::cout << "\n";
+	  std::cout << "\n";
 	  sscanf(sbuf, "%lu", &ulbuf); // 10/14/2026: %lu for unsigned long (was %u)
-	  GXSTD::cout.setf(GXSTD::ios::uppercase);
-	  GXSTD::cout << ulbuf << " = " << "0x" << GXSTD::hex << ulbuf << "\n";
-	  GXSTD::cout << "\n";
+	  std::cout.setf(std::ios::uppercase);
+	  std::cout << ulbuf << " = " << "0x" << std::hex << ulbuf << "\n";
+	  std::cout << "\n";
 	  exit(0);
 	  break;
 	}
 
 	case 'B' : {
 	  sbuf = &argv[i][2];
-	  GXSTD::cout << "\n";
+	  std::cout << "\n";
 	  sscanf(sbuf, "%lx", &ulbuf); // 10/14/2026: %lx for unsigned long (was %x)
-	  GXSTD::cout.setf(GXSTD::ios::uppercase);
-	  GXSTD::cout << "0x" << GXSTD::hex << ulbuf << " = ";
+	  std::cout.setf(std::ios::uppercase);
+	  std::cout << "0x" << std::hex << ulbuf << " = ";
 	  bbuf = (ulbuf & 0xf0000000)>>28;
-	  GXSTD::cout << bintab[bbuf] << ' ';
+	  std::cout << bintab[bbuf] << ' ';
 	  bbuf = (ulbuf & 0xf000000)>>24;
-	  GXSTD::cout << bintab[bbuf] << ' ';
+	  std::cout << bintab[bbuf] << ' ';
 	  bbuf = (ulbuf & 0xf00000)>>20;
-	  GXSTD::cout << bintab[bbuf] << ' ';
+	  std::cout << bintab[bbuf] << ' ';
 	  bbuf = (ulbuf & 0xf0000)>>16;
-	  GXSTD::cout << bintab[bbuf] << ' ';
+	  std::cout << bintab[bbuf] << ' ';
 	  bbuf = (ulbuf & 0xf000)>>12;
-	  GXSTD::cout << bintab[bbuf] << ' ';
+	  std::cout << bintab[bbuf] << ' ';
 	  bbuf = (ulbuf & 0xf00)>>8;
-	  GXSTD::cout << bintab[bbuf] << ' ';
+	  std::cout << bintab[bbuf] << ' ';
 	  bbuf = (ulbuf & 0xf0)>>4;
-	  GXSTD::cout << bintab[bbuf] << ' '; 
+	  std::cout << bintab[bbuf] << ' '; 
 	  bbuf = ulbuf & 0x0f;
-	  GXSTD::cout << bintab[bbuf] << "\n"; 
-	  GXSTD::cout << "\n";
+	  std::cout << bintab[bbuf] << "\n"; 
+	  std::cout << "\n";
 	  exit(0);
 	  break;
 	}
 	
 	default:
-	  GXSTD::cerr << "\n";
-	  GXSTD::cerr << "Unknown switch " << argv[i] << "\n";
-	  GXSTD::cerr << "Exiting..." << "\n";
-	  GXSTD::cerr << "\n";
+	  std::cerr << "\n";
+	  std::cerr << "Unknown switch " << argv[i] << "\n";
+	  std::cerr << "Exiting..." << "\n";
+	  std::cerr << "\n";
 	  exit(0);
 	  break;
       }
@@ -260,7 +254,7 @@ void ProcessArgs(int argc, char *argv[])
   }
 }
 
-int CArrayDump(DiskFileB &infile, GXSTD::ostream &stream)
+int CArrayDump(DiskFileB &infile, std::ostream &stream)
 {
   int i, j;
   char c[hxBuffSize];
@@ -270,7 +264,7 @@ int CArrayDump(DiskFileB &infile, GXSTD::ostream &stream)
   stream << "unsigned char CArray[" << len << "] = {\n";
 
   // Print all text in upper case characters
-  stream.setf(GXSTD::ios::uppercase);
+  stream.setf(std::ios::uppercase);
 
   while(!infile.df_EOF()) {
 
@@ -288,7 +282,7 @@ int CArrayDump(DiskFileB &infile, GXSTD::ostream &stream)
       long xx = (long)c[j];
 
       // Set fill chars and reset first 24 bits for one byte display
-      stream << "0x" << GXSTD::setfill('0') << GXSTD::setw(2) << GXSTD::hex 
+      stream << "0x" << std::setfill('0') << std::setw(2) << std::hex 
 	     << (xx & 0xFF);
       if(byte_total == len) {
 	if(j < (i-1)) stream << ",";
@@ -311,14 +305,14 @@ int CArrayDump(DiskFileB &infile, GXSTD::ostream &stream)
   return 1;
 }
 
-int HexFileDump(DiskFileB &infile, GXSTD::ostream &stream)
+int HexFileDump(DiskFileB &infile, std::ostream &stream)
 {
   int i, j;
   int count = 0;
   char c[hxBuffSize];
 
   // Print all text in upper case characters
-  stream.setf(GXSTD::ios::uppercase);
+  stream.setf(std::ios::uppercase);
 
   while(!infile.df_EOF()) {
 
@@ -335,7 +329,7 @@ int HexFileDump(DiskFileB &infile, GXSTD::ostream &stream)
       long xx = (long)c[j];
 
       // Set fill chars and reset first 24 bits for one byte display
-      stream << GXSTD::setfill('0') << GXSTD::setw(2) << GXSTD::hex 
+      stream << std::setfill('0') << std::setw(2) << std::hex 
 	     << (xx & 0xFF);
       stream << " "; // Print one space between the bytes
     }
@@ -362,7 +356,7 @@ int HexFileDump(DiskFileB &infile, GXSTD::ostream &stream)
 	count = 0;
 	stream << "\n";
 	stream << "Press ENTER to continue: ";
-	GXSTD::cin.get();
+	std::cin.get();
 	stream << "\n";
       }
     }
@@ -373,14 +367,14 @@ int HexFileDump(DiskFileB &infile, GXSTD::ostream &stream)
   return 1;
 }
 
-int DecFileDump(DiskFileB &infile, GXSTD::ostream &stream)
+int DecFileDump(DiskFileB &infile, std::ostream &stream)
 {
   int i, j;
   int count = 0;
   char c[decBuffSize];
   
   // Print all text in upper case characters
-  stream.setf(GXSTD::ios::uppercase);
+  stream.setf(std::ios::uppercase);
 
   while(!infile.df_EOF()) {
 
@@ -397,7 +391,7 @@ int DecFileDump(DiskFileB &infile, GXSTD::ostream &stream)
       long xx = (long)c[j];
 
       // Set fill chars and reset first 24 bits for one byte display
-	stream << GXSTD::setfill('0') << GXSTD::setw(3) << GXSTD::dec 
+	stream << std::setfill('0') << std::setw(3) << std::dec 
 	       << (xx & 0xFF);
 	stream << " "; // Print one space between the bytes
     }
@@ -424,7 +418,7 @@ int DecFileDump(DiskFileB &infile, GXSTD::ostream &stream)
 	count = 0;
 	stream << "\n";
 	stream << "Press ENTER to continue: ";
-	GXSTD::cin.get();
+	std::cin.get();
 	stream << "\n";
       }
     }
@@ -437,12 +431,12 @@ int DecFileDump(DiskFileB &infile, GXSTD::ostream &stream)
 
 void BuildBinaryFile(char *ifname, char *ofname)
 {
-  GXSTD::cout << "Building new binary file from hex dump text file..." << "\n";
+  std::cout << "Building new binary file from hex dump text file..." << "\n";
   
   if(ifname[0] == 0) {
-    GXSTD::cout << "\n";
-    GXSTD::cout << "You must specify a valid hex dump text file." << "\n";
-    GXSTD::cout << "\n";
+    std::cout << "\n";
+    std::cout << "You must specify a valid hex dump text file." << "\n";
+    std::cout << "\n";
     exit(0);
   }
 
@@ -451,13 +445,13 @@ void BuildBinaryFile(char *ifname, char *ofname)
 
   DiskFileB infile(ifname);
   if(!infile) {
-    GXSTD::cerr << "Could not open " << ifname << "\n";
+    std::cerr << "Could not open " << ifname << "\n";
     exit(0);
   }
 
   DiskFileB outfile(ofname, DiskFileB::df_READWRITE, DiskFileB::df_CREATE);
   if(!outfile) {
-    GXSTD::cerr << "Could not create " << ofname << "\n";
+    std::cerr << "Could not create " << ofname << "\n";
     exit(0);
   }
 
@@ -482,8 +476,8 @@ void BuildBinaryFile(char *ifname, char *ofname)
     TruncateLine(LineBuffer, InputBuffer);
 
     if(text_parse(InputBuffer, words, &num) == 1) {
-      GXSTD::cerr << "Parse error! Exiting..." << "\n";
-      GXSTD::cerr << "\n";
+      std::cerr << "Parse error! Exiting..." << "\n";
+      std::cerr << "\n";
       exit(0);
     }
 
@@ -514,24 +508,24 @@ void BuildBinaryFile(char *ifname, char *ofname)
   outfile_CRC32 = crc.calcCRC32(outfile);
   CRC32_check = CRC32 ^ outfile_CRC32; // XOR the CRC values
   if(CRC32_check != 0) { 
-    GXSTD::cout << "Checksum error in " << ofname << "\n";   
-    GXSTD::cout << "File fails CRC-32 test." << "\n";
-    GXSTD::cout << "CRC of bytes written = ";
-    GXSTD::cout.setf(GXSTD::ios::uppercase);
-    GXSTD::cout << "0x" << GXSTD::setfill('0') << GXSTD::setw(8) << GXSTD::hex
+    std::cout << "Checksum error in " << ofname << "\n";   
+    std::cout << "File fails CRC-32 test." << "\n";
+    std::cout << "CRC of bytes written = ";
+    std::cout.setf(std::ios::uppercase);
+    std::cout << "0x" << std::setfill('0') << std::setw(8) << std::hex
 		<< CRC32 << "\n";
-    GXSTD::cout.unsetf(GXSTD::ios::uppercase);
-    GXSTD::cout << "File CRC = ";
-    GXSTD::cout.setf(GXSTD::ios::uppercase);
-    GXSTD::cout << "0x" << GXSTD::setfill('0') << GXSTD::setw(8) << GXSTD::hex
+    std::cout.unsetf(std::ios::uppercase);
+    std::cout << "File CRC = ";
+    std::cout.setf(std::ios::uppercase);
+    std::cout << "0x" << std::setfill('0') << std::setw(8) << std::hex
 		<< outfile_CRC32 << "\n";
-    GXSTD::cout.unsetf(GXSTD::ios::uppercase);
-    GXSTD::cout << "\n";
+    std::cout.unsetf(std::ios::uppercase);
+    std::cout << "\n";
   }
   else {
-    GXSTD::cout << "Finished." << "\n";
-    GXSTD::cout << byte_count << " bytes written to " << ofname << "\n";
-    GXSTD::cout << "\n";
+    std::cout << "Finished." << "\n";
+    std::cout << byte_count << " bytes written to " << ofname << "\n";
+    std::cout << "\n";
   }
   infile.df_Close();
   outfile.df_Close();
@@ -624,73 +618,73 @@ int main(int argc, char *argv[])
   }
   
   if(in_file[0] == 0 ) {
-    GXSTD::cout << "\n";
-    GXSTD::cout << "You must specify a valid input file name." << "\n";
-    GXSTD::cout << "\n";
+    std::cout << "\n";
+    std::cout << "You must specify a valid input file name." << "\n";
+    std::cout << "\n";
     return 0;
   }
 
   DiskFileB infile(in_file);
   if(!infile) {
-    GXSTD::cerr << "\n";
-    GXSTD::cerr << "Cannot open file: " << in_file << "\n";
-    GXSTD::cerr << "Exiting..." << "\n";
-    GXSTD::cerr << "\n";
+    std::cerr << "\n";
+    std::cerr << "Cannot open file: " << in_file << "\n";
+    std::cerr << "Exiting..." << "\n";
+    std::cerr << "\n";
     return 1;
   }
 
   if(display_crc32) {
     hxCRC crc;
-    GXSTD::cout << in_file << "\n";
-    GXSTD::cout << "CRC-32 = ";
-    GXSTD::cout.setf(GXSTD::ios::uppercase);
+    std::cout << in_file << "\n";
+    std::cout << "CRC-32 = ";
+    std::cout.setf(std::ios::uppercase);
     unsigned long checksum = crc.calcCRC32(infile);
-    GXSTD::cout << "0x" << GXSTD::setfill('0') << GXSTD::setw(8) << GXSTD::hex
+    std::cout << "0x" << std::setfill('0') << std::setw(8) << std::hex
 		<< checksum << "\n";
-    GXSTD::cout.unsetf(GXSTD::ios::uppercase);
+    std::cout.unsetf(std::ios::uppercase);
     return 0;
   }
 
   if(display_crc16) {
     hxCRC crc;
-    GXSTD::cout << in_file << "\n";
-    GXSTD::cout << "CRC-16 = ";
-    GXSTD::cout.setf(GXSTD::ios::uppercase);
+    std::cout << in_file << "\n";
+    std::cout << "CRC-16 = ";
+    std::cout.setf(std::ios::uppercase);
     unsigned short checksum = crc.calcCRC16(infile);
-    GXSTD::cout << "0x" << GXSTD::setfill('0') << GXSTD::setw(4) << GXSTD::hex
+    std::cout << "0x" << std::setfill('0') << std::setw(4) << std::hex
 		<< checksum << "\n";
-    GXSTD::cout.unsetf(GXSTD::ios::uppercase);
-    GXSTD::cout << "CCITT CRC-16 = ";
-    GXSTD::cout.setf(GXSTD::ios::uppercase);
+    std::cout.unsetf(std::ios::uppercase);
+    std::cout << "CCITT CRC-16 = ";
+    std::cout.setf(std::ios::uppercase);
     checksum = crc.calcCRC16(infile, 0);
-    GXSTD::cout << "0x" << GXSTD::setfill('0') << GXSTD::setw(4) << GXSTD::hex
+    std::cout << "0x" << std::setfill('0') << std::setw(4) << std::hex
 		<< checksum << "\n";
-    GXSTD::cout.unsetf(GXSTD::ios::uppercase);
+    std::cout.unsetf(std::ios::uppercase);
     return 0;
   }
   
   if(out_file[0] == 0 ) { // Write output to stdout
     use_console = 1;
     if(c_array_mode == 1) {
-      CArrayDump(infile, GXSTD::cout);
+      CArrayDump(infile, std::cout);
     }
     else if(hx_decimal_mode == 1)
-      DecFileDump(infile, GXSTD::cout);
+      DecFileDump(infile, std::cout);
     else
-      HexFileDump(infile, GXSTD::cout);
+      HexFileDump(infile, std::cout);
   }
   else { // Write the output to a file
     // Using the ostream classes allows the data to be written
     // to a file, the stdout, or stderr.
-    GXSTD::fstream stream(out_file, GXSTD::ios::out|GXSTD::ios::trunc);
+    std::fstream stream(out_file, std::ios::out|std::ios::trunc);
     if(!stream) {
-      GXSTD::cerr << "\n";
-      GXSTD::cerr << "Cannot create " << out_file << "\n";
-      GXSTD::cerr << "\n";
+      std::cerr << "\n";
+      std::cerr << "Cannot create " << out_file << "\n";
+      std::cerr << "\n";
       return 1;
     }
     use_console = 0;
-    GXSTD::cerr << "Processing file..." << "\n";
+    std::cerr << "Processing file..." << "\n";
     if(c_array_mode == 1) {
       CArrayDump(infile, stream);
       stream.close();
@@ -703,7 +697,7 @@ int main(int argc, char *argv[])
       HexFileDump(infile, stream);
       stream.close();
     }
-    GXSTD::cerr << "Finished." << "\n";
+    std::cerr << "Finished." << "\n";
   }
 
   return 0;

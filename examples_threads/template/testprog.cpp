@@ -33,18 +33,11 @@ gxThread class using templates.
 // ----------------------------------------------------------- //   
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include "gxthread.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 template <class TYPE>
 class SimpleThread : public gxThread
@@ -66,9 +59,6 @@ void *SimpleThread<TYPE>::ThreadEntryRoutine(gxThread_t *thread)
 // Program's main thread of execution
 int main()
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
   
   SimpleThread<int> t1;
   SimpleThread<char> t2;

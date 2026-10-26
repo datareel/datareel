@@ -32,18 +32,11 @@ This is a test program for the MemoryBuffer class.
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include "membuf.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 void PausePrg()
 {
@@ -54,9 +47,6 @@ void PausePrg()
 
 int main()
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   cout << "Testing MemoryBuffer constructors..." << "\n";
   char *test_pattern = "The quick brown fox jumps over the lazy dog";

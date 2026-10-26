@@ -60,9 +60,6 @@ arguments.
 #include "gxconfig.h"
 #include "dfileb.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 gxConfig::~gxConfig()
 {
@@ -517,7 +514,7 @@ int gxConfig::ChangeConfigLine(const gxString &string_to_replace,
 		    DiskFileB::df_CREATE);
     if(!outfile) return 0; // Cannot open the file
     
-#if defined (__WIN32__) || defined(__DOS__)
+#if defined(__WIN32__)
     EndOfLineSequence = "\r\n"; 
 #else 
     EndOfLineSequence = "\n"; 
@@ -646,9 +643,6 @@ int gxConfig::ChangeConfigValue(const char *parm, double value)
   return ChangeConfigValue(p, value);
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

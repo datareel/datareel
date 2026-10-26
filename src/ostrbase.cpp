@@ -34,7 +34,6 @@ text to a specified ostream object.
 #include "gxdlcode.h"
 
 // This directive must be defined to use the OutputStreamB class
-#if defined (__USE_CPP_IOSTREAM__)
 
 #include "ostrbase.h"
 #include <string.h>
@@ -49,7 +48,7 @@ OutputStreamB::OutputStreamB()
   stream = 0;
 }
 
-OutputStreamB::OutputStreamB(GXSTD::ostream &s)
+OutputStreamB::OutputStreamB(std::ostream &s)
 {
   stream = &s;
   dec_precision = ostrDefaultPrecision;
@@ -248,7 +247,7 @@ void OutputStreamB::Write(unsigned int val)
 void OutputStreamB::Write(double val)
 {
   if(!stream) return;
-  stream->setf(GXSTD::ios::showpoint | GXSTD::ios::fixed);
+  stream->setf(std::ios::showpoint | std::ios::fixed);
   stream->precision(dec_precision);
   *(stream) << val;
 }
@@ -256,7 +255,7 @@ void OutputStreamB::Write(double val)
 void OutputStreamB::Write(const double val) const
 {
   if(!stream) return;
-  stream->setf(GXSTD::ios::showpoint | GXSTD::ios::fixed);
+  stream->setf(std::ios::showpoint | std::ios::fixed);
   stream->precision(dec_precision);
   *(stream) << val;
 }
@@ -264,7 +263,7 @@ void OutputStreamB::Write(const double val) const
 void OutputStreamB::Write(float val)
 {
   if(!stream) return;
-  stream->setf(GXSTD::ios::showpoint | GXSTD::ios::fixed);
+  stream->setf(std::ios::showpoint | std::ios::fixed);
   stream->precision(dec_precision);
   *(stream) << val;
 }
@@ -272,13 +271,13 @@ void OutputStreamB::Write(float val)
 void OutputStreamB::Write(const float val) const
 {
   if(!stream) return;
-  stream->setf(GXSTD::ios::showpoint | GXSTD::ios::fixed);
+  stream->setf(std::ios::showpoint | std::ios::fixed);
   stream->precision(dec_precision);
   *(stream) << val;
 }
 
-GXSTD::ostream& OutputStreamB::operator<<(GXSTD::ostream & \
-					  (*_f)(GXSTD::ostream&))
+std::ostream& OutputStreamB::operator<<(std::ostream & \
+					  (*_f)(std::ostream&))
 {
   // PC-lint 09/14/2005: Likely use of null pointer. CAUTION: The 
   // manipulator functions can only be used if the stream member
@@ -408,7 +407,6 @@ OutputStreamB& OutputStreamB::operator<<(double val)
   return *this;
 }
 
-#endif // __USE_CPP_IOSTREAM__
 // ----------------------------------------------------------- // 
 // ------------------------------- //
 // --------- End of File --------- //

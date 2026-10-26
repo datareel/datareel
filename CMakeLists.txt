@@ -51,7 +51,7 @@ set(DATAREEL_SOURCES
   btstack btcache btnode dbasekey gpersist gxbtree pod gxint16 gxuint16
   gxfloat dbfcache dbugmgr
   # RDBMS
-  gxrdbdef gxrdbhdr gxrdbms gxrdbsql
+  gxrdbdef gxrdbhdr gxrdbms
   # Sockets
   gxsocket gxshttp gxshttpc gxsmtp gxsping gxspop3 gxsftp gxshtml gxsurl
   gxsutils gxs_b64 gxtelnet wserror gxsrss gxsxml gxssl gxdatagm gxstream
@@ -64,7 +64,7 @@ set(DATAREEL_SOURCES
   gxlistb gxmac48 htmldrv logfile memblock membuf ostrbase pscript strutil
   systime ustring
   # Messages and debug
-  terminal ehandler gxdstats leaktest)
+  terminal ehandler gxdstats)
 list(TRANSFORM DATAREEL_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/src/")
 list(TRANSFORM DATAREEL_SOURCES APPEND ".cpp")
 

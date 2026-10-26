@@ -45,10 +45,6 @@ exclude field that will not be copied to or from the disk record.
 
 #include "gxrdbhdr.h"
 
-#ifdef __BCC32__
-#pragma warn -8071
-#pragma warn -8080
-#endif
 
 // Must match the gxrdFIELD_TYPES enumeration
 const int gxrdNUM_FIELD_TYPES = 12;
@@ -2095,10 +2091,6 @@ GXDLCODE_API const char *gxrdFieldTypeString(gxrdFIELD_TYPES t)
   return gxrdFIELD_TYPES_STRINGS[error];
 }
 
-#ifdef __BCC32__
-#pragma warn .8071
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

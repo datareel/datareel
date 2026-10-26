@@ -91,34 +91,16 @@ strings to unsigned long integer values.
 #include <stdlib.h>
 #include <stdio.h>
 
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
 #include "gxdtyp64.h"
-#endif
 
 // Platform dependent Unicode include files used 
 // with compilers that have support for Unicode.
-#if defined (__HAS_UNICODE__)
-#if defined (__WINCE__)
-#include <stddef.h>
-#include <tchar.h> 
-#else
 #include <wchar.h>
 #include <stddef.h>
 #include <wctype.h>
-#endif // Compiler dependent includes
-#endif // __HAS_UNICODE__
 
 // Define the wchar_t type for compilers that do have any 
 // Unicode support.
-#if defined (__HAS_NO_WCHAR_T__)
-#if defined (__WIN32__)  // Set the WIN32 wide char type
-typedef unsigned short wchar_t;
-#elif defined (__UNIX__) // Set the UNIX wide char type
-typedef unsigned long wchar_t; 
-#else // Use 16-bit int as the default wide char type
-typedef unsigned short wchar_t; 
-#endif // __WIN32__ __UNIX__
-#endif // __HAS_NO_WCHAR_T__
 
 // String type enumeration used to identify string
 // types in the UString base class as ASCII or Unicode.
@@ -325,7 +307,6 @@ GXDLCODE_API int IFindMatch(const wchar_t *src, const wchar_t *p,
 GXDLCODE_API unsigned long StringToULWORD(const char *str);
 GXDLCODE_API unsigned long StringToULWORD(const wchar_t *str);
 
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
 GXDLCODE_API char *ULLWORDToString(char *sbuf, __ULLWORD__ val, 
 				   int radix = 10);
 GXDLCODE_API wchar_t *ULLWORDToString(wchar_t *sbuf, __ULLWORD__ val, 
@@ -338,7 +319,6 @@ GXDLCODE_API __ULLWORD__ StringToULLWORD(const char *str);
 GXDLCODE_API __ULLWORD__ StringToULLWORD(const wchar_t *str);
 GXDLCODE_API __LLWORD__ StringToLLWORD(const char *str);
 GXDLCODE_API __LLWORD__ StringToLLWORD(const wchar_t *str);
-#endif
 
 #endif  // __GX_STRUTIL_HPP__
 // ----------------------------------------------------------- // 

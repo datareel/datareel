@@ -40,9 +40,6 @@ An gxUINT16 type has a base 10 positive limit of 65,535.
 
 #ifndef __USE_NATIVE_INT_TYPES__
 
-#ifdef __BCC32__
-#pragma warn -8071
-#endif
 
 #include <string.h>
 #include <memory.h>
@@ -673,9 +670,6 @@ GXDLCODE_API int operator>=(const __UBYTE__ &as, const gxUINT16 &b)
   return (__USWORD__)as == b.PackBits() || (__USWORD__)as > b.PackBits();
 }
 
-#ifdef __BCC32__
-#pragma warn .8071
-#endif
 
 #endif // __USE_NATIVE_INT_TYPES__ 
 // ----------------------------------------------------------- // 

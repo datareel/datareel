@@ -33,20 +33,13 @@ gxThread class using condition variables.
 // ----------------------------------------------------------- //   
 #include "gxdlcode.h"
 
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 using namespace std; // Use unqualified names for Standard C++ library
-#else // Use the old iostream library by default
-#include <iostream.h>
-#endif // __USE_ANSI_CPP__
 
 #include "gxthread.h"
 #include "gxcond.h"
 #include "gxmutex.h"
 
-#ifdef __MSVC_DEBUG__
-#include "leaktest.h"
-#endif
 
 // For safe condition variable usage, must use a Boolean predicate and 
 // a mutex with the condition.
@@ -105,9 +98,6 @@ void *SimpleThread::ThreadEntryRoutine(gxThread_t *thread)
 
 int main(int argc, char **argv)
 {
-#ifdef __MSVC_DEBUG__
-  InitLeakTest();
-#endif
 
   const int NUM_THREADS = 5;
   SimpleThread t;

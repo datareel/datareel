@@ -98,9 +98,6 @@ pad the output stream if the output width is greater then 1.
 #include "ustring.h"
 #include "strutil.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 // Initialize the global null character and string pointers
 char UStringNULLPtr::UStringNUllChar = '\0';
@@ -933,27 +930,17 @@ int UStringB::Atoi()
   if((sptr == 0) || (s_length == 0)) return (int)0;
   if(!is_unicode()) {
     // PC-lint 09/15/2005: atoi() function is considered dangerous
-#if defined (__PCLINT_CHECK__)
-    return 0;
-#else
     return atoi((char *)sptr);
-#endif
   }
   else {
 
-#if defined (__HAS_UNICODE__) && defined (__WINCE__) 
-    return _wtoi((wchar_t *)sptr);
-#elif defined (__HAS_UNICODE__) && defined (__MSVC__)
+#if defined(__MSVC__)
     return _wtoi((wchar_t *)sptr);
 #else
     char *nsptr = Unicode2ASCII((wchar_t *)sptr, s_length);
     if(!nsptr) return 0;
     // PC-lint 09/15/2005: atoi() function is considered dangerous
-#if defined (__PCLINT_CHECK__)
-    unsigned rv = 0;
-#else
     unsigned rv = atol(nsptr);
-#endif
     delete[] nsptr;
     return rv;
 #endif // __HAS_UNICODE__
@@ -965,26 +952,16 @@ long UStringB::Atol()
   if((sptr == 0) || (s_length == 0)) return 0L;
   if(!is_unicode()) {
     // PC-lint 09/15/2005: atol() function is considered dangerous
-#if defined (__PCLINT_CHECK__)
-    return 0;
-#else 
     return atol((char *)sptr);
-#endif
   }
   else {
-#if defined (__HAS_UNICODE__) && defined (__WINCE__) 
-    return _wtol((wchar_t *)sptr);
-#elif defined (__HAS_UNICODE__) && defined (__MSVC__)
+#if defined(__MSVC__)
     return _wtol((wchar_t *)sptr);
 #else
     char *nsptr = Unicode2ASCII((wchar_t *)sptr, s_length);
     if(!nsptr) return 0;
     // PC-lint 09/15/2005: atol() function is considered dangerous
-#if defined (__PCLINT_CHECK__)
-    unsigned rv = 0;
-#else
     unsigned rv = atol(nsptr);
-#endif
     delete[] nsptr;
     return rv;
 #endif // __HAS_UNICODE__
@@ -1007,22 +984,14 @@ double UStringB::Atof()
   if((sptr == 0) || (s_length == 0)) return (double)0;
   if(!is_unicode()) {
     // PC-lint 09/15/2005: atof() function is considered dangerous
-#if defined (__PCLINT_CHECK__)
-    return 0;
-#else
     return atof((char *)sptr);
-#endif
   }
   else {
     char *nsptr = Unicode2ASCII((wchar_t *)sptr, s_length);
     if(!nsptr) return 0;
 
     // PC-lint 09/15/2005: atof() function is considered dangerous
-#if defined (__PCLINT_CHECK__)
-    double rv = 0;
-#else
     double rv = atof(nsptr);
-#endif
 
     delete[] nsptr;
     return rv;
@@ -1049,11 +1018,7 @@ int UStringB::ToUpper()
     wchar_t *start = (wchar_t *)sptr;
     
     while(nchars--) {
-#if defined (__HAS_UNICODE__)
       *start = towupper(*start);
-#else
-      *start = toupper(*start);
-#endif // __HAS_UNICODE__
       start++;
     }
     return 1;
@@ -1080,11 +1045,7 @@ int UStringB::ToLower()
     wchar_t *start = (wchar_t *)sptr;
     
     while(nchars--) {
-#if defined (__HAS_UNICODE__)
       *start = towlower(*start);
-#else
-      *start = tolower(*start);
-#endif // __HAS_UNICODE__
       start++;
     }
     return 1;
@@ -1229,13 +1190,9 @@ unsigned UStringB::ReplaceChar(const char c, const char replacement,
     return num_replaced;
   }
   else {
-#if defined (__PCLINT_CHECK__)
-    return 0;
-#else
     wchar_t wc = (wchar_t)c;
     wchar_t wreplacement = (wchar_t)replacement;
     return ReplaceChar(wc, wreplacement, offset);
-#endif
   }
 }
 
@@ -1370,16 +1327,12 @@ unsigned UStringB::FilterChar(const char c, unsigned offset)
     return FilterString((const char *)s, offset);
   }
   else {
-#if defined (__PCLINT_CHECK__)
-    return 0;
-#else
     // Define a two char array (char_type + null terminator)
     wchar_t ws_char[2]; 
     ws_char[0] = (wchar_t)c; // Character to be filtered
     ws_char[1] = 0; // Null-terminate the string so the gxstrlen() function 
                     // will work correctly.
     return FilterString((const wchar_t *)ws_char, offset);
-#endif
   }
 }
 
@@ -1395,16 +1348,12 @@ unsigned UStringB::FilterChar(const wchar_t c, unsigned offset)
     return FilterString((const char *)s, offset);
   }
   else {
-#if defined (__PCLINT_CHECK__)
-    return 0;
-#else
     // Define a two char array (char_type + null terminator)
     wchar_t ws_char[2]; 
     ws_char[0] = c; // Character to be filtered
     ws_char[1] = 0; // Null-terminate the string so the gxstrlen() function 
                // will work correctly.
     return FilterString((const wchar_t *)ws_char, offset);
-#endif
   }
 }
 
@@ -1429,11 +1378,7 @@ unsigned UStringB::TrimLeadingSpaces()
     wchar_t *start = (wchar_t *)sptr;
 
     for(i = 0; i < s_length; i++) {
-#if defined (__HAS_UNICODE__)
       if(!iswspace(start[i])) break;
-#else
-      if(!isspace(start[i])) break;
-#endif // __HAS_UNICODE__
       num_l_spaces++;
     }
     if(num_l_spaces > 0) DeleteAt(0, num_l_spaces);
@@ -1462,11 +1407,7 @@ unsigned UStringB::TrimTrailingSpaces()
     unsigned i, num_t_spaces = 0;
   
     for(i = (s_length - 1); i != 0; i--) {
-#if defined (__HAS_UNICODE__)
       if(!iswspace(start[i])) break;
-#else
-      if(!isspace(start[i])) break;
-#endif // __HAS_UNICODE__
       num_t_spaces++;
     }
     if(num_t_spaces > 0) DeleteAt((s_length - num_t_spaces), num_t_spaces);
@@ -1871,11 +1812,7 @@ int UStringB::ConvertEscapeSeq(char esc, int num_octets)
     return num_esc;
   }
   else {
-#if defined (__PCLINT_CHECK__)
-    return 0;
-#else 
     return ConvertEscapeSeq((wchar_t)esc, num_octets);
-#endif
   }
 }
 
@@ -1918,7 +1855,7 @@ int UStringB::ConvertEscapeSeq(wchar_t esc, int num_octets)
       DeleteAt(offset, 1); // Remove the esc from this string
       memmove(sbuf, (start+offset), (num_octets * cs));
       sbuf[num_octets] = 0;
-#if defined (__HAS_UNICODE__) && defined (__WIN32__)
+#if defined(__WIN32__)
       wchar_t wf[3]; char f0 = '%'; char f1 = 'x';
       // PC-lint 09/15/2005: Ignore type cast warnings
       wf[0] = (wchar_t)f0; wf[1] = (wchar_t)f1; wf[2] = (wchar_t)0;
@@ -2215,7 +2152,6 @@ UStringB& UStringB::operator>>(double &val)
   return *this;
 }
 
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
 UStringB& UStringB::operator<<(const __LLWORD__ val)
 {
   char sbuf[81];
@@ -2397,7 +2333,6 @@ void UStringB::SHN(__ULLWORD__ bytes)
   *(this) += sbuf; 
   *(this) += shn_c;
 }
-#endif
 
 int UStringB::StringCompare(const char *s, int check_case) const
 // Function used to perform a string compare. If the "check_case"
@@ -2930,14 +2865,13 @@ GXDLCODE_API int CaseICmp(const wchar_t *s, const UStringw &s2)
   return s2.StringICompare(s);
 }
 
-#if defined (__USE_CPP_IOSTREAM__)
-GXDLCODE_API GXSTD::ostream &operator<<(GXSTD::ostream &os, const UString &s)
+GXDLCODE_API std::ostream &operator<<(std::ostream &os, const UString &s)
 {
   if(!s) return os; // Check for null pointers
   return os.write((char *)s.GetSPtr(), s.length());
 }
 
-GXDLCODE_API GXSTD::ostream &operator<<(GXSTD::ostream &os, const UStringw &s)
+GXDLCODE_API std::ostream &operator<<(std::ostream &os, const UStringw &s)
 {
   if(!s) return os; // Check for null pointers
   char *nsptr = Unicode2ASCII((wchar_t *)s.GetSPtr(), s.length());
@@ -2946,7 +2880,7 @@ GXDLCODE_API GXSTD::ostream &operator<<(GXSTD::ostream &os, const UStringw &s)
   return os;
 }
 
-GXDLCODE_API GXSTD::istream &operator>>(GXSTD::istream &os, UString &s)
+GXDLCODE_API std::istream &operator>>(std::istream &os, UString &s)
 {
   const int ibuf_size = 255;
   char *nsptr = new char[ibuf_size];
@@ -2957,13 +2891,13 @@ GXDLCODE_API GXSTD::istream &operator>>(GXSTD::istream &os, UString &s)
   // 10/24/2026: Nothing is stored when the read fails, for example at
   // the end of the input, so the buffer was read without a null.
   nsptr[0] = 0;
-  os >> GXSTD::setw(ibuf_size) >> nsptr;
+  os >> std::setw(ibuf_size) >> nsptr;
   s.SetString(nsptr, gxstrlen(nsptr));
   delete[] nsptr;
   return os;
 }
 
-GXDLCODE_API GXSTD::istream &operator>>(GXSTD::istream &os, UStringw &s)
+GXDLCODE_API std::istream &operator>>(std::istream &os, UStringw &s)
 {
   const int ibuf_size = 255;
   char *nsptr = new char[ibuf_size];
@@ -2974,12 +2908,11 @@ GXDLCODE_API GXSTD::istream &operator>>(GXSTD::istream &os, UStringw &s)
   // 10/24/2026: Nothing is stored when the read fails, for example at
   // the end of the input, so the buffer was read without a null.
   nsptr[0] = 0;
-  os >> GXSTD::setw(ibuf_size) >> nsptr;
+  os >> std::setw(ibuf_size) >> nsptr;
   s.SetString(nsptr, gxstrlen(nsptr));
   delete[] nsptr;
   return os;
 }
-#endif // __USE_CPP_IOSTREAM__
 
 GXDLCODE_API int StringCompare(const UString &a, const UString &b) 
 {
@@ -3405,75 +3338,7 @@ GXDLCODE_API int operator<=(const UStringw &a, const wchar_t *b)
   return StringCompare(a, b) <= 0; 
 }
 
-#if defined (__wxWIN201__) 
-UString &UString::operator=(const wxString &s) 
-{ 
-  Clear(); 
-  SetString(s.c_str());
-  return *this; 
-}
 
-UStringw &UStringw::operator=(const wxString &s) 
-{ 
-  Clear(); 
-  SetString(s.c_str());
-  return *this; 
-}
-
-UStringB& UStringB::operator>>(wxString &s)
-{
-  if(!sptr) {
-    s = UStringNULLPtr::UStringNUllStr; 
-    return *this;
-  }
-
-  if(!is_unicode()) {
-    s = (char *)sptr;
-  }
-  else {
-    char *nsptr = Unicode2ASCII((wchar_t *)sptr, s_length);
-    if(!nsptr) return *this;
-    s = nsptr;
-    delete[] nsptr;
-  }
-  return *this;
-}
-#endif
-
-#if defined (__wxWIN291__) 
-UString &UString::operator=(const wxString &s) 
-{ 
-  Clear(); 
-  SetString((const char *)s.c_str());
-  return *this; 
-}
-
-UStringw &UStringw::operator=(const wxString &s) 
-{ 
-  Clear(); 
-  SetString((const char *)s.c_str());
-  return *this; 
-}
-
-UStringB& UStringB::operator>>(wxString &s)
-{
-  if(!sptr) {
-    s = UStringNULLPtr::UStringNUllStr; 
-    return *this;
-  }
-
-  if(!is_unicode()) {
-    s = (char *)sptr;
-  }
-  else {
-    char *nsptr = Unicode2ASCII((wchar_t *)sptr, s_length);
-    if(!nsptr) return *this;
-    s = nsptr;
-    delete[] nsptr;
-  }
-  return *this;
-}
-#endif
 
 #if defined (__wxWIN302__) 
 UString &UString::operator=(const wxString &s) 
@@ -3604,11 +3469,7 @@ unsigned UStringB::TrimLeading(const char c)
     wchar_t *start = (wchar_t *)sptr;
 
     for(i = 0; i < s_length; i++) {
-#if defined (__PCLINT_CHECK__)
-      if(start[i] != c) break;
-#else
       if(start[i] != (wchar_t)c) break;
-#endif
       num_l_chars++;
     }
     if(num_l_chars > 0) DeleteAt(0, num_l_chars);
@@ -3637,11 +3498,7 @@ unsigned UStringB::TrimTrailing(const char c)
     unsigned i, num_t_chars = 0;
   
     for(i = (s_length - 1); i != 0; i--) {
-#if defined (__PCLINT_CHECK__) 
-      if(start[i] != c) break;
-#else
       if(start[i] != (wchar_t)c) break;
-#endif
       num_t_chars++;
     }
     if(num_t_chars > 0) DeleteAt((s_length - num_t_chars), num_t_chars);
@@ -4254,9 +4111,6 @@ GXDLCODE_API UStringw *ParseCVSLine(const UStringw &input_str, unsigned &num_arr
   return output_arr;
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

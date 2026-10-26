@@ -48,18 +48,13 @@ GXDLCODE_API unsigned long calcCRC32(unsigned char c, unsigned long CRC);
 
 // This code is used for test purposes only
 #ifdef __USE_CRC32_TABLE_FUNCTIONS__
-#if defined (__USE_ANSI_CPP__) // Use the ANSI Standard C++ library
 #include <iostream>
 #include <fstream>
 #include <iomanip>
-#else // Use the old iostream library by default
-#include <iostream.h>
-#include <iomanip.h>
-#endif // __USE_ANSI_CPP__
 
 #include "dfileb.h"
 
-GXDLCODE_API int makeCRC32(GXSTD::ostream &stream);
+GXDLCODE_API int makeCRC32(std::ostream &stream);
 GXDLCODE_API unsigned long calcCRC32(DiskFileB &infile);
 #endif
 

@@ -67,13 +67,9 @@ gxdFPTR64FileSize()
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
-#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
 
 #include "gxdfp64.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 GXDLCODE_API gxdFPTR64 *gxdFPTR64Create(const char *fname)
 // Create a new file and truncate existing files.
@@ -550,11 +546,7 @@ GXDLCODE_API __LLWORD__ gxdFPTR64FileSize(const char *fname)
 #endif
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 
-#endif // __64_BIT_DATABASE_ENGINE__ || __ENABLE_64_BIT_INTEGERS__
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

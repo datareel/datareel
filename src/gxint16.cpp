@@ -41,9 +41,6 @@ negative limit of 32,768.
 
 #ifndef __USE_NATIVE_INT_TYPES__
 
-#ifdef __BCC32__
-#pragma warn -8071
-#endif
 
 #include <string.h>
 #include <memory.h>
@@ -673,9 +670,6 @@ GXDLCODE_API int operator>=(const __UBYTE__ &as, const gxINT16 &b)
   return (__SWORD__)as == b.PackBits() || (__SWORD__)as > b.PackBits();
 }
 
-#ifdef __BCC32__
-#pragma warn .8071
-#endif
 
 #endif // __USE_NATIVE_INT_TYPES__ 
 // ----------------------------------------------------------- // 

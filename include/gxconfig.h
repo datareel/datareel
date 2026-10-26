@@ -48,9 +48,6 @@ arguments.
 #include "gxlistb.h"
 #include "gxstring.h"
 
-#ifdef __BCC32__
-#pragma warn -8022
-#endif
 
 class GXDLCODE_API gxConfigListNode : public gxListNodeB
 {
@@ -180,9 +177,6 @@ private:
 };
 
 
-#ifdef __BCC32__
-#pragma warn .8022
-#endif
 
 #endif // __GX_CONFIG_HPP__
 // ----------------------------------------------------------- //

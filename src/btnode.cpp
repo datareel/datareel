@@ -56,9 +56,6 @@ DatabaseKeyB::CompareKey() function with return values of: -1 less than,
 #include <string.h>
 #include "btnode.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 BtreeNode::BtreeNode(BtreeSize_t dbkey_size, BtreeNodeOrder_t order)
 {
@@ -307,9 +304,6 @@ void BtreeNode::Release()
   key_entries = 0;
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

@@ -56,16 +56,8 @@ macro is defined during the library build.
 #include <stdlib.h>
 
 // HPUX 11 pre-processor directives
-#if defined (__HPUX11__)
-#ifndef _XOPEN_SOURCE_EXTENDED 
-#define _XOPEN_SOURCE_EXTENDED
-#endif
-#ifndef __HP_CURSES
-#define __HP_CURSES
-#endif
-#endif
 
-#if defined (__DOS__) || defined (__WIN32__)
+#if defined(__WIN32__)
 #include <conio.h> // Console I/O library
 
 #elif defined (__UNIX__)
@@ -192,7 +184,7 @@ private:
 extern GXDLCODE_API Terminal I_TERM;    // Independent Terminal type object
 extern GXDLCODE_API Terminal *terminal; // Global terminal pointer
 
-#if defined (__DOS__) || defined (__WIN32__)
+#if defined(__WIN32__)
 // ===============================================================
 // Stand alone functions used to port this code from UNIX to DOS,
 // Windows 3.11, and Windows 95. These functions are used to

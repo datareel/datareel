@@ -81,9 +81,6 @@ a graceful socket disconnect.
 #include <stdio.h>
 #include "gxsftp.h"
 
-#ifdef __BCC32__
-#pragma warn -8080
-#endif
 
 gxSocketError gxsFTPClient::ConnectClient(const char *host, int port)
 // Function used to connect a FTP client to a server. Returns zero if no
@@ -631,9 +628,6 @@ int gxsFTPClient::RecvResponse(gxsSocket_t s, char *buf, int bytes,
   return 0;
 }
 
-#ifdef __BCC32__
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

@@ -79,19 +79,12 @@ connections.
 #include "gxs_ver.h"
 
 #if defined (__LINUX__)
-#if defined (__wxWIN201__) || defined (__wxWIN291__)
-#include "wx2incs.h"  // Include files for wxWindows version 2.X
-#endif
 
 #if defined (__wxWIN302__)
 #include "wx3incs.h"  // Include files for wxWindows version 3.X
 #endif
 #endif
 
-#ifdef __BCC32__
-#pragma warn -8057
-#pragma warn -8080
-#endif
 
 gxsHTTPClient::gxsHTTPClient(int CacheSize, int seconds, int useconds) 
   : cache(CacheSize) 
@@ -161,12 +154,6 @@ int gxsHTTPClient::SimpleRequest(const gxsURLInfo &u, gxdFPTR *stream)
   
   int nRet = 0;
   while(recv_loop) { // Read the file into the device cache
-#if defined (__wxWIN201__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
-#if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
 #if defined (__wxWIN302__) && defined (__GUI_THREAD_SAFE__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
@@ -210,12 +197,6 @@ int gxsHTTPClient::RequestHeader(const gxsURLInfo &u, gxsHTTPHeader &hdr)
   if(Send(request.c_str(), request.length()) < 0) return socket_error;
   
   while(recv_loop) { // Read the file header into the header string
-#if defined (__wxWIN201__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
-#if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
 #if defined (__wxWIN302__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
@@ -304,12 +285,6 @@ int gxsHTTPClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
   }
 
   while(recv_loop) { // Read the file into the device cache
-#if defined (__wxWIN201__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
-#if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
 #if defined (__wxWIN302__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
@@ -497,12 +472,6 @@ int gxsHTTPClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
   mbuf.Clear();
 
   while(recv_loop) { // Read the file into the device cache
-#if defined (__wxWIN201__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
-#if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
 #if defined (__wxWIN302__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
@@ -577,12 +546,6 @@ void gxsHTTPClient::Read(void *buf, unsigned Bytes, gxDeviceTypes dev)
       break;
             
     case  gxDEVICE_STREAM_SOCKET:
-#if defined (__wxWIN201__) && defined (__GUI_THREAD_SAFE__)
-      ::wxYield(); // Yield to the calling process invoking the socket read
-#endif
-#if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
 #if defined (__wxWIN302__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
@@ -784,7 +747,7 @@ int gxsHTTPClient::ParseHTTPHeader(const gxsURLInfo &u,
 
     hdr.content_type = hdr.mime_type = status;
 
-#if defined(__DOS__) || defined(__WIN32__)
+#if defined(__WIN32__)
     if(hdr.mime_type == "audio/x-wav")
       hdr.file_extension = ".wav";
     else if(hdr.mime_type == "image/x-ms-bmp")
@@ -1057,12 +1020,6 @@ int gxsHTTPClient::SimpleRequest(const gxsURLInfo &u, MemoryBuffer &mbuf)
 
   int nRet = 0;
   while(recv_loop) { // Read the file into the device cache
-#if defined (__wxWIN201__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
-#if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
 #if defined (__wxWIN302__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
@@ -1215,12 +1172,6 @@ int gxsHTTPSClient::SimpleRequest(const gxsURLInfo &u, gxdFPTR *stream)
   
   int nRet = 0;
   while(recv_loop) { // Read the file into the device cache
-#if defined (__wxWIN201__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
-#if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
 #if defined (__wxWIN302__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
@@ -1291,12 +1242,6 @@ int gxsHTTPSClient::RequestHeader(const gxsURLInfo &u, gxsHTTPHeader &hdr)
   }
 
   while(recv_loop) { // Read the file header into the header string
-#if defined (__wxWIN201__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
-#if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
 #if defined (__wxWIN302__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
@@ -1405,12 +1350,6 @@ int gxsHTTPSClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
   }
 
   while(recv_loop) { // Read the file into the device cache
-#if defined (__wxWIN201__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
-#if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
 #if defined (__wxWIN302__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
@@ -1613,12 +1552,6 @@ int gxsHTTPSClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
   mbuf.Clear();
 
   while(recv_loop) { // Read the file into the device cache
-#if defined (__wxWIN201__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
-#if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
 #if defined (__wxWIN302__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
@@ -1699,12 +1632,6 @@ void gxsHTTPSClient::Read(void *buf, unsigned Bytes, gxDeviceTypes dev)
       break;
       
     case  gxDEVICE_STREAM_SOCKET:
-#if defined (__wxWIN201__) && defined (__GUI_THREAD_SAFE__)
-      ::wxYield(); // Yield to the calling process invoking the socket read
-#endif
-#if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
 #if defined (__wxWIN302__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
@@ -1910,7 +1837,7 @@ int gxsHTTPSClient::ParseHTTPHeader(const gxsURLInfo &u,
 
     hdr.content_type = hdr.mime_type = status;
 
-#if defined(__DOS__) || defined(__WIN32__)
+#if defined(__WIN32__)
     if(hdr.mime_type == "audio/x-wav")
       hdr.file_extension = ".wav";
     else if(hdr.mime_type == "image/x-ms-bmp")
@@ -2198,12 +2125,6 @@ int gxsHTTPSClient::SimpleRequest(const gxsURLInfo &u, MemoryBuffer &mbuf)
 
   int nRet = 0;
   while(recv_loop) { // Read the file into the device cache
-#if defined (__wxWIN201__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
-#if defined (__wxWIN291__) && defined (__GUI_THREAD_SAFE__)
-    ::wxYield(); // Yield to the calling process invoking the HTTP process
-#endif
 #if defined (__wxWIN302__)
     ::wxYield(); // Yield to the calling process invoking the HTTP process
 #endif
@@ -2236,10 +2157,6 @@ int gxsHTTPSClient::SimpleRequest(const gxsURLInfo &u, MemoryBuffer &mbuf)
 
 #endif // __USE_GX_SSL_EXTENSIONS__
 
-#ifdef __BCC32__
-#pragma warn .8057
-#pragma warn .8080
-#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //
