@@ -260,7 +260,8 @@ DataReel 6.1, 10/25/2026, is a security fix release. gxBtree and
 InfoHog now check the lengths and counts they read from database and
 index files, so a damaged or crafted file is rejected instead of
 overflowing memory. The shared library is built as libdatareel.so.6.1.
-There are no interface changes from 6.0; recompile and relink. See
+The only interface change from 6.0 is the new
+gxDatabase::SetWriteHook(); recompile and relink. See
 RELEASE_NOTES_6.1.txt. Every change in the source is marked with a
 "10/25/2026" comment.
 Supported platforms are now RHEL 10 (default), 9 and 8, Windows 11,
