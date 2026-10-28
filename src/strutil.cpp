@@ -65,6 +65,23 @@ caller.
 
 #include "strutil.h"
 
+// 10/27/2026: Character tests for the string compares that give the
+// same result on every platform. The compares pass signed char values,
+// which are negative for the bytes above 127: glibc accepts them (and
+// gives c + 256 from tolower()), the Windows runtime does not (it is
+// undefined there), so a database index built on Linux was walked in a
+// different order on Windows and records were skipped. These match
+// glibc for -128..255 in the "C" and UTF-8 locales, so the order of
+// existing Linux indexes does not change.
+static inline int gxsu_isdigit(int c) { return (c >= '0') && (c <= '9'); }
+static inline int gxsu_tolower(int c)
+{
+  if((c >= 'A') && (c <= 'Z')) return c + ('a' - 'A');
+  if((c < -1) && (c >= -128)) return c + 256;
+  return c;
+}
+
+
 #ifdef __BCC32__
 #pragma warn -8080
 #endif
@@ -284,8 +301,8 @@ GXDLCODE_API int gxbyte_icompare(const void *a, unsigned a_bytes,
     char *ap = (char *)a;
     char *bp = (char *)b;
     for(unsigned i = 0; i < sn; i++) {
-      if(tolower(*ap) < tolower(*bp)) return -1;
-      if(tolower(*ap++) > tolower(*bp++)) return 1;
+      if(gxsu_tolower(*ap) < gxsu_tolower(*bp)) return -1;
+      if(gxsu_tolower(*ap++) > gxsu_tolower(*bp++)) return 1;
     }
     if(a_bytes == b_bytes) return 0;
     if(a_bytes < b_bytes) return -1;
@@ -305,8 +322,8 @@ GXDLCODE_API int gxbyte_icompare(const void *a, unsigned a_bytes,
       if(towlower(ap[i]) < towlower(bp[i])) return -1;
       if(towlower(ap[i]) > towlower(bp[i])) return 1;
 #else
-      if(tolower(ap[i]) < tolower(bp[i])) return -1;
-      if(tolower(ap[i]) > tolower(bp[i])) return 1;
+      if(gxsu_tolower(ap[i]) < gxsu_tolower(bp[i])) return -1;
+      if(gxsu_tolower(ap[i]) > gxsu_tolower(bp[i])) return 1;
 #endif // __HAS_UNICODE__
     }
     if(a_bytes == b_bytes) return 0;
@@ -387,7 +404,7 @@ GXDLCODE_API int gxifind_pattern(const void *src, unsigned s_bytes,
     unsigned i = offset, j = 1;    // String and pattern indexes
   
     while(i < s_bytes && j <= p_bytes) {
-      if (tolower(*next) == tolower(*pattern)) {
+      if (gxsu_tolower(*next) == gxsu_tolower(*pattern)) {
 	if(j == p_bytes) return (int)i; // Entire match was found
 	next++; pattern++; j++;
       }
@@ -418,7 +435,7 @@ GXDLCODE_API int gxifind_pattern(const void *src, unsigned s_bytes,
 #if defined (__HAS_UNICODE__)
       if(towlower(*next) == towlower(*pattern)) {
 #else
-      if(tolower(*next) == tolower(*pattern)) {
+      if(gxsu_tolower(*next) == gxsu_tolower(*pattern)) {
 #endif // __HAS_UNICODE__
 	if(j == nchars_p) return (int)i; // Entire match was found
 	next++; pattern++; j++;
@@ -766,9 +783,9 @@ GXDLCODE_API int StringANCompare(const char *a, const char *b, int check_case)
   unsigned long ibuf1, ibuf2;
 
   for(i = 0; i < sn; i++) {
-    if((isdigit(*ap)) && (isdigit(*bp))) {
+    if((gxsu_isdigit(*ap)) && (gxsu_isdigit(*bp))) {
       if(a_bytes == b_bytes) {
-	if((!isdigit(*ap+1)) &&	(!isdigit(*bp+1))) {
+	if((!gxsu_isdigit(*ap+1)) &&	(!gxsu_isdigit(*bp+1))) {
 	  if(*ap < *bp) {
 	    // PC-lint 04/26/2005: Avoid inappropriate de-allocation error,
 	    // but dbuf is not a user defined type so there is no destructor
@@ -792,10 +809,10 @@ GXDLCODE_API int StringANCompare(const char *a, const char *b, int check_case)
     }
     else {
       if((dbuf1[0] != 0) && (dbuf2[0] != 0)) {
-	if((isdigit(*(ap)))) {
+	if((gxsu_isdigit(*(ap)))) {
 	  dbuf1[digit_pos1] = *((ap));
 	}
-	if((isdigit(*(bp)))) {
+	if((gxsu_isdigit(*(bp)))) {
 	  dbuf2[digit_pos2] = *((bp));
 	}
 	ibuf1 = StringToULWORD(dbuf1);
@@ -839,7 +856,7 @@ GXDLCODE_API int StringANCompare(const char *a, const char *b, int check_case)
 	}
       }
       else {
-	if(tolower(*ap) < tolower(*bp)) {
+	if(gxsu_tolower(*ap) < gxsu_tolower(*bp)) {
 	  // PC-lint 04/26/2005: Avoid inappropriate de-allocation error,
 	  // but dbuf is not a user defined type so there is no destructor
 	  // to call for the array members.
@@ -847,7 +864,7 @@ GXDLCODE_API int StringANCompare(const char *a, const char *b, int check_case)
 	  delete[] dbuf2;
 	  return -1;
 	}
-	if(tolower(*ap++) > tolower(*bp++)) {
+	if(gxsu_tolower(*ap++) > gxsu_tolower(*bp++)) {
 	  // PC-lint 04/26/2005: Avoid inappropriate de-allocation error,
 	  // but dbuf is not a user defined type so there is no destructor
 	  // to call for the array members.
@@ -862,12 +879,12 @@ GXDLCODE_API int StringANCompare(const char *a, const char *b, int check_case)
   // Check for any remaining digits at the end of the string
   if((dbuf1[0] != 0) && (dbuf2[0] != 0)) {
     if(a_bytes > b_bytes) {
-      if(isdigit(*(ap))) {
+      if(gxsu_isdigit(*(ap))) {
 	dbuf1[digit_pos1] = *(ap);
       }
     }
     if(a_bytes < b_bytes) {
-      if(isdigit(*(bp))) {
+      if(gxsu_isdigit(*(bp))) {
 	dbuf2[digit_pos2] = *(bp);
       }
     }
@@ -929,7 +946,7 @@ GXDLCODE_API unsigned long StringToULWORD(const char *str)
   
   unsigned long value = (unsigned long)0;
 
-  while(isdigit(c)) {
+  while(gxsu_isdigit(c)) {
     value = 10 * value + (c - '0'); 
     c = (int)(unsigned char)*s++; 
   }
@@ -1084,7 +1101,7 @@ GXDLCODE_API __LLWORD__ StringToLLWORD(const char *str)
   
   __LLWORD__ value = (__LLWORD__)0;
 
-  while(isdigit(c)) {
+  while(gxsu_isdigit(c)) {
     value = 10 * value + (c - '0'); 
     c = (int)(unsigned char)*s++; 
   }
@@ -1116,7 +1133,7 @@ GXDLCODE_API __ULLWORD__ StringToULLWORD(const char *str)
   
   __ULLWORD__ value = (__ULLWORD__)0;
 
-  while(isdigit(c)) {
+  while(gxsu_isdigit(c)) {
     value = 10 * value + (c - '0'); 
     c = (int)(unsigned char)*s++; 
   }
