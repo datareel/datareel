@@ -38,3 +38,6 @@ core.*
 
 # CMake build trees
 cmake-build/
+
+# 6.3: run_db_tests.sh/.bat output
+examples_database/test_runs/

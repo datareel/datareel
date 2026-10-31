@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel 6.3 Release Notes</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>DataReel 6.3 Release Notes</h1>
+<h2 id="Top">DataReel 6.3 Release Notes, 10/31/2026</h2>
+<p>DataReel version 6.3 (was 6.2) DataReel Copyright (c) 2001-2026 DataReel Software Development</p>
+<p>DataReel 6.3 brings the object database speed and crash safety work of DataReel 7.2 and 7.3 to the 6.x library: positional file I/O, a faster B-tree cache, and an optional page cache and write-ahead journal. The database and index file formats are unchanged: 6.3 opens files written by 6.2 and earlier, and writes byte-identical files for the same operations. Every change in the source is marked with a &quot;10/31/2026&quot; comment (the strutil.cpp fix with &quot;10/27/2026&quot;).</p>
+<p>The library version in version.txt is 6.3 and the shared library version (SHAREDLIB_VERSION in env/linux.env) is 6.3, so the Linux shared library is built as libdatareel.so.6.3. The public interface only gains functions, but gxDatabase, gxBtree, BtreeCache and the file pointer types have new members, so programs must be recompiled against the 6.3 headers and relinked. Programs that compile the library sources directly must add the two new source files, gxdjrnl.cpp and gxdpcache.cpp, to their builds.</p>
+<h2>Always On</h2>
+<ul>
+<li>Positional file I/O: reads and writes use pread()/pwrite() on Linux and ReadFile()/WriteFile() with an offset on Windows, so a seek costs no system call. The 32-bit database engine now also uses the 64-bit file pointer type (gxdfp64.h) on Linux and with MSVC; gxdtypes.h always includes gxdtyp64.h.</li>
+<li>The padding bytes in gxFileHeader, gxBlockHeader and gxBtreeHeader copies are zeroed, so the same operations always write the same bytes.</li>
+<li>BtreeCache finds cached nodes through a hash table instead of a linear search, and Flush() writes the dirty nodes but keeps them in the cache.</li>
+<li>gxBtree::FindNext() given the key it returned last, with the index unchanged, takes the next key from the same leaf with one compare instead of a search from the root.</li>
+<li>gxdFPTR64Allocate() writes zeros on Linux instead of calling posix_fallocate(), whose unwritten extents made each sync write file system metadata.</li>
+</ul>
+<h2>New, Opt-in</h2>
+<p>A program that does not call these reads and writes its files as 6.2 did.</p>
+<ul>
+<li>gxDatabase::Sync(), SetSyncOnFlush() and WriteCount(): flush the file to disk (fdatasync()/fsync() or FlushFileBuffers()).</li>
+<li>gxDatabase::EnablePageCache(bytes, use_map = 0), gxdPageCache (gxdpcache.h): a cache of 4 KB file pages. With use_map = 1 pages not in the cache are read from a read-only memory map of the file (mmap() or MapViewOfFile()). Memory-mapped reads are on by default in DataReel 7.3 and off by default in 6.3.</li>
+<li>gxdJournal (gxdjrnl.h): a write-ahead journal for one or more gxDatabase and gxBtree files (and BtreeCache). Changes between Begin() and Commit() reach the files all or none, after a program crash or a power loss; Open() recovers committed transactions left in the journal. Write-through (the default) or write-back mode, gxdJournalReadLock for readers in other processes.</li>
+<li>gxdFPTR ReadAt(), WriteAt(), Sync(), Truncate(), Allocate(), Lock(), Unlock(), Map() and Unmap() functions.</li>
+</ul>
+<h2>Journal File Access (6.3)</h2>
+<p>The journal holds copies of database pages until a checkpoint. In 6.3:</p>
+<ul>
+<li>A new journal file is created owner-only: mode 0600 on Linux, a protected DACL that gives only the current user access on Windows. An existing journal is made owner-only before it is used, and Open() fails if its access cannot be changed.</li>
+<li>A clean Close() removes the journal file. If it cannot be removed (on Windows while another process has it open for a gxdJournalReadLock) it is left empty.</li>
+<li>New functions gxdFPTRCreatePrivate()/gxdFPTRMakePrivate() and gxdFPTR64CreatePrivate()/gxdFPTR64MakePrivate().</li>
+</ul>
+<h2>Other Changes</h2>
+<ul>
+<li>strutil.cpp: StringANCompare() and the other string compares passed signed char values to isdigit() and tolower(), which is undefined for bytes above 127 on Windows. They now give the glibc order on every platform, so an index built on Linux is walked in the same order on Windows. The order of existing Linux indexes does not change. (From the DataReel copy bundled with fcrypt.)</li>
+</ul>
+<h2>Tests</h2>
+<ul>
+<li>examples_database/journal: the DataReel 7 journal tests (same bytes with and without the cache and journal, commit, rollback, crash copies, torn journals, torn checkpoints, readers) and a 6.3 test of the journal file access and removal. &quot;testprog 20 7 1&quot; runs them with memory-mapped reads.</li>
+<li>examples_database/journal/crash_test.sh: kills a writer with kill -9 at random moments and checks that every commit it reported is in the files and no batch is half written.</li>
+<li>examples_database/infohog: an InfoHog/POD example.</li>
+<li>examples_database/run_db_tests.sh and run_db_tests.bat build and run every database example and the journal tests.</li>
+</ul>
+<h2>How the Changes Were Tested</h2>
+<p>On RHEL 10.2, 32-bit and 64-bit database engines:</p>
+<ul>
+<li>The library builds with no warnings, and all 64 example and utility programs build against it.</li>
+<li>The nine database examples, run against 6.2 and 6.3 builds (create, then reopen), write byte-identical files, and 6.3 reopening files created by 6.2 leaves the same bytes as 6.2 does.</li>
+<li>The journal tests pass with memory-mapped reads off and on, in both journal modes.</li>
+<li>crash_test.sh: 60 kill -9 rounds per engine, write-through and write-back, with and without a BtreeCache: no committed record lost, no partial batch.</li>
+</ul>
+<p>DataReel Copyright (c) 2001-2026 DataReel Software Development</p>
+</main>
+<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
+</html>

@@ -1,4 +1,4 @@
-DataReel 6.2 Readme File
+DataReel 6.3 Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -253,6 +253,19 @@ DOCUMENTATION
 -------------
 All documentation is included in the docs sub directory in an HTML
 format, viewable in any Web browser. 
+
+VERSION 6.3
+-----------
+DataReel 6.3, 10/31/2026, brings the object database speed and crash
+safety work of DataReel 7.2 and 7.3 to 6.x: positional file I/O, a
+hashed B-tree cache, and an optional page cache and write-ahead
+journal (gxdjrnl.h) whose journal file is owner-only and removed after
+a clean close. The file formats are unchanged and 6.3 writes the same
+bytes as 6.2. The shared library is built as libdatareel.so.6.3. Classes
+have new members, so recompile and relink; programs that compile the
+library sources must add gxdjrnl.cpp and gxdpcache.cpp. See
+RELEASE_NOTES_6.3.txt and examples_database/run_db_tests.sh. Every
+change in the source is marked with a "10/31/2026" comment.
 
 VERSION 6.2
 -----------
