@@ -469,6 +469,30 @@ GXDLCODE_API int gxdFPTRAllocate(gxdFPTR *stream, FAU_t size)
 #endif
 }
 
+GXDLCODE_API int gxdFPTRLock(gxdFPTR *stream, int exclusive)
+// 10/31/2026: Advisory lock between processes, see gxdFPTR64Lock().
+// Returns a non-zero value to indicate an error condition or zero if
+// successful.
+{
+  if(!stream) return 1; // The file stream is not open
+#if defined (__GXD_USE_FPTR64__)
+  return gxdFPTR64Lock(stream, exclusive);
+#else
+  (void)exclusive;
+  return 1; // Not supported by this file type
+#endif
+}
+
+GXDLCODE_API int gxdFPTRUnlock(gxdFPTR *stream)
+{
+  if(!stream) return 1; // The file stream is not open
+#if defined (__GXD_USE_FPTR64__)
+  return gxdFPTR64Unlock(stream);
+#else
+  return 1;
+#endif
+}
+
 GXDLCODE_API int gxdFPTRExists(const char *fname)
 // Returns true if the specified file exists.
 {

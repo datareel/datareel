@@ -72,6 +72,7 @@ gxdFPTR64FileSize()
 
 #if defined (__UNIX__)
 #include <errno.h>
+#include <sys/file.h>
 #endif
 
 namespace datareel {
@@ -545,6 +546,55 @@ GXDLCODE_API int gxdFPTR64Allocate(gxdFPTR64 *stream, __LLWORD__ size)
 		       (off64_t)(size - buf.st_size)) == 0) return 0;
   // Not supported by the file system
   return ftruncate64(stream->fd, (off64_t)size) == 0 ? 0 : 1;
+#else
+#error You must define a target platform and/or compiler
+#endif
+}
+
+#if defined (__WIN32__)
+// The lock is on one byte far past the end of any file, so it never
+// blocks reads or writes of the file's data on Windows.
+static void gxdFPTR64LockRange(OVERLAPPED &ov)
+{
+  memset(&ov, 0, sizeof(ov));
+  ov.Offset = 0;
+  ov.OffsetHigh = 0x40000000;
+}
+#endif
+
+GXDLCODE_API int gxdFPTR64Lock(gxdFPTR64 *stream, int exclusive)
+// 10/31/2026: Advisory whole-file lock between processes, shared or
+// exclusive, waiting until it is granted (flock() on Linux, LockFileEx()
+// on Windows). It does not stop reads or writes by processes that do
+// not lock. Returns a non-zero value to indicate an error condition or
+// zero if successful.
+{
+  if(!stream) return 1; // The file stream is not open
+#if defined (__WIN32__)
+  OVERLAPPED ov;
+  gxdFPTR64LockRange(ov);
+  return LockFileEx(stream->fptr, exclusive ? LOCKFILE_EXCLUSIVE_LOCK : 0,
+		    0, 1, 0, &ov) ? 0 : 1;
+#elif defined (__UNIX__)
+  int rv;
+  do {
+    rv = flock(stream->fd, exclusive ? LOCK_EX : LOCK_SH);
+  } while(rv != 0 && errno == EINTR);
+  return rv == 0 ? 0 : 1;
+#else
+#error You must define a target platform and/or compiler
+#endif
+}
+
+GXDLCODE_API int gxdFPTR64Unlock(gxdFPTR64 *stream)
+{
+  if(!stream) return 1; // The file stream is not open
+#if defined (__WIN32__)
+  OVERLAPPED ov;
+  gxdFPTR64LockRange(ov);
+  return UnlockFileEx(stream->fptr, 0, 1, 0, &ov) ? 0 : 1;
+#elif defined (__UNIX__)
+  return flock(stream->fd, LOCK_UN) == 0 ? 0 : 1;
 #else
 #error You must define a target platform and/or compiler
 #endif

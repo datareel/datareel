@@ -183,7 +183,9 @@ gxdJournal::gxdJournal()
   jsize = jalloc = (FAU_t)0;
   seq = 0;
   salt = 0;
-  ckpt_size = gxdDefaultCheckpointSize;
+  ckpt_size = 0;
+  write_mode = gxdJOURNAL_WRITE_THROUGH;
+  write_lock = 0;
   jerror = gxDBASE_NO_ERROR;
   commits = checkpoints = 0;
   pages_logged = pages_written = 0;
@@ -343,6 +345,10 @@ gxDatabaseError gxdJournal::Close()
   if(jfp) err = Detach();
   files.clear();
   caches.clear();
+  // After a clean checkpoint the journal holds nothing to recover
+  if(jfp && (err == gxDBASE_NO_ERROR) && !header_written) {
+    gxdFPTRTruncate(jfp, (FAU_t)0);
+  }
   if(jfp) {
     gxdFPTRClose(jfp);
     jfp = 0;
@@ -367,6 +373,7 @@ gxDatabaseError gxdJournal::Attach(gxDatabase *f, size_t cache_bytes)
   jf.f = f;
   jf.btx = 0;
   jf.path = jfull_path(f->DatabaseName());
+  jf.written = 0;
   files.push_back(jf);
   return jerror = gxDBASE_NO_ERROR;
 }
@@ -523,20 +530,46 @@ gxDatabaseError gxdJournal::Commit(int durable)
     seq = cseq;
   }
 
-  for(size_t i = 0; i < files.size(); i++)
-    files[i].f->PageCache()->CommitTxn();
+  gxDatabaseError err = gxDBASE_NO_ERROR;
+  if(write_mode == gxdJOURNAL_WRITE_THROUGH) {
+    // Write the batch to the files now. The journal holds it, so a
+    // crash part way through is repaired by recovery.
+    if(dirty && write_lock) gxdFPTRLock(jfp, 1);
+    for(size_t i = 0; i < files.size(); i++) {
+      gxdPageCache *pc = files[i].f->PageCache();
+      pc->CommitTxn();
+      size_t n = pc->LoggedPages();
+      if(n == 0) continue;
+      if(pc->WriteLoggedPages() != 0) err = gxDBASE_FILE_WRITE_ERROR;
+      files[i].written = 1;
+      pages_written += n;
+    }
+    if(dirty && write_lock) gxdFPTRUnlock(jfp);
+  }
+  else {
+    for(size_t i = 0; i < files.size(); i++)
+      files[i].f->PageCache()->CommitTxn();
+  }
   in_txn = 0;
   commits++;
+  if(err != gxDBASE_NO_ERROR) return jerror = err;
 
   // Checkpoint when the journal is large or the committed pages pinned
   // in memory pass a file's page cache size
-  int ckpt = (size_t)jsize > ckpt_size;
+  int ckpt = (size_t)jsize > CheckpointSize();
   for(size_t i = 0; !ckpt && i < files.size(); i++) {
     gxdPageCache *pc = files[i].f->PageCache();
     if(pc->LoggedPages() * gxdPageSize > pc->MaxBytes()) ckpt = 1;
   }
   if(ckpt) return Checkpoint();
   return jerror = gxDBASE_NO_ERROR;
+}
+
+size_t gxdJournal::CheckpointSize() const
+{
+  if(ckpt_size) return ckpt_size;
+  return (write_mode == gxdJOURNAL_WRITE_BACK) ? 
+    gxdDefaultWriteBackCheckpointSize : gxdDefaultCheckpointSize;
 }
 
 gxDatabaseError gxdJournal::Checkpoint()
@@ -554,11 +587,15 @@ gxDatabaseError gxdJournal::Checkpoint()
   for(size_t i = 0; i < files.size(); i++) {
     gxdPageCache *pc = files[i].f->PageCache();
     size_t n = pc->LoggedPages();
-    if(n == 0) continue;
-    if(pc->WriteLoggedPages() != 0) return jerror = gxDBASE_FILE_WRITE_ERROR;
+    if(n) {
+      if(pc->WriteLoggedPages() != 0) return jerror = gxDBASE_FILE_WRITE_ERROR;
+      pages_written += n;
+      files[i].written = 1;
+    }
+    if(!files[i].written) continue;
     if(sync && (gxdFPTRSync(files[i].f->GetFP(), 0) != 0))
       return jerror = gxDBASE_FILE_WRITE_ERROR;
-    pages_written += n;
+    files[i].written = 0;
   }
   // The cleared header is not synced: if it is lost, recovery writes
   // the same pages to the files again. The next header is synced before
@@ -569,6 +606,10 @@ gxDatabaseError gxdJournal::Checkpoint()
   jsize = (FAU_t)0;
   seq = 0;
   checkpoints++;
+  // Keep the journal file from staying much larger than one checkpoint
+  if(jalloc > (FAU_t)(2 * CheckpointSize() + gxdJournalGrowBy)) {
+    if(gxdFPTRTruncate(jfp, (FAU_t)0) == 0) jalloc = (FAU_t)0;
+  }
   return jerror = gxDBASE_NO_ERROR;
 }
 
@@ -587,6 +628,29 @@ gxDatabaseError gxdJournal::Rollback()
     if(files[i].btx) files[i].btx->ReadBtreeHeader();
   }
   return jerror = gxDBASE_NO_ERROR;
+}
+
+gxDatabaseError gxdJournalReadLock::Lock(const char *jname)
+{
+  Unlock();
+  if(!jname) return gxDBASE_NULL_PTR;
+  jfp = gxdFPTROpen(jname, gxDBASE_READONLY);
+  if(!jfp) return gxDBASE_FILE_OPEN_ERROR;
+  if(gxdFPTRLock(jfp, 0) != 0) {
+    gxdFPTRClose(jfp);
+    jfp = 0;
+    return gxDBASE_FILELOCK_ERROR;
+  }
+  return gxDBASE_NO_ERROR;
+}
+
+void gxdJournalReadLock::Unlock()
+{
+  if(jfp) {
+    gxdFPTRUnlock(jfp);
+    gxdFPTRClose(jfp);
+    jfp = 0;
+  }
 }
 
 } // namespace datareel

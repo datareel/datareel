@@ -51,10 +51,19 @@ change and files written with a journal open without one.
 While a transaction is open the attached files' writes stay in each
 file's page cache (gxdpcache.h). Commit() appends the changed pages
 and a commit record to the journal and syncs it: one sync per commit.
-The pages stay in memory until a checkpoint writes them to the
-database files, syncs the files and empties the journal. A checkpoint
-runs when the journal passes the checkpoint size (default 64 MB), on
-Checkpoint() and on Close().
+It then writes the pages to the database files (without a sync), so
+other processes see the batch as soon as Commit() returns. A
+checkpoint syncs the files and empties the journal; it runs when the
+journal passes the checkpoint size (default 8 MB), on Checkpoint() and
+on Close(), and Close() truncates the journal file. See SetWriteMode()
+for the write-back mode, which keeps committed pages in memory until a
+checkpoint.
+
+Other processes that read the files while a writer commits see every
+batch once Commit() returns, but a reader that runs during a commit's
+page writes can see part of the batch. Use the application's own
+change counter, or SetWriteLock(1) in the writer and gxdJournalReadLock
+in the readers.
 
 If the program or the computer stops, the next Open() or Recover()
 writes every committed transaction in the journal to the files and
@@ -66,9 +75,12 @@ Rules:
 - Make every change to the attached files inside a transaction, and
   only from this process while the journal is open.
 - An open transaction's pages are held in memory until it commits.
-  Committed pages stay in memory until the next checkpoint, which
-  runs when the journal passes the checkpoint size or a file has more
-  committed pages than its page cache size.
+  In write-back mode committed pages stay in memory until the next
+  checkpoint, which runs when the journal passes the checkpoint size
+  or a file has more committed pages than its page cache size.
+- In write-through mode Commit(0) writes the pages to the files before
+  the journal is synced: a power loss right after it can leave part
+  of that batch in the files. Commit(1) never does.
 - Rollback() drops the open transaction's changes and reloads the
   attached gxDatabase and gxBtree headers; an attached BtreeCache is
   emptied.
@@ -93,7 +105,14 @@ namespace datareel {
 class gxBtree;     // Forward class declarations
 class BtreeCache;
 
-const size_t gxdDefaultCheckpointSize = 64 * 1024 * 1024;
+const size_t gxdDefaultCheckpointSize = 8 * 1024 * 1024;
+const size_t gxdDefaultWriteBackCheckpointSize = 64 * 1024 * 1024;
+
+// When committed pages reach the database files, see SetWriteMode()
+enum gxdJournalWriteMode {
+  gxdJOURNAL_WRITE_THROUGH, // At each commit (the default)
+  gxdJOURNAL_WRITE_BACK     // At each checkpoint
+};
 
 // Journal sync levels, see SetSyncLevel()
 enum gxdJournalSyncLevel {
@@ -136,7 +155,24 @@ public:
   gxDatabaseError Rollback();
   gxDatabaseError Checkpoint();
   int InTransaction() const { return in_txn; }
+  // Checkpoint when the journal passes this size. 0 (the default) means
+  // 8 MB in write-through mode and 64 MB in write-back mode.
   void SetCheckpointSize(size_t bytes) { ckpt_size = bytes; }
+
+  // WRITE_THROUGH (the default) writes a commit's pages to the database
+  // files right after they are in the journal, without syncing the
+  // files, so other processes reading the files see each batch when
+  // Commit() returns. A checkpoint then only syncs the files and empties
+  // the journal. WRITE_BACK keeps committed pages in memory until a
+  // checkpoint writes them: fewer writes for a program that is the only
+  // user of the files, but other processes do not see committed data
+  // until the checkpoint.
+  void SetWriteMode(gxdJournalWriteMode mode) { write_mode = mode; }
+
+  // Hold an exclusive lock on the journal file while a commit writes its
+  // pages to the database files. Readers in other processes that take a
+  // gxdJournalReadLock never see a batch half written. Off by default.
+  void SetWriteLock(int lock) { write_lock = lock; }
 
   // NORMAL (the default) syncs the journal and the database files at
   // each checkpoint, so a power loss can lose the last Commit(0)
@@ -160,8 +196,10 @@ private:
     gxDatabase *f;
     gxBtree *btx;
     std::string path;
+    int written; // Pages written to the file since the last checkpoint
   };
   gxDatabaseError WriteHeader();
+  size_t CheckpointSize() const;
 
 private:
   gxdFPTR *jfp;
@@ -173,6 +211,8 @@ private:
   int unsynced;       // Commit(0) transactions not synced yet
   int durable_logged; // A Commit(1) transaction is in the journal
   gxdJournalSyncLevel sync_level;
+  gxdJournalWriteMode write_mode;
+  int write_lock;
   unsigned long recovered;
   FAU_t jsize;        // End of the journal's transactions
   FAU_t jalloc;       // Journal file size (space reserved ahead)
@@ -180,6 +220,35 @@ private:
   unsigned long salt;
   size_t ckpt_size;
   gxDatabaseError jerror;
+};
+
+class GXDLCODE_API gxdJournalReadLock
+// 10/31/2026: Shared lock on a journal file for a process that reads
+// the database files while another process writes them through a
+// gxdJournal with SetWriteLock(1). While the lock is held no commit is
+// writing pages, so the files hold whole batches only:
+//
+//   gxdJournalReadLock rl;
+//   rl.Lock("orders.jnl");  // Waits for a commit's page writes to end
+//   ... re-read the headers, read records ...
+//   rl.Unlock();
+//
+// Keep the lock short: the writer's next commit waits for it.
+{
+public:
+  gxdJournalReadLock() { jfp = 0; }
+  ~gxdJournalReadLock() { Unlock(); }
+
+private:
+  gxdJournalReadLock(const gxdJournalReadLock &) { }
+  void operator=(const gxdJournalReadLock &) { }
+
+public:
+  gxDatabaseError Lock(const char *jname);
+  void Unlock();
+
+private:
+  gxdFPTR *jfp;
 };
 
 } // namespace datareel

@@ -75,6 +75,10 @@ static const size_t KSIZE = 16;
 static const size_t VSIZE = 100;
 static const int BATCH = 200;
 static int failures = 0;
+static gxdJournalWriteMode g_mode = gxdJOURNAL_WRITE_THROUGH;
+static std::string mode_name() {
+  return g_mode == gxdJOURNAL_WRITE_THROUGH ? "write-through" : "write-back";
+}
 
 #define CHECK(cond, what) do { if(!(cond)) { \
   std::cerr << "FAIL " << what << " (line " << __LINE__ << ")\n"; \
@@ -140,7 +144,8 @@ struct TestDb {
       if(j.Attach(&db, 256 * 1024) != gxDBASE_NO_ERROR) return false;
       if(j.Attach(btx, 256 * 1024) != gxDBASE_NO_ERROR) return false;
       if(cache && j.Attach(cache) != gxDBASE_NO_ERROR) return false;
-      j.SetCheckpointSize(2 * 1024 * 1024);
+      j.SetCheckpointSize(256 * 1024);
+      j.SetWriteMode(g_mode);
     }
     return true;
   }
@@ -288,7 +293,7 @@ static void test_same_bytes(std::mt19937 &rng)
     CHECK(index[mode] == index[ref], "same_bytes index file differs, mode " +
 	  std::to_string(mode) + first_diff(index[mode], index[ref]));
   }
-  std::cout << "PASS same_bytes\n";
+  std::cout << "PASS same_bytes (" << mode_name() << ")\n";
 }
 
 static void test_commit()
@@ -307,7 +312,7 @@ static void test_commit()
   TestDb t(dir);
   CHECK(t.Open(false, 0), "commit reopen");
   CHECK(t.Verify() == 10 * BATCH, "commit verify");
-  std::cout << "PASS commit\n";
+  std::cout << "PASS commit (" << mode_name() << ")\n";
 }
 
 static void test_rollback(int buckets)
@@ -335,7 +340,7 @@ static void test_rollback(int buckets)
   t.Close();
   CHECK(t.Open(false, 0), name + " reopen");
   CHECK(t.Verify() == 4 * BATCH, name + " verify after reopen");
-  std::cout << "PASS " << name << "\n";
+  std::cout << "PASS " << name << " (" << mode_name() << ")\n";
 }
 
 static void test_crash(std::mt19937 &rng, int rounds)
@@ -367,7 +372,7 @@ static void test_crash(std::mt19937 &rng, int rounds)
     CHECK(n == at_copy, "crash: recovered " + std::to_string(n) +
 	  " records, expected " + std::to_string(at_copy));
   }
-  std::cout << "PASS crash (" << rounds << " rounds)\n";
+  std::cout << "PASS crash (" << mode_name() << ", " << rounds << " rounds)\n";
 }
 
 static void test_torn_journal(std::mt19937 &rng, int rounds)
@@ -410,7 +415,7 @@ static void test_torn_journal(std::mt19937 &rng, int rounds)
     CHECK(n >= durable && n <= batches * BATCH, "torn: recovered " +
 	  std::to_string(n) + ", synced " + std::to_string(durable));
   }
-  std::cout << "PASS torn_journal (" << rounds << " rounds)\n";
+  std::cout << "PASS torn_journal (" << mode_name() << ", " << rounds << " rounds)\n";
 }
 
 static void test_torn_checkpoint(std::mt19937 &rng, int rounds)
@@ -472,7 +477,34 @@ static void test_torn_checkpoint(std::mt19937 &rng, int rounds)
     CHECK(read_file(dir + "/index.btx") == read_file(after + "/index.btx"),
 	  "tornckpt: index file differs");
   }
-  std::cout << "PASS torn_ckpt (" << rounds << " rounds)\n";
+  std::cout << "PASS torn_ckpt (" << mode_name() << ", " << rounds << " rounds)\n";
+}
+
+static void test_reader()
+// Write-through: a second set of gxDatabase and gxBtree objects (as in
+// another process) sees each batch when Commit() returns, holding a
+// gxdJournalReadLock while it reads.
+{
+  std::string dir = fresh_dir("reader");
+  TestDb w(dir);
+  CHECK(w.Open(true, 1), "reader open writer");
+  w.j.SetWriteLock(1);
+  w.j.SetCheckpointSize(64 * 1024 * 1024);
+  for(int b = 0; b < 6; b++) {
+    CHECK(w.j.Begin() == gxDBASE_NO_ERROR, "reader begin");
+    for(int i = 0; i < BATCH; i++) CHECK(w.Insert(b * BATCH + i), "reader insert");
+    CHECK(w.j.Commit(b % 2) == gxDBASE_NO_ERROR, "reader commit");
+    gxdJournalReadLock rl;
+    CHECK(rl.Lock(w.jnl.c_str()) == gxDBASE_NO_ERROR, "reader lock");
+    TestDb r(dir);
+    CHECK(r.Open(false, 0), "reader open");
+    long n = r.Verify();
+    CHECK(n == (b + 1) * BATCH, "reader: saw " + std::to_string(n) +
+	  " records after commit " + std::to_string(b + 1));
+    r.Close();
+    rl.Unlock();
+  }
+  std::cout << "PASS reader (write-through)\n";
 }
 
 int main(int argc, char **argv)
@@ -480,13 +512,18 @@ int main(int argc, char **argv)
   int rounds = argc > 1 ? atoi(argv[1]) : 20;
   unsigned seed = argc > 2 ? (unsigned)atoi(argv[2]) : 7;
   std::mt19937 rng(seed);
-  test_same_bytes(rng);
-  test_commit();
-  test_rollback(0);
-  test_rollback(8);
-  test_crash(rng, rounds);
-  test_torn_journal(rng, rounds);
-  test_torn_checkpoint(rng, rounds);
+  for(int m = 0; m < 2; m++) {
+    g_mode = m ? gxdJOURNAL_WRITE_BACK : gxdJOURNAL_WRITE_THROUGH;
+    test_same_bytes(rng);
+    test_commit();
+    test_rollback(0);
+    test_rollback(8);
+    test_crash(rng, rounds);
+    test_torn_journal(rng, rounds);
+    test_torn_checkpoint(rng, rounds);
+  }
+  g_mode = gxdJOURNAL_WRITE_THROUGH;
+  test_reader();
   if(failures) {
     std::cout << failures << " journal tests failed\n";
     return 1;

@@ -279,6 +279,8 @@ GXDLCODE_API __ULWORD__ gxdFPTRWriteAt(gxdFPTR *stream, const void *buf,
 				       __ULWORD__ bytes, FAU_t offset);
 GXDLCODE_API int gxdFPTRTruncate(gxdFPTR *stream, FAU_t size);
 GXDLCODE_API int gxdFPTRAllocate(gxdFPTR *stream, FAU_t size);
+GXDLCODE_API int gxdFPTRLock(gxdFPTR *stream, int exclusive);
+GXDLCODE_API int gxdFPTRUnlock(gxdFPTR *stream);
 GXDLCODE_API int gxdFPTRExists(const char *fname);
 GXDLCODE_API FAU_t gxdFPTRFileSize(const char *fname);
 
