@@ -273,6 +273,9 @@ private: // Disallow copying and assignment
 struct GXDLCODE_API gxBlockHeader // Marks each data block
 {
   gxBlockHeader() {
+    // 10/31/2026: Zero the 4 padding bytes before block_nd_fptr in the
+    // 64-bit engine, written to the file with every block header
+    memset((void *)this, 0, sizeof(gxBlockHeader));
     block_check_word = gxCheckWord;
     block_status = gxNormalBlock;
     block_length = (gxUINT32)0;
@@ -280,6 +283,7 @@ struct GXDLCODE_API gxBlockHeader // Marks each data block
   }
   ~gxBlockHeader() { }
   gxBlockHeader(const gxBlockHeader &ob) {
+    memset((void *)this, 0, sizeof(gxBlockHeader)); // 10/31/2026: Padding
     block_check_word = ob.block_check_word; 
     block_length = ob.block_length; 
     block_status = ob.block_status;

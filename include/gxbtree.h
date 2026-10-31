@@ -115,6 +115,7 @@ struct GXDLCODE_API gxBtreeHeader
   }
   ~gxBtreeHeader() { }
   gxBtreeHeader(const gxBtreeHeader &ob) {
+    memset((void *)this, 0, sizeof(gxBtreeHeader)); // 10/31/2026: Padding
     node_order = ob.node_order;
     key_size = ob.key_size;
     n_keys = ob.n_keys;

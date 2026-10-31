@@ -243,6 +243,15 @@ static void write_file(const std::string &f, const std::vector<char> &v)
 }
 
 // ------------------------------------------------------------------ //
+static std::string first_diff(const std::vector<char> &a,
+			      const std::vector<char> &b)
+{
+  size_t i = 0;
+  while(i < a.size() && i < b.size() && a[i] == b[i]) i++;
+  return " at byte " + std::to_string(i) + " of " + std::to_string(a.size()) +
+    "/" + std::to_string(b.size());
+}
+
 static void test_same_bytes(std::mt19937 &rng)
 {
   // mode 0: no cache, 1: page cache, 2: journal, 3: BtreeCache,
@@ -274,8 +283,10 @@ static void test_same_bytes(std::mt19937 &rng)
   for(int mode = 1; mode < 5; mode++) {
     int ref = (mode == 4) ? 3 : 0;
     if(mode == 3) continue;
-    CHECK(data[mode] == data[ref], "same_bytes data file differs, mode " + std::to_string(mode));
-    CHECK(index[mode] == index[ref], "same_bytes index file differs, mode " + std::to_string(mode));
+    CHECK(data[mode] == data[ref], "same_bytes data file differs, mode " +
+	  std::to_string(mode) + first_diff(data[mode], data[ref]));
+    CHECK(index[mode] == index[ref], "same_bytes index file differs, mode " +
+	  std::to_string(mode) + first_diff(index[mode], index[ref]));
   }
   std::cout << "PASS same_bytes\n";
 }
