@@ -828,8 +828,13 @@ __ULWORD__ gxDatabase::CalcChecksum(__ULWORD__ bytes, FAU_t file_address,
   // 10/31/2026: A damaged block length must not allocate a buffer, or
   // read, past the end of the file
   if(!IsOK()) return 0;
-  FAU_t file_end = pcache ? pcache->FileSize() :
-    gxdFPTRSeek(fp, (FAU_t)0, gxDBASE_SEEK_END);
+  FAU_t file_end;
+  if(pcache) file_end = pcache->FileSize();
+  else { // The current file position is kept for sequential reads and writes
+    FAU_t pos = gxdFPTRTell(fp);
+    file_end = gxdFPTRSeek(fp, (FAU_t)0, gxDBASE_SEEK_END);
+    gxdFPTRSeek(fp, pos, gxDBASE_SEEK_BEG);
+  }
   if((file_address < (FAU_t)0) || (file_end < (FAU_t)0) ||
      ((FAU_t)bytes > file_end) || (file_address > file_end - (FAU_t)bytes)) {
     gxd_error = gxDBASE_BADBLOCK_ERROR;
@@ -1178,9 +1183,15 @@ FAU_t gxDatabase::TotalBlocks()
 
     if(!IsOK()) break;
 
-    // If this is not a valid block, find the next one
-    if(!TestBlockHeader(blk_hdr)) {
-      block_address = FindFirstBlock(block_address);
+    // If this is not a valid block, find the next one. 10/31/2026 (from
+    // the 7.3 security scan): a length past the end of the file is
+    // damage too (in the 64-bit engine a huge length wrapped the address
+    // back to an earlier block, an endless count). TestBlockHeader()
+    // rejects lengths shorter than a block header.
+    if(!TestBlockHeader(blk_hdr) ||
+       ((unsigned long long)blk_hdr.block_length >
+	(unsigned long long)(file_header.gxd_eof - block_address))) {
+      block_address = FindFirstBlock(block_address + 1);
     }
     else {
       block_address += blk_hdr.block_length;

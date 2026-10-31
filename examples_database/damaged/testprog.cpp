@@ -32,6 +32,8 @@ scan):
 
   zero_length  A block header with a length of zero: the block walks
                (TotalBlocks()) used to loop forever.
+  huge_length  A block length past the end of the file: the address
+               could wrap back to an earlier block.
   tiny_length  Block lengths shorter than a block header: the walks
                used to read the same bytes again and again.
   checksum     A damaged block length: the checksum functions used to
@@ -172,6 +174,18 @@ int main()
       a = f.FindFirstObject(a);
     }
     check(walked <= NUM_OBJECTS, "zero_length: an object walk ends");
+  }
+
+  // huge_length (from the 7.3 security scan test)
+  make_db(fname, objects);
+  set_length(fname, objects[10], 0xFFFFFFFF);
+  {
+    gxDatabase f;
+    f.Open(fname, gxDBASE_READONLY);
+    double t0 = seconds();
+    FAU_t n = f.TotalBlocks();
+    double t = seconds() - t0;
+    check(t < 2.0 && n <= (FAU_t)NUM_OBJECTS, "huge_length: TotalBlocks() ends on a length past the end of the file");
   }
 
   // tiny_length
