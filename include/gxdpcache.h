@@ -33,6 +33,10 @@ used by every gxDatabase read and write, so the B-tree nodes, block
 headers, file header and objects of a file are read from memory once
 they are loaded.
 
+Clean data is read from a read-only memory map of the file when the
+platform supports it, so reading a record that is not in a page costs
+no system call; the map is renewed as the file grows.
+
 Outside a transaction the cache writes through: each write goes to
 the file at once and also updates any cached page, so the file on
 disk is the same as without the cache.
@@ -82,7 +86,7 @@ struct GXDLCODE_API gxdPage {
 class GXDLCODE_API gxdPageCache
 {
 public:
-  gxdPageCache(gxdFPTR *f, FAU_t size, size_t max_bytes);
+  gxdPageCache(gxdFPTR *f, FAU_t size, size_t max_bytes, int use_map = 1);
   ~gxdPageCache();
 
 private:
@@ -112,6 +116,7 @@ public: // Transaction functions used by gxdJournal
   void GetDirtyPages(std::vector<gxdPage *> &v);
   int WriteLoggedPages(); // Checkpoint: write logged pages to the file
   void SetFileSize(FAU_t size) { file_size = size; }
+  int Mapped() const { return map != 0; }
 
 public: // Statistics
   unsigned long long hits;
@@ -125,6 +130,8 @@ private:
   void DropPage(gxdPage *p);
   void EvictClean();
   void GetPages(std::vector<gxdPage *> &v, int logged);
+  void Remap();
+  void Unmap();
 
 private:
   gxdFPTR *fp;
@@ -135,6 +142,13 @@ private:
   size_t logged_count;
   size_t pinned_count; // Dirty or logged pages, kept out of the LRU list
   int in_txn;
+  // 10/31/2026: Read-only map of the file. Clean data that is not in a
+  // page is copied straight from the map: no system call and no page.
+  int use_map;
+  const unsigned char *map;
+  FAU_t map_len;   // Bytes mapped
+  FAU_t disk_size; // Bytes in the file on disk (written so far)
+  void *map_handle;
   std::unordered_map<FAU_t, gxdPage *> pages;
   std::vector<gxdPage *> dirty_list;  // Pages changed in the transaction
   std::vector<gxdPage *> logged_list; // Logged pages, some may be dirty

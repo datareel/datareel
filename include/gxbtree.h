@@ -321,8 +321,10 @@ protected:
 
 private: // 10/31/2026: Node kept between FindFirst() and FindNext() calls
   BtreeNode *ScanNode();
+  void SetScanPos(DatabaseKeyB &key, DatabaseKeyB &compare_key, int found);
   BtreeNode *scan_node;
   unsigned long scan_writes; // File write count when scan_node was read
+  BtreeKeyLocation_t scan_pos; // Leaf entry last returned, or -1
 
 public: // B-tree tuning statistics
   void ResetStats() {

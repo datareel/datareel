@@ -42,10 +42,16 @@ the list and are never dropped until a commit or checkpoint.
 
 namespace datareel {
 
-gxdPageCache::gxdPageCache(gxdFPTR *f, FAU_t size, size_t max_bytes)
+gxdPageCache::gxdPageCache(gxdFPTR *f, FAU_t size, size_t max_bytes,
+			   int use_map)
 {
   fp = f;
   file_size = begin_size = size;
+  this->use_map = use_map;
+  map = 0;
+  map_len = (FAU_t)0;
+  disk_size = size;
+  map_handle = 0;
   max_pages = max_bytes / gxdPageSize;
   if(max_pages < 16) max_pages = 16;
   dirty_count = logged_count = pinned_count = 0;
@@ -57,6 +63,25 @@ gxdPageCache::gxdPageCache(gxdFPTR *f, FAU_t size, size_t max_bytes)
 gxdPageCache::~gxdPageCache()
 {
   Clear();
+  Unmap();
+}
+
+void gxdPageCache::Unmap()
+{
+  if(map) gxdFPTRUnmap((void *)map, map_len, map_handle);
+  map = 0;
+  map_len = (FAU_t)0;
+  map_handle = 0;
+}
+
+void gxdPageCache::Remap()
+// Map the whole file as it is on disk now
+{
+  Unmap();
+  if(!use_map || disk_size <= (FAU_t)0) return;
+  map = (const unsigned char *)gxdFPTRMap(fp, disk_size, &map_handle);
+  if(map) map_len = disk_size;
+  else use_map = 0; // Not supported: read pages instead
 }
 
 void gxdPageCache::Clear()
@@ -151,7 +176,25 @@ __ULWORD__ gxdPageCache::Read(void *buf, __ULWORD__ bytes, FAU_t address)
     __ULWORD__ in_page = (__ULWORD__)(a % (FAU_t)gxdPageSize);
     __ULWORD__ n = gxdPageSize - in_page;
     if(n > bytes - done) n = bytes - done;
-    gxdPage *p = GetPage(page_no);
+    auto it = pages.find(page_no);
+    if(it == pages.end() && use_map) {
+      // Not in a page, so the file holds the current data. Renew the map
+      // when the file has grown by an eighth (at least 1 MB) since.
+      if((a + (FAU_t)n > map_len) && (a + (FAU_t)n <= disk_size)) {
+	FAU_t grown = disk_size - map_len;
+	if(!map || grown >= map_len / 8 || grown >= (FAU_t)(1024 * 1024)) Remap();
+      }
+      if(map && (a + (FAU_t)n <= map_len)) {
+	memcpy(out + done, map + a, n);
+	done += n;
+	continue;
+      }
+    }
+    gxdPage *p = (it != pages.end()) ? it->second : GetPage(page_no);
+    if(it != pages.end()) {
+      hits++;
+      if(!p->dirty && !p->logged && (p != head)) { Unlink(p); LinkFront(p); }
+    }
     memcpy(out + done, p->data + in_page, n);
     done += n;
   }
@@ -179,6 +222,7 @@ __ULWORD__ gxdPageCache::Write(const void *buf, __ULWORD__ bytes,
       done += n;
     }
     if(address + (FAU_t)written > file_size) file_size = address + written;
+    if(address + (FAU_t)written > disk_size) disk_size = address + written;
     return written;
   }
 
@@ -312,6 +356,7 @@ int gxdPageCache::WriteLoggedPages()
     if(offset >= file_size) len = 0;
     else if(offset + (FAU_t)len > file_size) len = (__ULWORD__)(file_size - offset);
     if(len && (gxdFPTRWriteAt(fp, buf.data(), len, offset) != len)) return 1;
+    if(offset + (FAU_t)len > disk_size) disk_size = offset + len;
     for(size_t k = i; k < j; k++) {
       v[k]->logged = 0;
       logged_count--;

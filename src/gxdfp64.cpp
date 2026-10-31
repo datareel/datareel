@@ -73,6 +73,7 @@ gxdFPTR64FileSize()
 #if defined (__UNIX__)
 #include <errno.h>
 #include <sys/file.h>
+#include <sys/mman.h>
 #endif
 
 namespace datareel {
@@ -603,6 +604,54 @@ GXDLCODE_API int gxdFPTR64Unlock(gxdFPTR64 *stream)
   return UnlockFileEx(stream->fptr, 0, 1, 0, &ov) ? 0 : 1;
 #elif defined (__UNIX__)
   return flock(stream->fd, LOCK_UN) == 0 ? 0 : 1;
+#else
+#error You must define a target platform and/or compiler
+#endif
+}
+
+GXDLCODE_API void *gxdFPTR64Map(gxdFPTR64 *stream, __LLWORD__ len,
+				void **map_handle)
+// 10/31/2026: Map the first "len" bytes of the file read-only (mmap() on
+// Linux, CreateFileMapping()/MapViewOfFile() on Windows). "len" must not
+// be past the end of the file. The mapping sees later writes made with
+// gxdFPTR64Write() and gxdFPTR64WriteAt(). Returns the address or a null
+// pointer if the file cannot be mapped.
+{
+  *map_handle = 0;
+  if(!stream || len <= (__LLWORD__)0) return 0;
+  if((sizeof(void *) < 8) && (len > (__LLWORD__)0x40000000)) return 0;
+#if defined (__WIN32__)
+  LARGE_INTEGER li;
+  li.QuadPart = len;
+  HANDLE h = CreateFileMapping(stream->fptr, NULL, PAGE_READONLY,
+			       (DWORD)li.HighPart, li.LowPart, NULL);
+  if(!h) return 0;
+  void *addr = MapViewOfFile(h, FILE_MAP_READ, 0, 0, (SIZE_T)len);
+  if(!addr) {
+    CloseHandle(h);
+    return 0;
+  }
+  *map_handle = (void *)h;
+  return addr;
+#elif defined (__UNIX__)
+  void *addr = mmap(0, (size_t)len, PROT_READ, MAP_SHARED, stream->fd, 0);
+  if(addr == MAP_FAILED) return 0;
+  return addr;
+#else
+#error You must define a target platform and/or compiler
+#endif
+}
+
+GXDLCODE_API void gxdFPTR64Unmap(void *addr, __LLWORD__ len, void *map_handle)
+{
+  if(!addr) return;
+#if defined (__WIN32__)
+  (void)len;
+  UnmapViewOfFile(addr);
+  if(map_handle) CloseHandle((HANDLE)map_handle);
+#elif defined (__UNIX__)
+  (void)map_handle;
+  munmap(addr, (size_t)len);
 #else
 #error You must define a target platform and/or compiler
 #endif

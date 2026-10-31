@@ -132,7 +132,8 @@ public: // 10/31/2026: Durability and page cache functions (7.2)
   gxDatabaseError Sync(int full = 0);
   void SetSyncOnFlush(int sync) { sync_on_flush = sync; }
   int SyncOnFlush() const { return sync_on_flush; }
-  gxDatabaseError EnablePageCache(size_t bytes = gxdDefaultPageCacheSize);
+  gxDatabaseError EnablePageCache(size_t bytes = gxdDefaultPageCacheSize,
+				  int use_map = 1);
   void DisablePageCache();
   gxdPageCache *PageCache() { return pcache; }
   // Counts the writes made through this object, so cached reads can

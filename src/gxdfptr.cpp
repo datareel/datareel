@@ -493,6 +493,28 @@ GXDLCODE_API int gxdFPTRUnlock(gxdFPTR *stream)
 #endif
 }
 
+GXDLCODE_API void *gxdFPTRMap(gxdFPTR *stream, FAU_t len, void **map_handle)
+// 10/31/2026: Read-only memory map of the start of the file, see
+// gxdFPTR64Map(). Returns a null pointer if not supported.
+{
+#if defined (__GXD_USE_FPTR64__)
+  return gxdFPTR64Map(stream, len, map_handle);
+#else
+  (void)stream; (void)len;
+  *map_handle = 0;
+  return 0;
+#endif
+}
+
+GXDLCODE_API void gxdFPTRUnmap(void *addr, FAU_t len, void *map_handle)
+{
+#if defined (__GXD_USE_FPTR64__)
+  gxdFPTR64Unmap(addr, len, map_handle);
+#else
+  (void)addr; (void)len; (void)map_handle;
+#endif
+}
+
 GXDLCODE_API int gxdFPTRExists(const char *fname)
 // Returns true if the specified file exists.
 {

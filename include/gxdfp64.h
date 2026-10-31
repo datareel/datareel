@@ -124,6 +124,9 @@ GXDLCODE_API __ULWORD__ gxdFPTR64WriteAt(gxdFPTR64 *stream, const void *buf,
 GXDLCODE_API int gxdFPTR64Truncate(gxdFPTR64 *stream, __LLWORD__ size);
 GXDLCODE_API int gxdFPTR64Allocate(gxdFPTR64 *stream, __LLWORD__ size);
 GXDLCODE_API int gxdFPTR64Lock(gxdFPTR64 *stream, int exclusive);
+GXDLCODE_API void *gxdFPTR64Map(gxdFPTR64 *stream, __LLWORD__ len,
+				void **map_handle);
+GXDLCODE_API void gxdFPTR64Unmap(void *addr, __LLWORD__ len, void *map_handle);
 GXDLCODE_API int gxdFPTR64Unlock(gxdFPTR64 *stream);
 GXDLCODE_API int gxdFPTR64Exists(const char *fname);
 GXDLCODE_API __LLWORD__ gxdFPTR64FileSize(const char *fname);

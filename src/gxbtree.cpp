@@ -64,6 +64,7 @@ gxBtree::gxBtree(DatabaseKeyB &key_type, BtreeNodeOrder_t order)
   f = 0;
   scan_node = 0;
   scan_writes = 0;
+  scan_pos = (BtreeKeyLocation_t)-1;
   ResetStats();
 }
 
@@ -72,6 +73,19 @@ gxBtree::~gxBtree()
   // PC-lint 09/08/2005: Function may throw exception in destructor
   Close(); 
   if(scan_node) delete scan_node;
+}
+
+void gxBtree::SetScanPos(DatabaseKeyB &key, DatabaseKeyB &compare_key,
+			 int found)
+// 10/31/2026: Remember where in the scan node's leaf the key just
+// returned is, so the next FindNext() is one compare and a copy.
+{
+  scan_pos = (BtreeKeyLocation_t)-1;
+  if(!found || !scan_node) return;
+  if(scan_node->left_child != (FAU_t)0) return; // Not a leaf
+  if(scan_node->key_count <= (BtreeKeyCount_t)0) return;
+  BtreeKeyLocation_t loc;
+  if(scan_node->FindKeyLocation(key, compare_key, loc) == 0) scan_pos = loc;
 }
 
 BtreeNode *gxBtree::ScanNode()
@@ -572,6 +586,7 @@ int gxBtree::Find(DatabaseKeyB &key, DatabaseKeyB &compare_key, int test_tree)
   }
   int rv = Find(key, compare_key, *curr_node, test_tree);
   scan_writes = f->WriteCount();
+  SetScanPos(key, compare_key, rv);
   return rv;
 }
 
@@ -583,6 +598,7 @@ int gxBtree::FindFirst(DatabaseKeyB &key, int test_tree)
   BtreeNode *curr_node = ScanNode();
   int rv = FindFirst(key, *curr_node, test_tree);
   scan_writes = f->WriteCount();
+  scan_pos = (rv && curr_node->left_child == (FAU_t)0) ? 0 : -1;
   return rv;
 }
 
@@ -598,9 +614,22 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   BtreeNode *curr_node = ScanNode();
   if(test_tree || (f->WriteCount() != scan_writes)) {
     curr_node->key_count = (BtreeKeyCount_t)0;
+    scan_pos = (BtreeKeyLocation_t)-1;
+  }
+  // Fast path: the key is the leaf entry returned last time, unchanged,
+  // and the next entry is in the same leaf
+  if((scan_pos >= (BtreeKeyLocation_t)0) && 
+     (scan_pos + 1 < (BtreeKeyLocation_t)curr_node->key_count)) {
+    const char *entry = curr_node->key_entries + 
+      (curr_node->key_size * scan_pos) + sizeof(FAU);
+    if(memcmp(key.db_key, entry, key.KeySize()) == 0) {
+      curr_node->LoadKey(key, ++scan_pos);
+      return 1;
+    }
   }
   int rv = FindNext(key, compare_key, *curr_node, test_tree);
   scan_writes = f->WriteCount();
+  SetScanPos(key, compare_key, rv);
   return rv;
 }
 

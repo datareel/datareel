@@ -116,6 +116,22 @@ static uint64_t jsum(const unsigned char *p, size_t n, uint64_t h)
 // many times faster than the table driven CRC-32 on 4 KB pages.
 {
   const uint64_t m = 0x9E3779B97F4A7C15ULL;
+  // Four independent lanes for 32 bytes at a time, so the multiplies
+  // overlap; then the lanes are folded in
+  if(n >= 32) {
+    uint64_t l0 = h, l1 = h ^ 0x6A09E667F3BCC909ULL, 
+      l2 = h ^ 0xBB67AE8584CAA73BULL, l3 = h ^ 0x3C6EF372FE94F82BULL;
+    while(n >= 32) {
+      uint64_t w[4];
+      memcpy(w, p, 32);
+      l0 = (l0 ^ w[0]) * m; l0 ^= l0 >> 29;
+      l1 = (l1 ^ w[1]) * m; l1 ^= l1 >> 29;
+      l2 = (l2 ^ w[2]) * m; l2 ^= l2 >> 29;
+      l3 = (l3 ^ w[3]) * m; l3 ^= l3 >> 29;
+      p += 32; n -= 32;
+    }
+    h = ((((l0 * m) ^ l1) * m ^ l2) * m ^ l3) * m;
+  }
   while(n >= 8) {
     uint64_t w;
     memcpy(&w, p, 8);

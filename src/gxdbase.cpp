@@ -408,7 +408,7 @@ gxDatabaseError gxDatabase::Sync(int full)
   return gxd_error = gxDBASE_NO_ERROR;
 }
 
-gxDatabaseError gxDatabase::EnablePageCache(size_t bytes)
+gxDatabaseError gxDatabase::EnablePageCache(size_t bytes, int use_map)
 // 10/31/2026: Keep up to "bytes" of this file in memory in 4 KB pages
 // (see gxdpcache.h). Use only while this object is the only one using
 // the file: the cache does not see other writers. Returns a non-zero
@@ -422,7 +422,7 @@ gxDatabaseError gxDatabase::EnablePageCache(size_t bytes)
   FAU_t size = gxdFPTRSeek(fp, (FAU_t)0, gxDBASE_SEEK_END);
   if(size == (FAU_t)-1) return gxd_error = gxDBASE_FILE_SEEK_ERROR;
   Seek((FAU_t)0, gxDBASE_SEEK_BEG);
-  pcache = new gxdPageCache(fp, size, bytes);
+  pcache = new gxdPageCache(fp, size, bytes, use_map);
   return gxd_error = gxDBASE_NO_ERROR;
 }
 
