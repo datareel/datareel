@@ -125,25 +125,25 @@ const char *gxdExceptionMessages[gxdMaxExceptionMessages] = {
   "Database exception: Encountered bad database block(s) during block search",
   "Database exception: Not a valid gxDatabase file",
 
-  // gxRDBMS error messages
-  "Database exception: Bad RDBMS table",             // BAD_TABLE
-  "Database exception: Bad RDBMS table definition",  // BAD_TABLE_DEF
-  "Database exception: Bad RDBMS table field type",  // BAD_TABLE_FIELD
-  "Database exception: Bad RDBMS table header",      // BAD_TABLE_HEADER
-  "Database exception: Bad RDBMS table ID",          // BAD_TABLE_ID
-  "Database exception: Bad RDBMS record",            // BAD_RECORD
-  "Database exception: Bad RDBMS record definition", // BAD_RECORD_DEF
-  "Database exception: Bad RDBMS field type",        // BAD_FIELD_TYPE
-  "Database exception: Bad RDBMS field length",      // BAD_FIELD_LENGTH
-  "Database exception: Bad RDBMS column length",     // BAD_COL_LENGTH
-  "Database exception: RDBMS record already exists", // RECORD_EXISTS
-  "Database exception: No such RDBMS record exists", // RECORD_NOT_FOUND 
-  "Database exception: Bad RDBMS key definition",    // BAD_KEY_DEF
-  "Database exception: Bad family definition",       // BAD_FAMILY_DEF
-  "Database exception: Bad foreign definition",      // BAD_FKEY_DEF
-  "Database exception: Error building virtual list", // VIRTUAL_ LIST_ERROR
-  "Database exception: Bad range limit specified",   // BAD_RANGE_LIMIT 
-  "Database exception: Illegal table or field name character", // ILLEGAL_CHAR 
+  // Reserved error messages (former gxRDBMS slots)
+  "Database exception: Reserved error code",         // RESERVED_1
+  "Database exception: Reserved error code",         // RESERVED_2
+  "Database exception: Reserved error code",         // RESERVED_3
+  "Database exception: Reserved error code",         // RESERVED_4
+  "Database exception: Reserved error code",         // RESERVED_5
+  "Database exception: Reserved error code",         // RESERVED_6
+  "Database exception: Reserved error code",         // RESERVED_7
+  "Database exception: Reserved error code",         // RESERVED_8
+  "Database exception: Reserved error code",         // RESERVED_9
+  "Database exception: Reserved error code",         // RESERVED_10
+  "Database exception: Reserved error code",         // RESERVED_11
+  "Database exception: Reserved error code",         // RESERVED_12
+  "Database exception: Reserved error code",         // RESERVED_13
+  "Database exception: Reserved error code",         // RESERVED_14
+  "Database exception: Reserved error code",         // RESERVED_15
+  "Database exception: Reserved error code",         // RESERVED_16
+  "Database exception: Reserved error code",         // RESERVED_17
+  "Database exception: Reserved error code",         // RESERVED_18
 
   // Data and index file error messages
   "Database exception: Data file is empty",    // DATAFILE_EMPTY

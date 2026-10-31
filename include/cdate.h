@@ -45,8 +45,8 @@ operator=(const char *date) assignment operator, and
 CDate::SetDate(const char *date) function to set a date value 
 using a null-terminate C string.
 
-10/26/2026: DataReel 7: CDate is the 4-byte date type stored in 
-gxRDBMS date fields, so its layout is unchanged. The c_str() 
+10/26/2026: DataReel 7: CDate is a portable 4-byte date type 
+(month, day, 16-bit year); its layout is unchanged. The c_str() 
 functions, which returned a new heap buffer on every call, are 
 replaced by str() functions returning std::string. The 
 interactive operator>> is removed. SetDate() returns false for a 
@@ -69,8 +69,8 @@ month above 12 or a day above 31.
 namespace datareel {
 
 
-// Date type class. The 4-byte layout (month, day, 16-bit year) is
-// part of the gxRDBMS file format and must not change.
+// Date type class. The 4-byte layout (month, day, 16-bit year) may
+// be stored in database files and must not change.
 class GXDLCODE_API CDate
 {
 public:

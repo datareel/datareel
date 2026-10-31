@@ -9,7 +9,7 @@ Start with `AGENTS.md` in the top folder for the rules, then:
 - [TLS communications](tls-comms.md): TLS clients and servers, HTTPS,
   SMTP, POP3, FTPS, gxStream.
 - [Object database](object-database.md): block files, B-tree indexes,
-  POD, InfoHog persistent objects, gxRDBMS tables, file repair.
+  POD, InfoHog persistent objects, file repair.
 - [Building and linking](building.md): CMake options, file format
   settings, using DataReel from your project, tests.
 - [Porting from 6.x](porting-from-6x.md): replacements for removed

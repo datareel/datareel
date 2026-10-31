@@ -1,19 +1,20 @@
 # AGENTS.md: DataReel 7 for AI coding assistants
 
-DataReel 7 is a C++17 library for two jobs the C++ standard library does
-not cover:
+DataReel 7 is an object database (OODB) and cross platform
+communications toolkit for C++17, for two jobs the C++ standard library
+does not cover:
 
 1. **An embedded object database**: block files with free space reuse
    and CRCs (`gxDatabase`), disk B-tree indexes (`gxBtree`), a data file
-   plus its indexes opened together (`POD`), persistent objects with
-   variable length members (`InfoHog`) and simple relational tables
-   (`gxRDBMS`).
+   plus its indexes opened together (`POD`) and persistent objects with
+   variable length members (`InfoHog`).
 2. **TLS communications**: TLS 1.2/1.3 client and server connections
    (`gxsTLSConnection`, `gxsTLSServer`) and HTTPS, SMTP, POP3, FTPS and
    database-block (`gxStream`) protocols on top of them.
 
 For anything else (strings, containers, threads, files, time, JSON,
-SQL) use the C++ standard library or a dedicated library. DataReel 7
+SQL) use the C++ standard library or a dedicated library (SQLite for
+relational tables). DataReel 7
 removed its old string, list, thread and file classes.
 
 The task guides are in `docs/ai/`; `llms-full.txt` has all of them in
@@ -23,7 +24,7 @@ one file. Every sample program in them is built and run by
 ## Rules when writing code that uses DataReel
 
 - Include the class header (`gxstls.h`, `gxshttpc.h`, `gxdbase.h`,
-  `pod.h`, `infohog.h`, `gxrdbms.h`, ...). Everything is in
+  `pod.h`, `infohog.h`, ...). Everything is in
   `namespace datareel`; `using namespace datareel;` is added by the
   headers unless `DATAREEL_NO_GLOBAL_NAMES` is defined.
 - Link with CMake: `find_package(DataReel 7 REQUIRED)` and
@@ -34,14 +35,13 @@ one file. Every sample program in them is built and run by
   - Network classes (`Connect`, `Listen`, `Accept`, `Login`, `Get`,
     ...) return `0` on success and `-1` on failure, with the message
     in `Error()`. `ReadLine()` returns `bool`.
-  - `gxDatabase`, `gxBtree::Create/Open`, `POD::Open` and
-    `gxRDBMS::CreateTable` return `gxDatabaseError`;
+  - `gxDatabase`, `gxBtree::Create/Open` and `POD::Open` return
+    `gxDatabaseError`;
     `gxDBASE_NO_ERROR` (0) is success. Get text with
     `DatabaseExceptionMessage()` or `gxDatabaseExceptionMessage(err)`.
   - `gxBtree::Insert/Find/Delete/FindFirst/FindNext`, `InfoHog`
-    `WriteObject/ReadObject/FindObject/DeleteObject` and `gxRDBMS`
-    `AddRecord/FindRecord/ChangeRecord` return non-zero (true) on
-    success.
+    `WriteObject/ReadObject/FindObject/DeleteObject` return non-zero
+    (true) on success.
   - `gxStream` functions return `gxSOCKET_NO_ERROR` (0) on success.
 - TLS: certificates are verified against the system store and the
   host name by default. For a private CA call `SetCAFile("ca.pem")`.
@@ -73,9 +73,9 @@ one file. Every sample program in them is built and run by
 - C++17 minimum (RHEL 8 has GCC 8). Keep the `gx` class names and the
   `datareel` namespace.
 - Never change the on-disk format: block and file headers, B-tree
-  nodes, `InfoHog` and `gxRDBMS` record layout, CRC tables, or
-  `gxrdDatabaseRecord::CreateKey()` (index keys are CRCs of field
-  bytes). 7.0 writes byte-identical files to 6.2; keep it that way.
+  nodes, `InfoHog` record layout, CRC tables, or the
+  `gxDatabaseError` values (removed codes stay as reserved slots).
+  7.0 writes byte-identical files to 6.2; keep it that way.
 - Treat every length and count read from a file or the network as
   untrusted: check it against the buffer or a limit before use.
 - New network code uses `gxsTLSConnection`; do not add plain text
@@ -85,7 +85,7 @@ one file. Every sample program in them is built and run by
 ```sh
 cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
 cmake --build cmake-build -j
-tests/run_tests.sh cmake-build                    # 42 checks
+tests/run_tests.sh cmake-build                    # 40 checks
 CMAKE_OPTS="-DDATAREEL_64BIT_DATABASE=ON -DDATAREEL_NATIVE_TYPES=OFF" \
   tests/run_tests.sh /tmp/dr-b64                   # the other layouts
 ```
@@ -102,7 +102,7 @@ CMAKE_OPTS="-DDATAREEL_64BIT_DATABASE=ON -DDATAREEL_NATIVE_TYPES=OFF" \
 | Path | What |
 |------|------|
 | `include/`, `src/` | Library headers and sources |
-| `examples/database/` | gxDatabase, gxBtree, POD, InfoHog, gxRDBMS programs |
+| `examples/database/` | gxDatabase, gxBtree, POD, InfoHog programs |
 | `examples/tls/` | TLS echo, HTTPS, SMTP, POP3, FTPS, gxStream programs |
 | `examples/general/` | gxConfig, LogFile, ThreadPool |
 | `docs/ai/` | Task guides and their sample programs |

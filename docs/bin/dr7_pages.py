@@ -608,8 +608,8 @@ pool.Wait();                              // All queued tasks finished
  ])])
 
 page(file='classes/general/cdate.htm', title='Date Type',
- lead='CDate is the 4-byte date type stored in gxRDBMS DATE fields.',
- sections=[('Overview', 'Overview', '<P>The layout (month byte, day byte, 16-bit year) is part of the gxRDBMS file format and is unchanged. Comparisons order dates by year, month and day. Use std::chrono for date arithmetic.</P>')],
+ lead='CDate is a portable 4-byte date type.',
+ sections=[('Overview', 'Overview', '<P>The layout (month byte, day byte, 16-bit year) may be stored in database files and is unchanged. Comparisons order dates by year, month and day. Use std::chrono for date arithmetic.</P>')],
  functions=[('Functions', 'Functions', [
   ('CDate::CDate(__UBYTE__ month, __UBYTE__ day, gxUINT16 year)', 'Constructs a date.'),
   ('explicit CDate::CDate(std::string_view date, char delimiter = \'/\')', 'Parses M/D/YYYY.'),
@@ -633,7 +633,6 @@ EXAMPLES = [
   ('database/defrag/testprog.cpp', 'db_defrag', 'Free-space reuse and rebuilding (defragmenting) a database file.'),
   ('database/pod/testprog.cpp', 'db_pod', 'POD: a data file with one or several index files opened together.'),
   ('database/infohog/infohog.cpp', 'db_infohog', 'InfoHog object database: records with a key and variable members, add, find, change, delete, list and reopen.'),
-  ('database/rdbms/rdbms.cpp', 'db_rdbms', 'gxRDBMS relational table: primary and secondary keys, find, change, search and a sorted listing.'),
  ]),
  ('TLS networking', [
   ('tls/tls_echo_server.cpp', 'tls_echo_server', 'TLS server using gxsTLSServer and a ThreadPool. Usage: tls_echo_server port cert.pem key.pem'),

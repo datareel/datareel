@@ -25,13 +25,13 @@
 </header>
 <main class="dr-main">
 <H1>Date Type</H1>
-<p class="dr-lead">CDate is the 4-byte date type stored in gxRDBMS DATE fields.</p>
+<p class="dr-lead">CDate is a portable 4-byte date type.</p>
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
 <A HREF="#Functions">Functions</A></P>
 
 <h2 id="Overview">Overview</h2>
-<P>The layout (month byte, day byte, 16-bit year) is part of the gxRDBMS file format and is unchanged. Comparisons order dates by year, month and day. Use std::chrono for date arithmetic.</P>
+<P>The layout (month byte, day byte, 16-bit year) may be stored in database files and is unchanged. Comparisons order dates by year, month and day. Use std::chrono for date arithmetic.</P>
 
 <h2 id="Functions">Functions</h2>
 <div class="dr-fn" id="CDate"><code class="dr-sig">CDate::CDate(__UBYTE__ month, __UBYTE__ day, gxUINT16 year)</code><p class="dr-desc">Constructs a date.</p></div>

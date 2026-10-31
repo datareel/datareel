@@ -1,7 +1,8 @@
 # The DataReel 7 object database
 
 DataReel's database is an embedded library: your program opens files
-directly, there is no server and no SQL. It suits programs that store
+directly, there is no server and no SQL (use SQLite when you need
+relational tables). It suits programs that store
 their own records locally and need them to survive crashes and
 upgrades: configuration and state stores, message and event logs,
 catalogs, caches, and data exchanged between programs as files. File
@@ -15,7 +16,6 @@ Pick a layer:
 | Sorted index of fixed-size keys on disk | `gxBtree` with your `DatabaseKeyB` class | `gxbtree.h` |
 | A data file and its indexes opened together | `POD` | `pod.h` |
 | Objects with a key and variable length members | `InfoHog<KeyType>` | `infohog.h` |
-| Tables with typed columns, keys, search and sort | `gxRDBMS` | `gxrdbms.h` |
 | Faster repeated reads | `gxDatabaseCache`, `BtreeCache` | `dbfcache.h`, `btcache.h` |
 | Check and repair files | `db_debug`, `ix_debug` utilities | `utils/` |
 
@@ -36,7 +36,7 @@ Pick a layer:
   `std::string` or virtual functions. With
   `DATAREEL_NATIVE_TYPES=OFF` the gx types are byte-order-portable
   classes and files can move between Linux and Windows.
-- `gxDatabase`, `gxBtree`, `POD` and `gxRDBMS` are not copyable. Use
+- `gxDatabase`, `gxBtree` and `POD` are not copyable. Use
   one object per file per thread, or guard it with a `std::mutex`.
   `LockFile()`/`LockRecord()` coordinate several processes.
 - Error codes are `gxDatabaseError`; `gxDBASE_NO_ERROR` is 0.
@@ -444,140 +444,6 @@ int main(int argc, char **argv)
   list_contacts(pod2);
   pod2.Close();
   return get_text(again, NOTES) == notes ? 0 : 1;
-}
-```
-<!-- end sample -->
-
-## Relational tables (gxRDBMS)
-
-`gxRDBMS` creates a table from a text definition: a table name and
-columns written `Name{display width}TYPE[size]`, plus a key
-definition. The types are `INT16`, `INT32`, `INT64`, `FLOAT`,
-`BOOL`, `CHAR[n]`, `VCHAR[n]`, `BINARY`, `BLOB`, `CURRENCY` and `DATE`. Records are `gxrdDatabaseRecord` objects whose
-fields are set and read by zero-based column number; `Search()`
-and `SortOrderList()` fill a `std::set<gxrdDatabaseRecord>`. It has no
-SQL and no joins; use SQLite when you need those.
-
-<!-- sample: examples/database/rdbms/rdbms.cpp from="#include" -->
-```cpp
-// examples/database/rdbms/rdbms.cpp (license header omitted)
-#include "gxdlcode.h"
-
-#include <cstring>
-#include <iostream>
-#include <set>
-#include <string>
-#include "gxrdbms.h"
-
-static void print_record(gxrdDatabaseRecord &r)
-{
-  gxINT32 id = 0;
-  gxFLOAT64 salary = 0;
-  CDate hired;
-  r.GetField(&id, sizeof(id), 0);
-  r.GetField(&salary, sizeof(salary), 3);
-  r.GetField(&hired, sizeof(hired), 4);
-  std::cout << "  " << (long)id << "  " << (const char *)r.GetField(1)
-	    << ", " << (const char *)r.GetField(2) << ", "
-	    << (double)salary << ", hired " << hired.str() << "\n";
-}
-
-static int add_employee(gxRDBMS &db, long id, const char *name,
-			const char *dept, double salary, const char *hired)
-{
-  gxrdDatabaseRecord rec(db.RecordDef());
-  gxINT32 i = (gxINT32)id;
-  gxFLOAT64 s = salary;
-  CDate d(hired);
-  rec.SetField(&i, sizeof(i), 0);
-  rec.SetField(name, (__ULWORD__)strlen(name) + 1, 1); // Variable length
-  rec.SetField(dept, (__ULWORD__)strlen(dept) + 1, 2);
-  rec.SetField(&s, sizeof(s), 3);
-  rec.SetField(&d, sizeof(d), 4);
-  if(!db.AddRecord(&rec)) {
-    std::cout << "Not added: " << name << " ("
-	      << db.GetDatabase()->DataFileExceptionMessage() << ")\n";
-    return -1;
-  }
-  return 0;
-}
-
-int main(int argc, char **argv)
-{
-  // Columns: ID, Name (primary key), Department (secondary key),
-  // Salary, Hire date. {n} is the display width and [n] the size.
-  std::string tdef = "employees, ID{6}INT32, Name{30}VCHAR[64], "
-    "Department{20}CHAR[32], Salary{10}FLOAT, Hired{10}DATE";
-  // ALLOWDUP lets several records share a department key value
-  std::string kdef = "PRI: COL 2, SEC: COL 3, ATTRIB: NOCASE, ATTRIB: ALLOWDUP";
-
-  gxRDBMS db;
-  gxDatabaseError err = argc > 1 ? db.CreateTable(tdef, kdef, argv[1]) : 
-    db.CreateTable(tdef, kdef);
-  if(err != gxDBASE_NO_ERROR) {
-    std::cerr << gxDatabaseExceptionMessage(err) << "\n";
-    return 1;
-  }
-  std::cout << "Record definition: " << db.RecordDef() << "\n";
-
-  if(db.IsEmpty()) {
-    add_employee(db, 101, "Alice Jones", "Engineering", 125000.0, "3/14/2019");
-    add_employee(db, 102, "Bob Brown", "Support", 72000.0, "6/1/2021");
-    add_employee(db, 103, "Carol Smith", "Sales", 88000.0, "11/20/2017");
-    add_employee(db, 104, "Dave Lee", "Engineering", 118000.0, "1/9/2023");
-    add_employee(db, 105, "Erin Diaz", "Support", 69000.0, "8/30/2024");
-  }
-  std::cout << db.NumRecords() << " records\n";
-
-  // Find by primary key. Only the key field is needed and NOCASE
-  // makes the match ignore case.
-  gxrdDatabaseRecord found(db.RecordDef());
-  found.SetField("BOB BROWN", 10, 1);
-  FAU_t addr;
-  if(!db.FindRecord(&found, addr)) {
-    std::cerr << "Bob Brown not found\n";
-    return 1;
-  }
-  std::cout << "Found:\n";
-  print_record(found);
-
-  // Change the salary
-  gxrdDatabaseRecord changed(found);
-  gxFLOAT64 raise = 76000.0;
-  changed.SetField(&raise, sizeof(raise), 3);
-  if(!db.ChangeRecord(&found, &changed)) {
-    std::cerr << "Change failed\n";
-    return 1;
-  }
-  std::cout << "Changed Bob Brown's salary\n";
-
-  // Search the department index (one-based field 3) for Engineering
-  std::set<gxrdDatabaseRecord> matches;
-  std::string dept = "engineering";
-  // Arguments: index 1 (the secondary key), one-based field 3, no case
-  // compare, no alphanumeric compare, exact match, at most every record
-  err = db.Search(matches, dept, 1, 3, 0, 0, 0, db.NumRecords());
-  if(err != gxDBASE_NO_ERROR) {
-    std::cerr << "Search failed: " << gxDatabaseExceptionMessage(err) << "\n";
-    return 1;
-  }
-  std::cout << "Engineering (" << matches.size() << "):\n";
-  for(const auto &m : matches) {
-    gxrdDatabaseRecord r(m);
-    print_record(r);
-  }
-
-  // List the whole table in primary key order
-  std::set<gxrdDatabaseRecord> all;
-  FAU_t n = db.NumRecords();
-  db.SortOrderList(all, n, 1, n); // Limit, first and last record
-  std::cout << "All employees:\n";
-  for(const auto &m : all) {
-    gxrdDatabaseRecord r(m);
-    print_record(r);
-  }
-  db.Close();
-  return matches.size() == 2 ? 0 : 1;
 }
 ```
 <!-- end sample -->

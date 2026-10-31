@@ -42,6 +42,7 @@ open unchanged; most porting work is replacing removed classes.
 | `HyperText`, `PostScriptDrv`, report writers | `std::ostream` |
 | `Terminal` | ncurses |
 | `gxDeviceCache` | none |
+| `gxRDBMS` relational tables | SQLite |
 
 ## Strings
 
@@ -125,7 +126,5 @@ your build) to keep the global namespace clean and write
 - `gxDatabase::FindNextObject()`, `FindNextBlock()`, `FindPrevBlock()`
   and `FindPrevObject()` take an object (or block) address and return
   0 at the end. `FindPrevBlock()` no longer skips deleted blocks.
-- `gxRDBMS::Search()` and `SortOrderList()` fill a
-  `std::set<gxrdDatabaseRecord>` instead of a `gxBStree`.
 - `gxSSL::MakeRSAPrivateKey()` makes 3072-bit keys by default;
   `MakeDHParms()`, `LoadDHParms()`, `MakeRSAEphKey()` were removed.

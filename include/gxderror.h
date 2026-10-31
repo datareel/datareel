@@ -124,25 +124,26 @@ enum gxDatabaseError { // Database error codes
   gxDBASE_BADBLOCK_ERROR,  // Bad database block(s)
   gxDBASE_INVALID_FILE,    // Not a valid gxDatabase file
 
-  // gxRDBMS error codes
-  gxDBASE_BAD_TABLE,          // Bad table
-  gxDBASE_BAD_TABLE_DEF,      // Bad table definition
-  gxDBASE_BAD_TABLE_FIELD,    // Bad table field
-  gxDBASE_BAD_TABLE_HEADER,   // Bad table header
-  gxDBASE_BAD_TABLE_ID,       // Bad table ID
-  gxDBASE_BAD_RECORD,         // Bad record
-  gxDBASE_BAD_RECORD_DEF,     // Bad record definition
-  gxDBASE_BAD_FIELD_TYPE,     // Bad field type
-  gxDBASE_BAD_FIELD_LENGTH,   // Bad field length
-  gxDBASE_BAD_COL_LENGTH,     // Bad column length
-  gxDBASE_RECORD_EXISTS,      // Record already exists
-  gxDBASE_RECORD_NOT_FOUND,   // No such record exists
-  gxDBASE_BAD_KEY_DEF,        // Bad key definition 
-  gxDBASE_BAD_FAMILY_DEF,     // Bad family definition
-  gxDBASE_BAD_FKEY_DEF,       // Bad foreign definition
-  gxDBASE_VIRTUAL_LIST_ERROR, // Error building virtual list
-  gxDBASE_BAD_RANGE_LIMIT,    // Bad range limit specified
-  gxDBASE_ILLEGAL_CHAR,       // Illegal table or field name character
+  // Reserved error codes. These held the gxRDBMS error codes, which
+  // were removed in DataReel 7; the slots keep later values unchanged.
+  gxDBASE_RESERVED_1,   // Reserved
+  gxDBASE_RESERVED_2,   // Reserved
+  gxDBASE_RESERVED_3,   // Reserved
+  gxDBASE_RESERVED_4,   // Reserved
+  gxDBASE_RESERVED_5,   // Reserved
+  gxDBASE_RESERVED_6,   // Reserved
+  gxDBASE_RESERVED_7,   // Reserved
+  gxDBASE_RESERVED_8,   // Reserved
+  gxDBASE_RESERVED_9,   // Reserved
+  gxDBASE_RESERVED_10,  // Reserved
+  gxDBASE_RESERVED_11,  // Reserved
+  gxDBASE_RESERVED_12,  // Reserved
+  gxDBASE_RESERVED_13,  // Reserved
+  gxDBASE_RESERVED_14,  // Reserved
+  gxDBASE_RESERVED_15,  // Reserved
+  gxDBASE_RESERVED_16,  // Reserved
+  gxDBASE_RESERVED_17,  // Reserved
+  gxDBASE_RESERVED_18,  // Reserved
 
   // Data file and Index file error codes
   gxDBASE_DATAFILE_EMPTY,    // Data file is empty

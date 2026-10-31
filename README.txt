@@ -20,7 +20,8 @@ Release History
 
 OVERVIEW
 --------
-DataReel is a C++ toolkit for applications that keep their data in
+DataReel is an object database (OODB) and cross platform
+communications toolkit for C++: applications keep their objects in
 local database files and talk to other systems over TLS. It began in
 1997, when C++ had no standard string, container, thread or file
 system classes, as a general purpose library that supplied all of
@@ -29,8 +30,8 @@ the parts the standard library still does not have and removes the
 rest:
 
 - An embedded object database: block files with free space reuse,
-  CRC checks and file locking, disk B-tree indexes, persistent objects
-  and simple relational tables, with tools to check and repair files.
+  CRC checks and file locking, disk B-tree indexes and persistent
+  objects, with tools to check and repair files.
 - TLS networking: IPv4 and IPv6 sockets, TLS 1.2 and 1.3 with
   certificate checking, and HTTPS, SMTP, POP3, FTPS and database block
   clients and servers.
@@ -64,8 +65,6 @@ Object database
  POD               A data file and its index files opened together
  InfoHog           Persistent objects: a fixed key plus any number of
                    variable length members, indexed by key
- gxRDBMS           Relational tables defined by a text definition, with
-                   primary and secondary keys, search and sort
  gxDatabaseCache   Write-back cache for database files
  db_debug/ix_debug Utilities that analyze and rebuild damaged files
 
@@ -116,7 +115,9 @@ In short:
   define DATAREEL_NO_GLOBAL_NAMES to turn that off.
 - CMake builds the library, examples and tests on Linux and Windows
   and installs a find_package(DataReel) package.
-- Database, index, InfoHog and gxRDBMS files are unchanged.
+- Database, index and InfoHog files are unchanged.
+- The gxRDBMS relational tables were removed; use SQLite for
+  relational needs.
 
 LICENSE
 -------
@@ -235,7 +236,7 @@ EXAMPLE PROGRAMS AND TESTS
 --------------------------
 The examples are built with the library. Each is one source file:
 
- examples/database/   gxDatabase, gxBtree, POD, InfoHog, gxRDBMS
+ examples/database/   gxDatabase, gxBtree, POD, InfoHog
  examples/tls/        TLS echo server/client, HTTPS server/client,
                       SMTP, POP3, FTPS, gxStream server/client
  examples/general/    gxConfig, LogFile, ThreadPool

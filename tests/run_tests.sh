@@ -65,12 +65,11 @@ openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial \
 # Database examples (they pause for Enter, so give them empty input)
 # Each one runs in its own directory because several use the same file names
 for p in db_simple db_database db_btree db_btree_cached db_btree_node \
-	 db_database_cache db_defrag db_pod db_infohog db_rdbms \
+	 db_database_cache db_defrag db_pod db_infohog \
 	 config_file logfile thread_pool; do
   mkdir -p "$WORK/run_$p" && cd "$WORK/run_$p" && check $p sh -c "$E/$p < /dev/null"
 done
 cd "$WORK/run_db_infohog" && check db_infohog_reopen sh -c "$E/db_infohog < /dev/null"
-expect rdbms_search "Engineering (2)" "$WORK/db_rdbms.log"
 # Sample programs from the AI guides (docs/ai/samples); run twice to
 # reopen the files
 mkdir -p "$WORK/run_ai_db" && cd "$WORK/run_ai_db" &&

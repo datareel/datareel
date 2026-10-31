@@ -17,7 +17,6 @@ datareel_example(db_database_cache database/database_cache/testprog.cpp)
 datareel_example(db_defrag         database/defrag/testprog.cpp)
 datareel_example(db_pod            database/pod/testprog.cpp)
 datareel_example(db_infohog        database/infohog/infohog.cpp)
-datareel_example(db_rdbms          database/rdbms/rdbms.cpp)
 
 # TLS networking
 datareel_example(tls_echo_server   tls/tls_echo_server.cpp)

@@ -37,8 +37,8 @@ to avoid any possible name conflicts.
 
 09/19/2005: Using simplified version of the == and != overloads. 
 
-10/26/2026: DataReel 7: CDate is the 4-byte date type stored in 
-gxRDBMS date fields, so its layout is unchanged. The c_str() 
+10/26/2026: DataReel 7: CDate is a portable 4-byte date type 
+(month, day, 16-bit year); its layout is unchanged. The c_str() 
 functions, which returned a new heap buffer on every call, are 
 replaced by str() functions returning std::string. The 
 interactive operator>> is removed. SetDate() returns false for a 

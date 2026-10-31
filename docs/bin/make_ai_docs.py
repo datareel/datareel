@@ -21,7 +21,7 @@ GUIDES = [
     ('tls-comms.md', 'TLS communications',
      'TLS clients and servers, HTTPS, SMTP, POP3, FTPS and gxStream, with complete programs'),
     ('object-database.md', 'Object database',
-     'gxDatabase block files, gxBtree indexes, POD, InfoHog persistent objects and gxRDBMS tables'),
+     'gxDatabase block files, gxBtree indexes, POD and InfoHog persistent objects'),
     ('building.md', 'Building and linking',
      'CMake options, file format settings, find_package(DataReel), running the tests'),
     ('porting-from-6x.md', 'Porting from 6.x',
@@ -66,9 +66,10 @@ def main():
     guides = {f: refresh_guide(f) for f, _, _ in GUIDES}
 
     index = ['# DataReel 7', '',
-             '> DataReel 7 is a C++17 library (LGPL) for embedded object '
-             'databases (block files, disk B-tree indexes, persistent objects, '
-             'simple relational tables) and TLS-only communications (TLS '
+             '> DataReel 7 is an object database (OODB) and cross platform '
+             'communications toolkit for C++17 (LGPL): embedded object '
+             'databases (block files, disk B-tree indexes, persistent objects) '
+             'and TLS-only communications (TLS '
              'client/server, HTTPS, SMTP, POP3, FTPS) on Linux and Windows.', '',
              'All classes are in namespace datareel. Link with CMake target '
              'DataReel::datareel. Network calls return 0 on success; database '
