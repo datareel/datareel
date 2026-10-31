@@ -30,8 +30,9 @@
 <a href="#HowTheReleaseWasTested">How the release was tested</a><br>
 <a href="#SupportedPlatforms">Supported platforms</a></p>
 <p>DataReel 7.0 is a beta release. DataReel 6.2 remains the stable release for production use until 7.0 is final; please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
-<p>DataReel 7 is an object database (OODB) and cross platform communications toolkit for C++. 7.0 is a modernization release. The library now requires C++17, uses the C++ standard library for strings, containers, threads, files and time, and keeps the parts the standard library does not have: the object database, TLS networking and the portable file formats. Every network protocol except telnet and ping uses TLS.</p>
-<p>Database, index and InfoHog files are unchanged. The same programs built against 6.2 and 7.0 write byte-for-byte identical files, and 7.0 reads files written by 6.2.</p>
+<p>DataReel 7.1 removed the gxRDBMS relational tables; see <a href="release_notes_7_1.html">RELEASE_NOTES_7.1.txt</a>.</p>
+<p>DataReel 7.0 is a modernization release. The library now requires C++17, uses the C++ standard library for strings, containers, threads, files and time, and keeps the parts the standard library does not have: the object database, TLS networking and the portable file formats. Every network protocol except telnet and ping uses TLS.</p>
+<p>Database, index, InfoHog and gxRDBMS files are unchanged. The same programs built against 6.2 and 7.0 write byte-for-byte identical files, and 7.0 reads files written by 6.2.</p>
 <p>The library version is 7.0 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.0). The database file format version (gxDatabaseVersionNumber 4630) is unchanged.</p>
 <h2 id="Requirements">Requirements</h2>
 <ul>
@@ -67,9 +68,7 @@
  leaktest (MSVC CRT)              AddressSanitizer, valgrind
  gxsSocketUtils (gxsutils.h)      (moved into gxsPing)
  wserror (Winsock messages)       gxSocket::SocketExceptionMessage()
- gxRDBMS relational tables        SQLite for relational needs
- (gxrdbms.h, gxrdbhdr.h,
- gxrdbdef.h), gxrdbsql.h
+ gxrdbsql.h (empty placeholder)   SQLite if you need SQL
  stdafx.h, gxdlincs.h, wxincs.h,  (not needed)
  wx2incs.h
  hexdump, ffind, txfilter utils   xxd, find, sed, PowerShell
@@ -93,8 +92,7 @@
 </ul>
 <h3>Database</h3>
 <ul>
-<li>Removed: gxRDBMS relational tables; use SQLite for relational needs. Their 18 gxDatabaseError codes are kept as gxDBASE_RESERVED_1 to gxDBASE_RESERVED_18 so the values of the other codes do not change. Read gxRDBMS table files with 6.2.</li>
-<li>InfoHog, gxDatabaseDebugManager and gxDatabaseCache use std::string and std::vector internally.</li>
+<li>gxRDBMS, InfoHog, gxDatabaseDebugManager and gxDatabaseCache use std::string and std::vector internally. gxRDBMS::Search() and SortOrderList() fill a std::set&lt;gxrdDatabaseRecord&gt;.</li>
 </ul>
 <h2 id="Namespace">Namespace</h2>
 <p>Every class, type, constant and function is declared in namespace datareel. gxdlcode.h, which every DataReel header includes, adds &quot;using namespace datareel;&quot; so 6.x code that uses unqualified names still compiles. Define DATAREEL_NO_GLOBAL_NAMES before including any DataReel header to keep the names out of the global namespace and qualify them (datareel::gxDatabase).</p>
@@ -103,6 +101,7 @@
 <li>BtreeBucket::ReadNode() (the cached B-tree) trusted the key count in the index file; a damaged or crafted file overflowed the heap. This is the cached version of the gxBtree::ReadNode() fix in 6.1.</li>
 <li>The cached B-tree walks stop after gxBtreeMaxNodeReads node reads, like the uncached walks in 6.2.</li>
 <li>InfoHog::Read() and gxPersistent::ReadString() checked lengths read from the file through a signed cast, so very large lengths passed the check. gxDatabase::CalcChecksum() could allocate a huge buffer from a damaged block header. All now return an error.</li>
+<li>gxrdDatabaseRecord::Compare() did not match a search string without a null against a stored string with its null, so gxRDBMS searches on CHAR fields found nothing.</li>
 <li>gxDatabase::FindNextObject() and FindNextBlock() skipped a block when given an object address and returned the last block again at the end of the file, so a walk never ended. The next and previous navigation functions were rewritten: the offset is an object or block address, each returns 0 at the end, and FindPrevBlock() no longer skips deleted blocks (FindPrevObject() does).</li>
 <li>The B-tree cache did not work on index files opened read only.</li>
 <li>gxTelnetClient&#x27;s terminal type, long database file names and the serial block server could overflow buffers or allocate without limit.</li>
@@ -136,9 +135,9 @@
 <p><a href="../AGENTS.md">AGENTS.md</a>, <a href="../llms.txt">llms.txt</a>, <a href="../llms-full.txt">llms-full.txt</a> and <a href="ai/README.md">docs/ai</a> describe how to use DataReel for TLS communications and object databases, with complete sample programs (docs/ai/samples) that tests/run_tests.sh builds and runs. docs/bin/make_ai_docs.py copies the samples into the guides and rebuilds <a href="../llms.txt">llms.txt</a> and <a href="../llms-full.txt">llms-full.txt</a>.</p>
 <h2 id="HowTheReleaseWasTested">How the release was tested</h2>
 <ul>
-<li>tests/run_tests.sh on RHEL 10: 40 checks covering every database example, InfoHog, TLS echo over IPv4 and IPv6, certificate rejection, HTTPS (including path traversal and http:// refusal), gxStream, SMTP (implicit TLS, STARTTLS, refusing a server without STARTTLS), POP3 (implicit TLS and STLS) and FTPS (explicit and implicit, upload, list, download) and the AI guide samples, in 32-bit and 64-bit engine, native and portable type, and static and shared library builds.</li>
+<li>tests/run_tests.sh on RHEL 10: 42 checks covering every database example, InfoHog, gxRDBMS, TLS echo over IPv4 and IPv6, certificate rejection, HTTPS (including path traversal and http:// refusal), gxStream, SMTP (implicit TLS, STARTTLS, refusing a server without STARTTLS), POP3 (implicit TLS and STLS) and FTPS (explicit and implicit, upload, list, download) and the AI guide samples, in 32-bit and 64-bit engine, native and portable type, and static and shared library builds.</li>
 <li>tests/damaged_files read thousands of randomly damaged database, index and InfoHog files without a crash or endless loop, and ran clean under valgrind.</li>
-<li>The database examples and InfoHog programs were run with 6.2 and 7.0 and wrote identical files; 7.0 opened the 6.2 files.</li>
+<li>The database examples, InfoHog and gxRDBMS programs were run with 6.2 and 7.0 and wrote identical files; 7.0 opened the 6.2 files.</li>
 <li>Windows 11 with Visual Studio 2026, with both Schannel and OpenSSL 3.5: every example and test passed, including HTTPS to a public site through the Windows certificate store, the mail and FTPS clients against the Linux mock servers, and a Linux OpenSSL client with a Windows Schannel server.</li>
 </ul>
 <h2 id="SupportedPlatforms">Supported platforms</h2>
@@ -147,6 +146,6 @@
 <li>Windows: Windows 11 and Windows Server 2022 and 2025, 64-bit, with Visual Studio 2022 or 2026, using Schannel or OpenSSL 3.5.x LTS.</li>
 </ul>
 </main>
-<footer class="dr-footer">DataReel 7.0 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.1 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

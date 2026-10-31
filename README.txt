@@ -1,4 +1,4 @@
-DataReel 7.0 Beta Readme File
+DataReel 7.1 Beta Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -41,8 +41,8 @@ rest:
 The library has no dependencies except the system TLS library
 (OpenSSL on Linux, Schannel or OpenSSL on Windows).
 
-DataReel 7.0 is a beta release. DataReel 6.2 remains the stable
-release for production use until 7.0 is final.
+DataReel 7.1 is a beta release. DataReel 6.2 remains the stable
+release for production use until DataReel 7 is final.
 
 The DataReel development package was produced by independent work and
 contract work released to the public through non-exclusive license
@@ -98,8 +98,8 @@ use the C++ standard library; DataReel 7 itself does.
 
 WHAT CHANGED IN DATAREEL 7
 --------------------------
-See RELEASE_NOTES_7.0.txt for the full list and for porting notes.
-In short:
+See RELEASE_NOTES_7.0.txt for the full list and for porting notes,
+and RELEASE_NOTES_7.1.txt for the changes in 7.1. In short:
 
 - C++17 is required. Strings, lists, trees, threads, mutexes, files
   and time now come from the standard library. The UString/gxString,
@@ -116,7 +116,7 @@ In short:
 - CMake builds the library, examples and tests on Linux and Windows
   and installs a find_package(DataReel) package.
 - Database, index and InfoHog files are unchanged.
-- The gxRDBMS relational tables were removed; use SQLite for
+- 7.1 removed the gxRDBMS relational tables; use SQLite for
   relational needs.
 
 LICENSE
@@ -261,6 +261,8 @@ written for AI coding assistants but useful to anyone.
 
 RELEASE HISTORY
 ---------------
+ 7.1  10/31/2026  Beta. Object database and TLS networking only:
+                  gxRDBMS removed (RELEASE_NOTES_7.1.txt)
  7.0  10/26/2026  Beta. Modern C++17 rewrite, TLS-only networking, IPv6,
                   datareel namespace, CMake (RELEASE_NOTES_7.0.txt)
  6.2  10/25/2026  Loop guards for damaged files, SetWriteHook()

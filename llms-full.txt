@@ -83,7 +83,7 @@ one file. Every sample program in them is built and run by
 - Never change the on-disk format: block and file headers, B-tree
   nodes, `InfoHog` record layout, CRC tables, or the
   `gxDatabaseError` values (removed codes stay as reserved slots).
-  7.0 writes byte-identical files to 6.2; keep it that way.
+  DataReel 7 writes byte-identical files to 6.2; keep it that way.
 - Treat every length and count read from a file or the network as
   untrusted: check it against the buffer or a limit before use.
 - New network code uses `gxsTLSConnection`; do not add plain text

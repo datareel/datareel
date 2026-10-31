@@ -5,15 +5,16 @@ DataReel 7.0 is a beta release. DataReel 6.2 remains the stable
 release for production use until 7.0 is final; please report
 problems through https://datareel.com/contact.php.
 
-DataReel 7 is an object database (OODB) and cross platform
-communications toolkit for C++. 7.0 is a modernization release. The
-library now requires
+DataReel 7.1 removed the gxRDBMS relational tables; see
+RELEASE_NOTES_7.1.txt.
+
+DataReel 7.0 is a modernization release. The library now requires
 C++17, uses the C++ standard library for strings, containers,
 threads, files and time, and keeps the parts the standard library does
 not have: the object database, TLS networking and the portable file
 formats. Every network protocol except telnet and ping uses TLS.
 
-Database, index and InfoHog files are unchanged. The same
+Database, index, InfoHog and gxRDBMS files are unchanged. The same
 programs built against 6.2 and 7.0 write byte-for-byte identical
 files, and 7.0 reads files written by 6.2.
 
@@ -58,9 +59,7 @@ REMOVED, AND WHAT TO USE INSTEAD
  leaktest (MSVC CRT)              AddressSanitizer, valgrind
  gxsSocketUtils (gxsutils.h)      (moved into gxsPing)
  wserror (Winsock messages)       gxSocket::SocketExceptionMessage()
- gxRDBMS relational tables        SQLite for relational needs
- (gxrdbms.h, gxrdbhdr.h,
- gxrdbdef.h), gxrdbsql.h
+ gxrdbsql.h (empty placeholder)   SQLite if you need SQL
  stdafx.h, gxdlincs.h, wxincs.h,  (not needed)
  wx2incs.h
  hexdump, ffind, txfilter utils   xxd, find, sed, PowerShell
@@ -103,12 +102,9 @@ General
   gxconfig.h and thrpool.h are in the datareel namespace.
 
 Database
-- Removed: gxRDBMS relational tables; use SQLite for relational
-  needs. Their 18 gxDatabaseError codes are kept as
-  gxDBASE_RESERVED_1 to gxDBASE_RESERVED_18 so the values of the
-  other codes do not change. Read gxRDBMS table files with 6.2.
-- InfoHog, gxDatabaseDebugManager and gxDatabaseCache use std::string
-  and std::vector internally.
+- gxRDBMS, InfoHog, gxDatabaseDebugManager and gxDatabaseCache use
+  std::string and std::vector internally. gxRDBMS::Search() and
+  SortOrderList() fill a std::set<gxrdDatabaseRecord>.
 
 NAMESPACE
 ---------
@@ -130,6 +126,9 @@ BUG AND SECURITY FIXES
   from the file through a signed cast, so very large lengths passed
   the check. gxDatabase::CalcChecksum() could allocate a huge buffer
   from a damaged block header. All now return an error.
+- gxrdDatabaseRecord::Compare() did not match a search string without
+  a null against a stored string with its null, so gxRDBMS searches on
+  CHAR fields found nothing.
 - gxDatabase::FindNextObject() and FindNextBlock() skipped a block
   when given an object address and returned the last block again at
   the end of the file, so a walk never ended. The next and previous
@@ -181,8 +180,8 @@ rebuilds llms.txt and llms-full.txt.
 
 HOW THE RELEASE WAS TESTED
 --------------------------
-- tests/run_tests.sh on RHEL 10: 40 checks covering every database
-  example, InfoHog, TLS echo over IPv4 and IPv6, certificate
+- tests/run_tests.sh on RHEL 10: 42 checks covering every database
+  example, InfoHog, gxRDBMS, TLS echo over IPv4 and IPv6, certificate
   rejection, HTTPS (including path traversal and http:// refusal),
   gxStream, SMTP (implicit TLS, STARTTLS, refusing a server without
   STARTTLS), POP3 (implicit TLS and STLS) and FTPS (explicit and
@@ -192,7 +191,7 @@ HOW THE RELEASE WAS TESTED
 - tests/damaged_files read thousands of randomly damaged database,
   index and InfoHog files without a crash or endless loop, and ran
   clean under valgrind.
-- The database examples and InfoHog programs were run with
+- The database examples, InfoHog and gxRDBMS programs were run with
   6.2 and 7.0 and wrote identical files; 7.0 opened the 6.2 files.
 - Windows 11 with Visual Studio 2026, with both Schannel and OpenSSL
   3.5: every example and test passed, including HTTPS to a public site
