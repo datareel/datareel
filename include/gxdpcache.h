@@ -136,6 +136,8 @@ private:
   size_t pinned_count; // Dirty or logged pages, kept out of the LRU list
   int in_txn;
   std::unordered_map<FAU_t, gxdPage *> pages;
+  std::vector<gxdPage *> dirty_list;  // Pages changed in the transaction
+  std::vector<gxdPage *> logged_list; // Logged pages, some may be dirty
   gxdPage *head; // Most recently used clean page
   gxdPage *tail; // Least recently used clean page
 };

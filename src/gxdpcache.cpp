@@ -63,6 +63,8 @@ void gxdPageCache::Clear()
 {
   for(auto &e : pages) FreePage(e.second);
   pages.clear();
+  dirty_list.clear();
+  logged_list.clear();
   head = tail = 0;
   dirty_count = logged_count = pinned_count = 0;
 }
@@ -200,6 +202,7 @@ __ULWORD__ gxdPageCache::Write(const void *buf, __ULWORD__ bytes,
       }
       p->dirty = 1;
       dirty_count++;
+      dirty_list.push_back(p);
     }
     memcpy(p->data + in_page, in + done, n);
     done += n;
@@ -215,10 +218,12 @@ void gxdPageCache::BeginTxn()
 }
 
 void gxdPageCache::GetPages(std::vector<gxdPage *> &v, int logged)
+// 10/31/2026: From the dirty or logged list, not a walk of every page
 {
   v.clear();
-  for(auto &e : pages) {
-    gxdPage *p = e.second;
+  const std::vector<gxdPage *> &from = logged ? logged_list : dirty_list;
+  for(size_t i = 0; i < from.size(); i++) {
+    gxdPage *p = from[i];
     if(logged ? (p->logged && !p->dirty) : p->dirty) v.push_back(p);
   }
   std::sort(v.begin(), v.end(),
@@ -244,12 +249,14 @@ void gxdPageCache::CommitTxn()
     if(!p->logged) {
       p->logged = 1;
       logged_count++;
+      logged_list.push_back(p);
     }
     if(p->orig) {
       delete[] p->orig;
       p->orig = 0;
     }
   }
+  dirty_list.clear();
   in_txn = 0;
 }
 
@@ -273,6 +280,7 @@ void gxdPageCache::RollbackTxn()
       DropPage(p);
     }
   }
+  dirty_list.clear();
   file_size = begin_size;
   in_txn = 0;
 }
@@ -287,7 +295,9 @@ int gxdPageCache::WriteLoggedPages()
   std::vector<gxdPage *> v;
   GetPages(v, 1);
   const size_t max_run = 256; // Pages per write (1 MB)
-  std::vector<unsigned char> buf(max_run * gxdPageSize);
+  // A buffer sized for this write: a 1 MB buffer for every commit cost
+  // more than the commit's few pages
+  std::vector<unsigned char> buf(std::min(v.size(), max_run) * gxdPageSize);
   size_t i = 0;
   while(i < v.size()) {
     size_t j = i + 1;
@@ -310,6 +320,11 @@ int gxdPageCache::WriteLoggedPages()
     }
     i = j;
   }
+  // Keep only logged pages still dirty (changed again in a transaction)
+  std::vector<gxdPage *> keep;
+  for(size_t k = 0; k < logged_list.size(); k++)
+    if(logged_list[k]->logged) keep.push_back(logged_list[k]);
+  logged_list.swap(keep);
   if(pages.size() - pinned_count > max_pages) EvictClean();
   return 0;
 }

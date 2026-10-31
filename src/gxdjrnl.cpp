@@ -479,8 +479,7 @@ gxDatabaseError gxdJournal::Commit(int durable)
 	return jerror = gxDBASE_FILE_WRITE_ERROR;
     }
     uint32_t cseq = (uint32_t)(seq + 1);
-    std::vector<unsigned char> out;
-    out.reserve(1024 * 1024 + 2 * (gxdJournalPageHdrSize + gxdPageSize));
+    out.clear();
     std::vector<gxdPage *> v;
     for(size_t i = 0; i < files.size(); i++) {
       files[i].f->PageCache()->GetDirtyPages(v);

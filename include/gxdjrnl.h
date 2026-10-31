@@ -220,6 +220,7 @@ private:
   unsigned long salt;
   size_t ckpt_size;
   gxDatabaseError jerror;
+  std::vector<unsigned char> out; // Commit record buffer, kept between commits
 };
 
 class GXDLCODE_API gxdJournalReadLock
