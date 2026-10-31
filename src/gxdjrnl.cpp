@@ -483,10 +483,12 @@ gxDatabaseError gxdJournal::Commit(int durable)
   if(!in_txn) return jerror = gxDBASE_FILE_NOT_READY;
 
   // Write the in-memory headers and cached B-tree nodes into the pages
+#ifdef __USE_BTREE_CACHE__ // 10/31/2026 (6.3): BtreeCache is optional in 6.x
   for(size_t i = 0; i < caches.size(); i++) {
     if(caches[i]->Flush() != gxDBASE_NO_ERROR)
       return jerror = gxDBASE_FILE_WRITE_ERROR;
   }
+#endif
   for(size_t i = 0; i < files.size(); i++) {
     if(files[i].btx) {
       if(files[i].btx->WriteBtreeHeader() != gxDBASE_NO_ERROR)
@@ -644,7 +646,9 @@ gxDatabaseError gxdJournal::Checkpoint()
 gxDatabaseError gxdJournal::Rollback()
 {
   if(!in_txn) return jerror = gxDBASE_FILE_NOT_READY;
+#ifdef __USE_BTREE_CACHE__
   for(size_t i = 0; i < caches.size(); i++) caches[i]->Discard();
+#endif
   for(size_t i = 0; i < files.size(); i++)
     files[i].f->PageCache()->RollbackTxn();
   in_txn = 0;
