@@ -325,13 +325,21 @@ gxDatabaseError gxDatabase::Open(const char *fname,
     strcpy(file_name, fname);
     last_operation = gxDBASE_WRITE;
     
-    if(ReadFileHdr()!= gxDBASE_NO_ERROR) return gxd_error;
+    // 10/31/2026: A file that is not a database file, or whose header
+    // cannot be read, is closed again. The file used to stay open (a
+    // file handle leaked for each failed open), and Close() then wrote a
+    // database header into the other program's file.
+    if(ReadFileHdr()!= gxDBASE_NO_ERROR) {
+      gxDatabaseError e = gxd_error;
+      AbandonOpen();
+      return gxd_error = e;
+    }
 
     // Test the file type without checking the revision letter
     if(memcmp(file_header.gxd_sig, gxDatabase::gxSignature,
 	      (gxSignatureSize-1))) { 
+      AbandonOpen();
       gxd_error = gxDBASE_WRONG_FILE_TYPE;
-      is_ok = 0;
 #ifdef __CPP_EXCEPTIONS__
        throw gxCDatabaseException();
 #else
@@ -350,6 +358,17 @@ gxDatabaseError gxDatabase::Open(const char *fname,
   }
   
   return gxd_error = gxDBASE_NO_ERROR;
+}
+
+void gxDatabase::AbandonOpen()
+// 10/31/2026: Closes a file that Open() opened but cannot use, without
+// writing to it
+{
+  if(fp) gxdFPTRClose(fp);
+  fp = 0;
+  is_open = is_ok = 0;
+  ready_for_reading = ready_for_writing = 0;
+  strcpy(file_name, gxDefaultFileName);
 }
 
 gxDatabaseError gxDatabase::Close()
@@ -675,7 +694,7 @@ gxUINT32 gxDatabase::WriteObjectChecksum(FAU_t object_address)
       break;
   }
 
-  gxUINT32 CRC;
+  gxUINT32 CRC = 0; // 10/31/2026: Was returned unset when the file was not open
   __ULWORD__ bytes;
   gxBlockHeader blk_hdr;
 
@@ -688,7 +707,13 @@ gxUINT32 gxDatabase::WriteObjectChecksum(FAU_t object_address)
       return (gxUINT32)0;
     }
 
-    // Calculate a checksum based on the block data
+    // Calculate a checksum based on the block data. 10/31/2026: A block
+    // too short to hold a checksum is damaged (the length used to wrap
+    // around to about 4 GB).
+    if((__ULWORD__)blk_hdr.block_length < (__ULWORD__)(BlockHeaderSize() + sizeof(gxChecksum))) {
+      gxd_error = gxDBASE_BADBLOCK_ERROR;
+      return 0;
+    }
     bytes = (blk_hdr.block_length - BlockHeaderSize()) - sizeof(gxChecksum);
     CRC = CalcChecksum(bytes, object_address);
 
@@ -749,7 +774,13 @@ int gxDatabase::ReadObjectChecksum(FAU_t object_address,
       return (gxUINT32)0;
     }
 
-    // Calculate a checksum based on the block data
+    // Calculate a checksum based on the block data. 10/31/2026: A block
+    // too short to hold a checksum is damaged (the length used to wrap
+    // around to about 4 GB).
+    if((__ULWORD__)blk_hdr.block_length < (__ULWORD__)(BlockHeaderSize() + sizeof(gxChecksum))) {
+      gxd_error = gxDBASE_BADBLOCK_ERROR;
+      return 0;
+    }
     bytes = (blk_hdr.block_length - BlockHeaderSize()) - sizeof(gxChecksum);
     CRC = CalcChecksum(bytes, object_address);
 
@@ -793,6 +824,17 @@ __ULWORD__ gxDatabase::CalcChecksum(__ULWORD__ bytes, FAU_t file_address,
   __ULWORD__ len = bytes;
   unsigned char data;
   char *buf = 0;  
+
+  // 10/31/2026: A damaged block length must not allocate a buffer, or
+  // read, past the end of the file
+  if(!IsOK()) return 0;
+  FAU_t file_end = pcache ? pcache->FileSize() :
+    gxdFPTRSeek(fp, (FAU_t)0, gxDBASE_SEEK_END);
+  if((file_address < (FAU_t)0) || (file_end < (FAU_t)0) ||
+     ((FAU_t)bytes > file_end) || (file_address > file_end - (FAU_t)bytes)) {
+    gxd_error = gxDBASE_BADBLOCK_ERROR;
+    return 0;
+  }
 
   // Create a buffer equal to the object length
   if(mem_alloc) buf = new char[bytes]; 
@@ -1592,6 +1634,12 @@ int gxDatabase::TestBlockHeader(const gxBlockHeader &hdr)
   }
   else { // This is not a device block
     if(control != 0) return 0;
+    // 10/31/2026: A block is never shorter than its header. A damaged
+    // length of zero made the block walks (TotalBlocks() and others)
+    // loop forever, and lengths shorter than a header made them read
+    // the same bytes again and again. The library never writes such a
+    // block, so every block it created still passes.
+    if((__ULWORD__)hdr.block_length < (__ULWORD__)BlockHeaderSize()) return 0;
   }
 
   return 1; // This is a valid block

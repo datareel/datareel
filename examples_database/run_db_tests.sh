@@ -7,7 +7,7 @@
 HERE=$(cd "$(dirname "$0")" && pwd)
 W=${1:-$HERE/test_runs}
 ROUNDS=${CRASH_ROUNDS:-50}
-EX="btree btree_cached btree_node database database_cache defrag infohog pod simple"
+EX="btree btree_cached btree_node damaged database database_cache defrag infohog pod simple"
 mkdir -p "$W"
 pass=0; fail=0
 result() { if [ $1 -eq 0 ]; then pass=$((pass+1)); echo "PASS $2"; else fail=$((fail+1)); echo "FAIL $2"; fi; }

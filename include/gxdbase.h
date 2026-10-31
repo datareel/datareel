@@ -154,6 +154,7 @@ public: // Allocation/De-allocation functions
   int UnDelete(FAU_t object_address);
 
 protected: // Internal processing functions
+  void AbandonOpen(); // 10/31/2026: Close a file Open() cannot use
   gxDatabaseError InitFileHdr();
   
 public: // Functions used to calculate file offsets

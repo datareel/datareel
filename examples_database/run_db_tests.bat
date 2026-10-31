@@ -14,8 +14,8 @@ set PASS=0
 set FAIL=0
 set W=%~dp0test_runs
 if not exist "%W%" mkdir "%W%"
-for %%e in (btree btree_cached btree_node database database_cache defrag infohog pod simple journal) do call :build %%e
-for %%e in (btree btree_cached btree_node database database_cache defrag infohog pod simple) do call :run %%e
+for %%e in (btree btree_cached btree_node damaged database database_cache defrag infohog pod simple journal) do call :build %%e
+for %%e in (btree btree_cached btree_node damaged database database_cache defrag infohog pod simple) do call :run %%e
 call :journal 0
 call :journal 1
 echo %PASS% passed, %FAIL% failed (logs in %W%)
