@@ -85,8 +85,8 @@ library.
 
 // DataReel library version
 #define DATAREEL_VERSION_MAJOR 7
-#define DATAREEL_VERSION_MINOR 1
-#define DATAREEL_VERSION_STRING "7.1"
+#define DATAREEL_VERSION_MINOR 2
+#define DATAREEL_VERSION_STRING "7.2"
 
 // 10/26/2026: DataReel 7 declares its classes, types and functions in
 // the datareel namespace. The using-directive below keeps DataReel 6.x

@@ -1,9 +1,15 @@
-DataReel 7.2 Release Notes (draft, branch oodb-perf), 10/31/2026
+DataReel 7.2 Beta Release Notes, 10/31/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
-This draft describes the object database changes on the oodb-perf
-branch. They are not released: version.txt still says 7.1 and the
-branch is not merged to master.
+DataReel 7.2 is a beta release. DataReel 6.2 remains the stable
+release for production use until DataReel 7 is final; please report
+problems through https://datareel.com/contact.php.
+
+The library version is 7.2 (version.txt, DATAREEL_VERSION_STRING in
+gxdlcode.h, libdatareel.so.7.2). The shared library soname
+(libdatareel.so.7) and the database file format version are
+unchanged, and find_package(DataReel 7) finds 7.2. Programs built
+against 7.1 must be rebuilt (see COMPATIBILITY).
 
 7.2 makes the object database fast and crash safe without changing
 the database or index file formats. Files written by 7.2 open in 7.1,
@@ -77,9 +83,13 @@ WHAT CHANGED
    cache was slower than a small one (a 64 MB cache made random reads
    33 times slower). It is a hash lookup now. BtreeCache::Flush()
    writes the dirty buckets and keeps them, instead of emptying them.
-   New: BtreeCache::Discard(). With a journal attached the cached
-   B-tree is crash safe; without one a crash in the middle of a group
-   of cached inserts can still lose keys, as in 7.1.
+   New: BtreeCache::Discard(). With the B-tree and its BtreeCache
+   attached to a gxdJournal the cached B-tree is crash safe.
+
+   NOTE: without the journal, a crash in the middle of a batch can
+   still lose B-tree keys, as in 7.1 (cached nodes reach the file in
+   cache order, and each node change is a separate write). Use
+   gxdJournal for any index that must survive a crash or power loss.
 
 6. B-tree reads (gxbtree.h)
    A node is read and written with one call each (it was three).

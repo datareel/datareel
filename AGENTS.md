@@ -67,6 +67,12 @@ one file. Every sample program in them is built and run by
   used from several threads at once without your own mutex.
 - Object addresses (`FAU_t`) returned by `Alloc()` stay valid until
   the object is deleted; store them in your index keys.
+- `Flush()` does not reach the disk; `Sync()` does. For writes that
+  must survive a crash or power loss, put the data file and its
+  indexes under one `gxdJournal` (gxdjrnl.h): `Open()` the journal
+  before the files, `Attach()` them, `Begin()`/`Commit()` each batch,
+  `Close()` the journal before the files. Without it a crash can leave
+  part of a batch, and a cached B-tree can lose keys.
 
 ## Rules when changing DataReel itself
 

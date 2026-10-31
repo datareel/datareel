@@ -1,0 +1,134 @@
+<!doctype html>
+<!-- Generated from RELEASE_NOTES_7.2.txt by docs/bin/txt2html.py -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel 7.2 Beta Release Notes</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>DataReel 7.2 Beta Release Notes</h1>
+<div class="dr-toc-title">Contents</div>
+<p class="dr-toc"><a href="#WhatChanged">What changed</a><br>
+<a href="#Compatibility">Compatibility</a><br>
+<a href="#Speed">Speed</a><br>
+<a href="#HowItWasTested">How it was tested</a></p>
+<p>DataReel 7.2 is a beta release. DataReel 6.2 remains the stable release for production use until DataReel 7 is final; please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
+<p>The library version is 7.2 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.2). The shared library soname (libdatareel.so.7) and the database file format version are unchanged, and find_package(DataReel 7) finds 7.2. Programs built against 7.1 must be rebuilt (see COMPATIBILITY).</p>
+<p>7.2 makes the object database fast and crash safe without changing the database or index file formats. Files written by 7.2 open in 7.1, 7.0 and 6.2, and the other way around.</p>
+<h2 id="WhatChanged">What changed</h2>
+<p>1. File I/O without stdio (gxdfptr.h, gxdfp64.h)</p>
+<pre>   Linux reads and writes with pread()/pwrite(), Windows (MSVC) with
+   ReadFile()/WriteFile() and an OVERLAPPED offset, at a position kept
+   in the stream, for both the 32-bit and 64-bit engines. A seek no
+   longer costs a system call (it was about 20 system calls per
+   database operation), and there is no stdio buffer to discard.
+   New functions: gxdFPTRReadAt(), gxdFPTRWriteAt(), gxdFPTRSync(),
+   gxdFPTRTruncate(), gxdFPTRAllocate(). gxdFPTRSeek(gxDBASE_SEEK_END)
+   now seeks from the end of the file (it seeked from the current
+   position). On Linux gxdFPTRFlush() has nothing to flush: writes go
+   straight to the kernel. gxdFPTR64 keeps its FILE *fptr member (a
+   stream on the same descriptor) so fileno(GetFP()-&gt;fptr) still works.</pre>
+<h3>2. Real durability (gxdbase.h)</h3>
+<pre>   gxDatabase::Sync(int full = 0) forces the file to disk (fdatasync,
+   or fsync with full set; FlushFileBuffers on Windows).
+   SetSyncOnFlush(1) makes Flush() sync as well. Before 7.2 Flush()
+   stopped at the operating system&#x27;s buffers.</pre>
+<h3>3. Page cache (gxdpcache.h)</h3>
+<pre>   gxDatabase::EnablePageCache(bytes) keeps 4 KB pages of the file in
+   memory; every gxDatabase read and write uses it, so B-tree nodes,
+   block headers and objects are read from memory once loaded. Outside
+   a transaction it writes through, so the file is the same as without
+   it. Use it only while one gxDatabase object owns the file.</pre>
+<p>4. Atomic, crash and power loss safe transactions (gxdjrnl.h)</p>
+<pre>   gxdJournal is a write-ahead log for a group of files (a data file
+   and its index files):
+
+     gxdJournal j;
+     j.Open(&quot;orders.jnl&quot;);          // replays committed work
+     db.Open(&quot;orders.gxd&quot;); btx.Open(&quot;orders.btx&quot;);
+     j.Attach(&amp;db); j.Attach(&amp;btx); // and a BtreeCache if used
+     j.Begin(); ... j.Commit();      // Commit(1): synced, durable
+     j.Close();                     // checkpoint, then close the files
+
+   A commit appends the changed pages to the journal with one sync,
+   then writes them to the files without a sync, so other processes
+   reading the files see the batch when Commit() returns
+   (write-through, the default). A checkpoint syncs the files and
+   empties the journal when it passes 8 MB and on Close(), which also
+   truncates it. After a program crash or power loss Open() writes
+   every committed transaction to the files and drops one that did not
+   commit, so a batch is all or nothing. Commit(0) skips the journal
+   sync: safe from a program crash, but in write-through mode a power
+   loss can leave part of that batch in the files. Rollback() drops the
+   open transaction.
+
+   SetWriteMode(gxdJOURNAL_WRITE_BACK) keeps committed pages in memory
+   until a checkpoint (64 MB): fewer writes for a program that is the
+   only user of the files, but other processes do not see the data
+   until then. SetSyncLevel(OFF) skips the checkpoint syncs for
+   Commit(0) work, like SQLite&#x27;s synchronous=OFF.
+
+   Readers in other processes see whole batches after Commit()
+   returns. A reader that runs while a commit writes its pages can see
+   part of the batch: use the application&#x27;s own change counter, or
+   SetWriteLock(1) in the writer and gxdJournalReadLock (a shared
+   flock()/LockFileEx() lock on the journal file) in the readers.</pre>
+<h3>5. B-tree cache (btcache.h)</h3>
+<pre>   BtreeCache::FindBucket() used a linear walk of the buckets, so a big
+   cache was slower than a small one (a 64 MB cache made random reads
+   33 times slower). It is a hash lookup now. BtreeCache::Flush()
+   writes the dirty buckets and keeps them, instead of emptying them.
+   New: BtreeCache::Discard(). With the B-tree and its BtreeCache
+   attached to a gxdJournal the cached B-tree is crash safe.
+
+   NOTE: without the journal, a crash in the middle of a batch can
+   still lose B-tree keys, as in 7.1 (cached nodes reach the file in
+   cache order, and each node change is a separate write). Use
+   gxdJournal for any index that must survive a crash or power loss.</pre>
+<h3>6. B-tree reads (gxbtree.h)</h3>
+<pre>   A node is read and written with one call each (it was three).
+   Find(), FindFirst() and FindNext() reuse one node kept in the
+   gxBtree, so a walk in key order reads the next key from the same
+   leaf instead of searching from the root, while the file has not
+   been written since (gxDatabase::WriteCount()).</pre>
+<h3>7. Padding bytes</h3>
+<pre>   gxFileHeader, gxBlockHeader and gxBtreeHeader zero their padding
+   bytes, which were written to files with whatever the memory held.</pre>
+<h2 id="Compatibility">Compatibility</h2>
+<ul>
+<li>Database and index files: unchanged. The nine database examples write byte-identical files with 7.1 and 7.2 in the 32-bit and 64-bit engines.</li>
+<li>Source: the gxDatabase, gxBtree, BtreeCache, POD and InfoHog APIs are unchanged; everything new is added.</li>
+<li>Binary: gxdFPTR64, gxDatabase, gxBtree and BtreeCache have new members. Rebuild programs against 7.2 (the vendored copies in OSA and OCA are rebuilt anyway).</li>
+</ul>
+<h2 id="Speed">Speed</h2>
+<p>Same workload for every engine (datareel_oodb_bench in claude_code_docs): 1,000,000 records, 16-byte keys, 100-byte values, batches of 1000, 64 MB of cache, no sync except &quot;durable&quot;, RHEL 10.2, SATA SSD, XFS. Ops/s, median of 3 runs:</p>
+<pre>                     key order  random   random   ordered  random   random   durable
+                     insert     insert   read     scan     update   delete   insert
+ 7.1                    83,827   76,453  174,957  218,694  151,092   66,721      265
+ 7.2, no code change   137,543  128,469  217,368 1,249,539 212,531   86,917      353
+ 7.2 + journal         663,541  171,869  268,542  652,149  127,558  107,841    1,003
+ SQLite 3.46 WAL       666,603   90,840  281,075 7,355,031 113,561  132,841    1,660</pre>
+<p>The ordered scan reads the data file in record order, not key order; SQLite keeps rows in its B-tree leaves. Full report: claude_code_docs DATAREEL_72_OODB_FIXES.md.</p>
+<h2 id="HowItWasTested">How it was tested</h2>
+<ul>
+<li>tests/run_tests.sh on RHEL 10.2, 41 checks (the new journal_test, every test in both journal modes, included) in five builds: 32-bit, 64-bit, portable types, 64-bit portable types and shared library.</li>
+<li>tests/journal_test: same bytes with and without the cache and journal; commit; rollback with and without BtreeCache; 20 crash images taken at random points; 20 journals cut or overwritten past their last sync; 20 data and index files mixing pages from before and after a checkpoint.</li>
+<li>Windows 11, MSVC (VS 2026), Schannel: library, examples, the nine database examples, journal_test and damaged_files pass in 32-bit, 64-bit and 64-bit portable type builds.</li>
+<li>datareel_oodb_bench crash_test.sh (kill -9 of a writer): 0 committed records lost and no partial batch in 60 rounds with the journal.</li>
+</ul>
+</main>
+<footer class="dr-footer">DataReel 7.2 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+</body>
+</html>

@@ -1,6 +1,9 @@
 DataReel 7.1 Beta Release Notes, 10/31/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
+DataReel 7.2 followed on the same day with the journal, the page
+cache and faster I/O; see RELEASE_NOTES_7.2.txt.
+
 DataReel 7.1 is a beta release. DataReel 6.2 remains the stable
 release for production use until DataReel 7 is final; please report
 problems through https://datareel.com/contact.php.
