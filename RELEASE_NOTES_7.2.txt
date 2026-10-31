@@ -107,13 +107,24 @@ SPEED
 -----
 Same workload for every engine (datareel_oodb_bench in
 claude_code_docs): 1,000,000 records, 16-byte keys, 100-byte values,
-batches of 1000, 64 MB of cache, no sync except "durable".
-See the table in the branch report for the numbers.
+batches of 1000, 64 MB of cache, no sync except "durable", RHEL 10.2,
+SATA SSD, XFS. Ops/s, median of 3 runs:
+
+                     key order  random   random   ordered  random   random   durable
+                     insert     insert   read     scan     update   delete   insert
+ 7.1                    83,827   76,453  174,957  218,694  151,092   66,721      265
+ 7.2, no code change   137,543  128,469  217,368 1,249,539 212,531   86,917      353
+ 7.2 + journal         663,541  171,869  268,542  652,149  127,558  107,841    1,003
+ SQLite 3.46 WAL       666,603   90,840  281,075 7,355,031 113,561  132,841    1,660
+
+The ordered scan reads the data file in record order, not key order;
+SQLite keeps rows in its B-tree leaves. Full report: claude_code_docs
+DATAREEL_72_OODB_FIXES.md.
 
 HOW IT WAS TESTED
 -----------------
-- tests/run_tests.sh on RHEL 10.2, 41 checks (the new journal_test
-  included) in five builds: 32-bit, 64-bit, portable types, 64-bit
+- tests/run_tests.sh on RHEL 10.2, 41 checks (the new journal_test,
+  every test in both journal modes, included) in five builds: 32-bit, 64-bit, portable types, 64-bit
   portable types and shared library.
 - tests/journal_test: same bytes with and without the cache and
   journal; commit; rollback with and without BtreeCache; 20 crash
@@ -123,5 +134,5 @@ HOW IT WAS TESTED
 - Windows 11, MSVC (VS 2026), Schannel: library, examples, the nine
   database examples, journal_test and damaged_files pass in 32-bit,
   64-bit and 64-bit portable type builds.
-- datareel_oodb_bench crash_test.sh (kill -9 of a writer): no
-  committed record lost with the journal, and no partial batch.
+- datareel_oodb_bench crash_test.sh (kill -9 of a writer): 0 committed
+  records lost and no partial batch in 60 rounds with the journal.
