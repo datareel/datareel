@@ -1,0 +1,77 @@
+DataReel 7.3 Beta Release Notes, 10/31/2026
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.3 is a beta release. DataReel 6.2 remains the stable
+release for production use until DataReel 7 is final; please report
+problems through https://datareel.com/contact.php.
+
+7.3 makes reads and key-order scans faster. Everything in 7.2 (the
+journal, the page cache, positional I/O, the hashed B-tree cache) is
+unchanged; see RELEASE_NOTES_7.2.txt.
+
+The library version is 7.3 (version.txt, DATAREEL_VERSION_STRING in
+gxdlcode.h, libdatareel.so.7.3). The shared library soname
+(libdatareel.so.7) and the database file format are unchanged, and
+find_package(DataReel 7) finds 7.3. Programs built against 7.2 must be
+rebuilt (gxdPageCache and gxBtree have new members).
+
+WHAT CHANGED
+------------
+1. Memory-mapped reads (gxdpcache.h, gxdfptr.h)
+   The page cache reads clean data that is not in a cached page
+   straight from a read-only memory map of the file (mmap() on Linux,
+   CreateFileMapping()/MapViewOfFile() on Windows). Reading a record
+   costs no system call and no page copy. The map is renewed as the
+   file grows. EnablePageCache(bytes, use_map = 1); pass 0 to read
+   pages with pread()/ReadFile() as in 7.2. New: gxdFPTRMap(),
+   gxdFPTRUnmap(). Programs that measure their memory will see the
+   file pages they read in their resident size: that is the shared
+   operating system cache, not memory the program allocated.
+
+2. FindNext() in one compare (gxbtree.h)
+   When FindNext() is given the key it returned last and the index
+   file is unchanged, the next key comes from the same leaf with one
+   compare and a copy, without a binary search or a walk from the
+   root.
+
+3. Journal checksum in four lanes (gxdjrnl.cpp)
+   The page checksum used to find torn journal writes runs about four
+   times faster. The journal file format is unchanged.
+
+SPEED
+-----
+1,000,000 records, 16-byte keys, 100-byte values, batches of 1000,
+64 MB of cache, RHEL 10.2, SATA SSD, XFS. Ops/s, median of 3 runs,
+DataReel with the journal against SQLite 3.46 in WAL mode:
+
+                          7.2        7.3     SQLite
+ insert in key order    663,541    621,995    625,131
+ insert in random order 171,869    167,241     79,408
+ random read            268,542    424,557    235,514
+ key-order scan (1)     652,149  3,278,787  6,766,442
+ key-order scan (2)          -   7,648,578  7,172,378
+ random update          127,558    127,502     94,242
+ random delete          107,841    101,968    108,082
+ durable insert           1,003      1,253      1,496
+
+ (1) records inserted in random order: DataReel's index points into
+     a separate data file, which the scan reads in record order
+ (2) records inserted in key order
+
+A scan of records inserted in random order stays behind SQLite,
+which stores rows inside its B-tree. Closing that gap needs a
+clustered index (records stored in the index leaves), which would be
+a new file type; it is not part of 7.3.
+
+HOW IT WAS TESTED
+-----------------
+- tests/run_tests.sh on RHEL 10.2: 41 checks passed in the 32-bit,
+  64-bit and 64-bit portable type builds (journal_test runs every
+  test in both journal modes, now with memory-mapped reads).
+- Windows 11, MSVC (VS 2026), Schannel: the nine database examples,
+  journal_test and damaged_files pass in 32-bit, 64-bit and 64-bit
+  portable type builds.
+- datareel_oodb_bench crash_test.sh: 45 kill -9 rounds with the
+  journal (write-through, write-back, with BtreeCache): no committed
+  record lost, no partial batch.
+- The nine database examples write byte-identical files with 7.2.

@@ -24,6 +24,7 @@
 <a href="#Compatibility">Compatibility</a><br>
 <a href="#Speed">Speed</a><br>
 <a href="#HowItWasTested">How it was tested</a></p>
+<p>DataReel 7.3 followed on the same day with memory-mapped reads and faster scans; see <a href="release_notes_7_3.html">RELEASE_NOTES_7.3.txt</a>.</p>
 <p>DataReel 7.2 is a beta release. DataReel 6.2 remains the stable release for production use until DataReel 7 is final; please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
 <p>The library version is 7.2 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.2). The shared library soname (libdatareel.so.7) and the database file format version are unchanged, and find_package(DataReel 7) finds 7.2. Programs built against 7.1 must be rebuilt (see COMPATIBILITY).</p>
 <p>7.2 makes the object database fast and crash safe without changing the database or index file formats. Files written by 7.2 open in 7.1, 7.0 and 6.2, and the other way around.</p>
@@ -129,6 +130,6 @@
 <li>datareel_oodb_bench crash_test.sh (kill -9 of a writer): 0 committed records lost and no partial batch in 60 rounds with the journal.</li>
 </ul>
 </main>
-<footer class="dr-footer">DataReel 7.2 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

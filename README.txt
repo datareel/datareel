@@ -1,4 +1,4 @@
-DataReel 7.2 Beta Readme File
+DataReel 7.3 Beta Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -41,7 +41,7 @@ rest:
 The library has no dependencies except the system TLS library
 (OpenSSL on Linux, Schannel or OpenSSL on Windows).
 
-DataReel 7.2 is a beta release. DataReel 6.2 remains the stable
+DataReel 7.3 is a beta release. DataReel 6.2 remains the stable
 release for production use until DataReel 7 is final.
 
 The DataReel development package was produced by independent work and
@@ -99,8 +99,8 @@ use the C++ standard library; DataReel 7 itself does.
 WHAT CHANGED IN DATAREEL 7
 --------------------------
 See RELEASE_NOTES_7.0.txt for the full list and for porting notes,
-RELEASE_NOTES_7.1.txt for the changes in 7.1 and RELEASE_NOTES_7.2.txt
-for the changes in 7.2. In short:
+RELEASE_NOTES_7.1.txt, RELEASE_NOTES_7.2.txt and RELEASE_NOTES_7.3.txt
+for the changes in 7.1, 7.2 and 7.3. In short:
 
 - C++17 is required. Strings, lists, trees, threads, mutexes, files
   and time now come from the standard library. The UString/gxString,
@@ -122,6 +122,8 @@ for the changes in 7.2. In short:
 - 7.2 adds gxdJournal (atomic, crash and power loss safe transactions
   over a data file and its indexes), an optional page cache, faster
   file I/O and a faster B-tree cache. File formats are unchanged.
+- 7.3 reads records through a memory map and makes key-order scans
+  and random reads faster.
 
 LICENSE
 -------
@@ -265,6 +267,8 @@ written for AI coding assistants but useful to anyone.
 
 RELEASE HISTORY
 ---------------
+ 7.3  10/31/2026  Beta. Memory-mapped reads, faster scans
+                  (RELEASE_NOTES_7.3.txt)
  7.2  10/31/2026  Beta. Journal, page cache, positional I/O, hashed
                   B-tree cache (RELEASE_NOTES_7.2.txt)
  7.1  10/31/2026  Beta. Object database and TLS networking only:
