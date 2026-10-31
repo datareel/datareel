@@ -542,10 +542,18 @@ GXDLCODE_API int gxdFPTR64Allocate(gxdFPTR64 *stream, __LLWORD__ size)
   struct stat64 buf;
   if(fstat64(stream->fd, &buf) != 0) return 1;
   if((__LLWORD__)buf.st_size >= size) return 0;
-  if(posix_fallocate64(stream->fd, (off64_t)buf.st_size, 
-		       (off64_t)(size - buf.st_size)) == 0) return 0;
-  // Not supported by the file system
-  return ftruncate64(stream->fd, (off64_t)size) == 0 ? 0 : 1;
+  // Write zeros rather than posix_fallocate(): on XFS and ext4 the
+  // reserved extents stay "unwritten" until written, and converting
+  // them makes every later data sync write metadata too.
+  static const unsigned char zeros[65536] = { 0 };
+  __LLWORD__ off = (__LLWORD__)buf.st_size;
+  while(off < size) {
+    __ULWORD__ n = (size - off) > (__LLWORD__)sizeof(zeros) ? 
+      (__ULWORD__)sizeof(zeros) : (__ULWORD__)(size - off);
+    if(gxdFPTR64PWrite(stream->fd, zeros, n, off) != n) return 1;
+    off += n;
+  }
+  return 0;
 #else
 #error You must define a target platform and/or compiler
 #endif
