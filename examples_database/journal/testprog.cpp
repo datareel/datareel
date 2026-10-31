@@ -48,6 +48,11 @@ DataReel 7.2 tests/journal_test.cpp, ported to DataReel 6.3:
   private      (6.3) The journal file is owner-only while it is open,
                an existing journal is made owner-only, and a clean
                Close() removes it.
+  damaged      (6.3) Journals made by hand with valid checksums:
+               a page past the file's committed size is not written,
+               and a page number or file size the file address type
+               cannot hold makes the record invalid (nothing replayed,
+               the file is not changed).
 
 Each record is a 16 byte key and 100 bytes of data; the database is
 correct if the B-tree holds keys 0 to n-1 in order, with n a multiple
@@ -518,6 +523,132 @@ static void test_reader()
   std::cout << "PASS reader (write-through)\n";
 }
 
+// 6.3: The journal checksum and record layout of gxdjrnl.cpp, to make
+// damaged journals that pass the checksums
+static uint64_t dj_sum(const unsigned char *p, size_t n, uint64_t h)
+{
+  const uint64_t m = 0x9E3779B97F4A7C15ULL;
+  if(n >= 32) {
+    uint64_t l0 = h, l1 = h ^ 0x6A09E667F3BCC909ULL,
+      l2 = h ^ 0xBB67AE8584CAA73BULL, l3 = h ^ 0x3C6EF372FE94F82BULL;
+    while(n >= 32) {
+      uint64_t w[4];
+      memcpy(w, p, 32);
+      l0 = (l0 ^ w[0]) * m; l0 ^= l0 >> 29;
+      l1 = (l1 ^ w[1]) * m; l1 ^= l1 >> 29;
+      l2 = (l2 ^ w[2]) * m; l2 ^= l2 >> 29;
+      l3 = (l3 ^ w[3]) * m; l3 ^= l3 >> 29;
+      p += 32; n -= 32;
+    }
+    h = ((((l0 * m) ^ l1) * m ^ l2) * m ^ l3) * m;
+  }
+  while(n >= 8) {
+    uint64_t w;
+    memcpy(&w, p, 8);
+    h = (h ^ w) * m;
+    h ^= h >> 29;
+    p += 8; n -= 8;
+  }
+  while(n--) {
+    h = (h ^ *p++) * m;
+    h ^= h >> 29;
+  }
+  return h;
+}
+
+static uint32_t dj_check(const unsigned char *p, size_t n,
+			 const unsigned char *data = 0, size_t len = 0)
+{
+  uint64_t h = dj_sum(p, n, (uint64_t)(n + len));
+  if(data) h = dj_sum(data, len, h);
+  return (uint32_t)(h ^ (h >> 32));
+}
+
+static void dj_put32(std::vector<unsigned char> &v, uint32_t x)
+{
+  unsigned char b[4]; memcpy(b, &x, 4); v.insert(v.end(), b, b + 4);
+}
+
+static void dj_put64(std::vector<unsigned char> &v, uint64_t x)
+{
+  unsigned char b[8]; memcpy(b, &x, 8); v.insert(v.end(), b, b + 8);
+}
+
+static void dj_write(const std::string &jname, const std::string &target,
+		     uint64_t page_no, uint64_t size, unsigned char fill)
+// One transaction: one page and a commit record giving the file size
+{
+  const uint32_t salt = 12345;
+  std::vector<unsigned char> j;
+  const char magic[8] = { 'G','X','D','W','A','L','0','1' };
+  j.insert(j.end(), magic, magic + 8);
+  dj_put32(j, 1);        // Version
+  dj_put32(j, salt);
+  dj_put32(j, 1);        // Files
+  dj_put32(j, 4096);     // Page size
+  dj_put32(j, (uint32_t)target.size());
+  j.insert(j.end(), target.begin(), target.end());
+  dj_put32(j, dj_check(j.data(), j.size()));
+  std::vector<unsigned char> page(4096, fill);
+  size_t start = j.size();
+  dj_put32(j, 0x4D524657); // Page record
+  dj_put32(j, salt);
+  dj_put32(j, 0);          // File 0
+  dj_put32(j, 1);          // Commit 1
+  dj_put64(j, page_no);
+  dj_put32(j, dj_check(j.data() + start + 4, 20, page.data(), page.size()));
+  j.insert(j.end(), page.begin(), page.end());
+  start = j.size();
+  dj_put32(j, 0x544D4357); // Commit record
+  dj_put32(j, salt);
+  dj_put32(j, 1);
+  dj_put32(j, 1);
+  dj_put64(j, size);
+  dj_put32(j, dj_check(j.data() + start + 4, j.size() - start - 4));
+  write_file(jname, std::vector<char>(j.begin(), j.end()));
+}
+
+static void test_damaged_journal()
+{
+  std::string dir = fresh_dir("damaged");
+  std::string target = fs::absolute(dir + "/target.dat").string();
+  std::string jname = dir + "/target.jnl";
+  std::vector<char> orig(8192, 'x');
+  unsigned long n = 0;
+  gxDatabaseError err;
+
+  // A page inside the committed size is written (the checksums are right)
+  write_file(target, orig);
+  dj_write(jname, target, 1, 8192, 'y');
+  err = gxdJournal::Recover(jname.c_str(), &n);
+  std::vector<char> after = read_file(target);
+  CHECK(err == gxDBASE_NO_ERROR && n == 1 && after.size() == 8192 && after[4096] == 'y' &&
+	after[0] == 'x', "damaged: a valid hand-made journal is replayed");
+
+  // A page past the committed size is not written
+  write_file(target, orig);
+  dj_write(jname, target, 100, 8192, 'y');
+  err = gxdJournal::Recover(jname.c_str(), &n);
+  after = read_file(target);
+  CHECK(err == gxDBASE_NO_ERROR && after == orig, "damaged: a page past the committed size is not written");
+
+  // A page number the address type cannot hold
+  write_file(target, orig);
+  dj_write(jname, target, 0x0010000000000000ULL, 8192, 'y');
+  err = gxdJournal::Recover(jname.c_str(), &n);
+  after = read_file(target);
+  CHECK(err == gxDBASE_NO_ERROR && n == 0 && after == orig, "damaged: a page number past the largest file address is not replayed");
+
+  // A file size the address type cannot hold
+  write_file(target, orig);
+  dj_write(jname, target, 1, 0x8000000000000005ULL, 'y');
+  err = gxdJournal::Recover(jname.c_str(), &n);
+  after = read_file(target);
+  CHECK(err == gxDBASE_NO_ERROR && n == 0 && after == orig, "damaged: a file size past the largest file address is not replayed");
+
+  std::cout << "PASS damaged\n";
+}
+
 static void test_private()
 // 6.3: Journal file access and removal
 {
@@ -620,6 +751,7 @@ int main(int argc, char **argv)
   g_mode = gxdJOURNAL_WRITE_THROUGH;
   test_reader();
   test_private();
+  test_damaged_journal();
   if(failures) {
     std::cout << failures << " journal tests failed\n";
     return 1;

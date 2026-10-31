@@ -259,6 +259,13 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
     return gxDBASE_NO_ERROR;
   }
 
+  // 10/31/2026 (6.3): Largest file size and page number the file
+  // address type can hold. A damaged size or page number past it is not
+  // a valid record (it would wrap around to another file address).
+  const uint64_t fau_max = (sizeof(FAU_t) >= 8) ? (uint64_t)0x7fffffffffffffffULL :
+    (uint64_t)0x7fffffffUL;
+  const uint64_t page_max = fau_max / gxdPageSize;
+
   // Find the committed pages. The last record of a page wins.
   typedef std::pair<uint32_t, uint64_t> PageKey;
   std::map<PageKey, FAU_t> committed, pending;
@@ -277,6 +284,7 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
 	 gxdJournalPageHdrSize + gxdPageSize) break;
       uint32_t idx = jget32(r + 8);
       if((idx >= paths.size()) || (jget32(r + 12) != next_seq)) break;
+      if(jget64(r + 16) >= page_max) break; // 10/31/2026
       if(jcheck(r + 4, 20, r + gxdJournalPageHdrSize, gxdPageSize) !=
 	 jget32(r + 24)) break;
       pending[PageKey(idx, jget64(r + 16))] = pos + gxdJournalPageHdrSize;
@@ -289,6 +297,11 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
       if(gxdFPTRReadAt(jfp, c.data(), (__ULWORD__)c.size(), pos) != c.size())
 	break;
       if(jcheck(c.data() + 4, len - 4) != jget32(c.data() + len)) break;
+      int sizes_ok = 1; // 10/31/2026: Sizes the address type can hold
+      for(size_t i = 0; i < paths.size(); i++) {
+	if(jget64(c.data() + 16 + 8 * i) > fau_max) sizes_ok = 0;
+      }
+      if(!sizes_ok) break;
       for(size_t i = 0; i < paths.size(); i++) {
 	sizes[i] = jget64(c.data() + 16 + 8 * i);
 	has_size[i] = 1;
@@ -312,6 +325,9 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
     }
     for(auto &e : committed) {
       if(err != gxDBASE_NO_ERROR) break;
+      // 10/31/2026 (6.3): Pages past the file's committed size are not
+      // written (the file is cut to that size below anyway)
+      if(e.first.second * (uint64_t)gxdPageSize >= sizes[e.first.first]) continue;
       if(gxdFPTRReadAt(jfp, buf.data(), gxdPageSize, e.second) != gxdPageSize ||
 	 gxdFPTRWriteAt(fps[e.first.first], buf.data(), gxdPageSize,
 			(FAU_t)(e.first.second * gxdPageSize)) != gxdPageSize)
