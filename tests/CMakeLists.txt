@@ -3,3 +3,8 @@ add_executable(damaged_files damaged_files.cpp)
 target_link_libraries(damaged_files PRIVATE DataReel::datareel)
 set_target_properties(damaged_files PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+
+add_executable(journal_test journal_test.cpp)
+target_link_libraries(journal_test PRIVATE DataReel::datareel)
+set_target_properties(journal_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")

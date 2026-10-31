@@ -83,9 +83,20 @@ namespace datareel {
 struct GXDLCODE_API gxdFPTR64 {
 #if defined (__WIN32__) && defined (__MSVC__)
   // WIN32 file pointer type for MSVC
+  // 10/31/2026: Positional I/O. Reads and writes pass the offset kept
+  // in "pos" to ReadFile()/WriteFile() in an OVERLAPPED structure, so a
+  // seek costs no system call.
   HANDLE fptr;
+  __LLWORD__ pos;
 #elif defined (__UNIX__) && defined (__LINUX__)
+  // 10/31/2026: Positional I/O. Reads and writes use pread()/pwrite() at
+  // the position kept in "pos", so a seek costs no system call and there
+  // is no stdio buffer to discard. "fptr" is a stdio stream on the same
+  // descriptor, kept so fileno(stream->fptr) still works; the library
+  // never reads or writes through it.
   FILE *fptr;
+  int fd;
+  __LLWORD__ pos;
 #else
 #error You must define a target platform and/or compiler
 #endif
@@ -105,6 +116,13 @@ GXDLCODE_API __ULWORD__ gxdFPTR64Write(gxdFPTR64 *stream, const void *buf,
 GXDLCODE_API __LLWORD__ gxdFPTR64Seek(gxdFPTR64 *stream, __LLWORD__,
 				      gxDatabaseSeekMode mode);
 GXDLCODE_API __LLWORD__ gxdFPTR64Tell(gxdFPTR64 *stream);
+GXDLCODE_API int gxdFPTR64Sync(gxdFPTR64 *stream, int full);
+GXDLCODE_API __ULWORD__ gxdFPTR64ReadAt(gxdFPTR64 *stream, void *buf, 
+					__ULWORD__ bytes, __LLWORD__ offset);
+GXDLCODE_API __ULWORD__ gxdFPTR64WriteAt(gxdFPTR64 *stream, const void *buf,
+					 __ULWORD__ bytes, __LLWORD__ offset);
+GXDLCODE_API int gxdFPTR64Truncate(gxdFPTR64 *stream, __LLWORD__ size);
+GXDLCODE_API int gxdFPTR64Allocate(gxdFPTR64 *stream, __LLWORD__ size);
 GXDLCODE_API int gxdFPTR64Exists(const char *fname);
 GXDLCODE_API __LLWORD__ gxdFPTR64FileSize(const char *fname);
 

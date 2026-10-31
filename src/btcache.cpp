@@ -39,6 +39,9 @@ build faster B-tree insert, find, and delete functions.
 // ----------------------------------------------------------- //   
 #include "gxdlcode.h"
 
+#include <string.h>
+#include <vector>
+
 #ifdef __USE_BTREE_CACHE__
 
 #include "gxbtree.h"
@@ -71,11 +74,12 @@ gxDatabaseError BtreeBucket::ReadNode(gxDatabase *f)
 {
   if(!f) return gxDBASE_NULL_PTR;
 
-  if(f->Read(&key_count, sizeof(key_count), node_address) !=
-     gxDBASE_NO_ERROR)
+  // 10/31/2026: Read the key count and left child with one read
+  char hdr[sizeof(key_count) + sizeof(left_child)];
+  if(f->Read(hdr, sizeof(hdr), node_address) != gxDBASE_NO_ERROR)
     return f->GetDatabaseError();
-  if(f->Read(&left_child, sizeof(left_child)) != gxDBASE_NO_ERROR)
-    return f->GetDatabaseError();
+  memcpy(&key_count, hdr, sizeof(key_count));
+  memcpy(&left_child, hdr + sizeof(key_count), sizeof(left_child));
 
   // 10/26/2026: The key count comes from the index file. A count larger
   // than the node can hold overflowed key_entries, the same problem
@@ -104,20 +108,21 @@ gxDatabaseError BtreeBucket::WriteNode(gxDatabase *f)
 {
   if(!f) return gxDBASE_NULL_PTR;
 
-  if(f->Write(&key_count, sizeof(key_count), node_address, 0, 0) 
-     != gxDBASE_NO_ERROR)
-    return f->GetDatabaseError();
-
-  if(f->Write(&left_child, sizeof(left_child), gxCurrAddress, 0, 0) 
-     != gxDBASE_NO_ERROR)
-    return f->GetDatabaseError();
-  
-  // Optimize the write by only writing the exact number of keys
-  if(key_count > (BtreeKeyCount_t)0) { // Ensure node has entries
-    if(f->Write(key_entries, (key_size * key_count),
-		gxCurrAddress, 0, 0) != gxDBASE_NO_ERROR)
-      return f->GetDatabaseError();
+  // 10/31/2026: Write the key count, left child and keys with one write.
+  // The bytes and their order in the file are unchanged.
+  static thread_local std::vector<char> wbuf;
+  size_t hdr_len = sizeof(key_count) + sizeof(left_child);
+  size_t keys_len = 0;
+  if(key_count > (BtreeKeyCount_t)0) { // Only the keys in use
+    keys_len = (size_t)(key_size * key_count);
   }
+  wbuf.resize(hdr_len + keys_len);
+  memcpy(wbuf.data(), &key_count, sizeof(key_count));
+  memcpy(wbuf.data() + sizeof(key_count), &left_child, sizeof(left_child));
+  if(keys_len) memcpy(wbuf.data() + hdr_len, key_entries, keys_len);
+  if(f->Write(wbuf.data(), (__ULWORD__)wbuf.size(), node_address, 0, 0) 
+     != gxDBASE_NO_ERROR)
+    return f->GetDatabaseError();
 
   is_dirty = 0; // Reset this bucket's dirty flag
   return gxDBASE_NO_ERROR;
@@ -220,6 +225,7 @@ void BtreeCache::DestroyCache()
   Disconnect();
   if(buckets) delete[] buckets;
   buckets = 0;
+  index.clear();
 }
 
 gxDatabaseError BtreeCache::Flush()
@@ -229,27 +235,42 @@ gxDatabaseError BtreeCache::Flush()
 {
   if((f == 0) || (buckets == 0)) return gxDBASE_NULL_PTR;
 
-  // Flush, starting at the front so that cache will be flushed
-  // in a first in, last out sequence
-  BtreeBucket *bucket = head;
+  // 10/31/2026: Write the dirty buckets and keep them in the cache. The
+  // flush used to empty every dirty bucket, so a cache flushed after each
+  // group of inserts lost its most used nodes. Writes go from the least
+  // recently used bucket to the most recently used one.
+  BtreeBucket *bucket = tail;
 
   // PC-lint 04/20/2004: Possible use of null pointer
   if(!bucket) return gxDBASE_NULL_PTR;
 
   do {
-    if(f->ReadyForWriting()) {
-      if(bucket->Flush(f) != gxDBASE_NO_ERROR) {
+    if(bucket->IsDirty() && (bucket->node_address != (FAU_t)0)) {
+      if(!f->ReadyForWriting()) { // The file is not ready for writing
+	return f->SetDatabaseError(gxDBASE_FILE_NOT_READY);
+      }
+      if(bucket->WriteNode(f) != gxDBASE_NO_ERROR) {
 	return f->GetDatabaseError(); // Error writing to the file 
       }
     }
-    else { // The file is not ready for writing
-      return f->SetDatabaseError(gxDBASE_FILE_NOT_READY);
-    }
-
-    bucket = bucket->next;
-  } while(bucket != head);
+    bucket = bucket->prev;
+  } while(bucket != tail);
 
   return gxDBASE_NO_ERROR;
+}
+
+void BtreeCache::Discard()
+// 10/31/2026: Drop every bucket without writing it. Used when a journal
+// transaction is rolled back.
+{
+  if(IsEmpty()) return;
+  BtreeBucket *bucket = head;
+  if(!bucket) return;
+  do {
+    bucket->ResetBucket();
+    bucket = bucket->next;
+  } while(bucket != head);
+  index.clear();
 }
 
 gxDatabaseError BtreeCache::LRUFlush(unsigned num_to_flush)
@@ -333,6 +354,7 @@ BtreeBucket *BtreeCache::FindEmptyBucket()
   }
 
   BtreeBucket *bucket = tail;
+  FAU_t old_address = bucket ? bucket->node_address : (FAU_t)0;
 
   // PC-lint 04/20/2004: Possible use of null pointer
   if(!bucket) return 0;
@@ -356,6 +378,11 @@ BtreeBucket *BtreeCache::FindEmptyBucket()
     return 0; // Cannot flush the bucket without a database file
   }
 
+  // 10/31/2026: Remove the bucket's old node from the index
+  if(old_address != (FAU_t)0) {
+    auto it = index.find(old_address);
+    if((it != index.end()) && (it->second == bucket)) index.erase(it);
+  }
   PromoteBucket(bucket);
   return bucket;
 }
@@ -364,17 +391,16 @@ BtreeBucket *BtreeCache::FindBucket(FAU_t node_address)
 // Function used to serach for a bucket by its node_address.
 // Returns a null value if the node could not be found.
 {
-  BtreeBucket *bucket = head;
-
-  // PC-lint 04/20/2004: Possible use of null pointer
-  if(!bucket) return 0;
-
-  do {
-    if(bucket->node_address == node_address) return bucket;
-    bucket = bucket->next;
-  } while(bucket != head);
-
-  return 0;
+  // 10/31/2026: Hash lookup in place of a walk of the bucket list. An
+  // index entry is used only if its bucket still holds the node.
+  if(node_address == (FAU_t)0) return 0;
+  auto it = index.find(node_address);
+  if(it == index.end()) return 0;
+  if(it->second->node_address != node_address) { // Stale entry
+    index.erase(it);
+    return 0;
+  }
+  return it->second;
 }
 
 void BtreeCache::DemoteBucket(BtreeBucket *bucket)
@@ -464,6 +490,7 @@ BtreeBucket *BtreeCache::AllocBucket(FAU_t node_address, int load_bucket)
       bucket->ResetBucket();
       bucket->left_child = (FAU_t)0;
       bucket->node_address = node_address;
+      index[node_address] = bucket; // 10/31/2026
       if((load_bucket == 1) && (node_address != (FAU_t)0)) {
 	// 10/14/2026: On failure the bucket kept the new node address, so
 	// the next request for this node returned the unread bucket as a

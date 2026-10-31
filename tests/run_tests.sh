@@ -79,6 +79,8 @@ check ai_record_store_walk sh -c "[ \$(grep -c qty $WORK/ai_record_store.log) -e
 check ai_indexed_records sh -c "$E/ai_indexed_records | tr -d '\n' | grep -q 'Found Acme Tools.*Acme Tools, 40 orders  Baker Hardware, 7 orders  Wilson Supply, 12 orders\$'"
 mkdir -p "$WORK/run_damaged" && cd "$WORK/run_damaged" && 
   check damaged_files "$BUILD/tests/damaged_files" 300 7
+mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" &&
+  check journal_test "$BUILD/tests/journal_test" 20 7
 cd "$WORK"
 
 # TLS echo server and client, IPv4 and IPv6, certificate checks

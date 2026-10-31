@@ -70,7 +70,113 @@ gxdFPTR64FileSize()
 
 #include "gxdfp64.h"
 
+#if defined (__UNIX__)
+#include <errno.h>
+#endif
+
 namespace datareel {
+
+#if defined (__WIN32__)
+// 10/31/2026: Positional I/O helpers for WIN32. The offset is passed in
+// an OVERLAPPED structure on the synchronous file handle.
+static __ULWORD__ gxdFPTR64PRead(HANDLE h, void *buf, __ULWORD__ bytes,
+				 __LLWORD__ offset)
+{
+  unsigned char *p = (unsigned char *)buf;
+  __ULWORD__ done = 0;
+  while(done < bytes) {
+    OVERLAPPED ov;
+    memset(&ov, 0, sizeof(ov));
+    LARGE_INTEGER li;
+    li.QuadPart = offset + done;
+    ov.Offset = li.LowPart;
+    ov.OffsetHigh = (DWORD)li.HighPart;
+    DWORD n = 0;
+    if(!ReadFile(h, (LPVOID)(p + done), (DWORD)(bytes - done), &n, &ov)) {
+      break; // ERROR_HANDLE_EOF or a read error
+    }
+    if(n == 0) break; // End of file
+    done += (__ULWORD__)n;
+  }
+  return done;
+}
+
+static __ULWORD__ gxdFPTR64PWrite(HANDLE h, const void *buf, __ULWORD__ bytes,
+				  __LLWORD__ offset)
+{
+  const unsigned char *p = (const unsigned char *)buf;
+  __ULWORD__ done = 0;
+  while(done < bytes) {
+    OVERLAPPED ov;
+    memset(&ov, 0, sizeof(ov));
+    LARGE_INTEGER li;
+    li.QuadPart = offset + done;
+    ov.Offset = li.LowPart;
+    ov.OffsetHigh = (DWORD)li.HighPart;
+    DWORD n = 0;
+    if(!WriteFile(h, (LPCVOID)(p + done), (DWORD)(bytes - done), &n, &ov)) {
+      break;
+    }
+    if(n == 0) break;
+    done += (__ULWORD__)n;
+  }
+  return done;
+}
+#endif
+
+#if defined (__UNIX__)
+// 10/31/2026: Positional I/O helpers. The stream keeps its own file
+// position and every read and write is one pread()/pwrite() at that
+// position, retried on short transfers and EINTR.
+static gxdFPTR64 *gxdFPTR64Attach(int fd, const char *mode)
+{
+  if(fd < 0) return 0;
+  gxdFPTR64 *stream = new gxdFPTR64;
+  stream->fd = fd;
+  stream->pos = (__LLWORD__)0;
+  stream->fptr = fdopen(fd, mode);
+  if(stream->fptr == 0) {
+    close(fd);
+    delete stream;
+    return 0;
+  }
+  return stream;
+}
+
+static __ULWORD__ gxdFPTR64PRead(int fd, void *buf, __ULWORD__ bytes,
+				 __LLWORD__ offset)
+{
+  unsigned char *p = (unsigned char *)buf;
+  __ULWORD__ done = 0;
+  while(done < bytes) {
+    ssize_t n = pread(fd, p + done, bytes - done, (off_t)(offset + done));
+    if(n < 0) {
+      if(errno == EINTR) continue;
+      break;
+    }
+    if(n == 0) break; // End of file
+    done += (__ULWORD__)n;
+  }
+  return done;
+}
+
+static __ULWORD__ gxdFPTR64PWrite(int fd, const void *buf, __ULWORD__ bytes,
+				  __LLWORD__ offset)
+{
+  const unsigned char *p = (const unsigned char *)buf;
+  __ULWORD__ done = 0;
+  while(done < bytes) {
+    ssize_t n = pwrite(fd, p + done, bytes - done, (off_t)(offset + done));
+    if(n < 0) {
+      if(errno == EINTR) continue;
+      break;
+    }
+    if(n == 0) break;
+    done += (__ULWORD__)n;
+  }
+  return done;
+}
+#endif
 
 
 
@@ -112,13 +218,11 @@ GXDLCODE_API gxdFPTR64 *gxdFPTR64Create(const char *fname)
     delete stream;
     return 0;
   }
+  stream->pos = (__LLWORD__)0;
 #elif defined (__UNIX__)
-  // Non-POSIX standard API interfaces to support large files.
-  stream->fptr = fopen64(fname, "w+");
-  if(stream->fptr == 0) {
-    delete stream; // 01/30/2002: Prevent memory leak
-    return 0;
-  }
+  delete stream;
+  stream = gxdFPTR64Attach(open(fname, O_RDWR|O_CREAT|O_TRUNC|O_CLOEXEC, 0666),
+			   "w+");
 #else
 #error You must define a target platform and/or compiler
 #endif
@@ -169,14 +273,11 @@ GXDLCODE_API gxdFPTR64 *gxdFPTR64Open(const char *fname,
       delete stream;
       return 0;
     }
+    stream->pos = (__LLWORD__)0;
     
 #elif defined (__UNIX__)
-    // Non-POSIX standard API interfaces to support large files.
-    stream->fptr = fopen64(fname, "r");
-    if(stream->fptr == 0) {
-      delete stream; // 01/30/2002: Prevent memory leak
-      return 0;
-    }
+    delete stream;
+    return gxdFPTR64Attach(open(fname, O_RDONLY|O_CLOEXEC), "r");
 #else
 #error You must define a target platform and/or compiler
 #endif
@@ -211,14 +312,11 @@ GXDLCODE_API gxdFPTR64 *gxdFPTR64Open(const char *fname,
       delete stream;
       return 0;
     }
+    stream->pos = (__LLWORD__)0;
 
 #elif defined (__UNIX__)
-    // Non-POSIX standard API interfaces to support large files.
-    stream->fptr = fopen64(fname, "r+");
-    if(stream->fptr == 0) {
-      delete stream; // 01/30/2002: Prevent memory leak
-      return 0;
-    }
+    delete stream;
+    return gxdFPTR64Attach(open(fname, O_RDWR|O_CLOEXEC), "r+");
 #else
 #error You must define a target platform and/or compiler
 #endif
@@ -254,7 +352,9 @@ GXDLCODE_API int gxdFPTR64Flush(gxdFPTR64 *stream)
     return 1;
   }
 #elif defined (__UNIX__)
-  if(fflush(stream->fptr) != 0) return 1;
+  // 10/31/2026: Writes go straight to the kernel with pwrite(), so there
+  // are no user space buffers to flush. gxdFPTR64Sync() forces the data
+  // to disk.
 #else
 #error You must define a target platform and/or compiler
 #endif
@@ -270,14 +370,14 @@ GXDLCODE_API __ULWORD__ gxdFPTR64Read(gxdFPTR64 *stream, void *buf,
   if(!stream) return (__ULWORD__)0; // The file stream is not open
   
 #if defined (__WIN32__)
-  DWORD bytes_read; 
-  if(!ReadFile(stream->fptr, (LPVOID)buf, (DWORD)bytes, &bytes_read, NULL)) {
-    return (__ULWORD__)0;
-  }
-  return (__ULWORD__)bytes_read;
+  __ULWORD__ n = gxdFPTR64PRead(stream->fptr, buf, bytes, stream->pos);
+  stream->pos += n;
+  return n;
 
 #elif defined (__UNIX__)
-  return (__ULWORD__)fread((unsigned char *)buf, 1, bytes, stream->fptr);
+  __ULWORD__ n = gxdFPTR64PRead(stream->fd, buf, bytes, stream->pos);
+  stream->pos += n;
+  return n;
 #else
 #error You must define a target platform and/or compiler
 #endif
@@ -292,14 +392,14 @@ GXDLCODE_API __ULWORD__ gxdFPTR64Write(gxdFPTR64 *stream, const void *buf,
   if(!stream) return (__ULWORD__)0; // The file stream is not open
   
 #if defined (__WIN32__)
-  DWORD bytes_moved; 
-  if(!WriteFile(stream->fptr, (LPVOID)buf, (DWORD)bytes, &bytes_moved, NULL)) {
-    return (__ULWORD__)0;
-  }
-  return (__ULWORD__)bytes_moved;
+  __ULWORD__ n = gxdFPTR64PWrite(stream->fptr, buf, bytes, stream->pos);
+  stream->pos += n;
+  return n;
 
 #elif defined (__UNIX__)
- return (__ULWORD__)fwrite((const unsigned char *)buf, 1, bytes, stream->fptr);
+  __ULWORD__ n = gxdFPTR64PWrite(stream->fd, buf, bytes, stream->pos);
+  stream->pos += n;
+  return n;
 #else
 #error You must define a target platform and/or compiler
 #endif
@@ -315,48 +415,33 @@ GXDLCODE_API __LLWORD__ gxdFPTR64Seek(gxdFPTR64 *stream, __LLWORD__ offset,
 {
   if(!stream) return (__LLWORD__)-1; // The file stream is not open
 
+#if defined (__WIN32__) || defined (__UNIX__)
+  // 10/31/2026: A seek only moves the stream's own position. The END
+  // mode used to seek from the current position.
+  __LLWORD__ newpos;
+  if(mode == gxDBASE_SEEK_BEG) {
+    newpos = offset;
+  }
+  else if(mode == gxDBASE_SEEK_CUR) {
+    newpos = stream->pos + offset;
+  }
+  else if(mode == gxDBASE_SEEK_END) {
 #if defined (__WIN32__)
-  LARGE_INTEGER li;
-  li.QuadPart = offset;
-
-  if(mode == gxDBASE_SEEK_BEG) {
-    li.LowPart = SetFilePointer(stream->fptr, li.LowPart, 
-				&li.HighPart, 
-				FILE_BEGIN);
-  }
-  else if(mode == gxDBASE_SEEK_CUR) {
-    li.LowPart = SetFilePointer(stream->fptr, li.LowPart, 
-				&li.HighPart, 
-				FILE_CURRENT);
-  }
-  else if(mode == gxDBASE_SEEK_END) {
-    li.LowPart = SetFilePointer(stream->fptr, li.LowPart, 
-				&li.HighPart, 
-				FILE_END);
+    LARGE_INTEGER size;
+    if(!GetFileSizeEx(stream->fptr, &size)) return (__LLWORD__)-1;
+    newpos = (__LLWORD__)size.QuadPart + offset;
+#else
+    struct stat64 buf;
+    if(fstat64(stream->fd, &buf) != 0) return (__LLWORD__)-1;
+    newpos = (__LLWORD__)buf.st_size + offset;
+#endif
   }
   else { // An invalid seek mode was specified
     return (__LLWORD__)-1;
   }
-
-  // Check for seek errors
-  if(li.LowPart == 0xFFFFFFFF && GetLastError() != NO_ERROR) {
-    li.QuadPart = (__LLWORD__)-1;
-  }
-  return (__LLWORD__)li.QuadPart;
-
-#elif defined (__UNIX__)
-  if(mode == gxDBASE_SEEK_BEG) {
-    return fseeko64(stream->fptr, offset, SEEK_SET);
-  }
-  else if(mode == gxDBASE_SEEK_CUR) {
-    return fseeko64(stream->fptr, offset, SEEK_CUR);
-  }
-  else if(mode == gxDBASE_SEEK_END) {
-    return fseeko64(stream->fptr, offset, SEEK_CUR);
-  }
-  else { // An invalid seek mode was specified
-    return (__LLWORD__)-1;
-  }
+  if(newpos < (__LLWORD__)0) return (__LLWORD__)-1;
+  stream->pos = newpos;
+  return newpos;
 #else
 #error You must define a target platform and/or compiler
 #endif
@@ -366,22 +451,100 @@ GXDLCODE_API __LLWORD__ gxdFPTR64Tell(gxdFPTR64 *stream)
 {
   if(!stream) return (__LLWORD__)-1; // The file stream is not open
   
-#if defined (__WIN32__)
-  LARGE_INTEGER li;
-  li.QuadPart = (__LLWORD__)0;
-  li.LowPart = SetFilePointer(stream->fptr, li.LowPart, 
-			      &li.HighPart, 
-			      FILE_CURRENT);
-  // Check for errors
-  if(li.LowPart == 0xFFFFFFFF && GetLastError() != NO_ERROR) {
-    li.QuadPart = (__LLWORD__)-1;
-  }
-  
-  return (__LLWORD__)li.QuadPart;
+#if defined (__WIN32__) || defined (__UNIX__)
+  return stream->pos;
+#else
+#error You must define a target platform and/or compiler
+#endif
+}
 
+GXDLCODE_API int gxdFPTR64Sync(gxdFPTR64 *stream, int full)
+// 10/31/2026: Force the file's data to stable storage. With "full" set
+// the file's metadata (size, times) is written too. Returns a non-zero
+// value to indicate an error condition or zero if successful.
+{
+  if(!stream) return 0; // The file stream is not open
+#if defined (__WIN32__)
+  (void)full;
+  if(!FlushFileBuffers(stream->fptr)) return 1;
 #elif defined (__UNIX__)
-  // Non-POSIX standard API interfaces to support large files.
-  return ftello64(stream->fptr);
+  int rv = full ? fsync(stream->fd) : fdatasync(stream->fd);
+  if(rv != 0) return 1;
+#else
+#error You must define a target platform and/or compiler
+#endif
+  return 0;
+}
+
+GXDLCODE_API __ULWORD__ gxdFPTR64ReadAt(gxdFPTR64 *stream, void *buf, 
+					__ULWORD__ bytes, __LLWORD__ offset)
+// 10/31/2026: Read from a file offset without moving the file position.
+// Returns the number of bytes read, which is less than "bytes" at the end
+// of the file.
+{
+  if(!stream) return (__ULWORD__)0; // The file stream is not open
+#if defined (__WIN32__)
+  return gxdFPTR64PRead(stream->fptr, buf, bytes, offset);
+#elif defined (__UNIX__)
+  return gxdFPTR64PRead(stream->fd, buf, bytes, offset);
+#else
+#error You must define a target platform and/or compiler
+#endif
+}
+
+GXDLCODE_API __ULWORD__ gxdFPTR64WriteAt(gxdFPTR64 *stream, const void *buf,
+					 __ULWORD__ bytes, __LLWORD__ offset)
+// 10/31/2026: Write at a file offset without moving the file position.
+// Returns the number of bytes written.
+{
+  if(!stream) return (__ULWORD__)0; // The file stream is not open
+#if defined (__WIN32__)
+  return gxdFPTR64PWrite(stream->fptr, buf, bytes, offset);
+#elif defined (__UNIX__)
+  return gxdFPTR64PWrite(stream->fd, buf, bytes, offset);
+#else
+#error You must define a target platform and/or compiler
+#endif
+}
+
+GXDLCODE_API int gxdFPTR64Truncate(gxdFPTR64 *stream, __LLWORD__ size)
+// 10/31/2026: Set the file size. Returns a non-zero value to indicate an
+// error condition or zero if successful.
+{
+  if(!stream) return 1; // The file stream is not open
+#if defined (__WIN32__)
+  FILE_END_OF_FILE_INFO eof;
+  eof.EndOfFile.QuadPart = size;
+  return SetFileInformationByHandle(stream->fptr, FileEndOfFileInfo, 
+				    &eof, sizeof(eof)) ? 0 : 1;
+#elif defined (__UNIX__)
+  return ftruncate64(stream->fd, (off64_t)size) == 0 ? 0 : 1;
+#else
+#error You must define a target platform and/or compiler
+#endif
+}
+
+GXDLCODE_API int gxdFPTR64Allocate(gxdFPTR64 *stream, __LLWORD__ size)
+// 10/31/2026: Reserve disk space so the file is at least "size" bytes
+// long. Writes inside the reserved space do not change the file size,
+// so a data sync after them does not have to write the file's metadata.
+// Returns a non-zero value to indicate an error condition or zero if
+// successful.
+{
+  if(!stream) return 1; // The file stream is not open
+#if defined (__WIN32__)
+  LARGE_INTEGER cur;
+  if(!GetFileSizeEx(stream->fptr, &cur)) return 1;
+  if(cur.QuadPart >= size) return 0;
+  return gxdFPTR64Truncate(stream, size);
+#elif defined (__UNIX__)
+  struct stat64 buf;
+  if(fstat64(stream->fd, &buf) != 0) return 1;
+  if((__LLWORD__)buf.st_size >= size) return 0;
+  if(posix_fallocate64(stream->fd, (off64_t)buf.st_size, 
+		       (off64_t)(size - buf.st_size)) == 0) return 0;
+  // Not supported by the file system
+  return ftruncate64(stream->fd, (off64_t)size) == 0 ? 0 : 1;
 #else
 #error You must define a target platform and/or compiler
 #endif
@@ -423,7 +586,6 @@ GXDLCODE_API int gxdFPTR64Exists(const char *fname)
   return 1;
 
 #elif defined (__UNIX__)
-  // Non-POSIX standard API interfaces to support large files.
   struct stat64 buf;
   return stat64(fname, &buf) == (__LLWORD__)0;
 #else
@@ -479,7 +641,6 @@ GXDLCODE_API __LLWORD__ gxdFPTR64FileSize(const char *fname)
   return (__LLWORD__)li.QuadPart;
 
 #elif defined (__UNIX__)
-    // Non-POSIX standard API interfaces to support large files.
     struct stat64 buf;
     if(stat64(fname, &buf) != (__LLWORD__)0) return (__LLWORD__)-1;
     return buf.st_size;

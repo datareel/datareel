@@ -84,7 +84,7 @@ GXDLCODE_API gxdFPTR *gxdFPTRCreate(const char *fname)
 // Returns a null value if the file cannot be
 // created.
 {
-#if defined (__64_BIT_DATABASE_ENGINE__)
+#if defined (__GXD_USE_FPTR64__)
   return gxdFPTR64Create(fname);
 
 #elif defined (__WIN32__) && defined (__NTFS__)
@@ -134,7 +134,7 @@ GXDLCODE_API gxdFPTR *gxdFPTROpen(const char *fname, gxDatabaseAccessMode mode)
 // open functions will only accept: gxDBASE_READONLY and gxDBASE_READWRITE
 // access modes.
 {
-#if defined (__64_BIT_DATABASE_ENGINE__)
+#if defined (__GXD_USE_FPTR64__)
   return gxdFPTR64Open(fname, mode);
 
 #elif defined (__WIN32__) && defined (__NTFS__)
@@ -219,7 +219,7 @@ GXDLCODE_API int gxdFPTRClose(gxdFPTR *stream)
 {
   if(!stream) return 0; // The file stream is not open
 
-#if defined (__64_BIT_DATABASE_ENGINE__)
+#if defined (__GXD_USE_FPTR64__)
   return gxdFPTR64Close(stream);
 
 #elif defined (__WIN32__) && defined (__NTFS__)
@@ -249,7 +249,7 @@ GXDLCODE_API int gxdFPTRFlush(gxdFPTR *stream)
 {
   if(!stream) return 0; // The file stream is not open
 
-#if defined (__64_BIT_DATABASE_ENGINE__)
+#if defined (__GXD_USE_FPTR64__)
   return gxdFPTR64Flush(stream);
 
 #elif defined (__WIN32__) && defined (__NTFS__)
@@ -274,7 +274,7 @@ GXDLCODE_API __ULWORD__ gxdFPTRRead(gxdFPTR *stream, void *buf,
 {
   if(!stream) return (__ULWORD__)0; // The file stream is not open
 
-#if defined (__64_BIT_DATABASE_ENGINE__)
+#if defined (__GXD_USE_FPTR64__)
   return gxdFPTR64Read(stream, buf, bytes);
 
 #elif defined (__WIN32__) && defined (__NTFS__)
@@ -300,7 +300,7 @@ GXDLCODE_API __ULWORD__ gxdFPTRWrite(gxdFPTR *stream, const void *buf,
 {
   if(!stream) return (__ULWORD__)0; // The file stream is not open
 
-#if defined (__64_BIT_DATABASE_ENGINE__)
+#if defined (__GXD_USE_FPTR64__)
   return gxdFPTR64Write(stream, buf, bytes);
 
 #elif defined (__WIN32__) && defined (__NTFS__)
@@ -327,8 +327,8 @@ GXDLCODE_API FAU_t gxdFPTRSeek(gxdFPTR *stream, FAU_t offset,
 {
   if(!stream) return (FAU_t)-1; // The file stream is not open
 
-#if defined (__64_BIT_DATABASE_ENGINE__)
-  return gxdFPTR64Seek(stream, offset, mode);
+#if defined (__GXD_USE_FPTR64__)
+  return (FAU_t)gxdFPTR64Seek(stream, offset, mode);
 
 #elif defined (__WIN32__) && defined (__NTFS__)
   if(mode == gxDBASE_SEEK_BEG) {
@@ -378,8 +378,8 @@ GXDLCODE_API FAU_t gxdFPTRTell(gxdFPTR *stream)
 {
   if(!stream) return (FAU_t)-1; // The file stream is not open
 
-#if defined (__64_BIT_DATABASE_ENGINE__)
-  return gxdFPTR64Tell(stream);
+#if defined (__GXD_USE_FPTR64__)
+  return (FAU_t)gxdFPTR64Tell(stream);
 
 #elif defined (__WIN32__) && defined (__NTFS__)
   return (__LWORD__)SetFilePointer(stream->fptr, 0, NULL, FILE_CURRENT);
@@ -392,10 +392,87 @@ GXDLCODE_API FAU_t gxdFPTRTell(gxdFPTR *stream)
 #endif
 }
 
+GXDLCODE_API int gxdFPTRSync(gxdFPTR *stream, int full)
+// 10/31/2026: Force the file's data to stable storage. With "full" set
+// the file's metadata is written too. Returns a non-zero value to
+// indicate an error condition or zero if successful.
+{
+  if(!stream) return 0; // The file stream is not open
+#if defined (__GXD_USE_FPTR64__)
+  return gxdFPTR64Sync(stream, full);
+#else
+  (void)full;
+  return gxdFPTRFlush(stream);
+#endif
+}
+
+GXDLCODE_API __ULWORD__ gxdFPTRReadAt(gxdFPTR *stream, void *buf, 
+				      __ULWORD__ bytes, FAU_t offset)
+// 10/31/2026: Read from a file offset without moving the file position.
+// Returns the number of bytes read.
+{
+  if(!stream) return (__ULWORD__)0; // The file stream is not open
+#if defined (__GXD_USE_FPTR64__)
+  return gxdFPTR64ReadAt(stream, buf, bytes, offset);
+#else
+  FAU_t pos = gxdFPTRTell(stream);
+  if(gxdFPTRSeek(stream, offset, gxDBASE_SEEK_BEG) == (FAU_t)-1) 
+    return (__ULWORD__)0;
+  __ULWORD__ n = gxdFPTRRead(stream, buf, bytes);
+  gxdFPTRSeek(stream, pos, gxDBASE_SEEK_BEG);
+  return n;
+#endif
+}
+
+GXDLCODE_API __ULWORD__ gxdFPTRWriteAt(gxdFPTR *stream, const void *buf, 
+				       __ULWORD__ bytes, FAU_t offset)
+// 10/31/2026: Write at a file offset without moving the file position.
+// Returns the number of bytes written.
+{
+  if(!stream) return (__ULWORD__)0; // The file stream is not open
+#if defined (__GXD_USE_FPTR64__)
+  return gxdFPTR64WriteAt(stream, buf, bytes, offset);
+#else
+  FAU_t pos = gxdFPTRTell(stream);
+  if(gxdFPTRSeek(stream, offset, gxDBASE_SEEK_BEG) == (FAU_t)-1) 
+    return (__ULWORD__)0;
+  __ULWORD__ n = gxdFPTRWrite(stream, buf, bytes);
+  gxdFPTRSeek(stream, pos, gxDBASE_SEEK_BEG);
+  return n;
+#endif
+}
+
+GXDLCODE_API int gxdFPTRTruncate(gxdFPTR *stream, FAU_t size)
+// 10/31/2026: Set the file size. Returns a non-zero value to indicate an
+// error condition or zero if successful.
+{
+  if(!stream) return 1; // The file stream is not open
+#if defined (__GXD_USE_FPTR64__)
+  return gxdFPTR64Truncate(stream, size);
+#else
+  (void)size;
+  return 1; // Not supported by this file type
+#endif
+}
+
+GXDLCODE_API int gxdFPTRAllocate(gxdFPTR *stream, FAU_t size)
+// 10/31/2026: Reserve disk space so the file is at least "size" bytes
+// long. Returns a non-zero value to indicate an error condition or zero
+// if successful.
+{
+  if(!stream) return 1; // The file stream is not open
+#if defined (__GXD_USE_FPTR64__)
+  return gxdFPTR64Allocate(stream, size);
+#else
+  (void)size;
+  return 0; // Writes extend the file
+#endif
+}
+
 GXDLCODE_API int gxdFPTRExists(const char *fname)
 // Returns true if the specified file exists.
 {
-#if defined (__64_BIT_DATABASE_ENGINE__)
+#if defined (__GXD_USE_FPTR64__)
   return gxdFPTR64Exists(fname);
 
 #elif defined (__WIN32__) && defined (__NTFS__)
@@ -425,8 +502,8 @@ GXDLCODE_API FAU_t gxdFPTRFileSize(const char *fname)
 // Returns the length of the specified file or negative 1
 // to indicate an error condition.
 {
-#if defined (__64_BIT_DATABASE_ENGINE__)
-  return gxdFPTR64FileSize(fname);
+#if defined (__GXD_USE_FPTR64__)
+  return (FAU_t)gxdFPTR64FileSize(fname);
 
 #elif defined (__WIN32__) && defined (__NTFS__)
   HANDLE hFile = CreateFile(fname, 
@@ -572,7 +649,7 @@ int dio_flush(DIOFILE *fp)
 
 FILEOFF_t dio_eof(DIOFILE *fp)
 {
-#if defined (__64_BIT_DATABASE_ENGINE__) && defined (__UNIX__)
+#if defined (__GXD_USE_FPTR64__) && defined (__UNIX__)
   struct stat64 buf;
   if(fp == 0) return -1;
   memset(&buf, 0, sizeof(buf));

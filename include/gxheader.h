@@ -249,6 +249,9 @@ enum gxDatabaseReclaimMethod {
 struct GXDLCODE_API gxFileHeader // Database file header information
 { 
   gxFileHeader() { 
+    // 10/31/2026: Zero the padding bytes too. They were written to every
+    // file with whatever the memory held before.
+    memset((void *)this, 0, sizeof(gxFileHeader));
     gxd_fs_fptr = gxd_eof = gxd_hs_fptr = gxd_hb_fptr = (FAU)0;
     gxd_ver = (FAU)0; gxd_sig[0] = 0;
   }

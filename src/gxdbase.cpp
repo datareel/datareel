@@ -113,6 +113,9 @@ gxDatabase::gxDatabase()
 
   write_hook = 0;
   write_hook_data = 0;
+  pcache = 0;
+  sync_on_flush = 0;
+  write_count = 0;
 }
 
 gxDatabase::~gxDatabase()
@@ -132,6 +135,7 @@ void gxDatabase::Release()
 // threads accessing this file pointer have exited or released it.
 {
   datareel::copy_to(file_name, sizeof(file_name), gxDefaultFileName); // Reset the open file name
+  DisablePageCache(); // 10/31/2026: The cache belongs to this object
   fp = 0; 
 
   // Reset the last reported error and the file status members
@@ -345,6 +349,11 @@ gxDatabaseError gxDatabase::Close()
     // Write the header if this file was opened with write access
     if(ReadyForWriting()) WriteFileHdr();
 
+    // 10/31/2026: Writes still held by an unfinished transaction are
+    // dropped here. A journal that was spilled restores the file when it
+    // is recovered.
+    DisablePageCache();
+
     if(gxdFPTRClose(fp) != 0) {
       gxd_error = gxDBASE_FILE_CLOSE_ERROR;
       return gxd_error;
@@ -373,9 +382,56 @@ gxDatabaseError gxDatabase::Flush()
       gxd_error = gxDBASE_FILE_WRITE_ERROR;
       return gxd_error;
     }
+    // 10/31/2026: Flush() used to stop at the operating system's buffers.
+    // With SetSyncOnFlush(1) it also forces the file to disk.
+    if(sync_on_flush) {
+      if(Sync() != gxDBASE_NO_ERROR) return gxd_error;
+    }
     Seek((FAU_t)0, gxDBASE_SEEK_CUR);
   }
   return gxd_error = gxDBASE_NO_ERROR;
+}
+
+gxDatabaseError gxDatabase::Sync(int full)
+// 10/31/2026: Force the file's data to stable storage (fdatasync() on
+// Linux, FlushFileBuffers() on Windows). With "full" set the file's
+// metadata is written too (fsync()). Writes held by an open journal
+// transaction are not in the file yet; gxdJournal::Commit() writes and
+// syncs them. Returns a non-zero value to indicate an error condition
+// or zero if successful.
+{
+  if(!IsOK()) return gxd_error = gxDBASE_FILE_NOT_READY;
+  if(!ReadyForWriting()) return gxd_error = gxDBASE_NO_ERROR;
+  if(gxdFPTRSync(fp, full) != 0) {
+    return gxd_error = gxDBASE_FILE_WRITE_ERROR;
+  }
+  return gxd_error = gxDBASE_NO_ERROR;
+}
+
+gxDatabaseError gxDatabase::EnablePageCache(size_t bytes)
+// 10/31/2026: Keep up to "bytes" of this file in memory in 4 KB pages
+// (see gxdpcache.h). Use only while this object is the only one using
+// the file: the cache does not see other writers. Returns a non-zero
+// value to indicate an error condition or zero if successful.
+{
+  if(!IsOK()) return gxd_error = gxDBASE_FILE_NOT_READY;
+  if(pcache) {
+    if(pcache->InTxn()) return gxd_error = gxDBASE_FILE_NOT_READY;
+    DisablePageCache();
+  }
+  FAU_t size = gxdFPTRSeek(fp, (FAU_t)0, gxDBASE_SEEK_END);
+  if(size == (FAU_t)-1) return gxd_error = gxDBASE_FILE_SEEK_ERROR;
+  Seek((FAU_t)0, gxDBASE_SEEK_BEG);
+  pcache = new gxdPageCache(fp, size, bytes);
+  return gxd_error = gxDBASE_NO_ERROR;
+}
+
+void gxDatabase::DisablePageCache()
+{
+  if(pcache) {
+    delete pcache;
+    pcache = 0;
+  }
 }
 
 gxDatabaseError gxDatabase::Seek(FAU_t offset, gxDatabaseSeekMode mode)
@@ -442,7 +498,15 @@ gxDatabaseError gxDatabase::Read(void *buf, __ULWORD__ bytes,
 	return gxd_error;
     }
 
-    __ULWORD__ bytes_read = gxdFPTRRead(fp, buf, bytes);
+    __ULWORD__ bytes_read;
+    if(pcache) { // 10/31/2026: Read through the page cache
+      FAU_t address = gxdFPTRTell(fp);
+      bytes_read = pcache->Read(buf, bytes, address);
+      gxdFPTRSeek(fp, address + bytes_read, gxDBASE_SEEK_BEG);
+    }
+    else {
+      bytes_read = gxdFPTRRead(fp, buf, bytes);
+    }
     // 10/14/2026: A read that returns no bytes is no longer treated as a
     // complete read. Reading past the end of the file used to succeed and
     // leave the caller's buffer unchanged.
@@ -492,11 +556,21 @@ gxDatabaseError gxDatabase::Write(const void *buf, __ULWORD__ bytes,
       if(gxd_error != gxDBASE_NO_ERROR) return gxd_error;
     }
     
-    if(gxdFPTRWrite(fp, buf, bytes) != bytes) {
+    if(pcache) { // 10/31/2026: Write through the page cache
+      FAU_t address = gxdFPTRTell(fp);
+      __ULWORD__ written = pcache->Write(buf, bytes, address);
+      gxdFPTRSeek(fp, address + written, gxDBASE_SEEK_BEG);
+      if(written != bytes) {
+	gxd_error = gxDBASE_FILE_WRITE_ERROR;
+	return gxd_error;
+      }
+    }
+    else if(gxdFPTRWrite(fp, buf, bytes) != bytes) {
       gxd_error = gxDBASE_FILE_WRITE_ERROR;
       return gxd_error;
     }
     last_operation = gxDBASE_WRITE;
+    write_count++;
     if(write_hook) (*write_hook)(write_hook_data); // 10/25/2026
   }
   else {
