@@ -344,14 +344,17 @@ gxDatabaseError gxDatabase::Close()
 // Close the open database file. Returns a non-zero value
 // to indicate an error condition or zero if successful.
 {
-  if(IsOpen()) {
+  // 10/31/2026: Close the file whenever it is open. A file that failed
+  // the signature test in Open() (is_ok cleared) used to stay open, so
+  // each failed open of a file of the wrong type leaked a descriptor.
+  if(fp) {
 
-    // Write the header if this file was opened with write access
-    if(ReadyForWriting()) WriteFileHdr();
+    // Write the header if this file was opened with write access. Never
+    // write to a file that failed the open checks.
+    if(IsOK() && ReadyForWriting()) WriteFileHdr();
 
-    // 10/31/2026: Writes still held by an unfinished transaction are
-    // dropped here. A journal that was spilled restores the file when it
-    // is recovered.
+    // 10/31/2026: Writes still held by an unfinished journal transaction
+    // are dropped here; they were never committed.
     DisablePageCache();
 
     if(gxdFPTRClose(fp) != 0) {
@@ -623,7 +626,8 @@ gxUINT32 gxDatabase::WriteObjectChecksum(FAU_t object_address)
       break;
   }
 
-  gxUINT32 CRC;
+  // 10/31/2026: Was returned without a value when the file was not open
+  gxUINT32 CRC = (gxUINT32)0;
   __ULWORD__ bytes;
   gxBlockHeader blk_hdr;
 
@@ -746,6 +750,16 @@ __ULWORD__ gxDatabase::CalcChecksum(__ULWORD__ bytes, FAU_t file_address,
   // damaged header gave a huge count (block_length shorter than the
   // header wraps around), and new char[] then threw std::bad_alloc.
   FAU_t eof = GetEOF();
+  // 10/31/2026: The header's end of file comes from the file too. Use
+  // the real file size when it is smaller, so a damaged header cannot
+  // ask for a buffer of any size (found by fuzzing).
+  if(fp) {
+    FAU_t pos = gxdFPTRTell(fp);
+    FAU_t size = gxdFPTRSeek(fp, (FAU_t)0, gxDBASE_SEEK_END);
+    gxdFPTRSeek(fp, pos, gxDBASE_SEEK_BEG);
+    if(pcache && pcache->FileSize() > size) size = pcache->FileSize();
+    if(size > (FAU_t)0 && size < eof) eof = size;
+  }
   if((file_address < (FAU_t)0) || (file_address > eof) ||
      ((unsigned long long)bytes > (unsigned long long)(eof - file_address))) {
     gxd_error = gxDBASE_BADBLOCK_ERROR;
@@ -1073,9 +1087,19 @@ FAU_t gxDatabase::TotalBlocks()
 
     if(!IsOK()) break;
 
-    // If this is not a valid block, find the next one
-    if(!TestBlockHeader(blk_hdr)) {
-      block_address = FindFirstBlock(block_address);
+    // If this is not a valid block, find the next one. 10/31/2026: A
+    // block shorter than its own header (a damaged length) is skipped
+    // like any bad block. A length of zero kept the address the same, so
+    // the count never ended, and tiny lengths made the count rescan the
+    // same bytes over and over (both found by fuzzing).
+    // A length past the end of the file is damage too: in the 64-bit
+    // engine a huge length wrapped the address back to an earlier block,
+    // so the count looped for ever.
+    if(!TestBlockHeader(blk_hdr) || 
+       (blk_hdr.block_length < (__ULWORD__)BlockHeaderSize()) ||
+       ((unsigned long long)blk_hdr.block_length > 
+	(unsigned long long)(file_header.gxd_eof - block_address))) {
+      block_address = FindFirstBlock(block_address + 1);
     }
     else {
       block_address += blk_hdr.block_length;

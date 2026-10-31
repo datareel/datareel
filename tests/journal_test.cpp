@@ -507,6 +507,85 @@ static void test_reader()
   std::cout << "PASS reader (write-through)\n";
 }
 
+static void test_security_fixes()
+// 10/31/2026: Regression tests for the 7.3 security scan findings.
+{
+  std::string dir = fresh_dir("secfix");
+  // 1. A file that fails the signature test is closed by Close()
+  {
+    std::string junk = dir + "/junk.gxd";
+    std::vector<char> bytes(4096, 'x');
+    write_file(junk, bytes);
+#if defined (__LINUX__)
+    auto fds = []() { size_t n = 0;
+      for(auto &e : fs::directory_iterator("/proc/self/fd")) { (void)e; n++; }
+      return n; };
+    size_t before = fds();
+#endif
+    for(int i = 0; i < 50; i++) {
+      gxDatabase db;
+      CHECK(db.Open(junk.c_str()) != gxDBASE_NO_ERROR, "secfix: junk file opened");
+      db.Close();
+    }
+#if defined (__LINUX__)
+    CHECK(fds() <= before + 2, "secfix: descriptors leaked by failed opens");
+#endif
+  }
+  // 2. A block header with a zero length, or a length so large that the
+  // next address wraps back, does not hang TotalBlocks()
+  for(int fill = 0; fill < 2; fill++) {
+    std::string f = dir + "/zero.gxd";
+    {
+      gxDatabase db;
+      CHECK(db.Create(f.c_str(), (FAU_t)0, ' ') == gxDBASE_NO_ERROR, "secfix: create");
+      for(int i = 0; i < 3; i++) {
+	char rec[32] = "record";
+	FAU_t a = db.Alloc(sizeof(rec));
+	db.Write(rec, sizeof(rec), a);
+      }
+      db.Close();
+    }
+    std::vector<char> v = read_file(f);
+    gxDatabase probe;
+    CHECK(probe.Open(f.c_str()) == gxDBASE_NO_ERROR, "secfix: open");
+    size_t first = (size_t)probe.FindFirstBlock();
+    size_t len_at = first + sizeof(gxUINT32); // block_check_word, then length
+    probe.Close();
+    CHECK(len_at + sizeof(gxUINT32) <= v.size(), "secfix: block layout");
+    memset(&v[len_at], fill ? 0xFF : 0, sizeof(gxUINT32));
+    write_file(f, v);
+    gxDatabase db;
+    CHECK(db.Open(f.c_str()) == gxDBASE_NO_ERROR, "secfix: reopen");
+    db.TotalBlocks(); // Returned at all: the loop ends
+    db.Close();
+  }
+  // 3. A journal page with a page number past the file is ignored
+  {
+    std::string sub = dir + "/jnl";
+    fs::create_directories(sub);
+    TestDb t(sub);
+    CHECK(t.Open(true, 1), "secfix: journal open");
+    t.j.SetWriteMode(gxdJOURNAL_WRITE_BACK);
+    t.j.SetCheckpointSize(64 * 1024 * 1024);
+    CHECK(t.j.Begin() == gxDBASE_NO_ERROR, "secfix: begin");
+    for(int i = 0; i < BATCH; i++) CHECK(t.Insert(i), "secfix: insert");
+    CHECK(t.j.Commit(1) == gxDBASE_NO_ERROR, "secfix: commit");
+    std::vector<char> j = read_file(t.jnl);
+    t.Close();
+    // Find the first page record and set a huge page number. Its
+    // checksum no longer matches, so recovery stops there: the files
+    // must still open and the call must return quickly.
+    for(size_t k = 0; k + 28 < j.size(); k++) {
+      if(memcmp(&j[k], "WFRM", 4) == 0) { memset(&j[k + 16], 0xFF, 8); break; }
+    }
+    write_file(t.jnl, j);
+    unsigned long n = 0;
+    CHECK(gxdJournal::Recover(t.jnl.c_str(), &n) == gxDBASE_NO_ERROR, "secfix: recover");
+    CHECK(t.Open(false, 0), "secfix: files open after recovery");
+  }
+  std::cout << "PASS security_fixes\n";
+}
+
 int main(int argc, char **argv)
 {
   int rounds = argc > 1 ? atoi(argv[1]) : 20;
@@ -524,6 +603,7 @@ int main(int argc, char **argv)
   }
   g_mode = gxdJOURNAL_WRITE_THROUGH;
   test_reader();
+  test_security_fixes();
   if(failures) {
     std::cout << failures << " journal tests failed\n";
     return 1;

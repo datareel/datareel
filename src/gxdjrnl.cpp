@@ -73,6 +73,7 @@ number; records left in the file after that have an old salt.
 #include <stdint.h>
 #include <limits.h>
 #include <time.h>
+#include <limits>
 #include <map>
 #include "gxdjrnl.h"
 #include "gxbtree.h"
@@ -290,6 +291,13 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
       if(gxdFPTRReadAt(jfp, c.data(), (__ULWORD__)c.size(), pos) != c.size())
 	break;
       if(jcheck(c.data() + 4, len - 4) != jget32(c.data() + len)) break;
+      // 10/31/2026: A size the file address type cannot hold is damage
+      int bad_size = 0;
+      for(size_t i = 0; i < paths.size(); i++) {
+	if(jget64(c.data() + 16 + 8 * i) > 
+	   (uint64_t)std::numeric_limits<FAU_t>::max()) bad_size = 1;
+      }
+      if(bad_size) break;
       for(size_t i = 0; i < paths.size(); i++) {
 	sizes[i] = jget64(c.data() + 16 + 8 * i);
 	has_size[i] = 1;
@@ -313,6 +321,11 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
     }
     for(auto &e : committed) {
       if(err != gxDBASE_NO_ERROR) break;
+      // 10/31/2026: A page past the file's committed size is cut off by
+      // the truncate below anyway. Skipping it also keeps a damaged or
+      // crafted page number from turning into a wrapped file offset.
+      if(e.first.second >= ((uint64_t)sizes[e.first.first] + gxdPageSize - 1) /
+	 gxdPageSize) continue;
       if(gxdFPTRReadAt(jfp, buf.data(), gxdPageSize, e.second) != gxdPageSize ||
 	 gxdFPTRWriteAt(fps[e.first.first], buf.data(), gxdPageSize,
 			(FAU_t)(e.first.second * gxdPageSize)) != gxdPageSize)
