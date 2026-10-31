@@ -49,6 +49,7 @@ to use the B-tree cache.
 #include "gxdlcode.h"
 
 #include <string.h>
+#include <vector>
 #include "gxbtree.h"
 
 #ifdef __BCC32__
@@ -62,6 +63,9 @@ gxBtree::gxBtree(DatabaseKeyB &key_type, BtreeNodeOrder_t order)
   btree_header.key_size = key_type.SizeOfDatabaseKey();
   header_in_sync = 0;
   f = 0;
+  scan_node = 0;
+  scan_writes = 0;
+  scan_pos = (BtreeKeyLocation_t)-1;
   ResetStats();
 }
 
@@ -69,6 +73,39 @@ gxBtree::~gxBtree()
 {
   // PC-lint 09/08/2005: Function may throw exception in destructor
   Close(); 
+  if(scan_node) delete scan_node;
+}
+
+void gxBtree::SetScanPos(DatabaseKeyB &key, DatabaseKeyB &compare_key,
+			 int found)
+// 10/31/2026: Remember where in the scan node's leaf the key just
+// returned is, so the next FindNext() is one compare and a copy.
+{
+  scan_pos = (BtreeKeyLocation_t)-1;
+  if(!found || !scan_node) return;
+  if(scan_node->left_child != (FAU_t)0) return; // Not a leaf
+  if(scan_node->key_count <= (BtreeKeyCount_t)0) return;
+  BtreeKeyLocation_t loc;
+  if(scan_node->FindKeyLocation(key, compare_key, loc) == 0) scan_pos = loc;
+}
+
+BtreeNode *gxBtree::ScanNode()
+// 10/31/2026: The node FindFirst() and FindNext() keep between calls,
+// so a walk in key order reads the next key from the same leaf instead
+// of searching from the root for each key. It is reallocated if the
+// tree's key size or order changed.
+{
+  BtreeNodeOrder_t order = btree_header.node_order;
+  if(order < (BtreeNodeOrder_t)5) order = (BtreeNodeOrder_t)5; // See BtreeNode
+  if(scan_node && ((scan_node->key_size != btree_header.key_size) ||
+		   (scan_node->node_order != order - 1))) {
+    delete scan_node;
+    scan_node = 0;
+  }
+  if(!scan_node) {
+    scan_node = new BtreeNode(btree_header.key_size, btree_header.node_order);
+  }
+  return scan_node;
 }
 
 gxDatabaseError gxBtree::InitBtree(gxDatabase *fptr, int create, 
@@ -417,19 +454,22 @@ gxDatabaseError gxBtree::WriteNode(const BtreeNode &node, FAU_t node_address)
 #endif
   }
 
-  if(f->Write(&node.key_count, sizeof(node.key_count), node_address, 0, 0) 
-     != gxDBASE_NO_ERROR)
-    return f->GetDatabaseError();
-  if(f->Write(&node.left_child, sizeof(node.left_child), gxCurrAddress, 0, 0) 
-     != gxDBASE_NO_ERROR)
-    return f->GetDatabaseError();
-  
-  // Optimize the write by only writing the exact number of keys
-  if(node.key_count > (BtreeKeyCount_t)0) { // Ensure node has entries
-    if(f->Write(node.key_entries, (node.key_size * node.key_count),
-		gxCurrAddress, 0, 0) != gxDBASE_NO_ERROR)
-     return f->GetDatabaseError();
+  // 10/31/2026: Write the key count, left child and keys with one write.
+  // The bytes and their order in the file are unchanged.
+  static thread_local std::vector<char> wbuf;
+  size_t hdr_len = sizeof(node.key_count) + sizeof(node.left_child);
+  size_t keys_len = 0;
+  if(node.key_count > (BtreeKeyCount_t)0) { // Only the keys in use
+    keys_len = (size_t)(node.key_size * node.key_count);
   }
+  wbuf.resize(hdr_len + keys_len);
+  memcpy(wbuf.data(), &node.key_count, sizeof(node.key_count));
+  memcpy(wbuf.data() + sizeof(node.key_count), &node.left_child, 
+	 sizeof(node.left_child));
+  if(keys_len) memcpy(wbuf.data() + hdr_len, node.key_entries, keys_len);
+  if(f->Write(wbuf.data(), (__ULWORD__)wbuf.size(), node_address, 0, 0) 
+     != gxDBASE_NO_ERROR)
+    return f->GetDatabaseError();
 
   return gxDBASE_NO_ERROR;
 }
@@ -468,11 +508,12 @@ gxDatabaseError gxBtree::ReadNode(BtreeNode &node, FAU_t node_address)
 #endif
   }
 
-  if(f->Read(&node.key_count, sizeof(node.key_count), node_address) !=
-     gxDBASE_NO_ERROR)
+  // 10/31/2026: Read the key count and left child with one read
+  char hdr[sizeof(node.key_count) + sizeof(node.left_child)];
+  if(f->Read(hdr, sizeof(hdr), node_address) != gxDBASE_NO_ERROR)
     return f->GetDatabaseError();
-  if(f->Read(&node.left_child, sizeof(node.left_child)) != gxDBASE_NO_ERROR)
-    return f->GetDatabaseError();
+  memcpy(&node.key_count, hdr, sizeof(node.key_count));
+  memcpy(&node.left_child, hdr + sizeof(node.key_count), sizeof(node.left_child));
 
   // 10/25/2026: The key count is read from the file. A count larger than
   // the node can hold overflowed the key_entries buffer.
@@ -593,16 +634,29 @@ int gxBtree::Find(DatabaseKeyB &key, DatabaseKeyB &compare_key, int test_tree)
 // Find the specified key in the Btree. Returns true if successful
 // or false if the key could not be found.
 {
-  BtreeNode curr_node(btree_header.key_size, btree_header.node_order);
-  return Find(key, compare_key, curr_node, test_tree);
+  // 10/31/2026: Use the scan node instead of allocating a node for each
+  // call. A FindNext() after a Find() then starts from the found key.
+  if(!f) return 0;
+  BtreeNode *curr_node = ScanNode();
+  if(test_tree || (f->WriteCount() != scan_writes)) {
+    curr_node->key_count = (BtreeKeyCount_t)0;
+  }
+  int rv = Find(key, compare_key, *curr_node, test_tree);
+  scan_writes = f->WriteCount();
+  SetScanPos(key, compare_key, rv);
+  return rv;
 }
 
 int gxBtree::FindFirst(DatabaseKeyB &key, int test_tree)
 // Find the first key in the Btree. Returns true if successful
 // or false if the key could not be found.
 {
-  BtreeNode curr_node(btree_header.key_size, btree_header.node_order);
-  return FindFirst(key, curr_node, test_tree);
+  if(!f) return 0;
+  BtreeNode *curr_node = ScanNode();
+  int rv = FindFirst(key, *curr_node, test_tree);
+  scan_writes = f->WriteCount();
+  scan_pos = (rv && curr_node->left_child == (FAU_t)0) ? 0 : -1;
+  return rv;
 }
 
 int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
@@ -611,8 +665,29 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 // "key" variable. Returns true if successful or false if the key could not 
 // be found.
 {
-  BtreeNode curr_node(btree_header.key_size, btree_header.node_order);
-  return FindNext(key, compare_key, curr_node, test_tree);
+  // 10/31/2026: Start from the node of the last FindFirst() or FindNext()
+  // call if the file has not been written since
+  if(!f) return 0;
+  BtreeNode *curr_node = ScanNode();
+  if(test_tree || (f->WriteCount() != scan_writes)) {
+    curr_node->key_count = (BtreeKeyCount_t)0;
+    scan_pos = (BtreeKeyLocation_t)-1;
+  }
+  // Fast path: the key is the leaf entry returned last time, unchanged,
+  // and the next entry is in the same leaf
+  if((scan_pos >= (BtreeKeyLocation_t)0) && 
+     (scan_pos + 1 < (BtreeKeyLocation_t)curr_node->key_count)) {
+    const char *entry = curr_node->key_entries + 
+      (curr_node->key_size * scan_pos) + sizeof(FAU);
+    if(memcmp(key.db_key, entry, key.KeySize()) == 0) {
+      curr_node->LoadKey(key, ++scan_pos);
+      return 1;
+    }
+  }
+  int rv = FindNext(key, compare_key, *curr_node, test_tree);
+  scan_writes = f->WriteCount();
+  SetScanPos(key, compare_key, rv);
+  return rv;
 }
 
 int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,

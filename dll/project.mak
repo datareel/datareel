@@ -191,6 +191,14 @@ $(OUTDIR)\gxdfptr$(OBJ_EXT):    $(GLIB_SRC_PATH)gxdfptr.cpp $(GXDFPTR_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxdfptr.cpp
 
+$(OUTDIR)\gxdjrnl$(OBJ_EXT):    $(GLIB_SRC_PATH)gxdjrnl.cpp $(GXDJRNL_DEP)
+	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
+	$(GLIB_SRC_PATH)gxdjrnl.cpp
+
+$(OUTDIR)\gxdpcache$(OBJ_EXT):    $(GLIB_SRC_PATH)gxdpcache.cpp $(GXDPCACHE_DEP)
+	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
+	$(GLIB_SRC_PATH)gxdpcache.cpp
+
 $(OUTDIR)\gxdstats$(OBJ_EXT):	$(GLIB_SRC_PATH)gxdstats.cpp $(GXDSTATS_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxdstats.cpp
@@ -416,7 +424,9 @@ GLIB_DATABASE_CORE_OBJECTS =  $(OUTDIR)\gxint32$(OBJ_EXT) \
 	$(OUTDIR)\gxdbase$(OBJ_EXT) \
 	$(OUTDIR)\gxderror$(OBJ_EXT) \
 	$(OUTDIR)\gxdfp64$(OBJ_EXT) \
-	$(OUTDIR)\gxdfptr$(OBJ_EXT)
+	$(OUTDIR)\gxdfptr$(OBJ_EXT) \
+	$(OUTDIR)\gxdjrnl$(OBJ_EXT) \
+	$(OUTDIR)\gxdpcache$(OBJ_EXT)
 
 # Extra database library components
 GLIB_DATABASE_EX_OBJECTS = $(OUTDIR)\btstack$(OBJ_EXT) \

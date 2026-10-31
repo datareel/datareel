@@ -100,6 +100,8 @@ const unsigned gxBtreeMaxNodeReads = 4096;
 struct GXDLCODE_API gxBtreeHeader
 { 
   gxBtreeHeader() {
+    // 10/31/2026: Zero the padding bytes written to the index file
+    memset((void *)this, 0, sizeof(gxBtreeHeader));
     node_order = (BtreeNodeOrder_t)0;
     key_size = (BtreeSize_t)0;
     n_keys = (BtreeSize_t)0;
@@ -110,6 +112,7 @@ struct GXDLCODE_API gxBtreeHeader
   }
   ~gxBtreeHeader() { }
   gxBtreeHeader(const gxBtreeHeader &ob) {
+    memset((void *)this, 0, sizeof(gxBtreeHeader)); // 10/31/2026: Padding
     node_order = ob.node_order;
     key_size = ob.key_size;
     n_keys = ob.n_keys;
@@ -312,6 +315,13 @@ protected:
   
   // True if the in-memory copy of the header is in sync with the disk copy
   int header_in_sync; 
+
+private: // 10/31/2026: Node kept between FindFirst() and FindNext() calls
+  BtreeNode *ScanNode();
+  void SetScanPos(DatabaseKeyB &key, DatabaseKeyB &compare_key, int found);
+  BtreeNode *scan_node;
+  unsigned long scan_writes; // File write count when scan_node was read
+  BtreeKeyLocation_t scan_pos; // Leaf entry last returned, or -1
 
 public: // B-tree tuning statistics
   void ResetStats() {

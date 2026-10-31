@@ -48,6 +48,7 @@ option(DATAREEL_NATIVE_TYPES
 set(DATAREEL_SOURCES
   # Database core and extensions
   gxint32 gxint64 gxuint32 gxuint64 gxcrc32 gxdbase gxderror gxdfp64 gxdfptr
+  gxdjrnl gxdpcache
   btstack btcache btnode dbasekey gpersist gxbtree pod gxint16 gxuint16
   gxfloat dbfcache dbugmgr
   # RDBMS

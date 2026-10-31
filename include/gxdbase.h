@@ -89,6 +89,7 @@ current stream pointer position in the open file.
 
 #include "gxcrc32.h"
 #include "gxdfptr.h"
+#include "gxdpcache.h"
 #include "gxderror.h"
 
 class GXDLCODE_API gxDatabase
@@ -123,6 +124,25 @@ public: // Database functions
   gxStreamPos FilePosition();
   gxdFPTR *GetFP() { return fp; }
   gxStreamPos Tell() { return FilePosition(); }
+
+public: // 10/31/2026: Durability and page cache functions (from 7.2/7.3)
+  // All of them are opt-in: a program that does not call them reads and
+  // writes the files as DataReel 6.2 did. EnablePageCache() reads
+  // uncached pages with pread()/ReadFile() unless "use_map" is 1, which
+  // reads them from a read-only memory map of the file (off by default
+  // in 6.x).
+  gxDatabaseError Sync(int full = 0);
+  void SetSyncOnFlush(int sync) { sync_on_flush = sync; }
+  int SyncOnFlush() const { return sync_on_flush; }
+  gxDatabaseError EnablePageCache(size_t bytes = gxdDefaultPageCacheSize,
+				  int use_map = 0);
+  void DisablePageCache();
+  gxdPageCache *PageCache() { return pcache; }
+  // Counts the writes made through this object, so cached reads can
+  // tell if the file changed. NoteFileChanged() counts a change made
+  // another way (a journal rollback, for example).
+  unsigned long WriteCount() const { return write_count; }
+  void NoteFileChanged() { write_count++; }
  
 public: // Allocation/De-allocation functions
   virtual FAU_t Alloc(__ULWORD__ bytes,
@@ -253,6 +273,9 @@ protected:
   char rev_letter;                    // Database revision letter
   gxFileHeader file_header;           // Database file header
   gxdFPTR *fp;                        // Stream file handle
+  gxdPageCache *pcache;               // 10/31/2026: Optional page cache
+  int sync_on_flush;                  // 10/31/2026: Flush() also syncs
+  unsigned long write_count;          // 10/31/2026: See WriteCount()
   gxDatabaseOperation last_operation; // Last I/O operation preformed
   gxDatabaseError gxd_error;          // Last reported file error
 

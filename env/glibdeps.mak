@@ -311,6 +311,7 @@ GXDATAGM_DEP = $(GLIB_INCLUDE_PATH)gxd_ver.h \
 	$(GLIB_INCLUDE_PATH)gxuint64.h
 
 GXDBASE_DEP = $(GLIB_INCLUDE_PATH)dfileb.h \
+	$(GLIB_INCLUDE_PATH)gxdpcache.h \
 	$(GLIB_INCLUDE_PATH)futils.h \
 	$(GLIB_INCLUDE_PATH)gxcrc32.h \
 	$(GLIB_INCLUDE_PATH)gxd_ver.h \
@@ -353,6 +354,31 @@ GXDFPTR_DEP = $(GLIB_INCLUDE_PATH)gxd_ver.h \
 	$(GLIB_INCLUDE_PATH)gxint64.h \
 	$(GLIB_INCLUDE_PATH)gxuint32.h \
 	$(GLIB_INCLUDE_PATH)gxuint64.h
+
+GXDJRNL_DEP = $(GLIB_INCLUDE_PATH)gxd_ver.h \
+	$(GLIB_INCLUDE_PATH)gxdbase.h \
+	$(GLIB_INCLUDE_PATH)gxderror.h \
+	$(GLIB_INCLUDE_PATH)gxdfp64.h \
+	$(GLIB_INCLUDE_PATH)gxdfptr.h \
+	$(GLIB_INCLUDE_PATH)gxdlcode.h \
+	$(GLIB_INCLUDE_PATH)gxdpcache.h \
+	$(GLIB_INCLUDE_PATH)gxdtyp64.h \
+	$(GLIB_INCLUDE_PATH)gxdtypes.h \
+	$(GLIB_INCLUDE_PATH)gxheader.h \
+	$(GLIB_INCLUDE_PATH)gxdjrnl.h \
+	$(GLIB_INCLUDE_PATH)btcache.h \
+	$(GLIB_INCLUDE_PATH)gxbtree.h
+
+GXDPCACHE_DEP = $(GLIB_INCLUDE_PATH)gxd_ver.h \
+	$(GLIB_INCLUDE_PATH)gxdbase.h \
+	$(GLIB_INCLUDE_PATH)gxderror.h \
+	$(GLIB_INCLUDE_PATH)gxdfp64.h \
+	$(GLIB_INCLUDE_PATH)gxdfptr.h \
+	$(GLIB_INCLUDE_PATH)gxdlcode.h \
+	$(GLIB_INCLUDE_PATH)gxdpcache.h \
+	$(GLIB_INCLUDE_PATH)gxdtyp64.h \
+	$(GLIB_INCLUDE_PATH)gxdtypes.h \
+	$(GLIB_INCLUDE_PATH)gxheader.h
 
 GXDLCODE_DEP = $(GLIB_INCLUDE_PATH)asprint.h \
 	$(GLIB_INCLUDE_PATH)bstnode.h \

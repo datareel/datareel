@@ -3,10 +3,10 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: gxdfptr.h
-// Compiler Used: MSVC, HPUX aCC, SOLARIS CC
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/26/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -62,6 +62,18 @@ throughout the library.
 #include <stdio.h>
 #include "gxdtypes.h"
 #include "gxheader.h"
+
+#if defined (__64_BIT_DATABASE_ENGINE__) || \
+    (defined (__UNIX__) && !defined (_USE_DIRECT_IO_)) || \
+    (defined (__WIN32__) && defined (__MSVC__))
+// 10/31/2026: Also the 32-bit engine's file type on UNIX and MSVC
+#include "gxdfp64.h" // WIN32 will always use NTFS for large files
+#elif defined (__WIN32__) && defined (__NTFS__)
+#include <windows.h> // WIN32 file I/O API
+#include <io.h>
+#endif
+
+
 
 #if defined (_USE_DIRECT_IO_) && defined (__LINUX__)
 struct DIOFILE {
@@ -217,14 +229,17 @@ int dio_seterrno(DIOFILE *fp);
 #endif // _USE_DIRECT_IO_
 
 // Select the underlying file system used for the database engine
-#if defined (__64_BIT_DATABASE_ENGINE__)
-#include "gxdfp64.h" // WIN32 will always use NTFS for large files
+// 10/31/2026: UNIX and MSVC builds use the positional I/O file type
+// (pread/pwrite, or ReadFile/WriteFile with an offset) for both the
+// 32-bit and 64-bit engines, in place of stdio and the file pointer.
+#if defined (__64_BIT_DATABASE_ENGINE__) || \
+    (defined (__UNIX__) && !defined (_USE_DIRECT_IO_)) || \
+    (defined (__WIN32__) && defined (__MSVC__))
+#define __GXD_USE_FPTR64__
 typedef gxdFPTR64 gxdFPTR;
 
 #elif defined (__WIN32__) && defined (__NTFS__)
 // WIN32 file I/O API
-#include <windows.h>
-#include <io.h>
 
 struct GXDLCODE_API gxdFPTR { // Platform specific file pointer type
   HANDLE fptr;
@@ -256,8 +271,22 @@ GXDLCODE_API __ULWORD__ gxdFPTRWrite(gxdFPTR *stream, const void *buf,
 GXDLCODE_API FAU_t gxdFPTRSeek(gxdFPTR *stream, FAU_t, 
 			       gxDatabaseSeekMode mode);
 GXDLCODE_API FAU_t gxdFPTRTell(gxdFPTR *stream);
+GXDLCODE_API int gxdFPTRSync(gxdFPTR *stream, int full = 1);
+GXDLCODE_API __ULWORD__ gxdFPTRReadAt(gxdFPTR *stream, void *buf, 
+				      __ULWORD__ bytes, FAU_t offset);
+GXDLCODE_API __ULWORD__ gxdFPTRWriteAt(gxdFPTR *stream, const void *buf, 
+				       __ULWORD__ bytes, FAU_t offset);
+GXDLCODE_API int gxdFPTRTruncate(gxdFPTR *stream, FAU_t size);
+GXDLCODE_API int gxdFPTRAllocate(gxdFPTR *stream, FAU_t size);
+GXDLCODE_API int gxdFPTRLock(gxdFPTR *stream, int exclusive);
+GXDLCODE_API void *gxdFPTRMap(gxdFPTR *stream, FAU_t len, void **map_handle);
+GXDLCODE_API void gxdFPTRUnmap(void *addr, FAU_t len, void *map_handle);
+GXDLCODE_API int gxdFPTRUnlock(gxdFPTR *stream);
+GXDLCODE_API gxdFPTR *gxdFPTRCreatePrivate(const char *fname);
+GXDLCODE_API int gxdFPTRMakePrivate(const char *fname);
 GXDLCODE_API int gxdFPTRExists(const char *fname);
 GXDLCODE_API FAU_t gxdFPTRFileSize(const char *fname);
+
 
 #endif // __GX_DATABASE_FILE_POINTER_HPP__
 // ----------------------------------------------------------- // 

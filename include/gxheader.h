@@ -246,6 +246,9 @@ enum gxDatabaseReclaimMethod {
 struct GXDLCODE_API gxFileHeader // Database file header information
 { 
   gxFileHeader() { 
+    // 10/31/2026: Zero the padding bytes too. They were written to every
+    // file with whatever the memory held before.
+    memset((void *)this, 0, sizeof(gxFileHeader));
     gxd_fs_fptr = gxd_eof = gxd_hs_fptr = gxd_hb_fptr = (FAU)0;
     gxd_ver = (FAU)0; gxd_sig[0] = 0;
   }
@@ -267,6 +270,9 @@ private: // Disallow copying and assignment
 struct GXDLCODE_API gxBlockHeader // Marks each data block
 {
   gxBlockHeader() {
+    // 10/31/2026: Zero the 4 padding bytes before block_nd_fptr in the
+    // 64-bit engine, written to the file with every block header
+    memset((void *)this, 0, sizeof(gxBlockHeader));
     block_check_word = gxCheckWord;
     block_status = gxNormalBlock;
     block_length = (gxUINT32)0;
@@ -274,6 +280,7 @@ struct GXDLCODE_API gxBlockHeader // Marks each data block
   }
   ~gxBlockHeader() { }
   gxBlockHeader(const gxBlockHeader &ob) {
+    memset((void *)this, 0, sizeof(gxBlockHeader)); // 10/31/2026: Padding
     block_check_word = ob.block_check_word; 
     block_length = ob.block_length; 
     block_status = ob.block_status;

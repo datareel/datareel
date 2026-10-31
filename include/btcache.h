@@ -85,6 +85,7 @@ across multiple platforms.
 
 #ifdef __USE_BTREE_CACHE__
 
+#include <unordered_map>
 #include "gxdbase.h"
 #include "btnode.h"
 
@@ -151,6 +152,7 @@ public:
   gxDatabaseError Disconnect();
   gxDatabaseError Flush();
   gxDatabaseError LRUFlush(unsigned num_to_flush);
+  void Discard(); // 10/31/2026: Drop every bucket without writing it
   BtreeBucket *AllocBucket(FAU_t node_address, int load_bucket = 1);
   BtreeBucket *FindBucket(FAU_t node_address);
   gxDatabase *gxDatabasePtr() { return f; }
@@ -185,6 +187,10 @@ private:
   BtreeBucket *head;    // Most recently reserved bucket
   BtreeBucket *tail;    // Least recently reserved bucket
   BtreeBucket *buckets; // Array of cache buckets
+  // 10/31/2026: Node address to bucket index. FindBucket() used to walk
+  // the whole bucket list, so a large cache was slower than a small one.
+  // An entry is checked against the bucket's node address on lookup.
+  std::unordered_map<FAU_t, BtreeBucket *> index;
 
 public: // Cache statistics
   void ResetStats() {

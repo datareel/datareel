@@ -131,6 +131,14 @@ gxdfptr$(OBJ_EXT):    $(GLIB_SRC_PATH)gxdfptr.cpp $(GXDFPTR_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxdfptr.cpp
 
+gxdjrnl$(OBJ_EXT):    $(GLIB_SRC_PATH)gxdjrnl.cpp $(GXDJRNL_DEP)
+	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
+	$(GLIB_SRC_PATH)gxdjrnl.cpp
+
+gxdpcache$(OBJ_EXT):    $(GLIB_SRC_PATH)gxdpcache.cpp $(GXDPCACHE_DEP)
+	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
+	$(GLIB_SRC_PATH)gxdpcache.cpp
+
 gxdlcode$(OBJ_EXT):	$(GLIB_SRC_PATH)gxdlcode.cpp $(GXDLCODE_DEP)
 	$(CXX) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxdlcode.cpp
