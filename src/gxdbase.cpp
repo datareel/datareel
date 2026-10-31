@@ -835,8 +835,11 @@ __ULWORD__ gxDatabase::CalcChecksum(__ULWORD__ bytes, FAU_t file_address,
     file_end = gxdFPTRSeek(fp, (FAU_t)0, gxDBASE_SEEK_END);
     gxdFPTRSeek(fp, pos, gxDBASE_SEEK_BEG);
   }
-  if((file_address < (FAU_t)0) || (file_end < (FAU_t)0) ||
-     ((FAU_t)bytes > file_end) || (file_address > file_end - (FAU_t)bytes)) {
+  // Compared unsigned: with native types on 64-bit systems a block
+  // length is 64 bits, and a damaged one cast to the signed address
+  // type became negative and passed (found by the 7.3 fuzz targets).
+  if((file_address < (FAU_t)0) || (file_end < (FAU_t)0) || (file_address > file_end) ||
+     ((unsigned long long)bytes > (unsigned long long)(file_end - file_address))) {
     gxd_error = gxDBASE_BADBLOCK_ERROR;
     return 0;
   }

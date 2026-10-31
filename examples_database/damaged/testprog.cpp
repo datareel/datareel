@@ -205,6 +205,9 @@ int main()
   make_db(fname, objects);
   set_length(fname, objects[3], 0x7ffffff0);
   set_length(fname, objects[4], 20); // Shorter than a header and a checksum
+  // All bits set but the low ones: with native types on 64-bit systems
+  // the length is 64 bits (found by fuzzing 6.3)
+  set_length(fname, objects[6], (gxUINT32)0 - (gxUINT32)90);
   {
     gxDatabase f;
     f.Open(fname, gxDBASE_READWRITE);
@@ -212,6 +215,7 @@ int main()
     check(f.ReadObjectChecksum(objects[3], &ocrc, &ccrc) == 0, "checksum: ReadObjectChecksum() refuses a block longer than the file");
     check(f.WriteObjectChecksum(objects[3]) == 0, "checksum: WriteObjectChecksum() refuses a block longer than the file");
     check(f.ReadObjectChecksum(objects[4], &ocrc, &ccrc) == 0, "checksum: a block too short for a checksum is refused");
+    check(f.ReadObjectChecksum(objects[6], &ocrc, &ccrc) == 0, "checksum: a length that wraps around is refused");
     check(f.ReadObjectChecksum(objects[5], &ocrc, &ccrc) == 1, "checksum: an undamaged block still checks");
   }
 
