@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -171,8 +171,17 @@ void FindBlock(gxDatabaseDebugManager *f, int verbose, int walk)
     // inside the file is bad. With native types on 64-bit systems a
     // damaged length wrapped the address back to an earlier block and
     // the search never ended (found by the DataReel 7.3 security sweep).
-    FAU_t next_addr = addr + (FAU_t)blk.block_length;
-    if(f->TestBlockHeader(blk) && (next_addr > addr) && (next_addr <= StaticEOF)) { 
+    // 10/31/2026: Compare the length unsigned with the room left in the
+    // file before adding it (DataReel 7.3.1: addr plus a huge length
+    // overflowed where FAU_t is 32 bits), and a length shorter than a
+    // block header is bad, as in gxDatabaseDebugManager::Rebuild().
+    FAU_t next_addr = (FAU_t)0;
+    int good = f->TestBlockHeader(blk) &&
+      ((gxUINT32)blk.block_length >= (gxUINT32)f->BlockHeaderSize()) &&
+      ((unsigned long long)blk.block_length <= 
+       (unsigned long long)(StaticEOF - addr));
+    if(good) next_addr = addr + (FAU_t)blk.block_length;
+    if(good && (next_addr > addr)) { 
       count++; // Increment the database block count
       if(verbose) {
 	BlockStats((gxDatabase *)f, (addr+f->BlockHeaderSize()));

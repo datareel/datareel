@@ -50,6 +50,8 @@ Returns 0 if every check passes; failed checks print FAIL lines.
 #include "gxconfig.h"
 #include "gxstring.h"
 #include "logfile.h"
+#include "dbugmgr.h"
+#include <time.h>
 
 #if defined (__UNIX__)
 #include <sys/stat.h>
@@ -273,14 +275,157 @@ static void test_logfile()
 #endif
 }
 
+static const int DBG_OBJECTS = 50;
+
+static int dbg_make(const char *fname, FAU_t *objects)
+// A rev 'C' file of DBG_OBJECTS 100-byte objects
+{
+  gxDatabase f;
+  if(f.Create(fname, (FAU_t)0, 'C') != gxDBASE_NO_ERROR) return 0;
+  char buf[100];
+  for(int i = 0; i < DBG_OBJECTS; i++) {
+    memset(buf, 'a' + (i % 26), sizeof(buf));
+    FAU_t a = f.Alloc(sizeof(buf));
+    if(!a || f.Write(buf, sizeof(buf), a) != gxDBASE_NO_ERROR) return 0;
+    f.WriteObjectChecksum(a);
+    objects[i] = a;
+  }
+  return f.Close() == gxDBASE_NO_ERROR;
+}
+
+static int dbg_set_length(const char *fname, FAU_t object, gxUINT32 len)
+{
+  gxDatabase f;
+  if(f.Open(fname) != gxDBASE_NO_ERROR) return 0;
+  gxBlockHeader blk;
+  FAU_t a = object - f.BlockHeaderSize();
+  if(f.Read(&blk, sizeof(blk), a) != gxDBASE_NO_ERROR) return 0;
+  blk.block_length = len;
+  return f.Write(&blk, sizeof(blk), a) == gxDBASE_NO_ERROR;
+}
+
+static FAU_t dbg_ref_search(gxDatabaseDebugManager &f, FAU_t addr)
+// The old byte by byte BlockSearch()
+{
+  FAU_t eof = f.FileSize(f.DatabaseName());
+  if(addr < (FAU_t)0) addr = (FAU_t)0;
+  gxBlockHeader blk;
+  for(; (FAU_t)(addr + sizeof(blk)) < eof; addr++) {
+    if(f.Read(&blk, sizeof(blk), addr) != gxDBASE_NO_ERROR) return (FAU_t)0;
+    if(f.TestBlockHeader(blk)) return addr;
+  }
+  return (FAU_t)0;
+}
+
+static long dbg_file_size(const char *fname)
+{
+  FILE *fp = fopen(fname, "rb");
+  if(!fp) return -1;
+  fseek(fp, 0, SEEK_END);
+  long n = ftell(fp);
+  fclose(fp);
+  return n;
+}
+
+static void test_dbug()
+{
+  const char *fname = "support_sec.gxd";
+  const char *out = "support_sec_out.gxd";
+  FAU_t objects[DBG_OBJECTS];
+  check(dbg_make(fname, objects), "dbug: create the test file");
+
+  // BlockSearch() finds the same blocks as the old byte by byte search
+  {
+    gxDatabaseDebugManager f;
+    f.BlindOpen(fname);
+    FAU_t eof = f.FileSize(fname);
+    int same = 1;
+    for(FAU_t a = (FAU_t)-3; a < eof + 3; a += 5) {
+      if(f.BlockSearch(a) != dbg_ref_search(f, a)) {
+	same = 0;
+	break;
+      }
+    }
+    check(same, "dbug: BlockSearch() gives the same results as before");
+  }
+
+  // Rebuild() refuses to write onto the file being rebuilt
+  {
+    long before = dbg_file_size(fname);
+    gxDatabaseDebugManager f;
+    f.BlindOpen(fname);
+    FAU_t n = 0;
+    int rv = f.Rebuild(fname, &n, gxDatabase::gxVersion, 'C', (FAU_t)0, 1);
+    check(rv == 0 && dbg_file_size(fname) == before, "dbug: Rebuild() onto its own input is refused");
+    gxString other;
+    other << "./" << fname;
+    rv = f.Rebuild(other.c_str(), &n, gxDatabase::gxVersion, 'C', (FAU_t)0, 1);
+    check(rv == 0 && dbg_file_size(fname) == before, "dbug: Rebuild() onto another spelling of the input is refused");
+#if defined (__UNIX__)
+    const char *link_name = "support_sec_link.gxd";
+    remove(link_name);
+    if(symlink(fname, link_name) == 0) {
+      rv = f.Rebuild(link_name, &n, gxDatabase::gxVersion, 'C', (FAU_t)0, 1);
+      check(rv == 0 && dbg_file_size(fname) == before, "dbug: Rebuild() onto a symbolic link to the input is refused");
+      remove(link_name);
+    }
+    if(link(fname, link_name) == 0) {
+      rv = f.Rebuild(link_name, &n, gxDatabase::gxVersion, 'C', (FAU_t)0, 1);
+      check(rv == 0 && dbg_file_size(fname) == before, "dbug: Rebuild() onto a hard link to the input is refused");
+      remove(link_name);
+    }
+#endif
+    remove(out);
+    rv = f.Rebuild(out, &n, gxDatabase::gxVersion, 'C', (FAU_t)0, 1);
+    check(rv == 1 && n == (FAU_t)DBG_OBJECTS, "dbug: Rebuild() to a new file copies every block");
+    remove(out);
+  }
+
+  // Damaged block lengths: short, zero and huge
+  {
+    dbg_set_length(fname, objects[10], 1);
+    dbg_set_length(fname, objects[20], 0);
+    dbg_set_length(fname, objects[30], (gxUINT32)0xfffffff0UL);
+    gxDatabaseDebugManager f;
+    f.BlindOpen(fname);
+    FAU_t n = 0;
+    remove(out);
+    f.Rebuild(out, &n, gxDatabase::gxVersion, 'C', (FAU_t)0, 1);
+    check(n == (FAU_t)(DBG_OBJECTS - 3), "dbug: Rebuild() skips the three damaged blocks and keeps the rest");
+    remove(out);
+  }
+
+  // A large file with no blocks is searched in reasonable time
+  {
+    gxDatabaseDebugManager f;
+    f.BlindOpen(fname);
+    FAU_t start_addr = f.FileSize(fname);
+    f.Close();
+    FILE *fp = fopen(fname, "ab");
+    if(fp) {
+      static char zeros[65536];
+      for(int i = 0; i < 128; i++) fwrite(zeros, 1, sizeof(zeros), fp); // 8 MB
+      fclose(fp);
+    }
+    f.BlindOpen(fname);
+    clock_t t0 = clock();
+    FAU_t a = f.BlockSearch(start_addr);
+    double secs = (double)(clock() - t0) / CLOCKS_PER_SEC;
+    printf("     dbug: searched 8 MB with no blocks in %.2f seconds\n", secs);
+    check(a == (FAU_t)0 && secs < 2.0, "dbug: BlockSearch() of 8 MB with no blocks takes under 2 seconds (4.5 before on a fast host)");
+  }
+  remove(fname);
+  remove(out);
+}
+
 int main(int argc, char **argv)
 {
 #if defined (__UNIX__)
   umask(022);
 #endif
   int all = (argc < 2);
-  const char *names[] = { "config", "logfile", 0 };
-  void (*tests[])() = { test_config, test_logfile };
+  const char *names[] = { "config", "logfile", "dbug", 0 };
+  void (*tests[])() = { test_config, test_logfile, test_dbug };
   for(int i = 1; i < argc; i++) {
     int known = 0;
     for(int t = 0; names[t]; t++) if(strcmp(argv[i], names[t]) == 0) known = 1;

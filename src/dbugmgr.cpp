@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -39,6 +39,16 @@ and repair damaged or corrupt database files.
 #include <new>
 #endif
 
+#include <string.h>
+
+// 10/31/2026: Used to tell whether the rebuild output is the input file
+#if defined (__WIN32__)
+#include <windows.h>
+#elif defined (__UNIX__)
+#include <sys/types.h>
+#include <sys/stat.h>
+#endif
+
 #ifdef __BCC32__
 #pragma warn -8066
 #pragma warn -8080
@@ -54,6 +64,42 @@ static char *gxdDebugAlloc(__ULWORD__ bytes)
   return new(std::nothrow) char[bytes];
 #else
   return new char[bytes];
+#endif
+}
+
+static int gxdSameFile(const char *a, const char *b)
+// 10/31/2026: Returns 1 if the names "a" and "b" are the same existing
+// file (the same name, a hard or symbolic link, or another spelling of
+// the path), 0 if they are not or "a" does not exist, and -1 if it
+// cannot be told.
+{
+#if defined (__UNIX__)
+  struct stat sa, sb;
+  if(stat(a, &sa) != 0) return 0; // The output file does not exist
+  if(stat(b, &sb) != 0) return -1;
+  return (sa.st_dev == sb.st_dev) && (sa.st_ino == sb.st_ino);
+#elif defined (__WIN32__)
+  if(GetFileAttributesA(a) == INVALID_FILE_ATTRIBUTES) return 0;
+  HANDLE ha = CreateFileA(a, 0, FILE_SHARE_READ|FILE_SHARE_WRITE|
+			  FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+			  FILE_ATTRIBUTE_NORMAL, NULL);
+  HANDLE hb = CreateFileA(b, 0, FILE_SHARE_READ|FILE_SHARE_WRITE|
+			  FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+			  FILE_ATTRIBUTE_NORMAL, NULL);
+  int rv = -1;
+  BY_HANDLE_FILE_INFORMATION ia, ib;
+  if((ha != INVALID_HANDLE_VALUE) && (hb != INVALID_HANDLE_VALUE) &&
+     GetFileInformationByHandle(ha, &ia) && 
+     GetFileInformationByHandle(hb, &ib)) {
+    rv = (ia.dwVolumeSerialNumber == ib.dwVolumeSerialNumber) &&
+      (ia.nFileIndexHigh == ib.nFileIndexHigh) &&
+      (ia.nFileIndexLow == ib.nFileIndexLow);
+  }
+  if(ha != INVALID_HANDLE_VALUE) CloseHandle(ha);
+  if(hb != INVALID_HANDLE_VALUE) CloseHandle(hb);
+  return rv;
+#else
+  return (strcmp(a, b) == 0) ? 1 : -1;
 #endif
 }
 
@@ -178,22 +224,48 @@ FAU_t gxDatabaseDebugManager::BlockSearch(FAU_t offset)
   FAU_t file_address = offset;
   FAU_t StaticEOF = FileSize(file_name);
 
+  if(file_address < (FAU_t)0) file_address = (FAU_t)0; // 10/31/2026
   if(file_address >= StaticEOF) { // Prevent offsetting past EOF
     return 0; // Invalid address
   }
+
+  // 10/31/2026: Read the file through a buffer (DataReel 7.3.1). The
+  // search did a seek and a header sized read for every byte, which
+  // took hours on a large damaged file. Each chunk overlaps the next by
+  // one header so no address is skipped. As before, a header must end
+  // before the end of file.
+  const __ULWORD__ hdr_size = (__ULWORD__)sizeof(gxBlockHeader);
+  const __ULWORD__ chunk_size = 64 * 1024;
+  char *chunk = gxdDebugAlloc(chunk_size + hdr_size);
+  if(!chunk) return (FAU_t)0;
   
   while(1) {
-    if((FAU_t)(file_address + sizeof(gxBlockHeader)) >= StaticEOF) {
+    if((FAU_t)(file_address + hdr_size) >= StaticEOF) {
+      delete[] chunk;
       return (FAU_t)0;
     }
-    if(Read(&blk, sizeof(gxBlockHeader), file_address) != gxDBASE_NO_ERROR)
+    // Bytes left before EOF, at most one chunk plus one header
+    FAU_t left = StaticEOF - file_address;
+    __ULWORD__ want = chunk_size + hdr_size;
+    if(left < (FAU_t)want) want = (__ULWORD__)left;
+    if(Read(chunk, want, file_address) != gxDBASE_NO_ERROR) {
+      delete[] chunk;
       return (FAU_t)0;
-    if(!TestBlockHeader(blk)) { 
-      file_address++; // Loop through the file byte by byte
     }
-    else {
-      return file_address; // Found valid block
+    // Test every address whose header ends before EOF
+    __ULWORD__ i = 0;
+    for(; i + hdr_size <= want; i++) {
+      if((FAU_t)(file_address + i + hdr_size) >= StaticEOF) {
+	delete[] chunk;
+	return (FAU_t)0;
+      }
+      memcpy((void *)&blk, chunk + i, hdr_size);
+      if(TestBlockHeader(blk)) {
+	delete[] chunk;
+	return (FAU_t)(file_address + i); // Found valid block
+      }
     }
+    file_address += i; // Continue at the first address not tested
   }
 
   // PC-lint 04/21/2004: Unreachable code but required for some compilers
@@ -515,7 +587,30 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 {
   // Clear the status message
   status_message.Clear();
+  if(!fname || !*fname) { // 10/31/2026: Null or empty output name
+    status_message << "No output file name given" << "\n";
+    return 0;
+  }
   status_message << "Rebuild results for: " << fname << "\n";
+
+  // 10/31/2026: The new file is created over any existing file. If it
+  // is the file being rebuilt (the same name, a hard or symbolic link,
+  // or another spelling of the path) the damaged file was truncated
+  // before it was read. Refuse it (DataReel 7.3.1).
+  {
+    int same = gxdSameFile(fname, DatabaseName());
+    if(same != 0) {
+      gxd_error = gxDBASE_FILE_EXISTS;
+      if(same > 0) {
+	status_message << "The output file is the file being rebuilt" << "\n";
+      }
+      else {
+	status_message << "Cannot compare the output file with the file "
+		       << "being rebuilt" << "\n";
+      }
+      return 0;
+    }
+  }
 
   // Record the EOF mark
   FAU_t StaticEOF = FileSize(DatabaseName());
@@ -749,9 +844,15 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
     // 10/14/2026: Treat a block whose length is shorter than its header
     // or runs past the end of file as a bad block. A zero length looped
     // forever and a short length gave a negative object length.
+    // 10/31/2026: Compare the length unsigned with the room left in the
+    // file (DataReel 7.3.1). Where FAU_t is a 32-bit long (the 32-bit
+    // engine on Windows) addr plus a huge length wrapped and passed the
+    // end of file test.
     if((TestBlockHeader(blk)) && 
-       (((FAU_t)blk.block_length < (FAU_t)BlockHeaderSize()) ||
-	((FAU_t)(addr + blk.block_length) > StaticEOF))) {
+       (((gxUINT32)blk.block_length < (gxUINT32)BlockHeaderSize()) ||
+	(addr > StaticEOF) ||
+	((unsigned long long)blk.block_length > 
+	 (unsigned long long)(StaticEOF - addr)))) {
       status_message << "Bad block length found at file address: "
 	     << addr << "\n";
       badgx++;
