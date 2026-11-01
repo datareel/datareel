@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -28,6 +28,14 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 The gxsURL class is used to parse uniform resource locators.
+
+Changes:
+==============================================================
+10/31/2026: Added HasControlChars() and DecodeStrict(), which refuses
+%00, other encoded control characters and bad % escapes, for servers
+that map a decoded path to a file. ParseURL() refuses URLs with
+control characters and ports that are not 1-65535.
+==============================================================
 */
 // ----------------------------------------------------------- // 
 #ifndef __GX_URL_HPP__
@@ -225,6 +233,15 @@ public: // 07/27/2006: Data members added to handle dynamic Web pages
 
 public: // 07/28/2006: Helper functions
   int SetDefaultProto(gxString &url);
+
+public: // 10/31/2026: Check helpers for servers mapping a path to a file
+  // True if s holds a byte 0x00-0x1F or 0x7F
+  static int HasControlChars(const gxString &s);
+  // Decode %XY escapes, and '+' as a space if plus_is_space is true.
+  // Returns false, with out empty, if s has a '%' not followed by two
+  // hex digits or the result holds a NUL or another control character.
+  static int DecodeStrict(const gxString &s, gxString &out, 
+			  int plus_is_space = 0);
 };
 
 #endif // __GX_URL_HPP__

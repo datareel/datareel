@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -28,6 +28,23 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 The gxsURL class is used to parse uniform resource locators.
+
+Changes:
+==============================================================
+10/31/2026: Security fixes. GetProtocolString() read past the end of
+the protocol table for gxsMAX_PROTOCOL_STRINGS and negative values.
+GetProtocolType() walked the bytes of the table's pointers instead
+of its entries (it read past the table and missed most protocols).
+ParsePortNumber() used Atoi(), so "host:-1" or "host:99999999999"
+gave a bad port; ports must now be 1-65535 and ParseURL() fails on a
+bad port. ParseURL() refuses URLs with control characters (CR LF in
+a URL went into HTTP request lines); leading and trailing white
+space is removed first. The % decoding in ParseDynamicPage() and 
+FilterQueryCharacters() no longer uses gxString::ConvertEscapeSeq()
+(see url_decode_lenient()), decoded control characters become '_',
+and '\\' is filtered from local query file names. Added
+HasControlChars() and DecodeStrict().
+==============================================================
 */
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
@@ -104,6 +121,95 @@ const char *gxsPROTOCOL_STRINGS[gxsMAX_PROTOCOL_STRINGS] =
   "whois:",       // Distributed directory service
   "whodp:"        // WhoDP: Widely Hosted Object Data Protocol
 };
+
+
+// 10/31/2026: Local helpers
+static int url_hex_value(char c)
+{
+  if(c >= '0' && c <= '9') return c - '0';
+  if(c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if(c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
+}
+
+static void url_decode_lenient(gxString &s)
+// Decode %XY escapes in place for the dynamic page code, which used
+// gxString::ConvertEscapeSeq('%', 2). "%%" is a '%', a '%' not
+// followed by two hex digits is kept (ConvertEscapeSeq() read past
+// the end of the string for a trailing '%' and used an uninitialised
+// value for bad hex digits), and a decoded control character
+// (%00, %0D, %0A, ...) becomes '_' so it cannot cut a file name short
+// or end a line.
+{
+  const char *p = s.c_str();
+  unsigned len = s.length();
+  if(len == 0 || s.Find("%") == -1) return;
+  char *out = new char[len + 1];
+  unsigned n = 0;
+  for(unsigned i = 0; i < len; i++) {
+    char c = p[i];
+    if(c == '%' && i + 1 < len && p[i+1] == '%') {
+      c = '%';
+      i++;
+    }
+    else if(c == '%' && i + 2 < len &&
+	    url_hex_value(p[i+1]) >= 0 && url_hex_value(p[i+2]) >= 0) {
+      c = (char)((url_hex_value(p[i+1]) * 16) + url_hex_value(p[i+2]));
+      i += 2;
+    }
+    if((unsigned char)c < 0x20 || (unsigned char)c == 0x7F) c = '_';
+    out[n++] = c;
+  }
+  s.SetString(out, n);
+  delete[] out;
+}
+
+int gxsURL::HasControlChars(const gxString &s)
+// 10/31/2026: True if s holds a byte 0x00-0x1F or 0x7F
+{
+  const char *p = s.c_str();
+  for(unsigned i = 0; i < s.length(); i++) {
+    unsigned char c = (unsigned char)p[i];
+    if(c < 0x20 || c == 0x7F) return 1;
+  }
+  return 0;
+}
+
+int gxsURL::DecodeStrict(const gxString &s, gxString &out, int plus_is_space)
+// 10/31/2026: Decode %XY escapes, and '+' as a space if plus_is_space
+// is true, for servers that map a decoded path to a file. Returns
+// false, with out empty, if s has a '%' not followed by two hex digits
+// or the result holds a NUL or another control character (0x00-0x1F,
+// 0x7F).
+{
+  out.Clear();
+  const char *p = s.c_str();
+  unsigned len = s.length();
+  if(len == 0) return 1;
+  char *buf = new char[len + 1];
+  unsigned n = 0;
+  for(unsigned i = 0; i < len; i++) {
+    char c = p[i];
+    if(c == '%') {
+      if(i + 2 >= len) { delete[] buf; return 0; }
+      int a = url_hex_value(p[i+1]), b = url_hex_value(p[i+2]);
+      if(a < 0 || b < 0) { delete[] buf; return 0; }
+      c = (char)((a * 16) + b);
+      i += 2;
+    }
+    else if(c == '+' && plus_is_space) {
+      c = ' ';
+    }
+    if((unsigned char)c < 0x20 || (unsigned char)c == 0x7F) {
+      delete[] buf;
+      return 0;
+    }
+    buf[n++] = c;
+  }
+  if(n > 0) out.SetString(buf, n);
+  delete[] buf;
+  return 1;
+}
 
 gxsURLInfo::gxsURLInfo() 
 { 
@@ -192,23 +298,33 @@ void  gxsURLInfo::Reset()
 char *gxsURL::GetProtocolString(int protocol)
 {
   // Check for bad protocol values
-  if(protocol > gxsMAX_PROTOCOL_STRINGS) protocol = gxs_Unknown_URL_protocol;
+  // 10/31/2026: gxsMAX_PROTOCOL_STRINGS and negative values read past
+  // the end of the table
+  if(protocol < 0 || protocol >= gxsMAX_PROTOCOL_STRINGS) {
+    protocol = gxs_Unknown_URL_protocol;
+  }
   return (char *)gxsPROTOCOL_STRINGS[protocol]; 
 }
 
 const char *gxsURL::GetProtocolString(int protocol) const
 {
   // Check for bad protocol values
-  if(protocol > gxsMAX_PROTOCOL_STRINGS) protocol = gxs_Unknown_URL_protocol;
+  // 10/31/2026: gxsMAX_PROTOCOL_STRINGS and negative values read past
+  // the end of the table
+  if(protocol < 0 || protocol >= gxsMAX_PROTOCOL_STRINGS) {
+    protocol = gxs_Unknown_URL_protocol;
+  }
   return (char *)gxsPROTOCOL_STRINGS[protocol]; 
 }
 
 int gxsURL::GetProtocolType(const gxString &protocol)
 {
-  char *s;
   int i; // Index of protocol types 
 
-  for(s = (char *)gxsPROTOCOL_STRINGS, i = 0; *s; s++, i++) {
+  // 10/31/2026: The loop walked the bytes of the pointer table 
+  // ("for(s = (char *)gxsPROTOCOL_STRINGS; *s; s++)"), so it stopped
+  // at the first zero byte of a pointer or ran past the table.
+  for(i = 0; i < gxsMAX_PROTOCOL_STRINGS; i++) {
     if(CaseICmp(protocol, gxsPROTOCOL_STRINGS[i]) == 0)
       return i; // Corresponds to the recognized URL protocol enumeration
   }
@@ -385,8 +501,17 @@ int gxsURL::ParsePortNumber(const gxString &url, int &port)
   int offset = sbuf.Find(":");
   if(offset == -1) return 0; // No port number was found
   sbuf.DeleteAt(0, offset+1);
-  port = sbuf.Atoi();
-  if(!port) return 0; // The port number was not valid
+  // 10/31/2026: Digits only and 1-65535. Atoi() took "-1", "80abc"
+  // and overflowed on long numbers.
+  if(sbuf.is_null() || sbuf.length() > 5) return 0;
+  const char *p = sbuf.c_str();
+  long v = 0;
+  for(unsigned i = 0; i < sbuf.length(); i++) {
+    if(p[i] < '0' || p[i] > '9') return 0;
+    v = (v * 10) + (p[i] - '0');
+  }
+  if(v < 1 || v > 65535) return 0; // The port number was not valid
+  port = (int)v;
   return 1;
 }
 
@@ -706,18 +831,42 @@ int gxsURL::ParseURL(const gxString &url, gxsURLInfo &u, int strict)
 // Returns false if any errors occur during the parsing
 // operation.
 {
-  u.url = url;
+  // 10/31/2026: Remove leading and trailing white space (a URL read
+  // from a file can end with CR LF), then refuse control characters,
+  // which were copied into HTTP request lines as extra headers.
+  gxString url_buf(url);
+  url_buf.TrimLeading(' '); url_buf.TrimLeading('\t');
+  while(!url_buf.is_null()) {
+    char c = url_buf[url_buf.length()-1];
+    if(c != ' ' && c != '\t' && c != '\r' && c != '\n') break;
+    url_buf.DeleteAt(url_buf.length()-1, 1);
+  }
+  u.url = url_buf;
+  if(HasControlChars(url_buf)) return 0;
 
-  int rv = ParseProtocol(url, u.proto, u.proto_type);
+  int rv = ParseProtocol(url_buf, u.proto, u.proto_type);
 
   if(strict && !rv) return 0;
 
   gxString clean_url;
-  ParseUserName(url, u.user, u.passwd, clean_url);
+  ParseUserName(url_buf, u.user, u.passwd, clean_url);
 
   if(!ParseHostName(clean_url, u.host)) return 0;
 
-  if(!ParsePortNumber(clean_url, u.port)) GetPortNumber(clean_url, u.port);
+  if(!ParsePortNumber(clean_url, u.port)) {
+    // 10/31/2026: A port that is given but not valid is an error
+    // rather than a quiet change to the protocol's default port
+    gxString host_port;
+    if(ParseHostName(clean_url, host_port, 0)) {
+      host_port.DeleteAfterIncluding("?");
+      host_port.DeleteAfterIncluding("#");
+      int offset = host_port.Find(":");
+      if(offset != -1 && (unsigned)offset + 1 < host_port.length()) {
+	return 0;
+      }
+    }
+    GetPortNumber(clean_url, u.port);
+  }
 
   if(u.proto_type == gxs_ftp) ProcessFTPType(clean_url, u.ftp_type);
 
@@ -963,7 +1112,8 @@ int gxsURL::FilterQueryCharacters(gxString &local_query_file)
   // Auto convert any hex codes in the URL. Some
   // Web sites use hex code in place of the query 
   // string characters.
-  local_query_file.ConvertEscapeSeq('%', 2);
+  // 10/31/2026: Decoded by url_decode_lenient()
+  url_decode_lenient(local_query_file);
 
   // 03/30/2009: Use a string not just an underscore
   // Filter the well known characters used in Web queries
@@ -995,6 +1145,8 @@ int gxsURL::FilterQueryCharacters(gxString &local_query_file)
   local_query_file.ReplaceString(">", "_GT_");
   local_query_file.ReplaceString("{", "_LB_");
   local_query_file.ReplaceString("}", "_RB_");
+  // 10/31/2026: A Windows path separator, from the URL or %5C
+  local_query_file.ReplaceString("\\", "_BS_");
   
   // Collapse the path separators if any illegal characters were 
   // deleted between them .
@@ -1030,7 +1182,8 @@ int gxsURL::ParseDynamicPage(const gxString &url,
   // any hex codes in the URL to ASCII. Some
   // Web sites use hex code in place of the query 
   // string characters.
-  url_buf.ConvertEscapeSeq('%', 2);
+  // 10/31/2026: Decoded by url_decode_lenient()
+  url_decode_lenient(url_buf);
   if(url_buf.Find("?") != -1) {
     is_dynamic = 1;
     query_string = url_buf;

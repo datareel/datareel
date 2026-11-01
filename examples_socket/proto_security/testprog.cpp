@@ -46,6 +46,9 @@ Sections:
             endless header, the MemoryBuffer size limit, control
             characters in the URL and a long URL in
             BuildSimpleRequestString().
+  url       gxsURL: protocol table bounds, GetProtocolType(), strict
+            ports, control characters, DecodeStrict(), % decoding of
+            dynamic page names.
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -417,10 +420,79 @@ static void TestHTTPClient()
   }
 }
 
+// --------------------------------------------------------------
+// url
+// --------------------------------------------------------------
+static void TestURL()
+{
+  const char *sec = "url";
+  gxsURL url;
+  gxsURLInfo u;
+
+  Check(strcmp(url.GetProtocolString(gxsMAX_PROTOCOL_STRINGS),
+	       "Unknown_URL_protocol:") == 0, sec, 
+	"GetProtocolString(gxsMAX_PROTOCOL_STRINGS) in bounds");
+  Check(strcmp(url.GetProtocolString(-1), "Unknown_URL_protocol:") == 0, 
+	sec, "GetProtocolString(-1) in bounds");
+  Check(url.GetProtocolType("http:") == gxsURL::gxs_http, sec,
+	"GetProtocolType(http:)");
+  Check(url.GetProtocolType("whodp:") == gxsURL::gxs_whodp, sec,
+	"GetProtocolType(whodp:)");
+  Check(url.GetProtocolType("nope:") == gxsURL::gxs_Unknown_URL_protocol, 
+	sec, "GetProtocolType(nope:)");
+
+  // Ports
+  Check(url.ParseURL("http://127.0.0.1:8080/x", u) && u.port == 8080, sec,
+	"port 8080");
+  Check(url.ParseURL("http://127.0.0.1/x", u) && u.port == 80, sec,
+	"default port");
+  Check(!url.ParseURL("http://127.0.0.1:-1/x", u), sec, "port -1 refused");
+  Check(!url.ParseURL("http://127.0.0.1:99999999999/x", u), sec,
+	"port overflow refused");
+  Check(!url.ParseURL("http://127.0.0.1:80abc/x", u), sec, 
+	"port 80abc refused");
+  Check(!url.ParseURL("http://127.0.0.1:65536/x", u), sec, 
+	"port 65536 refused");
+
+  // Control characters
+  Check(!url.ParseURL("http://127.0.0.1/a\r\nX-Injected: 1", u), sec,
+	"CR LF inside a URL refused");
+  Check(url.ParseURL("http://127.0.0.1/a.html\r\n", u) && 
+	u.path == "/a.html", sec, "trailing CR LF removed");
+  Check(gxsURL::HasControlChars("a\tb") && !gxsURL::HasControlChars("a b"),
+	sec, "HasControlChars()");
+
+  // DecodeStrict()
+  gxString out;
+  Check(gxsURL::DecodeStrict("%41%42c", out) && out == "ABc", sec,
+	"DecodeStrict() %41%42c");
+  Check(!gxsURL::DecodeStrict("a%00b", out) && out.is_null(), sec,
+	"DecodeStrict() refuses %00");
+  Check(!gxsURL::DecodeStrict("a%0d%0a", out), sec,
+	"DecodeStrict() refuses %0d%0a");
+  Check(!gxsURL::DecodeStrict("a%4", out) && !gxsURL::DecodeStrict("%", out) &&
+	!gxsURL::DecodeStrict("%zz", out), sec, 
+	"DecodeStrict() refuses bad escapes");
+  Check(gxsURL::DecodeStrict("a+b", out, 1) && out == "a b", sec,
+	"DecodeStrict() plus as space");
+  Check(gxsURL::DecodeStrict("a+b", out) && out == "a+b", sec,
+	"DecodeStrict() plus kept");
+
+  // % decoding of dynamic page names
+  Check(url.ParseURL("http://127.0.0.1/a.php?x=..%5C..%5Cy", u) &&
+	u.local_query_file.Find("\\") == -1, sec,
+	"no backslash in a local query file name");
+  Check(url.ParseURL("http://127.0.0.1/a.php?x=%00y%", u) &&
+	!gxsURL::HasControlChars(u.local_query_file) && 
+	u.query_string.Find("y%") != -1, sec,
+	"%00 and a trailing % in a query");
+}
+
 int main(int argc, char **argv)
 {
   if(Enabled(argc, argv, "httphdr")) TestHTTPHeader();
   if(Enabled(argc, argv, "httpc")) TestHTTPClient();
+  if(Enabled(argc, argv, "url")) TestURL();
 
   printf("%d checks, %d failed\n", num_checks, num_failed);
   if(num_failed) {
