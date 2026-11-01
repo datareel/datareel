@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/25/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -64,6 +64,16 @@ to use timeouts and external loop control.
 
 12/19/2005: Added SSL class and functions used to support HTTPS
 connections.
+
+10/31/2026: ParseHTTPHeader() (HTTP and HTTPS clients) no longer
+copies header values into fixed size stack buffers with sscanf(),
+which a long header line from a server overflowed. Fields are
+matched by name at the start of a line, the status line must be
+"HTTP/x.y ddd", Content-Length must be decimal digits, the file
+extension taken from Content-Type keeps only letters, digits and
+. + - _, and a header with control characters or a field name that
+is not a token is refused (returns -1, http_status set to 
+gxsHTTP_STATUS_UNKNOWN).
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -92,6 +102,436 @@ connections.
 #pragma warn -8057
 #pragma warn -8080
 #endif
+
+// --------------------------------------------------------------
+// 10/31/2026: HTTP response header parser shared by the HTTP and
+// HTTPS clients. The old ParseHTTPHeader() copied each header value
+// into fixed 1024 and 256 byte stack buffers with sscanf("%[^\r\n]")
+// and "%s", so a long header line from a server overflowed the
+// stack. Header names were found with IFind() anywhere in the header,
+// so "X-Location:" or a value holding "Content-Length:" set the
+// wrong field, the status code was read with "%d" (any number) and
+// Content-Length with Atol(). Values are now copied into gxString
+// objects, fields are matched by name at the start of a line, the
+// status line must be "HTTP/x.y ddd", Content-Length must be decimal
+// digits, and a header with control characters (NUL, a lone CR, ...)
+// or a field name that is not a token is refused.
+// --------------------------------------------------------------
+static int http_is_token_char(unsigned char c)
+{
+  if((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+     (c >= '0' && c <= '9')) return 1;
+  switch(c) {
+    case '!': case '#': case '$': case '%': case '&': case '\'':
+    case '*': case '+': case '-': case '.': case '^': case '_':
+    case '`': case '|': case '~':
+      return 1;
+    default:
+      break;
+  }
+  return 0;
+}
+
+static int http_has_ctl(const char *s, unsigned len, int allow_tab)
+// True if s holds a byte 0x00-0x1F or 0x7F (HTAB allowed if allow_tab)
+{
+  for(unsigned i = 0; i < len; i++) {
+    unsigned char c = (unsigned char)s[i];
+    if(c == '\t' && allow_tab) continue;
+    if(c < 0x20 || c == 0x7F) return 1;
+  }
+  return 0;
+}
+
+static int http_parse_int(const char *s, unsigned len, int &val)
+// Decimal digits only, at most 9 of them. Returns false otherwise.
+{
+  if(len == 0 || len > 9) return 0;
+  int v = 0;
+  for(unsigned i = 0; i < len; i++) {
+    if(s[i] < '0' || s[i] > '9') return 0;
+    v = (v * 10) + (s[i] - '0');
+  }
+  val = v;
+  return 1;
+}
+
+static int http_iequal(const char *a, const char *b, unsigned n)
+// Compare n ASCII characters without case
+{
+  for(unsigned i = 0; i < n; i++) {
+    char x = a[i], y = b[i];
+    if(x >= 'A' && x <= 'Z') x = (char)(x - 'A' + 'a');
+    if(y >= 'A' && y <= 'Z') y = (char)(y - 'A' + 'a');
+    if(x != y) return 0;
+  }
+  return 1;
+}
+
+static void http_set(gxString &s, const char *p, unsigned n)
+// SetString() treats a length of 0 as "up to the NUL"
+{
+  if(n == 0) s.Clear(); else s.SetString(p, n);
+}
+
+static int http_next_line(const char *s, unsigned len, unsigned &pos,
+			  const char *&line, unsigned &line_len)
+// Return the next line of s at pos without its CR LF or LF. Returns
+// false at the end of s.
+{
+  if(pos >= len) return 0;
+  line = s + pos;
+  unsigned i = pos;
+  while(i < len && s[i] != '\n') i++;
+  line_len = i - pos;
+  pos = (i < len) ? i + 1 : len;
+  if(line_len > 0 && line[line_len-1] == '\r') line_len--;
+  return 1;
+}
+
+static int http_check_header(const char *s, unsigned len)
+// Returns 0 if every line is free of control characters (other than
+// HTAB) and each field line after the status line is "token:value"
+// or an obsolete folded line. Returns -1 otherwise.
+{
+  unsigned pos = 0;
+  const char *line; unsigned line_len;
+  int first = 1;
+  while(http_next_line(s, len, pos, line, line_len)) {
+    if(http_has_ctl(line, line_len, 1)) return -1;
+    if(first) { first = 0; continue; }
+    if(line_len == 0) break; // End of the header
+    if(line[0] == ' ' || line[0] == '\t') continue; // Folded line
+    unsigned i = 0;
+    while(i < line_len && line[i] != ':') {
+      if(!http_is_token_char((unsigned char)line[i])) return -1;
+      i++;
+    }
+    if(i == 0 || i == line_len) return -1;
+  }
+  return 0;
+}
+
+static int http_field_value(const gxString &header, const char *name,
+			    gxString &value, unsigned &pos)
+// Find the next "name:" field line at or after pos, matching the
+// name without case at the start of a line, and pass back its value
+// with leading and trailing white space removed. pos is set to the
+// line after it. Returns false if there are no more such fields.
+{
+  const char *s = header.c_str();
+  unsigned len = header.length();
+  unsigned nlen = (unsigned)strlen(name);
+  const char *line; unsigned line_len;
+  value.Clear();
+  if(pos == 0) { // Skip the status line
+    if(!http_next_line(s, len, pos, line, line_len)) return 0;
+  }
+  while(http_next_line(s, len, pos, line, line_len)) {
+    if(line_len == 0) return 0; // End of the header
+    if(line_len <= nlen || line[nlen] != ':') continue;
+    if(!http_iequal(line, name, nlen)) continue;
+    unsigned b = nlen + 1, e = line_len;
+    while(b < e && (line[b] == ' ' || line[b] == '\t')) b++;
+    while(e > b && (line[e-1] == ' ' || line[e-1] == '\t')) e--;
+    http_set(value, line + b, e - b);
+    return 1;
+  }
+  return 0;
+}
+
+static int http_first_field(const gxString &header, const char *name,
+			    gxString &value)
+{
+  unsigned pos = 0;
+  return http_field_value(header, name, value, pos);
+}
+
+static void http_keep_alive_items(const gxString &value, int &keep_alive)
+// Connection: keep-alive, close ... in order, the last one wins
+{
+  const char *s = value.c_str();
+  unsigned len = value.length();
+  unsigned b = 0;
+  while(b <= len) {
+    unsigned e = b;
+    while(e < len && s[e] != ',') e++;
+    gxString item;
+    http_set(item, s + b, e - b);
+    if(item.IFind("keep-alive") != -1) keep_alive = 1;
+    if(item.IFind("persist") != -1) keep_alive = 1;
+    if(item.IFind("close") != -1) keep_alive = 0;
+    b = e + 1;
+  }
+}
+
+static int http_keep_alive_param(const gxString &value, const char *pname,
+				 int &val)
+// "timeout=5, max=100" - pass back the number after pname=
+{
+  int offset = value.IFind(pname);
+  if(offset == -1) return 0;
+  const char *s = value.c_str() + offset + strlen(pname);
+  const char *end = value.c_str() + value.length();
+  if(s >= end || *s != '=') return 0;
+  s++;
+  unsigned n = 0;
+  while(s + n < end && s[n] >= '0' && s[n] <= '9') n++;
+  return http_parse_int(s, n, val);
+}
+
+static int http_parse_header(const gxsURLInfo &u, const gxString &header,
+			     gxsHTTPHeader &hdr)
+// Parse an HTTP response header. Returns 0 if successful or -1 if the
+// header is not valid, with hdr.http_status set to
+// gxsHTTP_STATUS_UNKNOWN.
+{
+  hdr.http_header = header;
+  const char *s = header.c_str();
+  unsigned len = header.length();
+  gxString sbuf, ibuf;
+  int offset, index;
+
+  if(http_check_header(s, len) != 0) {
+    hdr.http_status = gxsHTTP_STATUS_UNKNOWN;
+    hdr.not_found = 1;
+    return -1;
+  }
+
+  // Status line: HTTP/x.y ddd [reason]
+  unsigned pos = 0;
+  const char *line; unsigned line_len;
+  if(!http_next_line(s, len, pos, line, line_len) || line_len < 12 ||
+     strncmp(line, "HTTP/", 5) != 0 ||
+     line[5] < '0' || line[5] > '9' || line[6] != '.' ||
+     line[7] < '0' || line[7] > '9' || line[8] != ' ' ||
+     !http_parse_int(line + 9, 3, hdr.http_status) ||
+     (line_len > 12 && line[12] != ' ') || hdr.http_status < 100) {
+    hdr.http_status = gxsHTTP_STATUS_UNKNOWN;
+    hdr.not_found = 1;
+    return -1;
+  }
+  hdr.http_version = (float)(line[5] - '0') + ((float)(line[7] - '0') / 10.0F);
+
+  if (hdr.http_status == gxsHTTP_STATUS_UNAUTHORIZED) { 
+    // The 401 (unauthorized) response message is used by an origin server
+    // to challenge the authorization of a user agent. This response must
+    // include a WWW-Authenticate header field containing at least one
+    // challenge applicable to the requested resource. 
+    hdr.authentication_needed = 1;
+  }
+  else if (hdr.http_status == gxsHTTP_STATUS_FORBIDDEN) {
+    hdr.authentication_scheme = hdr.realm = hdr.auth_cookie = "\0";
+  }
+  else if ((hdr.http_status >= 200) && (hdr.http_status <= 299)) {
+    if (hdr.http_status == gxsHTTP_STATUS_NO_CONTENT) {
+      hdr.no_cache = 1;
+      hdr.length = 0;
+    }
+  }
+  else if ((hdr.http_status >= 500) && (hdr.http_status <= 599)) { 
+    // Proxy error 
+  }
+  else {
+    hdr.not_found = 1;
+  }
+  
+  // In HTTP/1.1 connections are assumed to be persistent
+  // unless otherwise notified.
+  if (hdr.http_version >= 1.1F)
+    hdr.keep_alive = 1;
+  else
+    hdr.keep_alive = 0;
+
+  // Get the rest of the header parameters
+  if(http_first_field(header, "Server", sbuf)) hdr.current_server = sbuf;
+
+  // The Location response-header field defines the exact location of
+  // the resource that was identified by the Request-URI. For 3xx
+  // responses, the location must indicate the server's preferred URL
+  // for automatic redirection to the resource. Only one absolute URL is
+  // allowed.
+  if(http_first_field(header, "Location", sbuf)) hdr.location = sbuf;
+
+  // The Last-Modified entity-header field indicates the date and time
+  // at which the sender believes the resource was last modified.
+  if(http_first_field(header, "Last-Modified", sbuf)) {
+    hdr.http_last_modified = sbuf;
+  }
+
+  // The Date general-header field represents the date 
+  // and time at which the message was originated.
+  if(http_first_field(header, "Date", sbuf)) hdr.date = sbuf;
+
+  // The Expires entity-header field gives the date/time after which
+  // the entity should be considered stale.
+  if(http_first_field(header, "Expires", sbuf)) hdr.http_expires = sbuf;
+
+  if(http_first_field(header, "ETag", sbuf)) hdr.etag = sbuf;
+
+  // The Content-Encoding entity-header field is used as a modifier
+  // to the media-type. 
+  if(http_first_field(header, "Content-Encoding", sbuf)) {
+    hdr.content_encoding = sbuf;
+  }
+
+  // If a request is authenticated and a realm specified, the same
+  // credentials should be valid for all other requests within this
+  // realm. Format: scheme realm-parameters
+  if(http_first_field(header, "WWW-Authenticate", sbuf)) {
+    offset = sbuf.Find(" ");
+    if(offset > 0 && (unsigned)offset + 1 < sbuf.length()) {
+      http_set(hdr.authentication_scheme, sbuf.c_str(), offset);
+      http_set(ibuf, sbuf.c_str() + offset + 1, sbuf.length() - offset - 1);
+      ibuf.TrimLeadingSpaces();
+      if(!ibuf.is_null()) hdr.realm = ibuf;
+    }
+  }
+
+  if((hdr.http_version == 1.0F) && http_first_field(header, "Keep-Alive", sbuf)) {
+    int t, m;
+    if(http_keep_alive_param(sbuf, "timeout", t) &&
+       http_keep_alive_param(sbuf, "max", m)) {
+      hdr.timeout = t;
+      hdr.max_conns = m;
+      hdr.keep_alive = 1;
+    }
+  }
+
+  if(http_first_field(header, "Connection", sbuf)) {
+    http_keep_alive_items(sbuf, hdr.keep_alive);
+  }
+
+  // The Content-Type entity-header field indicates the media type
+  // of the Entity-Body sent to the recipient or, in the case of
+  // the HEAD method, the media type that would have been sent had
+  // the request been a GET. 
+  if(http_first_field(header, "Content-Type", sbuf)) {
+    sbuf.DeleteAfterIncluding(";");
+    sbuf.TrimTrailingSpaces();
+    // The file extension is the subtype, such as ".html" for
+    // "text/html". Only letters, digits and . + - _ are kept, so a
+    // server cannot put a path ("text/../../x") into the name of a
+    // file an application saves.
+    ibuf.Clear();
+    offset = sbuf.Find("/");
+    if(offset != -1) {
+      const char *p = sbuf.c_str() + offset + 1;
+      unsigned n = 0;
+      while(p[n] && (http_is_token_char((unsigned char)p[n]) &&
+		     p[n] != '!' && p[n] != '#' && p[n] != '$' &&
+		     p[n] != '%' && p[n] != '&' && p[n] != '\'' &&
+		     p[n] != '*' && p[n] != '^' && p[n] != '`' &&
+		     p[n] != '|' && p[n] != '~')) n++;
+      http_set(ibuf, p, n);
+    }
+    hdr.file_extension = ".";
+    hdr.file_extension += ibuf;
+
+    hdr.content_type = hdr.mime_type = sbuf;
+
+#if defined(__DOS__) || defined(__WIN32__)
+    if(hdr.mime_type == "audio/x-wav")
+      hdr.file_extension = ".wav";
+    else if(hdr.mime_type == "image/x-ms-bmp")
+      hdr.file_extension = ".bmp";
+    else if(hdr.mime_type == "application/x-msvideo")
+      hdr.file_extension = ".avi";
+#endif
+  }
+
+  // The Content-Length entity-header field indicates the size of the
+  // Entity-Body. It must be decimal digits; conflicting values or a
+  // value that does not fit an int leave the length unknown (-1).
+  pos = 0;
+  int have_length = 0;
+  while(http_field_value(header, "Content-Length", sbuf, pos)) {
+    int n;
+    if(!http_parse_int(sbuf.c_str(), sbuf.length(), n) ||
+       (have_length && n != hdr.length)) {
+      hdr.length = -1;
+      break;
+    }
+    hdr.length = n;
+    have_length = 1;
+  }
+
+  // The Pragma general-header field is used to include implementation-
+  // specific directives that may apply to any recipient along the
+  // request/response chain.
+  if(http_first_field(header, "Pragma", sbuf)) {
+    hdr.pragma = sbuf;
+    offset = hdr.pragma.IFind("no-cache");
+    if(offset != -1) hdr.no_cache = 1;
+  }
+
+  if(http_first_field(header, "Cache-Control", sbuf)) {
+    hdr.cache_control = sbuf;
+    offset = hdr.cache_control.IFind("no-cache");
+    if(offset != -1) hdr.no_cache = 1;
+  }
+  
+  if(http_first_field(header, "Accept-Ranges", sbuf)) {
+    sbuf.DeleteAfterIncluding(" ");
+    if(CaseICmp(sbuf, "bytes") == 0) hdr.accept_ranges = 1;
+  }
+
+  // Parse all the cookies: name=value; attributes
+  pos = 0;
+  while(hdr.use_cookies && http_field_value(header, "Set-Cookie", sbuf, pos)) {
+    offset = sbuf.Find("=");
+    if(offset <= 0) continue;
+    gxsNetscapeCookie citem;
+    citem.host = u.host;
+    http_set(citem.name, sbuf.c_str(), offset);
+    citem.name.TrimTrailingSpaces();
+    http_set(ibuf, sbuf.c_str() + offset + 1, sbuf.length() - offset - 1);
+    gxString rest;
+    index = ibuf.Find(";");
+    if(index != -1) {
+      http_set(rest, ibuf.c_str() + index + 1, ibuf.length() - index - 1);
+      rest.TrimLeadingSpaces();
+      ibuf.DeleteAt(index, ibuf.length() - index);
+    }
+    if(ibuf.is_null()) continue; // The old parser needed a value
+    citem.value = ibuf;
+    citem.secure = 0;
+		
+    ibuf = rest;
+    index = ibuf.IFind("Expires");
+    if(index != -1) {
+      ibuf.DeleteAt(0, index);
+      ibuf.DeleteBeforeIncluding("=");
+      ibuf.DeleteAfterIncluding(";");
+      citem.expires = ibuf;
+    }
+    ibuf = rest;
+    index = ibuf.IFind("Domain");
+    if(index != -1) {
+      ibuf.DeleteAt(0, index);
+      ibuf.DeleteBeforeIncluding("=");
+      ibuf.DeleteAfterIncluding(";");
+      citem.domain = ibuf;
+    }
+    ibuf = rest;
+    index = ibuf.IFind("Path");
+    if(index != -1) {
+      ibuf.DeleteAt(0, index);
+      ibuf.DeleteBeforeIncluding("=");
+      ibuf.DeleteAfterIncluding(";");
+      citem.path = ibuf;
+    }
+    ibuf = rest;
+    index = ibuf.IFind("Secure");
+    if(index != -1) {
+      citem.secure = 1;
+    }
+    hdr.netscape_cookies.Insert(citem);
+  }
+
+  return 0;
+}
+
 
 gxsHTTPClient::gxsHTTPClient(int CacheSize, int seconds, int useconds) 
   : cache(CacheSize) 
@@ -628,264 +1068,16 @@ int gxsHTTPClient::ParseHTTPHeader(const gxsURLInfo &u,
 				   const gxString &header, gxsHTTPHeader &hdr)
 // Parse an HTTP header passing back the header information in the
 // "hdr" variable. Returns 0 if no errors occur.
+// 10/31/2026: Parsed by http_parse_header(), which no longer copies
+// header lines into fixed size stack buffers. Returns -1, with
+// hdr.http_status set to gxsHTTP_STATUS_UNKNOWN, if the header is
+// not valid.
 {
-  hdr.http_header = header;
-  gxString dup_header(header);
-  
-  char status[1024], status2[1024], rest[1024];
-  status[0] = status2[0] = rest[0] = 0;
-  int offset, index;
-  gxString sbuf, ibuf, atoibuf;
-  
-  // Read the headers status line
-  sscanf(dup_header.c_str(), "HTTP/%f %d %[^\r\n]", 
-	 &hdr.http_version, &hdr.http_status, status);
-
-  if (hdr.http_status == gxsHTTP_STATUS_UNAUTHORIZED) { 
-    // The 401 (unauthorized) response message is used by an origin server
-    // to challenge the authorization of a user agent. This response must
-    // include a WWW-Authenticate header field containing at least one
-    // challenge applicable to the requested resource. 
-    hdr.authentication_needed = 1;
-  }
-  else if (hdr.http_status == gxsHTTP_STATUS_FORBIDDEN) {
-    hdr.authentication_scheme = hdr.realm = hdr.auth_cookie = "\0";
-  }
-  else if ((hdr.http_status >= 200) && (hdr.http_status <= 299)) {
-    if (hdr.http_status == gxsHTTP_STATUS_NO_CONTENT) {
-      hdr.no_cache = 1;
-      hdr.length = 0;
-    }
-  }
-  else if ((hdr.http_status >= 500) && (hdr.http_status <= 599)) { 
-    // Proxy error 
-  }
-  else {
-    hdr.not_found = 1;
-  }
-  
-  // In HTTP/1.1 connections are assumed to be persistent
-  // unless otherwise notified.
-  if (hdr.http_version >= 1.1F)
-    hdr.keep_alive = 1;
-  else
-    hdr.keep_alive = 0;
-
-  // Get the rest of the header parameters
-  offset = dup_header.IFind("Server:");
-  if(offset != -1) {
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.current_server = status;
-  }
-  offset = dup_header.IFind("Location:");
-  if(offset != -1) {
-    // The Location response-header field defines the exact location of
-    // the resource that was identified by the Request-URI. For 3xx
-    // responses, the location must indicate the server's preferred URL
-    // for automatic redirection to the resource. Only one absolute URL is
-    // allowed.
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.location = status;
-  }
-  offset = dup_header.IFind("Last-Modified:");
-  if(offset != -1) {
-    // The Last-Modified entity-header field indicates the date and time
-    // at which the sender believes the resource was last modified.
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.http_last_modified = status;
-  }
-  offset = dup_header.IFind("Date:");
-  if(offset != -1) {
-    // The Date general-header field represents the date 
-    // and time at which the message was originated.
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.date = status;
-  }
-  offset = dup_header.IFind("Expires:");
-  if(offset != -1) {
-    // The Expires entity-header field gives the date/time after which
-    // the entity should be considered stale. This allows information
-    // providers to suggest the volatility of the resource, or a date
-    // after which the information may no longer be valid. Applications
-    // must not cache this entity beyond the date given.
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.http_expires = status;
-  }
-  offset = dup_header.IFind("ETag:");
-  if(offset != -1) {
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.etag = status;
-  }
-  offset = dup_header.IFind("Content-Encoding:");
-  if(offset != -1) {
-    // The Content-Encoding entity-header field is used as a modifier
-    // to the media-type. When present, its value indicates what additional
-    // content coding has been applied to the resource, and thus what
-    // decoding mechanism must be applied in order to obtain the media-type
-    // referenced by the Content-Type header field. The Content-Encoding is
-    // primarily used to allow a document to be compressed without
-    // losing the identity of its underlying media type.
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.content_encoding = status;
-  }
-  offset = dup_header.IFind("WWW-Authenticate:");
-  if(offset != -1) {
-    // If a request is authenticated and a realm specified, the same
-    // credentials should be valid for all other requests within this
-    // realm. 
-    if(sscanf(dup_header.c_str()+offset, "%*[^:]: %s %[^\r\n]",
-	      status, status2) == 2) {
-      hdr.authentication_scheme = status;
-      hdr.realm = status2;
-    }
-  }
-  offset = dup_header.IFind("Keep-Alive:");
-  if((hdr.http_version == 1.0F) && (offset != -1)) {
-    if(sscanf(dup_header.c_str()+offset, "%*[^:]: timeout=%d, max=%d",
-	      &hdr.timeout, &hdr.max_conns) == 2) {
-      hdr.keep_alive = 1;
-    }
-    else if(sscanf(dup_header.c_str()+offset, "%*[^:]: max=%d, timeout=%d",
-		   &hdr.max_conns, &hdr.timeout) == 2) {
-      hdr.keep_alive = 1;
-    }
-  }
-  offset = dup_header.IFind("Connection:");
-  if(offset != -1) {
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^,\r\n],%[^,\r\n]",
-	   status, status2);
-    sbuf = status;
-    offset = sbuf.IFind("keep-alive");
-    if(offset != -1) hdr.keep_alive = 1;
-    offset = sbuf.IFind("persist");
-    if(offset != -1) hdr.keep_alive = 1;
-    offset = sbuf.IFind("close");
-    if(offset != -1) hdr.keep_alive = 0;
-
-    sbuf = status2;
-    offset = sbuf.IFind("keep-alive");
-    if(offset != -1) hdr.keep_alive = 1;
-    offset = sbuf.IFind("persist");
-    if(offset != -1) hdr.keep_alive = 1;
-    offset = sbuf.IFind("close");
-    if(offset != -1) hdr.keep_alive = 0;
-  }
-  offset = dup_header.IFind("Content-Type:");
-  if(offset != -1) {
-    // The Content-Type entity-header field indicates the media type
-    // of the Entity-Body sent to the recipient or, in the case of
-    // the HEAD method, the media type that would have been sent had
-    // the request been a GET. 
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^;\r\n]", status);
-    char ext[256];
-    sscanf(status, "%*[^/]/%[^;]", ext);
-    hdr.file_extension = ".";
-    hdr.file_extension += ext;
-
-    hdr.content_type = hdr.mime_type = status;
-
-#if defined(__DOS__) || defined(__WIN32__)
-    if(hdr.mime_type == "audio/x-wav")
-      hdr.file_extension = ".wav";
-    else if(hdr.mime_type == "image/x-ms-bmp")
-      hdr.file_extension = ".bmp";
-    else if(hdr.mime_type == "application/x-msvideo")
-      hdr.file_extension = ".avi";
-#endif
-  }
-  offset = dup_header.IFind("Content-Length:");
-  if(offset != -1) {
-    // The Content-Length entity-header field 
-    // indicates the size of the Entity-Body.
-    offset += strlen("Content-Length:");
-    char *src = (char *)(dup_header.c_str()+offset);
-    while(*src == ' ') src++;
-    atoibuf = src;
-    hdr.length = atoibuf.Atol();
-  }
-
-  offset = dup_header.IFind("Pragma:");
-  if(offset != -1) {
-    // The Pragma general-header field is used to include implementation-
-    // specific directives that may apply to any recipient along the
-    // request/response chain. All pragma directives specify optional
-    // behavior from the viewpoint of the protocol; however, some systems
-    // may require that behavior be consistent with the directives.
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.pragma = status;
-    offset = hdr.pragma.IFind("no-cache");
-    if(offset != -1) hdr.no_cache = 1;
-  }
-
-  offset = dup_header.IFind("Cache-Control:");
-  if(offset != -1) {
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.cache_control = status;
-    offset = hdr.cache_control.IFind("no-cache");
-    if(offset != -1) hdr.no_cache = 1;
-  }
-  
-  offset = dup_header.IFind("Accept-Ranges:");
-  if(offset != -1) {
-    sscanf(dup_header.c_str()+offset,"%*[^:]: %s", status);
-    sbuf = status;
-    if(CaseICmp(sbuf, "bytes") == 0) hdr.accept_ranges = 1;
-  }
-
-  offset = 0;
-  sbuf = header;
-  while(recv_loop) { // Parse all the cookies
-    offset = sbuf.IFind("Set-Cookie:", offset);
-    if((offset != -1) && (hdr.use_cookies)) {
-      if(sscanf(dup_header.c_str()+offset, "%*[^:]: %[^=]=%[^;\r\n]; %[^\r\n]",
-		status, status2, rest) >= 2) {
-	gxsNetscapeCookie citem;
-	citem.host = u.host;
-	citem.name = status;
-	citem.value = status2;
-	citem.secure = 0;
-	
-	ibuf = rest;
-	index = ibuf.IFind("Expires");
-	if(index != -1) {
-	  ibuf.DeleteAt(0, index);
-	  ibuf.DeleteBeforeIncluding("=");
-	  ibuf.DeleteAfterIncluding(";");
-	  citem.expires = ibuf;
-	}
-	ibuf = rest;
-	index = ibuf.IFind("Domain");
-	if(index != -1) {
-	  ibuf.DeleteAt(0, index);
-	  ibuf.DeleteBeforeIncluding("=");
-	  ibuf.DeleteAfterIncluding(";");
-	  citem.domain = ibuf;
-	}
-	ibuf = rest;
-	index = ibuf.IFind("Path");
-	if(index != -1) {
-	  ibuf.DeleteAt(0, index);
-	  ibuf.DeleteBeforeIncluding("=");
-	  ibuf.DeleteAfterIncluding(";");
-	  citem.path = ibuf;
-	}
-	ibuf = rest;
-	index = ibuf.IFind("Secure");
-	if(index != -1) {
-	  citem.secure = 1;
-	}
-	hdr.netscape_cookies.Insert(citem);
-      }
-    }
-    if(offset == -1) break;
-    offset++;
-  }
-
+  int rv = http_parse_header(u, header, hdr);
   if(record_proto) {
     proto_string << header;
   }
-  
-  return 0;
+  return rv;
 }
 
 void gxsHTTPClient::BuildSimpleRequestString(const gxsURLInfo &u,
@@ -1751,266 +1943,19 @@ void gxsHTTPSClient::Write(const void *buf, unsigned Bytes,
 }
  
 int gxsHTTPSClient::ParseHTTPHeader(const gxsURLInfo &u,
-				    const gxString &header, gxsHTTPHeader &hdr)
+				   const gxString &header, gxsHTTPHeader &hdr)
 // Parse an HTTP header passing back the header information in the
 // "hdr" variable. Returns 0 if no errors occur.
+// 10/31/2026: Parsed by http_parse_header(), which no longer copies
+// header lines into fixed size stack buffers. Returns -1, with
+// hdr.http_status set to gxsHTTP_STATUS_UNKNOWN, if the header is
+// not valid.
 {
-  hdr.http_header = header;
-  gxString dup_header(header);
-  
-  char status[1024], status2[1024], rest[1024];
-  status[0] = status2[0] = rest[0] = 0;
-  int offset, index;
-  gxString sbuf, ibuf, atoibuf;
-  
-  // Read the headers status line
-  sscanf(dup_header.c_str(), "HTTP/%f %d %[^\r\n]", 
-	 &hdr.http_version, &hdr.http_status, status);
-
-  if (hdr.http_status == gxsHTTP_STATUS_UNAUTHORIZED) { 
-    // The 401 (unauthorized) response message is used by an origin server
-    // to challenge the authorization of a user agent. This response must
-    // include a WWW-Authenticate header field containing at least one
-    // challenge applicable to the requested resource. 
-    hdr.authentication_needed = 1;
-  }
-  else if (hdr.http_status == gxsHTTP_STATUS_FORBIDDEN) {
-    hdr.authentication_scheme = hdr.realm = hdr.auth_cookie = "\0";
-  }
-  else if ((hdr.http_status >= 200) && (hdr.http_status <= 299)) {
-    if (hdr.http_status == gxsHTTP_STATUS_NO_CONTENT) {
-      hdr.no_cache = 1;
-      hdr.length = 0;
-    }
-  }
-  else if ((hdr.http_status >= 500) && (hdr.http_status <= 599)) { 
-    // Proxy error 
-  }
-  else {
-    hdr.not_found = 1;
-  }
-  
-  // In HTTP/1.1 connections are assumed to be persistent
-  // unless otherwise notified.
-  if (hdr.http_version >= 1.1F)
-    hdr.keep_alive = 1;
-  else
-    hdr.keep_alive = 0;
-
-  // Get the rest of the header parameters
-  offset = dup_header.IFind("Server:");
-  if(offset != -1) {
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.current_server = status;
-  }
-  offset = dup_header.IFind("Location:");
-  if(offset != -1) {
-    // The Location response-header field defines the exact location of
-    // the resource that was identified by the Request-URI. For 3xx
-    // responses, the location must indicate the server's preferred URL
-    // for automatic redirection to the resource. Only one absolute URL is
-    // allowed.
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.location = status;
-  }
-  offset = dup_header.IFind("Last-Modified:");
-  if(offset != -1) {
-    // The Last-Modified entity-header field indicates the date and time
-    // at which the sender believes the resource was last modified.
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.http_last_modified = status;
-  }
-  offset = dup_header.IFind("Date:");
-  if(offset != -1) {
-    // The Date general-header field represents the date 
-    // and time at which the message was originated.
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.date = status;
-  }
-  offset = dup_header.IFind("Expires:");
-  if(offset != -1) {
-    // The Expires entity-header field gives the date/time after which
-    // the entity should be considered stale. This allows information
-    // providers to suggest the volatility of the resource, or a date
-    // after which the information may no longer be valid. Applications
-    // must not cache this entity beyond the date given.
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.http_expires = status;
-  }
-  offset = dup_header.IFind("ETag:");
-  if(offset != -1) {
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.etag = status;
-  }
-  offset = dup_header.IFind("Content-Encoding:");
-  if(offset != -1) {
-    // The Content-Encoding entity-header field is used as a modifier
-    // to the media-type. When present, its value indicates what additional
-    // content coding has been applied to the resource, and thus what
-    // decoding mechanism must be applied in order to obtain the media-type
-    // referenced by the Content-Type header field. The Content-Encoding is
-    // primarily used to allow a document to be compressed without
-    // losing the identity of its underlying media type.
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.content_encoding = status;
-  }
-  offset = dup_header.IFind("WWW-Authenticate:");
-  if(offset != -1) {
-    // If a request is authenticated and a realm specified, the same
-    // credentials should be valid for all other requests within this
-    // realm. 
-    if(sscanf(dup_header.c_str()+offset, "%*[^:]: %s %[^\r\n]",
-	      status, status2) == 2) {
-      hdr.authentication_scheme = status;
-      hdr.realm = status2;
-    }
-  }
-  offset = dup_header.IFind("Keep-Alive:");
-  if((hdr.http_version == 1.0F) && (offset != -1)) {
-    if(sscanf(dup_header.c_str()+offset, "%*[^:]: timeout=%d, max=%d",
-	      &hdr.timeout, &hdr.max_conns) == 2) {
-      hdr.keep_alive = 1;
-    }
-    else if(sscanf(dup_header.c_str()+offset, "%*[^:]: max=%d, timeout=%d",
-		   &hdr.max_conns, &hdr.timeout) == 2) {
-      hdr.keep_alive = 1;
-    }
-  }
-  offset = dup_header.IFind("Connection:");
-  if(offset != -1) {
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^,\r\n],%[^,\r\n]",
-	   status, status2);
-    sbuf = status;
-    offset = sbuf.IFind("keep-alive");
-    if(offset != -1) hdr.keep_alive = 1;
-    offset = sbuf.IFind("persist");
-    if(offset != -1) hdr.keep_alive = 1;
-    offset = sbuf.IFind("close");
-    if(offset != -1) hdr.keep_alive = 0;
-
-    sbuf = status2;
-    offset = sbuf.IFind("keep-alive");
-    if(offset != -1) hdr.keep_alive = 1;
-    offset = sbuf.IFind("persist");
-    if(offset != -1) hdr.keep_alive = 1;
-    offset = sbuf.IFind("close");
-    if(offset != -1) hdr.keep_alive = 0;
-  }
-  offset = dup_header.IFind("Content-Type:");
-  if(offset != -1) {
-    // The Content-Type entity-header field indicates the media type
-    // of the Entity-Body sent to the recipient or, in the case of
-    // the HEAD method, the media type that would have been sent had
-    // the request been a GET. 
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^;\r\n]", status);
-    char ext[256];
-    sscanf(status, "%*[^/]/%[^;]", ext);
-    hdr.file_extension = ".";
-    hdr.file_extension += ext;
-
-    hdr.content_type = hdr.mime_type = status;
-
-#if defined(__DOS__) || defined(__WIN32__)
-    if(hdr.mime_type == "audio/x-wav")
-      hdr.file_extension = ".wav";
-    else if(hdr.mime_type == "image/x-ms-bmp")
-      hdr.file_extension = ".bmp";
-    else if(hdr.mime_type == "application/x-msvideo")
-      hdr.file_extension = ".avi";
-#endif
-  }
-  offset = dup_header.IFind("Content-Length:");
-  if(offset != -1) {
-    // The Content-Length entity-header field 
-    // indicates the size of the Entity-Body.
-    offset += strlen("Content-Length:");
-    char *src = (char *)(dup_header.c_str()+offset);
-    while(*src == ' ') src++;
-    atoibuf = src;
-    hdr.length = atoibuf.Atol();
-  }
-
-  offset = dup_header.IFind("Pragma:");
-  if(offset != -1) {
-    // The Pragma general-header field is used to include implementation-
-    // specific directives that may apply to any recipient along the
-    // request/response chain. All pragma directives specify optional
-    // behavior from the viewpoint of the protocol; however, some systems
-    // may require that behavior be consistent with the directives.
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.pragma = status;
-    offset = hdr.pragma.IFind("no-cache");
-    if(offset != -1) hdr.no_cache = 1;
-  }
-
-  offset = dup_header.IFind("Cache-Control:");
-  if(offset != -1) {
-    sscanf(dup_header.c_str()+offset, "%*[^:]: %[^\r\n]", status);
-    hdr.cache_control = status;
-    offset = hdr.cache_control.IFind("no-cache");
-    if(offset != -1) hdr.no_cache = 1;
-  }
-  
-  offset = dup_header.IFind("Accept-Ranges:");
-  if(offset != -1) {
-    sscanf(dup_header.c_str()+offset,"%*[^:]: %s", status);
-    sbuf = status;
-    if(CaseICmp(sbuf, "bytes") == 0) hdr.accept_ranges = 1;
-  }
-
-  offset = 0;
-  sbuf = header;
-  while(recv_loop) { // Parse all the cookies
-    offset = sbuf.IFind("Set-Cookie:", offset);
-    if((offset != -1) && (hdr.use_cookies)) {
-      if(sscanf(dup_header.c_str()+offset, "%*[^:]: %[^=]=%[^;\r\n]; %[^\r\n]",
-		status, status2, rest) >= 2) {
-	gxsNetscapeCookie citem;
-	citem.host = u.host;
-	citem.name = status;
-	citem.value = status2;
-	citem.secure = 0;
-	
-	ibuf = rest;
-	index = ibuf.IFind("Expires");
-	if(index != -1) {
-	  ibuf.DeleteAt(0, index);
-	  ibuf.DeleteBeforeIncluding("=");
-	  ibuf.DeleteAfterIncluding(";");
-	  citem.expires = ibuf;
-	}
-	ibuf = rest;
-	index = ibuf.IFind("Domain");
-	if(index != -1) {
-	  ibuf.DeleteAt(0, index);
-	  ibuf.DeleteBeforeIncluding("=");
-	  ibuf.DeleteAfterIncluding(";");
-	  citem.domain = ibuf;
-	}
-	ibuf = rest;
-	index = ibuf.IFind("Path");
-	if(index != -1) {
-	  ibuf.DeleteAt(0, index);
-	  ibuf.DeleteBeforeIncluding("=");
-	  ibuf.DeleteAfterIncluding(";");
-	  citem.path = ibuf;
-	}
-	ibuf = rest;
-	index = ibuf.IFind("Secure");
-	if(index != -1) {
-	  citem.secure = 1;
-	}
-	hdr.netscape_cookies.Insert(citem);
-      }
-    }
-    if(offset == -1) break;
-    offset++;
-  }
-  
+  int rv = http_parse_header(u, header, hdr);
   if(record_proto) {
     proto_string << header;
   }
-  return 0;
+  return rv;
 }
 
 void gxsHTTPSClient::BuildSimpleRequestString(const gxsURLInfo &u,
