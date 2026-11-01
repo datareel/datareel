@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -55,6 +55,10 @@ gxsHTTPClient::ResetTimeOut(), and gxsHTTPClient::ResetRecv().
 
 12/19/2005: Added SSL class and functions used to support HTTPS
 connections.
+
+10/31/2026: Added SetMaxHeaderSize() and SetMaxBodySize() to the HTTP
+and HTTPS clients. Requests with control characters in the URL host
+or path are refused.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -218,6 +222,18 @@ public: // 10/03/2002 - Timing variables to prevent infinite receive loops
 public: // 07/23/2006: Added to record http header exchanges
   int record_proto;      // True if user want to record the session
   gxString proto_string; // Recorded protocol strings
+
+public: // 10/31/2026: Size limits for data read from the server
+  // Largest response header, 256 KB by default. A longer header 
+  // fails with gxSOCKET_BUFOVER_ERROR.
+  void SetMaxHeaderSize(unsigned bytes) { max_header_size = bytes; }
+  // Largest document read into a MemoryBuffer by Request() and 
+  // SimpleRequest(), 1 GB by default, 0 for no limit. A larger 
+  // document fails with gxSOCKET_BUFOVER_ERROR. Downloads to a file
+  // are not limited.
+  void SetMaxBodySize(unsigned long bytes) { max_body_size = bytes; }
+  unsigned max_header_size;
+  unsigned long max_body_size;
 };
 
 #if defined (__USE_GX_SSL_EXTENSIONS__)
@@ -342,6 +358,18 @@ public: // OpenSSL data memebers
 public: // 07/23/2006: Added to record http header exchanges
   int record_proto;      // True if user want to record the session
   gxString proto_string; // Recorded protocol strings
+
+public: // 10/31/2026: Size limits for data read from the server
+  // Largest response header, 256 KB by default. A longer header 
+  // fails with gxSOCKET_BUFOVER_ERROR.
+  void SetMaxHeaderSize(unsigned bytes) { max_header_size = bytes; }
+  // Largest document read into a MemoryBuffer by Request() and 
+  // SimpleRequest(), 1 GB by default, 0 for no limit. A larger 
+  // document fails with gxSOCKET_BUFOVER_ERROR. Downloads to a file
+  // are not limited.
+  void SetMaxBodySize(unsigned long bytes) { max_body_size = bytes; }
+  unsigned max_header_size;
+  unsigned long max_body_size;
 };
 
 #endif // __USE_GX_SSL_EXTENSIONS__

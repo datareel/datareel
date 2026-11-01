@@ -74,6 +74,16 @@ extension taken from Content-Type keeps only letters, digits and
 . + - _, and a header with control characters or a field name that
 is not a token is refused (returns -1, http_status set to 
 gxsHTTP_STATUS_UNKNOWN).
+
+10/31/2026: RequestHeader() wrote one byte past rxBuffer when a full
+packet was read. Response headers are limited to max_header_size 
+bytes and documents read into a MemoryBuffer to max_body_size bytes
+(SetMaxHeaderSize(), SetMaxBodySize()). Request() found the start of
+the document in the last packet only, so a header that spanned two
+packets left part of the header in the document. 
+BuildSimpleRequestString() overflowed a 1024 byte stack buffer with
+a long host or path. Requests with control characters in the URL 
+host or path are refused (gxSOCKET_HTTP_ERROR/gxSOCKET_HTTPS_ERROR).
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -153,6 +163,50 @@ static int http_parse_int(const char *s, unsigned len, int &val)
     v = (v * 10) + (s[i] - '0');
   }
   val = v;
+  return 1;
+}
+
+static int http_header_end(const char *s, unsigned len)
+// 10/31/2026: Returns the length of the header up to and including
+// the empty line that ends it (CR LF CR LF, LF LF or LF CR LF), or -1
+// if the header is not complete.
+{
+  for(unsigned i = 0; i + 1 < len; i++) {
+    if(s[i] != '\n') continue;
+    if(s[i+1] == '\n') return (int)(i + 2);
+    if(s[i+1] == '\r' && i + 2 < len && s[i+2] == '\n') return (int)(i + 3);
+  }
+  return -1;
+}
+
+static int http_url_ok(const gxsURLInfo &u)
+// 10/31/2026: The host and path are copied into the request line and
+// Host: header, so CR LF in them added headers or requests. Returns
+// false if they hold control characters or the host holds a space.
+{
+  if(u.host.is_null() || u.host.Find(" ") != -1) return 0;
+  if(http_has_ctl(u.host.c_str(), u.host.length(), 0)) return 0;
+  if(http_has_ctl(u.path.c_str(), u.path.length(), 0)) return 0;
+  return 1;
+}
+
+static int http_add_header_data(gxString &header, const char *buf, int n,
+				int &body_offset)
+// 10/31/2026: Add a packet to a partly received header. Returns 1 when
+// the header is complete, with the header trimmed to its end and
+// body_offset set to where the body starts in buf, or 0 if more is
+// needed. The end of the header used to be found in the whole header
+// but the body offset was searched for in the last packet only, so a
+// header that spanned packets put part of the header in the document.
+{
+  unsigned prev_len = header.length();
+  header.Cat(buf, (unsigned)n);
+  int end = http_header_end(header.c_str(), header.length());
+  if(end == -1) return 0;
+  if((unsigned)end < header.length()) {
+    header.DeleteAt((unsigned)end, header.length() - (unsigned)end);
+  }
+  body_offset = end - (int)prev_len;
   return 1;
 }
 
@@ -554,6 +608,10 @@ gxsHTTPClient::gxsHTTPClient(int CacheSize, int seconds, int useconds)
   time_out_usec = useconds;
 
   record_proto = 0; // Do not record session headers by default
+
+  // 10/31/2026: Size limits for data read from the server
+  max_header_size = 256 * 1024;
+  max_body_size = 1024 * 1024 * 1024;
 }
 
 gxsHTTPClient::~gxsHTTPClient() 
@@ -588,6 +646,9 @@ int gxsHTTPClient::SimpleRequest(const gxsURLInfo &u, gxdFPTR *stream)
   file_ptr = stream;
   write_error = read_error = 0;
   bytes_received = 0;
+
+  // 10/31/2026: No control characters in the host or path
+  if(!http_url_ok(u)) return socket_error = gxSOCKET_HTTP_ERROR;
 
   if(ConnectClient(u.host.c_str(), u.port) != 0) return socket_error;
 
@@ -638,6 +699,9 @@ int gxsHTTPClient::RequestHeader(const gxsURLInfo &u, gxsHTTPHeader &hdr)
 // Request a document header passing back the header information in the
 // "hdr" variable. Returns 0 if no errors occur.
 {
+  // 10/31/2026: No control characters in the host or path
+  if(!http_url_ok(u)) return socket_error = gxSOCKET_HTTP_ERROR;
+
   if(ConnectClient(u.host.c_str(), u.port) != 0) return socket_error;
 
   gxString request;
@@ -667,18 +731,20 @@ int gxsHTTPClient::RequestHeader(const gxsURLInfo &u, gxsHTTPHeader &hdr)
     nRet = RawRead(rxBuffer, __HTTP_PACKET_SIZE__);
     if(nRet < 0) return socket_error;
 
-    rxBuffer[nRet] = '\0'; // Null terminate the receive buffer
-    header += rxBuffer;
-
     // Exit if the server closed the connection
     if(nRet == 0) break;
 
+    // 10/31/2026: rxBuffer[nRet] = 0 wrote one byte past the end of
+    // rxBuffer when a full packet was read, and the header grew
+    // without limit. Stop at the end of the header (some Web servers
+    // return the entire document) or at max_header_size bytes.
+    int body_offset;
+    if(http_add_header_data(header, rxBuffer, nRet, body_offset)) break;
+    if(header.length() > max_header_size) {
+      Close();
+      return socket_error = gxSOCKET_BUFOVER_ERROR;
+    }
   }
-
-  // 09/07/2001: Remove everything after the end of the header marker.
-  // Some Web server return the entire document when the header is
-  // requested.
-  header.DeleteAfter("\r\n\r\n");
 
 
   // 10/03/2002: Reset the header before parsing it. This change was
@@ -721,6 +787,9 @@ int gxsHTTPClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
   file_ptr = stream;
   write_error = read_error = 0;
   bytes_received = 0;
+
+  // 10/31/2026: No control characters in the host or path
+  if(!http_url_ok(u)) return socket_error = gxSOCKET_HTTP_ERROR;
 
   if(ConnectClient(u.host.c_str(), u.port) != 0) return socket_error;
 
@@ -773,15 +842,11 @@ int gxsHTTPClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
     if(nRet == 0) break;
 
     if(!found_header) {
-      header.Cat(rxBuffer, nRet);
-      if((header.Find("\r\n\r\n") != -1) || (header.Find("\n\n") != -1)) {
-
+      // 10/31/2026: The end of the header and the start of the body
+      // are found by http_add_header_data()
+      int body_offset = 0;
+      if(http_add_header_data(header, rxBuffer, nRet, body_offset)) {
 	found_header = 1; // Found the end of header marker
-	
-	// Remove everything after the end of header marker
-	if(!header.DeleteAfter("\r\n\r\n")) {
-	  header.DeleteAfter("\n\n");
-	}
 
 	// Parse the HTTP header
 	ParseHTTPHeader(u, header, hdr); 
@@ -804,21 +869,18 @@ int gxsHTTPClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
 	}
 
 	// Move the document body over the header information
-	unsigned CRLF_len = strlen("\r\n\r\n");
-	int offset = FindMatch((const char *)rxBuffer, "\r\n\r\n", 
-			       (unsigned)0, (unsigned)nRet);
-	if(offset == -1) {
-	  offset = FindMatch((const char *)rxBuffer, "\n\n", 
-			     (unsigned)0, (unsigned)nRet);
-	  CRLF_len = strlen("\n\n");
-	}
-	offset += CRLF_len;
+	int offset = body_offset;
 	byte_count = nRet - offset;
 	bytes_received += byte_count;
 	char *s_ptr = (char *)rxBuffer;
 	memmove(s_ptr, s_ptr+offset, byte_count); 
       }
       else { // Part of the header was received
+	// 10/31/2026: but not more than max_header_size bytes
+	if(header.length() > max_header_size) {
+	  Close();
+	  return socket_error = gxSOCKET_BUFOVER_ERROR;
+	}
 	continue; // Continue until the entire header is received
       }
     }
@@ -921,6 +983,9 @@ int gxsHTTPClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
 {
   bytes_received = 0;
 
+  // 10/31/2026: No control characters in the host or path
+  if(!http_url_ok(u)) return socket_error = gxSOCKET_HTTP_ERROR;
+
   if(ConnectClient(u.host.c_str(), u.port) != 0) return socket_error;
 
   // Request the specified file from the server
@@ -958,14 +1023,11 @@ int gxsHTTPClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
     if(nRet == 0) break;
 
     if(!found_header) {
-      header.Cat(rxBuffer, nRet);
-      if((header.Find("\r\n\r\n") != -1) || (header.Find("\n\n") != -1)) {
+      // 10/31/2026: The end of the header and the start of the body
+      // are found by http_add_header_data()
+      int body_offset = 0;
+      if(http_add_header_data(header, rxBuffer, nRet, body_offset)) {
 	found_header = 1; // Found the end of header marker
-
-	// Remove everything after the end of header marker
-	if(!header.DeleteAfter("\r\n\r\n")) {
-	  header.DeleteAfter("\n\n");
-	}
 
 	// Parse the HTTP header
 	ParseHTTPHeader(u, header, hdr); 
@@ -975,27 +1037,31 @@ int gxsHTTPClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
 	}
 
 	// Move the document body over the header information
-	unsigned CRLF_len = strlen("\r\n\r\n");
-	int offset = FindMatch((const char *)rxBuffer, "\r\n\r\n", 
-			       (unsigned)0, (unsigned)nRet);
-	if(offset == -1) {
-	  offset = FindMatch((const char *)rxBuffer, "\n\n", 
-			     (unsigned)0, (unsigned)nRet);
-	  CRLF_len = strlen("\n\n");
-	}
-	offset += CRLF_len;
+	int offset = body_offset;
 	byte_count = nRet - offset;
 	bytes_received += byte_count;
 	char *s_ptr = (char *)rxBuffer;
 	memmove(s_ptr, s_ptr+offset, byte_count); 
       }
       else { // Part of the header was received
+	// 10/31/2026: but not more than max_header_size bytes
+	if(header.length() > max_header_size) {
+	  Close();
+	  return socket_error = gxSOCKET_BUFOVER_ERROR;
+	}
 	continue; // Continue until the entire header is received
       }
     }
     else {
       byte_count = nRet;
       bytes_received += nRet;
+    }
+
+    // 10/31/2026: At most max_body_size bytes in memory
+    if(max_body_size && 
+       (unsigned long)mbuf.length() + (unsigned)byte_count > max_body_size) {
+      Close();
+      return socket_error = gxSOCKET_BUFOVER_ERROR;
     }
 
     // Copy the file to a memory buffer
@@ -1097,15 +1163,18 @@ void gxsHTTPClient::BuildSimpleRequestString(const gxsURLInfo &u,
       file_buffer = " /";
   }
  
-  char sbuf[1024];
-  sprintf(sbuf, "%s %s//%s:%d%s\r\n",
-	  GetMethod(gxsHTTP_GET),
-	  url.GetProtocolString(u.proto_type),
-	  u.host.c_str(), 
-	  u.port,
-	  file_buffer.c_str());
-
-  request = sbuf;
+  // 10/31/2026: Built in a gxString. sprintf() into a 1024 byte
+  // stack buffer overflowed with a long host name or path.
+  char sbuf[32];
+  sprintf(sbuf, ":%d", u.port);
+  request = GetMethod(gxsHTTP_GET);
+  request += " ";
+  request += url.GetProtocolString(u.proto_type);
+  request += "//";
+  request += u.host;
+  request += sbuf;
+  request += file_buffer;
+  request += "\r\n";
   // Ignore BCC32 warning 8057 method is never used
 }
 
@@ -1237,6 +1306,9 @@ int gxsHTTPClient::SimpleRequest(const gxsURLInfo &u, MemoryBuffer &mbuf)
 {
   bytes_received = 0;
 
+  // 10/31/2026: No control characters in the host or path
+  if(!http_url_ok(u)) return socket_error = gxSOCKET_HTTP_ERROR;
+
   if(ConnectClient(u.host.c_str(), u.port) != 0) return socket_error;
 
   // Request the specified file from the server
@@ -1271,6 +1343,13 @@ int gxsHTTPClient::SimpleRequest(const gxsURLInfo &u, MemoryBuffer &mbuf)
     // Exit if the server closed the connection
     if(nRet == 0) break;
     
+    // 10/31/2026: At most max_body_size bytes in memory
+    if(max_body_size && 
+       (unsigned long)mbuf.length() + (unsigned)nRet > max_body_size) {
+      Close();
+      return socket_error = gxSOCKET_BUFOVER_ERROR;
+    }
+
     // Copy the file to a memory buffer
     mbuf.Cat((char *)rxBuffer, (unsigned)nRet);
   }
@@ -1325,6 +1404,10 @@ gxsHTTPSClient::gxsHTTPSClient(int CacheSize, int seconds, int useconds)
   time_out_usec = useconds;
 
   record_proto = 0; // Do not record session headers by default
+
+  // 10/31/2026: Size limits for data read from the server
+  max_header_size = 256 * 1024;
+  max_body_size = 1024 * 1024 * 1024;
 }
 
 gxsHTTPSClient::~gxsHTTPSClient() 
@@ -1377,6 +1460,9 @@ int gxsHTTPSClient::SimpleRequest(const gxsURLInfo &u, gxdFPTR *stream)
   file_ptr = stream;
   write_error = read_error = 0;
   bytes_received = 0;
+
+  // 10/31/2026: No control characters in the host or path
+  if(!http_url_ok(u)) return socket_error = gxSOCKET_HTTPS_ERROR;
 
   if(!is_connected) { // If not connected, connect to the server
     if(ConnectClient(u.host.c_str(), u.port) != 0) return socket_error;
@@ -1456,6 +1542,9 @@ int gxsHTTPSClient::RequestHeader(const gxsURLInfo &u, gxsHTTPHeader &hdr)
 // Request a document header passing back the header information in the
 // "hdr" variable. Returns 0 if no errors occur.
 {
+  // 10/31/2026: No control characters in the host or path
+  if(!http_url_ok(u)) return socket_error = gxSOCKET_HTTPS_ERROR;
+
   if(!is_connected) { // If not connected, connect to the server
     if(ConnectClient(u.host.c_str(), u.port) != 0) return socket_error;
   }
@@ -1503,17 +1592,21 @@ int gxsHTTPSClient::RequestHeader(const gxsURLInfo &u, gxsHTTPHeader &hdr)
       return socket_error = gxSOCKET_RECEIVE_ERROR;
     }
 
-    rxBuffer[nRet] = '\0'; // Null terminate the receive buffer
-    header += rxBuffer;
-
     // Exit if the server closed the connection
     if(nRet == 0) break;
+
+    // 10/31/2026: rxBuffer[nRet] = 0 wrote one byte past the end of
+    // rxBuffer when a full packet was read, and the header grew
+    // without limit. Stop at the end of the header (some Web servers
+    // return the entire document) or at max_header_size bytes.
+    int body_offset;
+    if(http_add_header_data(header, rxBuffer, nRet, body_offset)) break;
+    if(header.length() > max_header_size) {
+      openssl.CloseSSLSocket();
+      Close();
+      return socket_error = gxSOCKET_BUFOVER_ERROR;
+    }
   }
-    
-  // Remove everything after the end of the header marker.
-  // Some Web server return the entire document when the header is
-  // requested.
-  header.DeleteAfter("\r\n\r\n");
 
 
   // Reset the header before parsing it. This change was
@@ -1558,6 +1651,9 @@ int gxsHTTPSClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
   file_ptr = stream;
   write_error = read_error = 0;
   bytes_received = 0;
+
+  // 10/31/2026: No control characters in the host or path
+  if(!http_url_ok(u)) return socket_error = gxSOCKET_HTTPS_ERROR;
 
   if(!is_connected) { // If not connected, connect to the server
     if(ConnectClient(u.host.c_str(), u.port) != 0) return socket_error;
@@ -1630,14 +1726,11 @@ int gxsHTTPSClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
     if(nRet == 0) break;
 
     if(!found_header) {
-      header.Cat(rxBuffer, nRet);
-      if((header.Find("\r\n\r\n") != -1) || (header.Find("\n\n") != -1)) {
+      // 10/31/2026: The end of the header and the start of the body
+      // are found by http_add_header_data()
+      int body_offset = 0;
+      if(http_add_header_data(header, rxBuffer, nRet, body_offset)) {
 	found_header = 1; // Found the end of header marker
-	
-	// Remove everything after the end of header marker
-	if(!header.DeleteAfter("\r\n\r\n")) {
-	  header.DeleteAfter("\n\n");
-	}
 
 	// Parse the HTTP header
 	ParseHTTPHeader(u, header, hdr); 
@@ -1663,21 +1756,19 @@ int gxsHTTPSClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
 	}
 
 	// Move the document body over the header information
-	unsigned CRLF_len = strlen("\r\n\r\n");
-	int offset = FindMatch((const char *)rxBuffer, "\r\n\r\n", 
-			       (unsigned)0, (unsigned)nRet);
-	if(offset == -1) {
-	  offset = FindMatch((const char *)rxBuffer, "\n\n", 
-			     (unsigned)0, (unsigned)nRet);
-	  CRLF_len = strlen("\n\n");
-	}
-	offset += CRLF_len;
+	int offset = body_offset;
 	byte_count = nRet - offset;
 	bytes_received += byte_count;
 	char *s_ptr = (char *)rxBuffer;
 	memmove(s_ptr, s_ptr+offset, byte_count); 
       }
       else { // Part of the header was received
+	// 10/31/2026: but not more than max_header_size bytes
+	if(header.length() > max_header_size) {
+	  openssl.CloseSSLSocket();
+	  Close();
+	  return socket_error = gxSOCKET_BUFOVER_ERROR;
+	}
 	continue; // Continue until the entire header is received
       }
     }
@@ -1773,6 +1864,9 @@ int gxsHTTPSClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
 {
   bytes_received = 0;
 
+  // 10/31/2026: No control characters in the host or path
+  if(!http_url_ok(u)) return socket_error = gxSOCKET_HTTPS_ERROR;
+
   if(!is_connected) { // If not connected, connect to the server
     if(ConnectClient(u.host.c_str(), u.port) != 0) return socket_error;
   }
@@ -1831,14 +1925,11 @@ int gxsHTTPSClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
     if(nRet == 0) break;
 
     if(!found_header) {
-      header.Cat(rxBuffer, nRet);
-      if((header.Find("\r\n\r\n") != -1) || (header.Find("\n\n") != -1)) {
+      // 10/31/2026: The end of the header and the start of the body
+      // are found by http_add_header_data()
+      int body_offset = 0;
+      if(http_add_header_data(header, rxBuffer, nRet, body_offset)) {
 	found_header = 1; // Found the end of header marker
-
-	// Remove everything after the end of header marker
-	if(!header.DeleteAfter("\r\n\r\n")) {
-	  header.DeleteAfter("\n\n");
-	}
 
 	// Parse the HTTP header
 	ParseHTTPHeader(u, header, hdr); 
@@ -1848,27 +1939,33 @@ int gxsHTTPSClient::Request(const gxsURLInfo &u, gxsHTTPHeader &hdr,
 	}
 
 	// Move the document body over the header information
-	unsigned CRLF_len = strlen("\r\n\r\n");
-	int offset = FindMatch((const char *)rxBuffer, "\r\n\r\n", 
-			       (unsigned)0, (unsigned)nRet);
-	if(offset == -1) {
-	  offset = FindMatch((const char *)rxBuffer, "\n\n", 
-			     (unsigned)0, (unsigned)nRet);
-	  CRLF_len = strlen("\n\n");
-	}
-	offset += CRLF_len;
+	int offset = body_offset;
 	byte_count = nRet - offset;
 	bytes_received += byte_count;
 	char *s_ptr = (char *)rxBuffer;
 	memmove(s_ptr, s_ptr+offset, byte_count); 
       }
       else { // Part of the header was received
+	// 10/31/2026: but not more than max_header_size bytes
+	if(header.length() > max_header_size) {
+	  openssl.CloseSSLSocket();
+	  Close();
+	  return socket_error = gxSOCKET_BUFOVER_ERROR;
+	}
 	continue; // Continue until the entire header is received
       }
     }
     else {
       byte_count = nRet;
       bytes_received += nRet;
+    }
+
+    // 10/31/2026: At most max_body_size bytes in memory
+    if(max_body_size && 
+       (unsigned long)mbuf.length() + (unsigned)byte_count > max_body_size) {
+      openssl.CloseSSLSocket();
+      Close();
+      return socket_error = gxSOCKET_BUFOVER_ERROR;
     }
 
     // Copy the file to a memory buffer
@@ -1975,15 +2072,18 @@ void gxsHTTPSClient::BuildSimpleRequestString(const gxsURLInfo &u,
       file_buffer = " /";
   }
  
-  char sbuf[1024];
-  sprintf(sbuf, "%s %s//%s:%d%s\r\n",
-	  GetMethod(gxsHTTP_GET),
-	  url.GetProtocolString(u.proto_type),
-	  u.host.c_str(), 
-	  u.port,
-	  file_buffer.c_str());
-
-  request = sbuf;
+  // 10/31/2026: Built in a gxString. sprintf() into a 1024 byte
+  // stack buffer overflowed with a long host name or path.
+  char sbuf[32];
+  sprintf(sbuf, ":%d", u.port);
+  request = GetMethod(gxsHTTP_GET);
+  request += " ";
+  request += url.GetProtocolString(u.proto_type);
+  request += "//";
+  request += u.host;
+  request += sbuf;
+  request += file_buffer;
+  request += "\r\n";
   // Ignore BCC32 warning 8057 method is never used
 }
 
@@ -2115,6 +2215,9 @@ int gxsHTTPSClient::SimpleRequest(const gxsURLInfo &u, MemoryBuffer &mbuf)
 {
   bytes_received = 0;
 
+  // 10/31/2026: No control characters in the host or path
+  if(!http_url_ok(u)) return socket_error = gxSOCKET_HTTPS_ERROR;
+
   if(!is_connected) { // If not connected, connect to the server
     if(ConnectClient(u.host.c_str(), u.port) != 0) return socket_error;
   }
@@ -2170,6 +2273,14 @@ int gxsHTTPSClient::SimpleRequest(const gxsURLInfo &u, MemoryBuffer &mbuf)
     // Exit if the server closed the connection
     if(nRet == 0) break;
     
+    // 10/31/2026: At most max_body_size bytes in memory
+    if(max_body_size && 
+       (unsigned long)mbuf.length() + (unsigned)nRet > max_body_size) {
+      openssl.CloseSSLSocket();
+      Close();
+      return socket_error = gxSOCKET_BUFOVER_ERROR;
+    }
+
     // Copy the file to a memory buffer
     mbuf.Cat((char *)rxBuffer, (unsigned)nRet);
   }

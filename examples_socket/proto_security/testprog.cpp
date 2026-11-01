@@ -42,6 +42,10 @@ Sections:
             overflow), fields matched at the start of a line, strict
             status line and Content-Length, control characters and
             field names that are not tokens.
+  httpc     gxsHTTPClient requests: a header that spans packets, an
+            endless header, the MemoryBuffer size limit, control
+            characters in the URL and a long URL in
+            BuildSimpleRequestString().
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -49,9 +53,14 @@ Sections:
 #include <stdio.h>
 #include <string.h>
 #include <string>
+#include <vector>
+#include <thread>
+#include <chrono>
+#include "gxsocket.h"
 #include "gxshttp.h"
 #include "gxshttpc.h"
 #include "gxsurl.h"
+#include "membuf.h"
 
 static int num_failed = 0;
 static int num_checks = 0;
@@ -73,6 +82,129 @@ static int Enabled(int argc, char **argv, const char *section)
   }
   return 0;
 }
+
+
+// --------------------------------------------------------------
+// Fake server on 127.0.0.1 run in a thread. It accepts one
+// connection and runs a script of steps.
+// --------------------------------------------------------------
+enum {
+  FS_SEND,      // Send data
+  FS_SLEEP,     // Pause (data = milliseconds)
+  FS_READLINE,  // Read up to and including LF
+  FS_READHDR,   // Read up to and including an empty line
+  FS_DATA_LISTEN, // Open a data listener; "%PORT%" in later sends is
+                  // replaced by its port (FTP PASV)
+  FS_DATA_SEND  // Accept on the data listener, send data, close
+};
+
+struct FSStep {
+  int type;
+  std::string data;
+};
+
+class FakeServer
+{
+public:
+  FakeServer() : port(0), data_port(0), accepted(0), worker(0) { }
+  ~FakeServer() { Join(); }
+
+  int Start() { // Returns the port number or -1
+    if(listener.InitSocketLibrary() != 0) return -1;
+    if(listener.InitSocket(SOCK_STREAM, 0, (char *)"127.0.0.1") < 0) return -1;
+    if(listener.Bind() < 0) return -1;
+    if(listener.Listen(1) < 0) return -1;
+    if(listener.GetSockName() < 0) return -1;
+    port = (int)ntohs(listener.sin.sin_port);
+    worker = new std::thread(Run, this);
+    return port;
+  }
+  void Send(const std::string &s) { Add(FS_SEND, s); }
+  void Sleep(int ms) { char b[32]; sprintf(b, "%d", ms); Add(FS_SLEEP, b); }
+  void ReadLine() { Add(FS_READLINE, ""); }
+  void ReadHeader() { Add(FS_READHDR, ""); }
+  void Reply(const std::string &s) { ReadLine(); Send(s); }
+  void DataListen() { Add(FS_DATA_LISTEN, ""); }
+  void DataSend(const std::string &s) { Add(FS_DATA_SEND, s); }
+  void Add(int type, const std::string &s) {
+    FSStep st; st.type = type; st.data = s; steps.push_back(st);
+  }
+  void Join() {
+    if(worker) { worker->join(); delete worker; worker = 0; }
+  }
+
+public:
+  int port;
+  int data_port;
+  int accepted;
+  std::string received; // Everything read from the client
+
+private:
+  static int WaitRead(gxSocket &s, gxsSocket_t fd) {
+    return s.ReadSelect(fd, 5, 0);
+  }
+  static void Run(FakeServer *fs) { fs->RunSteps(); }
+  void RunSteps() {
+    if(!WaitRead(listener, listener.GetSocket())) { listener.Close(); return; }
+    if(listener.Accept() < 0) { listener.Close(); return; }
+    accepted = 1;
+    gxsSocket_t c = listener.GetRemoteSocket();
+    for(size_t i = 0; i < steps.size(); i++) {
+      FSStep &st = steps[i];
+      if(st.type == FS_SEND) {
+	std::string d = st.data;
+	size_t p = d.find("%PORT%");
+	if(p != std::string::npos) {
+	  char b[32]; sprintf(b, "%d,%d", data_port / 256, data_port % 256);
+	  d.replace(p, 6, b);
+	}
+	if(listener.Send(c, d.data(), (int)d.size()) < 0) break;
+      }
+      else if(st.type == FS_SLEEP) {
+	std::this_thread::sleep_for(std::chrono::milliseconds(atoi(st.data.c_str())));
+      }
+      else if(st.type == FS_READLINE || st.type == FS_READHDR) {
+	std::string got;
+	for(;;) {
+	  if(!WaitRead(listener, c)) break;
+	  char ch;
+	  if(listener.RawRead(c, &ch, 1) != 1) break;
+	  got += ch;
+	  if(st.type == FS_READLINE && ch == '\n') break;
+	  if(st.type == FS_READHDR && got.size() >= 4 &&
+	     got.compare(got.size() - 4, 4, "\r\n\r\n") == 0) break;
+	}
+	received += got;
+	if(got.empty()) break; // The client closed or timed out
+      }
+      else if(st.type == FS_DATA_LISTEN) {
+	data.InitSocket(SOCK_STREAM, 0, (char *)"127.0.0.1");
+	data.Bind();
+	data.Listen(1);
+	data.GetSockName();
+	data_port = (int)ntohs(data.sin.sin_port);
+      }
+      else if(st.type == FS_DATA_SEND) {
+	if(WaitRead(data, data.GetSocket()) && data.Accept() >= 0) {
+	  gxsSocket_t d = data.GetRemoteSocket();
+	  data.Send(d, st.data.data(), (int)st.data.size());
+	  data.Close(d);
+	}
+	data.Close();
+      }
+    }
+    // Let the client read what was sent before the close
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    listener.Close(c);
+    listener.Close();
+  }
+
+private:
+  gxSocket listener;
+  gxSocket data;
+  std::vector<FSStep> steps;
+  std::thread *worker;
+};
 
 // --------------------------------------------------------------
 // httphdr
@@ -182,9 +314,113 @@ static void TestHTTPHeader()
 	"no path in the file extension");
 }
 
+// --------------------------------------------------------------
+// httpc
+// --------------------------------------------------------------
+static void TestHTTPClient()
+{
+  const char *sec = "httpc";
+  gxsURL url;
+
+  { // The header spans two packets; the document is only the body
+    FakeServer fs;
+    int port = fs.Start();
+    Check(port > 0, sec, "fake server start");
+    fs.ReadHeader();
+    fs.Send("HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n");
+    fs.Sleep(200);
+    fs.Send("\r\nBODY");
+    char ubuf[128]; sprintf(ubuf, "http://127.0.0.1:%d/doc.txt", port);
+    gxsURLInfo u;
+    url.ParseURL(ubuf, u);
+    gxsHTTPClient client;
+    client.SetTimeOut(5, 0);
+    gxsHTTPHeader hdr;
+    MemoryBuffer mbuf;
+    int rv = client.Request(u, hdr, mbuf);
+    fs.Join();
+    std::string body((const char *)mbuf.m_buf(), mbuf.length());
+    Check(rv == 0 && hdr.http_status == 200, sec, "split header request");
+    Check(body == "BODY", sec, "split header: document is the body only");
+  }
+
+  { // A header with no end is not read without limit
+    FakeServer fs;
+    int port = fs.Start();
+    fs.ReadHeader();
+    fs.Send("HTTP/1.0 200 OK\r\n");
+    std::string line = "X-Fill: " + std::string(1000, 'x') + "\r\n";
+    std::string fill;
+    for(int i = 0; i < 512; i++) fill += line;
+    fs.Send(fill);
+    char ubuf[128]; sprintf(ubuf, "http://127.0.0.1:%d/", port);
+    gxsURLInfo u;
+    url.ParseURL(ubuf, u);
+    gxsHTTPClient client;
+    client.SetTimeOut(5, 0);
+    gxsHTTPHeader hdr;
+    int rv = client.RequestHeader(u, hdr);
+    fs.Join();
+    Check(rv == gxSOCKET_BUFOVER_ERROR, sec, "endless header refused");
+  }
+
+  { // MemoryBuffer size limit
+    FakeServer fs;
+    int port = fs.Start();
+    fs.ReadHeader();
+    fs.Send("HTTP/1.0 200 OK\r\n\r\n" + std::string(5000, 'b'));
+    char ubuf[128]; sprintf(ubuf, "http://127.0.0.1:%d/", port);
+    gxsURLInfo u;
+    url.ParseURL(ubuf, u);
+    gxsHTTPClient client;
+    client.SetTimeOut(5, 0);
+    client.SetMaxBodySize(1000);
+    gxsHTTPHeader hdr;
+    MemoryBuffer mbuf;
+    int rv = client.Request(u, hdr, mbuf);
+    fs.Join();
+    Check(rv == gxSOCKET_BUFOVER_ERROR && mbuf.length() <= 1000, sec,
+	  "SetMaxBodySize() limit");
+  }
+
+  { // CR LF in the path is not sent as extra headers
+    FakeServer fs;
+    int port = fs.Start();
+    fs.ReadHeader();
+    fs.Send("HTTP/1.0 200 OK\r\n\r\nx");
+    char ubuf[128]; sprintf(ubuf, "http://127.0.0.1:%d/", port);
+    gxsURLInfo u;
+    url.ParseURL(ubuf, u);
+    u.path = "/a\r\nX-Injected: 1\r\n";
+    gxsHTTPClient client;
+    client.SetTimeOut(5, 0);
+    gxsHTTPHeader hdr;
+    MemoryBuffer mbuf;
+    int rv = client.Request(u, hdr, mbuf);
+    fs.Join();
+    Check(rv == gxSOCKET_HTTP_ERROR, sec, "CR LF in the path refused");
+    Check(fs.received.find("X-Injected") == std::string::npos, sec,
+	  "no injected header sent");
+  }
+
+  { // BuildSimpleRequestString() with a long host and path
+    gxsHTTPClient client;
+    gxsURLInfo u;
+    u.host = std::string(3000, 'h').c_str();
+    u.path = ("/" + std::string(3000, 'p')).c_str();
+    u.port = 8080;
+    u.proto_type = gxsURL::gxs_http;
+    gxString request;
+    client.BuildSimpleRequestString(u, gxsHTTP_GET, request);
+    Check(request.length() > 6000 && request.Find(":8080/ppp") != -1, sec,
+	  "long simple request string");
+  }
+}
+
 int main(int argc, char **argv)
 {
   if(Enabled(argc, argv, "httphdr")) TestHTTPHeader();
+  if(Enabled(argc, argv, "httpc")) TestHTTPClient();
 
   printf("%d checks, %d failed\n", num_checks, num_failed);
   if(num_failed) {
