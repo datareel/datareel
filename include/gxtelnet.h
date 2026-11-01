@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -131,7 +131,11 @@ enum gxsTelnetTermTypes { // Terminal types
 enum gxsTelnetState { // Telnet transition state enumeration
   telnet_data,   // Telnet data byte
   telnet_code,   // Telnet code
-  telnet_option  // Telnet option
+  telnet_option, // Telnet option
+  // 10/31/2026: Sub-negotiation states. Bytes between IAC SB and IAC SE
+  // are consumed here instead of being passed to the terminal.
+  telnet_sb,     // Inside IAC SB <option> ... 
+  telnet_sb_iac  // IAC seen inside a sub-negotiation
 };
 
 // Telnet client class
@@ -149,6 +153,10 @@ public:
   int GetChar(unsigned char &c);
   gxSocketError ConnectClient(const char *host, 
 			       int port = gxSOCKET_TELNET_PORT);
+  // 10/31/2026: Read until "str" is received. A null or empty "str"
+  // never matches, so the call reads until the timeout, a full buffer or
+  // an error. At most bytes-1 characters are stored and "buf" is always
+  // null terminated.
   gxSocketError RecvString(char *buf, int bytes, const char *str);
   gxSocketError SendString(const char *buf, int bytes);
   void SetTermType(gxsTelnetTermTypes ttype = gxsTEL_NVT_TERM);
@@ -160,6 +168,13 @@ public:
     time_out_usec = useconds;
   }
   gxSocket *GetSocket() { return (gxSocket*)this; }
+  // 10/31/2026: Limit the total time RecvString() may run, in seconds,
+  // however slowly the server trickles data. 0 (the default) means only
+  // the per-read timeout applies.
+  void SetMaxTotalTime(int seconds) { max_total_sec = seconds; }
+  int GetMaxTotalTime() const { return max_total_sec; }
+  // 10/31/2026: Reset the option negotiation state for a new session
+  void ResetTelnetState();
   void SetServerTypeUNIX() { server_type = 1; }
   void SetServerTypeWindows() { server_type = 0; }
 
@@ -191,6 +206,19 @@ protected:
   int time_out_sec;  // Number of seconds before a blocking timeout
   int time_out_usec; // Number of microseconds before a blocking timeout
   int server_type;   // Added to set the server type
+
+protected: // 10/31/2026: Sub-negotiation and option loop prevention
+  gxSocketError ProcessOption(unsigned char code, unsigned char option);
+  unsigned char sb_option;   // Option named in the current IAC SB
+  int sb_count;              // Bytes received after the SB option
+  int sb_send;               // True if the SB was TERMINAL-TYPE SEND
+  int max_total_sec;         // RecvString() total time limit, 0 = none
+  // Last state requested by the peer for each option: 0 = none yet,
+  // otherwise the WILL/WONT (him_opt) or DO/DONT (us_opt) code received.
+  // A repeated request for the same state is not acknowledged again
+  // (RFC 1143 loop prevention).
+  unsigned char him_opt[256];
+  unsigned char us_opt[256];
 };
 
 #endif // __GX_EMBEDDED_TELNET_LIB_HPP__
