@@ -42,6 +42,10 @@ to run:
            process): RecvString() buffer bounds, stale and overlapping
            matches, null pattern, sub-negotiation, option loops, init
            sequence, terminal type length, total time limit.
+  ping     gxsPing::ParseEchoReply() and SameAddress() on built packets
+           (raw sockets need root, so no packets are sent): short and
+           malformed packets, our own echo request, other identifiers
+           and sequence numbers, ICMP errors, other hosts.
 
 Returns 0 if every check passes; failed checks print FAIL lines. The
 serial tests are UNIX only.
@@ -65,6 +69,7 @@ serial tests are UNIX only.
 
 #include "scomserv.h"
 #include "gxtelnet.h"
+#include "gxsping.h"
 
 #if defined (__UNIX__)
 #include <sys/types.h>
@@ -570,14 +575,68 @@ static void test_telnet()
 }
 #endif
 
+static int make_reply(unsigned char *p, unsigned char ver_ihl, unsigned char type,
+		      u_short id, u_short seq, int ttl)
+// IPv4 header (ver_ihl), then an ICMP message; returns the length
+{
+  int ihl = (ver_ihl & 0x0f) * 4;
+  memset(p, 0, 128);
+  p[0] = ver_ihl;
+  p[8] = (unsigned char)ttl;
+  p[9] = 1; // ICMP
+  unsigned char *icmp = p + (ihl < 20 ? 20 : ihl);
+  icmp[0] = type;
+  icmp[1] = 0;
+  memcpy(icmp + 4, &id, 2);
+  memcpy(icmp + 6, &seq, 2);
+  return (int)(icmp - p) + 8 + 36;
+}
+
+static void test_ping()
+{
+  unsigned char p[128];
+  int ttl = 0;
+  u_short id = 0x1234, seq = 7;
+  int n = make_reply(p, 0x45, 0, id, seq, 57);
+  check(gxsPing::ParseEchoReply(p, n, id, seq, ttl) == 1 && ttl == 57, "ping: a matching echo reply is accepted");
+  check(gxsPing::ParseEchoReply(p, 27, id, seq, ttl) == 0 && ttl == -1, "ping: a reply too short for the ICMP header is refused");
+  check(gxsPing::ParseEchoReply(p, 10, id, seq, ttl) == 0, "ping: a packet shorter than an IP header is refused");
+  check(gxsPing::ParseEchoReply(0, n, id, seq, ttl) == 0, "ping: a null buffer is refused");
+  check(gxsPing::ParseEchoReply(p, n, id, (u_short)(seq + 1), ttl) == 0, "ping: a reply to another sequence number is refused");
+  check(gxsPing::ParseEchoReply(p, n, (u_short)(id + 1), seq, ttl) == 0, "ping: a reply to another program (identifier) is refused");
+  n = make_reply(p, 0x45, 8, id, seq, 57);
+  check(gxsPing::ParseEchoReply(p, n, id, seq, ttl) == 0, "ping: our own echo request is not taken as the reply");
+  n = make_reply(p, 0x45, 3, id, seq, 57);
+  check(gxsPing::ParseEchoReply(p, n, id, seq, ttl) == 0, "ping: an ICMP error is not taken as the reply");
+  n = make_reply(p, 0x4f, 0, id, seq, 57); // 60 byte IP header
+  check(gxsPing::ParseEchoReply(p, n, id, seq, ttl) == 1, "ping: a reply after IP options is accepted");
+  check(gxsPing::ParseEchoReply(p, 60, id, seq, ttl) == 0, "ping: an IP header length past the data is refused");
+  n = make_reply(p, 0x43, 0, id, seq, 57);
+  check(gxsPing::ParseEchoReply(p, n, id, seq, ttl) == 0, "ping: an IP header length under 20 is refused");
+  n = make_reply(p, 0x65, 0, id, seq, 57);
+  check(gxsPing::ParseEchoReply(p, n, id, seq, ttl) == 0, "ping: a packet that is not IPv4 is refused");
+
+  gxsSocketAddress a, b;
+  memset(&a, 0, sizeof(a));
+  memset(&b, 0, sizeof(b));
+  a.sin_family = b.sin_family = AF_INET;
+  a.sin_addr.s_addr = htonl(0x7f000001);
+  b.sin_addr.s_addr = htonl(0x7f000001);
+  b.sin_port = htons(9);
+  check(gxsPing::SameAddress(&a, &b) == 1, "ping: a reply from the host pinged is accepted");
+  b.sin_addr.s_addr = htonl(0x7f000002);
+  check(gxsPing::SameAddress(&a, &b) == 0 && gxsPing::SameAddress(0, &b) == 0,
+	"ping: a reply from another host is refused");
+}
+
 int main(int argc, char **argv)
 {
 #if defined (__UNIX__)
   signal(SIGALRM, on_alarm);
   signal(SIGPIPE, SIG_IGN);
 #endif
-  const char *names[] = { "serial", "telnet", 0 };
-  void (*tests[])() = { test_serial, test_telnet };
+  const char *names[] = { "serial", "telnet", "ping", 0 };
+  void (*tests[])() = { test_serial, test_telnet, test_ping };
   int all = (argc < 2);
   for(int i = 1; i < argc; i++) {
     int known = 0;
