@@ -29,6 +29,12 @@ d="$W/db_debug"; mkdir -p "$d"
 d="$W/security_sweep"; mkdir -p "$d"
 (cd "$HERE/../examples_general/security_sweep" && make >/dev/null 2>&1)
 (cd "$d" && "$HERE/../examples_general/security_sweep/testprog" > sweep.log 2>&1); result $? "security sweep (config writer, log file, RSA key file)"
+# 10/31/2026: support code and serial/telnet/ping (7.3.1 security sweep)
+for t in examples_general/support_security examples_socket/comm_security; do
+  n=$(basename $t); d="$W/$n"; mkdir -p "$d"
+  (cd "$HERE/../$t" && make >/dev/null 2>&1)
+  (cd "$d" && "$HERE/../$t/testprog" > $n.log 2>&1); result $? "$n"
+done
 for m in 0 1; do
   d="$W/journal_map$m"; mkdir -p "$d"
   (cd "$d" && "$HERE/journal/testprog" 20 7 $m > journal.log 2>&1); result $? "journal tests (memory-mapped reads $m)"

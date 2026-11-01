@@ -24,6 +24,22 @@ pushd "%W%\security_sweep"
 "%~dp0..\examples_general\security_sweep\testprog.exe" > sweep.log 2>&1
 if errorlevel 1 (echo FAIL security sweep & set /a FAIL+=1) else (echo PASS security sweep & set /a PASS+=1)
 popd
+pushd "%~dp0..\examples_general\support_security"
+nmake -nologo -f msvc.mak FINAL=1 64BITCFG=%CFG% USESSL=0 > build.log 2>&1
+popd
+if not exist "%W%\support_security" mkdir "%W%\support_security"
+pushd "%W%\support_security"
+"%~dp0..\examples_general\support_security\testprog.exe" > support_security.log 2>&1
+if errorlevel 1 (echo FAIL support_security & set /a FAIL+=1) else (echo PASS support_security & set /a PASS+=1)
+popd
+pushd "%~dp0..\examples_socket\comm_security"
+nmake -nologo -f msvc.mak FINAL=1 64BITCFG=%CFG% USESSL=0 > build.log 2>&1
+popd
+if not exist "%W%\comm_security" mkdir "%W%\comm_security"
+pushd "%W%\comm_security"
+"%~dp0..\examples_socket\comm_security\testprog.exe" > comm_security.log 2>&1
+if errorlevel 1 (echo FAIL comm_security & set /a FAIL+=1) else (echo PASS comm_security & set /a PASS+=1)
+popd
 call :journal 0
 call :journal 1
 echo %PASS% passed, %FAIL% failed (logs in %W%)
