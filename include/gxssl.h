@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -272,6 +272,10 @@ enum gxSSLError { // Open SSL exception codes
 typedef void ((*KeyGenCallbackFunc)(int,int,void *));
 // --------------------------------------------------------------
 
+// 10/31/2026: Default limit, in seconds, for each socket send and
+// receive during a TLS handshake. See gxSSL::SetHandshakeTimeout().
+const int gxSSL_DEF_HANDSHAKE_TIMEOUT = 60;
+
 // --------------------------------------------------------------
 // Data Structures
 // --------------------------------------------------------------
@@ -366,6 +370,14 @@ public: // Socket functions
   // calling ConnectSSLSocket().
   void SetHostName(const char *s) { host_name = s; }
   const char *HostName() { return host_name.c_str(); }
+
+  // 10/31/2026: ConnectSSLSocket() and AcceptSSLSocket() set the socket
+  // send and receive timeouts to this many seconds for the handshake
+  // and then put the old ones back, so a peer that connects and says
+  // nothing cannot block them for ever. 0 or less turns this off (the
+  // behaviour before 6.3). The default is gxSSL_DEF_HANDSHAKE_TIMEOUT.
+  void SetHandshakeTimeout(int seconds) { handshake_timeout = seconds; }
+  int HandshakeTimeout() { return handshake_timeout; }
 
 public: // OpenSSL library init functions
   static int InitSSLibrary();
@@ -487,6 +499,7 @@ protected: // SSL library objects
   gxSSLMethod ssl_proto;
   gxSSLCertType cert_type;
   gxString host_name; // Server name sent by clients (SNI)
+  int handshake_timeout; // 10/31/2026: Seconds, see SetHandshakeTimeout()
 
 protected: // SSL I/O objects
 #if !defined (__USE_GX_SCHANNEL__)

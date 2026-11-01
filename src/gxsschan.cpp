@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, MINGW
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/24/2026
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -500,6 +500,7 @@ void gxSSL::init_data_members()
   ctx = 0;
   ssl = 0;
   bytes_moved = bytes_read = 0;
+  handshake_timeout = gxSSL_DEF_HANDSHAKE_TIMEOUT; // 10/31/2026
   ssl_proto = gxSSL_TLS;
   cert_type = gxSSL_PEM;
   ssl_error = gxSSL_NO_ERROR;
@@ -1190,7 +1191,13 @@ int gxSSL::ConnectSSLSocket()
   if(is_ssl_null()) return ssl_error;
   if(is_ctx_null()) return ssl_error;
   if(ctx->is_inbound) return ssl_error = gxSSL_CONNECT_ERROR;
-  return sc_handshake(0, 0);
+  // 10/31/2026: A server that accepts TCP and then says nothing must
+  // not block the handshake for ever (untested on Windows in 6.3)
+  gxsslSockTimeouts old;
+  gxssl_set_handshake_timeout((gxsSocket_t)ssl->s, handshake_timeout, old);
+  int rv = sc_handshake(0, 0);
+  gxssl_restore_timeout((gxsSocket_t)ssl->s, old);
+  return rv;
 }
 
 int gxSSL::AcceptSSLSocket()
@@ -1201,7 +1208,13 @@ int gxSSL::AcceptSSLSocket()
   if(is_ssl_null()) return ssl_error;
   if(is_ctx_null()) return ssl_error;
   if(!ctx->is_inbound) return ssl_error = gxSSL_ACCEPT_ERROR;
-  if(sc_handshake(1, 0) != gxSSL_NO_ERROR) {
+  // 10/31/2026: A client that connects and then says nothing must not
+  // block the server for ever (untested on Windows in 6.3)
+  gxsslSockTimeouts old;
+  gxssl_set_handshake_timeout((gxsSocket_t)ssl->s, handshake_timeout, old);
+  int rv = sc_handshake(1, 0);
+  gxssl_restore_timeout((gxsSocket_t)ssl->s, old);
+  if(rv != gxSSL_NO_ERROR) {
     return ssl_error = gxSSL_ACCEPT_ERROR;
   }
   return ssl_error = gxSSL_NO_ERROR;
