@@ -1,3 +1,71 @@
+DataReel 7.3.1 Beta Release Notes, 11/01/2026
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.3.1 is a beta bug fix release of 7.3. DataReel 6.2 remains
+the stable release for production use until DataReel 7 is final;
+please report problems through https://datareel.com/contact.php.
+
+7.3.1 fixes the problems found by a security scan of the object
+database code (gxDatabase, gxBtree, BtreeCache, gxdJournal, the page
+cache and the file I/O layer) and by a full sweep of the rest of the
+library (TLS, the gxStream database protocol, HTTP, SMTP, POP3, FTPS,
+telnet, RS-232, ping, config, log file, thread pool and the repair
+tools), and adds mutual TLS to gxStream database servers. The file
+formats are unchanged and the API changes are additions. Rebuild
+programs against 7.3.1.
+
+The library version is 7.3.1 (version.txt, DATAREEL_VERSION_STRING in
+gxdlcode.h, libdatareel.so.7.3.1); the soname stays libdatareel.so.7.
+
+FIXES
+-----
+1. gxDatabase::TotalBlocks() on a damaged file: a block length of
+   zero looped for ever, tiny lengths rescanned the same bytes again
+   and again, and in the 64-bit engine a huge length wrapped the
+   address back to an earlier block (an endless count). Lengths
+   shorter than a block header or past the end of the file are now
+   skipped like any bad block. (Found by fuzzing.)
+
+2. gxDatabase::CalcChecksum(): the end of file came from the file
+   header, so a damaged header could ask for a buffer of any size. It
+   is now limited by the real file size. (Found by fuzzing.)
+
+3. gxDatabase::Close(): a file that failed the signature test in
+   Open() was never closed, leaking one file descriptor or handle per
+   failed open (a bug since 6.x). Close() now closes any open file and
+   still never writes a header to a file that failed the checks.
+   (Found by LeakSanitizer.)
+
+4. gxdJournal::Recover(): pages past a file's committed size are
+   skipped, so a damaged page number cannot become a wrapped file
+   offset, and a commit record with a file size the file address type
+   cannot hold ends the replay. (Found by static analysis and fuzzing.)
+
+5. gxDatabase::WriteObjectChecksum() returned an uninitialised value
+   when the file was not open. (Found by static analysis.)
+
+SECURITY SWEEP FIXES (summary; the full list with tests is in
+DATAREEL_73_FULL_SECURITY_SWEEP.md in the project notes)
+- TLS: a failed handshake or certificate check closes the socket (no
+  plaintext fallback); handshakes, reads and writes honour the
+  connection timeout (gxSocket::SetIOTimeout); FTPS data connections
+  check the server certificate when the session is not resumed;
+  Close() no longer waits for the peer; SIGPIPE no longer stops
+  servers; size truncations removed; private key files written 0600.
+- gxStream: refuses non-TLS connections; 64-bit result addresses;
+  the stream_server example validates requested blocks and obeys a
+  remote shutdown only with --allow-remote-shutdown.
+- HTTP: interim response flood, strict status/headers/framing (no
+  Content-Length + chunked), control characters, redirect header
+  leaks, body size caps. URL DecodeStrict(). FTP SIZE and PASV/EPSV
+  parsing; SMTP address injection; POP3 and FTP size caps. The HTTPS
+  server example refuses dotfiles, symlink escapes and device names.
+- Telnet pattern search bounds, lone IAC, subnegotiation and option
+  loops; RS-232 endless reads/writes, block overflow, termios restore
+  (DTR), O_ASYNC (SIGIO stopped the program), Windows error checks;
+  ping reply checks; gxConfig key matching and CR/LF; LogFile mode
+  0640 and CR/LF; ThreadPool start/stop; db_debug damaged files.
+
 Mutual TLS for gxStream database servers (gxstls.h, gxstream.h, gxssl.h)
    Section text for RELEASE_NOTES_7.3.1.txt, 11/01/2026.
 
@@ -97,3 +165,22 @@ Mutual TLS for gxStream database servers (gxstls.h, gxstream.h, gxssl.h)
      release. Depending on the Windows ClientAuthTrustMode setting,
      Schannel may also check client certificates against the
      machine's trusted roots during the handshake.
+
+NOTE: a journal names the files it repairs. Recovering a journal that
+someone else wrote can write to any file the program may write, the
+same trust the program gives its database files. Keep journal files in
+a folder only the database owner can write.
+
+TESTS
+-----
+- tests/journal_test has a security_fixes test for 1, 3 and 4.
+- tests/fuzz has libFuzzer targets for damaged data files, index files
+  and journals (fuzz_db.cpp, gen_seeds.cpp, build_fuzz.sh).
+- tests/run_tests.sh: 49 checks passed on RHEL 10.2 in the default,
+  64-bit, 64-bit portable type and shared library builds, and under
+  AddressSanitizer and UndefinedBehaviorSanitizer. Windows 11 (MSVC):
+  the database examples, journal_test and damaged_files pass in
+  32-bit, 64-bit and 64-bit portable type builds.
+
+The scan itself (tools, fuzzing statistics, reproducers) is described
+in DATAREEL_73_SECURITY_SCAN.md in the project notes.
