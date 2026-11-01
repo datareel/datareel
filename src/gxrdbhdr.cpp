@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/09/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -726,7 +726,9 @@ gxDatabaseError gxrdDatabaseTable::CreateTable(const gxString &tdef)
      // Set the record definition for this table
      record_def << field_type;
      if(!array_len.is_null()) {
-       alen = array_len.Atoi();
+       // 10/31/2026: A negative length became a huge unsigned length
+       int ilen = array_len.Atoi();
+       alen = (ilen > 0) ? (__ULWORD__)ilen : (__ULWORD__)0;
        if(alen > 0) {
 	 record_def << "[" << alen << "]";
        }
@@ -1096,6 +1098,20 @@ void gxrdDatabaseRecord::GetRecordTypeSize(gxrdFIELD_TYPES type,
   }
 }
 
+static gxUINT32 gxrdArrayBytes(__ULWORD__ size, int alen)
+// 10/31/2026: Bytes for an array field of alen elements, at least one
+// element. A negative length or one whose size does not fit 32 bits
+// gave a wrapped size (InitRecord() and CreateRecord() used to compute
+// size * alen in 32 bits). Valid array lengths give the same size.
+{
+  if(alen <= 0) return (gxUINT32)size;
+  if(size == 0) return (gxUINT32)0;
+  if((__ULWORD__)alen > ((__ULWORD__)0x7FFFFFFF / size)) {
+    return (gxUINT32)size;
+  }
+  return (gxUINT32)(size * alen);
+}
+
 int gxrdDatabaseRecord::AllocArray(__ULWORD__ nfields)
 // Allocate memory for the record array. The length of the
 // member array will be equal to the number of array elements
@@ -1199,8 +1215,9 @@ gxDatabaseError gxrdDatabaseRecord::InitRecord(const gxString &def)
 
       // Set the number of bytes allocated for this data type
       if(!array_len.is_null()) {
-	num_bytes = (size * array_len.Atoi());
-	if(num_bytes < size) num_bytes = size;
+	// 10/31/2026: A negative or very large array length wrapped the
+	// size (up to a 4 GB field); such definitions get one element
+	num_bytes = gxrdArrayBytes(size, array_len.Atoi());
       }
       else {
 	num_bytes = size;
@@ -1831,12 +1848,14 @@ gxDatabaseError gxrdDatabaseRecord::CreateRecord(const gxString &def, int clear_
       gxUINT32 num_bytes = (gxUINT32)0;
 
       if(!array_len.is_null()) {
-	num_bytes = (size * array_len.Atoi());
-	if(num_bytes < size) num_bytes = size;
+	// 10/31/2026: A negative or very large array length wrapped the
+	// size (up to a 4 GB field); such definitions get one element
+	num_bytes = gxrdArrayBytes(size, array_len.Atoi());
       }
       else {
 	num_bytes = size;
       }
+      (void)num_bytes; // Only the definition is checked here
     }
     else {
       if(clear_rec) Clear();
@@ -1939,6 +1958,11 @@ gxDatabaseError gxrdDatabaseRecord::LoadDiskRecord(\
   gxrdRecordHeader rh;
 
   // Read the record header
+  // 10/31/2026: A disk record shorter than the record header was read
+  // past its end
+  if(!disk_record.m_buf() || (disk_record.length() < rh.SizeOf())) {
+    return gxDBASE_BAD_RECORD;
+  }
   memmove((void *)&rh, (const void *)disk_record.m_buf(), rh.SizeOf());
   if(!rh.TestTableID(table_name)) {
     return gxDBASE_BAD_TABLE_ID;
@@ -1997,10 +2021,12 @@ gxDatabaseError gxrdDatabaseRecord::LoadDiskRecord(\
 
     // Ensure that the number of bytes do not excced the length of
     // the memory buffer.
-    byte_count += num_bytes;
-    if(byte_count > disk_record.length()) {
+    // 10/31/2026: Compare before adding, byte_count + num_bytes could wrap
+    // where __ULWORD__ is 32 bits
+    if((__ULWORD__)num_bytes > (disk_record.length() - byte_count)) {
       return gxDBASE_BAD_RECORD;
     }
+    byte_count += num_bytes;
 
     // Ensure that at least one byte has been allocated
     if(num_bytes == (gxUINT32)0) continue;

@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/09/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -290,14 +290,36 @@ gxDatabaseError gxRDBMS::Read(gxrdDatabaseRecord *r, gxBlockHeader &blk,
   // Adjust the number of bytes allocated for the record space 
   // according to the data file revision letter.
   __ULWORD__ length;
+  __ULWORD__ overhead;
   switch(f->GetRevLetter()) {
     case '\0' : case ' ' : case 'e' : case 'E' :
-      length = blk.block_length - f->BlockHeaderSize();
+      overhead = f->BlockHeaderSize();
       break;
     default:
-      length = (blk.block_length-(f->BlockHeaderSize()+ sizeof(gxChecksum)));
+      overhead = (f->BlockHeaderSize()+ sizeof(gxChecksum));
       break;
   }
+  // 10/31/2026: A damaged block length smaller than the block overhead
+  // wrapped the record length around (a 4 GB or larger allocation), and
+  // one larger than the file allocated memory for data that is not there.
+  // Large lengths are checked against the end of the file (GetEOF() reads
+  // the file header, so the file position is kept).
+  if((__ULWORD__)blk.block_length < overhead) {
+    return pod->SetDataFileError(gxDBASE_BAD_RECORD);
+  }
+  if((unsigned long long)blk.block_length > 65536ULL) {
+    FAU_t curr_pos = (FAU_t)f->Tell();
+    FAU_t file_eof = (FAU_t)f->GetEOF();
+    f->SeekTo(curr_pos);
+    if(pod->GetDataFileError() != gxDBASE_NO_ERROR) {
+      return pod->GetDataFileError();
+    }
+    if((file_eof < (FAU_t)0) ||
+       ((unsigned long long)blk.block_length > (unsigned long long)file_eof)) {
+      return pod->SetDataFileError(gxDBASE_BAD_RECORD);
+    }
+  }
+  length = (__ULWORD__)blk.block_length - overhead;
 
   // Create a disk record used to read a contiguous block of data
   // from the file. The record length must be adjusted to account

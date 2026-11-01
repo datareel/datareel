@@ -65,6 +65,8 @@ USA
   parsers     gxIP32, gxMAC48 and CDate strings that are too long or
               have extra groups, gxsHTML pages with "&#" at the start and
               a closing script tag without an opening one.
+  rdbms       gxrdDatabaseRecord::LoadDiskRecord() of a record shorter
+              than its header, negative array lengths in definitions.
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -85,6 +87,7 @@ USA
 #include "gxmac48.h"
 #include "cdate.h"
 #include "gxshtml.h"
+#include "gxrdbhdr.h"
 #include "memblock.h"
 #if defined (__USE_GX_SSL_EXTENSIONS__)
 #include "gxssl.h"
@@ -372,6 +375,21 @@ int main()
       for(; sp; sp = sp->next) if(sp->data.script_length > 100) ok = 0;
     }
     check(ok, "parsers: gxsHTML tags at the start and closing tags without opening tags");
+  }
+
+  // rdbms
+  {
+    gxrdDatabaseRecord r;
+    check(r.CreateRecord("T,CHAR[8],INT32") == gxDBASE_NO_ERROR, "rdbms: record created");
+    MemoryBuffer shortrec("abc", 3);
+    check(r.LoadDiskRecord(shortrec) == gxDBASE_BAD_RECORD, "rdbms: a disk record shorter than its header is refused");
+    MemoryBuffer disk;
+    r.CreateDiskRecord(disk);
+    check(r.LoadDiskRecord(disk) == gxDBASE_NO_ERROR, "rdbms: a disk record loads as before");
+    gxrdDatabaseRecord r2;
+    check(r2.CreateRecord("T,CHAR[-1],INT32[-2],CHAR[4]") == gxDBASE_NO_ERROR &&
+	  r2.FieldLength(0) == 1 && r2.FieldLength(1) == sizeof(gxINT32) && r2.FieldLength(2) == 4,
+	  "rdbms: negative array lengths get one element");
   }
 
   // base64
