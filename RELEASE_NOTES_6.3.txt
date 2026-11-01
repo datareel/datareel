@@ -72,6 +72,37 @@ The journal holds copies of database pages until a checkpoint. In 6.3:
 - New functions gxdFPTRCreatePrivate()/gxdFPTRMakePrivate() and
   gxdFPTR64CreatePrivate()/gxdFPTR64MakePrivate().
 
+SECURITY FIXES (FROM THE DATAREEL 7.3 SECURITY SCAN)
+---------------------------------------------------
+Found in 7.3 by fuzzing, sanitizers and static analysis, and present in
+6.2:
+- Damaged block lengths: a length of zero made the block walks
+  (TotalBlocks(), FindFirstObject(), FindNextObject()) loop forever,
+  lengths shorter than a block header made them read the same bytes
+  again and again, and a length past the end of the file could wrap
+  the address back to an earlier block. A block shorter than its
+  header or past the end of the file is now bad, and the walks only
+  move forward.
+- CalcChecksum() and the object checksum functions allocated and read
+  up to the damaged length (with native types on 64-bit systems a block
+  length is 64 bits). They are bounded by the real file size.
+- Open() of a file that is not a database file left it open (a leaked
+  file handle per failed open) and closing the object then wrote a
+  database header into it. It is closed again without writing.
+- WriteObjectChecksum() returned an uninitialised value when the file
+  was not open.
+- Journal recovery: page numbers and file sizes the file address type
+  cannot hold end the replay, and pages past a file's committed size
+  are not written.
+- gxSSL::MakeRSAPrivateKey() and new LogFile files are owner-only (they
+  got the umask permissions).
+- gxConfig::ChangeConfigValue() only changes the line that starts with
+  the setting name (it could rewrite another setting, a comment or a
+  value holding the name), and names, values and comments with a line
+  break are refused.
+- db_debug no longer loops on damaged block lengths.
+The 7.3 libFuzzer targets are in examples_database/fuzz (clang).
+
 OTHER CHANGES
 -------------
 - strutil.cpp: StringANCompare() and the other string compares passed
@@ -92,6 +123,8 @@ TESTS
   at random moments and checks that every commit it reported is in the
   files and no batch is half written.
 - examples_database/infohog: an InfoHog/POD example.
+- examples_database/damaged and examples_general/security_sweep: the
+  security fixes above, each with a damaged or crafted input.
 - examples_database/run_db_tests.sh and run_db_tests.bat build and run
   every database example and the journal tests.
 
