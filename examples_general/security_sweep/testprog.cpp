@@ -41,6 +41,8 @@ USA
               bytes of 0x80 and more (6.x-only code; fcrypt and the
               Encrypted Password Database encode user names with it),
               and decodes back.
+  findlast    gxString::FindLast() with an empty pattern returns -1 (it
+              read far out of bounds), and finds the last match.
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -51,6 +53,7 @@ USA
 #include "logfile.h"
 #include "dfileb.h"
 #include "gxs_b64.h"
+#include "gxstring.h"
 #if defined (__USE_GX_SSL_EXTENSIONS__)
 #include "gxssl.h"
 #endif
@@ -143,6 +146,18 @@ int main()
     check(o != 0, "logfile: OverWrite() of a new file is owner-only");
     remove(log_name);
     remove("sweep2.log");
+  }
+
+  // findlast
+  {
+    gxString a("hello world"), b("aab"), c("abc");
+    gxString e;
+    check(a.FindLast("") == -1 && e.FindLast("x") == -1 && c.FindLast("abcd") == -1,
+	  "findlast: empty pattern, empty string and long pattern return -1");
+    check(a.FindLast("o") == 8 && a.FindLast("world") == 7 && b.FindLast("ab") == 2 &&
+	  c.FindLast("a") == 1 && c.FindLast("x") == -1, "findlast: positions as in 6.2");
+    gxString d("abaab");
+    check(d.FindLast("aab") == 3, "findlast: a failed partial match does not hide the last match");
   }
 
   // base64

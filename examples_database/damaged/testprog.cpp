@@ -150,9 +150,13 @@ int main(int argc, char **argv)
     return 0;
   }
 #if defined (__UNIX__)
+  // AddressSanitizer needs a large address space for its shadow memory
+  // and reports huge allocations itself
+#if !defined (__SANITIZE_ADDRESS__)
   struct rlimit rl;
   rl.rlim_cur = rl.rlim_max = 1024UL * 1024UL * 1024UL;
   setrlimit(RLIMIT_AS, &rl);
+#endif
   alarm(60);
 #endif
   FAU_t objects[NUM_OBJECTS];

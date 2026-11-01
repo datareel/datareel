@@ -1094,54 +1094,34 @@ int UStringB::ToLower()
 int UStringB::find_last(const void *s) const
 // Returns index of the last occurrence of string s.   
 // Returns -1 if the pattern is not found.
+// 10/31/2026: The value is the position of the match plus one, as
+// before. An empty pattern used to wrap the pattern pointer around (a
+// read far out of bounds, found by fuzzing in the 6.x security sweep),
+// the walk could step before the start of the string, and a partial
+// match that failed could hide a later match. The search now compares
+// each possible position inside the string.
 {
   // PC-lint: 09/14/2005 Possible use of null pointer
   if(!s) return -1;
   if(!sptr) return -1;
 
   if(!is_unicode()) {
-    unsigned i;
-    char *end = (char *)sptr + s_length;
-    char *pattern = (char *)s; 
+    const char *pattern = (const char *)s; 
     unsigned nchars = gxstrlen(pattern);
-    pattern += (nchars - 1);
-    unsigned j = 1;    
-    for(i = s_length; i != 0; i--) {
-      if(*end == 0) end--; // Skip over the null terminator
-      if(*end == *pattern) {
-	if(j == nchars) return (int)i; // pattern was found
-	j++;
-	pattern--;
-      }
-      else {
-	pattern = (char *)s;
-	pattern += (nchars - 1);
-	j = 1;
-      }
-      end--;
+    if((nchars == 0) || (nchars > s_length)) return -1;
+    const char *str = (const char *)sptr;
+    for(unsigned start = s_length - nchars + 1; start != 0; start--) {
+      if(memcmp(str + (start - 1), pattern, nchars) == 0) return (int)start;
     }
     return -1; // No match was found
   }
   else {
-    unsigned i;
-    wchar_t *end = (wchar_t *)sptr + s_length;
-    wchar_t *pattern = (wchar_t *)s; 
+    const wchar_t *pattern = (const wchar_t *)s; 
     unsigned nchars = gxstrlen(pattern);
-    pattern += (nchars - 1);
-    unsigned j = 1;
-    for(i = s_length; i != 0; i--) {
-      if(*end == 0) end--; // Skip over the null terminator
-      if(*end == *pattern) {
-	if(j == nchars) return (int)i; // pattern was found
-	j++;
-	pattern--;
-      }
-      else {
-	pattern = (wchar_t *)s;
-	pattern += (nchars - 1);
-	j = 1;
-      }
-      end--;
+    if((nchars == 0) || (nchars > s_length)) return -1;
+    const wchar_t *str = (const wchar_t *)sptr;
+    for(unsigned start = s_length - nchars + 1; start != 0; start--) {
+      if(memcmp(str + (start - 1), pattern, nchars * sizeof(wchar_t)) == 0) return (int)start;
     }
     return -1; // No match was found
   }
