@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/21/1997
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -153,7 +153,10 @@ int gxIP32::SetIPAddress(char *ip)
       j = 0; 
     }
     if(*p != '.') { // Skip over the dot
-      if(isdigit(*p)) {
+      // 10/31/2026: Leave room for the null (a string of ip32MaxStrLen-1 digits
+      // left buf without one) and test the character as unsigned
+      if(isdigit((unsigned char)*p)) {
+	if(j >= (ip32MaxStrLen-1)) return 0;
 	buf[j++] = *p;
       }
       else {
@@ -210,7 +213,10 @@ int gxIP32::SetIPAddress(const char *ip)
       j = 0; 
     }
     if(*p != '.') { // Skip over the dot
-      if(isdigit(*p)) {
+      // 10/31/2026: Leave room for the null (a string of ip32MaxStrLen-1 digits
+      // left buf without one) and test the character as unsigned
+      if(isdigit((unsigned char)*p)) {
+	if(j >= (ip32MaxStrLen-1)) return 0;
 	buf[j++] = *p;
       }
       else {

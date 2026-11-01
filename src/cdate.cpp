@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/21/1997 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -203,14 +203,14 @@ int CDate::SetDate(const char *date, char delimiter)
   unsigned char date_str[MaxBytes];
   memset(date_str, 0, MaxBytes);
   int byte_count = 0;
-  int val;
+  int val = 0; // 10/31/2026: sscanf() leaves it unset with no digits
   int num_delimiter = 0;
 
   for(i = 0, j = 0; i < len && i != cdateMaxStrLen; i++, p++) {
     if(*p == delimiter) {
       num_delimiter++;
       if(byte_count > MaxBytes) return 0;
-      sscanf(buf, "%d", &val);
+      val = 0; sscanf(buf, "%d", &val);
       // PC-lint 04/21/2004: Possible access of out-of-bounds pointer
       if(byte_count < (MaxBytes-1)) {
 	date_str[byte_count++] = (unsigned char)(val & 0xFF);
@@ -220,7 +220,10 @@ int CDate::SetDate(const char *date, char delimiter)
     }
     if(num_delimiter > 2) return 0;
     if(*p != delimiter) { // Skip over the delimiter
-      if(isdigit(*p)) {
+      // 10/31/2026: Leave room for the null (a string of cdateMaxStrLen-1 digits
+      // left buf without one) and test the character as unsigned
+      if(isdigit((unsigned char)*p)) {
+	if(j >= (cdateMaxStrLen-1)) return 0;
 	buf[j++] = *p;
       }
       else {
@@ -230,7 +233,7 @@ int CDate::SetDate(const char *date, char delimiter)
   }
 
   // String after the last delimiter
-  sscanf(buf, "%d", &val);
+  val = 0; sscanf(buf, "%d", &val);
 
   // Set the date
   Month = date_str[0];

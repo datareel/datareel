@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/21/1997
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -197,20 +197,20 @@ int gxMAC48::SetMACAddress(const char *mac, char delimiter, int tuple)
   unsigned char mac_address[MaxBytes];
   for(i = 0; i < MaxBytes; i++) mac_address[i] = 0;
   int byte_count = 0;
-  int val;
+  int val = 0; // 10/31/2026: sscanf() leaves it unset with no digits
 
   for(i = 0, j = 0; i < len && i != mac48MaxStrLen; i++, p++) {
     if(*p == delimiter) {
       if(byte_count > MaxBytes) return 0;
       if(tuple == 2) {
-	sscanf(buf, "%x", &val);
+	val = 0; sscanf(buf, "%x", &val);
 	// PC-lint 04/26/2005: Possible access of out-of-bounds pointer
 	if(byte_count < (MaxBytes-1)) {
 	  mac_address[byte_count++] = (unsigned char)(val & 0xFF);
 	}
       }
       else if(tuple == 4) {
-	sscanf(buf, "%x", &val);
+	val = 0; sscanf(buf, "%x", &val);
 
 	// PC-lint 04/26/2005: Possible access of out-of-bounds pointer
 	if(byte_count < (MaxBytes-1)) {
@@ -229,7 +229,10 @@ int gxMAC48::SetMACAddress(const char *mac, char delimiter, int tuple)
       j = 0; 
     }
     if(*p != delimiter) { // Skip over the delimiter
-      if(isalnum(*p)) {
+      // 10/31/2026: Leave room for the null (a string of mac48MaxStrLen-1 digits
+      // left buf without one) and test the character as unsigned
+      if(isalnum((unsigned char)*p)) {
+	if(j >= (mac48MaxStrLen-1)) return 0;
 	buf[j++] = *p;
       }
       else {
@@ -240,13 +243,19 @@ int gxMAC48::SetMACAddress(const char *mac, char delimiter, int tuple)
 
   // String after the last delimiter
   if(tuple == 2) {
-    sscanf(buf, "%x", &val);
+    val = 0; sscanf(buf, "%x", &val);
     mac_address[byte_count] = (unsigned char)(val & 0xFF);
   }
   else if(tuple == 4) {
-    sscanf(buf, "%x", &val);
-    mac_address[byte_count++] = (unsigned char)((val & 0xFF00)>>8);
-    mac_address[byte_count] = (unsigned char)(val & 0xFF);
+    val = 0; sscanf(buf, "%x", &val);
+    // 10/31/2026: With extra groups byte_count is 5 here and the second
+    // write went to mac_address[6], past the end of the array
+    if(byte_count < MaxBytes) {
+      mac_address[byte_count++] = (unsigned char)((val & 0xFF00)>>8);
+    }
+    if(byte_count < MaxBytes) {
+      mac_address[byte_count] = (unsigned char)(val & 0xFF);
+    }
   }
   
   byte[0] = mac_address[0];
@@ -282,20 +291,20 @@ int gxMAC48::SetMACAddress(char *mac, char delimiter, int tuple)
   unsigned char mac_address[MaxBytes];
   for(i = 0; i < MaxBytes; i++) mac_address[i] = 0;
   int byte_count = 0;
-  int val;
+  int val = 0; // 10/31/2026: sscanf() leaves it unset with no digits
 
   for(i = 0, j = 0; i < len && i != mac48MaxStrLen; i++, p++) {
     if(*p == delimiter) {
       if(byte_count > MaxBytes) return 0;
       if(tuple == 2) {
-	sscanf(buf, "%x", &val);
+	val = 0; sscanf(buf, "%x", &val);
 	// PC-lint 04/26/2005: Possible access of out-of-bounds pointer
 	if(byte_count < (MaxBytes-1)) {
 	  mac_address[byte_count++] = (unsigned char)(val & 0xFF);
 	}
       }
       else if(tuple == 4) {
-	sscanf(buf, "%x", &val);
+	val = 0; sscanf(buf, "%x", &val);
 
 	// PC-lint 04/26/2005: Possible access of out-of-bounds pointer
 	if(byte_count < (MaxBytes-1)) {
@@ -314,7 +323,10 @@ int gxMAC48::SetMACAddress(char *mac, char delimiter, int tuple)
       j = 0; 
     }
     if(*p != delimiter) { // Skip over the delimiter
-      if(isalnum(*p)) {
+      // 10/31/2026: Leave room for the null (a string of mac48MaxStrLen-1 digits
+      // left buf without one) and test the character as unsigned
+      if(isalnum((unsigned char)*p)) {
+	if(j >= (mac48MaxStrLen-1)) return 0;
 	buf[j++] = *p;
       }
       else {
@@ -325,13 +337,19 @@ int gxMAC48::SetMACAddress(char *mac, char delimiter, int tuple)
 
   // String after the last delimiter
   if(tuple == 2) {
-    sscanf(buf, "%x", &val);
+    val = 0; sscanf(buf, "%x", &val);
     mac_address[byte_count] = (unsigned char)(val & 0xFF);
   }
   else if(tuple == 4) {
-    sscanf(buf, "%x", &val);
-    mac_address[byte_count++] = (unsigned char)((val & 0xFF00)>>8);
-    mac_address[byte_count] = (unsigned char)(val & 0xFF);
+    val = 0; sscanf(buf, "%x", &val);
+    // 10/31/2026: With extra groups byte_count is 5 here and the second
+    // write went to mac_address[6], past the end of the array
+    if(byte_count < MaxBytes) {
+      mac_address[byte_count++] = (unsigned char)((val & 0xFF00)>>8);
+    }
+    if(byte_count < MaxBytes) {
+      mac_address[byte_count] = (unsigned char)(val & 0xFF);
+    }
   }
   
   byte[0] = mac_address[0];

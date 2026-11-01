@@ -569,7 +569,9 @@ int gxsHTML::CollectHTMLTags()
 	      df_Get(c);
 	      if((c == ';') || (c == ' ')) break;
 	    }
-	    tag.start_tag--; // Account for the ampersand
+	    // 10/31/2026: Not before the start of the file ("&#" at the start
+	    // made start_tag -1 and the tag was read before the buffer)
+	    if(tag.start_tag > (FAU_t)0) tag.start_tag--; // Account for the ampersand
 	    tag.end_tag = df_Tell();
 	    num_tags++;
 	    
@@ -652,7 +654,12 @@ int gxsHTML::CollectHTMLTags()
 	  if(tag_buf == "</ SCRIPT") sbuf = "/ SCRIPT";
 	  script.script_end = df_Tell();
 	  script.script_length = script.script_end - script.script_start;
-	  script.script_length -= sbuf.length() + 1; // Remove </script tag
+	  // 10/31/2026: A closing tag with no opening tag (or one right
+	  // after it) wrapped the length around to 4 GB
+	  if(script.script_length > (unsigned)(sbuf.length() + 1))
+	    script.script_length -= sbuf.length() + 1; // Remove </script tag
+	  else
+	    script.script_length = 0;
 	  script_list.Add(script);
 	  num_scripts++;
 	  script.Clear();
@@ -674,7 +681,12 @@ int gxsHTML::CollectHTMLTags()
 	  if(tag_buf == "</ STYLE") sbuf = "/ STYLE";
 	  style_sheet.style_end = df_Tell();
 	  style_sheet.style_length = style_sheet.style_end - style_sheet.style_start;
-	  style_sheet.style_length -= sbuf.length() + 1; // Remove </style tag
+	  // 10/31/2026: A closing tag with no opening tag (or one right
+	  // after it) wrapped the length around to 4 GB
+	  if(style_sheet.style_length > (unsigned)(sbuf.length() + 1))
+	    style_sheet.style_length -= sbuf.length() + 1; // Remove </style tag
+	  else
+	    style_sheet.style_length = 0;
 	  style_sheet_list.Add(style_sheet);
 	  num_style_sheets++;
 	  style_sheet.Clear();
@@ -2463,7 +2475,9 @@ int gxsHTML::CollectHTMLTags(const MemoryBuffer &membuf)
 	      c = *start;
 	      if((c == ';') || (c == ' ')) break;
 	    }
-	    tag.start_tag--; // Account for the ampersand
+	    // 10/31/2026: Not before the start of the file ("&#" at the start
+	    // made start_tag -1 and the tag was read before the buffer)
+	    if(tag.start_tag > (FAU_t)0) tag.start_tag--; // Account for the ampersand
 	    tag.end_tag = pos;
 	    num_tags++;
 	    
@@ -2545,7 +2559,12 @@ int gxsHTML::CollectHTMLTags(const MemoryBuffer &membuf)
 	  if(tag_buf == "</ SCRIPT") sbuf = "/ SCRIPT";
 	  script.script_end = pos;
 	  script.script_length = script.script_end - script.script_start;
-	  script.script_length -= sbuf.length() + 1; // Remove </script tag
+	  // 10/31/2026: A closing tag with no opening tag (or one right
+	  // after it) wrapped the length around to 4 GB
+	  if(script.script_length > (unsigned)(sbuf.length() + 1))
+	    script.script_length -= sbuf.length() + 1; // Remove </script tag
+	  else
+	    script.script_length = 0;
 	  script_list.Add(script);
 	  num_scripts++;
 	  script.Clear();
@@ -2567,7 +2586,12 @@ int gxsHTML::CollectHTMLTags(const MemoryBuffer &membuf)
 	  if(tag_buf == "</ STYLE") sbuf = "/ STYLE";
 	  style_sheet.style_end = pos;
 	  style_sheet.style_length = style_sheet.style_end - style_sheet.style_start;
-	  style_sheet.style_length -= sbuf.length() + 1; // Remove </style tag
+	  // 10/31/2026: A closing tag with no opening tag (or one right
+	  // after it) wrapped the length around to 4 GB
+	  if(style_sheet.style_length > (unsigned)(sbuf.length() + 1))
+	    style_sheet.style_length -= sbuf.length() + 1; // Remove </style tag
+	  else
+	    style_sheet.style_length = 0;
 	  style_sheet_list.Add(style_sheet);
 	  num_style_sheets++;
 	  style_sheet.Clear();
@@ -2624,12 +2648,21 @@ int gxsHTML::ProcessHTMLTags(const MemoryBuffer &membuf)
 #endif
 
     mbuf.Clear(); // Clear the buffer before each read
-    mbuf.resize(list_ptr->data.tag_length);
+    // 10/31/2026: Keep the copy inside the buffer. Positions and lengths
+    // from a damaged page could point before or past it.
+    FAU_t pos = list_ptr->data.start_tag;
+    unsigned copy_len = list_ptr->data.tag_length;
+    if((pos < (FAU_t)0) || (pos >= (FAU_t)membuf.length())) {
+      pos = 0; copy_len = 0;
+    }
+    else if(copy_len > (unsigned)(membuf.length() - (unsigned)pos)) {
+      copy_len = membuf.length() - (unsigned)pos;
+    }
+    mbuf.resize(copy_len);
 
     // Read the tag starting at the opening angle bracket
-    FAU_t pos = list_ptr->data.start_tag;
     tag_pos = start + pos;
-    memmove((char *)mbuf.m_buf(), tag_pos, mbuf.length());  
+    if(copy_len) memmove((char *)mbuf.m_buf(), tag_pos, mbuf.length());  
     
     // Store the tag and indentify it
     mbuf += '\0'; // Ensure null termination
@@ -2679,12 +2712,21 @@ int gxsHTML::ProcessScripts(const MemoryBuffer &membuf)
 #endif
 
     mbuf.Clear(); // Clear the buffer before each read
-    mbuf.resize(script_ptr->data.script_length);
+    // 10/31/2026: Keep the copy inside the buffer. Positions and lengths
+    // from a damaged page could point before or past it.
+    FAU_t pos = script_ptr->data.script_start;
+    unsigned copy_len = script_ptr->data.script_length;
+    if((pos < (FAU_t)0) || (pos >= (FAU_t)membuf.length())) {
+      pos = 0; copy_len = 0;
+    }
+    else if(copy_len > (unsigned)(membuf.length() - (unsigned)pos)) {
+      copy_len = membuf.length() - (unsigned)pos;
+    }
+    mbuf.resize(copy_len);
 
     // Read the tag starting at the opening angle bracket
-    FAU_t pos = script_ptr->data.script_start;
     script_pos = start + pos;
-    memmove((char *)mbuf.m_buf(), script_pos, mbuf.length());  
+    if(copy_len) memmove((char *)mbuf.m_buf(), script_pos, mbuf.length());  
     
     // Store the tag and indentify it
     mbuf += '\0'; // Ensure null termination
@@ -2723,12 +2765,21 @@ int gxsHTML::ProcessStyleSheets(const MemoryBuffer &membuf)
 #endif
 
     mbuf.Clear(); // Clear the buffer before each read
-    mbuf.resize(style_sheet_ptr->data.style_length);
+    // 10/31/2026: Keep the copy inside the buffer. Positions and lengths
+    // from a damaged page could point before or past it.
+    FAU_t pos = style_sheet_ptr->data.style_start;
+    unsigned copy_len = style_sheet_ptr->data.style_length;
+    if((pos < (FAU_t)0) || (pos >= (FAU_t)membuf.length())) {
+      pos = 0; copy_len = 0;
+    }
+    else if(copy_len > (unsigned)(membuf.length() - (unsigned)pos)) {
+      copy_len = membuf.length() - (unsigned)pos;
+    }
+    mbuf.resize(copy_len);
 
     // Read the tag starting at the opening angle bracket
-    FAU_t pos = style_sheet_ptr->data.style_start;
     style_sheet_pos = start + pos;
-    memmove((char *)mbuf.m_buf(), style_sheet_pos, mbuf.length());  
+    if(copy_len) memmove((char *)mbuf.m_buf(), style_sheet_pos, mbuf.length());  
     
     // Store the tag and indentify it
     mbuf += '\0'; // Ensure null termination
