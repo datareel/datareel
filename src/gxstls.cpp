@@ -41,11 +41,21 @@ SSL_connect()/SSL_accept() forever. AttachClient() with a session
 checks the server certificate unless the TLS session was resumed.
 Send(std::string_view) sends in chunks and Read() refuses requests
 larger than INT_MAX.
+
+11/01/2026: Mutual TLS for servers. gxsTLSServer::SetClientCAFile()
+makes the server ask every client for a certificate that chains to
+the client CAs, and AllowClientFingerprint()/AllowClientCN() limit it
+to known clients. Accept() checks the certificate after the handshake
+and closes the client if it is missing, does not verify or is not in
+the allow list (fail closed). With SetRequireClientAuth(true), which
+gxStreamServer sets, Listen() refuses to start without a client CA
+file and an allow list unless AllowAnonymousClients(true) was called.
 ==============================================================
 */
 // ----------------------------------------------------------- //   
 #include "gxdlcode.h"
 
+#include <algorithm>
 #include <chrono>
 #include <climits>
 #include <cstring>
@@ -273,6 +283,8 @@ static void gxs_linger_close(gxsSocket_t s)
 
 void gxsTLSConnection::Close()
 {
+  peer_fingerprint.clear(); // 11/01/2026
+  peer_cn.clear();
   if(secure) {
     tls.CloseSSLSocket();
     secure = false;
@@ -402,18 +414,175 @@ bool gxsTLSConnection::ReadAll(std::string &s, std::size_t max_len)
   return true;
 }
 
+static std::string gxs_printable(const std::string &s, std::size_t max_len = 256)
+// 11/01/2026: Copy of a string from a certificate that is safe to put
+// in an error message or log: control characters, DEL and backslash
+// are escaped as \xNN, and long strings are cut.
+{
+  static const char hex[] = "0123456789ABCDEF";
+  std::string out;
+  for(std::size_t i = 0; i < s.size() && i < max_len; i++) {
+    unsigned char c = (unsigned char)s[i];
+    if(c < 0x20 || c == 0x7F || c == '\\') {
+      out += "\\x";
+      out += hex[(c >> 4) & 0x0F];
+      out += hex[c & 0x0F];
+    }
+    else {
+      out += (char)c;
+    }
+  }
+  if(s.size() > max_len) out += "...";
+  return out;
+}
+
+std::string gxsTLSServer::NormalizeFingerprint(const std::string &s)
+// 11/01/2026: Returns the fingerprint as 32 upper case hex bytes
+// separated by colons, or an empty string if s is not one
+{
+  std::string::size_type start = s.rfind('=');
+  start = (start == std::string::npos) ? 0 : start + 1;
+  std::string digits;
+  for(std::size_t i = start; i < s.size(); i++) {
+    char c = s[i];
+    if(c == ':' || c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
+    if(c >= 'a' && c <= 'f') c = (char)(c - 'a' + 'A');
+    if(!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F'))) {
+      return std::string();
+    }
+    digits += c;
+  }
+  if(digits.size() != 64) return std::string();
+  std::string out;
+  for(std::size_t i = 0; i < digits.size(); i += 2) {
+    if(i > 0) out += ':';
+    out.append(digits, i, 2);
+  }
+  return out;
+}
+
+int gxsTLSServer::AllowClientFingerprint(const std::string &fp)
+// 11/01/2026
+{
+  std::string n = NormalizeFingerprint(fp);
+  if(n.empty()) {
+    error = "TLS exception: Not a SHA-256 certificate fingerprint";
+    return -1;
+  }
+  if(std::find(allow_fingerprints.begin(), allow_fingerprints.end(), n) ==
+     allow_fingerprints.end()) {
+    allow_fingerprints.push_back(n);
+  }
+  return 0;
+}
+
+int gxsTLSServer::AllowClientCN(const std::string &cn)
+// 11/01/2026
+{
+  if(cn.empty()) {
+    error = "TLS exception: Empty client certificate name";
+    return -1;
+  }
+  if(std::find(allow_cns.begin(), allow_cns.end(), cn) == allow_cns.end()) {
+    allow_cns.push_back(cn);
+  }
+  return 0;
+}
+
+int gxsTLSServer::check_client(gxsTLSConnection &conn)
+// 11/01/2026: Called by Accept() after the handshake when client
+// certificates are required. Closes the connection and sets the error
+// unless the client sent a certificate that verifies against the
+// client CAs and is in the allow list. Sets the connection's peer
+// identity if it passes. Returns 0 if the client is accepted.
+{
+  std::string who = conn.Host();
+  long code = 0;
+  int rv = conn.tls.VerifyClientCert(&code);
+  if(rv != gxSSL_NO_ERROR) {
+    std::string msg = "TLS exception: Client ";
+    msg += who;
+    if(rv == gxSSL_PEERCERT_ERROR) {
+      msg += " sent no client certificate";
+    }
+    else {
+      msg += " client certificate check failed: ";
+      msg += conn.tls.SSLExceptionMessage();
+      if(code != 0) {
+	msg += " (";
+	msg += gxSSL::CertVerifyErrorString(code);
+	msg += ")";
+      }
+    }
+    conn.Close();
+    conn.error = msg;
+    error = msg;
+    return -1;
+  }
+  std::string fp, cn;
+  if(conn.tls.GetPeerCertIdentity(fp, cn) != gxSSL_NO_ERROR || fp.empty()) {
+    std::string msg = "TLS exception: Client " + who + 
+      " certificate fingerprint could not be read";
+    conn.Close();
+    conn.error = msg;
+    error = msg;
+    return -1;
+  }
+  bool allowed = allow_fingerprints.empty() && allow_cns.empty();
+  if(!allowed) {
+    allowed = std::find(allow_fingerprints.begin(), allow_fingerprints.end(), 
+			fp) != allow_fingerprints.end();
+  }
+  if(!allowed && !cn.empty()) {
+    allowed = std::find(allow_cns.begin(), allow_cns.end(), cn) != 
+      allow_cns.end();
+  }
+  if(!allowed) {
+    std::string msg = "TLS exception: Client " + who + 
+      " certificate is not in the allow list (CN=" + gxs_printable(cn) + 
+      ", SHA-256 " + fp + ")";
+    conn.Close();
+    conn.error = msg;
+    error = msg;
+    return -1;
+  }
+  conn.peer_fingerprint = fp;
+  conn.peer_cn = cn;
+  return 0;
+}
+
 int gxsTLSServer::Listen(int port, const std::string &cert_fname, 
 			 const std::string &key_fname,
 			 const std::string &passphrase,
 			 const std::string &bind_address)
 {
   error.clear();
+  // 11/01/2026: Check the client certificate setup before anything is
+  // opened. An allow list cannot be checked without the client CAs.
+  bool have_allow = !allow_fingerprints.empty() || !allow_cns.empty();
+  if(have_allow && client_ca_file.empty()) {
+    error = "TLS exception: A client allow list needs a client CA file "
+      "(SetClientCAFile())";
+    return -1;
+  }
+  if(require_client_auth && !allow_anonymous &&
+     (client_ca_file.empty() || !have_allow)) {
+    error = "TLS exception: This server requires client certificates. "
+      "Set a client CA file and at least one allowed client "
+      "(fingerprint or CN), or call AllowAnonymousClients(true) to run "
+      "an open server";
+    return -1;
+  }
   tls.MakeServer();
+  tls.SetClientCAList(client_ca_file.c_str()); // 11/01/2026
   tls.SetCertFile(cert_fname.c_str());
   tls.SetKeyFile(key_fname.c_str());
   if(!passphrase.empty()) tls.SetPasswd(passphrase.c_str());
   if(!tls.InitCTX()) {
     error = tls.SSLExceptionMessage();
+    if(!client_ca_file.empty() && tls.GetSSLError() == gxSSL_CALIST_ERROR) {
+      error += ": " + client_ca_file; // 11/01/2026
+    }
     return -1;
   }
   if(listener.Listen(port, bind_address) != 0) {
@@ -436,6 +605,9 @@ int gxsTLSServer::Accept(gxsTLSConnection &conn)
     error = conn.Error();
     return -1;
   }
+  // 11/01/2026: Fail closed: a client that does not pass the client
+  // certificate check is closed before the caller can use it
+  if(!client_ca_file.empty()) return check_client(conn);
   return 0;
 }
 } // namespace datareel

@@ -124,6 +124,11 @@ for the changes in 7.1, 7.2 and 7.3. In short:
   file I/O and a faster B-tree cache. File formats are unchanged.
 - 7.3 reads records through a memory map and makes key-order scans
   and random reads faster.
+  7.3.1: gxStream database servers use mutual TLS. gxStreamServer
+  requires client certificates from a client CA plus an allow list
+  of fingerprints or names, and will not start without them unless
+  the program explicitly opts out (AllowAnonymousClients(true),
+  stream_server --open). Other TLS servers are unchanged.
 
 LICENSE
 -------

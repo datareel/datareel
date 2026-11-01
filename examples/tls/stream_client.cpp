@@ -34,7 +34,11 @@ server runs with --allow-remote-shutdown.
 
 11/01/2026: Reads the full 64-bit file address in the result block.
 
+11/01/2026: --cert and --key send a client certificate, which
+stream_server requires unless it runs with --open.
+
 Usage: stream_client host port [--ca ca.pem] [--insecure] [--stop]
+                     [--cert client.pem --key client.key]
 */
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
@@ -51,11 +55,13 @@ int main(int argc, char **argv)
 {
   if(argc < 3) {
     std::cerr << "Usage: " << argv[0] 
-	      << " host port [--ca ca.pem] [--insecure] [--stop]\n";
+	      << " host port [--ca ca.pem] [--insecure] [--stop]"
+	      << " [--cert client.pem --key client.key]\n";
     return 1;
   }
   gxStream stream;
   bool stop = false;
+  std::string cert_file, key_file; // 11/01/2026
   for(int i = 3; i < argc; i++) {
     if(strcmp(argv[i], "--ca") == 0 && i + 1 < argc) {
       stream.Connection().SetCAFile(argv[++i]);
@@ -66,6 +72,21 @@ int main(int argc, char **argv)
     else if(strcmp(argv[i], "--stop") == 0) {
       stop = true;
     }
+    else if(strcmp(argv[i], "--cert") == 0 && i + 1 < argc) {
+      cert_file = argv[++i];
+    }
+    else if(strcmp(argv[i], "--key") == 0 && i + 1 < argc) {
+      key_file = argv[++i];
+    }
+  }
+  // 11/01/2026: Client certificate for servers that require one
+  if(!cert_file.empty()) {
+    // An empty key file is allowed for a Schannel .pfx/.p12 file
+    stream.SetClientCert(cert_file, key_file);
+  }
+  else if(!key_file.empty()) {
+    std::cerr << "--key needs --cert\n";
+    return 1;
   }
   stream.SetTimeOut(30);
   if(stream.Connect(argv[1], std::atoi(argv[2])) != gxSOCKET_NO_ERROR) {

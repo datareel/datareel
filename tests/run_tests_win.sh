@@ -8,6 +8,15 @@
 # unset to skip them. The certificates come from CERT_DIR (ca.pem,
 # server.pem, server.key with localhost, 127.0.0.1 and ::1 in the SAN),
 # made with openssl the way run_tests.sh makes them.
+# 11/01/2026: CERT_DIR also needs the gxStream client certificates
+# (mutual TLS), made the way run_tests.sh makes them: client_ca.pem
+# (the client CA), client_ok.pem/client_ok.key (CN stream-client-ok,
+# issued by the client CA, in the server's allow list) and
+# client_bad.pem/client_bad.key (CN stream-client-bad, issued by the
+# same CA, not in the allow list). The keys are unencrypted PEM; the
+# Schannel build imports them into the current user's key store while
+# the programs run. openssl must be on the PATH (Git Bash has it) to
+# compute the allowed fingerprint.
 #
 # usage: tests/run_tests_win.sh BUILD_DIR CONFIG CERT_DIR [MOCK_PORT]
 #   CONFIG is Release or Debug (the Visual Studio output folder)
@@ -36,6 +45,12 @@ check() { # check "name" command...
 }
 wait_port() { sleep 2; }
 cp "$CERTS"/ca.pem "$CERTS"/server.pem "$CERTS"/server.key "$WORK"/
+# 11/01/2026: Client certificates for the gxStream checks
+cp "$CERTS"/client_ca.pem "$CERTS"/client_ok.pem "$CERTS"/client_ok.key \
+   "$CERTS"/client_bad.pem "$CERTS"/client_bad.key "$WORK"/ || {
+  echo "CERT_DIR needs client_ca.pem, client_ok.pem/.key and client_bad.pem/.key"
+  FAIL=1; exit 1; }
+CLIENT_FP=$(openssl x509 -in "$WORK/client_ok.pem" -noout -fingerprint -sha256 | sed 's/.*=//')
 cd "$WORK"
 
 # Database examples, each in its own folder
@@ -83,11 +98,21 @@ check https_traversal_refused sh -c "'$E/https_get' 'https://localhost:$P2/%2e%2
 check http_refused sh -c "! '$E/https_get' http://localhost:$P2/"
 check ai_https_fetch sh -c "'$E/ai_https_fetch' https://localhost:$P2/ ca.pem | grep -q 'POST -> 405'"
 
+# gxStream with client certificates (11/01/2026)
 P3=$((PORT+2))
-"$E/stream_server" $P3 server.pem server.key blocks.gxd --allow-remote-shutdown > stream_server.log 2>&1 &
+"$E/stream_server" $P3 server.pem server.key blocks.gxd --allow-remote-shutdown \
+  --client-ca client_ca.pem --allow-fingerprint "$CLIENT_FP" > stream_server.log 2>&1 &
 PIDS+=($!); wait_port
-check stream_blocks "$E/stream_client" localhost $P3 --ca ca.pem
-check stream_blocks_ipv6 "$E/stream_client" ::1 $P3 --ca ca.pem --stop
+check stream_blocks "$E/stream_client" localhost $P3 --ca ca.pem --cert client_ok.pem --key client_ok.key
+check stream_client_identity_logged sh -c "tr -d '\r' < stream_server.log | grep -q 'authenticated: CN=stream-client-ok SHA-256=$CLIENT_FP'"
+check stream_no_client_cert_refused sh -c "! '$E/stream_client' localhost $P3 --ca ca.pem"
+check stream_wrong_client_cert_refused sh -c "! '$E/stream_client' localhost $P3 --ca ca.pem --cert client_bad.pem --key client_bad.key"
+check stream_blocks_ipv6 "$E/stream_client" ::1 $P3 --ca ca.pem --cert client_ok.pem --key client_ok.key --stop
+P6=$((PORT+4))
+check stream_server_refuses_without_auth_config sh -c "timeout 10 '$E/stream_server' $P6 server.pem server.key noauth.gxd > noauth.out 2>&1; rc=\$?; cat noauth.out; [ \$rc -ne 0 ] && [ \$rc -ne 124 ] && grep -q 'requires client certificates' noauth.out"
+"$E/stream_server" $P6 server.pem server.key open.gxd --allow-remote-shutdown --open > stream_open_server.log 2>&1 &
+PIDS+=($!); wait_port
+check stream_open_server "$E/stream_client" localhost $P6 --ca ca.pem --stop
 
 if [ -n "$MOCK" ]; then
   P4=$MOCK

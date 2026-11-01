@@ -576,9 +576,34 @@ SSL_CTX *gxSSL::InitCTX()
     }
   }
 
+  // 11/01/2026: A server with a client CA list requires a client
+  // certificate whose chain leads to one of those CAs. They are the
+  // only trusted CAs in this context, so a certificate from a public
+  // CA in the system store cannot pass.
+  if(!client_ca_list.empty() && !is_client) {
+    if(!SSL_CTX_load_verify_locations(ctx, client_ca_list.c_str(), 0)) {
+      ssl_error = gxSSL_CALIST_ERROR;
+      DestroyCTX();
+      return 0;
+    }
+    // CA names sent in the certificate request, so clients that hold
+    // several certificates pick the right one
+    STACK_OF(X509_NAME) *names = SSL_load_client_CA_file(client_ca_list.c_str());
+    if(!names) {
+      ssl_error = gxSSL_CALIST_ERROR;
+      DestroyCTX();
+      return 0;
+    }
+    SSL_CTX_set_client_CA_list(ctx, names); // ctx owns names now
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, 0);
+    // Session resumption with peer verification needs a session ID
+    // context; without one OpenSSL refuses resumed sessions
+    static const unsigned char sid_ctx[] = "datareel-mtls";
+    SSL_CTX_set_session_id_context(ctx, sid_ctx, sizeof(sid_ctx) - 1);
+  }
   // Trusted CA certificates used by VerifyCert(): the CA list if one
   // was set, or the system certificate store
-  if(!ca_list.empty()) {
+  else if(!ca_list.empty()) {
     if(!(SSL_CTX_load_verify_locations(ctx, ca_list.c_str(), 0))) {
       ssl_error = gxSSL_CALIST_ERROR;
       DestroyCTX();
@@ -659,6 +684,7 @@ void gxSSL::clear_strings()
   ca_list.clear();
   passwd.clear();
   cert_file.clear();
+  client_ca_list.clear(); // 11/01/2026
 }
 
 int gxSSL::is_ssl_null()
@@ -851,6 +877,71 @@ const char *gxSSL::CertVerifyErrorString(long X509_return_code)
 // 10/24/2026: Returns a string for a VerifyCert() return code
 {
   return X509_verify_cert_error_string(X509_return_code);
+}
+
+int gxSSL::VerifyClientCert(long *X509_return_code)
+// 11/01/2026: Server side check of the client certificate. The chain
+// was checked during the handshake against the client CA list (see
+// InitCTX()); this makes sure a certificate was sent and that the
+// check passed. SSL_get_verify_result() alone returns X509_V_OK when
+// no certificate was sent, so the certificate is checked first.
+// Returns 0 if successful.
+{
+  if(X509_return_code) *X509_return_code = 0;
+  if(is_ssl_null()) return ssl_error;
+  // The context may belong to another gxSSL object (gxsTLSServer), so
+  // look at the verify mode instead of this object's client CA list
+  if(!(SSL_get_verify_mode(ssl) & SSL_VERIFY_PEER)) {
+    return ssl_error = gxSSL_CALIST_ERROR;
+  }
+  X509 *cert = SSL_get_peer_certificate(ssl);
+  if(!cert) return ssl_error = gxSSL_PEERCERT_ERROR;
+  X509_free(cert);
+  long rv = SSL_get_verify_result(ssl);
+  if(X509_return_code) *X509_return_code = rv;
+  if(rv != X509_V_OK) return ssl_error = gxSSL_CERT_VER_ERROR;
+  return ssl_error = gxSSL_NO_ERROR;
+}
+
+int gxSSL::GetPeerCertIdentity(std::string &sha256_fingerprint, 
+			       std::string &cn)
+// 11/01/2026: Passes back the SHA-256 fingerprint and the subject CN
+// of the peer's certificate. Returns 0 if successful.
+{
+  sha256_fingerprint.clear(); cn.clear();
+  if(is_ssl_null()) return ssl_error;
+  X509 *cert = SSL_get_peer_certificate(ssl);
+  if(!cert) return ssl_error = gxSSL_PEERCERT_ERROR;
+
+  unsigned char md[EVP_MAX_MD_SIZE];
+  unsigned int md_len = 0;
+  if(!X509_digest(cert, EVP_sha256(), md, &md_len) || md_len == 0) {
+    X509_free(cert);
+    return ssl_error = gxSSL_SHA_ERROR;
+  }
+  static const char hex[] = "0123456789ABCDEF";
+  for(unsigned int i = 0; i < md_len; i++) {
+    if(i > 0) sha256_fingerprint += ':';
+    sha256_fingerprint += hex[(md[i] >> 4) & 0x0F];
+    sha256_fingerprint += hex[md[i] & 0x0F];
+  }
+
+  // Exactly one CN, with no NUL in it, or none at all
+  X509_NAME *name = X509_get_subject_name(cert);
+  int pos = name ? X509_NAME_get_index_by_NID(name, NID_commonName, -1) : -1;
+  if(pos >= 0 && X509_NAME_get_index_by_NID(name, NID_commonName, pos) < 0) {
+    ASN1_STRING *data = X509_NAME_ENTRY_get_data(X509_NAME_get_entry(name, pos));
+    unsigned char *utf8 = 0;
+    int len = data ? ASN1_STRING_to_UTF8(&utf8, data) : -1;
+    if(len > 0 && utf8) {
+      if(memchr(utf8, 0, (std::size_t)len) == 0) {
+	cn.assign((const char *)utf8, (std::size_t)len);
+      }
+    }
+    if(utf8) OPENSSL_free(utf8);
+  }
+  X509_free(cert);
+  return ssl_error = gxSSL_NO_ERROR;
 }
 
 int gxSSL::InitPRNG(const char *r_file, int check_prng_init)

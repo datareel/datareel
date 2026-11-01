@@ -37,6 +37,15 @@ started with --allow-remote-shutdown.
 
 Usage: stream_server port cert.pem key.pem database_file 
        [--allow-remote-shutdown]
+       [--client-ca client_ca.pem] [--allow-fingerprint SHA256]...
+       [--allow-cn NAME]... | [--open]
+
+11/01/2026: Clients must present a certificate issued by a CA in
+--client-ca whose SHA-256 fingerprint (--allow-fingerprint, from
+"openssl x509 -in client.pem -noout -fingerprint -sha256") or subject
+CN (--allow-cn) is allowed. Both options can be repeated. Without
+them the server refuses to start, unless --open is given to accept
+clients without certificates. Each client's identity is logged.
 
 11/01/2026: A requested address must be the object address of a
 normal block inside the file, no larger than the stream's maximum
@@ -51,6 +60,7 @@ STREAM_SERVER_NO_MAIN to reuse serve_client() (tests/fuzz).
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <string>
 #include <vector>
 #include "gxdbase.h"
 #include "gxstream.h"
@@ -155,24 +165,103 @@ static bool serve_client(gxStream &stream, gxDatabase &db,
 }
 
 #if !defined (STREAM_SERVER_NO_MAIN)
+static std::string printable(const std::string &s)
+// 11/01/2026: Client certificate names come from the client. Escape
+// control characters so they cannot forge log lines.
+{
+  static const char hex[] = "0123456789ABCDEF";
+  std::string out;
+  for(unsigned char c : s) {
+    if(c < 0x20 || c == 0x7F || c == '\\') {
+      out += "\\x";
+      out += hex[(c >> 4) & 0x0F];
+      out += hex[c & 0x0F];
+    }
+    else {
+      out += (char)c;
+    }
+  }
+  return out;
+}
+
+static void usage(const char *prog)
+{
+  std::cerr << "Usage: " << prog 
+	    << " port cert.pem key.pem database_file"
+	    << " [--allow-remote-shutdown]\n"
+	    << "       [--client-ca client_ca.pem]"
+	    << " [--allow-fingerprint SHA256]... [--allow-cn NAME]..."
+	    << " | [--open]\n";
+}
+
 int main(int argc, char **argv)
 {
   if(argc < 5) {
-    std::cerr << "Usage: " << argv[0] 
-	      << " port cert.pem key.pem database_file"
-	      << " [--allow-remote-shutdown]\n";
+    usage(argv[0]);
     return 1;
   }
   bool allow_remote_shutdown = false; // 11/01/2026: Off by default
+  // 11/01/2026: Client certificates are required unless --open is given
+  gxStreamServer server;
+  bool open_server = false, client_auth = false;
   for(int i = 5; i < argc; i++) {
     if(strcmp(argv[i], "--allow-remote-shutdown") == 0) {
       allow_remote_shutdown = true;
     }
+    else if(strcmp(argv[i], "--client-ca") == 0 && i + 1 < argc) {
+      server.SetClientCAFile(argv[++i]);
+      client_auth = true;
+    }
+    else if(strcmp(argv[i], "--allow-fingerprint") == 0 && i + 1 < argc) {
+      if(server.AllowClientFingerprint(argv[++i]) != 0) {
+	std::cerr << "Bad fingerprint " << printable(argv[i]) << ": "
+		  << server.Error() << "\n";
+	return 1;
+      }
+      client_auth = true;
+    }
+    else if(strcmp(argv[i], "--allow-cn") == 0 && i + 1 < argc) {
+      if(server.AllowClientCN(argv[++i]) != 0) {
+	std::cerr << server.Error() << "\n";
+	return 1;
+      }
+      client_auth = true;
+    }
+    else if(strcmp(argv[i], "--open") == 0) {
+      open_server = true;
+    }
     else {
       std::cerr << "Unknown option " << argv[i] << "\n";
+      usage(argv[0]);
       return 1;
     }
   }
+  if(open_server && client_auth) {
+    std::cerr << "--open cannot be used with --client-ca, "
+	      << "--allow-fingerprint or --allow-cn\n";
+    return 1;
+  }
+  if(open_server) {
+    // The explicit opt-out: any client with TLS may connect
+    server.AllowAnonymousClients(true);
+    std::cout << "WARNING: open server, client certificates are not checked"
+	      << std::endl;
+  }
+
+  // 11/01/2026: Listen before the database is opened or created, so a
+  // server that refuses to start leaves nothing behind
+  if(server.Listen(std::atoi(argv[1]), argv[2], argv[3]) != 0) {
+    std::cerr << server.Error() << "\n";
+    if(server.RequireClientAuth() && !open_server &&
+       (server.ClientCAFile().empty() || 
+	(server.AllowedFingerprints().empty() && server.AllowedCNs().empty()))) {
+      std::cerr << "Use --client-ca FILE with --allow-fingerprint SHA256 "
+		<< "and/or --allow-cn NAME, or --open for a server that "
+		<< "accepts clients without certificates\n";
+    }
+    return 1;
+  }
+
   gxDatabase db;
   if(db.Open(argv[4]) != gxDBASE_NO_ERROR) {
     if(db.Create(argv[4]) != gxDBASE_NO_ERROR) {
@@ -182,18 +271,24 @@ int main(int argc, char **argv)
     }
   }
 
-  gxsTLSServer server;
-  if(server.Listen(std::atoi(argv[1]), argv[2], argv[3]) != 0) {
-    std::cerr << server.Error() << "\n";
-    return 1;
-  }
   std::cout << "gxStream server on port " << server.Port() << std::endl;
   bool running = true;
   while(running) {
     gxStream stream;
-    if(server.Accept(stream.Connection()) != 0) {
-      std::cout << "Accept failed: " << server.Error() << "\n";
+    if(server.Accept(stream) != 0) {
+      std::cout << "Accept failed: " << printable(server.Error()) << std::endl;
       continue;
+    }
+    // 11/01/2026: Log who connected
+    gxsTLSConnection &conn = stream.Connection();
+    if(conn.ClientAuthenticated()) {
+      std::cout << "Client " << printable(conn.Host()) << " authenticated: CN=" 
+		<< printable(conn.PeerCN()) << " SHA-256=" 
+		<< printable(conn.PeerFingerprint()) << std::endl;
+    }
+    else {
+      std::cout << "Client " << printable(conn.Host()) 
+		<< " connected without a client certificate" << std::endl;
     }
     running = serve_client(stream, db, allow_remote_shutdown);
     stream.Close();

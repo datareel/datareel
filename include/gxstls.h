@@ -42,6 +42,18 @@ network protocol except telnet.
 11/01/2026: Failed handshakes close the connection, handshakes and
 I/O use the timeout as a socket timeout, Send(std::string_view)
 sends in chunks and Read() refuses requests over INT_MAX.
+
+11/01/2026: Mutual TLS. gxsTLSServer can require client certificates
+(SetClientCAFile()) and accept only the clients in an allow list of
+SHA-256 certificate fingerprints and/or subject common names
+(AllowClientFingerprint(), AllowClientCN()). Accept() closes any
+client that fails, and the accepted gxsTLSConnection reports the
+client's identity (PeerFingerprint(), PeerCN()). SetRequireClientAuth()
+makes Listen() refuse to start without that setup unless
+AllowAnonymousClients(true) is called; gxStreamServer (gxstream.h)
+turns it on. Plain gxsTLSServer users, such as HTTPS servers, are
+unchanged: no client certificate is asked for unless a client CA file
+is set.
 ==============================================================
 */
 // ----------------------------------------------------------- //   
@@ -52,6 +64,7 @@ sends in chunks and Read() refuses requests over INT_MAX.
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "gxsocket.h"
 #include "gxssl.h"
@@ -83,6 +96,10 @@ public: // Settings used before Connect()
   void SetVerifyPeer(bool on) { verify_peer = on; }
   bool VerifyPeer() const { return verify_peer; }
   void SetProtocol(gxSSLMethod m) { protocol = m; }
+  // SetClientCert() above sets the certificate (with its chain) and key
+  // a client sends when the server asks for one (mutual TLS). With
+  // Schannel the certificate can also be a .pfx/.p12 file with the key
+  // file left empty; see gxsschan.cpp.
 
 public: // Client connections
   // Open a TCP connection. With implicit_tls the TLS handshake starts
@@ -140,6 +157,17 @@ public: // Status
 #endif
   const std::string &Host() const { return host_name; }
   const std::string &Error() const { return error; }
+
+  // 11/01/2026: Server side. After gxsTLSServer::Accept() with client
+  // certificates required, the identity of the client's certificate:
+  // its SHA-256 fingerprint (upper case hex with colons) and subject
+  // common name (UTF-8, empty if the certificate has none). Both are
+  // empty if the server does not ask for client certificates. They
+  // come from the client's certificate, so escape control characters
+  // before writing them to a log.
+  bool ClientAuthenticated() const { return !peer_fingerprint.empty(); }
+  const std::string &PeerFingerprint() const { return peer_fingerprint; }
+  const std::string &PeerCN() const { return peer_cn; }
   gxSocket &Socket() { return sock; }
   gxSSL &TLS() { return tls; }
 
@@ -149,6 +177,7 @@ private:
   int tls_handshake(bool as_server);
   int verify_server(); // 11/01/2026
   int fill(); // Read more data into rbuf
+  friend class gxsTLSServer; // 11/01/2026: Sets the peer identity
 
 private:
   gxSocket sock;
@@ -165,6 +194,7 @@ private:
   std::string client_cert, client_key, key_pass;
   std::string rbuf; // Data received but not yet returned
   std::string error;
+  std::string peer_fingerprint, peer_cn; // 11/01/2026: See PeerCN()
 };
 
 class GXDLCODE_API gxsTLSServer
@@ -183,7 +213,53 @@ public:
 
   // Wait for a client, accept it and run the TLS handshake. Returns 0
   // if successful. A failed handshake closes only that client.
+  // 11/01/2026: With client certificates required, the client must
+  // send a certificate whose chain leads to a CA in the client CA file
+  // and that is in the allow list (if the list is not empty), or it is
+  // closed and Accept() returns -1. Call Accept() for every client:
+  // AttachServer() with this server's context checks the chain but not
+  // the allow list.
   int Accept(gxsTLSConnection &conn);
+
+public: // 11/01/2026: Client certificates (mutual TLS). Set before Listen().
+  // PEM file with the CAs that issue client certificates. Setting it
+  // makes every client send a certificate that chains to one of these
+  // CAs (only these, not the system store). Empty turns it off.
+  void SetClientCAFile(const std::string &fname) { client_ca_file = fname; }
+  const std::string &ClientCAFile() const { return client_ca_file; }
+
+  // Allow list. A client is accepted if its certificate's SHA-256
+  // fingerprint or its subject CN (exact, case sensitive) is in the
+  // list. With an empty list any certificate from the client CAs is
+  // accepted, unless SetRequireClientAuth() is on. A fingerprint is 32
+  // hex bytes, with or without colons, in either case; the
+  // "sha256 Fingerprint=" prefix printed by openssl is skipped.
+  // AllowClientFingerprint() returns 0, or -1 if fp is not a SHA-256
+  // fingerprint. AllowClientCN() returns -1 for an empty name.
+  int AllowClientFingerprint(const std::string &fp);
+  int AllowClientCN(const std::string &cn);
+  void ClearClientAllowList() { allow_fingerprints.clear(); allow_cns.clear(); }
+  const std::vector<std::string> &AllowedFingerprints() const { 
+    return allow_fingerprints; 
+  }
+  const std::vector<std::string> &AllowedCNs() const { return allow_cns; }
+
+  // Off by default. When on, Listen() fails unless a client CA file and
+  // at least one allow list entry are set, or AllowAnonymousClients(true)
+  // was called. gxStreamServer (gxstream.h) turns it on, so database
+  // servers check client certificates unless the program opts out.
+  void SetRequireClientAuth(bool on) { require_client_auth = on; }
+  bool RequireClientAuth() const { return require_client_auth; }
+
+  // Explicit opt-out of SetRequireClientAuth() for an open server that
+  // takes clients without certificates. It does not turn off a client
+  // CA file or allow list that is set; those are still enforced.
+  void AllowAnonymousClients(bool on) { allow_anonymous = on; }
+  bool AnonymousClientsAllowed() const { return allow_anonymous; }
+
+  // Normalize a SHA-256 fingerprint to upper case hex with colons.
+  // Returns an empty string if s is not a SHA-256 fingerprint.
+  static std::string NormalizeFingerprint(const std::string &s);
 
   void Close() { listener.Close(); }
   bool IsOpen() const { return listener.IsOpen(); }
@@ -193,9 +269,18 @@ public:
   gxSSL &TLS() { return tls; }
 
 private:
+  int check_client(gxsTLSConnection &conn); // 11/01/2026
+
+private:
   gxSocket listener;
   gxSSL tls;
   std::string error;
+  // 11/01/2026: Client certificate settings
+  std::string client_ca_file;
+  std::vector<std::string> allow_fingerprints; // Normalized
+  std::vector<std::string> allow_cns;
+  bool require_client_auth = false;
+  bool allow_anonymous = false;
 };
 
 } // namespace datareel

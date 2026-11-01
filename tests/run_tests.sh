@@ -61,6 +61,18 @@ openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr \
 printf "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1\n" > san.ext
 openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial \
   -out server.pem -days 2 -extfile san.ext > /dev/null 2>&1
+# 11/01/2026: Client certificates for the gxStream server (mutual TLS):
+# a client CA and two clients it issued, one in the server's allow list
+# (client_ok) and one not (client_bad)
+openssl req -x509 -newkey rsa:2048 -nodes -keyout client_ca.key -out client_ca.pem \
+  -days 2 -subj "/CN=DataReel Test Client CA" > /dev/null 2>&1
+for c in ok bad; do
+  openssl req -newkey rsa:2048 -nodes -keyout client_$c.key -out client_$c.csr \
+    -subj "/CN=stream-client-$c" > /dev/null 2>&1
+  openssl x509 -req -in client_$c.csr -CA client_ca.pem -CAkey client_ca.key \
+    -CAcreateserial -out client_$c.pem -days 2 > /dev/null 2>&1
+done
+CLIENT_FP=$(openssl x509 -in client_ok.pem -noout -fingerprint -sha256 | sed 's/.*=//')
 
 # Database examples (they pause for Enter, so give them empty input)
 # Each one runs in its own directory because several use the same file names
@@ -115,12 +127,24 @@ check https_traversal_refused sh -c "$E/https_get 'https://localhost:$P2/%2e%2e/
 check http_refused sh -c "! $E/https_get http://localhost:$P2/"
 check ai_https_fetch sh -c "$E/ai_https_fetch https://localhost:$P2/ ca.pem | grep -q 'POST -> 405'"
 
-# gxStream database blocks over TLS
+# gxStream database blocks over TLS, with client certificates
 P3=$((PORT+2))
-$E/stream_server $P3 server.pem server.key blocks.gxd --allow-remote-shutdown > stream_server.log 2>&1 &
+CLIENT_OK="--cert client_ok.pem --key client_ok.key"
+$E/stream_server $P3 server.pem server.key blocks.gxd --allow-remote-shutdown \
+  --client-ca client_ca.pem --allow-fingerprint "$CLIENT_FP" > stream_server.log 2>&1 &
 PIDS+=($!); wait_port $P3
-check stream_blocks $E/stream_client localhost $P3 --ca ca.pem
-check stream_blocks_ipv6 $E/stream_client ::1 $P3 --ca ca.pem --stop
+check stream_blocks $E/stream_client localhost $P3 --ca ca.pem $CLIENT_OK
+expect stream_client_identity_logged "authenticated: CN=stream-client-ok SHA-256=$CLIENT_FP" stream_server.log
+check stream_no_client_cert_refused sh -c "! $E/stream_client localhost $P3 --ca ca.pem"
+check stream_wrong_client_cert_refused sh -c "! $E/stream_client localhost $P3 --ca ca.pem --cert client_bad.pem --key client_bad.key"
+check stream_blocks_ipv6 $E/stream_client ::1 $P3 --ca ca.pem $CLIENT_OK --stop
+# A stream server without client certificate settings must not start,
+# unless --open asks for an open server
+P6=$((PORT+4))
+check stream_server_refuses_without_auth_config sh -c "timeout 10 $E/stream_server $P6 server.pem server.key noauth.gxd > noauth.out 2>&1; rc=\$?; cat noauth.out; [ \$rc -ne 0 ] && [ \$rc -ne 124 ] && grep -q 'requires client certificates' noauth.out"
+$E/stream_server $P6 server.pem server.key open.gxd --allow-remote-shutdown --open > stream_open_server.log 2>&1 &
+PIDS+=($!); wait_port $P6
+check stream_open_server $E/stream_client localhost $P6 --ca ca.pem --stop
 
 # SMTP, POP3 and FTPS clients against the mock servers
 P4=$((PORT+10))

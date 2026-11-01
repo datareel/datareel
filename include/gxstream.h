@@ -43,6 +43,18 @@ std::vector instead of a new[] buffer.
 11/01/2026: Block functions return gxSOCKET_SSL_ERROR unless the
 connection is secure. WriteBlock() rejects lengths over INT_MAX.
 Added 64-bit WriteResultBlock(FAU_t)/ReadResultBlock(FAU_t&).
+
+11/01/2026: Mutual TLS. gxStream servers should use gxStreamServer,
+a gxsTLSServer that requires client certificates by default: Listen()
+fails unless SetClientCAFile() and at least one AllowClientFingerprint()
+or AllowClientCN() entry are set, or the program opts out with
+AllowAnonymousClients(true). Accept() closes clients that fail the
+check, and stream.Connection().PeerCN()/PeerFingerprint() give the
+accepted client's identity. Clients present a certificate with
+gxStream::SetClientCert() before Connect(). A plain gxsTLSServer
+still works for gxStream but does not require client certificates;
+the requirement is kept out of gxsTLSServer so HTTPS and other TLS
+servers do not need them.
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -75,6 +87,14 @@ public: // Connection
   // Client: connect to a gxStream server over TLS. Returns 0 if
   // successful.
   int Connect(const std::string &host, int port = gxsDATA_PORT);
+  // 11/01/2026: Client certificate and key sent to servers that
+  // require one (gxStreamServer). Set before Connect(). The same as
+  // Connection().SetClientCert().
+  void SetClientCert(const std::string &cert_fname, 
+		     const std::string &key_fname,
+		     const std::string &passphrase = std::string()) {
+    conn.SetClientCert(cert_fname, key_fname, passphrase);
+  }
   void Close() { conn.Close(); }
   gxsTLSConnection &Connection() { return conn; }
   void SetTimeOut(int seconds = gxSTREAM_DEF_TIMEOUT) { 
@@ -129,6 +149,25 @@ private:
   gxsTLSConnection conn;
   gxUINT32 max_block = gxSTREAM_DEF_MAX_BLOCK;
   gxSocketError stream_error = gxSOCKET_NO_ERROR;
+};
+
+// 11/01/2026: TLS server for gxStream database clients. The same as
+// gxsTLSServer, except that client certificates are required by
+// default (SetRequireClientAuth(true)): before Listen(), call
+// SetClientCAFile() and AllowClientFingerprint() and/or
+// AllowClientCN(), or AllowAnonymousClients(true) for an open server.
+// Otherwise Listen() returns -1 and Error() says why.
+class GXDLCODE_API gxStreamServer : public gxsTLSServer
+{
+public:
+  gxStreamServer() { SetRequireClientAuth(true); }
+
+public:
+  using gxsTLSServer::Accept;
+  // Accept a client into a gxStream. Returns 0 if successful.
+  int Accept(gxStream &stream) { 
+    return gxsTLSServer::Accept(stream.Connection()); 
+  }
 };
 
 } // namespace datareel
