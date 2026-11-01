@@ -28,6 +28,20 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 This is a test program for the device cache classes.
+
+10/31/2026: The stream server authenticates its clients (DataReel 6.3,
+the same options as the DataReel 7.3.1 stream_server example):
+
+  server --cert server.pem --key server.key --client-ca ca.pem
+         [--allow-fingerprint SHA256] [--allow-cn NAME] ...
+  server --open [--cert server.pem --key server.key]
+  [--allow-remote-shutdown]
+
+--client-ca with at least one --allow-fingerprint or --allow-cn turns
+on mutual TLS. --open runs an open server (plain TCP, or TLS without
+client certificates with --cert/--key). Without either the stream
+server refuses to start. A client's shutdown request is obeyed only
+with --allow-remote-shutdown.
 */
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
@@ -39,7 +53,24 @@ using namespace std; // Use unqualified names for Standard C++ library
 #include <iostream.h>
 #endif // __USE_ANSI_CPP__
 
+#include <string.h>
 #include "gxsfile.h"
+
+// 10/31/2026: Stream server options, see above
+static const char *opt_cert = 0, *opt_key = 0, *opt_client_ca = 0;
+static const char *opt_fp[16], *opt_cn[16];
+static int num_fp = 0, num_cn = 0;
+static int opt_open = 0, opt_allow_shutdown = 0;
+
+static void PrintableName(const char *s)
+// Print a name from a client certificate with control characters escaped
+{
+  for(; s && *s; s++) {
+    unsigned char c = (unsigned char)*s;
+    if(c < 0x20 || c == 0x7f) cout << "?";
+    else cout << (char)c;
+  }
+}
 
 #ifdef __MSVC_DEBUG__
 #include "leaktest.h"
@@ -99,10 +130,23 @@ int CopyStreamSocketToFile(gxsFile *dev)
   gxStream server;
   gxsSocket_t remote_socket;
   FAU_t byte_count = (FAU_t)0;
+
+  // 10/31/2026: Client authentication, or the explicit --open opt-out
+  if(opt_cert) server.SetServerCert(opt_cert, opt_key);
+  if(opt_client_ca) server.SetClientCAFile(opt_client_ca);
+  for(int i = 0; i < num_fp; i++) {
+    if(server.AllowClientFingerprint(opt_fp[i]) != 0) {
+      cout << "Bad fingerprint: " << server.TLSError() << "\n" << flush;
+      return 1;
+    }
+  }
+  for(int i = 0; i < num_cn; i++) server.AllowClientCN(opt_cn[i]);
+  if(opt_open) server.AllowAnonymousClients(true);
   
   cout << "Initializing the GX stream server..." << "\n" << flush;
   if(server.StreamServer(port) != 0) {
     cout << server.SocketExceptionMessage() << "\n" << flush;
+    if(*server.TLSError()) cout << server.TLSError() << "\n" << flush;
     return 1;
   }
   
@@ -121,7 +165,13 @@ int CopyStreamSocketToFile(gxsFile *dev)
   
   if(remote_socket < 0) {
     cout << server.SocketExceptionMessage() << "\n" << flush;
+    if(*server.TLSError()) cout << server.TLSError() << "\n" << flush;
     return 1;
+  }
+  if(server.ClientAuthenticated()) {
+    cout << "Client certificate CN=";
+    PrintableName(server.PeerCN());
+    cout << " SHA-256 " << server.PeerFingerprint() << "\n" << flush;
   }
 
   while(server_up) {
@@ -163,6 +213,14 @@ int CopyStreamSocketToFile(gxsFile *dev)
 	break;
 
       case gxKillServer:
+	// 10/31/2026: Any client could stop the server. Obeyed only with
+	// --allow-remote-shutdown.
+	if(!opt_allow_shutdown) {
+	  cout << "Client shutdown request ignored" << "\n" << flush;
+	  server.Close();
+	  server_up = 0;
+	  break;
+	}
 	cout << "Client shutdown the server" << "\n" << flush;
 	server.Close();
 	server_up = 0;
@@ -427,11 +485,48 @@ void SetupServer(int server_type)
   }
 }
 
-int main()
+int main(int argc, char **argv)
 {
 #ifdef __MSVC_DEBUG__
   InitLeakTest();
 #endif
+
+  // 10/31/2026: Stream server options
+  for(int i = 1; i < argc; i++) {
+    if(strcmp(argv[i], "--cert") == 0 && i + 1 < argc) opt_cert = argv[++i];
+    else if(strcmp(argv[i], "--key") == 0 && i + 1 < argc) opt_key = argv[++i];
+    else if(strcmp(argv[i], "--client-ca") == 0 && i + 1 < argc) {
+      opt_client_ca = argv[++i];
+    }
+    else if(strcmp(argv[i], "--allow-fingerprint") == 0 && i + 1 < argc &&
+	    num_fp < 16) {
+      opt_fp[num_fp++] = argv[++i];
+    }
+    else if(strcmp(argv[i], "--allow-cn") == 0 && i + 1 < argc && 
+	    num_cn < 16) {
+      opt_cn[num_cn++] = argv[++i];
+    }
+    else if(strcmp(argv[i], "--open") == 0) opt_open = 1;
+    else if(strcmp(argv[i], "--allow-remote-shutdown") == 0) {
+      opt_allow_shutdown = 1;
+    }
+    else {
+      cout << "Usage: " << argv[0] << " [--cert server.pem --key server.key]"
+	   << " [--client-ca ca.pem] [--allow-fingerprint SHA256]..."
+	   << " [--allow-cn NAME]... [--open] [--allow-remote-shutdown]"
+	   << "\n" << flush;
+      return 1;
+    }
+  }
+  if(opt_open && (opt_client_ca || num_fp || num_cn)) {
+    cout << "--open cannot be used with --client-ca, --allow-fingerprint"
+	 << " or --allow-cn" << "\n" << flush;
+    return 1;
+  }
+  if((opt_cert == 0) != (opt_key == 0)) {
+    cout << "--cert and --key go together" << "\n" << flush;
+    return 1;
+  }
 
   Menu();
   

@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -28,6 +28,16 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 This is a test program for the device cache classes.
+
+10/31/2026: Stream client TLS options (DataReel 6.3, the same as the
+DataReel 7.3.1 stream_client example):
+
+  client [--ca ca.pem] [--insecure] [--cert client.pem --key client.key]
+
+--ca or --cert turns on TLS. --ca is the CA that issued the server
+certificate (the system store is used without it); --insecure skips
+the server certificate check. --cert/--key is the client certificate
+for servers that require one.
 */
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
@@ -39,7 +49,12 @@ using namespace std; // Use unqualified names for Standard C++ library
 #include <iostream.h>
 #endif // __USE_ANSI_CPP__
 
+#include <string.h>
 #include "gxsfile.h"
+
+// 10/31/2026: Stream client options, see above
+static const char *opt_ca = 0, *opt_cert = 0, *opt_key = 0;
+static int opt_insecure = 0;
 
 #ifdef __MSVC_DEBUG__
 #include "leaktest.h"
@@ -136,8 +151,15 @@ void CopyFileToStreamSocket(gxsFile *dev)
 
   FAU_t byte_count = (FAU_t)0;
 
+  // 10/31/2026: TLS options
+  if(opt_ca || opt_cert || opt_insecure) client.UseTLS(1);
+  if(opt_ca) client.SetServerCAFile(opt_ca);
+  if(opt_insecure) client.SetVerifyServer(0);
+  if(opt_cert) client.SetClientCert(opt_cert, opt_key);
+
   if(client.StreamClient(port, host) != 0) {
     cout << client.SocketExceptionMessage() << "\n" << flush;
+    if(*client.TLSError()) cout << client.TLSError() << "\n" << flush;
     client.Close();
     return;
   }
@@ -274,11 +296,28 @@ void SetupClient(int client_type)
   }
 }
 
-int main()
+int main(int argc, char **argv)
 {
 #ifdef __MSVC_DEBUG__
   InitLeakTest();
 #endif
+
+  // 10/31/2026: Stream client options
+  for(int i = 1; i < argc; i++) {
+    if(strcmp(argv[i], "--ca") == 0 && i + 1 < argc) opt_ca = argv[++i];
+    else if(strcmp(argv[i], "--insecure") == 0) opt_insecure = 1;
+    else if(strcmp(argv[i], "--cert") == 0 && i + 1 < argc) opt_cert = argv[++i];
+    else if(strcmp(argv[i], "--key") == 0 && i + 1 < argc) opt_key = argv[++i];
+    else {
+      cout << "Usage: " << argv[0] << " [--ca ca.pem] [--insecure]"
+	   << " [--cert client.pem --key client.key]" << "\n" << flush;
+      return 1;
+    }
+  }
+  if((opt_cert == 0) != (opt_key == 0)) {
+    cout << "--cert and --key go together" << "\n" << flush;
+    return 1;
+  }
 
   Menu();
   

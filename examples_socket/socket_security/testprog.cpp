@@ -81,7 +81,9 @@ static void run(const char *name, TestFunc f, int max_seconds = 20)
   if(pid == 0) {
     signal(SIGPIPE, SIG_DFL); // The default, as in most programs
     alarm(max_seconds);       // A hang is a failure
-    _exit(f());
+    int rv = f();
+    fflush(stdout);
+    _exit(rv);
   }
   int status = 0;
   waitpid(pid, &status, 0);

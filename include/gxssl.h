@@ -421,6 +421,35 @@ public:  // Key, cert, and passwd functions
   // certificate and return a string for a VerifyCert() return code
   int GetPeerCertInfo(gxString &subject, gxString &issuer);
   static const char *CertVerifyErrorString(long X509_return_code);
+
+  // 10/31/2026: Client certificates (mutual TLS) for servers. Set the
+  // CA file used to check client certificates before InitCTX() on a
+  // server. A server context made with one asks every client for a
+  // certificate and fails the handshake if none is sent or its chain
+  // does not lead to a CA in this file. Only the CAs in this file are
+  // trusted for client certificates (not the system store).
+  void SetClientCAList(const char *s) { client_ca_list = s ? s : ""; }
+  const char *ClientCAList() { return client_ca_list.c_str(); }
+  // 10/31/2026: Server side, after AcceptSSLSocket(). Checks that the
+  // client sent a certificate and that its chain leads to a CA in the
+  // client CA list. Passes back the X509_V_* code (Windows CERT_E_*
+  // code with Schannel) in X509_return_code. Returns 0 if the
+  // certificate is valid, gxSSL_PEERCERT_ERROR if there is none,
+  // gxSSL_CALIST_ERROR if no client CA list is loaded, or
+  // gxSSL_CERT_VER_ERROR.
+  int VerifyClientCert(long *X509_return_code = 0);
+  // 10/31/2026: Passes back the SHA-256 fingerprint of the peer's
+  // certificate (upper case hex bytes separated by colons, the same as
+  // "openssl x509 -fingerprint -sha256") and its subject common name
+  // in UTF-8. cn is empty if the subject has no CN, more than one CN,
+  // or a CN with a NUL character in it. Does not check the chain.
+  // Returns 0 if successful or gxSSL_PEERCERT_ERROR if the peer did
+  // not send a certificate.
+  int GetPeerCertIdentity(gxString &sha256_fingerprint, gxString &cn);
+  // 10/31/2026: Clients: trust the system certificate store for
+  // VerifyCert() when no CA list is set. Call after InitCTX(). With
+  // Schannel the Windows store is always used without a CA list.
+  int SetDefaultCAPaths();
   int HasVerifyCert() { return verify_cert == 1; } 
   int RequireVerifyCert() { return verify_cert = 1; }
   int NoVerifyCert() { return verify_cert = 0; }
@@ -491,6 +520,7 @@ protected: // OpenSSL passwords, keys, and certs
   gxString cert_file;    // Certificate file
   gxString ca_list;      // Certificate authority list
   gxString passwd;       // Cert or key passphrase
+  gxString client_ca_list; // 10/31/2026: CAs for client certificates
   int verify_cert;
 
 protected: // SSL library objects 
