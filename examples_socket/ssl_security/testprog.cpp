@@ -45,7 +45,6 @@ signal is reported as a FAIL.
               without a connection.
   sigpipe     SendSSLSocket() to a peer that has gone returns -1
               instead of killing the program with SIGPIPE.
-  message     SSLExceptionMessage() with a negative code.
 
 Returns 0 if every check passes.
 */
@@ -320,15 +319,6 @@ static int test_sigpipe()
   return rv < 0 ? 0 : 1;
 }
 
-static int test_message()
-{
-  gxSSL tls;
-  tls.SetSSLError((gxSSLError)-3);
-  const char *msg = tls.SSLExceptionMessage();
-  if(!msg || strstr(msg, "Invalid") == 0) return 1;
-  return 0;
-}
-
 int main()
 {
   if(MakeTestCerts() != 0) {
@@ -343,7 +333,6 @@ int main()
   run("verify: VerifyCert() alternative names and IP addresses",
       test_verify);
   run("sigpipe: SendSSLSocket() to a closed peer returns -1", test_sigpipe);
-  run("message: SSLExceptionMessage() with a negative code", test_message);
   RemoveTestCerts();
   printf("%d failure(s)\n", failures);
   return failures ? 1 : 0;

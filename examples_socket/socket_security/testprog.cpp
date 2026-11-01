@@ -250,11 +250,12 @@ static int test_address()
     printf("  SetRemoteIPAddress() did not set the address\n");
     rv = 1;
   }
-  // Out of range error codes give the invalid code message
-  s.SetSocketError((gxSocketError)-5);
-  const char *msg = s.SocketExceptionMessage();
+  // Out of range error codes give the invalid code message. (An
+  // out of range gxSocketError cannot be made without undefined
+  // behaviour, so SocketExceptionMessage()'s check is not tested.)
+  const char *msg = s.TestExceptionMessage(-5);
   if(!msg || strcmp(msg, s.TestExceptionMessage(1)) != 0) {
-    printf("  SocketExceptionMessage() with a negative code\n");
+    printf("  TestExceptionMessage() with a negative code\n");
     rv = 1;
   }
   return rv;
