@@ -572,7 +572,10 @@ int password_cb2(char *buf,int num, int /* rwflag */, void *userdata)
 gxSSL::~gxSSL()
 {
   if(ssl) {
-    SSL_shutdown(ssl);
+    // 10/31/2026: Send close_notify only if CloseSSLSocket(0) has not
+    // sent it. A second SSL_shutdown() waits for the peer's
+    // close_notify and hung the destructor on a silent peer.
+    if(!(SSL_get_shutdown(ssl) & SSL_SENT_SHUTDOWN)) SSL_shutdown(ssl);
     DestroySSL();    
   }
   DestroyCTX();
