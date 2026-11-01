@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -34,6 +34,17 @@ Changes:
 ==============================================================
 09/22/2005:Modified gxsPOP3Client::RecvResponse() to signal 
 a graceful socket disconnect.
+
+10/31/2026: Security fixes. SendCommand() used sprintf() into the
+1024 byte command_buf, so a long user name or password overflowed it;
+commands with CR or LF are refused. RecvResponse() searched for the
+expected text anywhere in what it had read ("-ERR no +OK" was taken
+as +OK), its search could read past the received data, a "-ERR" reply
+to a multi-line command waited for a "." line until the timeout, and
+the NUL was written one byte past a full buffer. Replies are now
+checked by CheckReply(): the status line must start with "+OK", the
+end of a multi-line reply is searched for after the status line, and
+at most bytes-1 bytes are read.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -43,6 +54,14 @@ a graceful socket disconnect.
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
+
+// 10/31/2026: Local helper
+static int pop3_has_crlf(const char *s)
+{
+  if(!s) return 0;
+  for(; *s; s++) if(*s == '\r' || *s == '\n') return 1;
+  return 0;
+}
 
 gxSocketError gxsPOP3Client::ConnectClient(const char *host, int port)
 // Function used to connect a POP3 client to a server. Returns zero if no
@@ -68,6 +87,15 @@ gxSocketError gxsPOP3Client::SendCommand(const char *command,
 // Function used to send a command to a POP3 server and read the server's
 // response. Returns zero if no errors occur.
 {
+  // 10/31/2026: sprintf() into command_buf overflowed with a long
+  // argument, and CR LF in an argument added commands
+  if(!command || !response) return socket_error = gxSOCKET_POP3_ERROR;
+  if(pop3_has_crlf(command) || pop3_has_crlf(args)) {
+    return socket_error = gxSOCKET_POP3_ERROR;
+  }
+  unsigned need = (unsigned)strlen(command) + 3;
+  if(args) need += (unsigned)strlen(args) + 1;
+  if(need > gxsBUF_SIZE) return socket_error = gxSOCKET_BUFOVER_ERROR;
   if(args) {
     sprintf(command_buf, "%s %s\r\n", command, args);
   }
@@ -179,62 +207,84 @@ int gxsPOP3Client::WaitForReply()
   return ReadSelect(gxsocket, time_out_sec, time_out_usec);
 }
 
+int gxsPOP3Client::CheckReply(const char *buf, int len, 
+				const char *response)
+// 10/31/2026: Check a reply read so far. Returns 1 if buf holds the
+// complete expected reply, 0 if more data is needed, or -1 if the
+// server replied with an error or a status line that does not start
+// with "+OK". A response starting with '+' or '-' ("+OK") is matched
+// against the start of the status line. Any other response, such as
+// "\r\n.\r\n" for a multi-line reply, is searched for from the end
+// of a "+OK" status line on.
+{
+  if(!buf || len <= 0 || !response || !*response) return 0;
+  int nl = 0;
+  while(nl < len && buf[nl] != '\n') nl++;
+  if(nl >= len) { // The status line has not ended
+    if(len >= 4 && strncmp(buf, "-ERR", 4) == 0) return 0;
+    if(buf[0] != '+' && buf[0] != '-') return -1;
+    return 0;
+  }
+  if(response[0] == '+' || response[0] == '-') {
+    unsigned n = (unsigned)strlen(response);
+    if((unsigned)nl < n || strncmp(buf, response, n) != 0) return -1;
+    return 1;
+  }
+  if(strncmp(buf, "+OK", 3) != 0) return -1;
+  // Search from the CR LF that ends the status line, so the end of
+  // an empty multi-line reply ("+OK\r\n.\r\n") is found
+  int from = (nl > 0 && buf[nl-1] == '\r') ? nl - 1 : nl;
+  int n = (int)strlen(response);
+  for(int i = from; i + n <= len; i++) {
+    if(memcmp(buf + i, response, n) == 0) return 1;
+  }
+  return 0;
+}
+
 int gxsPOP3Client::RecvResponse(char *buf, int bytes, const char *response)
 // Blocking receive function used to read a reply from an POP3 server
 // following a command. If the specified response is not received within
 // the timeout period this function will return false to indicate an error.
 // Returns true if successful.
+// 10/31/2026: Replies are checked by CheckReply(), and at most bytes-1
+// bytes are read so the NUL fits.
 {
   bytes_read = 0;           // Reset the byte counter
   int num_read = 0;         // Actual number of bytes read
-  int num_req = (int)bytes; // Number of bytes requested 
-  char *p = buf;            // Pointer to the buffer
+  if(!buf || bytes < 2 || !response) {
+    socket_error = gxSOCKET_BUFOVER_ERROR;
+    if(buf && bytes > 0) buf[0] = 0;
+    return 0;
+  }
+  int limit = bytes - 1; // Room for the NUL
+  buf[0] = 0;
 
-  while(bytes_read < bytes) { // Loop until the buffer is full
+  while(bytes_read < limit) { // Loop until the buffer is full
     if(!WaitForReply()) { 
       socket_error = gxSOCKET_REQUEST_TIMEOUT;      
-      if(bytes_read >= 0) buf[bytes_read] = 0;
       return 0;
     }
-    if((num_read = recv(gxsocket, p, num_req-bytes_read, 0)) > 0) {
-      bytes_read += num_read;   // Increment the byte counter
-      p += num_read;            // Move the buffer pointer for the next read
-      
-      // Search for a matching string
-      char *pattern = (char *)response;
-      char *next = buf;
-      int i = 0;
-      while(i < bytes_read && *pattern) {
-	if(*next == *pattern) {
-	  pattern++;
-	  if(*pattern == 0) {
-	    if(bytes_read >= 0) buf[bytes_read] = 0;
-	    return 1; // Found matching string
-	  }
-	  next++;
-	}
-	else {
-	  i++;
-	  next++;
-	  pattern = (char *)response;
-	}
-      } 
-    }
+    num_read = recv(gxsocket, buf+bytes_read, limit-bytes_read, 0);
     if(num_read == 0) {
-      if(bytes_read >= 0) buf[bytes_read] = 0;
       socket_error = gxSOCKET_DISCONNECTED_ERROR;
       return 0; // An error occurred during the read
     }
     if(num_read < 0) {
-      if(bytes_read >= 0) buf[bytes_read] = 0;
       socket_error = gxSOCKET_RECEIVE_ERROR;
       return 0; // An error occurred during the read
+    }
+    bytes_read += num_read; // Increment the byte counter
+    buf[bytes_read] = 0;
+    int rv = CheckReply(buf, bytes_read, response);
+    if(rv > 0) return 1; // Found matching string
+    if(rv < 0) {
+      socket_error = gxSOCKET_POP3_ERROR;
+      return 0;
     }
   }
 
   // The receieve buffer is full - buffer overflow
   socket_error = gxSOCKET_BUFOVER_ERROR;
-  if(bytes_read >= 0) buf[bytes_read] = 0;
   return 0;
 }
 // ----------------------------------------------------------- //

@@ -53,12 +53,19 @@ Sections:
             arguments, CR LF in commands, NormalizeAddress() (ESMTP
             parameter injection), dot-stuffing (SMTP smuggling) and
             header injection in SMTPSendMessage().
+  pop3      gxsPOP3Client: "+OK" must start the status line, "-ERR" to
+            a multi-line command, no write past a full buffer, long
+            arguments and CR LF in commands, CheckReply().
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#if defined (__UNIX__)
+#include <signal.h>
+#endif
 #include <string>
 #include <vector>
 #include <thread>
@@ -69,6 +76,7 @@ Sections:
 #include "gxsurl.h"
 #include "membuf.h"
 #include "gxsmtp.h"
+#include "gxspop3.h"
 
 static int num_failed = 0;
 static int num_checks = 0;
@@ -607,12 +615,78 @@ static void TestSMTP()
 	!= std::string::npos, sec, "body dot-stuffed with CR LF line ends");
 }
 
+// --------------------------------------------------------------
+// pop3
+// --------------------------------------------------------------
+static void TestPOP3()
+{
+  const char *sec = "pop3";
+
+  Check(gxsPOP3Client::CheckReply("+OK 2\r\n", 7, "+OK") == 1 &&
+	gxsPOP3Client::CheckReply("+OK", 3, "+OK") == 0 &&
+	gxsPOP3Client::CheckReply("-ERR no +OK\r\n", 13, "+OK") == -1, sec,
+	"CheckReply() status line");
+  Check(gxsPOP3Client::CheckReply("+OK\r\n.\r\n", 8, "\r\n.\r\n") == 1 &&
+	gxsPOP3Client::CheckReply("+OK\r\n1 2\r\n", 11, "\r\n.\r\n") == 0 &&
+	gxsPOP3Client::CheckReply("-ERR\r\n.\r\n", 9, "\r\n.\r\n") == -1,
+	sec, "CheckReply() multi-line");
+
+  FakeServer fs;
+  int port = fs.Start();
+  Check(port > 0, sec, "fake server start");
+  fs.Send("+OK ready\r\n");
+  fs.Reply("+OK\r\n");                       // USER
+  fs.Reply("-ERR bad password +OK\r\n");     // PASS
+  fs.Reply("+OK\r\n");                       // USER
+  fs.Reply("+OK logged in\r\n");             // PASS
+  fs.Reply("-ERR no such message\r\n");      // RETR 9
+  fs.Reply("+OK\r\n" + std::string(200, 'L') + "\r\n.\r\n"); // LIST
+  fs.Reply("+OK bye\r\n");                   // QUIT
+
+  gxsPOP3Client pop3;
+  pop3.SetTimeOut(3, 0);
+  int rv = pop3.ConnectClient("127.0.0.1", port);
+  Check(rv == 0, sec, "connect");
+  rv = pop3.POP3Login("user", "pass");
+  Check(rv != 0, sec, "-ERR holding +OK is an error");
+
+  std::string longarg(5000, 'u');
+  Check(pop3.POP3Login(longarg.c_str(), "x") == gxSOCKET_BUFOVER_ERROR, sec,
+	"long user name refused");
+  Check(pop3.POP3Login("user\r\nDELE 1", "x") != 0, sec,
+	"CR LF in a user name refused");
+  rv = pop3.POP3Login("user", "pass");
+  Check(rv == 0, sec, "login");
+
+  char big[1024];
+  rv = pop3.POP3Retr(9, big, sizeof(big));
+  Check(rv == gxSOCKET_POP3_ERROR, sec, "-ERR to RETR is an error at once");
+
+  char area[100];
+  memset(area, 'Z', sizeof(area));
+  rv = pop3.POP3List(area, 64);
+  Check(rv == gxSOCKET_BUFOVER_ERROR, sec, "LIST over the buffer size");
+  Check(area[64] == 'Z' && pop3.BytesRead() < 64, sec, 
+	"no write past a full buffer");
+  pop3.Close();
+  fs.Join();
+  Check(fs.received.find("DELE") == std::string::npos &&
+	fs.received.find("uuuuu") == std::string::npos, sec,
+	"refused commands not sent");
+}
+
 int main(int argc, char **argv)
 {
+#if defined (__UNIX__)
+  // A failed check can leave a client writing to a closed fake server
+  signal(SIGPIPE, SIG_IGN);
+#endif
+
   if(Enabled(argc, argv, "httphdr")) TestHTTPHeader();
   if(Enabled(argc, argv, "httpc")) TestHTTPClient();
   if(Enabled(argc, argv, "url")) TestURL();
   if(Enabled(argc, argv, "smtp")) TestSMTP();
+  if(Enabled(argc, argv, "pop3")) TestPOP3();
 
   printf("%d checks, %d failed\n", num_checks, num_failed);
   if(num_failed) {

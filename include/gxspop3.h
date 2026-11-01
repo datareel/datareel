@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -29,6 +29,12 @@ USA
 
 Post Office Protocol 3 (POP3) classes used with applications
 that require use of embedded POP3 client/server functions.
+
+Changes:
+==============================================================
+10/31/2026: Added gxsPOP3Client::CheckReply(), used by RecvResponse()
+to check the status line and find the end of a multi-line reply.
+==============================================================
 */
 // ----------------------------------------------------------- // 
 #ifndef __GX_EMBEDDED_POP3_LIB_HPP__
@@ -64,6 +70,12 @@ public:
   gxSocketError POP3Top(int message_number, char *buf, int bytes);
   int RecvResponse(char *buf, int bytes, const char *response);
   int WaitForReply();
+
+  // 10/31/2026: Check a reply read so far for response ("+OK", or 
+  // "\r\n.\r\n" for the end of a multi-line reply). Returns 1 if 
+  // complete, 0 if more data is needed, -1 for "-ERR" or a status line
+  // that does not start with "+OK".
+  static int CheckReply(const char *buf, int len, const char *response);
   void SetTimeOut(int seconds, int useconds) {
     time_out_sec = seconds;
     time_out_usec = useconds;
