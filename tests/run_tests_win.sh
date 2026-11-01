@@ -26,6 +26,9 @@ CERTS=${3:?CERT_DIR}
 MOCK=${4:-}
 E="$BUILD/examples/$CFG"; [ -d "$E" ] || E="$BUILD/examples"
 T="$BUILD/tests/$CFG"; [ -d "$T" ] || T="$BUILD/tests"
+# 11/01/2026: A DLL build (BUILD_SHARED_LIBS=ON) puts datareel.dll in
+# BUILD/CONFIG; put it on the PATH so the programs can load it
+export PATH="$BUILD/$CFG:$BUILD:$PATH"
 WORK=$(mktemp -d)
 PORT=$((20000 + RANDOM % 9000))
 PASS=0; FAIL=0; PIDS=()
