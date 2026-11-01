@@ -18,6 +18,17 @@ for t in GXD BTX JNL; do
     "$SRC/tests/fuzz/fuzz_db.cpp" "$OUT/lib/libdatareel.a" -lssl -lcrypto -lpthread \
     -o "$OUT/fuzz_$(echo $t | tr A-Z a-z)"
 done
+# 11/01/2026: Security sweep targets: the stream (networked OODB)
+# protocol, HTTP/FTP/SMTP/POP3/URL/base64 parsers, and telnet, config,
+# date, ping and db_debug parsing. fuzz_stream needs DATAREEL_FUZZING.
+clang++ -std=c++17 $SAN -fsanitize=fuzzer -DDATAREEL_FUZZING $DEFS -I"$SRC/include" \
+  -I"$SRC/examples/tls" "$SRC/tests/fuzz/fuzz_stream.cpp" "$OUT/lib/libdatareel.a" \
+  -lssl -lcrypto -lpthread -o "$OUT/fuzz_stream"
+for t in proto support; do
+  clang++ -std=c++17 $SAN -fsanitize=fuzzer $DEFS -I"$SRC/include" -I"$SRC/utils/db_debug" \
+    "$SRC/tests/fuzz/fuzz_$t.cpp" "$OUT/lib/libdatareel.a" -lssl -lcrypto -lpthread \
+    -o "$OUT/fuzz_$t"
+done
 clang++ -std=c++17 $SAN $DEFS -I"$SRC/include" "$SRC/tests/fuzz/gen_seeds.cpp" \
   "$OUT/lib/libdatareel.a" -lssl -lcrypto -lpthread -o "$OUT/gen_seeds"
-echo "built $OUT/fuzz_gxd $OUT/fuzz_btx $OUT/fuzz_jnl $OUT/gen_seeds"
+echo "built $OUT/fuzz_gxd $OUT/fuzz_btx $OUT/fuzz_jnl $OUT/fuzz_stream $OUT/fuzz_proto $OUT/fuzz_support $OUT/gen_seeds"

@@ -804,12 +804,14 @@ int gxSerialComm::InitSerialPort(int ignore_brk)
   // options.c_cc[VREPRINT] = 0;     // Ctrl-r 
   // options.c_cc[VDISCARD] = 0;     // Ctrl-u 
   
-#if defined (FASYNC) // ASYNC I/O is a BDS feature
-  // Make the file descriptor asynchronous
-  // 11/01/2026: F_SETFL with FASYNC alone replaced every file status
-  // flag. Keep the existing flags and add FASYNC. O_NDELAY (O_NONBLOCK)
-  // from OpenSerialPort() is still cleared, as the old call did, so
-  // reads block for VMIN characters.
+  // 11/01/2026: Blocking reads, keeping the other file status flags.
+  // The port used to be switched to FASYNC (O_ASYNC) as well, by an
+  // F_SETFL that replaced every flag. The library never installs a SIGIO
+  // handler, so with O_ASYNC the first byte that arrived could stop the
+  // program with SIGIO (seen on a pseudo terminal). Programs that want
+  // signal driven I/O can set O_ASYNC and F_SETOWN themselves.
+  // O_NDELAY (O_NONBLOCK) from OpenSerialPort() is still cleared, so
+  // reads block for VMIN characters as before.
   {
     int fl = fcntl(device_handle, F_GETFL);
     if(fl == -1) {
@@ -820,12 +822,14 @@ int gxSerialComm::InitSerialPort(int ignore_brk)
 #if defined (O_NDELAY)
     fl &= ~O_NDELAY;
 #endif
-    if(fcntl(device_handle, F_SETFL, fl | FASYNC) == -1) {
+#if defined (O_ASYNC)
+    fl &= ~O_ASYNC;
+#endif
+    if(fcntl(device_handle, F_SETFL, fl) == -1) {
       scomm_error = gxSerialComm::scomm_INIT_ERROR;
       return -1;
     }
   }
-#endif
 
   // Set the new options for the port. The TCSANOW constant specifies
   // that all changes should occur immediately without waiting for

@@ -58,6 +58,8 @@ and are skipped on Windows.
 #if !defined (_WIN32)
 #include <fcntl.h>
 #include <sys/socket.h>
+#include <fcntl.h>
+#include <termios.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include "gxtelnet.h"
@@ -336,6 +338,42 @@ static void test_scomserv()
     CHECK(p.OpenSerialPort(0) == -1);
   }
   pass("scomserv_readblock");
+}
+
+static void test_serial_pty_loopback()
+// 11/01/2026: gxSerialComm against a pseudo terminal (a serial loopback
+// with no hardware): bytes written on the master side arrive through
+// Recv(), Send() arrives on the master side, and Close() returns.
+{
+  int m = posix_openpt(O_RDWR | O_NOCTTY);
+  CHECK(m >= 0);
+  CHECK(grantpt(m) == 0 && unlockpt(m) == 0);
+  std::string slave = ptsname(m);
+  termios t;
+  CHECK(tcgetattr(m, &t) == 0);
+  cfmakeraw(&t);
+  CHECK(tcsetattr(m, TCSANOW, &t) == 0);
+  {
+    gxSerialComm port;
+    CHECK(port.InitSerialPort((char *)slave.c_str(), 9600) >= 0);
+    CHECK(write(m, "hello", 5) == 5);
+    char buf[16];
+    memset(buf, 0, sizeof(buf));
+    CHECK(port.Recv(buf, 5) == 5);
+    CHECK(memcmp(buf, "hello", 5) == 0);
+    CHECK(port.Send("world", 5) == 5);
+    memset(buf, 0, sizeof(buf));
+    int got = 0;
+    for(int i = 0; i < 50 && got < 5; i++) {
+      int n = (int)read(m, buf + got, (size_t)(5 - got));
+      if(n > 0) got += n;
+    }
+    CHECK(got == 5 && memcmp(buf, "world", 5) == 0);
+    CHECK(port.RawRead(buf, 0) == -1); // bytes <= 0 refused
+    port.Close();
+  }
+  close(m);
+  pass("serial_pty_loopback");
 }
 #endif // !_WIN32
 
@@ -621,6 +659,7 @@ int main()
   test_telnet_deadline();
   test_telnet_iac();
   test_scomserv();
+  test_serial_pty_loopback();
 #else
   printf("SKIP telnet and serial tests (POSIX socket pairs)\n");
 #endif
