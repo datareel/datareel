@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 12/16/1997 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -332,30 +332,23 @@ GXDLCODE_API int gxbyte_icompare(const void *a, unsigned a_bytes,
   }
 }
 
+// 10/31/2026: gxfind_pattern() and gxifind_pattern() compare only inside
+// the s_bytes of the source. A partial match that ran into the end of the
+// source kept reading past it (past the end of the buffer when the source
+// was not null-terminated, as with FindMatch() lengths and strings with
+// embedded nulls). The positions found are the same as before.
 GXDLCODE_API int gxfind_pattern(const void *src, unsigned s_bytes, 
 				const void *p, unsigned p_bytes, 
 				unsigned offset, gxStringType st, unsigned cs)
 // Returns index of first occurrence of pattern buffer *s   
 // Returns -1 if the pattern is not found
 {
+  if(!src || !p) return (int)-1;
   if(st == gxASCII_STRING) {
-    char *start = (char *)src + offset; // start of string data
-    char *next = start; // next string element
-    char *pattern = (char *)p; // next pattern element
-    unsigned i = offset, j = 1; // String and pattern indexes
-    
-    while(i < s_bytes && j <= p_bytes) {
-      if (*next == *pattern) { // Matching character
-	if(j == p_bytes) return (int)i; // Entire match was found
-	next++; pattern++; j++;
-      }
-      else { // Try next spot in string
-	i++;
-	start++;
-	next = start;
-	pattern = (char *)p; 
-	j = 1;
-      }
+    const char *sp = (const char *)src;
+    if((p_bytes == 0) || (p_bytes > s_bytes)) return (int)-1;
+    for(unsigned i = offset; i <= (s_bytes - p_bytes); i++) {
+      if(memcmp(sp+i, p, p_bytes) == 0) return (int)i; // Entire match was found
     }
   }
   else {
@@ -366,24 +359,13 @@ GXDLCODE_API int gxfind_pattern(const void *src, unsigned s_bytes,
     if(p_bytes % cs) nchars_p++;
     unsigned nchars_s = s_bytes/cs;
     if(s_bytes % cs) nchars_s++;
-
-    unsigned j = 1; 
-    wchar_t *start = (wchar_t *)src + i; // start of string data
-    wchar_t *next = start; // next string element
-    wchar_t *pattern = (wchar_t *)p; // next pattern element
-    
-    while(i < nchars_s && j <= nchars_p) {
-      if(*next == *pattern) { // Matching character
-	if(j == nchars_p) return (int)i; // Entire match was found
-	next++; pattern++; j++;
-      }
-      else { // Try next spot in string
-	i++;
-	start++;
-	next = start;
-	pattern = (wchar_t *)p; 
-	j = 1;
-      }
+    if((nchars_p == 0) || (nchars_p > nchars_s)) return (int)-1;
+    const wchar_t *sp = (const wchar_t *)src;
+    const wchar_t *pattern = (const wchar_t *)p;
+    for(; i <= (nchars_s - nchars_p); i++) {
+      unsigned j = 0;
+      while((j < nchars_p) && (sp[i+j] == pattern[j])) j++;
+      if(j == nchars_p) return (int)i; // Entire match was found
     }
   }
 
@@ -397,24 +379,16 @@ GXDLCODE_API int gxifind_pattern(const void *src, unsigned s_bytes,
 // specified offset using a case insensitive compare. Returns -1
 // if the pattern is not found.
 {
+  if(!src || !p) return (int)-1;
   if(st == gxASCII_STRING) {
-    char *start = (char *)src + offset; // start of string data
-    char *next = start;            // next string element
-    char *pattern = (char *)p; // next pattern element
-    unsigned i = offset, j = 1;    // String and pattern indexes
-  
-    while(i < s_bytes && j <= p_bytes) {
-      if (gxsu_tolower(*next) == gxsu_tolower(*pattern)) {
-	if(j == p_bytes) return (int)i; // Entire match was found
-	next++; pattern++; j++;
-      }
-      else { // Try next spot in string
-	i++;
-	start++;
-	next = start;
-	pattern = (char *)p; 
-	j = 1;
-      }
+    const char *sp = (const char *)src;
+    const char *pattern = (const char *)p;
+    if((p_bytes == 0) || (p_bytes > s_bytes)) return (int)-1;
+    for(unsigned i = offset; i <= (s_bytes - p_bytes); i++) {
+      unsigned j = 0;
+      while((j < p_bytes) && 
+	    (gxsu_tolower(sp[i+j]) == gxsu_tolower(pattern[j]))) j++;
+      if(j == p_bytes) return (int)i; // Entire match was found
     }
   }
   else {
@@ -425,28 +399,18 @@ GXDLCODE_API int gxifind_pattern(const void *src, unsigned s_bytes,
     if(p_bytes % cs) nchars_p++;
     unsigned nchars_s = s_bytes/cs;
     if(s_bytes % cs) nchars_s++;
-
-    unsigned j = 1; 
-    wchar_t *start = (wchar_t *)src + i; // start of string data
-    wchar_t *next = start; // next string element
-    wchar_t *pattern = (wchar_t *)p; // next pattern element
-
-    while(i < nchars_s && j <= nchars_p) {
+    if((nchars_p == 0) || (nchars_p > nchars_s)) return (int)-1;
+    const wchar_t *sp = (const wchar_t *)src;
+    const wchar_t *pattern = (const wchar_t *)p;
+    for(; i <= (nchars_s - nchars_p); i++) {
+      unsigned j = 0;
 #if defined (__HAS_UNICODE__)
-      if(towlower(*next) == towlower(*pattern)) {
+      while((j < nchars_p) && (towlower(sp[i+j]) == towlower(pattern[j]))) j++;
 #else
-      if(gxsu_tolower(*next) == gxsu_tolower(*pattern)) {
+      while((j < nchars_p) && 
+	    (gxsu_tolower(sp[i+j]) == gxsu_tolower(pattern[j]))) j++;
 #endif // __HAS_UNICODE__
-	if(j == nchars_p) return (int)i; // Entire match was found
-	next++; pattern++; j++;
-      }
-      else { // Try next spot in string
-	i++;
-	start++;
-	next = start;
-	pattern = (wchar_t *)p; 
-	j = 1;
-      }
+      if(j == nchars_p) return (int)i; // Entire match was found
     }
   }
   return (int)-1; // No match was found
@@ -989,6 +953,9 @@ GXDLCODE_API char *ULLWORDToString(char *sbuf, __ULLWORD__ val, int radix)
 // this function.
 {
   if(!sbuf) return 0; // Prevent a program crash if this is a null pointer
+  // 10/31/2026: A radix below 2 never ended the loop (radix 0 divided by
+  // zero, radix 1 ran past the buffer). Use base 10 for a bad radix.
+  if((radix < 2) || (radix > 36)) radix = 10;
   
   char cbuf;     
   unsigned value;
@@ -1044,6 +1011,7 @@ GXDLCODE_API char *LLWORDToString(char *sbuf, __ULLWORD__ val, int radix)
 // this function.
 {
   if(!sbuf) return 0; // Prevent a program crash if this is a null pointer
+  if((radix < 2) || (radix > 36)) radix = 10; // 10/31/2026: See above
   
   char cbuf;     
   unsigned value;
@@ -1051,6 +1019,9 @@ GXDLCODE_API char *LLWORDToString(char *sbuf, __ULLWORD__ val, int radix)
   
   if((radix == 10 && (__LLWORD__)val < 0)) {
     *s++ = '-'; 
+    // 10/31/2026: Print the magnitude. The two's complement value was
+    // printed after the sign (-5 gave -18446744073709551611).
+    val = (__ULLWORD__)0 - val;
   }
   
   char *digit = s; 
@@ -1099,7 +1070,10 @@ GXDLCODE_API __LLWORD__ StringToLLWORD(const char *str)
   int sign = c; 
   if(c == '-' || c == '+') c = (int)(unsigned char)*s++;
   
-  __LLWORD__ value = (__LLWORD__)0;
+  // 10/31/2026: Add up in an unsigned type. Too many digits overflowed a
+  // signed value (undefined behaviour); the result now wraps as the
+  // unsigned conversions do.
+  __ULLWORD__ value = (__ULLWORD__)0;
 
   while(gxsu_isdigit(c)) {
     value = 10 * value + (c - '0'); 
@@ -1107,9 +1081,9 @@ GXDLCODE_API __LLWORD__ StringToLLWORD(const char *str)
   }
 
   if(sign == '-') 
-    return -value; 
+    return (__LLWORD__)((__ULLWORD__)0 - value); 
   else
-    return value;  
+    return (__LLWORD__)value;  
 }
 
 GXDLCODE_API __ULLWORD__ StringToULLWORD(const wchar_t *str)

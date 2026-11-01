@@ -53,6 +53,9 @@ USA
               counts that wrap, ReplaceChar() with an offset, SetLength()
               on an empty string. ConvertEscapeSeq() with an escape at
               the end, operator<< of a large double.
+  strutil     FindMatch()/gxfind_pattern() stay inside the given length,
+              64-bit number conversions with too many digits, a bad
+              radix and negative values.
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -65,6 +68,7 @@ USA
 #include "gxs_b64.h"
 #include "gxstring.h"
 #include "membuf.h"
+#include "strutil.h"
 #include "memblock.h"
 #if defined (__USE_GX_SSL_EXTENSIONS__)
 #include "gxssl.h"
@@ -240,6 +244,28 @@ int main()
     gxString q;
     q << 2.5;
     check(q == "2.5", "gxstring: operator<< of 2.5");
+  }
+
+  // strutil
+  {
+    char *ab = new char[2]; ab[0] = 'a'; ab[1] = 'b'; // Not null-terminated
+    check(FindMatch(ab, "bc", 0, 2, 2) == -1 && FindMatch(ab, "b", 0, 2, 1) == 1 &&
+	  IFindMatch(ab, "BC", 0, 2, 2) == -1 && IFindMatch(ab, "AB", 0, 2, 2) == 0,
+	  "strutil: a partial match at the end of the source is not a match");
+    delete[] ab;
+    check(FindMatch("abab", "ab", 1, 0, 0) == 2 && FindMatch("aab", "ab", 0, 0, 0) == 1 &&
+	  FindMatch("abc", "", 0, 0, 0) == -1 && IFindMatch("xAaB", "ab", 0, 0, 0) == 2, "strutil: FindMatch() positions as before");
+#if defined (__64_BIT_DATABASE_ENGINE__) || defined (__ENABLE_64_BIT_INTEGERS__)
+    StringToLLWORD("99999999999999999999999");
+    StringToLLWORD("-99999999999999999999999");
+    check(StringToLLWORD("-42") == -42 && StringToLLWORD("123") == 123,
+	  "strutil: StringToLLWORD() with too many digits (UBSan) and as before");
+    char nb[100];
+    check(strcmp(LLWORDToString(nb, (__ULLWORD__)(__LLWORD__)-5, 10), "-5") == 0 &&
+	  strcmp(LLWORDToString(nb, 255, 16), "FF") == 0, "strutil: LLWORDToString() of a negative value");
+    check(strcmp(ULLWORDToString(nb, 5, 1), "5") == 0 && strcmp(ULLWORDToString(nb, 12, 0), "12") == 0,
+	  "strutil: a bad radix gives base 10");
+#endif
   }
 
   // base64
