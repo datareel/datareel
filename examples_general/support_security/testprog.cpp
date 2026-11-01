@@ -38,6 +38,8 @@ arguments for every test, or name the tests to run:
               log file name, line breaks in log text escaped.
   dbug        gxDatabaseDebugManager: damaged block lengths, Rebuild()
               onto its own input.
+  thread      gxThread: joining a thread pool whose threads could not be
+              created (UNIX: forced with RLIMIT_NPROC in a child process).
 
 Returns 0 if every check passes; failed checks print FAIL lines.
 */
@@ -51,10 +53,13 @@ Returns 0 if every check passes; failed checks print FAIL lines.
 #include "gxstring.h"
 #include "logfile.h"
 #include "dbugmgr.h"
+#include "gxthread.h"
 #include <time.h>
 
 #if defined (__UNIX__)
 #include <sys/stat.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
 
@@ -418,14 +423,70 @@ static void test_dbug()
   remove(out);
 }
 
+
+class SupportSecThread : public gxThread
+{
+public:
+  void *ThreadEntryRoutine(gxThread_t *) { return 0; }
+};
+
+static void test_thread()
+{
+#if defined (__UNIX__)
+  // A child process with no room for new threads creates a pool and
+  // joins it. The never-started threads used to be passed to
+  // pthread_join() with an uninitialized thread ID.
+  fflush(stdout);
+  pid_t pid = fork();
+  if(pid == 0) {
+    struct rlimit rl;
+    rl.rlim_cur = rl.rlim_max = 1;
+    if(getuid() == 0 || setrlimit(RLIMIT_NPROC, &rl) != 0) _exit(3);
+    alarm(20);
+    SupportSecThread t;
+    thrPool *pool = t.CreateThreadPool(4);
+    if(!pool) _exit(4);
+    int created = 0;
+    thrPoolNode *n = pool->GetHead();
+    while(n) {
+      if(n->GetThreadPtr()->GetThreadError() != gxTHREAD_CREATE_ERROR) created++;
+      n = n->GetNext();
+    }
+    if(created) _exit(3); // The limit did not stop thread creation
+    int rv = t.JoinThread(pool);
+    t.DestroyThreadPool(pool);
+    _exit(rv != 0 ? 0 : 5);
+  }
+  int st = 0;
+  waitpid(pid, &st, 0);
+  if(WIFEXITED(st) && WEXITSTATUS(st) == 3) {
+    printf("SKIP thread: cannot make thread creation fail (root, or the limit is not enforced)\n");
+  }
+  else {
+    check(WIFEXITED(st) && WEXITSTATUS(st) == 0,
+	  "thread: joining a pool whose threads could not be created returns an error");
+  }
+
+  // A normal pool still starts, joins and is destroyed
+  {
+    SupportSecThread t;
+    thrPool *pool = t.CreateThreadPool(4);
+    int rv = t.JoinThread(pool);
+    check(pool && rv == 0 && t.DestroyThreadPool(pool) == 0, "thread: a pool of 4 threads runs and joins");
+  }
+#else
+  printf("SKIP thread: UNIX only (fork)\n");
+#endif
+}
+
 int main(int argc, char **argv)
 {
 #if defined (__UNIX__)
   umask(022);
 #endif
   int all = (argc < 2);
-  const char *names[] = { "config", "logfile", "dbug", 0 };
-  void (*tests[])() = { test_config, test_logfile, test_dbug };
+  const char *names[] = { "config", "logfile", "dbug", "thread", 0 };
+  void (*tests[])() = { test_config, test_logfile, test_dbug, test_thread };
   for(int i = 1; i < argc; i++) {
     int known = 0;
     for(int t = 0; names[t]; t++) if(strcmp(argv[i], names[t]) == 0) known = 1;

@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -344,6 +344,12 @@ int gxThreadAPIWrapper::apiCreateThread(gxThread_t *thread)
 // must be used to change a thread priority after it has been
 // created.
 {
+  // 10/31/2026: Clear a create error left by an earlier failed call, so
+  // a thread created on a retry can be joined (see apiJoinThread())
+  if(thread->thread_error == gxTHREAD_CREATE_ERROR) {
+    thread->thread_error = gxTHREAD_NO_ERROR;
+  }
+
   // Initialize the thread attributes
   int rv = apiInitThreadAttribute(&thread->thread_attribute);
   if(rv != 0) {
@@ -514,6 +520,8 @@ int gxThreadAPIWrapper::apiCreateThread(gxThread_t *thread)
 		      (void *)(thread));
   if(rv != 0) {
     thread->thread_error = gxTHREAD_CREATE_ERROR;
+    // 10/31/2026: Release the attribute (it leaked)
+    apiDestroyThreadAttribute(&thread->thread_attribute);
     return rv; // Could not create the thread
   }
 
@@ -544,6 +552,16 @@ int gxThreadAPIWrapper::apiJoinThread(gxThread_t *thread)
     // Cannot join detached threads. The system will reclaim the thread
     // resources when a detached thread terminates and no exit status will
     // be available.  
+    return 1;
+  }
+
+  // 10/31/2026: A thread that could not be created has no thread ID to
+  // wait for. Its ID was passed to pthread_join(), which is undefined
+  // (glibc leaves the descriptor of the failed thread there, and an ID
+  // of 0 crashes). gxThread::CreateThreadPool() and JoinThread(pool)
+  // did this when the system could not create more threads.
+  if((thread->thread_state == gxTHREAD_STATE_NEW) &&
+     (thread->thread_error == gxTHREAD_CREATE_ERROR)) {
     return 1;
   }
 
@@ -762,6 +780,13 @@ int gxThreadAPIWrapper::apiCancelThread(gxThread_t *thread)
     return 1;
   }
   
+  // 10/31/2026: A thread that could not be created has no thread ID to
+  // cancel (see apiJoinThread())
+  if((thread->thread_state == gxTHREAD_STATE_NEW) &&
+     (thread->thread_error == gxTHREAD_CREATE_ERROR)) {
+    return 1;
+  }
+
   // Get the previous state incase the thread cannot be canceled
   gxThreadState prev_state = thread->thread_state;
 
