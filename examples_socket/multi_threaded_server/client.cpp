@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 04/28/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -139,8 +139,9 @@ void *EchoThread::ThreadEntryRoutine(gxThread_t *thread)
     while(bytes_read < packet_size) {
 
       // Block until the server sends some data
+      // 10/31/2026: 0 (the server closed) looped for ever
       rv = client.RawRead((char *)packet, packet_size);
-      if(rv < 0) {
+      if(rv <= 0) {
 	if(client.GetSocketError() != gxSOCKET_RECEIVE_ERROR) {
 	  CheckSocketError(&client, "Error reading from server socket");
 	}

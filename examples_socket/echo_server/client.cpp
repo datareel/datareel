@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/02/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -86,9 +86,11 @@ int main(int argc, char **argv)
   // Read the bytes sent back from the server
   while(bytes_read < echo_string_len) {
     // Block until the server sends some data
-    rv = client.RawRead((char *)echo_buffer, sizeof(echo_buffer));
-    if(rv < 0) {
-      cout << client.SocketExceptionMessage() << "\n";
+    // 10/31/2026: Leave room for the null (a full read wrote past the
+    // end) and stop when the server closes (rv 0 looped for ever)
+    rv = client.RawRead((char *)echo_buffer, sizeof(echo_buffer) - 1);
+    if(rv <= 0) {
+      if(rv < 0) cout << client.SocketExceptionMessage() << "\n";
       break;
     }
     bytes_read += rv;

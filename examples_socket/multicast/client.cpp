@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/20/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -112,7 +112,8 @@ int main(int argc, char **argv)
   
   while(1) {
     // Block until the server sends some data
-    rv = client.RawReadFrom(sbuf, buf_len);
+    // 10/31/2026: Leave room for the null; a full read wrote past the end
+    rv = client.RawReadFrom(sbuf, buf_len - 1);
     if(rv < 0) {
       cout << client.SocketExceptionMessage() << "\n" << flush;
       return 1;

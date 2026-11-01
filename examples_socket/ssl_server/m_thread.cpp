@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -322,7 +322,8 @@ void ClientRequestThread::HandleClientRequest(ClientSocket_t *s)
   char request[rxbuf];
 
   // Block until the client sends some data
-  int rv = s->openssl->RawReadSSLSocket(request, rxbuf);
+  // 10/31/2026: Leave room for the null; a full read wrote past the end
+  int rv = s->openssl->RawReadSSLSocket(request, rxbuf - 1);
 
   // A socket error occurred
   if(rv <= 0) {
