@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/19/1996 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -83,11 +83,15 @@ public:
   }
 
   // Constructors add to set the parameter ID string: 09/17/1999
+  // 10/31/2026: Also set the comment character and filter (they were
+  // left uninitialized by these two constructors)
   gxConfig(const gxString &fname, const gxString &p_id) {
-    FileName = fname; parm_ID = p_id;
+    FileName = fname; parm_ID = p_id; comment_char = '#';
+    filter_comments = 1;
   }
   gxConfig(const gxString &fname, const char *p_id) {
-    FileName = fname; parm_ID = p_id;
+    FileName = fname; parm_ID = p_id; comment_char = '#';
+    filter_comments = 1;
   }
   ~gxConfig();
 

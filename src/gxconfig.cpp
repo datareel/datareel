@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/19/1996 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -57,12 +57,97 @@ arguments.
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 #include "gxconfig.h"
 #include "dfileb.h"
+
+// 10/31/2026: Used to rewrite the config file in one step
+#if defined (__WIN32__)
+#include <windows.h>
+#elif defined (__UNIX__)
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#endif
 
 #ifdef __BCC32__
 #pragma warn -8080
 #endif
+
+static int gxconfig_read_line(DiskFileB &f, gxString &line)
+// 10/31/2026: Read one whole line, of any length, into "line" without
+// the line ending. Text after a CR is dropped, as before. Returns 0 at
+// the end of the file when nothing was read. Lines used to be read in
+// 1023-byte pieces, so the end of a long value was read as a line of
+// its own: a long value holding "name=value" added a setting when the
+// file was loaded and split the line when the file was rewritten
+// (found by the DataReel 7.3.1 security sweep review of 6.x).
+{
+  line.Clear();
+  int got_any = 0, cr_seen = 0;
+  char buf[256];
+  unsigned n = 0;
+  while(!f.df_EOF()) {
+    char c;
+    if(f.df_Read(&c, 1) != DiskFileB::df_NO_ERROR) break;
+    got_any = 1;
+    if(c == '\n') break;
+    if(c == '\r') cr_seen = 1;
+    if(cr_seen) continue;
+    buf[n++] = c;
+    if(n == sizeof(buf)) { line.InsertAt(line.length(), buf, n); n = 0; }
+  }
+  if(n) line.InsertAt(line.length(), buf, n);
+  return got_any;
+}
+
+static int gxconfig_to_long(const gxString &s, long lo, long hi, long &val)
+// 10/31/2026: Number conversion with range checks. atoi()/atol() have
+// undefined behavior when the value does not fit. A value out of range
+// now reads as 0, the same as a missing value. Leading digits are still
+// accepted, as atoi() did.
+{
+  val = 0;
+  const char *p = s.c_str();
+  if(!p) return 0;
+  char *end = 0;
+  errno = 0;
+  long v = strtol(p, &end, 10);
+  if((end == p) || (errno == ERANGE) || (v < lo) || (v > hi)) return 0;
+  val = v;
+  return 1;
+}
+
+static gxString *gxconfig_value(gxConfig *cfg, const gxString &Name, int fn)
+// 10/31/2026: Find the value of a setting. Only the name nodes are
+// searched (the list holds name, value, name, value...). Find() and
+// FindAny() also matched value nodes, so a value equal to the name
+// returned the next setting's name, and a match on the last value read
+// through a null pointer.
+{
+  gxConfigListNode *ptr = (gxConfigListNode *)cfg->GetHead();
+  while(ptr && ptr->next) {
+    gxConfigListNode *vptr = (gxConfigListNode *)ptr->next;
+    int match;
+    if(fn) match = (ptr->node_data == Name);
+    else match = (ptr->node_data.Find(Name.c_str()) != -1);
+    if(match) return (gxString *)vptr->data;
+    ptr = (gxConfigListNode *)vptr->next;
+  }
+  return 0;
+}
+
+static int gxconfig_bad_name(const gxString &parm, const gxString &parm_ID)
+// 10/31/2026: True if "parm" cannot be written as a setting name: it is
+// empty or holds the parameter ID string, so it would not read back as
+// the same setting.
+{
+  if(parm.length() == 0) return 1;
+  if((parm_ID.length() > 0) && (parm.Find(parm_ID.c_str()) != -1)) return 1;
+  return 0;
+}
 
 gxConfig::~gxConfig()
 {
@@ -122,26 +207,17 @@ void gxConfig::FilterLineFeed(char &c)
 
 int gxConfig::Load()
 {
-  const int MaxLine = 1024;
-  char LineBuffer[MaxLine];
-  int Status, i;
+  int Status;
+  gxString LineBuffer;
   
   DiskFileB infile(FileName.c_str(), 
 		   DiskFileB::df_READONLY, DiskFileB::df_NO_CREATE);
   if(!infile) return 0; // Cannot open the file
 
-  while(!infile.df_EOF()) {
-    // Clear the line buffer before each read
-    for(i = 0; i < MaxLine; i++) LineBuffer[i] = '\0';
-    
-    // Read in config file line by line
-    if(infile.df_GetLine(LineBuffer, MaxLine, '\n', 1) != 
-       DiskFileB::df_NO_ERROR) {
-      break; // Error reading file
-    }
-
+  // 10/31/2026: Read whole lines (see gxconfig_read_line())
+  while(gxconfig_read_line(infile, LineBuffer)) {
     // Load config file data into singly-linked list
-    Status = StoreCfgData((const char *)LineBuffer);
+    Status = StoreCfgData(LineBuffer.length() ? LineBuffer.c_str() : "");
     if(!Status) return 0;
   }
 
@@ -242,17 +318,9 @@ char* gxConfig::GetStrValue(const gxString &Name, int fn)
 // Search for string matching the "Name" variable. Will search
 // using the full name unless the "fn" variable is false.
 {
-  gxConfigListNode *ptr;
-
-  if(fn)
-    ptr = Find(Name);
-  else
-    ptr = FindAny(Name);
-  
-  if(ptr) {
-    gxString *s = (gxString *)ptr->next->data;
-    if(s) return s->c_str();
-  }
+  // 10/31/2026: Searches the setting names only (gxconfig_value())
+  gxString *s = gxconfig_value(this, Name, fn);
+  if(s) return s->c_str();
 
   // Return NULL if config value is not found
   return 0;
@@ -268,17 +336,11 @@ int gxConfig::GetIntValue(const gxString &Name, int fn)
 // Search for string matching the "Name" variable. Will search
 // using the full name unless the "fn" variable is false.
 {
-  gxConfigListNode *ptr;
-
-  if(fn)
-    ptr = Find(Name);
-  else
-    ptr = FindAny(Name);
-  
-  if(ptr) {
-    gxString *s = (gxString *)ptr->next->data;
-    if(s) return s->Atoi();
-  }
+  // 10/31/2026: Searches the setting names only (gxconfig_value()), and
+  // a number that does not fit in an int reads as 0 (was atoi())
+  gxString *s = gxconfig_value(this, Name, fn);
+  long val;
+  if(s && gxconfig_to_long(*s, INT_MIN, INT_MAX, val)) return (int)val;
 
   //Return NULL if config value is not found
   return 0;
@@ -294,17 +356,9 @@ double gxConfig::GetFloatValue(const gxString &Name, int fn)
 // Search for string matching the "Name" variable. Will search
 // using the full name unless the "fn" variable is false.
 {
-  gxConfigListNode *ptr;
-
-  if(fn)
-    ptr = Find(Name);
-  else
-    ptr = FindAny(Name);
-
-  if(ptr) {
-    gxString *s = (gxString *)ptr->next->data;
-    if(s) return s->Atof();
-  }
+  // 10/31/2026: Searches the setting names only (gxconfig_value())
+  gxString *s = gxconfig_value(this, Name, fn);
+  if(s) return s->Atof();
 
   //Return NULL if config value is not found
   return 0;
@@ -331,18 +385,11 @@ long gxConfig::GetLongValue(const gxString &Name, int fn)
 // Search for string matching the "Name" variable. Will search
 // using the full name unless the "fn" variable is false.
 {
-  gxConfigListNode *ptr;
-
-  if(fn)
-    ptr = Find(Name);
-  else
-    ptr = FindAny(Name);
-
-
-  if(ptr) {
-    gxString *s = (gxString *)ptr->next->data;
-    if(s) return s->Atol();
-  }
+  // 10/31/2026: Searches the setting names only (gxconfig_value()), and
+  // a number that does not fit in a long reads as 0 (was atol())
+  gxString *s = gxconfig_value(this, Name, fn);
+  long val;
+  if(s && gxconfig_to_long(*s, LONG_MIN, LONG_MAX, val)) return val;
 
   //Return NULL if config value is not found
   return 0;
@@ -372,6 +419,9 @@ int gxConfig::WriteConfigLine(const gxString &parm, const gxString &value)
 // 10/31/2026: Returns 0 if the name or value has a line break.
 {
   if(!gxconfig_one_line(parm) || !gxconfig_one_line(value)) return 0;
+  // 10/31/2026: An empty name, or one holding the parameter ID string,
+  // would not read back as the same setting
+  if(gxconfig_bad_name(parm, parm_ID)) return 0;
   DiskFileB outfile(FileName.c_str(), DiskFileB::df_READWRITE, 
 		    DiskFileB::df_NO_CREATE, DiskFileB::df_APPEND);
   if(!outfile) return 0; // Cannot open the file
@@ -426,6 +476,76 @@ int gxConfig::WriteLine(const char *s)
   return WriteLine(line);
 }
 
+static int gxconfig_rewrite(const gxString &fname, gxConfig &list)
+// 10/31/2026: Write the lines in "list" to a new file next to the
+// config file and rename it over the config file, so a crash or a full
+// disk cannot leave a truncated or half written config file. The file
+// used to be truncated and written in place. On UNIX the new file gets
+// the old file's mode (and owner, if allowed) and a config file that is
+// a symbolic link is changed at the link's target. Returns 1 if
+// successful.
+{
+#if defined (__WIN32__) || defined(__DOS__)
+  const char *eol = "\r\n"; 
+#else 
+  const char *eol = "\n"; 
+#endif
+
+  gxString target(fname);
+  gxString tmp_name;
+  FILE *fp = 0;
+
+#if defined (__UNIX__)
+  struct stat st;
+  int have_st = 0;
+  char *real = realpath(fname.c_str(), 0);
+  if(real) { target = real; free(real); }
+  if(stat(target.c_str(), &st) == 0) have_st = 1;
+  tmp_name << target << ".XXXXXX";
+  int fd = mkstemp(tmp_name.c_str()); // Created 0600, O_EXCL
+  if(fd < 0) return 0;
+  if(have_st) {
+    // Keep the owner (when allowed) and the access of the old file
+    if(fchown(fd, st.st_uid, st.st_gid) != 0) { /* Not the owner */ }
+    fchmod(fd, st.st_mode & 07777);
+  }
+  fp = fdopen(fd, "wb");
+  if(!fp) { close(fd); unlink(tmp_name.c_str()); return 0; }
+#else
+  tmp_name << target << ".tmp";
+  fp = fopen(tmp_name.c_str(), "wb");
+  if(!fp) return 0;
+#endif
+
+  int ok = 1;
+  size_t eol_len = strlen(eol);
+  gxConfigListNode *list_ptr = (gxConfigListNode *)list.GetHead();
+  while(list_ptr && ok) {
+    if(list_ptr->data) {
+      size_t len = list_ptr->node_data.length();
+      if(len && (fwrite(list_ptr->node_data.c_str(), 1, len, fp) != len)) ok = 0;
+      if(ok && (fwrite(eol, 1, eol_len, fp) != eol_len)) ok = 0;
+    }
+    list_ptr = (gxConfigListNode *)list_ptr->next; 
+  }
+  if(fflush(fp) != 0) ok = 0;
+#if defined (__UNIX__)
+  if(ok && (fsync(fileno(fp)) != 0)) ok = 0;
+#endif
+  if(fclose(fp) != 0) ok = 0;
+
+  if(ok) {
+#if defined (__WIN32__)
+    ok = MoveFileExA(tmp_name.c_str(), target.c_str(),
+		     MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH) != 0;
+#else
+    ok = rename(tmp_name.c_str(), target.c_str()) == 0;
+#endif
+  }
+  if(!ok) remove(tmp_name.c_str());
+  return ok;
+}
+
 int gxConfig::ChangeConfigLine(const gxString &string_to_replace,
 			       const gxString &string_to_insert,
 			       int check_case, int append_lines)
@@ -434,13 +554,11 @@ int gxConfig::ChangeConfigLine(const gxString &string_to_replace,
 // 10/31/2026: Returns 0 if the name or the new value has a line break.
 {
   if(!gxconfig_one_line(string_to_replace) || !gxconfig_one_line(string_to_insert)) return 0;
-  const int MAX_LINE = 1024;   // Maximum characters per line
-  char LineBuffer[MAX_LINE];
-  char rawLineBuffer[MAX_LINE];
+  if(gxconfig_bad_name(string_to_replace, parm_ID)) return 0; // 10/31/2026
   gxString LineData;
+  gxString LineBuffer;
   gxString appendLineBuffer;
   gxConfig list;
-  int i, j;
   int offset = 0;
   int num_processed = 0;      
   
@@ -448,29 +566,13 @@ int gxConfig::ChangeConfigLine(const gxString &string_to_replace,
 		   DiskFileB::df_READONLY, DiskFileB::df_NO_CREATE);
   if(!infile) return 0; // Cannot open the file
 	
-  while(!infile.df_EOF()) { // Read in the file line by line
-
-    // Clear the buffers
-    for(i = 0; i < MAX_LINE; i++) LineBuffer[i] = '\0';
-    for(i = 0; i < MAX_LINE; i++) rawLineBuffer[i] = '\0';
-    LineData.DeleteAt(0, LineData.length());
+  // 10/31/2026: Read whole lines (see gxconfig_read_line()). Long lines
+  // were read in 1023-byte pieces and written back as several lines.
+  while(gxconfig_read_line(infile, LineBuffer)) {
     offset = 0; // Reset string offset
-    
-    if(infile.df_GetLine(rawLineBuffer, MAX_LINE) != DiskFileB::df_NO_ERROR) {
-      break; // Error reading file
-    }
-        
-    // Filter each line of text
-    // 10/14/2026: Stop one short of the end so LineBuffer is always null
-    // terminated, and check for an empty line before looking at the last
-    // character (strlen()-1 read before the buffer on blank lines).
-    for(i = 0, j = 0; i < (MAX_LINE-1); i++) {
-      if((rawLineBuffer[i] == '\r') || (rawLineBuffer[i] == '\n')) break;
-      LineBuffer[j++] = rawLineBuffer[i];
-    }
 
     // Detect backslashes used to mark the continuation of a line
-    size_t line_len = strlen(LineBuffer);
+    unsigned line_len = LineBuffer.length();
     if((line_len > 0) && (LineBuffer[line_len-1] == '\\') &&
        (append_lines == 1)) {
       appendLineBuffer += LineBuffer;
@@ -485,9 +587,6 @@ int gxConfig::ChangeConfigLine(const gxString &string_to_replace,
     else
       LineData = LineBuffer;
     
-    // Get rid of EOF marker
-    if((strcmp(LineData.c_str(), "\0") == 0) && (infile.df_EOF())) break;
-
     // Routine to replace a line
     // ----------------------------------------------------------- 
     // 10/31/2026: The name must start the line (after spaces or tabs).
@@ -517,59 +616,41 @@ int gxConfig::ChangeConfigLine(const gxString &string_to_replace,
       continue;
     }
     
-    int parm_id_offset = LineData.Find(parm_ID.c_str());
-    if(parm_id_offset == -1) { // This is not a configurable parameter
-      list.Add(LineData); // Store the line and continue
-      continue;
-    }
-    
     offset += string_to_replace.length();
 
-    // Ensure the complete string is matched before modifying the parameter
-    if((LineData[offset] == ' ') || (LineData[offset] == '\t') || // 10/31/2026: tab
-       (LineData[offset] == parm_ID[0])) {
+    // 10/31/2026: The whole name must match: only spaces or tabs may
+    // come between the name and the parameter ID string (the first
+    // character of the ID used to be enough, so "Port x=1" or "Port:=1"
+    // with an ID of "=" matched "Port"). The new value is inserted after
+    // the whole ID string; it used to go one character after the start
+    // of the ID, inside an ID of more than one character.
+    unsigned id_pos = (unsigned)offset;
+    while((id_pos < LineData.length()) &&
+	  ((LineData[id_pos] == ' ') || (LineData[id_pos] == '\t'))) id_pos++;
+    if((parm_ID.length() > 0) && (id_pos < LineData.length()) &&
+       (strncmp(LineData.c_str() + id_pos, parm_ID.c_str(), 
+		parm_ID.length()) == 0)) {
       LineData.DeleteAt(offset, (LineData.length() - offset));
-      LineData.InsertAt(offset, parm_ID.c_str()); // Insert parameter ID string
-      LineData.InsertAt(++offset, string_to_insert);
+      LineData += parm_ID;
+      LineData += string_to_insert;
       num_processed++;    // Record number of string processed for this file
     }
     list.Add(LineData); // Store all the lines and continue
+  }
+  if(appendLineBuffer.length() > 0) { // 10/31/2026: Last line ends in '\\'
+    appendLineBuffer.DeleteAt(appendLineBuffer.length()-1, 1); // Added LF
+    list.Add(appendLineBuffer);
   }
   infile.df_Close(); // Close the input file
   
   // If any strings were replaced in the file, rewrite the file
   // ----------------------------------------------------------- 
   if(num_processed > 0) {
-    const char *EndOfLineSequence;
-    
-    DiskFileB outfile(FileName.c_str(), DiskFileB::df_READWRITE, 
-		    DiskFileB::df_CREATE);
-    if(!outfile) return 0; // Cannot open the file
-    
-#if defined (__WIN32__) || defined(__DOS__)
-    EndOfLineSequence = "\r\n"; 
-#else 
-    EndOfLineSequence = "\n"; 
-#endif
-    
-    gxConfigListNode *list_ptr = (gxConfigListNode *)list.GetHead();
-    while(list_ptr) {
-      if(list_ptr->data) {
-	if(outfile.df_Write(list_ptr->node_data.c_str(), 
-			    list_ptr->node_data.length()) != 
-	   DiskFileB::df_NO_ERROR) {
-	  break; // Error writing to the file
-	}
-	if(outfile.df_Write(EndOfLineSequence, strlen(EndOfLineSequence)) !=
-	   DiskFileB::df_NO_ERROR) {
-	  break; // Error writing to the file
-	}  
-      }
-      list_ptr = (gxConfigListNode *)list_ptr->next; 
+    if(!gxconfig_rewrite(FileName, list)) { // 10/31/2026: See above
+      list.ClearList();
+      return 0;
     }
-    
-    outfile.df_Close(); // Close the output file
-    
+
     // Make the changes to the config list in already in memory
     ReLoad();
   }
@@ -584,6 +665,10 @@ int gxConfig::ChangeConfigValue(const gxString &parm, const gxString &value)
 // will be added to mark it as a config file parameter. By default an
 // equal sign will be used as a parameter ID.
 {
+  // 10/31/2026: Refuse names and values that cannot be written as one
+  // setting, so a failed change is not appended as a new line
+  if(!gxconfig_one_line(parm) || !gxconfig_one_line(value)) return 0;
+  if(gxconfig_bad_name(parm, parm_ID)) return 0;
   int rv = ChangeConfigLine(parm, value, 1, 1);
 
   // Write the parameter if it does not exist
