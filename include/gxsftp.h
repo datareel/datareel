@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -52,6 +52,11 @@ used internally to toggle passive FTP mode on and off.
 06/10/2002: Added the gxsFTPClient::FTPPassive() and 
 gxsFTPClient::FTPActive() functions used to toggle passive FTP
 mode on and off.
+
+10/31/2026: Added gxsFTPClient::ParseReply() and 
+gxsFTPClient::ParsePASVPort(). In passive mode the data connection
+goes to the server's own address; the address in the PASV reply is
+not used.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -108,6 +113,16 @@ public:
   int RecvResponse(char *buf, int bytes, const char *response);
   int RecvResponse(gxsSocket_t s, char *buf, int bytes, const char *response);
   int WaitForReply(gxsSocket_t s);
+
+public: // 10/31/2026: Reply parsers, used on the connection and in tests
+  // Parse one reply ("150-..." lines up to "150 ...") from the start
+  // of buf. Returns 1 if buf holds a complete reply (code and consumed
+  // are set), 0 if the reply has not ended, or -1 if it is not valid.
+  static int ParseReply(const char *buf, int len, int *code = 0,
+			int *consumed = 0);
+  // Data port from "227 ... (h1,h2,h3,h4,p1,p2)". Returns 1-65535, or
+  // -1 if the reply is not valid.
+  static int ParsePASVPort(const char *reply);
   void SetTimeOut(int seconds, int useconds) {
     time_out_sec = seconds;
     time_out_usec = useconds;

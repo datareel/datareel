@@ -56,6 +56,10 @@ Sections:
   pop3      gxsPOP3Client: "+OK" must start the status line, "-ERR" to
             a multi-line command, no write past a full buffer, long
             arguments and CR LF in commands, CheckReply().
+  ftp       gxsFTPClient: multi-line and left over 226 replies, PASV
+            address not used, PASV field checks and a long PASV reply
+            (stack overflow), long file names, CR LF in commands, no
+            write past a full FTPList() buffer, ParseReply().
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -75,8 +79,10 @@ Sections:
 #include "gxshttpc.h"
 #include "gxsurl.h"
 #include "membuf.h"
+#include "dfileb.h"
 #include "gxsmtp.h"
 #include "gxspop3.h"
+#include "gxsftp.h"
 
 static int num_failed = 0;
 static int num_checks = 0;
@@ -675,6 +681,100 @@ static void TestPOP3()
 	"refused commands not sent");
 }
 
+// --------------------------------------------------------------
+// ftp
+// --------------------------------------------------------------
+static void TestFTP()
+{
+  const char *sec = "ftp";
+
+  int code = 0, used = 0;
+  const char *r1 = "230-Hi\r\nany text\r\n230 ok\r\n226";
+  Check(gxsFTPClient::ParseReply(r1, (int)strlen(r1), &code, &used) == 1 &&
+	code == 230 && used == (int)strlen(r1) - 3, sec, 
+	"ParseReply() multi-line");
+  Check(gxsFTPClient::ParseReply("230-Hi\r\n230", 11) == 0 &&
+	gxsFTPClient::ParseReply("2x0 hi\r\n", 8) == -1 &&
+	gxsFTPClient::ParseReply("20\r\n", 4) == -1, sec,
+	"ParseReply() incomplete and bad codes");
+  Check(gxsFTPClient::ParsePASVPort("227 Entering (10,0,0,1,4,1)") == 1025 &&
+	gxsFTPClient::ParsePASVPort("227 Entering 10,0,0,1,4,1") == 1025 &&
+	gxsFTPClient::ParsePASVPort("227 Entering (10,0,0,1,256,1)") == -1 &&
+	gxsFTPClient::ParsePASVPort("227 Entering (1,2,3,4,99999999999,1)") 
+	== -1 &&
+	gxsFTPClient::ParsePASVPort("227 Entering (1,2,3,4,-1,1)") == -1 &&
+	gxsFTPClient::ParsePASVPort("227 Entering (1,2,3,4,0,0)") == -1 &&
+	gxsFTPClient::ParsePASVPort("227 (1,2,3)") == -1, sec,
+	"ParsePASVPort()");
+
+  FakeServer fs;
+  int port = fs.Start();
+  Check(port > 0, sec, "fake server start");
+  fs.Send("220-Welcome\r\n");
+  fs.Sleep(100);
+  fs.Send("220 ready\r\n");
+  fs.Reply("331 password\r\n");                    // USER
+  fs.Reply("230-Hi\r\n");                          // PASS
+  fs.Sleep(100);
+  fs.Send("230 ok\r\n");
+  fs.DataListen();
+  fs.Reply("227 Entering Passive Mode (127,0,0,2,%PORT%)\r\n"); // PASV
+  fs.Reply("150 here\r\n");                        // LIST
+  fs.DataSend("file1\r\nfile2\r\n");
+  fs.Sleep(100);
+  fs.Send("226 done\r\n");
+  fs.Reply("213 42\r\n");                          // SIZE
+  fs.DataListen();
+  fs.Reply("227 Entering Passive Mode (127,0,0,1,%PORT%)\r\n"); // PASV
+  fs.Reply("150 here\r\n");                        // LIST
+  fs.DataSend(std::string(200, 'f'));
+  fs.Sleep(100);
+  fs.Send("226 done\r\n");
+  fs.Reply("227 Entering Passive Mode " + std::string(5000, 'A') +
+	   " (127,0,0,1,999,1)\r\n");               // PASV
+  fs.Reply("221 bye\r\n");                         // QUIT
+
+  gxsFTPClient ftp;
+  ftp.SetTimeOut(3, 0);
+  ftp.FTPPassive();
+  int rv = ftp.ConnectClient("127.0.0.1", port);
+  Check(rv == 0, sec, "connect with a multi-line greeting");
+  rv = ftp.FTPLogin("user", "pass");
+  Check(rv == 0, sec, "login with a multi-line 230 reply");
+
+  // Refused before anything is sent
+  std::string longname(10000, 'n');
+  DiskFileB nofile;
+  FAU_t nbytes;
+  Check(ftp.FTPGet(longname.c_str(), nofile, nbytes) == gxSOCKET_BUFOVER_ERROR,
+	sec, "long RETR file name refused");
+  Check(ftp.FTPChDir("dir\r\nDELE x") != 0, sec, "CR LF in CWD refused");
+
+  char list[256];
+  rv = ftp.FTPList(list, sizeof(list));
+  Check(rv == 0 && strcmp(list, "file1\r\nfile2\r\n") == 0, sec,
+	"PASV to the server's own address, not the one in the reply");
+  rv = ftp.FTPSize("x");
+  Check(rv == 0 && strncmp(ftp.reply_buf, "213 42", 6) == 0, sec,
+	"left over 226 reply skipped");
+
+  char area[100];
+  memset(area, 'Z', sizeof(area));
+  rv = ftp.FTPList(area, 64);
+  Check(rv == gxSOCKET_BUFOVER_ERROR && area[64] == 'Z', sec,
+	"no write past a full FTPList() buffer");
+
+  rv = ftp.FTPList(list, sizeof(list));
+  Check(rv == gxSOCKET_FTP_ERROR, sec, "long PASV reply with a bad port");
+  rv = ftp.FTPLogout();
+  Check(rv == 0, sec, "QUIT");
+  ftp.Close();
+  fs.Join();
+  Check(fs.received.find("DELE") == std::string::npos &&
+	fs.received.find("nnnnn") == std::string::npos, sec,
+	"refused commands not sent");
+}
+
 int main(int argc, char **argv)
 {
 #if defined (__UNIX__)
@@ -687,6 +787,7 @@ int main(int argc, char **argv)
   if(Enabled(argc, argv, "url")) TestURL();
   if(Enabled(argc, argv, "smtp")) TestSMTP();
   if(Enabled(argc, argv, "pop3")) TestPOP3();
+  if(Enabled(argc, argv, "ftp")) TestFTP();
 
   printf("%d checks, %d failed\n", num_checks, num_failed);
   if(num_failed) {

@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -72,6 +72,22 @@ terminating "221 " is received.
 
 09/22/2005:Modified gxsFTPClient::RecvResponse() to signal 
 a graceful socket disconnect.
+
+10/31/2026: Security fixes. SendCommand(), FTPGet(), FTPPut() and
+FTPList() used sprintf() into fixed buffers, so a long file name or
+argument overflowed them; commands with CR or LF are refused.
+RecvResponse() wrote the NUL one byte past a full buffer, used the
+wrong byte counter (bytes_read) on a disconnect, read the reply code
+from data that was not NUL terminated, and took the expected code
+anywhere in the reply. Replies are now parsed by ParseReply() (3 digit
+codes, multi-line replies up to the last line); a 226 reply left over
+from the previous transfer is skipped. The PASV reply was parsed with
+sscanf("%s") into 25 byte stack buffers (a long reply overflowed
+them) and "(p1*256)+p2" with unchecked numbers; ParsePASVPort() 
+checks each field (0-255), and the data connection now goes to the
+server's own address, never to the address in the PASV reply (a
+server could point the client at another host). FTPList() wrote the
+NUL one byte past a full buffer.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -80,6 +96,16 @@ a graceful socket disconnect.
 #include <string.h>
 #include <stdio.h>
 #include "gxsftp.h"
+
+// 10/31/2026: Local helpers
+static int ftp_has_crlf(const char *s)
+{
+  if(!s) return 0;
+  for(; *s; s++) if(*s == '\r' || *s == '\n') return 1;
+  return 0;
+}
+
+static int ftp_is_digit(char c) { return c >= '0' && c <= '9'; }
 
 #ifdef __BCC32__
 #pragma warn -8080
@@ -110,6 +136,16 @@ gxSocketError gxsFTPClient::SendCommand(const char *command,
 // Function used to send a command to an FTP server and read the server's
 // response. Returns zero if no errors occur.
 {
+  // 10/31/2026: sprintf() into command_buf overflowed with a long
+  // argument, and CR LF in an argument added commands
+  if(!command || !response) return socket_error = gxSOCKET_FTP_ERROR;
+  if(ftp_has_crlf(command) || ftp_has_crlf(args)) {
+    return socket_error = gxSOCKET_FTP_ERROR;
+  }
+  unsigned need = (unsigned)strlen(command) + 3;
+  if(args) need += (unsigned)strlen(args) + 1;
+  if(need > gxsBUF_SIZE) return socket_error = gxSOCKET_BUFOVER_ERROR;
+
   // Clear the command and response buffers
   unsigned i;
   for(i = 0; i < gxsBUF_SIZE; i++) command_buf[i] = 0;
@@ -206,6 +242,10 @@ gxSocketError gxsFTPClient::FTPGet(const char *fname, DiskFileB &stream,
 {
   char get_buf[gxsFTP_BUF_SIZE];
   bytes = (FAU_t)0;
+  // 10/31/2026: A long file name overflowed get_buf
+  if(!fname || strlen(fname) > gxsBUF_SIZE) {
+    return socket_error = gxSOCKET_BUFOVER_ERROR;
+  }
   sprintf(get_buf, "RETR %s", fname);
   if(OpenDataPort() != gxSOCKET_NO_ERROR) return socket_error; 
 
@@ -261,6 +301,10 @@ gxSocketError gxsFTPClient::FTPPut(const char *fname, DiskFileB &stream,
   char put_buf[gxsFTP_BUF_SIZE];
   char tx_buf[gxsFTP_BUF_SIZE];
   bytes = (FAU_t)0;
+  // 10/31/2026: A long file name overflowed put_buf
+  if(!fname || strlen(fname) > gxsBUF_SIZE) {
+    return socket_error = gxSOCKET_BUFOVER_ERROR;
+  }
   sprintf(put_buf, "STOR %s", fname);
   if(OpenDataPort() != gxSOCKET_NO_ERROR) return socket_error; 
 
@@ -306,6 +350,14 @@ gxSocketError gxsFTPClient::FTPList(char *sbuf, unsigned bytes, int full,
 // directory. Returns zero if no errors occur.
 {
   char ls_buf[gxsFTP_BUF_SIZE];
+
+  // 10/31/2026: A long argument overflowed ls_buf, and the NUL was
+  // written one byte past a full sbuf
+  if(args && strlen(args) > gxsBUF_SIZE) {
+    return socket_error = gxSOCKET_BUFOVER_ERROR;
+  }
+  if(!sbuf || bytes < 2) return socket_error = gxSOCKET_BUFOVER_ERROR;
+  bytes--; // Room for the NUL
 
   if(full) {
     if(args) {
@@ -399,57 +451,19 @@ gxSocketError gxsFTPClient::OpenDataPort()
       return socket_error; 
     }
 
-    // NOTE: The server may send back a 226 reply code so the 
-    // client must check the reply code be parsing the 277 reply.
-    int reply_code;
-    sscanf(reply_buf, "%d ", &reply_code); 
-    if(reply_code == 226) { // Remove the first line of text.
-      int len = strlen(reply_buf);
-      int offset = 0;
-      for(int i = 0; i < len; i++) {
-	offset++;
-	// The server's reply should always be terminated with a
-	// \r\n at the end of each reply.
-	if(reply_buf[i] == '\n') break;
-      }
-      // Remove the 226 reply line
-      memmove(reply_buf, (reply_buf+offset), (len-offset));
-
-      // Null terminate the string
-      reply_buf[(len-offset)] = 0; 
-    }
-
-    // Validate the server's reply account for the \r\n terminator
-    if(reply_buf[strlen(reply_buf)-3] != ')') {
-      if(reply_buf[strlen(reply_buf)-3] != '.') {
-	return socket_error = gxSOCKET_FTP_ERROR;
-      }
-    }
-    
-    char s1[25]; char s2[25]; char s3[25]; char s4[25];
-    char ip_port[255];
-    // Parse the server's reply and check for errors
-    sscanf(reply_buf, "%d %s %s %s %s%[^\r\n]", 
-    	   &reply_code, s1, s2, s3, ip_port, s4); 
-
-    if(reply_code != 227) {
-      return socket_error = gxSOCKET_FTP_ERROR;
-    }
-    
-    // Parse the IP and port information from the ip_port string.
-    // The server will issue a PORT command formatted as a series of six 
-    // numbers separated by commas. The first four octets is the IP 
-    // address of the server and last two octets comprise the port that 
-    // will be used for the data connection. To find the port multiply 
-    // the fifth octet by 256 and then add the sixth octet to the total.
-    int ip1, ip2, ip3, ip4, p1, p2;
-    sscanf(ip_port, "(%d,%d,%d,%d,%d,%d)", &ip1, &ip2, &ip3, &ip4, &p1, &p2);
-
-    // Construct the server's host IP and port number
-    sprintf(ip_port, "%d.%d.%d.%d", ip1, ip2, ip3, ip4); 
-    int port = (p1*256) + p2;
-    
-    if(ftp_data.InitSocket(SOCK_STREAM, port, ip_port) < 0) {
+    // NOTE: A 226 reply left over from the last transfer is skipped
+    // by RecvResponse().
+    // 10/31/2026: The reply was parsed with sscanf("%s") into 25 byte
+    // stack buffers and the port computed from unchecked numbers.
+    // ParsePASVPort() checks the fields. The data connection goes to
+    // the address of the control connection: the address in the reply
+    // is not used, so a server cannot send the client to another host.
+    int port = ParsePASVPort(reply_buf);
+    if(port <= 0) return socket_error = gxSOCKET_FTP_ERROR;
+    gxsSocketAddress data_sin;
+    memmove(&data_sin, &sin, sizeof(data_sin));
+    data_sin.sin_port = htons((unsigned short)port);
+    if(ftp_data.InitSocket(SOCK_STREAM, &data_sin) < 0) {
       return SetSocketError(ftp_data.GetSocketError());
     }
     if(ftp_data.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, 
@@ -550,85 +564,200 @@ int gxsFTPClient::RecvResponse(char *buf, int bytes, const char *response)
   return RecvResponse(gxsocket, buf, bytes, response);
 }
 
+int gxsFTPClient::ParseReply(const char *buf, int len, int *code, 
+			     int *consumed)
+// 10/31/2026: Parse one reply ("150-..." lines up to "150 ...") from
+// the start of buf. Returns 1 if buf holds a complete reply, with the
+// code and the number of bytes used passed back, 0 if the reply has
+// not ended, or -1 if its first line does not start with a 3 digit
+// code (1-5) followed by a space, '-' or the line end. Lines of a 
+// multi-line reply between the first and last line can hold any text
+// (RFC 959 4.2).
+{
+  if(code) *code = 0;
+  if(consumed) *consumed = 0;
+  if(!buf || len <= 0) return 0;
+  int nl = 0;
+  while(nl < len && buf[nl] != '\n') nl++;
+  int n = (nl < len) ? nl : len; // Length of the first line so far
+  if(n > 0 && nl < len && buf[n-1] == '\r') n--;
+  for(int i = 0; i < n && i < 3; i++) {
+    if(!ftp_is_digit(buf[i])) return -1;
+  }
+  if(n > 0 && (buf[0] < '1' || buf[0] > '5')) return -1;
+  if(n > 3 && buf[3] != ' ' && buf[3] != '-' && buf[3] != '\r') return -1;
+  if(nl >= len) return 0; // The first line has not ended
+  if(n < 3) return -1;
+  int c = ((buf[0]-'0')*100) + ((buf[1]-'0')*10) + (buf[2]-'0');
+  int pos = nl + 1;
+  if(n > 3 && buf[3] == '-') { // Multi-line: up to "ddd " or "ddd" alone
+    for(int lines = 0; ; lines++) {
+      if(lines > 10000) return -1;
+      int e = pos;
+      while(e < len && buf[e] != '\n') e++;
+      if(e >= len) return 0; // The reply has not ended
+      int line_len = e - pos;
+      if(line_len > 0 && buf[e-1] == '\r') line_len--;
+      const char *line = buf + pos;
+      pos = e + 1;
+      if(line_len >= 3 && memcmp(line, buf, 3) == 0 &&
+	 (line_len == 3 || line[3] == ' ')) break;
+    }
+  }
+  if(code) *code = c;
+  if(consumed) *consumed = pos;
+  return 1;
+}
+
+int gxsFTPClient::ParsePASVPort(const char *reply)
+// 10/31/2026: Data port from "227 Entering Passive Mode 
+// (h1,h2,h3,h4,p1,p2)", with or without the parentheses. Each field
+// must be a number from 0 to 255. Returns 1-65535, or -1 if the reply
+// is not valid.
+{
+  if(!reply || strncmp(reply, "227", 3) != 0) return -1;
+  const char *p = reply + 3;
+  const char *open = strchr(p, '(');
+  if(open) {
+    p = open + 1;
+  }
+  else { // Some servers leave out the parentheses (RFC 1123 4.1.2.6)
+    while(*p && *p != '\n' && !ftp_is_digit(*p)) p++;
+  }
+  long v[6];
+  for(int i = 0; i < 6; i++) {
+    while(*p == ' ') p++;
+    if(!ftp_is_digit(*p)) return -1;
+    long n = 0;
+    int digits = 0;
+    while(ftp_is_digit(*p)) {
+      if(++digits > 3) return -1;
+      n = (n * 10) + (*p - '0');
+      p++;
+    }
+    if(n > 255) return -1;
+    v[i] = n;
+    while(*p == ' ') p++;
+    if(i < 5) {
+      if(*p != ',') return -1;
+      p++;
+    }
+  }
+  if(open && *p != ')') return -1;
+  long port = (v[4] * 256) + v[5];
+  if(port < 1 || port > 65535) return -1;
+  return (int)port;
+}
+
 int gxsFTPClient::RecvResponse(gxsSocket_t s, char *buf, int bytes, 
 			       const char *response)
 // Blocking receive function used to read a reply from an FTP server
 // following a command. If the specified response is not received within
 // the timeout period this function will return false to indicate an error.
 // Returns true if successful.
+// 10/31/2026: Replies are parsed by ParseReply(). The reply code (3 
+// digits) is compared with the first 3 characters of response; it was
+// searched for anywhere in the reply. A 226 reply left over from the 
+// last transfer (FTPGet() and FTPList() do not read it) and other 
+// preliminary 1xx replies are skipped. At most bytes-1 bytes are kept
+// (the NUL was written one byte past a full buffer); when a long reply
+// fills the buffer, its earlier lines are dropped.
 {
   int byte_count = 0;       // Byte counter
   int num_read = 0;         // Actual number of bytes read
-  int num_req = (int)bytes; // Number of bytes requested 
-  char *p = buf;            // Pointer to the buffer
-  int reply_code = 0;       // Reply code 
+  int dropped = 0;          // Bytes dropped from a long reply
+  if(!buf || bytes < 2 || !response) {
+    socket_error = gxSOCKET_BUFOVER_ERROR;
+    if(buf && bytes > 0) buf[0] = 0;
+    return 0;
+  }
+  int limit = bytes - 1; // Room for the NUL
+  buf[0] = 0;
+  char expect[4];
+  memset(expect, 0, sizeof(expect));
+  strncpy(expect, response, 3);
 
-  while(byte_count < bytes) { // Loop until the buffer is full
-    if(!WaitForReply(s)) { 
-      socket_error = gxSOCKET_REQUEST_TIMEOUT;      
-      if(byte_count >= 0) buf[byte_count] = 0;
+  for(;;) {
+    // Parse the replies received so far
+    int code = 0, consumed = 0;
+    int rv = ParseReply(buf, byte_count, &code, &consumed);
+    if(rv < 0) {
+      socket_error = gxSOCKET_FTP_ERROR;
       return 0;
     }
-    if((num_read = recv(s, p, num_req-byte_count, 0)) > 0) {
-      byte_count += num_read; // Increment the byte counter
-      p += num_read;          // Move the buffer pointer for the next read
-
-      if(byte_count >= 4) {
-	sscanf(buf, "%d", &reply_code);
-	// Check for FTP error codes 400 and higher
-	if(reply_code >= 400) {
-	  buf[byte_count] = 0; // Null terminate the reply buffer
-	  socket_error = gxSOCKET_FTP_ERROR;
+    if(rv > 0) {
+      char code_str[4];
+      code_str[0] = (char)('0' + (code / 100));
+      code_str[1] = (char)('0' + ((code / 10) % 10));
+      code_str[2] = (char)('0' + (code % 10));
+      code_str[3] = 0;
+      int match = (expect[0] != 0) && 
+	(strncmp(code_str, expect, strlen(expect)) == 0);
+      if(!match && (code == 226 || (code >= 100 && code < 200 &&
+				    code != 110 && code != 120 && 
+				    code != 125))) {
+	// Skip a 226 left over from the last transfer or a preliminary
+	// reply, and parse what follows it
+	memmove(buf, buf+consumed, byte_count-consumed);
+	byte_count -= consumed;
+	buf[byte_count] = 0;
+	dropped += consumed;
+	if(dropped > 1024*1024) {
+	  socket_error = gxSOCKET_BUFOVER_ERROR;
 	  return 0;
 	}
-	if((reply_code == 110) || (reply_code == 120) ||
-	   (reply_code == 202) || (reply_code == 332)) {
-	  buf[byte_count] = 0; // Null terminate the reply buffer
-	  socket_error = gxSOCKET_FTP_ERROR;
-	  return 0;
-	}
-	if((reply_code == 125) || (reply_code == 225)) {
-	  buf[byte_count] = 0; // Null terminate the reply buffer
-	  return 1; // Data connection already open
-	}
+	continue;
       }
-
-      // Search for a matching string
-      char *pattern = (char *)response;
-      char *next = buf;
-      int i = 0;
-      while(i < byte_count && *pattern) {
-	if(*next == *pattern) {
-	  pattern++;
-	  if(*pattern == 0) {
-	    if(byte_count >= 0) buf[byte_count] = 0;
-	    return 1; // Found matching string
-	  }
-	  next++;
-	}
-	else {
-	  i++;
-	  next++;
-	  pattern = (char *)response;
-	}
-      } 
+      // Check for FTP error codes 400 and higher
+      if(code >= 400) {
+	socket_error = gxSOCKET_FTP_ERROR;
+	return 0;
+      }
+      if(match) return 1; // Found the expected reply
+      if((code == 125) || (code == 225)) {
+	return 1; // Data connection already open
+      }
+      socket_error = gxSOCKET_FTP_ERROR; // 110, 120, 202, 332 or another
+      return 0;
     }
+
+    if(byte_count >= limit) {
+      // Keep the incomplete last line and drop the complete lines
+      // of this reply before it, except the first, which holds the 
+      // code. ParseReply() has checked the first line.
+      int first = 0;
+      while(first < byte_count && buf[first] != '\n') first++;
+      first++;
+      int last = byte_count;
+      while(last > first && buf[last-1] != '\n') last--;
+      if(last <= first || dropped > 1024*1024) {
+	// The receieve buffer is full - buffer overflow
+	socket_error = gxSOCKET_BUFOVER_ERROR;
+	return 0;
+      }
+      memmove(buf+first, buf+last, byte_count-last);
+      dropped += last - first;
+      byte_count -= last - first;
+      buf[byte_count] = 0;
+    }
+
+    if(!WaitForReply(s)) { 
+      socket_error = gxSOCKET_REQUEST_TIMEOUT;      
+      return 0;
+    }
+    num_read = recv(s, buf+byte_count, limit-byte_count, 0);
     if(num_read == 0) {
-      if(bytes_read >= 0) buf[bytes_read] = 0;
+      // 10/31/2026: buf[bytes_read] used the socket's byte counter
       socket_error = gxSOCKET_DISCONNECTED_ERROR;
       return 0; // An error occurred during the read
     }
     if(num_read < 0) {
-      if(byte_count >= 0) buf[byte_count] = 0;
       socket_error = gxSOCKET_RECEIVE_ERROR;
       return 0; // An error occurred during the read
     }
+    byte_count += num_read; // Increment the byte counter
+    buf[byte_count] = 0;    // Null terminate the reply buffer
   }
-
-  // The receieve buffer is full - buffer overflow
-  socket_error = gxSOCKET_BUFOVER_ERROR;
-  if(byte_count >= 0) buf[byte_count] = 0;
-  return 0;
 }
 
 #ifdef __BCC32__
