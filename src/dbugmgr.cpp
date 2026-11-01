@@ -764,8 +764,13 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
     // or runs past the end of file as a bad block. A zero length looped
     // forever and a short length gave a negative object length.
     if((TestBlockHeader(blk)) && 
-       (((FAU_t)blk.block_length < (FAU_t)BlockHeaderSize()) ||
-	((FAU_t)(addr + blk.block_length) > StaticEOF))) {
+       (((unsigned long long)blk.block_length < 
+	 (unsigned long long)BlockHeaderSize()) ||
+	// 11/01/2026: Unsigned compare with the room left; addr plus a
+	// huge length wrapped and passed the end of file test
+	(addr > StaticEOF) ||
+	((unsigned long long)blk.block_length > 
+	 (unsigned long long)(StaticEOF - addr)))) {
       str_append(status_message, "Bad block length found at file address: ", addr, "\n");
       badgx++;
       addr = BlockSearch(curr_addr); // Search for the next good block

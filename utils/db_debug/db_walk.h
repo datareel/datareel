@@ -64,9 +64,13 @@ inline gxdWalkResult gxdWalkStep(gxDatabaseDebugManager *f, FAU_t addr,
   if(f->Read(&blk, sizeof(gxBlockHeader), addr) != gxDBASE_NO_ERROR) {
     return gxdWALK_ERROR;
   }
+  // 11/01/2026: Compare the length unsigned against the room left in
+  // the file; addr + a huge length overflowed FAU_t (found by fuzzing)
   if(f->TestBlockHeader(blk) &&
-     (FAU_t)blk.block_length >= (FAU_t)f->BlockHeaderSize() &&
-     (FAU_t)(addr + (FAU_t)blk.block_length) <= eof) {
+     (unsigned long long)blk.block_length >= 
+     (unsigned long long)f->BlockHeaderSize() &&
+     (unsigned long long)blk.block_length <= 
+     (unsigned long long)(eof - addr)) {
     next = addr + (FAU_t)blk.block_length;
     if(next >= eof) next = (FAU_t)0; // Last block
     return gxdWALK_GOOD;
