@@ -41,6 +41,8 @@ so a crash or a killing signal is reported as a FAIL.
   iotimeout   SetIOTimeout(): a blocking Recv() from a silent peer
               returns -1 after the timeout instead of waiting for ever.
   loopback    A TCP Send()/Recv() round trip over 127.0.0.1.
+  address     InitSIN() fills in the structure passed to it, and
+              SetRemoteIPAddress() sets the remote address.
 
 Returns 0 if every check passes.
 */
@@ -230,6 +232,32 @@ static int test_loopback()
   return 0;
 }
 
+static int test_address()
+{
+  int rv = 0;
+  gxSocket s;
+  gxsSocketAddress sa;
+  memset(&sa, 0xff, sizeof(sa));
+  if(s.InitSIN(&sa, AF_INET, 4321, (char *)"127.0.0.1") != 0) return 1;
+  if(sa.sin_addr.s_addr != htonl(0x7f000001) || ntohs(sa.sin_port) != 4321) {
+    printf("  InitSIN() did not fill in the structure passed to it\n");
+    rv = 1;
+  }
+  s.SetRemoteIPAddress((char *)"127.0.0.1");
+  if(s.remote_sin.sin_addr.s_addr != htonl(0x7f000001)) {
+    printf("  SetRemoteIPAddress() did not set the address\n");
+    rv = 1;
+  }
+  // Out of range error codes give the invalid code message
+  s.SetSocketError((gxSocketError)-5);
+  const char *msg = s.SocketExceptionMessage();
+  if(!msg || strcmp(msg, s.TestExceptionMessage(1)) != 0) {
+    printf("  SocketExceptionMessage() with a negative code\n");
+    rv = 1;
+  }
+  return rv;
+}
+
 int main()
 {
   run("close: a second Close() does not close a reused descriptor",
@@ -239,6 +267,7 @@ int main()
   run("sigpipe: Send() to a closed peer returns -1", test_sigpipe);
   run("iotimeout: SetIOTimeout() ends a blocking Recv()", test_iotimeout);
   run("loopback: TCP Send()/Recv() round trip", test_loopback);
+  run("address: InitSIN() and SetRemoteIPAddress()", test_address);
   printf("%d failure(s)\n", failures);
   return failures ? 1 : 0;
 }
