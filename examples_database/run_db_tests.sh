@@ -19,6 +19,16 @@ for e in $EX; do
   (cd "$d" && yes '' | "$HERE/$e/testprog" > run1.log 2>&1 && \
    yes '' | "$HERE/$e/testprog" > run2.log 2>&1); result $? "$e (create, then reopen)"
 done
+# 10/31/2026: db_debug ends on damaged block lengths (7.3 security sweep)
+d="$W/db_debug"; mkdir -p "$d"
+(cd "$HERE/../utils/db_debug" && make >/dev/null 2>&1)
+(cd "$d" && "$HERE/damaged/testprog" --make-damaged dmg.gxd && \
+ timeout 60 "$HERE/../utils/db_debug/db_debug" dmg.gxd f > db_debug.log 2>&1 && \
+ grep -q "good database blocks" db_debug.log); result $? "db_debug ends on damaged block lengths"
+# 10/31/2026: config writer, log file and RSA key file (7.3 security sweep)
+d="$W/security_sweep"; mkdir -p "$d"
+(cd "$HERE/../examples_general/security_sweep" && make >/dev/null 2>&1)
+(cd "$d" && "$HERE/../examples_general/security_sweep/testprog" > sweep.log 2>&1); result $? "security sweep (config writer, log file, RSA key file)"
 for m in 0 1; do
   d="$W/journal_map$m"; mkdir -p "$d"
   (cd "$d" && "$HERE/journal/testprog" 20 7 $m > journal.log 2>&1); result $? "journal tests (memory-mapped reads $m)"

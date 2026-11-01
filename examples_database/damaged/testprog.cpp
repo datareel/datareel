@@ -136,8 +136,19 @@ static int same_file(const char *a, const char *b)
   return same;
 }
 
-int main()
+int main(int argc, char **argv)
 {
+  // 10/31/2026: testprog --make-damaged file writes a rev 'C' file with
+  // a zero block length and a length that wraps the address back, for
+  // the db_debug check in run_db_tests.sh
+  if(argc == 3 && strcmp(argv[1], "--make-damaged") == 0) {
+    FAU_t objs[NUM_OBJECTS];
+    if(!make_db(argv[2], objs)) return 1;
+    set_length(argv[2], objs[20], 0);
+    set_length(argv[2], objs[40], (gxUINT32)0 - (gxUINT32)90);
+    set_length(argv[2], objs[60], 3);
+    return 0;
+  }
 #if defined (__UNIX__)
   struct rlimit rl;
   rl.rlim_cur = rl.rlim_max = 1024UL * 1024UL * 1024UL;

@@ -42,6 +42,18 @@ after opening or overwriting a log file.
 #include <string.h>
 #include "logfile.h"
 #include "systime.h"
+#include "gxdfptr.h" // 10/31/2026: gxdFPTRCreatePrivate()
+
+static void logfile_create_private(const char *fname)
+// 10/31/2026: A new log file is created owner-only (mode 0600 on UNIX,
+// a protected DACL for the current user on Windows). It used to get the
+// umask permissions (found by the DataReel 7.3 security sweep). The
+// access of an existing log file is not changed.
+{
+  if(!fname || gxdFPTRExists(fname)) return;
+  gxdFPTR *f = gxdFPTRCreatePrivate(fname);
+  if(f) gxdFPTRClose(f);
+}
 
 #ifdef __BCC32__
 #pragma warn -8080
@@ -53,6 +65,7 @@ int LogFile::Open(const char *fname)
 // value to indicate a failure.
 {
   int rv;
+  logfile_create_private(fname); // 10/31/2026
   if(df_Exists(fname)) {
     rv = df_Open(fname, DiskFileB::df_READWRITE, DiskFileB::df_APPEND);
   }
@@ -68,6 +81,7 @@ int LogFile::OverWrite(const char *fname)
 // overwrite it. Returns zero to indicate success or a non-zero 
 // value to indicate a failure.
 {
+  logfile_create_private(fname); // 10/31/2026
   int rv = df_Create(fname);
   df_Text(); // Turn on text translation for all logfiles
   return rv;

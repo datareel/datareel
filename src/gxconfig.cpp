@@ -354,12 +354,24 @@ long gxConfig::GetLongValue(const char *Name, int fn)
   return GetLongValue(buf, fn);
 }
 
+static int gxconfig_one_line(const gxString &s)
+// 10/31/2026: True if "s" has no line break. A name, value or comment
+// with a CR or LF used to write extra lines into the config file, so a
+// value could add or replace other settings (found by the DataReel 7.3
+// security sweep).
+{
+  const char *p = s.c_str();
+  return p && !strchr(p, '\n') && !strchr(p, '\r');
+}
+
 int gxConfig::WriteConfigLine(const gxString &parm, const gxString &value)
 // Write a line to the config file.  NOTE: All parameter values should
 // not contain a parameter ID label at the end of the string. The 
 // parameter ID label will be added to mark it as a config file parameter.
 // By default an equal sign will be used as a parameter ID.
+// 10/31/2026: Returns 0 if the name or value has a line break.
 {
+  if(!gxconfig_one_line(parm) || !gxconfig_one_line(value)) return 0;
   DiskFileB outfile(FileName.c_str(), DiskFileB::df_READWRITE, 
 		    DiskFileB::df_NO_CREATE, DiskFileB::df_APPEND);
   if(!outfile) return 0; // Cannot open the file
@@ -378,7 +390,9 @@ int gxConfig::WriteConfigLine(const char *parm, const char *value)
 int gxConfig::WriteCommentLine(const gxString &s)
 // Write a comment line to the config file.  NOTE: Do not include the
 // comment ID character. The comment ID will by automatically inserted.
+// 10/31/2026: Returns 0 if the comment has a line break.
 {
+  if(!gxconfig_one_line(s)) return 0;
   DiskFileB outfile(FileName.c_str(), DiskFileB::df_READWRITE, 
 		    DiskFileB::df_NO_CREATE, DiskFileB::df_APPEND);
   if(!outfile) return 0; // Cannot open the file
@@ -417,7 +431,9 @@ int gxConfig::ChangeConfigLine(const gxString &string_to_replace,
 			       int check_case, int append_lines)
 // This function is used to replace strings in the config file.
 // Returns the number of strings processed or zero if an error occurs.
+// 10/31/2026: Returns 0 if the name or the new value has a line break.
 {
+  if(!gxconfig_one_line(string_to_replace) || !gxconfig_one_line(string_to_insert)) return 0;
   const int MAX_LINE = 1024;   // Maximum characters per line
   char LineBuffer[MAX_LINE];
   char rawLineBuffer[MAX_LINE];
@@ -474,13 +490,26 @@ int gxConfig::ChangeConfigLine(const gxString &string_to_replace,
 
     // Routine to replace a line
     // ----------------------------------------------------------- 
-    if(check_case) { // Find entire match checking the case of the string
-      offset = LineData.Find((char *)string_to_replace.c_str(),
-			     string_to_replace.length(), 0);
-    }
-    else {
-      offset = LineData.IFind((char *)string_to_replace.c_str(),
-			      string_to_replace.length(), 0);
+    // 10/31/2026: The name must start the line (after spaces or tabs).
+    // It used to be found anywhere in the line, so a change rewrote the
+    // wrong settings: a name that ends with this name, a value or a
+    // comment that holds it (found by the DataReel 7.3 security sweep).
+    {
+      unsigned start = 0;
+      while((start < LineData.length()) &&
+	    ((LineData[start] == ' ') || (LineData[start] == '\t'))) start++;
+      offset = -1;
+      if((start < LineData.length()) && (LineData[start] != comment_char) &&
+	 (LineData.length() - start >= string_to_replace.length())) {
+	const char *name = LineData.c_str() + start;
+	const char *want = string_to_replace.c_str();
+	int same = 1;
+	for(unsigned k = 0; same && k < string_to_replace.length(); k++) {
+	  if(check_case) same = (name[k] == want[k]);
+	  else same = (tolower((unsigned char)name[k]) == tolower((unsigned char)want[k]));
+	}
+	if(same) offset = (int)start;
+      }
     }
 
     if(offset == -1) { // The configurable parameter was not found
@@ -497,7 +526,7 @@ int gxConfig::ChangeConfigLine(const gxString &string_to_replace,
     offset += string_to_replace.length();
 
     // Ensure the complete string is matched before modifying the parameter
-    if((LineData[offset] == ' ') || 
+    if((LineData[offset] == ' ') || (LineData[offset] == '\t') || // 10/31/2026: tab
        (LineData[offset] == parm_ID[0])) {
       LineData.DeleteAt(offset, (LineData.length() - offset));
       LineData.InsertAt(offset, parm_ID.c_str()); // Insert parameter ID string

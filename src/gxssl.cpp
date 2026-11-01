@@ -45,6 +45,12 @@ the source code and documentation supplied with the third party library.
 #include "gxdlcode.h"
 
 #include "gxssl.h"
+#include "gxdfptr.h" // 10/31/2026: gxdFPTRMakePrivate()
+#if defined (__UNIX__)
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#endif
 
 // 08/06/2009: Moved gxRandom class outside of __USE_GX_SSL_EXTENSIONS__
 // 08/06/2009: conditional directive. This allows the random class to 
@@ -1657,7 +1663,25 @@ int gxSSL::MakeRSAPrivateKey(const char *key_fname, int key_len,
 
   if(!private_key) return ssl_error = gxSSL_RSAGEN_ERROR;
 
+  // 10/31/2026: The private key file is owner-only (mode 0600 on UNIX,
+  // a protected DACL for the current user on Windows) before the key is
+  // written. It used to get the umask permissions, usually readable by
+  // every user (found by the DataReel 7.3 security sweep).
+#if defined (__UNIX__)
+  FILE *fp = 0;
+  int fd = open(key_fname, O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, S_IRUSR|S_IWUSR);
+  if(fd >= 0) {
+    if(fchmod(fd, S_IRUSR|S_IWUSR) == 0) fp = fdopen(fd, "wb");
+    if(!fp) close(fd);
+  }
+#else
   FILE *fp = fopen(key_fname, "w+b");
+  if(fp && (gxdFPTRMakePrivate(key_fname) != 0)) {
+    fclose(fp);
+    remove(key_fname);
+    fp = 0;
+  }
+#endif
   if(!fp) {
     app_err_str << clear << "SSL exception: Can't write RSA private key file " 
 		<< key_fname;

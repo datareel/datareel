@@ -16,6 +16,14 @@ set W=%~dp0test_runs
 if not exist "%W%" mkdir "%W%"
 for %%e in (btree btree_cached btree_node damaged database database_cache defrag infohog pod simple journal) do call :build %%e
 for %%e in (btree btree_cached btree_node damaged database database_cache defrag infohog pod simple) do call :run %%e
+pushd "%~dp0..\examples_general\security_sweep"
+nmake -nologo -f msvc.mak FINAL=1 64BITCFG=%CFG% USESSL=0 > build.log 2>&1
+popd
+if not exist "%W%\security_sweep" mkdir "%W%\security_sweep"
+pushd "%W%\security_sweep"
+"%~dp0..\examples_general\security_sweep\testprog.exe" > sweep.log 2>&1
+if errorlevel 1 (echo FAIL security sweep & set /a FAIL+=1) else (echo PASS security sweep & set /a PASS+=1)
+popd
 call :journal 0
 call :journal 1
 echo %PASS% passed, %FAIL% failed (logs in %W%)

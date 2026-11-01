@@ -167,7 +167,12 @@ void FindBlock(gxDatabaseDebugManager *f, int verbose, int walk)
     f->Read(&blk, sizeof(gxBlockHeader), addr);
     if(CheckError((gxDatabase *)f) != 0) return;
     
-    if(f->TestBlockHeader(blk)) { 
+    // 10/31/2026: A block whose next address is not past this one and
+    // inside the file is bad. With native types on 64-bit systems a
+    // damaged length wrapped the address back to an earlier block and
+    // the search never ended (found by the DataReel 7.3 security sweep).
+    FAU_t next_addr = addr + (FAU_t)blk.block_length;
+    if(f->TestBlockHeader(blk) && (next_addr > addr) && (next_addr <= StaticEOF)) { 
       count++; // Increment the database block count
       if(verbose) {
 	BlockStats((gxDatabase *)f, (addr+f->BlockHeaderSize()));
@@ -186,7 +191,7 @@ void FindBlock(gxDatabaseDebugManager *f, int verbose, int walk)
 	  }
 	}
       }
-      addr = addr + blk.block_length; // Go to the next database block
+      addr = next_addr; // Go to the next database block
     }
     else {
       badgx++;
@@ -195,7 +200,8 @@ void FindBlock(gxDatabaseDebugManager *f, int verbose, int walk)
       GXSTD::cout << "Found bad database block at address " << intbuf.c_str() 
 		  << "\n";
       GXSTD::cout << "Searching for next good database block..." << "\n";
-      addr = f->BlockSearch(addr); // Search for the next good block
+      // 10/31/2026: From the next byte, so the search always moves on
+      addr = f->BlockSearch(addr + 1); // Search for the next good block
       if(!addr) {
 	GXSTD::cout << "None found!" << "\n";
 	GXSTD::cout << "\n";
