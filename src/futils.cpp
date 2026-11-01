@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -928,7 +928,15 @@ GXDLCODE_API int futils_mkdir(const char *dir_name)
 // will use 755 permissions when new directories are 
 // created.
 {
-  char *path = (char *)dir_name;
+  // 10/31/2026: Work on a copy. The path separators were changed in the
+  // caller's string (a crash for a string literal), a path longer than
+  // the buffer was copied without a null, and an empty name read
+  // sbuf[-1].
+  char pbuf[futils_MAX_PATH_LENGTH];
+  if(!dir_name || !*dir_name) return 1;
+  if(strlen(dir_name) >= futils_MAX_PATH_LENGTH) return 1;
+  strcpy(pbuf, dir_name);
+  char *path = pbuf;
   char path_sep;
   char sbuf[futils_MAX_PATH_LENGTH];
   unsigned i = 0; int rv;  
@@ -1075,6 +1083,9 @@ GXDLCODE_API int futils_chmod(const char *fname, const char *mode_str)
   int mode = 0;
   char obuf[81];
   memset(obuf, 0, sizeof(obuf));
+  // 10/31/2026: A mode string of 80 or more characters overflowed obuf
+  // (the copy, then the leading 0 moved it one more byte)
+  if(strlen(mode_str) >= (sizeof(obuf)-1)) return 1;
   strcpy(obuf, mode_str);
   char *p = obuf;
 
@@ -1146,6 +1157,12 @@ GXDLCODE_API int futils_chmod(const char *fname, futilPermissionMode pmode)
   return 0;
 }
 
+static void futils_strmove(char *to, const char *from)
+// 10/31/2026: strcpy() for strings that overlap
+{
+  memmove(to, from, strlen(from) + 1);
+}
+
 GXDLCODE_API void futils_pathsimplify(const char *path, char *new_path, 
 				      char path_sep)
 // Function used to canonicalize a path and return a new path.
@@ -1186,7 +1203,9 @@ GXDLCODE_API void futils_pathsimplify(const char *path, char *new_path,
     else
       break;
   }
-  if(i) strcpy(new_path, new_path + i - ddot);
+  // 10/31/2026: The copies inside new_path overlap, which strcpy() does
+  // not allow (undefined behaviour); futils_strmove() is memmove().
+  if(i) futils_strmove(new_path, new_path + i - ddot);
 
   // Replace single `.' or `..' with `/'.
   if((new_path[0] == '.' && new_path[1] == '\0') 
@@ -1220,7 +1239,7 @@ GXDLCODE_API void futils_pathsimplify(const char *path, char *new_path,
     }
 
     if((start + 1) != i) {
-      strcpy(new_path + start + 1, new_path + i);
+      futils_strmove(new_path + start + 1, new_path + i);
       i = start + 1;
     }
 
@@ -1240,7 +1259,7 @@ GXDLCODE_API void futils_pathsimplify(const char *path, char *new_path,
 
       // Handle `./' paths
       if(new_path[i + 1] == path_sep) {
-	strcpy(new_path + i, new_path + i + 1);
+	futils_strmove(new_path + i, new_path + i + 1);
 	i =(start < 0) ? 0 : start;
 	continue;
       }
@@ -1249,7 +1268,7 @@ GXDLCODE_API void futils_pathsimplify(const char *path, char *new_path,
       if(new_path[i + 1] == '.' &&
 	 (new_path[i + 2] == path_sep || !new_path[i + 2])) {
 	while(--start > -1 && new_path[start] != path_sep);
-	strcpy(new_path + start + 1, new_path + i + 2);
+	futils_strmove(new_path + start + 1, new_path + i + 2);
 	i = (start < 0) ? 0 : start;
 	continue;
       }
@@ -1278,11 +1297,14 @@ GXDLCODE_API int futils_genoutputfilename(const char *current_file,
   char *p;
   
   if(!out_file) return 1;
+  if(!current_file || !extension) return 1; // 10/31/2026: Null pointers
 
   for(i = 0; i < futils_MAX_NAME_LENGTH; i++) out_file[i] = '\0';
   p = (char *)current_file;
   len = strlen(p);
-  for(i = 0; i < len && i != futils_MAX_NAME_LENGTH; i++, p++) {
+  // 10/31/2026: Stop one short so out_file keeps its null (a name of
+  // futils_MAX_NAME_LENGTH characters without a dot filled it)
+  for(i = 0; i < len && i < (futils_MAX_NAME_LENGTH-1); i++, p++) {
     if(*p == '.') break;
     out_file[i] = *p;
   }

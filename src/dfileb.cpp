@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -215,7 +215,9 @@ void DiskFileB::df_LoadNameBuffer(const char *s)
   unsigned len = strlen(s);
 
   // Prevent an overflow if the maximum name length is exceeded
-  if(len > df_MAX_NAME_LENGTH) len = df_MAX_NAME_LENGTH-1; 
+  // 10/31/2026: A name of exactly df_MAX_NAME_LENGTH characters wrote the
+  // null one past the end of the name buffer
+  if(len >= df_MAX_NAME_LENGTH) len = df_MAX_NAME_LENGTH-1; 
 
   // Load the name buffer
   memmove(df_open_file_name, s, len);
@@ -448,7 +450,11 @@ int DiskFileB::df_Read(void *buf, unsigned bytes, FAU_t position)
     }
 
     df_bytes_read = gxdFPTRRead(df_fptr, buf, bytes);
-    if(df_bytes_read == 0) df_bytes_read = bytes;
+    // 10/31/2026: A read that got no bytes (at the end of the file or on a
+    // read error) was counted as a full read, so callers used buffer bytes
+    // that were never read and loops reading to the end never ended. It
+    // is now an EOF or read error with df_gcount() 0. Reads that get any
+    // bytes, and reads of 0 bytes, are unchanged.
     if(df_bytes_read != bytes) {
       if(df_EOF())
 	return df_last_error = DiskFileB::df_EOF_ERROR;
@@ -637,6 +643,10 @@ int DiskFileB::df_GetLine(char *sbuf, unsigned bytes, const char delimiter,
 {
   char *p = sbuf;
   unsigned i;
+
+  // 10/31/2026: A zero length buffer has no room for the null (it was
+  // written at sbuf[1])
+  if(!sbuf || bytes == 0) return df_last_error = DiskFileB::df_BUFFER_OVERFLOW;
 
   for(i = 0; i < bytes; i++) {
 
@@ -1095,20 +1105,36 @@ DiskFileB& DiskFileB::operator<<(const unsigned short val)
   return *this;
 }
 
+void DiskFileB::df_WriteFloat(double val)
+// 10/31/2026: Text output of a float or double. The value was printed
+// with sprintf() into char[81]: 1e100 and up, or a high precision,
+// overflowed the stack buffer. The size is now measured first.
+{
+  char sbuf[81];
+  int pre = df_output_pre;
+  if(pre < 0) pre = 0;
+  int len = snprintf(sbuf, sizeof(sbuf), "%.*f", pre, val);
+  if(len < 0) return;
+  char *dbuf = sbuf;
+  if(len >= (int)sizeof(sbuf)) {
+    dbuf = new char[len+1];
+    snprintf(dbuf, len+1, "%.*f", pre, val);
+  }
+  if((df_output_width > 0) && ((int)strlen(dbuf) < df_output_width)) {
+    int i = df_output_width - strlen(dbuf);
+    while(i--) df_Write(&df_output_fill, sizeof(char));   
+  }
+  df_Write((char *)dbuf, strlen(dbuf)); 
+  if(dbuf != sbuf) delete[] dbuf;
+}
+
 DiskFileB& DiskFileB::operator<<(const float val)
 {
   if(df_output_bin) {
     df_Write(&val, sizeof(float));
   }
   else {
-    char sbuf[81]; char fbuf[81];
-    sprintf(fbuf, "%%.%df", df_output_pre);
-    sprintf(sbuf, (const char *)fbuf, val);
-    if((df_output_width > 0) && ((int)strlen(sbuf) < df_output_width)) {
-      int i = df_output_width - strlen(sbuf);
-      while(i--) df_Write(&df_output_fill, sizeof(char));   
-    }
-    df_Write((char *)sbuf, strlen(sbuf)); 
+    df_WriteFloat((double)val);
   }
   return *this;
 }
@@ -1119,14 +1145,7 @@ DiskFileB& DiskFileB::operator<<(const double val)
     df_Write(&val, sizeof(double));
   }
   else {
-    char sbuf[81]; char fbuf[81];
-    sprintf(fbuf, "%%.%df", df_output_pre);
-    sprintf(sbuf, (const char *)fbuf, val);
-    if((df_output_width > 0) && ((int)strlen(sbuf) < df_output_width)) {
-      int i = df_output_width - strlen(sbuf);
-      while(i--) df_Write(&df_output_fill, sizeof(char));   
-    }
-    df_Write((char *)sbuf, strlen(sbuf)); 
+    df_WriteFloat((double)val);
   }
   return *this;
 }

@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -285,6 +285,7 @@ protected: // Internal processing functions
   void df_Copy(const DiskFileB &ob);
   void df_LoadNameBuffer(const char *s);
   void df_ClearNameBuffer();
+  void df_WriteFloat(double val); // 10/31/2026: Text output of floats
 
 protected: // Stream file handles
   gxdFPTR *df_fptr;  // Stream file handle used for all I/O operations  

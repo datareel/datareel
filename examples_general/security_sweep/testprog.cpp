@@ -56,6 +56,10 @@ USA
   strutil     FindMatch()/gxfind_pattern() stay inside the given length,
               64-bit number conversions with too many digits, a bad
               radix and negative values. StringANCompare() digit runs.
+  dfile       DiskFileB::df_Read() at the end of the file is an EOF error
+              (it was a full read of bytes never read), df_GetLine()
+              with a zero length buffer, text output of 1e300. futils
+              path simplify, output file names and chmod strings.
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -69,6 +73,7 @@ USA
 #include "gxstring.h"
 #include "membuf.h"
 #include "strutil.h"
+#include "futils.h"
 #include "memblock.h"
 #if defined (__USE_GX_SSL_EXTENSIONS__)
 #include "gxssl.h"
@@ -273,6 +278,47 @@ int main()
     check(StringANCompare("1", "12", 1) < 0 && StringANCompare("12", "1", 1) > 0 &&
 	  StringANCompare("a2", "a10", 0) < 0 && StringANCompare("abc", "abc", 1) == 0,
 	  "strutil: StringANCompare() with digits to the end of a string");
+  }
+
+  // dfile
+  {
+    const char *fn = "sweep_dfile.txt";
+    FILE *fp = fopen(fn, "wb"); fputs("abc", fp); fclose(fp);
+    DiskFileB f;
+    check(f.df_Open(fn, DiskFileB::df_READONLY) == DiskFileB::df_NO_ERROR, "dfile: open");
+    char buf[16];
+    memset(buf, 'x', sizeof(buf));
+    check(f.df_Read(buf, 3) == DiskFileB::df_NO_ERROR && f.df_gcount() == 3 && memcmp(buf, "abc", 3) == 0,
+	  "dfile: a full read as before");
+    check(f.df_Read(buf, 4) == DiskFileB::df_EOF_ERROR && f.df_gcount() == 0,
+	  "dfile: a read at the end of the file is an EOF error with no bytes");
+    check(f.df_Read(buf, 2, (FAU_t)1) == DiskFileB::df_NO_ERROR && f.df_gcount() == 2 &&
+	  f.df_Read(buf, 8, (FAU_t)1) == DiskFileB::df_EOF_ERROR && f.df_gcount() == 2,
+	  "dfile: a short read as before");
+    f.df_Rewind();
+    char *one = new char[1];
+    check(f.df_GetLine(one, 0) != DiskFileB::df_NO_ERROR, "dfile: df_GetLine() with no room is refused");
+    delete[] one;
+    f.df_Close();
+    DiskFileB g;
+    g.df_Create(fn);
+    g.df_Text();
+    g << 1e300;
+    g.df_Close();
+    check(futils_filelength(fn) > 300, "dfile: text output of 1e300");
+    remove(fn);
+
+    char np[1024];
+    futils_pathsimplify("./a//b/../c/./d/", np, '/');
+    check(strcmp(np, "a/c/d") == 0, "futils: path simplify (overlapping copies)");
+    char longname[600], out[futils_MAX_NAME_LENGTH + 8];
+    memset(longname, 'n', sizeof(longname) - 1); longname[sizeof(longname)-1] = 0;
+    check(futils_genoutputfilename(longname, out, (char *)".x") != 0 &&
+	  futils_genoutputfilename("file.txt", out, (char *)".out") == 0 && strcmp(out, "file.out") == 0,
+	  "futils: output file name of a long name");
+    char mode[200];
+    memset(mode, '7', sizeof(mode) - 1); mode[sizeof(mode)-1] = 0;
+    check(futils_chmod("sweep_no_such_file", mode) != 0, "futils: chmod with a long mode string");
   }
 
   // base64
