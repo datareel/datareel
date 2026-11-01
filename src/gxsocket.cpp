@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -88,6 +88,15 @@ Still using old version under Solaris until new version is tested.
 
 12/19/2005: Added new error codes to the gxsSocketExceptionMessages
 array.
+
+10/31/2026: Close() sets the closed descriptors to -1, so a second
+Close() or the destructor no longer closes a descriptor number the
+program has opened again since. ReadSelect() uses poll() on UNIX:
+select() with a descriptor at or above FD_SETSIZE wrote past the end
+of the fd_set. Send() stops on a send() that returns 0 (it looped for
+ever) and, on Linux, sends with MSG_NOSIGNAL so a peer that closed the
+connection returns an error instead of killing the program with
+SIGPIPE. Added SetIOTimeout() to limit each blocking send and receive.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -95,7 +104,21 @@ array.
 
 #include<string.h>
 #include <fcntl.h>
+#include <limits.h>
 #include "gxsocket.h"
+
+#if defined (__UNIX__)
+#include <poll.h>  // 10/31/2026: ReadSelect()
+#include <errno.h>
+#endif
+
+// 10/31/2026: Flag added to every send() on a stream socket so a closed
+// peer gives EPIPE instead of SIGPIPE. Only Linux has MSG_NOSIGNAL.
+#if defined (__LINUX__) && defined (MSG_NOSIGNAL)
+const int gxsSEND_FLAGS = MSG_NOSIGNAL;
+#else
+const int gxsSEND_FLAGS = 0;
+#endif
 
 #if defined(__UNIX__) && !defined(__BSD_UNIX__)  
 #include <sys/utsname.h> // Used for host name information
@@ -583,10 +606,37 @@ int gxSocket::ReadSelect(gxsSocket_t s, int seconds, int useconds)
 // Function used to multiplex reads without polling. Returns false if a 
 // reply time is longer then the timeout values. 
 {
-#ifndef __SOLARIS__
+#if defined (__UNIX__)
+  // 10/31/2026: poll() in place of select(). FD_SET() with a descriptor
+  // at or above FD_SETSIZE (1024 on Linux) wrote past the end of the
+  // fd_set on the stack, and a server with many open files or
+  // connections gets such descriptors. A negative timeout waits with
+  // no limit. Returns 1 if the socket can be read (or has an error or
+  // hang up to report), 0 on a timeout, -1 if poll() fails.
+  if(s < 0) return 0; // CWS - socket was disconnected?
+  long long ms;
+  if(seconds < 0 || useconds < 0) {
+    ms = -1;
+  }
+  else {
+    ms = (long long)seconds * 1000 + (useconds + 999) / 1000;
+    if(ms > INT_MAX) ms = INT_MAX;
+  }
+  struct pollfd pfd;
+  pfd.fd = s;
+  pfd.events = POLLIN;
+  pfd.revents = 0;
+  int rv;
+  do {
+    rv = poll(&pfd, 1, (int)ms);
+  } while(rv < 0 && errno == EINTR);
+  if(rv > 0) return 1;
+  return rv;
+#else
   struct timeval timeout;
   fd_set fds;
   FD_ZERO(&fds);
+  if(s < 0) return 0;	//CWS - socket was disconnected?
   FD_SET(s, &fds);
   
   timeout.tv_sec = seconds;
@@ -595,33 +645,8 @@ int gxSocket::ReadSelect(gxsSocket_t s, int seconds, int useconds)
   // This function calls select() giving it the file descriptor of
   // the socket. The kernel reports back to this function when the file
   // descriptor has woken it up.
-  //CWS  return select(s+1, &fds, 0, 0, &timeout);
-  if(s < 0) return 0;	//CWS - socket was disconnected?
   return select(s+1, &fds, 0, 0, &timeout);
-
-#else 
-  // As submitted by DataReel user the Solaris select() function 
-  // may not always be reliable. This fix was added but not tested. 
-  // If any Solaris users test the below code please email the 
-  // DataReel Software Development team.  
-
-  // pollfd read_fds[1];
-  // read_fds[0].fd = s;
-  // read_fds[0].events = POLLIN | POLLERR | POLLHUP;
-  // read_fds[0].revents = 0;
-  // return poll(read_fds, 1, (seconds!=-1)?seconds*1000:-1);
-
-  // Use old code until above version is full under Solaris.
-  struct timeval timeout;
-  fd_set fds;
-  FD_ZERO(&fds);
-  FD_SET(s, &fds);
-  timeout.tv_sec = seconds;
-  timeout.tv_usec = useconds;
-  if(s < 0) return 0;
-  return select(s+1, &fds, 0, 0, &timeout);
-
-#endif // __SOLARIS__
+#endif
 }
 
 int gxSocket::Recv(void *buf, int bytes, int flags)
@@ -724,11 +749,15 @@ int gxSocket::Send(gxsSocket_t s, const void *buf, int bytes, int flags)
   char *p = (char *)buf; // Pointer to the buffer
 
   while(bytes_moved < bytes) { // Loop until the buffer is empty
-    if((num_moved = send(s, p, num_req-bytes_moved, flags)) > 0) {
+    // 10/31/2026: MSG_NOSIGNAL on Linux, see gxsSEND_FLAGS
+    if((num_moved = send(s, p, num_req-bytes_moved, 
+			 flags | gxsSEND_FLAGS)) > 0) {
       bytes_moved += num_moved;  // Increment the byte counter
       p += num_moved;            // Move the buffer pointer for the next read
     }
-    if(num_moved < 0) {
+    // 10/31/2026: A send() that moves no bytes is an error. It used
+    // to loop here for ever.
+    if(num_moved <= 0) {
       socket_error = gxSOCKET_TRANSMIT_ERROR;
       return -1; // An error occurred during the read
     }
@@ -830,6 +859,12 @@ void gxSocket::Close()
 #else
 #error You must define a target platform: __WIN32__ or __UNIX__
 #endif
+  // 10/31/2026: Forget the closed descriptors. A second Close(), or the
+  // destructor after Close(), closed the same numbers again, and by
+  // then they could belong to files or sockets the program had opened
+  // since.
+  gxsocket = -1;
+  remote_socket = -1;
 }
 
 void gxSocket::Close(gxsSocket_t &s)
@@ -1036,6 +1071,36 @@ int gxSocket::SetSockOpt(int level, int optName, const void *optVal,
 // Returns -1 if an error occurs.
 {
   return SetSockOpt(gxsocket, level, optName, optVal, optLen);
+}
+
+int gxSocket::SetIOTimeout(gxsSocket_t s, int seconds)
+// 10/31/2026: Limit each blocking send and receive on the specified
+// socket to seconds (SO_RCVTIMEO and SO_SNDTIMEO). A receive or send
+// that times out fails with an error. 0 or less removes the limit.
+// Returns -1 if an error occurs.
+{
+  if(seconds < 0) seconds = 0;
+#if defined (__WIN32__)
+  DWORD ms = (DWORD)seconds * 1000;
+  if(SetSockOpt(s, SOL_SOCKET, SO_RCVTIMEO, &ms, sizeof(ms)) < 0) return -1;
+  return SetSockOpt(s, SOL_SOCKET, SO_SNDTIMEO, &ms, sizeof(ms));
+#else
+  struct timeval tv;
+  tv.tv_sec = seconds;
+  tv.tv_usec = 0;
+  if(SetSockOpt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) return -1;
+  return SetSockOpt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#endif
+}
+
+int gxSocket::SetIOTimeout(int seconds)
+// 10/31/2026: SetIOTimeout() for the bound socket and, if one is
+// open, the remote socket. Returns -1 if an error occurs.
+{
+  int rv = 0;
+  if(gxsocket != -1 && SetIOTimeout(gxsocket, seconds) < 0) rv = -1;
+  if(remote_socket != -1 && SetIOTimeout(remote_socket, seconds) < 0) rv = -1;
+  return rv;
 }
 
 gxsServent *gxSocket::GetServiceInformation(char *name, char *protocol)
@@ -1349,7 +1414,8 @@ int gxSocket::RawWrite(gxsSocket_t s, const void *buf, int bytes,
 // error occurs.
 {
   bytes_moved = 0;
-  bytes_moved = send(s, (char *)buf, bytes, flags);
+  // 10/31/2026: MSG_NOSIGNAL on Linux, see gxsSEND_FLAGS
+  bytes_moved = send(s, (char *)buf, bytes, flags | gxsSEND_FLAGS);
   if(bytes_moved < 0) socket_error = gxSOCKET_TRANSMIT_ERROR;
   return bytes_moved;
 }
@@ -1494,7 +1560,9 @@ int gxSocket::SendTo(gxsSocket_t s, gxsSocketAddress *sa,
       bytes_moved += num_moved;  // Increment the byte counter
       p += num_moved;            // Move the buffer pointer for the next read
     }
-    if(num_moved < 0) {
+    // 10/31/2026: A sendto() that moves no bytes is an error. It used
+    // to loop here for ever.
+    if(num_moved <= 0) {
       socket_error = gxSOCKET_TRANSMIT_ERROR;
       return -1; // An error occurred during the read
     }

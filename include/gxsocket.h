@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -75,6 +75,10 @@ gxsSocket_t InitSocket(gxsSocket_t st, gxsProtocolFamily pf,
 09/19/2005: Added the int gxSocket::Recv(gxsSocket_t s, void *buf, 
 int bytes, int useTimeout, int seconds, int useconds, int flags);
 function. 
+
+10/31/2026: Added SetIOTimeout(). Close() sets the closed sockets to
+-1. ReadSelect() uses poll() on UNIX (no FD_SETSIZE limit). Send()
+uses MSG_NOSIGNAL on Linux.
 ==============================================================
 */
 // ----------------------------------------------------------- //   
@@ -170,6 +174,11 @@ public: // Socket functions
   int SetSockOpt(gxsSocket_t s, int level, int optName, 
 		 const void *optVal, unsigned optLen);
   int SetSockOpt(int level, int optName, const void *optVal, unsigned optLen);
+  // 10/31/2026: Limit each blocking send and receive (and so a TLS
+  // handshake, read or write on the socket) to seconds; 0 or less
+  // removes the limit. Returns -1 if an error occurs.
+  int SetIOTimeout(gxsSocket_t s, int seconds);
+  int SetIOTimeout(int seconds); // Bound and remote socket
   int GetServByName(char *name, char *protocol = 0);
   int GetServByPort(int port, char *protocol = 0); 
   gxsServent *GetServiceInformation(char *name, char *protocol = 0);
