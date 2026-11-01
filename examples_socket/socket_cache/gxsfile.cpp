@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -66,7 +66,10 @@ void gxsFile::Read(void *buf, unsigned Bytes, gxDeviceTypes dev)
     case  gxDEVICE_STREAM_SOCKET:
       if(!stream_sock) { ready_for_reading = 0; return; }
       else { ready_for_reading = 1; }
-      if(stream_sock->ReadRemoteBlock((char *)buf, curr_stream_hdr) != 0)
+      // 10/31/2026: Read only as many bytes as the buffer holds; the
+      // length in the header comes from the client
+      if(stream_sock->ReadRemoteBlock((char *)buf, (int)Bytes, 
+				      curr_stream_hdr) != 0)
 	DeviceErrorHandler(stream_sock->SocketExceptionMessage());
       break;
 

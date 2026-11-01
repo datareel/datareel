@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -29,6 +29,17 @@ USA
 
 The GXStream class is used to stream data from a client to a 
 server over a TCP/IP connection.
+
+Changes:
+==============================================================
+10/31/2026: Block lengths read from the network are checked against
+SetMaxBlockSize() (64 MB by default) before any memory is allocated
+or any data is read. ReadBlock()/ReadRemoteBlock() have overloads that
+take the size of the caller's buffer; the old forms read as many bytes
+as the peer's header says. WriteBlock() rejects negative lengths and
+lengths over INT_MAX. Added WriteResultBlock64()/ReadResultBlock64()
+so a 64-bit file address survives the round trip.
+==============================================================
 */
 // ----------------------------------------------------------- //   
 #ifndef __GX_STREAM_HPP__
@@ -41,12 +52,17 @@ server over a TCP/IP connection.
 
 const int gxSTREAM_DEF_TIMEOUT = 7200;
 
+// 10/31/2026: Largest block length accepted from the network by
+// default. See gxStream::SetMaxBlockSize().
+const gxUINT32 gxSTREAM_DEF_MAX_BLOCK = 64*1024*1024;
+
 class GXDLCODE_API gxStream : public gxSocket
 {
 public:
   gxStream() { 
     time_out_sec = gxSTREAM_DEF_TIMEOUT; // Blocking timeout value   
     time_out_usec = 0;
+    max_block = gxSTREAM_DEF_MAX_BLOCK; // 10/31/2026
   }
   ~gxStream() { }
 
@@ -65,6 +81,8 @@ public: // High-level database block functions
   int CloseConnection();
   int ReadClientHeader(gxBlockHeader &gxs);
   int ReadRemoteBlock(void *buf, gxBlockHeader &gx);
+  // 10/31/2026: Reads the block only if it fits in buf_size bytes
+  int ReadRemoteBlock(void *buf, int buf_size, gxBlockHeader &gx);
   int WriteRemoteBlock(void *buf, int bytes);
   void *RequestBlock(const void *request, gxBlockHeader &request_header, 
 		     gxBlockHeader &requested_block_header);
@@ -82,6 +100,13 @@ public: // High-level database block functions
   int WriteRemoteResultBlock(int result_code);
   int ReadResultBlock(int &result_code);
   int ReadRemoteResultBlock(int &result_code);
+
+  // 10/31/2026: Full width results, used for 64-bit file addresses.
+  // ReadResultBlock(int &) truncates a result sent with these.
+  int WriteResultBlock64(FAU_t result_code);
+  int WriteRemoteResultBlock64(FAU_t result_code);
+  int ReadResultBlock64(FAU_t &result_code);
+  int ReadRemoteResultBlock64(FAU_t &result_code);
   
 public: // Low-level database block functions
   void SetBlockStatus(gxBlockHeader &gx, __SBYTE__ net_status,
@@ -90,6 +115,12 @@ public: // Low-level database block functions
   int WriteBlock(gxsSocket_t s, const void *buf, gxBlockHeader &gx);
   int WriteHeader(gxsSocket_t s, gxBlockHeader &gx);
   int ReadBlock(gxsSocket_t s, void *buf, gxBlockHeader &gx,
+		int seconds = gxSTREAM_DEF_TIMEOUT, int useconds = 0);
+  // 10/31/2026: Reads gx.block_length bytes into buf only if they fit
+  // in buf_size bytes (and in MaxBlockSize()). Otherwise nothing is
+  // read, gxSOCKET_BLOCKSIZE_ERROR is returned, and the caller should
+  // close the connection (the stream is out of step).
+  int ReadBlock(gxsSocket_t s, void *buf, int buf_size, gxBlockHeader &gx,
 		int seconds = gxSTREAM_DEF_TIMEOUT, int useconds = 0);
   int ReadHeader(gxsSocket_t s, gxBlockHeader &gx, 
 		 int seconds = gxSTREAM_DEF_TIMEOUT, int useconds = 0);
@@ -111,6 +142,9 @@ public: // Low-level database block functions
   int WriteResultBlock(gxsSocket_t s, int result_code);
   int ReadResultBlock(gxsSocket_t s, int &result_code,
 		      int seconds = gxSTREAM_DEF_TIMEOUT, int useconds = 0);
+  int WriteResultBlock64(gxsSocket_t s, FAU_t result_code); // 10/31/2026
+  int ReadResultBlock64(gxsSocket_t s, FAU_t &result_code,  // 10/31/2026
+			int seconds = gxSTREAM_DEF_TIMEOUT, int useconds = 0);
   
   int TerminateConnection(gxsSocket_t s);
   int RestartConnection(gxsSocket_t s);
@@ -122,9 +156,20 @@ public: // Timer functions
     time_out_usec = useconds;
   }
 
+public: // 10/31/2026: Limits
+  // Largest block length accepted from the peer, checked before any
+  // memory is allocated (RequestBlock()) or data is read (ReadBlock()).
+  // The default is gxSTREAM_DEF_MAX_BLOCK. At most INT_MAX is used.
+  void SetMaxBlockSize(gxUINT32 bytes) { max_block = bytes; }
+  gxUINT32 MaxBlockSize() { return max_block; }
+
 public:
   int time_out_sec;  // Number of seconds before a blocking timeout
   int time_out_usec; // Number of microseconds before a blocking timeout
+
+protected:
+  gxUINT32 max_block; // 10/31/2026: See SetMaxBlockSize()
+  int check_block_length(const gxBlockHeader &gx, int buf_size = -1);
 };
 
 #endif // __GX_STREAM_HPP__

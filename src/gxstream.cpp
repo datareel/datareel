@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -37,12 +37,23 @@ null block values.
 
 08/03/2003: Fixed potential memory leak in the gxStream::RequestBlock() 
 function by deleting allocated buffer following a receive error.
+
+10/31/2026: Block lengths from the network are checked against
+SetMaxBlockSize() before RequestBlock() allocates memory (a peer could
+make it allocate up to the whole address space: block_length is 64
+bits wide on 64-bit UNIX) and before ReadBlock() reads. New ReadBlock()
+and ReadRemoteBlock() overloads take the size of the caller's buffer;
+the old ones wrote as many bytes as the peer's header said. WriteBlock()
+rejects negative lengths, lengths over INT_MAX (Send() takes an int)
+and a null buffer. Added WriteResultBlock64()/ReadResultBlock64().
 ==============================================================
 */
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
 #include <string.h>
+#include <limits.h>
+#include <new> // 10/31/2026: std::nothrow
 #include "gxstream.h"
 
 #ifdef __BCC32__
@@ -114,12 +125,30 @@ void gxStream::SetBlockStatus(gxBlockHeader &gx, __SBYTE__ net_status,
   gx.block_nd_fptr = (FAU)0;
 }
 
+int gxStream::check_block_length(const gxBlockHeader &gx, int buf_size)
+// 10/31/2026: Internal function used to check a block length read from
+// the network before memory is allocated or data is read. buf_size is
+// the size of the caller's buffer, or -1 if not known. Returns zero if
+// the length can be read.
+{
+  __ULWORD__ len = (__ULWORD__)gx.block_length;
+  if(len > (__ULWORD__)max_block) return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
+  if(len > (__ULWORD__)INT_MAX) return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
+  if(buf_size >= 0 && len > (__ULWORD__)buf_size) {
+    return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
+  }
+  return gxSOCKET_NO_ERROR;
+}
+
 int gxStream::WriteBlock(gxsSocket_t s, const void *buf, int bytes)
 // Write a block of raw data to the socket. NOTE: All block read and write
 // operations must operate in blocking mode to maintain synchronization
 // between the transmitter and receiver. Returns zero if no errors
 // occur.
 {
+  // 10/31/2026: A negative count became a huge block length in the
+  // header followed by no data
+  if(bytes < 0) return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
   gxBlockHeader gx;
   SetBlockStatus(gx, gxSendBlock);
   gx.block_length = bytes;
@@ -135,11 +164,20 @@ int gxStream::WriteBlock(gxsSocket_t s, const void *buf, gxBlockHeader &gx)
 // errors occur. NOTE: This function assumes that the block header has
 // already been initialized.
 {
+  // 10/31/2026: Check before anything is sent. Send() takes an int, so
+  // a longer block was cut short after a header with the full length.
+  if((__ULWORD__)gx.block_length > (__ULWORD__)INT_MAX) {
+    return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
+  }
+  if(gx.block_length > 0 && !buf) {
+    return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
+  }
+
   // Write the block header
   if(WriteHeader(s, gx) != gxSOCKET_NO_ERROR) return socket_error;
 
   // Write the block
-  if(Send(s, (char *)buf, gx.block_length) < 0)
+  if(Send(s, (char *)buf, (int)gx.block_length) < 0)
     return socket_error;
   
   if((gxUINT32)bytes_moved != gx.block_length) 
@@ -167,9 +205,13 @@ int gxStream::WriteHeader(gxsSocket_t s, gxBlockHeader &gx)
 int gxStream::ReadBlock(gxsSocket_t s, void *buf, gxBlockHeader &gx,
 			int seconds, int useconds)
 // Read database block from the specified socket. Returns zero
-// if no errors occur.
+// if no errors occur. NOTE: buf must hold gx.block_length bytes, a
+// length sent by the peer. Use the overload with the buffer size.
 {
-  if(Recv(s, buf, gx.block_length, seconds, useconds) < 0)
+  // 10/31/2026: The length comes from the peer
+  if(check_block_length(gx) != gxSOCKET_NO_ERROR) return socket_error;
+  if(gx.block_length > 0 && !buf) return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
+  if(Recv(s, buf, (int)gx.block_length, seconds, useconds) < 0)
     return socket_error;
 
   // If the bytes read do not equal the bytes received then
@@ -178,6 +220,17 @@ int gxStream::ReadBlock(gxsSocket_t s, void *buf, gxBlockHeader &gx,
     return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
 
   return socket_error = gxSOCKET_NO_ERROR;
+}
+
+int gxStream::ReadBlock(gxsSocket_t s, void *buf, int buf_size,
+			gxBlockHeader &gx, int seconds, int useconds)
+// 10/31/2026: Read a database block into a buffer of buf_size bytes.
+// Nothing is read if the block does not fit (gxSOCKET_BLOCKSIZE_ERROR).
+// Returns zero if no errors occur.
+{
+  if(buf_size < 0) return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
+  if(check_block_length(gx, buf_size) != gxSOCKET_NO_ERROR) return socket_error;
+  return ReadBlock(s, buf, gx, seconds, useconds);
 }
 
 int gxStream::ReadHeader(gxsSocket_t s, gxBlockHeader &gx,
@@ -225,11 +278,21 @@ void *gxStream::RequestBlock(gxsSocket_t s, const void *request,
     return 0;
   }
 
-  // Read the returned requested block
-  char *buf = new char[(__ULWORD__)requested_block_header.block_length];
-  if(!buf) return 0;
+  // 10/31/2026: Check the length sent by the peer before allocating
+  // memory for it
+  if(check_block_length(requested_block_header) != gxSOCKET_NO_ERROR) {
+    return 0;
+  }
 
-  if(Recv(s, buf, requested_block_header.block_length, seconds, 
+  // Read the returned requested block
+  char *buf = new (std::nothrow) 
+    char[(__ULWORD__)requested_block_header.block_length];
+  if(!buf) {
+    socket_error = gxSOCKET_BUFOVER_ERROR; // 10/31/2026
+    return 0;
+  }
+
+  if(Recv(s, buf, (int)requested_block_header.block_length, seconds, 
 	  useconds) < 0) {
     delete[] buf;
     return 0;
@@ -402,6 +465,13 @@ int gxStream::ReadRemoteBlock(void *buf, gxBlockHeader &gx)
   return ReadBlock(remote_socket, buf, gx, time_out_sec, time_out_usec);
 }
 
+int gxStream::ReadRemoteBlock(void *buf, int buf_size, gxBlockHeader &gx)
+// 10/31/2026: Reads the block only if it fits in buf_size bytes
+{
+  return ReadBlock(remote_socket, buf, buf_size, gx, 
+		   time_out_sec, time_out_usec);
+}
+
 int gxStream::ReadClientHeader(gxBlockHeader &gx)
 {
   return ReadHeader(remote_socket, gx, time_out_sec, time_out_usec);
@@ -476,6 +546,13 @@ int gxStream::RestartConnection(gxsSocket_t s)
 
 int gxStream::WriteResultBlock(gxsSocket_t s, int result_code)
 {
+  return WriteResultBlock64(s, (FAU_t)result_code);
+}
+
+int gxStream::WriteResultBlock64(gxsSocket_t s, FAU_t result_code)
+// 10/31/2026: The header's block_nd_fptr field is as wide as FAU, so
+// a 64-bit file address travels whole (the int version truncates it)
+{
   gxBlockHeader ack;
   SetBlockStatus(ack, gxAcknowledgeBlock);
   
@@ -490,6 +567,18 @@ int gxStream::WriteResultBlock(gxsSocket_t s, int result_code)
 
 int gxStream::ReadResultBlock(gxsSocket_t s, int &result_code,
 			      int seconds, int useconds)
+{
+  FAU_t code = (FAU_t)0;
+  if(ReadResultBlock64(s, code, seconds, useconds) != gxSOCKET_NO_ERROR) {
+    return socket_error;
+  }
+  result_code = (int)code;
+  return socket_error = gxSOCKET_NO_ERROR;
+}
+
+int gxStream::ReadResultBlock64(gxsSocket_t s, FAU_t &result_code,
+				int seconds, int useconds)
+// 10/31/2026: Full width result, see WriteResultBlock64()
 {
   // Wait for an acknowledgment
   gxBlockHeader ack;
@@ -506,7 +595,7 @@ int gxStream::ReadResultBlock(gxsSocket_t s, int &result_code,
   }
 
   // Read the result code stored in the header;s length field
-  result_code = (int)ack.block_nd_fptr;
+  result_code = (FAU_t)ack.block_nd_fptr;
 
   return socket_error = gxSOCKET_NO_ERROR; 
 }
@@ -531,6 +620,29 @@ int gxStream::ReadRemoteResultBlock(int &result_code)
 {
   return ReadResultBlock(remote_socket, result_code,
 			 time_out_sec, time_out_usec);
+}
+
+// 10/31/2026: 64-bit results
+int gxStream::WriteResultBlock64(FAU_t result_code)
+{
+  return WriteResultBlock64(gxsocket, result_code);
+}
+
+int gxStream::WriteRemoteResultBlock64(FAU_t result_code)
+{
+  return WriteResultBlock64(remote_socket, result_code);
+}
+
+int gxStream::ReadResultBlock64(FAU_t &result_code)
+{
+  return ReadResultBlock64(gxsocket, result_code,
+			   time_out_sec, time_out_usec);
+}
+
+int gxStream::ReadRemoteResultBlock64(FAU_t &result_code)
+{
+  return ReadResultBlock64(remote_socket, result_code,
+			   time_out_sec, time_out_usec);
 }
 
 #ifdef __BCC32__
