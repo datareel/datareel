@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -121,6 +121,10 @@ gxDeviceBucket *gxDeviceBucketCache::ConstructCache(unsigned num)
 // error occurs.
 {
   if(!IsEmpty()) DestroyCache();
+  // 10/31/2026: InitCache() links the last bucket at index num-1, so a
+  // cache of 0 buckets wrote before the array. Use one bucket, as the
+  // constructor does.
+  if(num == 0) num = 1;
   buckets = new gxDeviceBucket[num]; // Construct an array of buckets
   num_buckets = num;
   if(buckets) InitCache();
