@@ -60,6 +60,8 @@ Sections:
             address not used, PASV field checks and a long PASV reply
             (stack overflow), long file names, CR LF in commands, no
             write past a full FTPList() buffer, ParseReply().
+  utils     ParseServiceFileEntry() with a long port/protocol field
+            (stack overflow), InChecksum16() on a large buffer.
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -83,6 +85,7 @@ Sections:
 #include "gxsmtp.h"
 #include "gxspop3.h"
 #include "gxsftp.h"
+#include "gxsutils.h"
 
 static int num_failed = 0;
 static int num_checks = 0;
@@ -775,6 +778,41 @@ static void TestFTP()
 	"refused commands not sent");
 }
 
+// --------------------------------------------------------------
+// utils
+// --------------------------------------------------------------
+static void TestUtils()
+{
+  const char *sec = "utils";
+
+  std::string entry = "http 80/" + std::string(3000, 't') + " www # web\n";
+  std::vector<char> e(entry.begin(), entry.end());
+  e.push_back(0);
+  std::vector<char> service(e.size()), protocol(e.size()), aliases(e.size()),
+    comment(e.size());
+  int port = -1;
+  int rv = ParseServiceFileEntry(&e[0], &service[0], &port, &protocol[0],
+				 &aliases[0], &comment[0]);
+  Check(rv == 1 && port == 80 && strlen(&protocol[0]) == 3000, sec,
+	"ParseServiceFileEntry() long protocol field");
+  char e2[] = "svc 99999999999/tcp";
+  char b1[64], b2[64], b3[64], b4[64];
+  rv = ParseServiceFileEntry(e2, b1, &port, b2, b3, b4);
+  Check(rv == 1 && port == 0, sec, "ParseServiceFileEntry() port overflow");
+
+  // InChecksum16() of a large buffer of 0xFFFF words. The one's
+  // complement sum of 0xFFFF words is 0xFFFF, so the checksum is 0.
+  std::vector<u_short> words(100000, 0xFFFF);
+  Check(InChecksum16(&words[0], (int)(words.size() * 2)) == 0, sec,
+	"InChecksum16() large buffer");
+  std::vector<u_short> w2(100000, 0x1234);
+  unsigned long long ref = 0;
+  for(size_t i = 0; i < w2.size(); i++) ref += w2[i];
+  while(ref >> 16) ref = (ref & 0xffff) + (ref >> 16);
+  Check(InChecksum16(&w2[0], (int)(w2.size() * 2)) == (u_short)~ref, sec,
+	"InChecksum16() matches a 64-bit reference");
+}
+
 int main(int argc, char **argv)
 {
 #if defined (__UNIX__)
@@ -788,6 +826,7 @@ int main(int argc, char **argv)
   if(Enabled(argc, argv, "smtp")) TestSMTP();
   if(Enabled(argc, argv, "pop3")) TestPOP3();
   if(Enabled(argc, argv, "ftp")) TestFTP();
+  if(Enabled(argc, argv, "utils")) TestUtils();
 
   printf("%d checks, %d failed\n", num_checks, num_failed);
   if(num_failed) {

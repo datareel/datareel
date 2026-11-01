@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -115,6 +115,8 @@ struct GXDLCODE_API gxsEchoReply
 // Standalone functions
 // --------------------------------------------------------------
 GXDLCODE_API u_short InChecksum16(u_short *addr, int len);
+// 10/31/2026: The service, protocol, aliases and comment buffers must
+// each hold at least strlen(entry)+1 bytes.
 GXDLCODE_API int ParseServiceFileEntry(char *entry, char *service, int *port, 
 				       char *protocol, char *aliases, char *comment);
 // --------------------------------------------------------------

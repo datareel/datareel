@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -29,6 +29,16 @@ USA
 
 Headers and standalone functions used for low-level network
 operations.
+
+Changes:
+==============================================================
+10/31/2026: ParseServiceFileEntry() copied the port/protocol field
+into a 255 byte stack buffer with strcpy(), so a long field overflowed
+it; the port is now read in place (digits only, 0-65535). 
+InChecksum16() summed into a signed int, which overflowed (undefined 
+behaviour, wrong checksum) for buffers over about 64 KB; the sum is
+unsigned and folded as it grows.
+==============================================================
 */
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
@@ -52,7 +62,6 @@ GXDLCODE_API int ParseServiceFileEntry(char *entry, char *service, int *port,
 // <service name>  <port number>/<protocol>  [aliases...]   [#<comment>]
 // 
 {
-  char sbuf[255];
   int len, offset, i = 0;
   int byte_count = strlen(entry);
 
@@ -98,14 +107,20 @@ GXDLCODE_API int ParseServiceFileEntry(char *entry, char *service, int *port,
   protocol[i] = 0; 
   if(protocol[0] != 0)  {
     len = strlen(protocol);
-    strcpy(sbuf, protocol);
+    // 10/31/2026: strcpy() of the field into a 255 byte stack buffer
+    // overflowed for a long field. The port number is read in place,
+    // digits only, and must be 0-65535 (atoi() overflowed).
     for(offset = 0; offset < len; offset++) {
       if(protocol[offset] == '/') break;
     }
     if((offset > 0) && (offset < len)) {
-      sbuf[offset] = 0;
-      // PC-lint 09/08/2005: atoi function considered dangerous
-      *port = atoi(sbuf);
+      long p = 0;
+      for(int n = 0; n < offset; n++) {
+	if(protocol[n] < '0' || protocol[n] > '9' || n >= 5) { p = -1; break; }
+	p = (p * 10) + (protocol[n] - '0');
+      }
+      if(p < 0 || p > 65535) p = 0;
+      *port = (int)p;
       offset++;
       memmove(protocol, protocol+offset, (len-offset));
       protocol[len-offset] = 0; // Null terminate the string
@@ -156,7 +171,9 @@ GXDLCODE_API u_short InChecksum16(u_short *addr, int len)
   int nleft = len; // 10/14/2026: register removed (not valid in C++17)
   u_short *w = addr;
   u_short answer;
-  int sum = 0;
+  // 10/31/2026: Unsigned and folded as it grows. A signed int sum 
+  // overflowed for buffers over about 64 KB.
+  unsigned int sum = 0;
 
   // Our algorithm is simple, using a 32 bit accumulator (sum),
   // we add sequential 16 bit words to it, and at the end, fold
@@ -165,6 +182,7 @@ GXDLCODE_API u_short InChecksum16(u_short *addr, int len)
   while(nleft > 1)  {
     sum += *w++;
     nleft -= 2;
+    if(sum & 0x80000000U) sum = (sum & 0xffff) + (sum >> 16);
   }
 
   // mop up an odd byte, if necessary
@@ -181,7 +199,7 @@ GXDLCODE_API u_short InChecksum16(u_short *addr, int len)
 
   // Ignore BCC32 conversion warning
   // PC-lint 09/14/2005: Ingnore unsigned type warning 
-  answer = ~sum;                      // truncate to 16 bits
+  answer = (u_short)~sum;             // truncate to 16 bits
 
   return (answer);
 }
