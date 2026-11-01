@@ -1836,7 +1836,8 @@ int UStringB::ConvertEscapeSeq(char esc, int num_octets)
     unsigned num_esc = 0;
     char s[2]; s[0] = esc; s[1] = 0;
     const int sbuf_len = 81;
-    if(num_octets > sbuf_len) num_octets = sbuf_len-1;
+    // 10/31/2026: num_octets of 81 wrote sbuf[81], past the array
+    if(num_octets >= sbuf_len) num_octets = sbuf_len-1;
     if(num_octets <= 0) num_octets = 2;
     char sbuf[sbuf_len];
     int offset = 0;
@@ -1854,8 +1855,16 @@ int UStringB::ConvertEscapeSeq(char esc, int num_octets)
 	continue;
       }
       DeleteAt(offset, 1); // Remove the esc from this string
-      memmove(sbuf, (start+offset), num_octets);
-      sbuf[num_octets] = 0;
+      // 10/31/2026: Copy only the octets that are in the string. An escape
+      // near the end read past the end of the buffer. No hex digits gives
+      // 0 (hex_digits was left uninitialized).
+      start = (char *)sptr;
+      int avail = (int)s_length - offset;
+      int n = (num_octets < avail) ? num_octets : avail;
+      if(n < 0) n = 0;
+      memmove(sbuf, (start+offset), n);
+      sbuf[n] = 0;
+      hex_digits = 0;
       sscanf(sbuf, "%x", &hex_digits);
       DeleteAt(offset, num_octets); // Remove the octets from this string
       sbuf[0] = (char)hex_digits;
@@ -1911,15 +1920,21 @@ int UStringB::ConvertEscapeSeq(wchar_t esc, int num_octets)
 	continue;
       }
       DeleteAt(offset, 1); // Remove the esc from this string
-      memmove(sbuf, (start+offset), (num_octets * cs));
-      sbuf[num_octets] = 0;
+      // 10/31/2026: Copy only the octets that are in the string (see above)
+      start = (wchar_t *)sptr;
+      int avail = (int)s_length - offset;
+      int n = (num_octets < avail) ? num_octets : avail;
+      if(n < 0) n = 0;
+      memmove(sbuf, (start+offset), (n * cs));
+      sbuf[n] = 0;
+      hex_digits = 0;
 #if defined (__HAS_UNICODE__) && defined (__WIN32__)
       wchar_t wf[3]; char f0 = '%'; char f1 = 'x';
       // PC-lint 09/15/2005: Ignore type cast warnings
       wf[0] = (wchar_t)f0; wf[1] = (wchar_t)f1; wf[2] = (wchar_t)0;
       swscanf(sbuf, wf, &hex_digits);
 #else
-      char *asbuf = Unicode2ASCII(sbuf, num_octets);
+      char *asbuf = Unicode2ASCII(sbuf, n);
       sscanf(asbuf, "%x", &hex_digits);
       wchar_t *wsbuf = ASCII2Unicode(asbuf, gxstrlen(asbuf));
       gxstrcpy(sbuf, wsbuf);
@@ -2121,14 +2136,26 @@ UStringB& UStringB::operator<<(const unsigned long val)
 
 UStringB& UStringB::operator<<(const double val)
 {
-  char sbuf[81]; char fbuf[81];
-  sprintf(fbuf, "%%.%df", (int)output_pre);
-  sprintf(sbuf, (const char *)fbuf, val);
-  if((output_width > 0) && ((int)strlen(sbuf) < output_width)) {
-    int i = output_width - strlen(sbuf);
+  // 10/31/2026: A large value (1e100 and up) or a high precision does not
+  // fit in 81 characters and overflowed the stack buffer. The size is
+  // now measured first.
+  char sbuf[81];
+  int pre = (int)output_pre;
+  if(pre < 0) pre = 0;
+  int len = snprintf(sbuf, sizeof(sbuf), "%.*f", pre, val);
+  if(len < 0) return *this;
+  char *dbuf = sbuf;
+  if(len >= (int)sizeof(sbuf)) {
+    dbuf = new char[len+1];
+    snprintf(dbuf, len+1, "%.*f", pre, val);
+  }
+  if((output_width > 0) && ((int)strlen(dbuf) < output_width)) {
+    int i = output_width - strlen(dbuf);
     while(i--) *this += output_fill;
   }
-  return *this += sbuf;
+  *this += dbuf;
+  if(dbuf != sbuf) delete[] dbuf;
+  return *this;
 }
 
 UStringB& UStringB::operator>>(char *s)

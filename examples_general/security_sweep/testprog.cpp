@@ -51,7 +51,8 @@ USA
   gxstring    gxString Mid()/Left()/Right() with counts past the end (a
               4 GB allocation), InsertAt() past the end, DeleteAt() with
               counts that wrap, ReplaceChar() with an offset, SetLength()
-              on an empty string.
+              on an empty string. ConvertEscapeSeq() with an escape at
+              the end, operator<< of a large double.
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -226,6 +227,19 @@ int main()
     gxString f("");
     f.SetLength(10);
     check(f.length() == 10 && f.dlength() >= 10, "gxstring: SetLength() on an empty string resizes it");
+    gxString g("ab%4");
+    g.ConvertEscapeSeq('%', 80); // Octets past the end of the string
+    check(g.length() == 3 && g[2] == 4, "gxstring: ConvertEscapeSeq() at the end of the string");
+    gxString h("x%41y%");
+    check(h.ConvertEscapeSeq('%', 81) >= 1, "gxstring: ConvertEscapeSeq() with 81 octets");
+    gxString k("%41%42");
+    check(k.ConvertEscapeSeq('%', 2) == 2 && k == "AB", "gxstring: ConvertEscapeSeq() as before");
+    gxString m;
+    m << 1e300;
+    check(m.length() > 300 && m[0] == '1', "gxstring: operator<< of 1e300");
+    gxString q;
+    q << 2.5;
+    check(q == "2.5", "gxstring: operator<< of 2.5");
   }
 
   // base64
