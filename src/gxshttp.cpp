@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -49,6 +49,9 @@ to the gxshttp.h include file.
 
 05/05/2003: Added server side members to the gxsHTTPHeader
 data structure.
+
+10/31/2026: gxsHTTPMethodMessage() read before the start of the
+method table for a negative method number.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -125,7 +128,8 @@ const char *gxsHTTP_STATUS_CODES[gxsMAX_HTTP_STATUS_CODES] = {
 
 GXDLCODE_API const char *gxsHTTPMethodMessage(int method)
 {
-  if(method > (gxsMAX_HTTP_METHODS-1)) method = gxHTTP_UNKNOWN;
+  // 10/31/2026: Negative values read before the start of the table
+  if(method < 0 || method > (gxsMAX_HTTP_METHODS-1)) method = gxHTTP_UNKNOWN;
   return gxsHTTP_METHOD[method];
 }
 

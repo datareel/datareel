@@ -45,7 +45,7 @@ Sections:
   httpc     gxsHTTPClient requests: a header that spans packets, an
             endless header, the MemoryBuffer size limit, control
             characters in the URL and a long URL in
-            BuildSimpleRequestString().
+            BuildSimpleRequestString(), gxsHTTPMethodMessage() bounds.
   url       gxsURL: protocol table bounds, GetProtocolType(), strict
             ports, control characters, DecodeStrict(), % decoding of
             dynamic page names.
@@ -405,6 +405,12 @@ static void TestHTTPClient()
     Check(fs.received.find("X-Injected") == std::string::npos, sec,
 	  "no injected header sent");
   }
+
+  // Method table bounds
+  Check(strcmp(gxsHTTPMethodMessage(-1), "UNKNOWN") == 0 &&
+	strcmp(gxsHTTPMethodMessage(gxsMAX_HTTP_METHODS), "UNKNOWN") == 0 &&
+	strcmp(gxsHTTPMethodMessage(gxsHTTP_GET), "GET") == 0, sec,
+	"gxsHTTPMethodMessage() bounds");
 
   { // BuildSimpleRequestString() with a long host and path
     gxsHTTPClient client;
