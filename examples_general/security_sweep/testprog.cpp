@@ -48,6 +48,10 @@ USA
               and MemSet() with sizes that wrap, operator[] at the end
               (6.x-only code used by fcrypt and the Encrypted Password
               Database). Most of these show only under ASan/UBSan.
+  gxstring    gxString Mid()/Left()/Right() with counts past the end (a
+              4 GB allocation), InsertAt() past the end, DeleteAt() with
+              counts that wrap, ReplaceChar() with an offset, SetLength()
+              on an empty string.
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -199,6 +203,29 @@ int main()
     check(e.MemSet('z', 4, 0xFFFFFFFE) == 0 && e.MemSet('z', 4, 4) == 1, "membuf: MemSet() with a size that wraps is refused");
     MemoryBuffer g("ab", 2);
     check(g[100] == 0 && g[1] == 'b', "membuf: operator[] past the end of a full buffer");
+  }
+
+  // gxstring
+  {
+    gxString a("hello world"), e, z("");
+    check(a.Mid(6, 0xFFFFFFF0) == "world" && a.Mid(0, 5) == "hello" && a.Mid(6, 0) == "world" &&
+	  a.Left(0xFFFFFFFF) == "hello world" && a.Left(5) == "hello" &&
+	  a.Right(0xFFFFFFFF) == "hello world" && a.Right(5) == "world" &&
+	  a.Mid(100, 3) == "d", "gxstring: Mid/Left/Right clamp counts past the end");
+    check(e.Mid(3, 4).length() == 0 && e.Left(2).length() == 0 && e.Right(2).length() == 0 &&
+	  z.Mid(1, 0xFFFFFFFF).length() == 0, "gxstring: substrings of an empty string");
+    gxString b("ab");
+    b.InsertAt(100, "XYZ");
+    check(b == "abXYZ" && b.length() == 5, "gxstring: InsertAt() past the end appends");
+    gxString c("abcdef");
+    c.DeleteAt(2, 0xFFFFFFFF);
+    check(c == "ab" && c.length() == 2, "gxstring: DeleteAt() with a count that wraps");
+    gxString d("aaaa");
+    check(d.ReplaceChar('a', 'b', 2) == 2 && d == "aabb" && d.ReplaceChar('a', 'c', 10) == 0,
+	  "gxstring: ReplaceChar() with an offset stays in the string");
+    gxString f("");
+    f.SetLength(10);
+    check(f.length() == 10 && f.dlength() >= 10, "gxstring: SetLength() on an empty string resizes it");
   }
 
   // base64

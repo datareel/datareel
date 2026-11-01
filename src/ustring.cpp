@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/29/1996
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -551,6 +551,13 @@ unsigned UStringB::insert_at(unsigned position, const void *s, unsigned bytes,
   // Record the current string length in bytes
   unsigned old_length = s_length * cs; 
 
+  // 10/31/2026: Clamp the position to the old end of the string before
+  // the buffer grows. It was clamped after, to the new length (and in
+  // characters, not bytes), so a position past the end wrote past the
+  // end of the new buffer. Refuse a size that does not fit an unsigned.
+  if(position > old_length) position = old_length;
+  if(bytes > ((unsigned)-1 - old_length - cs)) return 0;
+
   // Ensure that there are enough bytes to hold the insertion
   if(!resize_buffer((bytes+(s_length*cs)), 1, st, cs)) return 0;
 
@@ -565,8 +572,6 @@ unsigned UStringB::insert_at(unsigned position, const void *s, unsigned bytes,
 	    (unsigned char *)sptr+position, old_length-position);
   }
   
-  if(position > (s_length * cs)) position = s_length; // Stay in bounds
-
   // Cast sptr to unsigned char * type so that the pointer will be
   // incremented one byte at a time.
   memmove((unsigned char *)sptr+position, s, bytes);
@@ -678,6 +683,10 @@ unsigned UStringB::DeleteAt(unsigned c_position, unsigned nchars)
 // of characters deleted or zero if an error occurs.
 {
   if(!sptr) return 0; // Check for null pointers
+  // 10/31/2026: Positions and counts past the end are clamped before they
+  // are turned into byte counts (they could wrap for Unicode strings)
+  if(c_position >= s_length) return 0;
+  if(nchars > s_length) nchars = s_length;
   if(!is_unicode()) {
     return delete_at(c_position, nchars, gxASCII_STRING, 1);
   }
@@ -712,8 +721,10 @@ unsigned UStringB::delete_at(unsigned position, unsigned bytes,
   
   unsigned end;
   if(c_position < s_length) {
-    end = c_position + nchars;
-    if(end > s_length) end = s_length;
+    // 10/31/2026: Compare without adding, c_position + nchars could wrap
+    // and leave a huge string length
+    if(nchars > (s_length - c_position)) end = s_length;
+    else end = c_position + nchars;
     nchars = end - c_position;
 
     // Cast sptr to unsigned char * type so that the pointer will be
@@ -1198,9 +1209,12 @@ unsigned UStringB::ReplaceChar(const char c, const char replacement,
   if(!is_unicode()) {
     unsigned num_replaced = 0;
     unsigned i;
+    // 10/31/2026: The loop ran s_length characters from the offset, past
+    // the end of the string for any offset above zero
+    if(offset >= s_length) return 0;
     char *start = (char *)sptr + offset;
 
-    for(i = 0; i < s_length; i++) {
+    for(i = 0; i < (s_length - offset); i++) {
       if(start[i] == c) {
 	start[i] = replacement;
 	num_replaced++;
@@ -1233,9 +1247,10 @@ unsigned UStringB::ReplaceChar(const wchar_t c, const wchar_t replacement,
   else {
     unsigned num_replaced = 0;
     unsigned i;
+    if(offset >= s_length) return 0; // 10/31/2026: See above
     wchar_t *start = (wchar_t *)sptr + offset;
 
-    for(i = 0; i < s_length; i++) {
+    for(i = 0; i < (s_length - offset); i++) {
       if(start[i] == c) {
 	start[i] = replacement;
 	num_replaced++;
@@ -1954,10 +1969,16 @@ unsigned UStringB::SetLength(unsigned nchars)
     cs = sizeof(wchar_t);
     st = gxUNICODE_STRING;
   }
-  if((nchars * cs) > (d_length-1)) {
+  // 10/31/2026: A string with no room (d_length 0, for example an empty
+  // string) wrapped d_length-1 around, skipped the resize and wrote the
+  // null terminator past the end of the buffer
+  if((d_length == 0) || ((nchars * cs) > (d_length-1))) {
     if(!this->resize(nchars+1)) {
-      nchars = (d_length-1)/cs;
-      if((d_length-1) % cs) nchars++;
+      if(d_length == 0) nchars = 0;
+      else {
+	nchars = (d_length-1)/cs;
+	if((d_length-1) % cs) nchars++;
+      }
     }
   }
   if(!sptr) { // Check for null pointers after resize
@@ -3694,8 +3715,13 @@ UString::UString(const UString &s, unsigned c_position, unsigned nchars)
   reset_all();
 
   // Stay inbounds
+  // 10/31/2026: An empty string has no substring (s_length-1 wrapped), and
+  // nchars + c_position could wrap, so a large count allocated up to 4 GB
+  // and copied past the end of the string. Valid arguments give the same
+  // result as before.
+  if(!s.sptr || s.s_length == 0) return;
   if(c_position > (s.s_length-1)) c_position = s.s_length - 1;
-  if((nchars + c_position) > s.s_length) nchars = s.s_length - c_position;
+  if(nchars > (s.s_length - c_position)) nchars = s.s_length - c_position;
 
   // Set the substring
   SetString(((char *)s.sptr+c_position), nchars);
@@ -3731,8 +3757,10 @@ UStringw::UStringw(const UStringw &s, unsigned c_position, unsigned nchars)
   reset_all();
 
   // Stay inbounds
+  // 10/31/2026: See UString::UString(const UString &, unsigned, unsigned)
+  if(!s.sptr || s.s_length == 0) return;
   if(c_position > (s.s_length-1)) c_position = s.s_length - 1;
-  if((nchars + c_position) > s.s_length) nchars = s.s_length - c_position;
+  if(nchars > (s.s_length - c_position)) nchars = s.s_length - c_position;
 
   // Set the substring
   SetString(((wchar_t *)s.sptr+c_position), nchars);
