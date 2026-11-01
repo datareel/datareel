@@ -103,6 +103,62 @@ Found in 7.3 by fuzzing, sanitizers and static analysis, and present in
 - db_debug no longer loops on damaged block lengths.
 The 7.3 libFuzzer targets are in examples_database/fuzz (clang).
 
+6.x SECURITY SWEEP (SUPPORT CODE AND 6.x-ONLY CODE)
+---------------------------------------------------
+The DataReel 7.3.1 sweep fixes for the support code, and fixes found by
+a sweep of the 6.x-only code DataReel 7 removed (gcc -fanalyzer,
+ASan/UBSan runs of the examples, fcrypt and the Encrypted Password
+Database, and libFuzzer targets in examples_general/fuzz). Each fix
+has a test in examples_general/security_sweep,
+examples_general/support_security or examples_socket/comm_security.
+- gxsBase64Encode(): bytes of 0x80 or more were a negative table
+  index (non-ASCII text was encoded wrong), and the last group read up
+  to 2 bytes past the input. ASCII input encodes as before.
+- gxString: FindLast() with an empty pattern read far out of bounds;
+  substrings (Mid/Left/Right), InsertAt(), DeleteAt(), SetLength(),
+  ReplaceChar(), ConvertEscapeSeq() and operator<<(double) stay in
+  their buffers. InsertAt() past the end now appends.
+- strutil: bounded pattern searches, StringANCompare() digit buffers,
+  64-bit number conversions (LLWORDToString() of -5 printed
+  -18446744073709551611).
+- MemoryBuffer/MemoryBlock: no copies from null pointers, searches and
+  inserts stay in bounds.
+- DiskFileB::df_Read() returns df_EOF_ERROR with df_gcount() 0 when a
+  read gets no bytes at the end of the file (it returned df_NO_ERROR
+  and the full requested count). Reads that return data are unchanged.
+  df_GetLine(), long names and text output of large numbers stay in
+  their buffers; futils path, output name, chmod and mkdir fixes.
+- gxConfig: whole-line name matches, numbers read with strtol (a value
+  that does not fit reads as 0), lines longer than 1023 bytes read
+  whole, the file rewritten through a temporary file and rename (mode
+  and owner kept), names that are empty or hold the parameter ID
+  refused.
+- LogFile (UNIX): a symbolic link, FIFO or socket at the log name is
+  refused (O_NOFOLLOW); new logs are owner-only.
+- db_debug / gxDatabaseDebugManager: buffered block search, block
+  lengths compared unsigned, Rebuild() refuses to write onto its input.
+- Serial port: no O_ASYNC (the first incoming byte could stop the
+  program with SIGIO), Recv()/Send() return -1 with
+  scomm_TIMEOUT_ERROR instead of looping on 0-byte transfers,
+  ReadBlock(buf, buf_size, gx) for blocks over 64 KB, error table and
+  handle fixes.
+- Telnet: RecvString() stored a whole 4096-byte read with no room check
+  (remote overflow); it now stores at most bytes-1 characters.
+  Sub-negotiation, option loops and TERM handling fixed; optional
+  SetMaxTotalTime(). gxsTelnetClient has new members: recompile
+  classes derived from it.
+- Ping: replies are checked (length, type, id, sequence, source).
+- Threads: a thread that could not be created is not joined or
+  cancelled. Device cache of 0 buckets, null error messages.
+
+NOT IN THIS BUILD: the networking part of the 7.3.1 sweep (sockets,
+TLS, gxStream with client certificates required by default, HTTP,
+URL, SMTP, POP3, FTP) and the rest of the 6.x-only module sweep
+(gxRDBMS, HTML/XML/RSS parsers, gxDatagram, printing). That work is
+on the WIP branches 6.3-wip-net-tls, 6.3-wip-net-http and
+6.3-wip-legacy and is not finished. fcrypt and the Encrypted Password
+Database do not use that code.
+
 OTHER CHANGES
 -------------
 - strutil.cpp: StringANCompare() and the other string compares passed
@@ -123,8 +179,9 @@ TESTS
   at random moments and checks that every commit it reported is in the
   files and no batch is half written.
 - examples_database/infohog: an InfoHog/POD example.
-- examples_database/damaged and examples_general/security_sweep: the
-  security fixes above, each with a damaged or crafted input.
+- examples_database/damaged, examples_general/security_sweep,
+  examples_general/support_security and examples_socket/comm_security:
+  the security fixes above, each with a damaged or crafted input.
 - examples_database/run_db_tests.sh and run_db_tests.bat build and run
   every database example and the journal tests.
 
