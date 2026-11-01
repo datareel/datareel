@@ -2140,9 +2140,20 @@ static FAU_t gxd_next_block(gxDatabase &db, FAU_t block_address, FAU_t eof)
 {
   gxBlockHeader hdr;
   if(db.ReadBlockHdr(hdr, block_address) != gxDBASE_NO_ERROR) return 0;
-  FAU_t next = block_address + (FAU_t)hdr.block_length;
-  if(next <= block_address) next = block_address + 1; // Always advance
-  if((FAU_t)(next + db.BlockHeaderSize()) > eof) return (FAU_t)0;
+  // 11/01/2026: Compare the length unsigned against the room left in
+  // the file. block_address plus a damaged length cast to FAU_t could
+  // overflow (undefined behaviour) for lengths near the type's maximum.
+  if((block_address < (FAU_t)0) || (block_address >= eof)) return (FAU_t)0;
+  FAU_t next;
+  if((hdr.block_length == 0) ||
+     ((unsigned long long)hdr.block_length >
+      (unsigned long long)(eof - block_address))) {
+    next = block_address + 1; // Damaged length: search from the next byte
+  }
+  else {
+    next = block_address + (FAU_t)hdr.block_length;
+  }
+  if(next > eof - (FAU_t)db.BlockHeaderSize()) return (FAU_t)0;
   if(gxd_valid_block(db, next, eof)) return next;
   return db.FindFirstBlock(next);
 }

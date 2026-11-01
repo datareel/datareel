@@ -559,6 +559,43 @@ static void test_security_fixes()
     db.TotalBlocks(); // Returned at all: the loop ends
     db.Close();
   }
+  // 2b. 11/01/2026: Huge block lengths (up to all ones) do not overflow
+  // the address in FindNextBlock()/FindNextObject() walks
+  {
+    std::string f = dir + "/wrap.gxd";
+    {
+      gxDatabase db;
+      CHECK(db.Create(f.c_str()) == gxDBASE_NO_ERROR, "secfix: create wrap");
+      for(int i = 0; i < 3; i++) {
+	char rec[32] = "record";
+	FAU_t a = db.Alloc(sizeof(rec));
+	db.Write(rec, sizeof(rec), a);
+      }
+      db.Close();
+    }
+    std::vector<char> v = read_file(f);
+    gxDatabase probe;
+    CHECK(probe.Open(f.c_str()) == gxDBASE_NO_ERROR, "secfix: open wrap");
+    size_t first = (size_t)probe.FindFirstBlock();
+    probe.Close();
+    size_t len_at = first + sizeof(gxUINT32);
+    CHECK(len_at + sizeof(gxUINT32) <= v.size(), "secfix: wrap layout");
+    for(int pattern = 0; pattern < 2; pattern++) {
+      // All ones, then the largest positive value of the length type
+      memset(&v[len_at], 0xFF, sizeof(gxUINT32));
+      if(pattern) v[len_at + sizeof(gxUINT32) - 1] = 0x7F;
+      write_file(f, v);
+      gxDatabase db;
+      CHECK(db.Open(f.c_str()) == gxDBASE_NO_ERROR, "secfix: reopen wrap");
+      int n = 0;
+      for(FAU_t a = db.FindFirstObject(); a && n < 100; a = db.FindNextObject(a)) n++;
+      CHECK(n < 100, "secfix: object walk did not end");
+      n = 0;
+      for(FAU_t a = db.FindFirstBlock(); a && n < 100; a = db.FindNextBlock(a)) n++;
+      CHECK(n < 100, "secfix: block walk did not end");
+      db.Close();
+    }
+  }
   // 3. A journal page with a page number past the file is ignored
   {
     std::string sub = dir + "/jnl";
