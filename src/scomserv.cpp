@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -127,8 +127,31 @@ int gxSerialCommServer::WriteHeader(gxBlockHeader &gx)
 
 int gxSerialCommServer::ReadBlock(void *buf, gxBlockHeader &gx)
 // Read database block. Returns zero if no errors occur.
+// 11/01/2026: This wrote gx.block_length bytes, a value the peer sends,
+// into a caller buffer of unknown size. Blocks over 
+// gxsSCOMM_MAX_UNSIZED_BLOCK are now refused; call the overload that 
+// takes the buffer size instead.
 {
-  if(Recv(buf, gx.block_length) < 0)
+  return ReadBlock(buf, gxsSCOMM_MAX_UNSIZED_BLOCK, gx);
+}
+
+int gxSerialCommServer::ReadBlock(void *buf, __ULWORD__ buf_size,
+				  gxBlockHeader &gx)
+// 11/01/2026: Read a database block into a buffer of buf_size bytes.
+// Returns zero if no errors occur or scomm_BUFFER_OVERFLOW if the block
+// does not fit. A refused block is left unread, so the caller should
+// treat the connection as out of sync.
+{
+  if(!buf) return scomm_error = gxSerialComm::scomm_BUFFER_OVERFLOW;
+  if((__ULWORD__)gx.block_length > buf_size || 
+     (__ULWORD__)gx.block_length > (__ULWORD__)0x7fffffff) {
+    return scomm_error = gxSerialComm::scomm_BUFFER_OVERFLOW;
+  }
+  if(gx.block_length == 0) { // Nothing to read
+    bytes_read = 0;
+    return scomm_error = gxSerialComm::scomm_NO_ERROR;
+  }
+  if(Recv(buf, (int)gx.block_length) < 0)
     return scomm_error;
 
   // If the bytes read do not equal the bytes received then

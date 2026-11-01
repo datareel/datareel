@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -54,6 +54,7 @@ type before returning an end of line sequence.
 
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include "gxtelnet.h"
 #include "strutil.h"
 
@@ -72,6 +73,24 @@ gxsTelnetClient::gxsTelnetClient()
   SetTermType(gxsTEL_NVT_TERM); // Default terminal type
   DataProc = &gxsTelnetClient::WriteToTerminal;
   server_type = 1; // Default to UNIX
+  max_total_sec = 0; // 11/01/2026: No total RecvString() limit by default
+  ResetTelnetState();
+}
+
+void gxsTelnetClient::ResetTelnetState()
+// 11/01/2026: Clear the protocol state so a new session starts clean
+{
+  state = telnet_data;
+  DataProc = &gxsTelnetClient::WriteToTerminal;
+  curr_code = 0;
+  sb_option = 0;
+  sb_count = 0;
+  sb_send = 0;
+  vt_escape_seq = 0;
+  output = 0;
+  output_char_waiting = 0;
+  memset(him_opt, 0, sizeof(him_opt));
+  memset(us_opt, 0, sizeof(us_opt));
 }
   
 gxsTelnetClient::~gxsTelnetClient()
@@ -161,23 +180,35 @@ gxSocketError gxsTelnetClient::RecvString(char *buf, int bytes,
   char rx_buffer[rxBufSize];  // Receive buffer
   unsigned char filtered_output; // NVT or VT100F filtered output
   int byte_count = 0;   // Number of byte inserted in the buf variable
+  // 11/01/2026: A null pattern crashed the search. Treat it as empty,
+  // which never matches.
+  const char *pattern = str ? str : "";
+  // 11/01/2026: Optional overall deadline so a server that trickles one
+  // byte per timeout period cannot hold the caller forever
+  time_t start_time = time(0);
+  buf[0] = 0;
 
   // 10/26/2026: Leave room for the null terminator; the buffer was
   // written one byte past its end when it filled up
   while(byte_count < (bytes - 1)) { // Loop until the buffer is full
+    if(max_total_sec > 0 && (time(0) - start_time) >= max_total_sec) {
+      buf[byte_count] = 0;
+      return socket_error = gxSOCKET_REQUEST_TIMEOUT;
+    }
     if(!WaitForReply()) { 
-      if(byte_count >= 0) buf[byte_count] = 0;
+      buf[byte_count] = 0;
       return socket_error = gxSOCKET_REQUEST_TIMEOUT;      
     }
     if((bytes_read = RawRead((char *)rx_buffer, rxBufSize)) > -1) {
       if(bytes_read == 0) {
 	// Signal that the socket has been gracefully closed
+	buf[byte_count] = 0; // 11/01/2026: Always terminate the buffer
 	return socket_error = gxSOCKET_DISCONNECTED_ERROR;
       }
       char *raw_data = rx_buffer;
       while(bytes_read--) {
 	if(ReadTelnetData(*raw_data++) != gxSOCKET_NO_ERROR) {
-	  if(byte_count >= 0) buf[byte_count] = 0;
+	  buf[byte_count] = 0;
 	  return socket_error;
 	}
 	if(GetChar(filtered_output)) { 
@@ -186,34 +217,24 @@ gxSocketError gxsTelnetClient::RecvString(char *buf, int bytes,
 	}
       }
 
-      // Search for a matching string
-      char *pattern = (char *)str;
-      char *next = buf;
-      int i = 0;
-      while(i < byte_count && *pattern) {
-	if(*next == *pattern) {
-	  pattern++;
-	  if(*pattern == 0) {
-	    if(byte_count >= 0) buf[byte_count] = 0;
-	    return socket_error = gxSOCKET_NO_ERROR; // Found matching string
-	  }
-	  next++;
-	}
-	else {
-	  i++;
-	  next++;
-	  pattern = (char *)str;
-	}
-      } 
+      // 11/01/2026: The old hand-written search could read past
+      // byte_count (stale bytes from an earlier call) and restarted the
+      // match without backing up, missing overlapping matches.
+      // Terminate at byte_count and use strstr(). The filters never
+      // store a 0 byte, so the string is exactly the received data.
+      buf[byte_count] = 0;
+      if(*pattern && strstr(buf, pattern) != 0) {
+	return socket_error = gxSOCKET_NO_ERROR; // Found matching string
+      }
     }
     else { // An error occurred during the read
-      if(byte_count >= 0) buf[byte_count] = 0;
+      buf[byte_count] = 0;
       return socket_error = gxSOCKET_RECEIVE_ERROR;
     }
   }
 
   // The receieve buffer is full - buffer overflow
-  if(byte_count >= 0) buf[byte_count] = 0;
+  buf[byte_count] = 0;
   return socket_error = gxSOCKET_BUFOVER_ERROR;
 }
 
@@ -256,7 +277,7 @@ gxSocketError gxsTelnetClient::SendInitSeq()
   // 255 251 024 255 253 003 255 251
   // 003 255 253 001 255 251 031 255
   // PC-lint 09/14/2005: Changed to unsigned char 
-  unsigned char iseq[16];
+  unsigned char iseq[15];
   iseq[0] = gxsTEL_IAC;
   iseq[1] = gxsTEL_WILL;
   iseq[2] = gxsTELOPT_TERM;
@@ -272,9 +293,13 @@ gxSocketError gxsTelnetClient::SendInitSeq()
   iseq[12] = gxsTEL_IAC;
   iseq[13] = gxsTEL_WILL;
   iseq[14] = gxsTELOPT_NAWS;
-  iseq[15] = gxsTEL_IAC;
-  Send((const unsigned char *)iseq, 16);
-  return socket_error;
+  // 11/01/2026: The array held a 16th byte, a lone IAC, that was sent
+  // as the start of a command the server then misread. Send only the
+  // five complete 3 byte commands.
+  if(Send((const unsigned char *)iseq, 15) < 0) {
+    return socket_error = gxSOCKET_TRANSMIT_ERROR;
+  }
+  return socket_error = gxSOCKET_NO_ERROR;
 }
 
 gxSocketError gxsTelnetClient::SendCommand(unsigned char command, 
@@ -284,8 +309,9 @@ gxSocketError gxsTelnetClient::SendCommand(unsigned char command,
   sbuf[0] = gxsTEL_IAC;
   sbuf[1] = command;
   sbuf[2] = option;
-  Send((char*)sbuf, 3);
-  return socket_error;
+  // 11/01/2026: Report this send's result, not a stale error
+  if(Send((char*)sbuf, 3) < 0) return socket_error = gxSOCKET_TRANSMIT_ERROR;
+  return gxSOCKET_NO_ERROR;
 }
  
 int gxsTelnetClient::GetChar(unsigned char &c) 
@@ -423,10 +449,12 @@ gxSocketError gxsTelnetClient::SetTermOption(unsigned char code,
   switch(code) {
     case gxsTEL_WILL:
       err = SendCommand(gxsTEL_DONT, option); // Do not want terminal info
+      break; // 11/01/2026: Explicit; was a fall through to a break
     case gxsTEL_WONT:
       break;
     case gxsTEL_DO:
       err = SendCommand(gxsTEL_WILL, option); // Send term info when asked
+      break; // 11/01/2026: Explicit; was a fall through to a break
     case gxsTEL_DONT:
       break;
     default:
@@ -451,12 +479,17 @@ gxSocketError gxsTelnetClient::NegotiateTermType(unsigned char data)
     sbuf[1] = gxsTEL_SB;
     sbuf[2] = gxsTELOPT_TERM;
     sbuf[3] = 0; // Our terminal type is
-    memcpy(&sbuf[4], term_string, strlen(term_string) + 1); // At most 15 chars
-    int len = strlen((char *)&sbuf[4]);
+    // 11/01/2026: Bound the copy and never send an IAC byte inside the
+    // name (term_string can come from the TERM environment variable)
+    int len = 0;
+    while(len < (int)sizeof(term_string) - 1 && term_string[len] && 
+	  (unsigned char)term_string[len] != gxsTEL_IAC) {
+      sbuf[4+len] = (unsigned char)term_string[len];
+      len++;
+    }
     sbuf[4+len] = gxsTEL_IAC;
     sbuf[5+len] = gxsTEL_SE;
-    Send(sbuf, (4+len+2));
-    err = socket_error;
+    if(Send(sbuf, (4+len+2)) < 0) err = socket_error = gxSOCKET_TRANSMIT_ERROR;
   }
   return err;
 }
@@ -531,24 +564,81 @@ gxSocketError gxsTelnetClient::ReadTelnetData(unsigned char data)
     case telnet_option: // Process telnet state options
       state = telnet_data;
       if(curr_code == gxsTEL_SB) {
-	DataProc = &gxsTelnetClient::NegotiateTermType;
+	// 11/01/2026: Every byte up to IAC SE used to go to
+	// NegotiateTermType(), so any SB (for any option) holding a 1 byte
+	// made us send our terminal type, once per 1 byte. Now the SB body
+	// is consumed and only IAC SB TERMINAL-TYPE SEND IAC SE is answered,
+	// once, when the SE arrives.
+	sb_option = data;
+	sb_count = 0;
+	sb_send = 0;
+	state = telnet_sb;
 	break;
       }
-      switch(data) {
+      err = ProcessOption(curr_code, data);
+      break;
+    case telnet_sb: // 11/01/2026: Inside a sub-negotiation
+      if(data == gxsTEL_IAC) {
+	state = telnet_sb_iac;
+	break;
+      }
+      if(sb_count == 0 && sb_option == gxsTELOPT_TERM && data == 1) {
+	sb_send = 1; // TERMINAL-TYPE SEND
+      }
+      if(sb_count < 0x7fffffff) sb_count++;
+      break;
+    case telnet_sb_iac: // 11/01/2026: IAC inside a sub-negotiation
+      if(data == gxsTEL_SE) { // End of the sub-negotiation
+	state = telnet_data;
+	DataProc = &gxsTelnetClient::WriteToTerminal;
+	if(sb_option == gxsTELOPT_TERM && sb_send && sb_count == 1) {
+	  err = NegotiateTermType(1);
+	}
+	sb_send = 0;
+	break;
+      }
+      // IAC IAC is an escaped 255 data byte. Anything else is malformed;
+      // keep discarding until IAC SE.
+      state = telnet_sb;
+      if(sb_count < 0x7fffffff) sb_count++;
+      break;
+  }
+  return err;
+}
+
+gxSocketError gxsTelnetClient::ProcessOption(unsigned char code,
+					     unsigned char option)
+// 11/01/2026: Dispatch a WILL/WONT/DO/DONT request. A peer that repeats
+// a request for the state it already asked for is not acknowledged
+// again, which stops the endless acknowledgement loops RFC 1143 
+// describes.
+{
+  gxSocketError err = gxSOCKET_NO_ERROR;
+  switch(code) {
+    case gxsTEL_WILL: case gxsTEL_WONT:
+      if(him_opt[option] == code) return err;
+      him_opt[option] = code;
+      break;
+    case gxsTEL_DO: case gxsTEL_DONT:
+      if(us_opt[option] == code) return err;
+      us_opt[option] = code;
+      break;
+    default:
+      return err;
+  }
+  switch(option) {
 	case gxsTELOPT_ECHO:
-	  err = SetEchoOption(curr_code, data);
+	  err = SetEchoOption(code, option);
 	  break;
 	case gxsTELOPT_SUPP:
-	  err = SetSuppOption(curr_code, data);
+	  err = SetSuppOption(code, option);
 	  break;
 	case gxsTELOPT_TERM:
-	  err = SetTermOption(curr_code, data);
+	  err = SetTermOption(code, option);
 	  break;
 	default:
-	  err = SetUnknownOption(curr_code, data);
+	  err = SetUnknownOption(code, option);
 	  break;
-      }
-      break;
   }
   return err;
 }

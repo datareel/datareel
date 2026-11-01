@@ -1239,13 +1239,20 @@ __ULWORD__ gxDatabase::ObjectLength(FAU_t object_address)
 
   __ULWORD__ len;
 
+  // 11/01/2026: A damaged header with a block length shorter than its
+  // own overhead would underflow to a huge object length. Return 0.
+  __ULWORD__ overhead = (__ULWORD__)BlockHeaderSize();
+
   // Adjust the number of bytes to allocate space of block header
   // according to the revision letter.
   switch(rev_letter) {
     case '\0' : case ' ' : case 'e' : case 'E' :
+      if(blk_hdr.block_length < overhead) return 0;
       len = blk_hdr.block_length - BlockHeaderSize();    
       break;
     default: // Rev 'A', 'B', 'C', and 'D'
+      overhead += (__ULWORD__)sizeof(gxChecksum);
+      if(blk_hdr.block_length < overhead) return 0;
       len = blk_hdr.block_length - BlockHeaderSize();
       len -= sizeof(gxChecksum);
       break;
@@ -1269,6 +1276,10 @@ __ULWORD__ gxDatabase::BlockLength(FAU_t object_address)
 
   if(ReadBlockHdr(blk_hdr, block_address) != gxDBASE_NO_ERROR)
     return 0;
+
+  // 11/01/2026: A block can never be shorter than its header. Treat a
+  // damaged length as an error so callers do not subtract past zero.
+  if(blk_hdr.block_length < (__ULWORD__)BlockHeaderSize()) return 0;
 
   return blk_hdr.block_length;
 }

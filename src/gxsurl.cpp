@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -35,6 +35,11 @@ Changes:
 Parse() handles IPv6 literal hosts ([2001:db8::1]:8443), user 
 information, query strings and fragments. Resolve() turns a 
 relative redirect location into an absolute URL.
+
+11/01/2026: Added HasControlChars() and DecodeStrict(), which
+refuses %00, other encoded control characters and bad % escapes, for
+servers that map a decoded path to a file. Parse() refuses URLs
+with control characters and hosts with spaces.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -110,6 +115,9 @@ bool gxsURL::Parse(std::string_view url, gxsURLInfo &u)
 {
   u.Clear();
   url = trim_right_view(trim_left_view(url));
+  // 11/01/2026: A URL with control characters (from a Location header
+  // for example) is refused rather than copied into a request line
+  if(HasControlChars(url)) return false;
 
   std::size_t p = url.find("://");
   if(p == std::string_view::npos || p == 0) return false;
@@ -168,6 +176,8 @@ bool gxsURL::Parse(std::string_view url, gxsURLInfo &u)
     if(colon != std::string_view::npos) port_part = authority.substr(colon + 1);
   }
   if(u.host.empty()) return false;
+  // 11/01/2026: No spaces in a host name
+  if(u.host.find(' ') != std::string::npos) return false;
   u.host = to_lower(u.host);
 
   if(!port_part.empty()) {
@@ -240,6 +250,40 @@ std::string gxsURL::Decode(std::string_view s, bool plus_is_space)
     out += s[i];
   }
   return out;
+}
+// 11/01/2026: Check helpers for servers mapping a path to a file
+bool gxsURL::HasControlChars(std::string_view s)
+{
+  for(unsigned char c : s) {
+    if(c < 0x20 || c == 0x7F) return true;
+  }
+  return false;
+}
+
+bool gxsURL::DecodeStrict(std::string_view s, std::string &out,
+			  bool plus_is_space)
+{
+  out.clear();
+  auto hexval = [](char c) -> int {
+    if(c >= '0' && c <= '9') return c - '0';
+    if(c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if(c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+  };
+  for(std::size_t i = 0; i < s.size(); i++) {
+    if(s[i] == '%') {
+      if(i + 2 >= s.size()) { out.clear(); return false; }
+      int a = hexval(s[i+1]), b = hexval(s[i+2]);
+      if(a < 0 || b < 0) { out.clear(); return false; }
+      out += char(a * 16 + b);
+      i += 2;
+      continue;
+    }
+    if(plus_is_space && s[i] == '+') { out += ' '; continue; }
+    out += s[i];
+  }
+  if(HasControlChars(out)) { out.clear(); return false; }
+  return true;
 }
 } // namespace datareel
 

@@ -45,6 +45,12 @@ the source code and documentation supplied with the third party library.
 #include "gxdlcode.h"
 
 #include "gxssl.h"
+
+#if defined (__UNIX__)
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 #include "strutil.h"
 
 namespace datareel {
@@ -275,14 +281,13 @@ int gxSSL::CloseSSLSocket(int destroy_ssl)
 // Returns a non-zero value if the function fails.
 {
   if(!ssl) return ssl_error;
+  // 11/01/2026: Send our close_notify once and do not wait for the
+  // peer's. The second SSL_shutdown() blocked on a silent peer, which
+  // hung Close() and the destructors. 0 means our close_notify went
+  // out and the peer's has not arrived yet, which is fine because the
+  // socket is closed next.
   int rv = SSL_shutdown(ssl);
-  if(!rv) {
-    int open_socket = -1;
-    BIO_get_fd(SSL_get_rbio(ssl), &open_socket);
-    if(open_socket >= 0) shutdown(open_socket, 1);
-    rv = SSL_shutdown(ssl);
-  }
-  if(rv != 1) {
+  if(rv != 0 && rv != 1) {
     return ssl_error = gxSSL_SHUTDOWN_ERROR;
   }
   if(destroy_ssl) DestroySSL();
@@ -911,6 +916,23 @@ static int gxssl_keygen_cb(EVP_PKEY_CTX *kctx)
 }
 #endif
 
+static FILE *gxssl_open_private(const char *fname)
+// 11/01/2026: Create or truncate a file for a private key, readable and
+// writable by the owner only (0600) on POSIX systems. On Windows the
+// file gets the folder's permissions; keep keys in a private folder.
+{
+#if defined (__UNIX__)
+  int fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+  if(fd < 0) return 0;
+  fchmod(fd, 0600); // An existing file keeps its old mode otherwise
+  FILE *fp = fdopen(fd, "wb");
+  if(!fp) close(fd);
+  return fp;
+#else
+  return fopen(fname, "w+b");
+#endif
+}
+
 int gxSSL::MakeRSAPrivateKey(const char *key_fname, int key_len,
 			     KeyGenCallbackFunc cb_func, void *cb_arg)
 // Function used to write a private RSA (Rivest, Shamir, Adleman) key to 
@@ -970,7 +992,10 @@ int gxSSL::MakeRSAPrivateKey(const char *key_fname, int key_len,
 
   if(!private_key) return ssl_error = gxSSL_RSAGEN_ERROR;
 
-  FILE *fp = fopen(key_fname, "w+b");
+  // 11/01/2026: Create the private key file readable by its owner only.
+  // fopen() created it with the umask permissions (often 0644), so other
+  // users on the machine could read the key.
+  FILE *fp = gxssl_open_private(key_fname);
   if(!fp) {
     app_err_str = str_cat("SSL exception: Can't write RSA private key file ", key_fname);
     EVP_PKEY_free(private_key);
@@ -1025,10 +1050,10 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
   }
 
   EVP_PKEY *private_key = PEM_read_PrivateKey(fp, 0, 0, 0);
+  fclose(fp); // 11/01/2026: Was left open when the key could not be read
   if(!private_key) {
     return ssl_error = gxSSL_KEY_ERROR;
   }
-  fclose(fp);
 
   X509 *x = X509_new(); // 10/14/2026: Was "x = x=X509_new()" (undefined order)
   if(!x) {
@@ -1041,7 +1066,9 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
   X509_set_version(x,2);
   ASN1_INTEGER_set(X509_get_serialNumber(x), ci.sn);
   X509_gmtime_adj(X509_get_notBefore(x), 0);
-  X509_gmtime_adj(X509_get_notAfter(x), (long)(60*60*24*ci.days));
+  // 11/01/2026: Multiply in long; an int product overflowed for large
+  // day counts
+  X509_gmtime_adj(X509_get_notAfter(x), 60L*60L*24L*(long)ci.days);
   X509_set_pubkey(x, private_key);
 
   X509_NAME *name = X509_get_subject_name(x);
@@ -1196,6 +1223,7 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
     return ssl_error = gxSSL_APPDEF_ERROR;
   }
   if(!PEM_write_X509(fp, x)) {
+    fclose(fp); // 11/01/2026: Was left open on a write error
     X509_free(x);
     EVP_PKEY_free(private_key);
     CRYPTO_cleanup_all_ex_data();

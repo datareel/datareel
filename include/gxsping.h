@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -76,6 +76,19 @@ public:
   // reply arrived.
   int Ping(const std::string &host, gxsPingResult &result, 
 	   int family = AF_UNSPEC);
+
+  // 11/01/2026: Validate one received ICMP packet. buf holds n bytes;
+  // ip_header is true for IPv4 raw sockets, which return the IP header
+  // before the ICMP message. Returns 1 if the packet is the echo reply
+  // for seq (and id, when check_id is true) and sets ttl (-1 if the
+  // packet has no IP header), or 0 if it is short, malformed or for
+  // someone else. Pure function, also used by the fuzz tests.
+  static int ParseEchoReply(const unsigned char *buf, int n, bool v6,
+			    bool ip_header, unsigned short id, 
+			    unsigned short seq, bool check_id, int &ttl);
+
+  // 11/01/2026: True if from is the same IP address as target
+  static bool SameAddress(const sockaddr *from, const sockaddr *target);
 
 private:
   int timeout_ms = 1000;

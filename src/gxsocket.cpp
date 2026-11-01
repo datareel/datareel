@@ -719,6 +719,22 @@ int gxSocket::SetKeepAlive(bool on)
   return SetSockOpt(SOL_SOCKET, SO_KEEPALIVE, &v, sizeof(v));
 }
 
+int gxSocket::SetIOTimeout(int seconds)
+{
+  if(seconds < 0) seconds = 0;
+#if defined (__WIN32__)
+  DWORD ms = (DWORD)seconds * 1000;
+  if(SetSockOpt(SOL_SOCKET, SO_RCVTIMEO, &ms, sizeof(ms)) != 0) return socket_error;
+  return SetSockOpt(SOL_SOCKET, SO_SNDTIMEO, &ms, sizeof(ms));
+#else
+  struct timeval tv;
+  tv.tv_sec = seconds;
+  tv.tv_usec = 0;
+  if(SetSockOpt(SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0) return socket_error;
+  return SetSockOpt(SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#endif
+}
+
 gxsAddress gxSocket::LocalAddress() const
 {
   sockaddr_storage ss;

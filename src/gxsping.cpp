@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -66,6 +66,51 @@ a diagnostic tool, like telnet.
 
 namespace datareel {
 
+
+int gxsPing::ParseEchoReply(const unsigned char *buf, int n, bool v6,
+			    bool ip_header, unsigned short id, 
+			    unsigned short seq, bool check_id, int &ttl)
+// 11/01/2026: Factored out of Ping(). The old code read the TTL at
+// buf[8] and trusted the IHL nibble before checking that the reply was
+// long enough to hold an IP header.
+{
+  ttl = -1;
+  if(!buf || n <= 0) return 0;
+  const unsigned char *icmp = buf;
+  if(ip_header && !v6) { // IPv4 raw sockets return the IP header first
+    if(n < 20) return 0;                 // Shorter than a minimal header
+    if((buf[0] >> 4) != 4) return 0;     // Not IPv4
+    int ihl = (buf[0] & 0x0F) * 4;
+    if(ihl < 20 || n < ihl + 8) return 0;
+    ttl = buf[8];
+    icmp = buf + ihl;
+    n -= ihl;
+  }
+  if(n < 8) return 0;
+  // ICMP_ECHOREPLY is 0, ICMP6_ECHO_REPLY is 129
+  unsigned char reply_type = v6 ? (unsigned char)129 : (unsigned char)0;
+  if(icmp[0] != reply_type || icmp[1] != 0) return 0;
+  unsigned short rseq = (unsigned short)((icmp[6] << 8) | icmp[7]);
+  unsigned short rid = (unsigned short)((icmp[4] << 8) | icmp[5]);
+  if(rseq != seq || (check_id && rid != id)) return 0;
+  return 1;
+}
+
+bool gxsPing::SameAddress(const sockaddr *from, const sockaddr *target)
+{
+  if(!from || !target || from->sa_family != target->sa_family) return false;
+  if(from->sa_family == AF_INET) {
+    return memcmp(&((const sockaddr_in *)from)->sin_addr,
+		  &((const sockaddr_in *)target)->sin_addr,
+		  sizeof(in_addr)) == 0;
+  }
+  if(from->sa_family == AF_INET6) {
+    return memcmp(&((const sockaddr_in6 *)from)->sin6_addr,
+		  &((const sockaddr_in6 *)target)->sin6_addr,
+		  sizeof(in6_addr)) == 0;
+  }
+  return false;
+}
 
 #if defined (_WIN32)
 
@@ -194,25 +239,19 @@ int gxsPing::Ping(const std::string &host, gxsPingResult &result, int family)
       <std::chrono::milliseconds>(now - start).count();
     if(left <= 0 || gxSocket::WaitReadable(s, left) != 1) break;
     unsigned char buf[1500];
-    ssize_t n = recv(s, buf, sizeof(buf), 0);
+    // 11/01/2026: recvfrom() so a reply from another host (raw sockets
+    // see every ICMP packet) cannot be taken for the target's reply
+    sockaddr_storage from;
+    memset(&from, 0, sizeof(from));
+    socklen_t from_len = sizeof(from);
+    ssize_t n = recvfrom(s, buf, sizeof(buf), 0, (sockaddr *)&from, &from_len);
     if(n <= 0) break;
-    const unsigned char *icmp = buf;
+    if(!SameAddress((const sockaddr *)&from, a.SockAddr())) continue;
     int ttl = -1;
-    if(raw && !v6) { // IPv4 raw sockets return the IP header first
-      int ihl = (buf[0] & 0x0F) * 4;
-      if(n < ihl + 8) continue;
-      ttl = buf[8];
-      icmp = buf + ihl;
-      n -= ihl;
-    }
-    if(n < 8) continue;
-    unsigned char reply_type = v6 ? (unsigned char)ICMP6_ECHO_REPLY : 
-      (unsigned char)ICMP_ECHOREPLY;
-    if(icmp[0] != reply_type) continue;
-    unsigned short rseq = (unsigned short)((icmp[6] << 8) | icmp[7]);
-    unsigned short rid = (unsigned short)((icmp[4] << 8) | icmp[5]);
     // Datagram sockets replace the identifier with the local port
-    if(rseq != seq || (raw && rid != id)) continue;
+    if(!ParseEchoReply(buf, (int)n, v6, raw && !v6, id, seq, raw, ttl)) {
+      continue;
+    }
     auto end = std::chrono::steady_clock::now();
     result.rtt_ms = std::chrono::duration<double, std::milli>(end - start).count();
     result.ttl = ttl;

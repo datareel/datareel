@@ -210,6 +210,10 @@ public: // Socket control functions
 		 gxsSocketLength_t *opt_len);
   int SetNoDelay(bool on = true);
   int SetKeepAlive(bool on = true);
+  // 11/01/2026: Limit each blocking send and receive (and so a TLS
+  // handshake, read or write on this socket) to seconds; 0 or less
+  // removes the limit.
+  int SetIOTimeout(int seconds);
 
 public: // Address information
   const gxsAddress &PeerAddress() const { return peer; }

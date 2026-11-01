@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997  
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -37,6 +37,7 @@ and repair damaged or corrupt database files.
 
 #include <string.h>
 #include "dbugmgr.h"
+#include "db_walk.h" // 11/01/2026: Bounded block walk
 
 #if defined (__64_BIT_DATABASE_ENGINE__)
 const char *ProgramName = "db_debug64";
@@ -158,12 +159,19 @@ void FindBlock(gxDatabaseDebugManager *f, int verbose, int walk)
     return;
   }
 
-  while(1) { 
-    if(addr >= StaticEOF) break;
-    f->Read(&blk, sizeof(gxBlockHeader), addr);
-    if(CheckError((gxDatabase *)f) != 0) return;
+  // 11/01/2026: Use the checked walk in db_walk.h. A block length of
+  // 0 looped here forever and a damaged length jumped anywhere.
+  while(addr > (FAU_t)0 && addr < StaticEOF) { 
+    FAU_t next = (FAU_t)0;
+    gxdWalkResult r = gxdWalkStep(f, addr, StaticEOF, blk, next);
+    if(r == gxdWALK_ERROR) {
+      if(CheckError((gxDatabase *)f) != 0) return;
+      std::cout << "\n" << "Cannot read the block header at address "
+		<< (long long)addr << "\n";
+      break;
+    }
     
-    if(f->TestBlockHeader(blk)) { 
+    if(r == gxdWALK_GOOD) { 
       count++; // Increment the database block count
       if(verbose) {
 	BlockStats((gxDatabase *)f, (addr+f->BlockHeaderSize()));
@@ -182,7 +190,7 @@ void FindBlock(gxDatabaseDebugManager *f, int verbose, int walk)
 	  }
 	}
       }
-      addr = addr + blk.block_length; // Go to the next database block
+      addr = next; // Go to the next database block (0 at the end)
     }
     else {
       badgx++;
@@ -191,11 +199,10 @@ void FindBlock(gxDatabaseDebugManager *f, int verbose, int walk)
       std::cout << "Found bad database block at address " << intbuf.c_str() 
 		  << "\n";
       std::cout << "Searching for next good database block..." << "\n";
-      addr = f->BlockSearch(addr); // Search for the next good block
+      addr = next; // The next good block after addr
       if(!addr) {
 	std::cout << "None found!" << "\n";
-	std::cout << "\n";
-	return;
+	break;
       }
     }
   }

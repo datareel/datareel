@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/04/1997  
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -35,8 +35,11 @@ and repair damaged or corrupt database files.
 
 #include "dbugmgr.h"
 
+#include <filesystem>
 #include <new>
 #include <string>
+#include <system_error>
+#include <vector>
 #include "strutil.h"
 
 namespace datareel {
@@ -170,22 +173,47 @@ FAU_t gxDatabaseDebugManager::BlockSearch(FAU_t offset)
   FAU_t file_address = offset;
   FAU_t StaticEOF = FileSize(file_name);
 
+  if(file_address < (FAU_t)0) file_address = (FAU_t)0; // 11/01/2026
   if(file_address >= StaticEOF) { // Prevent offsetting past EOF
     return 0; // Invalid address
   }
+
+  // 11/01/2026: Read the file through a buffer. The search did a seek 
+  // and a header sized read for every byte, which took hours on a large
+  // damaged file. Each chunk overlaps the next by one header so no 
+  // address is skipped. As before, a header must end before EOF.
+  const __ULWORD__ hdr_size = (__ULWORD__)sizeof(gxBlockHeader);
+  const __ULWORD__ chunk_size = 64 * 1024;
+  std::vector<char> chunk;
+  try {
+    chunk.resize(chunk_size + hdr_size);
+  }
+  catch(...) {
+    return (FAU_t)0;
+  }
   
   while(1) {
-    if((FAU_t)(file_address + sizeof(gxBlockHeader)) >= StaticEOF) {
+    if((FAU_t)(file_address + hdr_size) >= StaticEOF) {
       return (FAU_t)0;
     }
-    if(Read(&blk, sizeof(gxBlockHeader), file_address) != gxDBASE_NO_ERROR)
+    // Bytes left before EOF, at most one chunk plus one header
+    FAU_t left = StaticEOF - file_address;
+    __ULWORD__ want = (__ULWORD__)chunk.size();
+    if(left < (FAU_t)want) want = (__ULWORD__)left;
+    if(Read(chunk.data(), want, file_address) != gxDBASE_NO_ERROR)
       return (FAU_t)0;
-    if(!TestBlockHeader(blk)) { 
-      file_address++; // Loop through the file byte by byte
+    // Test every address whose header ends before EOF
+    __ULWORD__ i = 0;
+    for(; i + hdr_size <= want; i++) {
+      if((FAU_t)(file_address + i + hdr_size) >= StaticEOF) {
+	return (FAU_t)0;
+      }
+      memcpy((void *)&blk, chunk.data() + i, hdr_size);
+      if(TestBlockHeader(blk)) {
+	return (FAU_t)(file_address + i); // Found valid block
+      }
     }
-    else {
-      return file_address; // Found valid block
-    }
+    file_address += i; // Continue at the first address not tested
   }
 
   // PC-lint 04/21/2004: Unreachable code but required for some compilers
@@ -481,7 +509,31 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 {
   // Clear the status message
   status_message.clear();
+  if(!fname || !*fname) { // 11/01/2026: Null or empty output name
+    str_append(status_message, "No output file name given", "\n");
+    return 0;
+  }
   str_append(status_message, "Rebuild results for: ", fname, "\n");
+
+  // 11/01/2026: The new file is created over any existing file. If it
+  // is the file being rebuilt (same name, a hard or symbolic link, or a
+  // different spelling of the path) the damaged file was truncated
+  // before it was read. Refuse it.
+  {
+    std::error_code ec, ec_exists;
+    if(std::filesystem::exists(fname, ec_exists)) {
+      bool same = std::filesystem::equivalent(fname, DatabaseName(), ec);
+      if(same || ec) {
+	// Same file, or cannot tell whether it is; do not risk it
+	gxd_error = gxDBASE_FILE_EXISTS;
+	str_append(status_message, same ? 
+		   "The output file is the file being rebuilt" :
+		   "Cannot compare the output file with the file being rebuilt",
+		   "\n");
+	return 0;
+      }
+    }
+  }
 
   // Record the EOF mark
   FAU_t StaticEOF = FileSize(DatabaseName());

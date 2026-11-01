@@ -38,6 +38,10 @@ Changes:
 ==============================================================
 10/26/2026: Added for DataReel 7, which requires TLS for every 
 network protocol except telnet.
+
+11/01/2026: Failed handshakes close the connection, handshakes and
+I/O use the timeout as a socket timeout, Send(std::string_view)
+sends in chunks and Read() refuses requests over INT_MAX.
 ==============================================================
 */
 // ----------------------------------------------------------- //   
@@ -54,6 +58,9 @@ network protocol except telnet.
 
 namespace datareel {
 
+
+// 11/01/2026: Largest single write Send(std::string_view) passes on
+const int gxsTLS_SEND_CHUNK = 1024 * 1024;
 
 class GXDLCODE_API gxsTLSConnection
 {
@@ -99,14 +106,17 @@ public: // Server connections
 
 public: // Data transfer
   int Send(const void *buf, int bytes); // All bytes, or -1 on error
-  int Send(std::string_view s) { return Send(s.data(), (int)s.size()); }
+  // 11/01/2026: Sends in chunks of gxsTLS_SEND_CHUNK. Returns the size
+  // (at most INT_MAX) or -1 on an error.
+  int Send(std::string_view s);
   int SendLine(std::string_view s); // Adds CR LF
 
   // Read up to bytes, waiting at most the timeout. Returns the number
   // read, 0 if the peer closed the connection, or -1 on an error.
   int ReadSome(void *buf, int bytes);
 
-  // Read exactly bytes into s unless the connection closes or fails
+  // Read exactly bytes into s unless the connection closes or fails.
+  // Returns the number read, or -1 if bytes is larger than INT_MAX.
   int Read(std::string &s, std::size_t bytes);
 
   // Read one line, without its CR LF. Returns false if the connection
@@ -120,7 +130,14 @@ public: // Data transfer
 
 public: // Status
   bool IsOpen() const { return sock.IsOpen(); }
-  bool IsSecure() const { return secure; }
+  bool IsSecure() const { return secure || fuzz_plain; }
+
+#if defined (DATAREEL_FUZZING)
+  // 11/01/2026: Test only. Lets a fuzz target drive gxStream over a
+  // plain socket pair. Data still travels in cleartext. Close()
+  // clears it. Never define DATAREEL_FUZZING in a real build.
+  void FuzzAssumeSecure() { fuzz_plain = true; }
+#endif
   const std::string &Host() const { return host_name; }
   const std::string &Error() const { return error; }
   gxSocket &Socket() { return sock; }
@@ -128,13 +145,18 @@ public: // Status
 
 private:
   int fail(const std::string &msg);
+  int fail_closed(const std::string &msg); // 11/01/2026: Also closes sock
   int tls_handshake(bool as_server);
+  int verify_server(); // 11/01/2026
   int fill(); // Read more data into rbuf
 
 private:
   gxSocket sock;
   gxSSL tls;
   bool secure = false;
+  // 11/01/2026: Set only by FuzzAssumeSecure(). The member is always
+  // here so the class layout does not depend on DATAREEL_FUZZING.
+  bool fuzz_plain = false;
   bool verify_peer = true;
   int timeout_sec = 60;
   gxSSLMethod protocol = gxSSL_TLS;

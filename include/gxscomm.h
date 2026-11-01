@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -139,7 +139,12 @@ public: // Enumerations
     scomm_BLOCKACK_ERROR,    // Database block acknowledgment error
     scomm_BLOCKHEADER_ERROR, // Bad database block header
     scomm_BLOCKSIZE_ERROR,   // Bad database block size
-    scomm_BLOCKSYNC_ERROR    // Database block synchronization error
+    scomm_BLOCKSYNC_ERROR,   // Database block synchronization error
+
+    // 11/01/2026: A read or write moved no data (WIN32 COMMTIMEOUTS
+    // expired, or end of file/hangup under UNIX). Recv() and Send() used
+    // to retry forever.
+    scomm_TIMEOUT_ERROR      // Serial device timeout or end of file
   };
   
   enum {
@@ -179,6 +184,10 @@ public:
   int Send(scommDeviceHandle h, const void *buf, int bytes);
   int RawRead(void *buf, int bytes);
   int RawWrite(const void *buf, int bytes);
+  // NOTE: Recv() and Send() return -1 with scomm_TIMEOUT_ERROR if a
+  // single read or write moves no data. Under WIN32 that happens when the
+  // COMMTIMEOUTS set with SetTimeouts() expire; set longer timeouts to
+  // wait longer. Under UNIX a 0 byte read is end of file (hangup).
   int Recv(void *buf, int bytes);
   int Send(const void *buf, int bytes);
 
@@ -237,6 +246,7 @@ protected: // POSIX terminal (serial) interface extensions
   int bytes_read;  // Number of bytes read following a Read() call
   int bytes_moved; // Number of bytes written following a Write() call
   int modem_line_status;
+  int oldtios_saved; // 11/01/2026: True if oldtios holds saved settings
 #endif
   
 protected: // WIN32 extensions

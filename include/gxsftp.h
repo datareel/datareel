@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -61,6 +61,12 @@ connection's TLS session. Transfers are passive only (EPSV, then
 PASV), and the data connection always goes to the server's own 
 address, never to the address in a PASV reply. Files are read and 
 written with std::fstream.
+
+11/01/2026: Added SetMaxSize(), which limits List() and GetString()
+(64 MB by default), and the reply parsers ParseReply(), 
+ParsePASVPort(), ParseEPSVPort() and ParseSizeReply(), which check
+their input (SIZE read past the end of a short "213" reply and the
+PASV/EPSV fields were read with atoi()).
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -69,7 +75,9 @@ written with std::fstream.
 
 #include "gxdlcode.h"
 
+#include <cstddef>
 #include <string>
+#include <string_view>
 
 #include "gxsmtp.h" // gxsMailSecurity
 #include "gxstls.h"
@@ -88,6 +96,9 @@ public: // Settings used before Connect()
   void SetTimeout(int seconds) { conn.SetTimeout(seconds); timeout_sec = seconds; }
   void SetCAFile(const std::string &fname) { conn.SetCAFile(fname); }
   void SetVerifyPeer(bool on) { conn.SetVerifyPeer(on); }
+  // 11/01/2026: Largest listing or file List() and GetString() keep
+  // in memory
+  void SetMaxSize(std::size_t n) { max_size = n; }
 
 public: // Each returns 0 if successful
   // gxsMAIL_STARTTLS sends AUTH TLS after the greeting (explicit FTPS)
@@ -116,6 +127,19 @@ public: // Each returns 0 if successful
   // starts with expect, such as "2" or "250".
   int Command(const std::string &cmd, const std::string &expect);
 
+public: // 11/01/2026: Reply parsers, used on the connection and in tests
+  // Parse one reply ("150-..." lines up to "150 ...") from the start
+  // of buf into reply. Returns the code, or -1 if buf does not hold a
+  // complete, well formed reply. consumed is set to the bytes used.
+  static int ParseReply(std::string_view buf, std::string &reply,
+			std::size_t *consumed = 0);
+  // Data port from "227 ... (h1,h2,h3,h4,p1,p2)" or "229 ... (|||port|)".
+  // Returns 1-65535, or -1 if the reply is not valid.
+  static int ParsePASVPort(std::string_view reply);
+  static int ParseEPSVPort(std::string_view reply);
+  // Size from "213 bytes". Returns false if the reply is not valid.
+  static bool ParseSizeReply(std::string_view reply, long long &bytes);
+
 public:
   int LastCode() const { return last_code; }
   const std::string &LastReply() const { return last_reply; }
@@ -132,6 +156,7 @@ private:
   gxsTLSConnection conn;
   std::string host_name;
   int timeout_sec = 60;
+  std::size_t max_size = 64*1024*1024; // 11/01/2026: See SetMaxSize()
   int last_code = 0;
   std::string last_reply;
   std::string error;

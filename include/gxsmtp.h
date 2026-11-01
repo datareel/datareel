@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -51,6 +51,11 @@ Mail is only sent over TLS: implicit TLS (port 465) or STARTTLS
 never used in plain text. Login() uses AUTH PLAIN or AUTH LOGIN, 
 multi-line replies are read in full, and message bodies are dot 
 stuffed. SendMessage() writes RFC 5322 headers.
+
+11/01/2026: MailFrom() and RcptTo() refuse addresses that are not
+one <...> with no spaces, angle brackets or control characters
+inside and nothing after it (ESMTP parameter injection such as
+"a@b> NOTIFY=..."). Added NormalizeAddress() and ParseReply().
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -59,7 +64,9 @@ stuffed. SendMessage() writes RFC 5322 headers.
 
 #include "gxdlcode.h"
 
+#include <cstddef>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "gxstls.h"
@@ -107,6 +114,19 @@ public:
   // Send a command and read the reply. Returns 0 if the reply code
   // starts with expect, such as "250" or "3".
   int Command(const std::string &cmd, const std::string &expect);
+
+public: // 11/01/2026: Parsers, used on the connection and in tests
+  // Turn "user@host", "<user@host>" or "Name <user@host>" into
+  // "<user@host>". Returns false if the address holds spaces, '<',
+  // '>' or control characters, has more than one <...> or anything
+  // after the '>'. "<>" (the null sender) needs allow_empty.
+  static bool NormalizeAddress(const std::string &address, std::string &out,
+			       bool allow_empty = false);
+  // Parse one reply ("250-..." lines up to "250 ...") from the start
+  // of buf. Returns the code, or -1 if buf does not hold a complete,
+  // well formed reply. consumed is set to the bytes used.
+  static int ParseReply(std::string_view buf, std::string &reply,
+			std::size_t *consumed = 0);
 
 public:
   bool HasExtension(const std::string &name) const; // From EHLO, such as "AUTH"

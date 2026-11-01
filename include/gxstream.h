@@ -39,6 +39,10 @@ with gxsTLSServer::Accept(stream.Connection()). Block lengths read
 from the network are checked against SetMaxBlockSize() before any 
 memory is allocated, and requested blocks are returned in a 
 std::vector instead of a new[] buffer.
+
+11/01/2026: Block functions return gxSOCKET_SSL_ERROR unless the
+connection is secure. WriteBlock() rejects lengths over INT_MAX.
+Added 64-bit WriteResultBlock(FAU_t)/ReadResultBlock(FAU_t&).
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -77,6 +81,7 @@ public: // Connection
     conn.SetTimeout(seconds); 
   }
   void SetMaxBlockSize(gxUINT32 bytes) { max_block = bytes; }
+  gxUINT32 MaxBlockSize() const { return max_block; } // 11/01/2026
 
 public: // Block functions. Each returns 0 if successful.
   void SetBlockStatus(gxBlockHeader &gx, __SBYTE__ net_status,
@@ -102,6 +107,10 @@ public: // Block functions. Each returns 0 if successful.
   int ReadAckBlock();
   int WriteResultBlock(int result_code);
   int ReadResultBlock(int &result_code);
+  // 11/01/2026: Full width results, used for 64-bit file addresses.
+  // ReadResultBlock(int&) truncates a result sent with the FAU_t form.
+  int WriteResultBlock(FAU_t result_code);
+  int ReadResultBlock(FAU_t &result_code);
   int TerminateConnection(); // Ask the server to shut down
   int RestartConnection();   // Ask the server to restart
   int CloseConnection();     // Tell the server this client is done

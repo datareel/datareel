@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -40,12 +40,17 @@ Mail is only read over TLS: implicit TLS (port 995) or STLS (port
 110). A server that does not accept STLS is refused. Multi-line 
 replies are read to the terminating dot and un-stuffed, and the 
 results are returned as std::string values.
+
+11/01/2026: Multi-line replies stop at SetMaxSize() bytes (64 MB by
+default) and are parsed by ParseMultiline(), which can be given a
+buffer. Stat() checks its numbers instead of using atoi().
 ==============================================================
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
 
 #include <cstdlib>
+#include <functional>
 #include "gxspop3.h"
 #include "strutil.h"
 
@@ -65,20 +70,59 @@ int gxsPOP3Client::read_status()
   return 0;
 }
 
-int gxsPOP3Client::read_multiline(std::string &data)
+// 11/01/2026: One multi-line parser for the connection and for
+// buffers. Returns 0, -1 if a line could not be read or -2 if the
+// reply is over max_size bytes.
+static int parse_multiline(const std::function<bool(std::string &)> &next_line,
+			   std::string &data, std::size_t max_size)
 {
   data.clear();
   std::string line;
   for(;;) {
-    if(!conn.ReadLine(line, 1024*1024)) {
-      return fail("POP3 exception: Incomplete reply" +
-		  (conn.Error().empty() ? std::string() : ": " + conn.Error()));
-    }
+    if(!next_line(line)) return -1;
     if(line == ".") return 0;
     if(!line.empty() && line[0] == '.') line.erase(0, 1); // Dot stuffing
+    if(data.size() + line.size() + 2 > max_size) return -2;
     data += line;
     data += "\r\n";
   }
+}
+
+int gxsPOP3Client::ParseMultiline(std::string_view buf, std::string &data,
+				  std::size_t max_size, std::size_t *consumed)
+{
+  std::size_t pos = 0;
+  auto next_line = [&](std::string &line) -> bool {
+    std::size_t nl = buf.find('\n', pos);
+    if(nl == std::string_view::npos || nl - pos > 1024*1024) return false;
+    line.assign(buf.data() + pos, nl - pos);
+    pos = nl + 1;
+    if(!line.empty() && line.back() == '\r') line.pop_back();
+    return true;
+  };
+  int rv = parse_multiline(next_line, data, max_size);
+  if(consumed) *consumed = pos;
+  return rv < 0 ? -1 : 0;
+}
+
+int gxsPOP3Client::read_multiline(std::string &data)
+{
+  auto next_line = [this](std::string &line) -> bool {
+    return conn.ReadLine(line, 1024*1024);
+  };
+  int rv = parse_multiline(next_line, data, max_size);
+  if(rv == -1) {
+    return fail("POP3 exception: Incomplete reply" +
+		(conn.Error().empty() ? std::string() : ": " + conn.Error()));
+  }
+  if(rv < 0) {
+    // 11/01/2026: The rest of the reply is not read, so the 
+    // connection cannot be used for another command
+    conn.Close();
+    return fail("POP3 exception: Reply is larger than " + 
+		std::to_string(max_size) + " bytes");
+  }
+  return 0;
 }
 
 int gxsPOP3Client::Command(const std::string &cmd)
@@ -121,8 +165,17 @@ int gxsPOP3Client::Stat(int &num_messages, long long &total_bytes)
   if(Command("STAT") != 0) return -1;
   std::vector<std::string> f = split(last_reply, ' ', true);
   if(f.size() < 3) return fail("POP3 exception: Bad STAT reply: " + last_reply);
-  num_messages = std::atoi(f[1].c_str());
-  total_bytes = std::atoll(f[2].c_str());
+  // 11/01/2026: Digits only, no atoi() overflow
+  for(int i = 1; i <= 2; i++) {
+    if(f[i].empty() || f[i].size() > 18 || 
+       f[i].find_first_not_of("0123456789") != std::string::npos) {
+      return fail("POP3 exception: Bad STAT reply: " + last_reply);
+    }
+  }
+  long long n = std::strtoll(f[1].c_str(), 0, 10);
+  if(n > 0x7FFFFFFF) return fail("POP3 exception: Bad STAT reply: " + last_reply);
+  num_messages = (int)n;
+  total_bytes = std::strtoll(f[2].c_str(), 0, 10);
   return 0;
 }
 

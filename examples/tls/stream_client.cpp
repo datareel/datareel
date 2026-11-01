@@ -29,6 +29,10 @@ USA
 
 gxStream database block client. Sends records to stream_server over
 TLS, reads them back by file address and checks that they match.
+--stop asks the server to shut down, which works only when the
+server runs with --allow-remote-shutdown.
+
+11/01/2026: Reads the full 64-bit file address in the result block.
 
 Usage: stream_client host port [--ca ca.pem] [--insecure] [--stop]
 */
@@ -75,14 +79,14 @@ int main(int argc, char **argv)
   for(const char *rec : records) {
     gxBlockHeader hdr;
     hdr.block_length = (__ULWORD__)strlen(rec);
-    int addr = 0;
+    FAU_t addr = 0; // 11/01/2026: Full 64-bit file address
     if(stream.AddBlock(rec, hdr) != gxSOCKET_NO_ERROR ||
        stream.ReadResultBlock(addr) != gxSOCKET_NO_ERROR || addr == 0) {
       std::cerr << "Add failed: " << stream.SocketExceptionMessage() << "\n";
       return 1;
     }
 
-    std::int64_t req_addr = addr;
+    std::int64_t req_addr = (std::int64_t)addr;
     gxBlockHeader req_hdr, reply_hdr;
     req_hdr.block_length = sizeof(req_addr);
     std::vector<unsigned char> reply;
@@ -94,7 +98,7 @@ int main(int argc, char **argv)
     std::string got(reply.begin(), reply.end());
     bool ok = (got == rec);
     if(!ok) failures++;
-    std::cout << "Address " << addr << ": \"" << got << "\" " 
+    std::cout << "Address " << (long long)addr << ": \"" << got << "\" " 
 	      << (ok ? "OK" : "MISMATCH") << "\n";
   }
   if(stop) stream.TerminateConnection();

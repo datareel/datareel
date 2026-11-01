@@ -65,6 +65,7 @@ Differences from the OpenSSL version:
 
 #include <stdio.h>
 #include <string.h>
+#include <new> // 11/01/2026: std::nothrow for gxsc_grow()
 
 namespace datareel {
 
@@ -142,14 +143,24 @@ const int gxSchannelRxSize = 16384 + 2048;
 // --------------------------------------------------------------
 // Internal helper functions
 // --------------------------------------------------------------
+// 11/01/2026: Largest buffer gxsc_grow() will allocate. A TLS record
+// is at most 16 KB plus overhead and a handshake flight with a long
+// certificate chain fits easily, so a peer that keeps sending bytes
+// Schannel cannot use can no longer double the buffer until the int
+// size overflows.
+const int gxSchannelMaxBuf = 256 * 1024;
+
 static int gxsc_grow(char *&buf, int &size, int used, int needed)
 // Make sure buf can hold needed bytes, keeping the first used bytes.
 // Returns 0 if successful or -1 if memory could not be allocated.
 {
   if(needed <= size) return 0;
+  // 11/01/2026: Fail beyond the cap instead of overflowing new_size
+  if(needed <= 0 || needed > gxSchannelMaxBuf) return -1;
   int new_size = size ? size : 1024;
   while(new_size < needed) new_size *= 2;
-  char *p = new char[new_size];
+  if(new_size > gxSchannelMaxBuf) new_size = gxSchannelMaxBuf;
+  char *p = new (std::nothrow) char[new_size];
   if(!p) return -1;
   if(buf) {
     if(used > 0) memmove(p, buf, used);

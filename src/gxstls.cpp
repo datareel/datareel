@@ -32,20 +32,73 @@ TLS connections used by the DataReel protocol clients and servers.
 Changes:
 ==============================================================
 10/26/2026: Added for DataReel 7.
+
+11/01/2026: A failed handshake, certificate check or context setup
+now closes the TCP connection, so a caller that ignores the error
+cannot send or read in cleartext. Every handshake runs with the
+socket read/write timeout set, so a silent peer cannot block
+SSL_connect()/SSL_accept() forever. AttachClient() with a session
+checks the server certificate unless the TLS session was resumed.
+Send(std::string_view) sends in chunks and Read() refuses requests
+larger than INT_MAX.
 ==============================================================
 */
 // ----------------------------------------------------------- //   
 #include "gxdlcode.h"
 
+#include <chrono>
+#include <climits>
 #include <cstring>
+#include <mutex>
 #include "gxstls.h"
 
+#if defined (__UNIX__)
+#include <signal.h>
+#include <sys/socket.h>
+#endif
+
 namespace datareel {
+
+
+static void gxs_ignore_sigpipe()
+// 11/01/2026: OpenSSL writes to the socket with write(), not with
+// gxSocket's MSG_NOSIGNAL sends, so a peer that resets the connection
+// (for example a client that drops right after a failed certificate
+// check, now that failed handshakes close at once) raised SIGPIPE and
+// killed the whole server. Ignore SIGPIPE, but only if the program
+// left it at the default action; the write then fails with EPIPE.
+{
+#if defined (__UNIX__)
+  static std::once_flag once;
+  std::call_once(once, []() {
+    struct sigaction old_sa;
+    if(sigaction(SIGPIPE, 0, &old_sa) == 0 && old_sa.sa_handler == SIG_DFL) {
+      struct sigaction sa;
+      memset(&sa, 0, sizeof(sa));
+      sa.sa_handler = SIG_IGN;
+      sigemptyset(&sa.sa_mask);
+      sigaction(SIGPIPE, &sa, 0);
+    }
+  });
+#endif
+}
 
 
 int gxsTLSConnection::fail(const std::string &msg)
 {
   error = msg;
+  return -1;
+}
+
+int gxsTLSConnection::fail_closed(const std::string &msg)
+// 11/01/2026: Used when TLS could not be set up. Closes the TCP
+// connection too, so nothing can fall back to cleartext.
+{
+  error = msg;
+  secure = false;
+  tls.DestroySSL();
+  sock.Close();
+  rbuf.clear();
   return -1;
 }
 
@@ -59,6 +112,9 @@ int gxsTLSConnection::Connect(const std::string &host, int port,
     std::string msg = sock.SocketExceptionMessage();
     return fail(msg + ": " + host + " port " + std::to_string(port));
   }
+  // 11/01/2026: Bound every blocking send and receive, including the
+  // ones inside the TLS library
+  sock.SetIOTimeout(timeout_sec);
   if(implicit_tls) return StartTLS();
   return 0;
 }
@@ -76,45 +132,55 @@ int gxsTLSConnection::StartTLS()
     tls.SetKeyFile(client_key.c_str());
     if(!key_pass.empty()) tls.SetPasswd(key_pass.c_str());
   }
-  if(!tls.InitCTX()) return fail(tls.SSLExceptionMessage());
+  // 11/01/2026: Close the connection if the context cannot be made
+  if(!tls.InitCTX()) return fail_closed(tls.SSLExceptionMessage());
   return tls_handshake(false);
 }
 
 int gxsTLSConnection::tls_handshake(bool as_server)
+// 11/01/2026: Every failure closes the TCP connection (fail_closed)
 {
+  // 11/01/2026: A peer that accepts TCP and then says nothing must
+  // not block the handshake forever
+  sock.SetIOTimeout(timeout_sec);
+  gxs_ignore_sigpipe(); // 11/01/2026
   if(tls.OpenSSLSocket(sock.GetSocket()) != gxSSL_NO_ERROR) {
-    return fail(tls.SSLExceptionMessage());
+    return fail_closed(tls.SSLExceptionMessage());
   }
   if(as_server) {
     if(tls.AcceptSSLSocket() != gxSSL_NO_ERROR) {
-      std::string msg = tls.SSLExceptionMessage();
-      tls.DestroySSL();
-      return fail(msg);
+      return fail_closed(tls.SSLExceptionMessage());
     }
   }
   else {
     tls.SetHostName(host_name.c_str());
     if(tls.ConnectSSLSocket() != gxSSL_NO_ERROR) {
-      std::string msg = tls.SSLExceptionMessage();
-      tls.DestroySSL();
-      return fail(msg);
+      return fail_closed(tls.SSLExceptionMessage());
     }
-    if(verify_peer) {
-      long code = 0;
-      if(tls.VerifyCert(host_name.c_str(), &code) != gxSSL_NO_ERROR) {
-	std::string msg = tls.SSLExceptionMessage();
-	if(code != 0) {
-	  msg += " (";
-	  msg += gxSSL::CertVerifyErrorString(code);
-	  msg += ")";
-	}
-	msg += " for " + host_name;
-	tls.CloseSSLSocket();
-	return fail(msg);
-      }
+    if(verify_peer && verify_server() != 0) {
+      tls.CloseSSLSocket();
+      return fail_closed(error);
     }
   }
   secure = true;
+  return 0;
+}
+
+int gxsTLSConnection::verify_server()
+// 11/01/2026: Check the server certificate and host name. Sets the
+// error message and returns -1 if the check fails.
+{
+  long code = 0;
+  if(tls.VerifyCert(host_name.c_str(), &code) != gxSSL_NO_ERROR) {
+    std::string msg = tls.SSLExceptionMessage();
+    if(code != 0) {
+      msg += " (";
+      msg += gxSSL::CertVerifyErrorString(code);
+      msg += ")";
+    }
+    msg += " for " + host_name;
+    return fail(msg);
+  }
   return 0;
 }
 
@@ -130,8 +196,10 @@ int gxsTLSConnection::AttachClient(gxSocket &&s, const std::string &host,
   // Share the context and TLS session of the other connection
   tls.MakeClient();
   tls.SetCTX(session_from->tls.GetCTX());
+  sock.SetIOTimeout(timeout_sec); // 11/01/2026: Bound the handshake
+  gxs_ignore_sigpipe(); // 11/01/2026
   if(tls.OpenSSLSocket(sock.GetSocket()) != gxSSL_NO_ERROR) {
-    return fail(tls.SSLExceptionMessage());
+    return fail_closed(tls.SSLExceptionMessage());
   }
 #if !defined (__USE_GX_SCHANNEL__)
   SSL_SESSION *sess = SSL_get1_session(session_from->tls.GetSSL());
@@ -142,11 +210,23 @@ int gxsTLSConnection::AttachClient(gxSocket &&s, const std::string &host,
 #endif
   tls.SetHostName(host_name.c_str());
   if(tls.ConnectSSLSocket() != gxSSL_NO_ERROR) {
-    std::string msg = tls.SSLExceptionMessage();
-    tls.DestroySSL();
-    return fail(msg);
+    return fail_closed(tls.SSLExceptionMessage());
   }
-  // The control connection already checked this server's certificate
+  // 11/01/2026: Only a resumed session proves this is the server the
+  // control connection checked. A full handshake (the server did not
+  // resume, or Schannel, which does not resume here) gets the same
+  // certificate and host name check as any other connection.
+  if(verify_peer) {
+#if !defined (__USE_GX_SCHANNEL__)
+    bool reused = SSL_session_reused(tls.GetSSL()) == 1;
+#else
+    bool reused = false;
+#endif
+    if(!reused && verify_server() != 0) {
+      tls.CloseSSLSocket();
+      return fail_closed(error);
+    }
+  }
   secure = true;
   return 0;
 }
@@ -157,9 +237,38 @@ int gxsTLSConnection::AttachServer(gxSocket &&client, gxSSL_CTX_t *server_ctx)
   error.clear();
   sock = std::move(client);
   host_name = sock.PeerIPAddress();
+  // tls_handshake() sets the socket timeout before SSL_accept()
   tls.MakeServer();
   tls.SetCTX(server_ctx);
   return tls_handshake(true);
+}
+
+static void gxs_linger_close(gxsSocket_t s)
+// 11/01/2026: CloseSSLSocket() no longer waits for the peer's
+// close_notify. Closing a socket with unread data in it (TLS 1.3
+// session tickets, the peer's close_notify) sends a TCP reset, and a
+// reset makes the peer's kernel drop data it has not read yet, such
+// as the end of an FTPS upload. Send a FIN, then read and discard
+// what the peer sends until it closes, for at most about one second,
+// so a silent peer cannot hold up Close().
+{
+#if defined (__WIN32__)
+  shutdown(s, SD_SEND);
+#else
+  shutdown(s, SHUT_WR);
+#endif
+  char buf[4096];
+  auto end = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+  std::size_t total = 0;
+  while(total < 1024*1024) { // Stop a peer that floods us too
+    auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+      end - std::chrono::steady_clock::now()).count();
+    if(left <= 0) break;
+    if(gxSocket::WaitReadable(s, (int)left) != 1) break;
+    int n = (int)recv(s, buf, (int)sizeof(buf), 0);
+    if(n <= 0) break; // The peer closed, or an error
+    total += (std::size_t)n;
+  }
 }
 
 void gxsTLSConnection::Close()
@@ -167,7 +276,9 @@ void gxsTLSConnection::Close()
   if(secure) {
     tls.CloseSSLSocket();
     secure = false;
+    if(sock.IsOpen()) gxs_linger_close(sock.GetSocket()); // 11/01/2026
   }
+  fuzz_plain = false; // 11/01/2026: See gxstls.h
   tls.DestroySSL();
   sock.Close();
   rbuf.clear();
@@ -182,6 +293,23 @@ int gxsTLSConnection::Send(const void *buf, int bytes)
     return -1;
   }
   return rv;
+}
+
+int gxsTLSConnection::Send(std::string_view s)
+// 11/01/2026: Was Send(s.data(), (int)s.size()) in the header, which
+// truncated a string larger than INT_MAX. Sends in chunks. Returns
+// the number of bytes sent (at most INT_MAX), or -1 on an error.
+{
+  const char *p = s.data();
+  std::size_t left = s.size();
+  while(left > 0) {
+    int n = left > (std::size_t)gxsTLS_SEND_CHUNK ? 
+      gxsTLS_SEND_CHUNK : (int)left;
+    if(Send(p, n) != n) return -1;
+    p += n;
+    left -= (std::size_t)n;
+  }
+  return s.size() > (std::size_t)INT_MAX ? INT_MAX : (int)s.size();
 }
 
 int gxsTLSConnection::SendLine(std::string_view s)
@@ -223,6 +351,11 @@ int gxsTLSConnection::ReadSome(void *buf, int bytes)
 int gxsTLSConnection::Read(std::string &s, std::size_t bytes)
 {
   s.clear();
+  // 11/01/2026: The count is returned as an int, so a larger request
+  // could only be reported truncated. Refuse it.
+  if(bytes > (std::size_t)INT_MAX) {
+    return fail("TLS exception: Read request is too large");
+  }
   while(rbuf.size() < bytes) {
     if(fill() <= 0) break;
   }

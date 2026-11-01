@@ -81,6 +81,9 @@ mkdir -p "$WORK/run_damaged" && cd "$WORK/run_damaged" &&
   check damaged_files "$BUILD/tests/damaged_files" 300 7
 mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" &&
   check journal_test "$BUILD/tests/journal_test" 20 7
+for t in stream_security_test proto_security_test support_security_test; do
+  mkdir -p "$WORK/run_$t" && cd "$WORK/run_$t" && check $t "$BUILD/tests/$t"
+done
 cd "$WORK"
 
 # TLS echo server and client, IPv4 and IPv6, certificate checks
@@ -114,7 +117,7 @@ check ai_https_fetch sh -c "$E/ai_https_fetch https://localhost:$P2/ ca.pem | gr
 
 # gxStream database blocks over TLS
 P3=$((PORT+2))
-$E/stream_server $P3 server.pem server.key blocks.gxd > stream_server.log 2>&1 &
+$E/stream_server $P3 server.pem server.key blocks.gxd --allow-remote-shutdown > stream_server.log 2>&1 &
 PIDS+=($!); wait_port $P3
 check stream_blocks $E/stream_client localhost $P3 --ca ca.pem
 check stream_blocks_ipv6 $E/stream_client ::1 $P3 --ca ca.pem --stop
