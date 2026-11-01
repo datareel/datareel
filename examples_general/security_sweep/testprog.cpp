@@ -55,7 +55,7 @@ USA
               the end, operator<< of a large double.
   strutil     FindMatch()/gxfind_pattern() stay inside the given length,
               64-bit number conversions with too many digits, a bad
-              radix and negative values.
+              radix and negative values. StringANCompare() digit runs.
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -266,6 +266,13 @@ int main()
     check(strcmp(ULLWORDToString(nb, 5, 1), "5") == 0 && strcmp(ULLWORDToString(nb, 12, 0), "12") == 0,
 	  "strutil: a bad radix gives base 10");
 #endif
+  }
+
+  // strutil: StringANCompare
+  {
+    check(StringANCompare("1", "12", 1) < 0 && StringANCompare("12", "1", 1) > 0 &&
+	  StringANCompare("a2", "a10", 0) < 0 && StringANCompare("abc", "abc", 1) == 0,
+	  "strutil: StringANCompare() with digits to the end of a string");
   }
 
   // base64

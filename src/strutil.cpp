@@ -734,16 +734,20 @@ GXDLCODE_API int StringANCompare(const char *a, const char *b, int check_case)
   char *bp = (char *)b;
   unsigned long digit_pos1 = 0;
   unsigned long digit_pos2 = 0;
-  char *dbuf1 = new char[sn+1]; // Digit buffer 1, collecting digits
+  // 10/31/2026: Room for sn digits, the digit after them that the
+  // compares below add, and a null. With sn+1 a run of digits to the
+  // end of the shorter string filled the buffer without a null and
+  // StringToULWORD() read past it ("1" and "12").
+  char *dbuf1 = new char[sn+2]; // Digit buffer 1, collecting digits
   if(!dbuf1) return -1;
-  char *dbuf2 = new char[sn+1]; // Digit buffer 2, collecting digits
+  char *dbuf2 = new char[sn+2]; // Digit buffer 2, collecting digits
   if(!dbuf2) {
     // PC-lint 04/26/2005: Prevent memory leak
     delete[] dbuf1;
     return -1;
   }
-  memset(dbuf1, 0, (sn+1));
-  memset(dbuf2, 0, (sn+1));
+  memset(dbuf1, 0, (sn+2));
+  memset(dbuf2, 0, (sn+2));
   unsigned long ibuf1, ibuf2;
 
   for(i = 0; i < sn; i++) {
@@ -797,8 +801,8 @@ GXDLCODE_API int StringANCompare(const char *a, const char *b, int check_case)
 	  delete[] dbuf2;
 	  return 1;
 	}
-	memset(dbuf1, 0, (sn+1));
-	memset(dbuf2, 0, (sn+1));
+	memset(dbuf1, 0, (sn+2));
+	memset(dbuf2, 0, (sn+2));
 	digit_pos1 = digit_pos2 = 0;
       }
       if(check_case) {
