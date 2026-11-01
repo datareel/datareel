@@ -100,6 +100,7 @@ GXDLCODE_API EHandler *ProgramError = &ExceptionHandler;
 
 void EHandler::DisplayException(const char *mesg)
 {
+  if(!mesg) mesg = ""; // 10/31/2026: A null message (cout << 0 is undefined)
 #if defined (__wxWIN168B__)
   wxMessageBox((char *)mesg, (char *)MessageBoxCaption, wxOK|wxCENTRE);
 
@@ -151,6 +152,11 @@ void EHandler::SignalException(const char *mesg, int Level)
 void EHandler::Message(const char *mesg1, const char *mesg2, 
 		       const char *mesg3)
 {
+  // 10/31/2026: Null messages are empty strings. The wxWidgets and Win32
+  // versions passed them to strlen(), strcpy() and wxString.
+  if(!mesg1) mesg1 = "";
+  if(!mesg2) mesg2 = "";
+  if(!mesg3) mesg3 = "";
 #if defined (__wxWIN168B__)
   int len = strlen(mesg1) + strlen(mesg2) + strlen(mesg3);
   char *comp = new char[len+1];

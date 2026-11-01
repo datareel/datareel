@@ -60,7 +60,8 @@ USA
               (it was a full read of bytes never read), df_GetLine()
               with a zero length buffer, text output of 1e300. futils
               path simplify, output file names and chmod strings.
-  devcache    gxDeviceBucketCache::ConstructCache(0).
+  devcache    gxDeviceBucketCache::ConstructCache(0); EHandler::Message()
+              with null messages.
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -76,6 +77,7 @@ USA
 #include "strutil.h"
 #include "futils.h"
 #include "devcache.h"
+#include "ehandler.h"
 #include "memblock.h"
 #if defined (__USE_GX_SSL_EXTENSIONS__)
 #include "gxssl.h"
@@ -327,6 +329,10 @@ int main()
   {
     gxDeviceBucketCache cache(4);
     check(cache.ConstructCache(0) != 0 && cache.BucketsInUse() == 0, "devcache: a cache of 0 buckets gets one");
+    EHandler eh;
+    eh.Message("security sweep: ", 0, 0);
+    eh.DisplayException(0);
+    check(1, "ehandler: null messages");
   }
 
   // base64
