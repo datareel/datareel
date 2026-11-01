@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -110,6 +110,7 @@ void ListDir(gxsFTPClient *ftp, int full)
 {
   char name[255];
   cout << "Enter file or directory name>";
+  cin.width(sizeof(name)); // 10/31/2026: No overflow of name
   cin >> name;
 
   const int sbuf_size = 8192;
@@ -165,6 +166,7 @@ void ChDir(gxsFTPClient *ftp)
 {
   char sbuf[255];
   cout << "Enter directory name>";
+  cin.width(sizeof(sbuf)); // 10/31/2026: No overflow of sbuf
   cin >> sbuf;
   ftp->FTPChDir((const char *)sbuf);
   if(!CheckError(ftp, 0)) return;
@@ -175,6 +177,7 @@ void MkDir(gxsFTPClient *ftp)
 {
   char sbuf[255];
   cout << "Enter directory to make>";
+  cin.width(sizeof(sbuf)); // 10/31/2026: No overflow of sbuf
   cin >> sbuf;
   ftp->FTPMkDir((const char *)sbuf);
   if(!CheckError(ftp, 0)) return;
@@ -185,6 +188,7 @@ void RmDir(gxsFTPClient *ftp)
 {
   char sbuf[255];
   cout << "Enter directory to remove>";
+  cin.width(sizeof(sbuf)); // 10/31/2026: No overflow of sbuf
   cin >> sbuf;
   ftp->FTPRmDir((const char *)sbuf);
   if(!CheckError(ftp, 0)) return;
@@ -195,6 +199,7 @@ void Delete(gxsFTPClient *ftp)
 {
   char sbuf[255];
   cout << "Enter file name to delete>";
+  cin.width(sizeof(sbuf)); // 10/31/2026: No overflow of sbuf
   cin >> sbuf;
   ftp->FTPDelete((const char *)sbuf);
   if(!CheckError(ftp, 0)) return;
@@ -205,8 +210,10 @@ void Move(gxsFTPClient *ftp)
 {
   char from[255]; char to[255];
   cout << "Enter file name to rename>";
+  cin.width(sizeof(from)); // 10/31/2026: No overflow of from
   cin >> from;
   cout << "Enter new name>";
+  cin.width(sizeof(to)); // 10/31/2026: No overflow of to
   cin >> to;
   ftp->FTPMove((const char *)from, (const char *)to);
   if(!CheckError(ftp, 0)) return;
@@ -217,6 +224,7 @@ void Size(gxsFTPClient *ftp)
 {
   char sbuf[255];
   cout << "Enter file name>";
+  cin.width(sizeof(sbuf)); // 10/31/2026: No overflow of sbuf
   cin >> sbuf;
   ftp->FTPSize((const char *)sbuf);
   if(!CheckError(ftp, 0)) return;
@@ -227,8 +235,10 @@ void Get(gxsFTPClient *ftp)
 {
   char rfile[255]; char lfile[255];
   cout << "Enter file name to download>";
+  cin.width(sizeof(rfile)); // 10/31/2026: No overflow of rfile
   cin >> rfile;
   cout << "Enter local file name>";
+  cin.width(sizeof(lfile)); // 10/31/2026: No overflow of lfile
   cin >> lfile;
 
   // Open the output and truncate if it already exists
@@ -249,8 +259,10 @@ void Put(gxsFTPClient *ftp)
 {
   char rfile[255]; char lfile[255];
   cout << "Enter file name to upload>";
+  cin.width(sizeof(lfile)); // 10/31/2026: No overflow of lfile
   cin >> lfile;
   cout << "Enter remote file name>";
+  cin.width(sizeof(rfile)); // 10/31/2026: No overflow of rfile
   cin >> rfile;
 
 

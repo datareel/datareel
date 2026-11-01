@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -76,9 +76,9 @@ int main(int argc, char **argv)
   }
   char *server = argv[1];
   char *from = argv[2];
-  char *to = "example@example.com";
-  char *subject = "GXS SMTP Test Message";
-  char *body = "Test test test...\n";
+  const char *to = "example@example.com";
+  const char *subject = "GXS SMTP Test Message";
+  const char *body = "Test test test...\n";
 
   gxsSMTPClient smtp;
 

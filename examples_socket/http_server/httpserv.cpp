@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -270,10 +270,13 @@ void ClientRequestThread::HandleClientRequest(ClientSocket_t *s)
   char request[rxbuf];
 
   // Block until the client sends some data
-  int rv = RawRead(s->client_socket, request, rxbuf);
+  // 10/31/2026: Read at most rxbuf-1 bytes. request[rv] = 0 wrote one
+  // byte past the end of request when a client sent 1024 bytes or more.
+  int rv = RawRead(s->client_socket, request, rxbuf - 1);
   if(CheckSocketError((gxSocket *)this, "Error reading client request")) {
     return;
   }
+  if(rv < 0) return;
 
   request[rv] = 0; // Null terminate the request string
 
