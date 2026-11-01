@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -58,7 +58,7 @@ MemoryBuffer::MemoryBuffer(const void *buf, __MEMBUF_INT__ bytes)
   // PC-lint 09/14/2005: Possibly passing a null pointer
   if(buf) {
     if(Alloc(bytes)) { 
-      if(mptr) {
+      if(mptr && bytes) {
 	memmove(mptr, buf, bytes);
       }
     }
@@ -85,7 +85,9 @@ MemoryBuffer &MemoryBuffer::operator=(const MemoryBuffer &buf)
     if(Alloc(buf.l_length)) {
       // PC-lint 09/14/2005: Possible use of null pointer
       if(!mptr) return *this;
-      memmove(mptr, buf.mptr, buf.l_length);
+      // 10/31/2026: An empty buffer has no memory to copy (memmove() with a
+      // null source is undefined behaviour)
+      if(buf.mptr && buf.l_length) memmove(mptr, buf.mptr, buf.l_length);
     }
   }
   return *this;
@@ -148,7 +150,7 @@ void *MemoryBuffer::Realloc(__MEMBUF_INT__ bytes, int keep, int reuse)
 
   if((keep == 1) && (mptr != 0)) { // Copy old data into the new memory segment
     if(bytes < l_length) l_length = bytes;
-    memmove(nmptr, mptr, l_length);
+    if(l_length) memmove(nmptr, mptr, l_length);
   }
 
   if(mptr) { // Free the previously allocated memory
@@ -196,27 +198,19 @@ int MemoryBuffer::resize(__MEMBUF_INT__ bytes, int keep)
 __MEMBUF_INT__ MemoryBuffer::Find(void *buf, __MEMBUF_INT__ offset)
 // Returns index of first occurrence of pattern void *buf.
 // Returns __MEMBUF_NO_MATCH__ if the pattern is not found.
+// 10/31/2026: The search stays inside the logical length of the buffer.
+// It read past the end of the buffer when an offset past the end was
+// given or a partial match ran into the end of the buffer.
 {
   // PC-lint 09/14/2005: Possible use of null pointer
-  if(!mptr) return __MEMBUF_NO_MATCH__;
+  if(!mptr || !buf) return __MEMBUF_NO_MATCH__;
 
-  unsigned char *start = mptr + offset;          // Start of buffer data
-  unsigned char *next = start;                   // Next buffer element
-  unsigned char *pattern = (unsigned char *)buf; // Next pattern element
-  __MEMBUF_INT__ i = offset;                     // Next buffer element index
-  
-  while(i < l_length && *pattern) {
-    if (*next == *pattern) {
-      pattern++;
-      if(*pattern == 0) return i; // Pattern was found
-      next++;
-    }
-    else {
-      i++;
-      start++;
-      next = start;
-      pattern = (unsigned char *)buf;
-    }
+  const unsigned char *pattern = (const unsigned char *)buf;
+  if(*pattern == 0) return __MEMBUF_NO_MATCH__;
+  for(__MEMBUF_INT__ i = offset; i < l_length; i++) {
+    __MEMBUF_INT__ j = 0;
+    while((i + j) < l_length && pattern[j] && mptr[i+j] == pattern[j]) j++;
+    if(pattern[j] == 0) return i; // Pattern was found
   }
   return __MEMBUF_NO_MATCH__; // No match was found
 }
@@ -225,26 +219,15 @@ __MEMBUF_INT__ MemoryBuffer::Find(const void *buf, __MEMBUF_INT__ bytes,
 				  __MEMBUF_INT__ offset) const
 // Returns index of first occurrence of pattern void *buf.
 // Returns __MEMBUF_NO_MATCH__ if the pattern is not found.
+// 10/31/2026: The search stays inside the logical length of the buffer
+// (see above).
 {
   // PC-lint 09/14/2005: Possible use of null pointer
-  if(!mptr) return __MEMBUF_NO_MATCH__;
+  if(!mptr || !buf || bytes == 0) return __MEMBUF_NO_MATCH__;
+  if(bytes > l_length || offset > (l_length - bytes)) return __MEMBUF_NO_MATCH__;
 
-  unsigned char *start = (unsigned char *)mptr + offset; // Start of buf data
-  unsigned char *next = start;                   // Next buffer element
-  unsigned char *pattern = (unsigned char *)buf; // Next pattern element
-  __MEMBUF_INT__ i = offset, j = 1;              // Buffer and pattern indexes
-  
-  while(i < l_length && j <= bytes) {
-    if (*next == *pattern) {   // Matching character
-      if(j == bytes) return i; // Entire match was found
-      next++; pattern++; j++;
-    }
-    else { // Try next spot in buffer
-      i++;
-      start++;
-      next = start;
-      pattern = (unsigned char *)buf; j = 1;
-    }
+  for(__MEMBUF_INT__ i = offset; i <= (l_length - bytes); i++) {
+    if(memcmp(mptr+i, buf, bytes) == 0) return i; // Entire match was found
   }
   return __MEMBUF_NO_MATCH__; // No match was found
 }
@@ -256,8 +239,9 @@ __MEMBUF_INT__ MemoryBuffer::DeleteAt(__MEMBUF_INT__ position,
   __MEMBUF_INT__ end;
 
   if(position < l_length && bytes !=0) {
-    buf = position + bytes;
-    if(buf > l_length) buf = l_length;
+    // 10/31/2026: Compare without adding, position + bytes could wrap
+    if(bytes > (l_length - position)) buf = l_length;
+    else buf = position + bytes;
     end = unsigned(buf);
     bytes = end - position;
 
@@ -280,6 +264,13 @@ __MEMBUF_INT__ MemoryBuffer::InsertAt(__MEMBUF_INT__ position, const void *buf,
 // zero if an error occurs.
 {
   __MEMBUF_INT__ old_length = l_length; // Record the current buffer length
+
+  // 10/31/2026: Nothing to insert. Clamp the position to the old length
+  // before the buffer grows: a position past the old end wrote past the
+  // end of the new buffer. Refuse a size that does not fit the length type.
+  if(bytes == 0 || !buf) return 0;
+  if(position > old_length) position = old_length;
+  if(bytes > (__MEMBUF_NO_MATCH__ - old_length)) return 0;
   
   // Ensure that there are enough bytes to hold the insertion
   if(!resize(bytes+l_length)) return 0;
@@ -291,7 +282,6 @@ __MEMBUF_INT__ MemoryBuffer::InsertAt(__MEMBUF_INT__ position, const void *buf,
     memmove(mptr+position+bytes, mptr+position, old_length-position);
   }
   
-  if(position > l_length) position = l_length; // Stay in bounds
   memmove(mptr+position, buf, bytes);
   return bytes;
 }
@@ -302,6 +292,7 @@ __MEMBUF_INT__ MemoryBuffer::ReplaceAt(__MEMBUF_INT__ position,
 // Replace a specified number of bytes at the specified position. Returns
 // the number of bytes replaced or zero if an error occurs.
 {
+  if(bytes == 0 || !buf) return 0; // 10/31/2026: Nothing to replace
   if(position > l_length) position = l_length; // Stay in bounds
   __MEMBUF_INT__ end = l_length-position;
   if(bytes > end) { // There are not enough bytes to hold the replacement
@@ -353,7 +344,8 @@ int MemoryBuffer::Load(const void *buf, __MEMBUF_INT__ bytes)
   // PC-lint 09/14/2005: Possible use of null pointer
   if(!mptr) return 0;
 
-  memmove(mptr, (unsigned char *)buf, l_length);
+  // 10/31/2026: Loading zero bytes or a null buffer copies nothing
+  if(buf && l_length) memmove(mptr, (unsigned char *)buf, l_length);
   return 1;
 }
 
@@ -384,7 +376,8 @@ int MemoryBuffer::MemSet(const char c, __MEMBUF_INT__ offset,
   if(!mptr) return 0;
   
   // Test the offset before filling the memory buffer
-  if((offset + num) > d_length) return 0;
+  // 10/31/2026: Compare without adding, offset + num could wrap
+  if(offset > d_length || num > (d_length - offset)) return 0;
   unsigned char *ptr = mptr+offset;
   __MEMBUF_INT__ pos = d_length - offset;
   for(__MEMBUF_INT__ i = 0; i < pos; i++) {
@@ -408,6 +401,12 @@ unsigned char &MemoryBuffer::operator[](__MEMBUF_INT__ i)
   // PC-lint 09/14/2005: Possible use of null pointer
   if(!mptr) return MemoryBufferNULLPtr::MemoryBufferNUllChar;
   if(i >= l_length) i = l_length; // If not in bounds truncate to l_length
+  // 10/31/2026: mptr[l_length] is past the end of the allocation when the
+  // buffer is full. Return the null character then instead.
+  if(i >= d_length) {
+    MemoryBufferNULLPtr::MemoryBufferNUllChar = '\0';
+    return MemoryBufferNULLPtr::MemoryBufferNUllChar;
+  }
   return mptr[i];
 }
 
@@ -416,6 +415,12 @@ unsigned char &MemoryBuffer::operator[](__MEMBUF_INT__ i) const
   // PC-lint 09/14/2005: Possible use of null pointer
   if(!mptr) return MemoryBufferNULLPtr::MemoryBufferNUllChar;
   if(i >= l_length) i = l_length; // If not in bounds truncate to l_length
+  // 10/31/2026: mptr[l_length] is past the end of the allocation when the
+  // buffer is full. Return the null character then instead.
+  if(i >= d_length) {
+    MemoryBufferNULLPtr::MemoryBufferNUllChar = '\0';
+    return MemoryBufferNULLPtr::MemoryBufferNUllChar;
+  }
   return mptr[i];
 }
 // ----------------------------------------------------------- //

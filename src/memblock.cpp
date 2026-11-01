@@ -49,7 +49,7 @@ void MemoryBlock::Load(const void *buf, unsigned bytes)
   unsigned n = bytes;
   if(n > MEMORY_BLOCK_SIZE) n = MEMORY_BLOCK_SIZE; // Prevent overflow
   l_length = n; // Logical length may be smaller then the fixed block size 
-  memmove(mem_block, (char *)buf, n);
+  if(buf && n) memmove(mem_block, (char *)buf, n); // 10/31/2026: Not a null buffer
 }
 
 int MemoryBlock::resize(unsigned bytes)

@@ -43,6 +43,11 @@ USA
               and decodes back.
   findlast    gxString::FindLast() with an empty pattern returns -1 (it
               read far out of bounds), and finds the last match.
+  membuf      MemoryBuffer: copies of empty buffers, searches that end at
+              the end of the buffer, InsertAt() past the end, DeleteAt()
+              and MemSet() with sizes that wrap, operator[] at the end
+              (6.x-only code used by fcrypt and the Encrypted Password
+              Database). Most of these show only under ASan/UBSan.
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -54,6 +59,8 @@ USA
 #include "dfileb.h"
 #include "gxs_b64.h"
 #include "gxstring.h"
+#include "membuf.h"
+#include "memblock.h"
 #if defined (__USE_GX_SSL_EXTENSIONS__)
 #include "gxssl.h"
 #endif
@@ -158,6 +165,40 @@ int main()
 	  c.FindLast("a") == 1 && c.FindLast("x") == -1, "findlast: positions as in 6.2");
     gxString d("abaab");
     check(d.FindLast("aab") == 3, "findlast: a failed partial match does not hide the last match");
+  }
+
+  // membuf
+  {
+    MemoryBuffer empty, a("abc", 3);
+    MemoryBuffer b = empty;  // Copy of an empty buffer
+    a = empty;               // Assign an empty buffer (memmove from null)
+    check(a.length() == 0 && b.length() == 0, "membuf: copy and assign of an empty buffer");
+    a.Load(0, 0); a.Cat(0, 0); a += empty;
+    check(a.length() == 0, "membuf: load and append of nothing");
+    MemoryBlock blk; blk.Load(0, 0);
+    check(blk.length() == 0, "membuf: MemoryBlock load of nothing");
+
+    MemoryBuffer c("ab", 2);  // Exact size: no slack after the data
+    check(c.Find((void *)"bc") == __MEMBUF_NO_MATCH__ &&
+	  c.Find("bc", 2) == __MEMBUF_NO_MATCH__, "membuf: a partial match at the end is not a match");
+    check(c.Find((void *)"b") == 1 && c.Find("b", 1) == 1 && c.Find("ab", 2) == 0 &&
+	  c.Find((void *)"ab", 1) == __MEMBUF_NO_MATCH__, "membuf: Find() positions");
+    check(c.Find((void *)"a", 100) == __MEMBUF_NO_MATCH__ && c.Find("a", 1, 100) == __MEMBUF_NO_MATCH__ &&
+	  c.Find("abc", 3) == __MEMBUF_NO_MATCH__, "membuf: offset or pattern past the end");
+    MemoryBuffer f("aab", 3);
+    check(f.Find((void *)"ab") == 1 && f.Find("ab", 2) == 1, "membuf: match after a failed partial match");
+
+    MemoryBuffer d("xy", 2);
+    __MEMBUF_INT__ n = d.InsertAt(10, "1234", 4); // Position past the end
+    check(n == 4 && d.length() == 6 && memcmp(d.m_buf(), "xy1234", 6) == 0,
+	  "membuf: InsertAt() past the end appends");
+    n = d.DeleteAt(2, 0xFFFFFFFF); // position + bytes wraps
+    check(n == 4 && d.length() == 2 && memcmp(d.m_buf(), "xy", 2) == 0,
+	  "membuf: DeleteAt() with a size that wraps");
+    MemoryBuffer e(8);
+    check(e.MemSet('z', 4, 0xFFFFFFFE) == 0 && e.MemSet('z', 4, 4) == 1, "membuf: MemSet() with a size that wraps is refused");
+    MemoryBuffer g("ab", 2);
+    check(g[100] == 0 && g[1] == 'b', "membuf: operator[] past the end of a full buffer");
   }
 
   // base64
