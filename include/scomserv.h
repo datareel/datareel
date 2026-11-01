@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -40,6 +40,10 @@ blocks over a serial port.
 #include "gxscomm.h"
 #include "gxheader.h"
 
+// 10/31/2026: Largest block gxSerialCommServer::ReadBlock(buf, gx) will
+// copy into a buffer whose size it is not told
+const __ULWORD__ gxsSCOMM_MAX_UNSIZED_BLOCK = 65536;
+
 // Serial communications server/client
 class GXDLCODE_API gxSerialCommServer : public gxSerialComm
 {
@@ -58,6 +62,13 @@ public: // Database block functions
   int WriteBlock(const void *buf, int bytes);
   int WriteBlock(const void *buf, gxBlockHeader &gx);
   int WriteHeader(gxBlockHeader &gx);
+  // 10/31/2026: gx.block_length comes from the other end of the line.
+  // This overload reads into a buffer of buf_size bytes and returns
+  // scomm_BUFFER_OVERFLOW, reading nothing, if the block is larger.
+  int ReadBlock(void *buf, __ULWORD__ buf_size, gxBlockHeader &gx);
+  // 10/31/2026: The original overload cannot know the buffer size, so it
+  // refuses blocks over gxsSCOMM_MAX_UNSIZED_BLOCK bytes. Use the
+  // buf_size overload for larger blocks.
   int ReadBlock(void *buf, gxBlockHeader &gx);
   int ReadHeader(gxBlockHeader &gx);
   void *RequestBlock(const void *request, gxBlockHeader &request_header, 

@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -126,6 +126,8 @@ gxsSerialCommExceptionMessages[] character array.
 #include <fcntl.h>   // File control definitions
 #endif
 
+#include <string.h>
+
 #if defined (__HPUX__)
 #include <sys/modem.h> // Modem control line definitions
 #endif
@@ -139,8 +141,10 @@ gxsSerialCommExceptionMessages[] character array.
 
 // NOTE: This array must contain the same number of exceptions as the
 // internal error code enumeration. 
-const int gxsMaxSCommExceptionMessages = 18;
-const char *gxsSerialCommExceptionMessages[gxsMaxSCommExceptionMessages] = {
+// 10/31/2026: The array was declared with 18 entries but only 17 were
+// listed, so the last index allowed returned a null pointer. The count
+// now comes from the initializer (DataReel 7.3.1).
+const char *gxsSerialCommExceptionMessages[] = {
   "Serial port exception: No errors reported",               // NO_ERROR
   "Serial port exception: Invalid error code",               // INVALID_CODE
   "Serial port exception: Invalid baud rate",                // BAUDRATE_ERROR
@@ -159,8 +163,12 @@ const char *gxsSerialCommExceptionMessages[gxsMaxSCommExceptionMessages] = {
   "Serial port exception: Database block acknowledgment error", // BLOCKACK
   "Serial port exception: Bad database block header",           // BLOCKHEADER
   "Serial port exception: Bad database block size",             // BLOCKSIZE
-  "Serial port exception: Database block synchronization error" // BLOCKSYNC
+  "Serial port exception: Database block synchronization error", // BLOCKSYNC
+  "Serial port exception: Serial device timeout or end of file"  // TIMEOUT
 };
+const int gxsMaxSCommExceptionMessages = (int)
+  (sizeof(gxsSerialCommExceptionMessages) / 
+   sizeof(gxsSerialCommExceptionMessages[0]));
 
 gxSerialComm::gxSerialComm()
 {
@@ -228,20 +236,26 @@ gxSerialComm::gxSerialComm()
   cto.WriteTotalTimeoutConstant = 1 ; 
 
   ZeroMemory(&ov, sizeof(ov));
+  // 10/31/2026: The handle was never initialized, so the destructor's
+  // Close() closed a random handle if the port was never opened
+  // (DataReel 7.3.1)
+  device_handle = INVALID_HANDLE_VALUE;
+  bytes_read = 0;
+  bytes_moved = 0;
+  last_err = 0;
+  modem_line_status = 0;
 #endif
 
 #if defined (__UNIX__)
   // Initialize the terminal I/O control structures
   memset(&options, 0, sizeof(options));
   memset(&oldtios, 0, sizeof(oldtios));
-#endif
-
-#if defined (__PCLINT_CHECK__)
-  // PC-lint 05/02/2005: Initalization warning can be ignored
-  device_handle = 0;
+  // 10/31/2026: Initialize the handle (see the WIN32 note above). An
+  // object that never opened a port closed whatever descriptor the
+  // garbage value named, and reset its terminal settings.
+  device_handle = -1;
   bytes_read = 0;
   bytes_moved = 0;
-  last_err = 0;
   modem_line_status = 0;
 #endif
 }
@@ -275,11 +289,23 @@ int gxSerialComm::OpenSerialPort(char *device_name)
   // Open com ports 1 through 9 for read/write access.
   // Valid device names for Windows are: COM1, COM2, etc.
 
+  Close(); // 10/31/2026: Release any port this object already holds
+  if(!device_name) { // 10/31/2026: Null device name
+    scomm_error = gxSerialComm::scomm_OPEN_ERROR;
+    return -1;
+  }
+
 #ifdef _UNICODE
 #ifdef __VS2026__
   const char* narrowString = device_name;
   wchar_t wideBuffer[1024];
-  MultiByteToWideChar(CP_ACP, 0, narrowString, -1, wideBuffer, 1024);
+  // 10/31/2026: A failed conversion (a name too long for the buffer)
+  // left the buffer unterminated and CreateFile() read past it
+  if(MultiByteToWideChar(CP_ACP, 0, narrowString, -1, wideBuffer, 1024) == 0) {
+    device_handle = INVALID_HANDLE_VALUE;
+    scomm_error = gxSerialComm::scomm_OPEN_ERROR;
+    return -1;
+  }
   device_handle = CreateFile(wideBuffer,
 			     GENERIC_READ | GENERIC_WRITE,
 			     FILE_SHARE_READ | FILE_SHARE_WRITE,
@@ -324,34 +350,46 @@ int gxSerialComm::OpenSerialPort(char *device_name)
   // device. This will allow all read operations to return if there
   // is no input immediately available. NOTE: If the O_NONBLOCK bit 
   // is set write operations will not work properly under HPUX 10.20.
-  device_handle = open(device_name, O_RDWR | O_NOCTTY | O_NDELAY);
-
-  if(device_handle > 0) {
-    tcgetattr(device_handle, &oldtios); // Save current port settings
-  }
-
-  if(device_handle < 0) {
-    device_handle = open(device_name, O_RDONLY | O_NOCTTY | O_NDELAY);
-  }
-  else {
-    return scommREAD_WRITE;
-  }
-  
-  if(device_handle < 0) {
-    device_handle = open(device_name, O_WRONLY | O_NOCTTY | O_NDELAY);
-  }
-  else { 
-    tcgetattr(device_handle, &oldtios); // Save current port settings
-    return scommREAD_ONLY;
-  }
-
-  if(device_handle < 0) {
+  // 10/31/2026: Several fixes (DataReel 7.3.1). A descriptor of 0 is
+  // valid but its settings were not saved; the settings were not saved
+  // on the write-only path; a port left open by an earlier call leaked;
+  // and the descriptor is now close-on-exec so child processes do not
+  // inherit the port. oldtios is left zeroed if the settings cannot be
+  // read, and Close() then does not "restore" them (see Close()).
+  if(!device_name) {
     scomm_error = gxSerialComm::scomm_OPEN_ERROR;
     return -1;
   }
-  else {
-   return scommWRITE_ONLY;
+  Close(); // Release any port this object already holds
+#if defined (O_CLOEXEC)
+  const int open_flags = O_NOCTTY | O_NDELAY | O_CLOEXEC;
+#else
+  const int open_flags = O_NOCTTY | O_NDELAY;
+#endif
+  int access_mode = scommREAD_WRITE;
+  device_handle = open(device_name, O_RDWR | open_flags);
+  if(device_handle < 0) {
+    access_mode = scommREAD_ONLY;
+    device_handle = open(device_name, O_RDONLY | open_flags);
   }
+  if(device_handle < 0) {
+    access_mode = scommWRITE_ONLY;
+    device_handle = open(device_name, O_WRONLY | open_flags);
+  }
+  if(device_handle < 0) {
+    device_handle = -1;
+    scomm_error = gxSerialComm::scomm_OPEN_ERROR;
+    return -1;
+  }
+#if !defined (O_CLOEXEC) && defined (FD_CLOEXEC)
+  fcntl(device_handle, F_SETFD, FD_CLOEXEC);
+#endif
+
+  // Save current port settings
+  if(tcgetattr(device_handle, &oldtios) != 0) {
+    memset(&oldtios, 0, sizeof(oldtios));
+  }
+  return access_mode;
 
 #else
 #error You must define a target platform: __WIN32__ or __UNIX__
@@ -788,16 +826,42 @@ int gxSerialComm::InitSerialPort(int ignore_brk)
   // options.c_cc[VREPRINT] = 0;     // Ctrl-r 
   // options.c_cc[VDISCARD] = 0;     // Ctrl-u 
   
-#if defined (FASYNC) // ASYNC I/O is a BDS feature
-  // Make the file descriptor asynchronous
-  fcntl(device_handle, F_SETFL, FASYNC);
+  // 10/31/2026: Blocking reads, keeping the other file status flags
+  // (DataReel 7.3.1). The port was switched to FASYNC (O_ASYNC) by an
+  // F_SETFL that replaced every flag. The library never installs a SIGIO
+  // handler, so with O_ASYNC the first byte that arrived could stop the
+  // program with SIGIO (seen on a pseudo terminal). Programs that want
+  // signal driven I/O can set O_ASYNC and F_SETOWN themselves.
+  // O_NDELAY (O_NONBLOCK) from OpenSerialPort() is still cleared, so
+  // reads block for VMIN characters as before.
+  {
+    int fl = fcntl(device_handle, F_GETFL);
+    if(fl == -1) {
+      scomm_error = gxSerialComm::scomm_INIT_ERROR;
+      return -1;
+    }
+    fl &= ~O_NONBLOCK;
+#if defined (O_NDELAY)
+    fl &= ~O_NDELAY;
 #endif
+#if defined (O_ASYNC)
+    fl &= ~O_ASYNC;
+#endif
+    if(fcntl(device_handle, F_SETFL, fl) == -1) {
+      scomm_error = gxSerialComm::scomm_INIT_ERROR;
+      return -1;
+    }
+  }
 
   // Set the new options for the port. The TCSANOW constant specifies
   // that all changes should occur immediately without waiting for
   // output data to finish sending or input data to finish receiving. 
   tcflush(device_handle, TCIFLUSH); // Clean the serial line
-  tcsetattr(device_handle, TCSANOW, &options);
+  // 10/31/2026: Report a failure to apply the settings
+  if(tcsetattr(device_handle, TCSANOW, &options) != 0) {
+    scomm_error = gxSerialComm::scomm_INIT_ERROR;
+    return -1;
+  }
 
 #else
 #error You must define a target platform: __WIN32__ or __UNIX__
@@ -815,8 +879,14 @@ void gxSerialComm::Close()
 #elif defined (__UNIX__)
   if(device_handle != -1) {
     // Restore old settings if the device handle is still open
-    tcflush(device_handle, (TCIFLUSH | TCOFLUSH));
-    tcsetattr(device_handle, TCSANOW, &oldtios);
+    // 10/31/2026: Only restore settings that were saved (a saved
+    // termios always has control flags set). Restoring a zeroed termios
+    // set the speed to B0, which drops DTR and hangs up the line.
+    if(oldtios.c_cflag != 0) {
+      tcflush(device_handle, (TCIFLUSH | TCOFLUSH));
+      tcsetattr(device_handle, TCSANOW, &oldtios);
+    }
+    memset(&oldtios, 0, sizeof(oldtios));
     
     // Close the device handle
     close(device_handle);
@@ -865,7 +935,8 @@ const char *gxSerialComm::SerialCommExceptionMessage()
 // Returns a null terminated string that can
 // be use to log or print a serial port exception.
 {
-  if(scomm_error > (gxsMaxSCommExceptionMessages-1))
+  // 10/31/2026: Reject negative codes too (read before the array)
+  if((scomm_error < 0) || (scomm_error > (gxsMaxSCommExceptionMessages-1)))
     scomm_error = gxSerialComm::scomm_INVALID_ERROR_CODE;
   
   // Find the corresponding message in the exception array
@@ -913,6 +984,12 @@ int gxSerialComm::RawRead(scommDeviceHandle h, void *buf, int bytes)
 // Returns the number of bytes received or -1 if an
 // error occurred.
 {
+  // 10/31/2026: Reject a null buffer or a zero/negative count (a
+  // negative count became a huge DWORD or size_t)
+  if(!buf || (bytes <= 0)) {
+    scomm_error = gxSerialComm::scomm_BUFFER_OVERFLOW;
+    return -1;
+  }
 #if defined (__WIN32__)
   OVERLAPPED r_ov;
   ZeroMemory(&r_ov, sizeof(r_ov));
@@ -920,7 +997,9 @@ int gxSerialComm::RawRead(scommDeviceHandle h, void *buf, int bytes)
   // Create event for overlapped I/O
   r_ov.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
   
-  if(r_ov.hEvent == INVALID_HANDLE_VALUE) {
+  // 10/31/2026: CreateEvent() returns NULL on failure, not
+  // INVALID_HANDLE_VALUE
+  if(r_ov.hEvent == NULL) {
     scomm_error = gxSerialComm::scomm_RECEIVE_ERROR;
     return -1;
   }
@@ -961,6 +1040,11 @@ int gxSerialComm::RawWrite(scommDeviceHandle h, const void *buf, int bytes)
 // Returns the total number of bytes moved or -1 if
 // an error occurred.
 {
+  // 10/31/2026: Reject a null buffer or a zero/negative count
+  if(!buf || (bytes <= 0)) {
+    scomm_error = gxSerialComm::scomm_BUFFER_OVERFLOW;
+    return -1;
+  }
 #if defined (__WIN32__)
   OVERLAPPED w_ov;
   ZeroMemory(&w_ov, sizeof(w_ov));
@@ -968,7 +1052,8 @@ int gxSerialComm::RawWrite(scommDeviceHandle h, const void *buf, int bytes)
   // Create event for overlapped I/O
   w_ov.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-  if(w_ov.hEvent == INVALID_HANDLE_VALUE) {
+  // 10/31/2026: CreateEvent() returns NULL on failure
+  if(w_ov.hEvent == NULL) {
     scomm_error = gxSerialComm::scomm_TRANSMIT_ERROR;
     return -1;
   }
@@ -1023,6 +1108,14 @@ int gxSerialComm::Recv(scommDeviceHandle h, void *buf, int bytes)
       scomm_error = gxSerialComm::scomm_RECEIVE_ERROR;
       return -1; // An error occurred during the read
     }
+    if(num_read == 0) {
+      // 10/31/2026: Nothing was read: the WIN32 timeouts expired or
+      // UNIX reported end of file (hangup). This looped forever, using
+      // all the CPU (DataReel 7.3.1).
+      bytes_read = br;
+      scomm_error = gxSerialComm::scomm_TIMEOUT_ERROR;
+      return -1;
+    }
   }
   
   bytes_read = br; // Undate the object's byte counter
@@ -1047,6 +1140,13 @@ int gxSerialComm::Send(scommDeviceHandle h, const void *buf, int bytes)
     if(num_moved < 0) {
       scomm_error = gxSerialComm::scomm_TRANSMIT_ERROR;
       return -1; // An error occurred during the read
+    }
+    if(num_moved == 0) {
+      // 10/31/2026: Nothing was written (WIN32 write timeout). This
+      // looped forever (DataReel 7.3.1).
+      bytes_moved = bm;
+      scomm_error = gxSerialComm::scomm_TIMEOUT_ERROR;
+      return -1;
     }
   }
   
