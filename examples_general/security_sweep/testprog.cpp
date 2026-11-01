@@ -37,6 +37,10 @@ USA
   logfile     A new log file is owner-only (UNIX: mode 0600).
   rsa_key     gxSSL::MakeRSAPrivateKey() writes an owner-only key file
               (UNIX: mode 0600).
+  base64      gxsBase64Encode() gives the RFC 4648 encoding, also for
+              bytes of 0x80 and more (6.x-only code; fcrypt and the
+              Encrypted Password Database encode user names with it),
+              and decodes back.
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -46,6 +50,7 @@ USA
 #include "gxconfig.h"
 #include "logfile.h"
 #include "dfileb.h"
+#include "gxs_b64.h"
 #if defined (__USE_GX_SSL_EXTENSIONS__)
 #include "gxssl.h"
 #endif
@@ -138,6 +143,33 @@ int main()
     check(o != 0, "logfile: OverWrite() of a new file is owner-only");
     remove(log_name);
     remove("sweep2.log");
+  }
+
+  // base64
+  {
+    const char *plain[] = { "", "f", "fo", "foo", "foob", "fooba", "foobar",
+			    "\xc3\xa9", "\xff\xfe\xfd\x80", 0 };
+    const char *coded[] = { "", "Zg==", "Zm8=", "Zm9v", "Zm9vYg==", "Zm9vYmE=",
+			    "Zm9vYmFy", "w6k=", "//79gA==", 0 };
+    int ok = 1;
+    for(int i = 0; plain[i]; i++) {
+      char enc[64], dec[64];
+      memset(enc, 0x55, sizeof(enc));
+      gxsBase64Encode(plain[i], enc, (int)strlen(plain[i]));
+      if(strcmp(enc, coded[i]) != 0) {
+	printf("     base64: \"%s\" encoded as \"%s\", expected \"%s\"\n", plain[i], enc, coded[i]);
+	ok = 0;
+      }
+      gxsBase64Decode(coded[i], dec);
+      if(strcmp(dec, plain[i]) != 0) ok = 0;
+    }
+    check(ok, "base64: RFC 4648 vectors and bytes over 0x7f encode and decode");
+    unsigned char all[256];
+    for(int i = 0; i < 256; i++) all[i] = (unsigned char)(255 - i);
+    char enc[400], dec[300];
+    gxsBase64Encode((const char *)all, enc, 255); // Without a 0 byte to stop the decode
+    gxsBase64Decode(enc, dec);
+    check(memcmp(dec, all, 255) == 0, "base64: every byte value round trips");
   }
 
 #if defined (__USE_GX_SSL_EXTENSIONS__) && !defined (__USE_GX_SCHANNEL__)

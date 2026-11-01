@@ -48,6 +48,7 @@ of OpenSSL.
 #include "gxdlcode.h"
 
 #include <stdio.h>
+#include <string.h>
 #include "gxs_b64.h"
 
 // Base 64 conversion table
@@ -109,12 +110,14 @@ GXDLCODE_API void gxsBase64Decode(const char *s, char *strbuf)
       if(sbufSize > 3) *p++ = out;
       
       sbufSize=0;
+      sbuf[0] = sbuf[1] = sbuf[2] = sbuf[3] = 0; // 10/31/2026: No stale bits
     }
     s++;
   }
 
-  // Decode the remaining bytes
-  if(sbufSize) {
+  // Decode the remaining bytes. 10/31/2026: One character left over
+  // holds no complete byte (it used to write one from stale bits).
+  if(sbufSize > 1) {
     out = (unsigned char)((sbuf[0] << 2) | (sbuf[1] >> 4));
     *p++ = out;
     
@@ -135,12 +138,20 @@ GXDLCODE_API void gxsBase64Encode(const char *s, char *strbuf, int length)
   int i;
   unsigned char *p = (unsigned char *)strbuf;
 
-  // Transform the 3x8 bits to 4x6 bits, as required by base64 encoding
+  // Transform the 3x8 bits to 4x6 bits, as required by base64 encoding.
+  // 10/31/2026: The bytes are read unsigned (a byte of 0x80 or more was a
+  // negative table index: non-ASCII text was encoded wrong and the table
+  // was read out of bounds), and the last group is read from a copy
+  // padded with zeros (it read up to 2 bytes past the input). Output for
+  // ASCII input is unchanged.
   for(i = 0; i < length; i += 3) {
-    *p++ = gxsBase64table[s[0] >> 2];
-    *p++ = gxsBase64table[((s[0] & 3) << 4) + (s[1] >> 4)];
-    *p++ = gxsBase64table[((s[1] & 0xf) << 2) + (s[2] >> 6)];
-    *p++ = gxsBase64table[s[2] & 0x3f];
+    unsigned char g[3] = { 0, 0, 0 };
+    int n = (length - i) < 3 ? (length - i) : 3;
+    memcpy(g, s, (size_t)n);
+    *p++ = gxsBase64table[g[0] >> 2];
+    *p++ = gxsBase64table[((g[0] & 3) << 4) + (g[1] >> 4)];
+    *p++ = gxsBase64table[((g[1] & 0xf) << 2) + (g[2] >> 6)];
+    *p++ = gxsBase64table[g[2] & 0x3f];
     s += 3;
   }
 
