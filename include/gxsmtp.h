@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 10/31/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -44,6 +44,12 @@ to SMTP commands.
 gxsSMTPClient::ESMTPAuthLogin() functions to allow mail clients 
 the use SMTP authentication as require by ESMTP servers when 
 a client is accessing the mail server from a different domain.
+
+10/31/2026: Added gxsSMTPClient::NormalizeAddress() and 
+gxsSMTPClient::ParseReply(). SMTPMailFrom()/SMTPRcptTo() send
+"MAIL FROM:<address>"/"RCPT TO:<address>" and refuse addresses that
+would add ESMTP parameters or commands. Multi-line replies are read
+in full. Message bodies are dot-stuffed with CR LF line ends.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -53,6 +59,7 @@ a client is accessing the mail server from a different domain.
 #include "gxdlcode.h"
 
 #include "gxsocket.h"
+#include "gxstring.h"
 
 // SMTP client - See RFC 821 for specifications
 // http://www.sendmail.org
@@ -90,6 +97,19 @@ public:
   gxSocketError SMTPSendMessage(const char *to, const char *from, 
 				const char *subject, const char *body);
   char *GetSMTPTimeStamp(char *sbuf);
+
+public: // 10/31/2026: Parsers, used on the connection and in tests
+  // Turn "user@host", "<user@host>" or "Name <user@host>" into
+  // "<user@host>". Returns false if the address holds spaces, '<',
+  // '>' or control characters, has more than one <...> or anything
+  // after the '>'. "<>" (the null sender) needs allow_empty.
+  static int NormalizeAddress(const char *address, gxString &out,
+			      int allow_empty = 0);
+  // Parse one reply ("250-..." lines up to "250 ...") from the start
+  // of buf. Returns 1 if buf holds a complete reply (code and consumed
+  // are set), 0 if the reply has not ended, or -1 if it is not valid.
+  static int ParseReply(const char *buf, int len, int *code = 0,
+			int *consumed = 0);
 
 public:
   char reply_buf[gxsBUF_SIZE];   // Buffer used to hold the last reply

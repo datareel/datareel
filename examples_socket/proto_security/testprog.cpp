@@ -49,6 +49,10 @@ Sections:
   url       gxsURL: protocol table bounds, GetProtocolType(), strict
             ports, control characters, DecodeStrict(), % decoding of
             dynamic page names.
+  smtp      gxsSMTPClient: multi-line replies, strict reply codes, long
+            arguments, CR LF in commands, NormalizeAddress() (ESMTP
+            parameter injection), dot-stuffing (SMTP smuggling) and
+            header injection in SMTPSendMessage().
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -64,6 +68,7 @@ Sections:
 #include "gxshttpc.h"
 #include "gxsurl.h"
 #include "membuf.h"
+#include "gxsmtp.h"
 
 static int num_failed = 0;
 static int num_checks = 0;
@@ -96,6 +101,7 @@ enum {
   FS_SLEEP,     // Pause (data = milliseconds)
   FS_READLINE,  // Read up to and including LF
   FS_READHDR,   // Read up to and including an empty line
+  FS_READDATA,  // Read up to and including CR LF . CR LF (SMTP DATA)
   FS_DATA_LISTEN, // Open a data listener; "%PORT%" in later sends is
                   // replaced by its port (FTP PASV)
   FS_DATA_SEND  // Accept on the data listener, send data, close
@@ -126,6 +132,7 @@ public:
   void Sleep(int ms) { char b[32]; sprintf(b, "%d", ms); Add(FS_SLEEP, b); }
   void ReadLine() { Add(FS_READLINE, ""); }
   void ReadHeader() { Add(FS_READHDR, ""); }
+  void ReadData() { Add(FS_READDATA, ""); }
   void Reply(const std::string &s) { ReadLine(); Send(s); }
   void DataListen() { Add(FS_DATA_LISTEN, ""); }
   void DataSend(const std::string &s) { Add(FS_DATA_SEND, s); }
@@ -166,7 +173,8 @@ private:
       else if(st.type == FS_SLEEP) {
 	std::this_thread::sleep_for(std::chrono::milliseconds(atoi(st.data.c_str())));
       }
-      else if(st.type == FS_READLINE || st.type == FS_READHDR) {
+      else if(st.type == FS_READLINE || st.type == FS_READHDR ||
+	      st.type == FS_READDATA) {
 	std::string got;
 	for(;;) {
 	  if(!WaitRead(listener, c)) break;
@@ -176,6 +184,8 @@ private:
 	  if(st.type == FS_READLINE && ch == '\n') break;
 	  if(st.type == FS_READHDR && got.size() >= 4 &&
 	     got.compare(got.size() - 4, 4, "\r\n\r\n") == 0) break;
+	  if(st.type == FS_READDATA && got.size() >= 5 &&
+	     got.compare(got.size() - 5, 5, "\r\n.\r\n") == 0) break;
 	}
 	received += got;
 	if(got.empty()) break; // The client closed or timed out
@@ -494,11 +504,115 @@ static void TestURL()
 	"%00 and a trailing % in a query");
 }
 
+// --------------------------------------------------------------
+// smtp
+// --------------------------------------------------------------
+static void TestSMTP()
+{
+  const char *sec = "smtp";
+
+  // NormalizeAddress()
+  gxString a;
+  Check(gxsSMTPClient::NormalizeAddress("me@x.org", a) && a == "<me@x.org>",
+	sec, "NormalizeAddress() bare address");
+  Check(gxsSMTPClient::NormalizeAddress(" Me Too <me@x.org> ", a) && 
+	a == "<me@x.org>", sec, "NormalizeAddress() display name");
+  Check(!gxsSMTPClient::NormalizeAddress("a@b> NOTIFY=SUCCESS", a), sec,
+	"NormalizeAddress() refuses text after '>'");
+  Check(!gxsSMTPClient::NormalizeAddress("<a@b> SIZE=1", a), sec,
+	"NormalizeAddress() refuses ESMTP parameters");
+  Check(!gxsSMTPClient::NormalizeAddress("a@b SIZE=1", a), sec,
+	"NormalizeAddress() refuses spaces");
+  Check(!gxsSMTPClient::NormalizeAddress("<a<b@c>", a), sec,
+	"NormalizeAddress() refuses a second '<'");
+  Check(!gxsSMTPClient::NormalizeAddress("<>", a) &&
+	gxsSMTPClient::NormalizeAddress("<>", a, 1) && a == "<>", sec,
+	"NormalizeAddress() null sender");
+
+  // ParseReply()
+  int code = 0, used = 0;
+  const char *r1 = "250-a\r\n250-b\r\n250 ok\r\nXX";
+  Check(gxsSMTPClient::ParseReply(r1, (int)strlen(r1), &code, &used) == 1 &&
+	code == 250 && used == (int)strlen(r1) - 2, sec, 
+	"ParseReply() multi-line");
+  Check(gxsSMTPClient::ParseReply("250-a\r\n250", 10) == 0, sec,
+	"ParseReply() incomplete");
+  Check(gxsSMTPClient::ParseReply("2x0 hi\r\n", 8) == -1 &&
+	gxsSMTPClient::ParseReply("2500 hi\r\n", 9) == -1 &&
+	gxsSMTPClient::ParseReply("25\r\n", 4) == -1, sec,
+	"ParseReply() refuses bad codes");
+
+  FakeServer fs;
+  int port = fs.Start();
+  Check(port > 0, sec, "fake server start");
+  fs.Send("220 test\r\n");
+  fs.Reply("250-test\r\n");           // EHLO, sent in two parts
+  fs.Sleep(200);
+  fs.Send("250 OK\r\n");
+  fs.Reply("334 VXNlcm5hbWU6\r\n");   // AUTH LOGIN
+  fs.Reply("334 UGFzc3dvcmQ6\r\n");   // user
+  fs.Reply("235 ok\r\n");             // password
+  fs.Reply("250 ok\r\n");             // MAIL FROM
+  fs.Reply("250 ok\r\n");             // RCPT TO
+  fs.Reply("354 go\r\n");             // DATA
+  fs.ReadData();
+  fs.Send("250 queued\r\n");
+  fs.Reply("221 bye\r\n");            // QUIT
+
+  gxsSMTPClient smtp;
+  smtp.SetTimeOut(5, 0);
+  int rv = smtp.ConnectClient("127.0.0.1", port);
+  Check(rv == 0, sec, "connect");
+  rv = smtp.ESMTPLogin("client");
+  Check(rv == 0, sec, "EHLO multi-line reply");
+  rv = smtp.ESMTPAuthLogin("dXNlcg==", "cGFzcw==");
+  Check(rv == 0, sec, "AUTH LOGIN after a multi-line reply");
+
+  // Refused before anything is sent
+  std::string longarg(5000, 'd');
+  Check(smtp.SMTPLogin(longarg.c_str()) == gxSOCKET_BUFOVER_ERROR, sec,
+	"long HELO argument refused");
+  Check(smtp.SMTPRcptTo("a@b> NOTIFY=SUCCESS") != 0, sec,
+	"RCPT TO parameter injection refused");
+  Check(smtp.SMTPRcptTo("a@b\r\nRSET") != 0, sec,
+	"RCPT TO CR LF refused");
+  Check(smtp.SendCommand("NOOP", "250", "x\r\nRSET") != 0, sec,
+	"SendCommand() CR LF refused");
+  Check(smtp.SMTPSendMessage("you@y.org", "me@x.org", 
+			     "Hi\r\nBcc: other@z.org", "body") != 0, sec,
+	"SMTPSendMessage() header injection refused");
+
+  rv = smtp.SMTPMailFrom("Me <me@x.org>");
+  Check(rv == 0, sec, "MAIL FROM");
+  rv = smtp.SMTPRcptTo("you@y.org");
+  Check(rv == 0, sec, "RCPT TO");
+  const char *body = "line1\n.\nQUIT\r\n.hidden\rend";
+  rv = smtp.SMTPData(body, (int)strlen(body));
+  Check(rv == 0, sec, "DATA");
+  rv = smtp.SMTPLogout();
+  Check(rv == 0, sec, "QUIT");
+  smtp.Close();
+  fs.Join();
+
+  Check(fs.received.find("MAIL FROM:<me@x.org>\r\n") != std::string::npos,
+	sec, "MAIL FROM:<address> sent");
+  Check(fs.received.find("RCPT TO:<you@y.org>\r\n") != std::string::npos,
+	sec, "RCPT TO:<address> sent");
+  Check(fs.received.find("NOTIFY") == std::string::npos &&
+	fs.received.find("RSET") == std::string::npos &&
+	fs.received.find("Bcc") == std::string::npos &&
+	fs.received.find("ddddd") == std::string::npos, sec,
+	"refused commands not sent");
+  Check(fs.received.find("line1\r\n..\r\nQUIT\r\n..hidden\r\nend\r\n.\r\n")
+	!= std::string::npos, sec, "body dot-stuffed with CR LF line ends");
+}
+
 int main(int argc, char **argv)
 {
   if(Enabled(argc, argv, "httphdr")) TestHTTPHeader();
   if(Enabled(argc, argv, "httpc")) TestHTTPClient();
   if(Enabled(argc, argv, "url")) TestURL();
+  if(Enabled(argc, argv, "smtp")) TestSMTP();
 
   printf("%d checks, %d failed\n", num_checks, num_failed);
   if(num_failed) {
