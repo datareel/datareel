@@ -49,6 +49,7 @@ Returns 0 if every check passes; failed checks print FAIL lines.
 #include <string.h>
 #include "gxconfig.h"
 #include "gxstring.h"
+#include "logfile.h"
 
 #if defined (__UNIX__)
 #include <sys/stat.h>
@@ -206,19 +207,93 @@ static void test_config()
   remove(cfg_name);
 }
 
+static void test_logfile()
+{
+#if defined (__UNIX__)
+  const char *target = "support_sec_target.txt";
+  const char *log_name = "support_sec.log";
+  const char *gone = "support_sec_gone.txt";
+  struct stat st;
+
+  // A new log file is owner-only, an existing one keeps its mode and is
+  // appended to
+  remove(log_name);
+  {
+    LogFile log;
+    check(log.Open(log_name) == 0, "logfile: open a new log file");
+    log << "first" << "\n";
+    log.Close();
+    check(stat(log_name, &st) == 0 && (st.st_mode & 07777) == 0600, "logfile: a new log file is mode 0600");
+    chmod(log_name, 0644);
+    check(log.Open(log_name) == 0, "logfile: open an existing log file");
+    log << "second" << "\n";
+    log.Close();
+    check(file_has(log_name, "first\nsecond\n") && stat(log_name, &st) == 0 &&
+	  (st.st_mode & 07777) == 0644, "logfile: an existing log file is appended to and keeps its mode");
+    check(log.OverWrite(log_name) == 0, "logfile: OverWrite() an existing log file");
+    log << "third" << "\n";
+    log.Close();
+    check(!file_has(log_name, "first") && file_has(log_name, "third"), "logfile: OverWrite() truncates");
+  }
+  remove(log_name);
+
+  // A symbolic link planted at the log file name is not followed
+  write_file(target, "precious\n");
+  if(symlink(target, log_name) == 0) {
+    LogFile log;
+    int rv = log.Open(log_name);
+    if(rv == 0) { log << "planted" << "\n"; log.Close(); }
+    check(rv != 0, "logfile: Open() refuses a symbolic link");
+    check(!file_has(target, "planted"), "logfile: nothing written through the link");
+    rv = log.OverWrite(log_name);
+    if(rv == 0) log.Close();
+    check(rv != 0 && file_has(target, "precious"), "logfile: OverWrite() does not truncate through a link");
+    remove(log_name);
+  }
+  remove(target);
+  remove(gone);
+  if(symlink(gone, log_name) == 0) {
+    LogFile log;
+    int rv = log.Open(log_name);
+    if(rv == 0) log.Close();
+    check(rv != 0 && access(gone, F_OK) != 0, "logfile: a dangling link does not create its target");
+    remove(log_name);
+  }
+  remove(gone);
+
+  // Character devices still work
+  {
+    LogFile log;
+    int rv = log.Open("/dev/null");
+    check(rv == 0, "logfile: /dev/null can be used as a log file");
+    if(rv == 0) { log << "x" << "\n"; log.Close(); }
+  }
+#else
+  printf("SKIP logfile: symbolic link tests are UNIX only\n");
+#endif
+}
+
 int main(int argc, char **argv)
 {
 #if defined (__UNIX__)
   umask(022);
 #endif
   int all = (argc < 2);
+  const char *names[] = { "config", "logfile", 0 };
+  void (*tests[])() = { test_config, test_logfile };
   for(int i = 1; i < argc; i++) {
-    if(strcmp(argv[i], "config") != 0) {
+    int known = 0;
+    for(int t = 0; names[t]; t++) if(strcmp(argv[i], names[t]) == 0) known = 1;
+    if(!known) {
       printf("Unknown test %s\n", argv[i]);
       return 2;
     }
   }
-  if(all || (argc > 1 && strcmp(argv[1], "config") == 0)) test_config();
+  for(int t = 0; names[t]; t++) {
+    int run = all;
+    for(int i = 1; i < argc; i++) if(strcmp(argv[i], names[t]) == 0) run = 1;
+    if(run) tests[t]();
+  }
 
   if(failures) printf("%d check(s) FAILED\n", failures);
   else printf("All checks passed\n");
