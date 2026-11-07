@@ -473,12 +473,12 @@ static void test_torn_checkpoint(std::mt19937 &rng, int rounds)
     for(const char *name : { "data.gxd", "index.btx" }) {
       std::vector<char> a = read_file(before + "/" + name);
       std::vector<char> b = read_file(after + "/" + name);
-      size_t lo = std::min(a.size(), b.size()), hi = std::max(a.size(), b.size());
+      size_t lo = (std::min)(a.size(), b.size()), hi = (std::max)(a.size(), b.size());
       size_t size = lo + (size_t)(rng() % (hi - lo + 1));
       std::vector<char> m(size, 0);
       for(size_t off = 0; off < size; off += 4096) {
 	const std::vector<char> &src = (rng() % 2) ? a : b;
-	for(size_t k = off; k < std::min(size, off + 4096); k++)
+	for(size_t k = off; k < (std::min)(size, off + 4096); k++)
 	  m[k] = (k < src.size()) ? src[k] : 0;
       }
       write_file(dir + "/" + name, m);

@@ -155,7 +155,7 @@ int main()
 
   // logfile
   {
-    const char *log_name = "sweep.log";
+    const char *log_name = "sweep_logfile.log"; // Not sweep.log: run_db_tests.bat writes the output there
     remove(log_name);
     LogFile log;
     check(log.Open(log_name) == 0, "logfile: open");
@@ -164,13 +164,13 @@ int main()
     int o = owner_only(log_name);
     check(o != 0, o < 0 ? "logfile: owner-only (not checked on this system)" : "logfile: a new log file is mode 0600");
     LogFile log2;
-    remove("sweep2.log");
-    log2.OverWrite("sweep2.log");
+    remove("sweep_logfile2.log");
+    log2.OverWrite("sweep_logfile2.log");
     log2.Close();
-    o = owner_only("sweep2.log");
+    o = owner_only("sweep_logfile2.log");
     check(o != 0, "logfile: OverWrite() of a new file is owner-only");
     remove(log_name);
-    remove("sweep2.log");
+    remove("sweep_logfile2.log");
   }
 
   // findlast
@@ -198,13 +198,13 @@ int main()
 
     MemoryBuffer c("ab", 2);  // Exact size: no slack after the data
     check(c.Find((void *)"bc") == __MEMBUF_NO_MATCH__ &&
-	  c.Find("bc", 2) == __MEMBUF_NO_MATCH__, "membuf: a partial match at the end is not a match");
-    check(c.Find((void *)"b") == 1 && c.Find("b", 1) == 1 && c.Find("ab", 2) == 0 &&
+	  c.Find((const void *)"bc", 2) == __MEMBUF_NO_MATCH__, "membuf: a partial match at the end is not a match");
+    check(c.Find((void *)"b") == 1 && c.Find((const void *)"b", 1) == 1 && c.Find((const void *)"ab", 2) == 0 &&
 	  c.Find((void *)"ab", 1) == __MEMBUF_NO_MATCH__, "membuf: Find() positions");
-    check(c.Find((void *)"a", 100) == __MEMBUF_NO_MATCH__ && c.Find("a", 1, 100) == __MEMBUF_NO_MATCH__ &&
-	  c.Find("abc", 3) == __MEMBUF_NO_MATCH__, "membuf: offset or pattern past the end");
+    check(c.Find((void *)"a", 100) == __MEMBUF_NO_MATCH__ && c.Find((const void *)"a", 1, 100) == __MEMBUF_NO_MATCH__ &&
+	  c.Find((const void *)"abc", 3) == __MEMBUF_NO_MATCH__, "membuf: offset or pattern past the end");
     MemoryBuffer f("aab", 3);
-    check(f.Find((void *)"ab") == 1 && f.Find("ab", 2) == 1, "membuf: match after a failed partial match");
+    check(f.Find((void *)"ab") == 1 && f.Find((const void *)"ab", 2) == 1, "membuf: match after a failed partial match");
 
     MemoryBuffer d("xy", 2);
     __MEMBUF_INT__ n = d.InsertAt(10, "1234", 4); // Position past the end

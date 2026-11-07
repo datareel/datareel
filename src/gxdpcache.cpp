@@ -340,7 +340,7 @@ int gxdPageCache::WriteLoggedPages()
   const size_t max_run = 256; // Pages per write (1 MB)
   // A buffer sized for this write: a 1 MB buffer for every commit cost
   // more than the commit's few pages
-  std::vector<unsigned char> buf(std::min(v.size(), max_run) * gxdPageSize);
+  std::vector<unsigned char> buf((std::min)(v.size(), max_run) * gxdPageSize);
   size_t i = 0;
   while(i < v.size()) {
     size_t j = i + 1;
