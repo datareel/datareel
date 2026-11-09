@@ -489,7 +489,7 @@ int gxsTLSServer::AllowClientCN(const std::string &cn)
   return 0;
 }
 
-int gxsTLSServer::check_client(gxsTLSConnection &conn)
+int gxsTLSServer::check_client(gxsTLSConnection &conn, bool set_error)
 // 11/01/2026: Called by Accept() after the handshake when client
 // certificates are required. Closes the connection and sets the error
 // unless the client sent a certificate that verifies against the
@@ -516,7 +516,7 @@ int gxsTLSServer::check_client(gxsTLSConnection &conn)
     }
     conn.Close();
     conn.error = msg;
-    error = msg;
+    if(set_error) error = msg;
     return -1;
   }
   std::string fp, cn;
@@ -525,7 +525,7 @@ int gxsTLSServer::check_client(gxsTLSConnection &conn)
       " certificate fingerprint could not be read";
     conn.Close();
     conn.error = msg;
-    error = msg;
+    if(set_error) error = msg;
     return -1;
   }
   bool allowed = allow_fingerprints.empty() && allow_cns.empty();
@@ -543,7 +543,7 @@ int gxsTLSServer::check_client(gxsTLSConnection &conn)
       ", SHA-256 " + fp + ")";
     conn.Close();
     conn.error = msg;
-    error = msg;
+    if(set_error) error = msg;
     return -1;
   }
   conn.peer_fingerprint = fp;
@@ -608,6 +608,19 @@ int gxsTLSServer::Accept(gxsTLSConnection &conn)
   // 11/01/2026: Fail closed: a client that does not pass the client
   // certificate check is closed before the caller can use it
   if(!client_ca_file.empty()) return check_client(conn);
+  return 0;
+}
+
+int gxsTLSServer::Handshake(gxsTLSConnection &conn, gxSocket &&client)
+// 11/07/2026: The TLS half of Accept() for a socket taken from
+// Listener().Accept(), so a server can run the handshake in a worker
+// thread and a client that never finishes it cannot hold up the
+// accept loop. Set conn's timeout first: it bounds the handshake. Does
+// not touch Error() (thread safe); the reason is in conn.Error().
+{
+  if(!client.IsOpen()) return -1;
+  if(conn.AttachServer(std::move(client), tls.GetCTX()) != 0) return -1;
+  if(!client_ca_file.empty()) return check_client(conn, false);
   return 0;
 }
 } // namespace datareel

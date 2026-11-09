@@ -221,6 +221,14 @@ public:
   // the allow list.
   int Accept(gxsTLSConnection &conn);
 
+  // 11/07/2026: Accept() in two halves. Take the TCP client with
+  // Listener().Accept() in the accept loop, then run Handshake() (with
+  // the same client certificate and allow list checks) in a worker
+  // thread, after conn.SetTimeout() for the handshake. Returns 0 if the
+  // client is accepted; otherwise conn is closed and conn.Error() says
+  // why. Safe to call from several threads at once.
+  int Handshake(gxsTLSConnection &conn, gxSocket &&client);
+
 public: // 11/01/2026: Client certificates (mutual TLS). Set before Listen().
   // PEM file with the CAs that issue client certificates. Setting it
   // makes every client send a certificate that chains to one of these
@@ -269,7 +277,7 @@ public: // 11/01/2026: Client certificates (mutual TLS). Set before Listen().
   gxSSL &TLS() { return tls; }
 
 private:
-  int check_client(gxsTLSConnection &conn); // 11/01/2026
+  int check_client(gxsTLSConnection &conn, bool set_error = true); // 11/01/2026
 
 private:
   gxSocket listener;
