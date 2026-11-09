@@ -170,6 +170,10 @@ public: // Status
   const std::string &PeerCN() const { return peer_cn; }
   gxSocket &Socket() { return sock; }
   gxSSL &TLS() { return tls; }
+  // 11/08/2026: Bytes already received and decrypted but not yet read.
+  // A caller that takes the connection over with its own I/O (the
+  // database object server's multiplex, gxdbmux.h) takes them first.
+  std::string TakeBuffered() { std::string s; s.swap(rbuf); return s; }
 
 private:
   int fail(const std::string &msg);

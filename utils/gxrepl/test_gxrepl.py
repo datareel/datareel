@@ -504,6 +504,15 @@ def test_server_unclaimed_first_block():
         env.stop()
 
 
+def test_mux_unit():
+    """The database object server's multiplex (gxdbmux_test): channels interleaved, a refused and
+    an errored channel, a slow large channel next to a small one, a full queue, shutdown."""
+    r = run([os.path.join(BIN, "gxdbmux_test")], timeout=300)
+    for line in r.stdout.splitlines():
+        print("    " + line, flush=True)
+    assert r.returncode == 0, r.stdout
+
+
 def test_link_loss_and_catch_up():
     env = Env("link", {"db": {}})
     ws, aws = env.roots["db"]
