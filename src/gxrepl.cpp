@@ -1300,6 +1300,10 @@ int gxReplLocal::Delete(const std::string &set, const std::vector<std::string> &
   if(!s) return -1;
   std::lock_guard<std::mutex> g(s->m);
   if(writer_active(s->sc, err)) return -1;
+  // 11/09/2026: Sync the folders after the removes, so a power loss cannot
+  // bring a deleted file back (the next pass would delete it again, but a
+  // copy should not go back in time)
+  std::set<std::string> dirs;
   for(auto &p : paths) {
     std::string full;
     if(SafePath(s->sc, p, full, err) != 0) return -1;
@@ -1307,7 +1311,9 @@ int gxReplLocal::Delete(const std::string &set, const std::vector<std::string> &
     std::string dir = full.substr(0, full.find_last_of('/'));
     while(dir.size() > s->root.size() && rmdir(dir.c_str()) == 0)
       dir = dir.substr(0, dir.find_last_of('/'));
+    dirs.insert(dir.size() >= s->root.size() ? dir : s->root);
   }
+  for(auto &d : dirs) sync_dir(d);
   return 0;
 }
 

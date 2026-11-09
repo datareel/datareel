@@ -519,6 +519,9 @@ void gxdShipLog::purge()
     struct dirent *ae;
     while((ae = readdir(ad)) != 0) {
       if(ae->d_name[0] == '.') continue;
+      // 11/09/2026: A crash in the middle of a write leaves <copy>.gxrtmp (found by the power loss test)
+      size_t nl = strlen(ae->d_name);
+      if(nl > 7 && strcmp(ae->d_name + nl - 7, ".gxrtmp") == 0) continue;
       std::string v;
       if(read_small(dir + "/acked/" + ae->d_name, v) != 0) continue;
       unsigned long long l = strtoull(v.c_str(), 0, 10);

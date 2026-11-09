@@ -112,10 +112,11 @@ class Env:
                 time.sleep(0.05)
         raise RuntimeError("server did not start: " + open(os.path.join(self.dir, "server.log")).read())
 
-    def start_client(self):
+    def start_client(self, extra_env=None):
         self.cli_log = open(os.path.join(self.dir, "client.log"), "a")
+        e = dict(os.environ, **extra_env) if extra_env else None
         self.client = subprocess.Popen([os.path.join(BIN, "gxrepl"), "run", "--config", self.cli_conf],
-                                       stdout=self.cli_log, stderr=subprocess.STDOUT)
+                                       stdout=self.cli_log, stderr=subprocess.STDOUT, env=e)
 
     def once(self, conf=None, timeout=120):
         return run([os.path.join(BIN, "gxrepl"), "once", "--config", conf or self.cli_conf], timeout=timeout)
@@ -207,9 +208,10 @@ def writer(root, *args):
     return run([os.path.join(BIN, "gxrepl_testwriter"), "write", root, *map(str, args)])
 
 
-def writer_bg(root, *args):
+def writer_bg(root, *args, env=None):
+    e = dict(os.environ, **env) if env else None
     return subprocess.Popen([os.path.join(BIN, "gxrepl_testwriter"), "write", root, *map(str, args)],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=e)
 
 
 def check_db(root):
@@ -268,7 +270,9 @@ def test_live_changes():
     env.start_server()
     env.start_client()
     try:
-        w = writer_bg(ws, "--commits", 400, "--per", 4, "--sleep", 5, "--seed", 7)
+        # 11/09/2026: 1000 commits (was 400): the writer's open record starts a verify, and once
+        # (1 run in 7) that verify covered all of a 400 commit run, so no record was ever drained
+        w = writer_bg(ws, "--commits", 1000, "--per", 4, "--sleep", 5, "--seed", 7)
         # Other database files (no ship log) change while the writer runs
         for i in range(20):
             put(os.path.join(ws, f"side/f{i % 7}.gxd"), os.urandom(random.randint(10, 90000)))
@@ -623,6 +627,8 @@ def test_retention_floor():
         floor = int(open(os.path.join(acked, os.listdir(acked)[0])).read())
         assert floor > 0, floor
         env.kill("client")                                # the copy goes offline
+        # A floor write a crash stopped half way: not a copy, so it holds nothing back
+        open(os.path.join(acked, os.listdir(acked)[0] + ".gxrtmp"), "w").write("")
         assert writer(ws, "--commits", 60, "--per", 2, "--seed", 8, *opts).returncode == 0
         segs = sorted(f for f in os.listdir(stream) if f.endswith(".gxl"))
         old = time.time() - 3 * 86400
@@ -1064,6 +1070,307 @@ def test_unsafe_records_refused():
         assert not os.path.exists(os.path.join(env.dir, "escape.txt"))
     finally:
         env.stop()
+
+# ---------------- Power loss ----------------
+# 11/09/2026: powerloss_shim.c (LD_PRELOAD) saves what a disk would still
+# have after a power cut: a file's bytes when it is fsynced, a folder's
+# entries when the folder is fsynced. A cut kills the processes with
+# SIGKILL and rebuilds the folders from that image only (or, with "mix",
+# lets each file keep its unsynced bytes at random, as the page cache may
+# have written some of them back).
+
+SHIM = None
+
+
+def shim():
+    global SHIM
+    if SHIM is None:
+        src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "powerloss_shim.c")
+        SHIM = os.path.join(TMP, "powerloss_shim.so")
+        r = run(["cc", "-O2", "-shared", "-fPIC", "-o", SHIM, src, "-ldl"])
+        assert r.returncode == 0, r.stdout
+    return SHIM
+
+
+def ikey(st):
+    return f"{st.st_dev}_{st.st_ino}"
+
+
+class PowerImage:
+    def __init__(self, d, roots):
+        self.dir = d
+        self.roots = [os.path.abspath(r) for r in roots]
+        self.cuts = 0
+
+    def env(self):
+        return {"LD_PRELOAD": shim(), "PL_ROOTS": ":".join(self.roots), "PL_DURABLE": self.dir}
+
+    def baseline(self):
+        """Everything on disk now counts as durable (the test made it before the shim ran)."""
+        shutil.rmtree(self.dir, ignore_errors=True)
+        os.makedirs(os.path.join(self.dir, "inodes"))
+        os.makedirs(os.path.join(self.dir, "dirs"))
+        self.root_keys = {}
+        for r in self.roots:
+            os.makedirs(r, exist_ok=True)
+            self.root_keys[r] = ikey(os.stat(r))
+            for dp, dn, fn in os.walk(r):
+                lines = []
+                for n in dn + fn:
+                    st = os.lstat(os.path.join(dp, n))
+                    ty = "d" if os.path.isdir(os.path.join(dp, n)) and not os.path.islink(os.path.join(dp, n)) else \
+                         "f" if os.path.isfile(os.path.join(dp, n)) and not os.path.islink(os.path.join(dp, n)) else "o"
+                    lines.append(f"{ty}\t{ikey(st)}\t{n}\n")
+                    if ty == "f":
+                        shutil.copyfile(os.path.join(dp, n), os.path.join(self.dir, "inodes", ikey(st)))
+                with open(os.path.join(self.dir, "dirs", ikey(os.stat(dp))), "w") as f:
+                    f.write("".join(lines))
+
+    def cut(self, root, mix=None):
+        """Rebuild ROOT as a power cut leaves it. The processes using it must be dead."""
+        root = os.path.abspath(root)
+        self.cuts += 1
+        live = f"{root}.cut{self.cuts}"
+        os.rename(root, live)
+        live_map = {}
+        if mix is not None:
+            for dp, dn, fn in os.walk(live):
+                for n in fn:
+                    p = os.path.join(dp, n)
+                    if os.path.isfile(p) and not os.path.islink(p):
+                        live_map[ikey(os.stat(p))] = p
+        stats = {"files": 0, "dirs": 0, "live": 0, "empty": 0}
+
+        def build(path, key):
+            os.mkdir(path)
+            stats["dirs"] += 1
+            lp = os.path.join(self.dir, "dirs", key)
+            if not os.path.exists(lp):
+                return  # Made after the start and never fsynced: no entries survive
+            for line in open(lp).read().splitlines():
+                ty, k, name = line.split("\t", 2)
+                p = os.path.join(path, name)
+                if ty == "d":
+                    build(p, k)
+                elif ty == "f":
+                    stats["files"] += 1
+                    src = os.path.join(self.dir, "inodes", k)
+                    if mix is not None and k in live_map and mix.random() < 0.5:
+                        shutil.copyfile(live_map[k], p)
+                        stats["live"] += 1
+                    elif os.path.exists(src):
+                        shutil.copyfile(src, p)
+                    else:
+                        open(p, "wb").close()  # The name is durable, its bytes never were
+                        stats["empty"] += 1
+        build(root, self.root_keys[root])
+        return stats
+
+
+def read_num(p):
+    try:
+        return int(open(p).read().split()[0])
+    except Exception:
+        return None
+
+
+def durable_positions(ws, aws):
+    """(stream, floor the source kept, position the copy has) after a cut."""
+    out = []
+    logd = os.path.join(ws, ".gxrepl", "log")
+    if not os.path.isdir(logd):
+        return out
+    for s in sorted(os.listdir(logd)):
+        ad = os.path.join(logd, s, "acked")
+        if not os.path.isdir(ad):
+            continue
+        for c in os.listdir(ad):
+            if c.startswith(".") or c.endswith(".gxrtmp"):
+                continue  # A write the cut stopped (purge skips it too)
+            floor = read_num(os.path.join(ad, c))
+            sp = os.path.join(aws, ".gxrepl", "state", s + ".state")
+            pos = None
+            try:
+                pos = int(open(sp).read().split()[1])
+            except Exception:
+                pass
+            out.append((s, floor, pos))
+    return out
+
+
+def power_loss_cycles(name, side, cycles, mix_every=2):
+    """SIDE: both, source (the writer's node) or copy (the server's node)."""
+    env = Env(name, {"db": {}})
+    ws, aws = env.roots["db"]
+    os.makedirs(aws, exist_ok=True)
+    assert writer(ws, "--commits", 20, "--per", 3).returncode == 0
+    img = PowerImage(os.path.join(env.dir, "image"), [ws, aws])
+    rng = random.Random(1109 + len(name))
+    notes = []
+    try:
+        env.start_server()
+        env.start_client()
+        wait_same(env, "db", 60)
+        for c in range(cycles):
+            env.stop()
+            # A database file with no ship log, big enough to go in parts: a cut can land mid copy
+            put(os.path.join(ws, f"side/big{c % 3}.gxd"), os.urandom(rng.randint(1, 5) * 1024 * 1024 + rng.randint(0, 9999)))
+            img.baseline()
+            pe = img.env()
+            env.start_server(pe)
+            env.start_client(pe)
+            w = writer_bg(ws, "--commits", 100000, "--per", 3, "--seed", 100 + c, "--sleep", rng.choice([0, 2, 5]),
+                          env=pe)
+            time.sleep(rng.uniform(0.5, 2.5))
+            # The cut: SIGKILL, every process on the side(s) at once
+            procs = [w]
+            if side in ("both", "source"):
+                procs.append(env.client)
+            if side in ("both", "copy"):
+                procs.append(env.server)
+            for p in procs:
+                p.kill()
+            for p in procs:
+                p.wait()
+            if side in ("both", "source"):
+                env.client = None
+            if side in ("both", "copy"):
+                env.server = None
+            if side == "copy":
+                env.kill("client")  # The client is rebuilt below with no shim
+            if side == "source":
+                env.kill("server")
+            mix = random.Random(c) if c % mix_every == 1 else None
+            st = {}
+            if side in ("both", "source"):
+                st["ws"] = img.cut(ws, mix)
+            if side in ("both", "copy"):
+                st["aws"] = img.cut(aws, mix)
+            # What the source kept as applied by the copy, the copy must still have
+            dp = durable_positions(ws, aws)
+            for s, floor, pos in dp:
+                assert floor is None or (pos is not None and pos >= floor), \
+                    f"cycle {c}: stream {s}: the source's floor is {floor} but the copy has {pos} after the cut"
+            st["positions"] = dp
+            notes.append(st)
+            # Restart on the cut folders (no shim) and catch up
+            r = writer(ws, "--commits", 3)
+            assert r.returncode == 0, f"cycle {c}: the writer did not recover: {r.stdout}"
+            check_db(ws)
+            env.start_server()
+            env.start_client()
+            wait_same(env, "db", 120)
+            check_db(aws)
+            wait_status(env, lambda s: all(x["lag"] == 0 for x in s.get("sets", {}).get("db", {})
+                                           .get("streams", {}).values()) and s["sets"]["db"]["streams"], 30)
+    finally:
+        env.stop()
+    # Show what the cuts kept, and that the floor check had something to compare
+    for c, st in enumerate(notes):
+        print(f"  {name} cycle {c}: " + "; ".join(
+            f"{k} {v['files']} files, {v['empty']} empty, {v['live']} kept unsynced bytes"
+            for k, v in st.items() if k != "positions") +
+            "; floor/copy " + ", ".join(f"{f}/{p}" for _, f, p in st["positions"]), flush=True)
+    assert any(f and p for st in notes for _, f, p in st["positions"]), "no cut had a floor and a copy position"
+    return notes
+
+
+def test_power_loss_shim_model():
+    """The shim keeps only what was fsynced: file bytes and folder entries."""
+    d = os.path.join(TMP, "plmodel")
+    shutil.rmtree(d, ignore_errors=True)
+    root = os.path.join(d, "root")
+    os.makedirs(root)
+    open(os.path.join(root, "old"), "wb").write(b"old")
+    os.makedirs(os.path.join(root, "keep"))
+    img = PowerImage(os.path.join(d, "image"), [root])
+    img.baseline()
+    prog = r"""
+import os, sys
+r = sys.argv[1]
+def w(n, b, sync):
+    fd = os.open(os.path.join(r, n), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    os.write(fd, b)
+    if sync: os.fsync(fd)
+    os.close(fd)
+def dsync(n):
+    fd = os.open(os.path.join(r, n), os.O_RDONLY); os.fsync(fd); os.close(fd)
+w("a", b"synced", True)
+w("b", b"never synced", False)
+dsync(".")                                                       # names a and b
+w("a", b"synced, then more", False)                              # the new bytes are lost
+os.rename(os.path.join(r, "old"), os.path.join(r, "renamed"))    # undone: no folder sync
+w("c", b"synced, no folder sync", True)                          # the name is lost
+os.makedirs(os.path.join(r, "sub")); w("sub/x", b"x", True); dsync("sub")   # sub itself is not named
+w("keep/d.tmp", b"d", True)                                      # the safe way: sync, rename, sync the folder
+os.rename(os.path.join(r, "keep/d.tmp"), os.path.join(r, "keep/d")); dsync("keep")
+"""
+    r = run([sys.executable, "-c", prog, root], env=dict(os.environ, **img.env()))
+    assert r.returncode == 0, r.stdout
+    img.cut(root)
+    got = {}
+    for dp, dn, fn in os.walk(root):
+        for n in fn:
+            got[os.path.relpath(os.path.join(dp, n), root)] = open(os.path.join(dp, n), "rb").read()
+    want = {"a": b"synced", "b": b"", "old": b"old", "keep/d": b"d"}
+    assert got == want, got
+
+
+def test_power_loss_object_service():
+    """A power cut on the server while a client adds and changes objects: after the restart every
+    object the server answered is there with its last answered bytes, and the database walks."""
+    env = Env("pl_obj", {"db": {}})
+    srvdb = os.path.join(env.dir, "srvdb")
+    os.makedirs(srvdb)
+    orders = os.path.join(srvdb, "orders.gxd")
+    with open(env.srv_conf) as f:
+        conf = f.read()
+    k = conf.index("[set db]")
+    conf = conf[:k] + f"[db orders]\npath = {orders}\naccess = write\n\n" + conf[k:]
+    with open(env.srv_conf, "w") as f:
+        f.write(conf)
+    img = PowerImage(os.path.join(env.dir, "image"), [srvdb])
+    answered = os.path.join(env.dir, "answered.txt")
+    open(answered, "w").close()
+    rng = random.Random(4)
+    counts = []
+    try:
+        for c in range(5):
+            img.baseline()
+            env.start_server(img.env())
+            out = open(os.path.join(env.dir, f"stream{c}.txt"), "w")
+            s = subprocess.Popen([os.path.join(BIN, "gxrepl_testwriter"), "objstream", env.cli_conf, "orders", str(c * 100000 + 1000000)],
+                                 stdout=out, stderr=subprocess.STDOUT)
+            time.sleep(rng.uniform(0.6, 2.0))
+            env.kill("server")              # the cut, on the server's node
+            s.kill()
+            s.wait()
+            out.close()
+            lines = [ln for ln in open(out.name).read().splitlines() if ln[:2] in ("A ", "C ")]
+            assert lines, f"cycle {c}: no object was answered: " + open(out.name).read()[-500:]
+            with open(answered, "a") as f:
+                f.write("\n".join(lines) + "\n")
+            img.cut(srvdb, random.Random(c) if c % 2 else None)
+            env.start_server()
+            r = run([os.path.join(BIN, "gxrepl_testwriter"), "objverify", env.cli_conf, "orders", answered], timeout=120)
+            assert r.returncode == 0 and r.stdout.startswith("objverify ok"), f"cycle {c}: {r.stdout}\n{env.logs()}"
+            counts.append(r.stdout.split()[2])
+            env.stop()
+    finally:
+        env.stop()
+    print("  pl_obj answered after each cut: " + ", ".join(counts), flush=True)
+
+
+def test_power_loss_both_nodes():
+    power_loss_cycles("pl_both", "both", 6)
+
+
+def test_power_loss_source_node():
+    power_loss_cycles("pl_source", "source", 4)
+
+
+def test_power_loss_copy_node():
+    power_loss_cycles("pl_copy", "copy", 4)
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

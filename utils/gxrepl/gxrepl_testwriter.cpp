@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <algorithm>
 #include <string>
+#include <map>
 #include <vector>
 #include "gxdbase.h"
 #include "gxdjrnl.h"
@@ -77,6 +78,82 @@ static void q64(std::vector<unsigned char> &v, uint64_t x) { unsigned char b[8];
 static uint64_t r64(const std::vector<unsigned char> &v, size_t off = 0) { uint64_t x = 0; if(v.size() >= off + 8) memcpy(&x, v.data() + off, 8); return x; }
 static std::vector<unsigned char> obj_data(int i, size_t n) {
   std::vector<unsigned char> v(n); for(size_t k = 0; k < n; k++) v[k] = (unsigned char)(i * 13 + k * 7); return v; }
+
+// 11/09/2026: The power loss test. objstream CONF DB [START] adds objects (and
+// changes every third one) until killed, ids from START (default 0), printing "A i addr size" once each
+// add is answered and "C i addr size" once each change is. objverify CONF DB
+// FILE then reads every object FILE says was answered: the last answered
+// version of each must be there, and the database must walk end to end.
+static int objstream(const char *conf, const char *dbname, int start)
+{
+  datareel::gxReplConfig cfg;
+  std::string err;
+  if(cfg.Load(conf, err) != 0) { fprintf(stderr, "%s\n", err.c_str()); return 2; }
+  ObjClient c(cfg);
+  if(c.r.ConnectMux(err) != 0) { printf("connect: %s\n", err.c_str()); return 2; }
+  if(c.r.Mux()->Open(c.ch, "object", dbname, "write", 0, err) != 0) { printf("open refused: %s\n", err.c_str()); return 3; }
+  std::vector<unsigned char> rep;
+  std::map<int, uint64_t> addrs;
+  for(int i = start; ; i++) {
+    size_t n = 10 + ((size_t)i * 37) % 3000;
+    std::vector<unsigned char> d = obj_data(i, n), b;
+    q64(b, d.size()); b.insert(b.end(), d.begin(), d.end());
+    if(c.call(datareel::gxOBJ_ADD, b, rep, err) != 0) { printf("add: %s\n", err.c_str()); return 1; }
+    addrs[i] = r64(rep);
+    printf("A %d %llu %zu\n", i, (unsigned long long)addrs[i], n); fflush(stdout);
+    if(i - start >= 2 && i % 3 == 2) {
+      // Change an earlier object, same size (so its address stays)
+      int j = i - 2;
+      size_t m = 10 + ((size_t)j * 37) % 3000;
+      std::vector<unsigned char> e = obj_data(j + 100000, m), cb;
+      q64(cb, addrs[j]); q64(cb, e.size()); cb.insert(cb.end(), e.begin(), e.end());
+      if(c.call(datareel::gxOBJ_CHANGE, cb, rep, err) != 0) { printf("change: %s\n", err.c_str()); return 1; }
+      printf("C %d %llu %zu\n", j, (unsigned long long)addrs[j], m); fflush(stdout);
+    }
+  }
+}
+
+static int objverify(const char *conf, const char *dbname, const char *file)
+{
+  datareel::gxReplConfig cfg;
+  std::string err;
+  if(cfg.Load(conf, err) != 0) { fprintf(stderr, "%s\n", err.c_str()); return 2; }
+  ObjClient c(cfg);
+  if(c.r.ConnectMux(err) != 0) { printf("connect: %s\n", err.c_str()); return 2; }
+  if(c.r.Mux()->Open(c.ch, "object", dbname, "read", 0, err) != 0) { printf("open refused: %s\n", err.c_str()); return 3; }
+  struct Want { uint64_t addr; size_t n; bool changed; };   // changed: the CHANGE was answered
+  std::map<int, Want> want;
+  FILE *f = fopen(file, "r");
+  if(!f) { printf("cannot read %s\n", file); return 2; }
+  char ty; int i; unsigned long long a; size_t n;
+  while(fscanf(f, " %c %d %llu %zu", &ty, &i, &a, &n) == 4) {
+    if(ty == 'A') want[i] = Want{(uint64_t)a, n, false};
+    else if(ty == 'C') want[i] = Want{(uint64_t)a, n, true};
+  }
+  fclose(f);
+  std::vector<unsigned char> rep;
+  for(auto &w : want) {
+    std::vector<unsigned char> q; q64(q, w.second.addr);
+    if(c.call(datareel::gxOBJ_REQUEST, q, rep, err) != 0) { printf("object %d (answered) is gone: %s\n", w.first, err.c_str()); return 1; }
+    std::vector<unsigned char> d = obj_data(w.second.changed ? w.first + 100000 : w.first, w.second.n);
+    bool match = r64(rep) == d.size() && rep.size() >= 8 + d.size() && memcmp(rep.data() + 8, d.data(), d.size()) == 0;
+    if(!match && !w.second.changed) {
+      // A change that was sent but never answered may or may not be there: both are fine
+      std::vector<unsigned char> d2 = obj_data(w.first + 100000, w.second.n);
+      match = r64(rep) == d2.size() && rep.size() >= 8 + d2.size() && memcmp(rep.data() + 8, d2.data(), d2.size()) == 0;
+    }
+    if(!match) { printf("object %d differs from its last answered version\n", w.first); return 1; }
+  }
+  if(c.call(datareel::gxOBJ_FIRST, std::vector<unsigned char>(), rep, err) != 0) { printf("first: %s\n", err.c_str()); return 1; }
+  uint64_t x = r64(rep); size_t walked = 0;
+  while(x) { std::vector<unsigned char> q; q64(q, x); walked++;
+    if(c.call(datareel::gxOBJ_REQUEST, q, rep, err) != 0) { printf("walk: %s\n", err.c_str()); return 1; }
+    if(c.call(datareel::gxOBJ_NEXT, q, rep, err) != 0) { printf("next: %s\n", err.c_str()); return 1; }
+    x = r64(rep); }
+  if(walked < want.size()) { printf("walk found %zu objects, %zu were answered\n", walked, want.size()); return 1; }
+  printf("objverify ok %zu answered, %zu walked\n", want.size(), walked);
+  return 0;
+}
 
 // gxrepl_testwriter objects CONF DB write|read COUNT
 static int objects(const char *conf, const char *dbname, const std::string &mode, int count)
@@ -275,6 +352,8 @@ int main(int argc, char **argv)
   if(mode == "rawblock" && argc == 4) return rawblock(argv[2], argv[3]);
   if(mode == "objects" && argc == 6) return objects(argv[2], argv[3], argv[4], atoi(argv[5]));
   if(mode == "legacyobj" && argc == 3) return legacyobj(argv[2]);
+  if(mode == "objstream" && (argc == 4 || argc == 5)) return objstream(argv[2], argv[3], argc == 5 ? atoi(argv[4]) : 0);
+  if(mode == "objverify" && argc == 5) return objverify(argv[2], argv[3], argv[4]);
   if(mode == "check") return check(root);
   long commits = 100, per = 5, sleep_ms = 0;
   unsigned long long seg_bytes = 0, max_bytes = 0;  // 11/08/2026: ship log retention tests

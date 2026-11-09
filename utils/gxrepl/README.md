@@ -220,5 +220,21 @@ They cover:
 - the SSH tunnel
 - a key read from a pipe
 - unsafe records
+- the multiplex (`gxdbmux_test`), many sets at once, a refused set, a slow set, the retention floor
+- the object service, read-only copies, objects and replication together, and the examples
+- power loss (`powerloss_shim.c`, below)
+
+Power-loss tests (`-k power_loss`): `powerloss_shim.c` is compiled by the test (it needs `cc`) and
+loaded with `LD_PRELOAD` into the writer, the server and the client. It is a test tool only; never
+load it in production. It keeps a "durable image", updated only by `fsync` and `fdatasync` (a file's
+bytes, or a folder's entries). The test kills the processes of one or both nodes, rebuilds their
+folders from the image, and checks that:
+- every database is a whole commit;
+- the copy is not behind the floor the source kept;
+- replication catches up;
+- every object the server answered is still there.
+
+`PL_TRACE=FILE` logs every sync call the shim sees. See section 12 of
+`docs/DATABASE_OBJECT_SERVER_DESIGN.md`.
 
 POSIX only (Linux; the ship log uses flock and the key path uses memfd).
