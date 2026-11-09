@@ -36,6 +36,22 @@ only when every copy has all of it, up to the size cap (2 GB; a copy that needs 
 verified instead). The server status lists each channel and its queue.
 Failback after a fail over is manual for now: `gxrepl once` with a pull config on the workstation.
 
+**Database objects over the network (the object service, `gxdbobject.h`).** The same server also
+serves database objects, the port's original and primary use. `[db NAME]` sections in the server
+config name the databases (`path`, `access = read|write`, optional `journal`, default
+`<path>.jnl`). A client opens a multiplex channel with service `object`, the database name and mode
+`read` or `write`, and sends requests: ADD, REQUEST, CHANGE (same length), DELETE, FIRST, NEXT (see
+`gxdbobject.h`). Writes go through the database's journal, one transaction per request. A database
+inside a set this server receives is a replicated copy: read-only for object clients, and read under
+the set's apply journal lock (the replicator holds it exclusively while it applies), so a reader
+never sees a half-applied commit. `legacy_db = NAME` lets 6.x style clients (an `A` block adds, an
+`R` block requests) use one database without a channel; without it they are refused. Examples:
+`utils/dbserver/object_server.cpp` and `object_client.cpp`.
+
+    [db orders]
+    path = /data/orders.gxd
+    access = write
+
 - **Replication set:** a folder of databases (`root`), for example one published database folder
   or a folder of day databases. `direction = push` copies the client's
   folder to the server; `pull` copies the server's to the client. The server lists each set it

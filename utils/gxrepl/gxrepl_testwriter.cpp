@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <algorithm>
 #include <string>
 #include <vector>
 #include "gxdbase.h"
@@ -50,6 +51,125 @@ static int rawblock(const char *conf, const char *status)
   datareel::gxBlockHeader back;
   if(st.ReadHeader(back) != datareel::gxSOCKET_NO_ERROR) { printf("closed\n"); return 0; }
   printf("answered\n");
+  return 0;
+}
+
+// 11/08/2026: The object service (gxdbobject.h) as a client sees it
+struct ObjClient {
+  datareel::gxReplRemote r;
+  uint32_t ch = 2;
+  explicit ObjClient(const datareel::gxReplConfig &c) : r(c) { }
+  // 0 ok (reply = result), 1 the server answered an error (err), -1 failed
+  int call(uint8_t op, const std::vector<unsigned char> &body, std::vector<unsigned char> &reply, std::string &err) {
+    std::vector<unsigned char> m(1, op);
+    m.insert(m.end(), body.begin(), body.end());
+    if(r.Mux()->Send(ch, m, datareel::gxdMUX_LAST, err) != 0) return -1;
+    std::vector<unsigned char> back; uint64_t seq;
+    if(r.Mux()->ReceiveMessage(ch, back, seq, 30000, err) != 0) return -1;
+    if(back.empty()) { err = "empty reply"; return -1; }
+    if(back[0] != 0) { uint32_t n = 0; if(back.size() >= 5) memcpy(&n, back.data() + 1, 4);
+      err.assign((const char *)back.data() + 5, std::min<size_t>(n, back.size() - 5)); return 1; }
+    reply.assign(back.begin() + 1, back.end());
+    return 0;
+  }
+};
+static void q64(std::vector<unsigned char> &v, uint64_t x) { unsigned char b[8]; memcpy(b, &x, 8); v.insert(v.end(), b, b + 8); }
+static uint64_t r64(const std::vector<unsigned char> &v, size_t off = 0) { uint64_t x = 0; if(v.size() >= off + 8) memcpy(&x, v.data() + off, 8); return x; }
+static std::vector<unsigned char> obj_data(int i, size_t n) {
+  std::vector<unsigned char> v(n); for(size_t k = 0; k < n; k++) v[k] = (unsigned char)(i * 13 + k * 7); return v; }
+
+// gxrepl_testwriter objects CONF DB write|read COUNT
+static int objects(const char *conf, const char *dbname, const std::string &mode, int count)
+{
+  datareel::gxReplConfig cfg;
+  std::string err;
+  if(cfg.Load(conf, err) != 0) { fprintf(stderr, "%s\n", err.c_str()); return 2; }
+  ObjClient c(cfg);
+  if(c.r.ConnectMux(err) != 0) { printf("connect: %s\n", err.c_str()); return 2; }
+  if(c.r.Mux()->Open(c.ch, "object", dbname, mode, 0, err) != 0) { printf("open refused: %s\n", err.c_str()); return 3; }
+  std::vector<unsigned char> rep;
+  if(mode == "read") {
+    std::vector<unsigned char> b; q64(b, 5); b.insert(b.end(), 5, 'x');
+    int rc = c.call(datareel::gxOBJ_ADD, b, rep, err);
+    if(rc != 1) { printf("a read channel could add\n"); return 1; }
+    if(c.call(datareel::gxOBJ_FIRST, std::vector<unsigned char>(), rep, err) != 0) { printf("first: %s\n", err.c_str()); return 1; }
+    uint64_t a = r64(rep); int n = 0;
+    while(a) {
+      std::vector<unsigned char> q; q64(q, a);
+      if(c.call(datareel::gxOBJ_REQUEST, q, rep, err) != 0) { printf("request: %s\n", err.c_str()); return 1; }
+      n++;
+      if(c.call(datareel::gxOBJ_NEXT, q, rep, err) != 0) { printf("next: %s\n", err.c_str()); return 1; }
+      a = r64(rep);
+    }
+    printf("readonly ok %d\n", n);
+    return 0;
+  }
+  std::vector<uint64_t> addr(count);
+  for(int i = 0; i < count; i++) {
+    std::vector<unsigned char> d = obj_data(i, 10 + (i * 37) % 3000), b;
+    q64(b, d.size()); b.insert(b.end(), d.begin(), d.end());
+    if(c.call(datareel::gxOBJ_ADD, b, rep, err) != 0) { printf("add: %s\n", err.c_str()); return 1; }
+    addr[i] = r64(rep);
+  }
+  for(int i = 0; i < count; i++) {
+    std::vector<unsigned char> q; q64(q, addr[i]);
+    if(c.call(datareel::gxOBJ_REQUEST, q, rep, err) != 0) { printf("request: %s\n", err.c_str()); return 1; }
+    std::vector<unsigned char> d = obj_data(i, 10 + (i * 37) % 3000);
+    if(r64(rep) != d.size() || memcmp(rep.data() + 8, d.data(), d.size()) != 0) { printf("object %d differs\n", i); return 1; }
+  }
+  for(int i = 0; i < count; i += 2) {
+    std::vector<unsigned char> d = obj_data(i + 1000, 10 + (i * 37) % 3000), b;
+    q64(b, addr[i]); q64(b, d.size()); b.insert(b.end(), d.begin(), d.end());
+    if(c.call(datareel::gxOBJ_CHANGE, b, rep, err) != 0) { printf("change: %s\n", err.c_str()); return 1; }
+    std::vector<unsigned char> q; q64(q, addr[i]);
+    if(c.call(datareel::gxOBJ_REQUEST, q, rep, err) != 0 || memcmp(rep.data() + 8, d.data(), d.size()) != 0) { printf("changed object %d differs\n", i); return 1; }
+  }
+  int deleted = 0;
+  for(int i = 1; i < count; i += 4) {
+    std::vector<unsigned char> q; q64(q, addr[i]);
+    if(c.call(datareel::gxOBJ_DELETE, q, rep, err) != 0) { printf("delete: %s\n", err.c_str()); return 1; }
+    deleted++;
+  }
+  if(c.call(datareel::gxOBJ_FIRST, std::vector<unsigned char>(), rep, err) != 0) { printf("first: %s\n", err.c_str()); return 1; }
+  uint64_t a = r64(rep); int n = 0;
+  while(a) { std::vector<unsigned char> q; q64(q, a); n++;
+    if(c.call(datareel::gxOBJ_NEXT, q, rep, err) != 0) { printf("next: %s\n", err.c_str()); return 1; } a = r64(rep); }
+  if(n < count - deleted) { printf("walk found %d objects, expected at least %d\n", n, count - deleted); return 1; }
+  printf("objects ok %d %d\n", count, n);
+  return 0;
+}
+
+// gxrepl_testwriter legacyobj CONF: a 6.x style client ('A' add, 'R' request)
+static int legacyobj(const char *conf)
+{
+  datareel::gxReplConfig cfg;
+  std::string err;
+  if(cfg.Load(conf, err) != 0) { fprintf(stderr, "%s\n", err.c_str()); return 2; }
+  datareel::gxStream st;
+  st.SetTimeOut(10);
+  datareel::gxsTLSConnection &cn = st.Connection();
+  cn.SetCAFile(cfg.ca); cn.SetClientCert(cfg.cert, cfg.key, cfg.key_passphrase); cn.SetVerifyPeer(true);
+  datareel::gxSocket sock;
+  if(sock.Connect(cfg.connect_host, cfg.connect_port, 10) != 0) { printf("connect failed\n"); return 2; }
+  sock.SetIOTimeout(10);
+  if(cn.AttachClient(std::move(sock), cfg.server_name) != 0) { printf("TLS: %s\n", cn.Error().c_str()); return 2; }
+  const char *msg = "a 6.x style object";
+  datareel::gxBlockHeader gx;
+  st.SetBlockStatus(gx, datareel::gxAddRemoteBlock);
+  gx.block_length = (datareel::gxUINT32)strlen(msg);
+  if(st.WriteBlock(msg, gx) != datareel::gxSOCKET_NO_ERROR) { printf("closed\n"); return 1; }
+  FAU_t a = (FAU_t)0;
+  if(st.ReadResultBlock(a) != datareel::gxSOCKET_NO_ERROR || a == (FAU_t)0) { printf("no address\n"); return 1; }
+  int64_t x = (int64_t)a;
+  st.SetBlockStatus(gx, datareel::gxRequestBlock);
+  gx.block_length = 8;
+  if(st.WriteBlock(&x, gx) != datareel::gxSOCKET_NO_ERROR) { printf("closed\n"); return 1; }
+  datareel::gxBlockHeader back;
+  std::vector<unsigned char> data;
+  if(st.ReadHeader(back) != datareel::gxSOCKET_NO_ERROR || st.ReadBlock(data, back) != datareel::gxSOCKET_NO_ERROR) { printf("no object\n"); return 1; }
+  if(std::string(data.begin(), data.end()) != msg) { printf("object differs\n"); return 1; }
+  st.CloseConnection();
+  printf("legacy ok\n");
   return 0;
 }
 
@@ -153,6 +273,8 @@ int main(int argc, char **argv)
   std::string mode = argv[1], root = argv[2];
   if((mode == "rawapply" || mode == "rawdiff") && argc == 5) return raw(mode, argv[2], argv[3], argv[4]);
   if(mode == "rawblock" && argc == 4) return rawblock(argv[2], argv[3]);
+  if(mode == "objects" && argc == 6) return objects(argv[2], argv[3], argv[4], atoi(argv[5]));
+  if(mode == "legacyobj" && argc == 3) return legacyobj(argv[2]);
   if(mode == "check") return check(root);
   long commits = 100, per = 5, sleep_ms = 0;
   unsigned long long seg_bytes = 0, max_bytes = 0;  // 11/08/2026: ship log retention tests

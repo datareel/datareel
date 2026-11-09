@@ -411,7 +411,9 @@ int gxReplConfig::Load(const std::string &fname, std::string &err)
   char line[8192];
   int ln = 0;
   gxReplSetConfig *cur = 0;
+  gxObjectDbConfig *curdb = 0;   // 11/08/2026: [db NAME] sections (the object service)
   sets.clear();
+  object_dbs.clear();
   while(fgets(line, sizeof(line), f)) {
     ln++;
     std::string s = trim(line);
@@ -419,9 +421,21 @@ int gxReplConfig::Load(const std::string &fname, std::string &err)
     if(s[0] == '[') {
       size_t e = s.find(']');
       std::string sec = trim(s.substr(1, e == std::string::npos ? std::string::npos : e - 1));
+      if(sec.compare(0, 3, "db ") == 0 && !trim(sec.substr(3)).empty()) {
+	gxObjectDbConfig dc;
+	dc.name = trim(sec.substr(3));
+	for(auto &o : object_dbs) if(o.name == dc.name) {
+	  fclose(f); err = fname + ": db " + dc.name + " twice"; return -1;
+	}
+	object_dbs.push_back(dc);
+	curdb = &object_dbs.back();
+	cur = 0;
+	continue;
+      }
+      curdb = 0;
       if(sec.compare(0, 4, "set ") != 0 || trim(sec.substr(4)).empty()) {
 	fclose(f);
-	err = fname + ":" + std::to_string(ln) + ": expected [set NAME]";
+	err = fname + ":" + std::to_string(ln) + ": expected [set NAME] or [db NAME]";
 	return -1;
       }
       gxReplSetConfig sc;
@@ -441,7 +455,13 @@ int gxReplConfig::Load(const std::string &fname, std::string &err)
     }
     std::string k = trim(s.substr(0, eq)), v = expand_env(trim(s.substr(eq + 1)));
     bool known = true;
-    if(cur) {
+    if(curdb) {
+      if(k == "path") curdb->path = v;
+      else if(k == "journal") curdb->journal = v;
+      else if(k == "access") curdb->access = v;
+      else known = false;
+    }
+    else if(cur) {
       if(k == "root") cur->root = v;
       else if(k == "direction") cur->direction = v;
       else if(k == "accept") cur->accept = v;
@@ -457,6 +477,7 @@ int gxReplConfig::Load(const std::string &fname, std::string &err)
     }
     else {
       if(k == "node") node = v;
+      else if(k == "legacy_db") legacy_db = v;   // 11/08/2026: 6.x style object clients
       else if(k == "role") role = v;
       else if(k == "connect") {
 	size_t c = v.rfind(':');
@@ -1099,6 +1120,15 @@ int gxReplLocal::apply_batch(SetState_ *s,
   std::string jdir = s->root + "/.gxrepl";
   if(mkdirs(jdir) != 0) { err = "cannot make " + jdir; return -1; }
   std::string jname = jdir + "/apply.jnl";
+  // 11/08/2026: Readers of the copy (the object service) hold
+  // gxdJournalReadLock on apply.jnl; an apply holds it exclusively, so a
+  // reader never sees a half-applied batch (flock: also between threads)
+  int lkfd = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+  if(lkfd < 0 || flock(lkfd, LOCK_EX) != 0) {
+    if(lkfd >= 0) close(lkfd);
+    err = "cannot lock " + jname; return -1;
+  }
+  struct LockGuard { int fd; ~LockGuard() { flock(fd, LOCK_UN); close(fd); } } lkg{lkfd};
   // At most 1024 files a transaction
   for(size_t i = 0; i < af.size(); i += 1000) {
     std::vector<gxdApplyFile> part(af.begin() + i, af.begin() + std::min(af.size(), i + 1000));
@@ -1742,7 +1772,18 @@ int gxReplRemote::SetState(const std::string &set, const gxReplStreamState &s,
 
 // ---------------- Server ----------------
 
-gxReplServer::gxReplServer(const gxReplConfig &c) : cfg(c), local(c) { }
+gxReplServer::gxReplServer(const gxReplConfig &c) : cfg(c), local(c)
+{
+  // 11/08/2026: The object service, when the config names databases. A
+  // database inside a set this server receives is a copy: read-only, read
+  // under the set's apply journal lock.
+  if(!cfg.object_dbs.empty()) {
+    objsvc.reset(new gxObjectService(cfg.object_dbs, cfg.legacy_db));
+    for(auto &sc : cfg.sets)
+      if(sc.accept == "target" || sc.accept == "both")
+	objsvc->ProtectRoot(real_path(sc.root).empty() ? sc.root : real_path(sc.root), sc.root + "/.gxrepl/apply.jnl");
+  }
+}
 
 gxReplServer::~gxReplServer() { }
 
@@ -1820,6 +1861,7 @@ int gxReplServer::Run(std::string &err)
   dc.max_block = (unsigned long)(cfg.max_message * 4 + 1024 * 1024);
   gxDatabaseServer server(dc);
   server.AddService(this);
+  if(objsvc) server.AddService(objsvc.get());   // 11/08/2026: 6.x style object sessions
   bool announced = false;
   server.SetTick([&]() {
     if(!announced) {
@@ -1983,6 +2025,10 @@ void gxReplServer::serve_mux(gxDatabaseSession &ses)
   std::atomic<bool> hello_ok{false};
   mux.SetOpenHandler([&](uint32_t, const std::string &service, const std::string &name,
 			 const std::string &mode, std::vector<unsigned char> &, std::string &why) -> bool {
+    if(service == "object") {   // 11/08/2026: database objects
+      if(!objsvc) { why = "no object service on " + cfg.node; return false; }
+      return objsvc->OpenAllowed(name, mode, why);
+    }
     if(service != "repl") { why = "no service " + service + " on " + cfg.node; return false; }
     if(mode == "control") return !hello_ok;
     if(!hello_ok) { why = "hello first"; return false; }
@@ -2000,7 +2046,8 @@ void gxReplServer::serve_mux(gxDatabaseSession &ses)
   while(!stop && mux.Alive()) {
     uint32_t ch; std::string sv, nm, md;
     if(mux.AcceptChannel(ch, sv, nm, md, 500) != 0) continue;
-    workers.emplace_back([&, ch, nm, md]() {
+    workers.emplace_back([&, ch, sv, nm, md]() {
+      if(sv == "object") { objsvc->ServeChannel(mux, ch, nm, md, stop); return; }
       ReqState st;
       { std::lock_guard<std::mutex> g(hm); st = base; }
       // Test hook: GXREPL_TEST_SLOW_SET=<set>:<ms> slows that set's channel
@@ -2102,6 +2149,7 @@ void gxReplClient::write_status(bool connected, const std::string &note)
   bool first = true;
   for(auto &sc : cfg.sets) {
     auto &st = status[sc.name];
+    std::lock_guard<std::mutex> lg(st.m);   // 11/08/2026: last_error and streams
     j += (first ? "" : ", ") + json_str(sc.name) + ": {\"direction\": " + json_str(sc.direction) +
       ", \"ok\": " + (st.ok ? "true" : "false") + ", \"last_ok\": " + std::to_string(st.last_ok) +
       ", \"last_scan\": " + std::to_string(st.last_scan) +
@@ -2272,7 +2320,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
 	   ts.log_id.empty() ? "new" : ts.log_id != s.log_id ? "new log id" : "open, gap or old position");
       vlist.push_back(s.name);
     }
-    st.streams[s.name] = std::make_pair(s.next_lsn ? s.next_lsn - 1 : 0, ts.lsn);
+    { std::lock_guard<std::mutex> lg(st.m); st.streams[s.name] = std::make_pair(s.next_lsn ? s.next_lsn - 1 : 0, ts.lsn); }
   }
 
   // 2. Verify streams that opened, had a gap or are new to the copy
@@ -2291,7 +2339,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
       std::string e;
       int rc = sync_file(src, tgt, sc.name, f, s, st, e);
       if(rc < 0) { err = e; return -1; }
-      if(rc > 0) { failed++; st.last_error = e; glog("set %s: %s", sc.name.c_str(), e.c_str()); }
+      if(rc > 0) { failed++; { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
       else synced++;
     }
     if(failed) { ++it; continue; }
@@ -2305,7 +2353,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     if(tgt.State(sc.name, tv2, err) != 0) return -1;
     for(auto &x : tv2) if(x.name == s->name) {
       tstates[x.name] = x;
-      st.streams[s->name] = std::make_pair(s->next_lsn ? s->next_lsn - 1 : 0, x.lsn);
+      { std::lock_guard<std::mutex> lg(st.m); st.streams[s->name] = std::make_pair(s->next_lsn ? s->next_lsn - 1 : 0, x.lsn); }
       // 11/08/2026: The verified copy's position is durable: the retention floor
       if(static_cast<gxReplSource *>(&local) == &src && x.log_id == s->log_id) {
 	std::string fe;
@@ -2352,7 +2400,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
       std::string e;
       int rc = sync_file(src, tgt, sc.name, f.path, cover, st, e);
       if(rc < 0) { err = e; return -1; }
-      if(rc > 0) { failures++; st.last_error = e; glog("set %s: %s", sc.name.c_str(), e.c_str()); }
+      if(rc > 0) { failures++; { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
     }
     if(sc.deletes && !stop) {
       std::set<std::string> on_source;
@@ -2407,12 +2455,12 @@ int gxReplClient::pass(gxReplRemote &remote, bool once, const std::string &only_
     else rc = sync_set(remote, local, sc, once, e);
     if(rc == 0) {
       if(!st.ok) glog("set %s: in step", sc.name.c_str());
-      st.ok = true; st.last_ok = now_s(); st.last_error.clear();
+      st.ok = true; st.last_ok = now_s(); { std::lock_guard<std::mutex> lg(st.m); st.last_error.clear(); }
     }
     else {
       if(!e.empty()) {
 	if(e != st.last_error) glog("set %s: %s", sc.name.c_str(), e.c_str());
-	st.last_error = e;
+	{ std::lock_guard<std::mutex> lg(st.m); st.last_error = e; }
       }
       st.ok = false;
       if(rc > worst) worst = rc;
@@ -2442,7 +2490,11 @@ int gxReplClient::Run(bool once, const std::string &only_set, std::string &err)
   {
     // Every set's status and flags exist before any set's thread starts
     std::lock_guard<std::mutex> g(flag_lock);
-    for(auto &sc : cfg.sets) { status[sc.name].direction = sc.direction; verify_seen[sc.name] = verify_gen; }
+    for(auto &sc : cfg.sets) {
+      status[sc.name].direction = sc.direction;
+      verify_seen[sc.name] = verify_gen;
+      verify_streams[sc.name];   // Each set's thread then only looks its own entry up
+    }
   }
   int backoff = 1;
   while(!stop) {
@@ -2505,7 +2557,7 @@ int gxReplClient::run_sets(gxReplRemote &remote, bool once, const std::string &o
       // Refused (no such set, the wrong role): this set only
       gxReplSetStatus &st = status[sc.name];
       if(e != st.last_error) glog("set %s: %s", sc.name.c_str(), e.c_str());
-      st.ok = false; st.last_error = e;
+      st.ok = false; { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; }
       j->rc = remote.IsOpen() ? 1 : -1; j->e = e; j->done = true;
       jobs.push_back(std::move(j));
       continue;

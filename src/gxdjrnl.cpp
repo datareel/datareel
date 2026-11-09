@@ -73,6 +73,7 @@ number; records left in the file after that have an old salt.
 #include <stdint.h>
 #include <limits.h>
 #include <time.h>
+#include <atomic>
 #include <limits>
 #include <map>
 #include "gxdjrnl.h"
@@ -746,9 +747,10 @@ gxDatabaseError gxdJournal::ApplyPages(const char *jname,
     gxdFPTROpen(jname, gxDBASE_READWRITE) : gxdFPTRCreate(jname);
   if(!jfp) return gxDBASE_FILE_OPEN_ERROR;
 
-  static unsigned counter = 0;
+  // 11/08/2026: atomic, several replication channels apply at once
+  static std::atomic<unsigned> counter{0};
   uint32_t salt = (uint32_t)(((unsigned)time(0) * 2654435761u) ^
-			     (++counter * 40503u) ^ 0x5A17u);
+			     ((counter.fetch_add(1) + 1) * 40503u) ^ 0x5A17u);
   if(salt == 0) salt = 1;
   std::vector<unsigned char> h(gxdJournalMagic, gxdJournalMagic + 8);
   jput32(h, gxdJournalVersion);

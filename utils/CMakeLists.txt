@@ -14,7 +14,12 @@ if(NOT WIN32)
   # 11/08/2026: tests of the database object server's multiplex (gxdbmux.h)
   add_executable(gxdbmux_test gxrepl/gxdbmux_test.cpp)
   target_link_libraries(gxdbmux_test PRIVATE DataReel::datareel)
-  set(_dr_repl_tools gxrepl gxrepl_testwriter gxdbmux_test)
+  # 11/08/2026: database object server examples
+  add_executable(object_server dbserver/object_server.cpp)
+  target_link_libraries(object_server PRIVATE DataReel::datareel)
+  add_executable(object_client dbserver/object_client.cpp)
+  target_link_libraries(object_client PRIVATE DataReel::datareel)
+  set(_dr_repl_tools gxrepl gxrepl_testwriter gxdbmux_test object_server object_client)
 endif()
 
 set_target_properties(db_debug ix_debug ${_dr_repl_tools} PROPERTIES

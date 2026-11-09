@@ -75,6 +75,7 @@ Changes:
 #include "gxdrepl.h"
 #include "gxdbserver.h" // 11/08/2026: gxReplServer is a service of the database object server
 #include "gxdbmux.h"    // 11/08/2026: protocol 3, many sets over one connection
+#include "gxdbobject.h" // 11/08/2026: database objects over the network
 #include <set>
 #include <thread>
 
@@ -138,6 +139,10 @@ struct GXDLCODE_API gxReplConfig {
   size_t max_message = 4 * 1024 * 1024;
   int compress = 1;                // zlib level 1 when built with zlib
   std::vector<gxReplSetConfig> sets;
+  // 11/08/2026: The object service: [db NAME] sections (path, journal,
+  // access read|write), and the database 6.x style clients get (legacy_db)
+  std::vector<gxObjectDbConfig> object_dbs;
+  std::string legacy_db;
 
   // Read a config file: "key = value" lines, "[set NAME]" sections,
   // # comments, ${VAR} replaced from the environment. Returns 0, or -1
@@ -295,7 +300,7 @@ public:
   int WriteAckFloor(const std::string &set, const std::string &stream,
 		    const std::string &copy, unsigned long long lsn, std::string &err);
 
-  unsigned long long applied_records = 0, applied_pages = 0;
+  std::atomic<unsigned long long> applied_records{0}, applied_pages{0}; // 11/08/2026: read by the status
 
 private:
   struct SetState_;
@@ -473,19 +478,24 @@ private:
   std::mutex status_lock;
   std::map<std::string, std::string> set_last; // set -> last change note
   std::set<gxdMuxSession *> muxes;              // 11/08/2026: for the status
+  std::unique_ptr<gxObjectService> objsvc;      // 11/08/2026: [db NAME] sections
 };
 
 // Counters and state of one set, kept by the client and written to the
 // status file
+// 11/08/2026: Each set's thread updates its entry while the client writes
+// the status file: the numbers are atomic, and last_error and streams are
+// changed and read under m.
 struct gxReplSetStatus {
   std::string direction;
-  bool ok = false;
+  std::atomic<bool> ok{false};
   std::string last_error;
-  long long last_ok = 0, last_scan = 0, last_verify = 0, last_full_verify = 0;
-  unsigned long long records = 0, files_sent = 0, pieces_sent = 0,
-    bytes_sent = 0, deletes = 0, verifies = 0;
+  std::atomic<long long> last_ok{0}, last_scan{0}, last_verify{0}, last_full_verify{0};
+  std::atomic<unsigned long long> records{0}, files_sent{0}, pieces_sent{0},
+    bytes_sent{0}, deletes{0}, verifies{0};
   std::map<std::string, std::pair<unsigned long long, unsigned long long> >
     streams; // name -> (source next lsn - 1, copy lsn)
+  std::mutex m;
 };
 
 class GXDLCODE_API gxReplClient {

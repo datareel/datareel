@@ -1,7 +1,14 @@
 # DataReel database object server (port 2073): design, phase 2
 
-Status: design for review (11/08/2026). Nothing in this file is built yet. Phase 1 (gxrepl
-protocol 2, databases only, safe reads, power-off fixes) is done; see `utils/gxrepl/README.md`.
+Status (11/09/2026): phase 1 (gxrepl protocol 2, databases only, safe reads, power-off fixes) is
+done. Phase 2 steps 1 to 4 are built and tested on branch gxrepl-phase2:
+1. gxDatabaseServer (`gxdbserver.h`)
+2. the multiplex (`gxdbmux.h`)
+3. replication as a service on channels: protocol 3, durable ACK, retention floor
+4. the object service (`gxdbobject.h`) and examples (`utils/dbserver`)
+Step 5 (the power-loss shim and its tests) and step 6 (the docs, including protocol 3 in section 11)
+are next. The mux core and the threaded replication and object tests are clean under
+ThreadSanitizer. See `utils/gxrepl/README.md`.
 
 ## 1. What exists today
 

@@ -641,6 +641,115 @@ def test_retention_floor():
         env.stop()
 
 
+def objects(env, db, mode, count=0):
+    return run([os.path.join(BIN, "gxrepl_testwriter"), "objects", env.cli_conf, db, mode, str(count)], timeout=120)
+
+
+def test_object_service():
+    """Database objects over the network (the port's primary use): add, request, change, delete and
+    walk a database on the server through an object channel; a 6.x style client (A/R blocks) works on
+    the legacy database."""
+    env = Env("objects", {"db": {}}, extra_server="")
+    orders = os.path.join(env.dir, "srvdb", "orders.gxd")
+    os.makedirs(os.path.dirname(orders))
+    with open(env.srv_conf) as f:
+        conf = f.read()
+    k = conf.index("[set db]")
+    conf = conf[:k] + f"legacy_db = orders\n[db orders]\npath = {orders}\naccess = write\n\n" + conf[k:]
+    with open(env.srv_conf, "w") as f:
+        f.write(conf)
+    env.start_server()
+    try:
+        r = objects(env, "orders", "write", 300)
+        assert r.returncode == 0 and r.stdout.startswith("objects ok"), r.stdout + env.logs()
+        r = run([os.path.join(BIN, "gxrepl_testwriter"), "legacyobj", env.cli_conf])
+        assert r.stdout.strip() == "legacy ok", r.stdout + env.logs()
+        r = objects(env, "nosuch", "read")
+        assert r.returncode == 3 and "no database" in r.stdout, r.stdout
+    finally:
+        env.stop()
+
+
+def test_object_copy_is_read_only():
+    """A database inside a set the server receives is a replicated copy: object clients may read it
+    (under the apply lock) but never write it."""
+    env = Env("objcopy", {"db": {}})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 30).returncode == 0
+    with open(env.srv_conf) as f:
+        conf = f.read()
+    k = conf.index("[set db]")
+    conf = conf[:k] + f"[db copy]\npath = {aws}/data.gxd\naccess = write\n\n" + conf[k:]
+    with open(env.srv_conf, "w") as f:
+        f.write(conf)
+    env.start_server()
+    try:
+        assert env.once().returncode == 0, env.logs()
+        r = objects(env, "copy", "write", 5)
+        assert r.returncode == 3 and "replicated copy" in r.stdout, r.stdout
+        r = objects(env, "copy", "read")
+        assert r.returncode == 0 and r.stdout.startswith("readonly ok"), r.stdout + env.logs()
+        assert int(r.stdout.split()[2]) > 0, r.stdout
+    finally:
+        env.stop()
+
+
+def test_objects_and_replication_together():
+    """Object clients and replication share one server at once."""
+    env = Env("objrepl", {"db": {}})
+    ws, aws = env.roots["db"]
+    orders = os.path.join(env.dir, "srvdb", "orders.gxd")
+    os.makedirs(os.path.dirname(orders))
+    with open(env.srv_conf) as f:
+        conf = f.read()
+    k = conf.index("[set db]")
+    conf = conf[:k] + f"[db orders]\npath = {orders}\naccess = write\n\n" + conf[k:]
+    with open(env.srv_conf, "w") as f:
+        f.write(conf)
+    env.start_server()
+    env.start_client()
+    try:
+        w = writer_bg(ws, "--commits", 200, "--per", 3, "--sleep", 5, "--seed", 12)
+        outs = [subprocess.Popen([os.path.join(BIN, "gxrepl_testwriter"), "objects", env.cli_conf, "orders", "write", "150"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) for _ in range(2)]
+        for o in outs:
+            out = o.communicate(timeout=120)[0]
+            assert o.returncode == 0 and out.startswith("objects ok"), out + env.logs()
+        assert w.wait(120) == 0, w.stdout.read()
+        wait_same(env, "db", 60)
+        check_db(aws)
+    finally:
+        env.stop()
+
+
+def test_object_examples():
+    """The example programs (utils/dbserver): object_server serves a database, object_client stores
+    an object and reads it back over mutual TLS."""
+    d = os.path.join(TMP, "examples")
+    os.makedirs(d, exist_ok=True)
+    pki = os.path.join(TMP, "pki")
+    port = free_port()
+    srv = subprocess.Popen([os.path.join(BIN, "object_server"), str(port), f"{pki}/srv.pem", f"{pki}/srv.key",
+                            f"{pki}/ca.pem", "ws-test", "notes", os.path.join(d, "notes.gxd")],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        for _ in range(100):
+            try:
+                socket.create_connection(("127.0.0.1", port), 0.2).close()
+                break
+            except OSError:
+                time.sleep(0.05)
+        r = run([os.path.join(BIN, "object_client"), "127.0.0.1", str(port), "aws-test", f"{pki}/cli.pem",
+                 f"{pki}/cli.key", f"{pki}/ca.pem", "notes", "hello from the example"], timeout=30)
+        assert r.returncode == 0 and "read back: hello from the example" in r.stdout, r.stdout
+    finally:
+        srv.send_signal(signal.SIGTERM)
+        try:
+            srv.wait(10)
+        except subprocess.TimeoutExpired:
+            srv.kill()
+
+
 def test_link_loss_and_catch_up():
     env = Env("link", {"db": {}})
     ws, aws = env.roots["db"]

@@ -249,3 +249,10 @@ Database object server (11/08/2026, phase 2; replication protocol 3):
   (acked/<copy>): an old segment goes only when every copy has it, up
   to the size cap.
 - gxsTLSConnection::TakeBuffered().
+- gxdbobject.h: gxObjectService, database objects over the network on
+  the same server: [db NAME] databases, multiplex channels (service
+  object, read or write) with ADD, REQUEST, CHANGE, DELETE, FIRST,
+  NEXT; writes through the database journal; replicated copies are
+  read-only and read under the apply journal lock (an apply holds it
+  exclusively); 6.x style A/R clients on legacy_db. Examples:
+  utils/dbserver/object_server.cpp, object_client.cpp.
