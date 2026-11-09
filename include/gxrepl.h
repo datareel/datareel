@@ -73,6 +73,7 @@ Changes:
 #include <vector>
 #include "gxstream.h"
 #include "gxdrepl.h"
+#include "gxdbserver.h" // 11/08/2026: gxReplServer is a service of the database object server
 
 namespace datareel {
 
@@ -405,28 +406,35 @@ private:
 
 // ---------------- Server and client ----------------
 
-class GXDLCODE_API gxReplServer {
+// 11/08/2026: The replication service of the DataReel database object
+// server (gxdbserver.h). Run() starts a gxDatabaseServer on the config's
+// listen address with this service; another program can instead add the
+// service to its own gxDatabaseServer (AddService) beside other services.
+class GXDLCODE_API gxReplServer : public gxDatabaseService {
 public:
   explicit gxReplServer(const gxReplConfig &cfg);
   ~gxReplServer();
   int Run(std::string &err); // Listen and serve until Stop()
-  void Stop() { stop = true; }
+  void Stop();
+
+  // gxDatabaseService: a session whose first block is a gxrepl HELLO
+  const char *ServiceName() const override { return "replication"; }
+  bool Claims(const gxBlockHeader &gx, const std::vector<unsigned char> &body) override;
+  void Serve(gxDatabaseSession &s) override;
+  // Recover every set's apply journal: call once before serving
+  int Prepare(std::string &err) { return local.RecoverAll(err); }
+  void WriteStatus() { write_status(); }
 
 private:
-  void handshake(int slot, std::shared_ptr<gxSocket> c);
-  void serve(int slot, std::shared_ptr<gxStream> s);
   void write_status();
 
 private:
   gxReplConfig cfg;
   gxReplLocal local;
-  gxStreamServer server;
+  std::atomic<gxDatabaseServer *> dbs{nullptr}; // The server Run() made (not with AddService)
   std::atomic<bool> stop{false};
-  std::atomic<int> clients{0};
-  std::atomic<int> handshaking{0};
   std::mutex status_lock;
   std::map<std::string, std::string> set_last; // set -> last change note
-  std::map<int, std::string> conn_info;
 };
 
 // Counters and state of one set, kept by the client and written to the

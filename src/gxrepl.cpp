@@ -331,22 +331,14 @@ static int send_msg(gxStream &s, uint8_t op, const std::vector<unsigned char> &b
   return 0;
 }
 
-static int recv_msg(gxStream &s, uint8_t &op, std::vector<unsigned char> &body,
-		    size_t max_raw, unsigned long long *bytes_in, std::string &err)
+// 11/08/2026: A message from a block already read (the database object
+// server reads a session's first block to choose the service)
+static int decode_msg(const gxBlockHeader &gx, const std::vector<unsigned char> &m, uint8_t &op,
+		      std::vector<unsigned char> &body, size_t max_raw, std::string &err)
 {
-  gxBlockHeader gx;
-  if(s.ReadHeader(gx) != gxSOCKET_NO_ERROR) {
-    err = std::string("receive failed: ") + s.SocketExceptionMessage();
-    return -1;
-  }
   if(gxStream::BlockStatus(gx) == gxCloseConnection) { err.clear(); return 1; }
   if(gxStream::BlockStatus(gx) != gxSendBlock) { err = "unexpected block"; return -1; }
-  std::vector<unsigned char> m;
-  if(s.ReadBlock(m, gx) != gxSOCKET_NO_ERROR || m.size() < 6) {
-    err = std::string("receive failed: ") + s.SocketExceptionMessage();
-    return -1;
-  }
-  if(bytes_in) *bytes_in += m.size();
+  if(m.size() < 6) { err = "short message"; return -1; }
   op = m[0];
   uint8_t flags = m[1];
   uint32_t raw;
@@ -367,6 +359,25 @@ static int recv_msg(gxStream &s, uint8_t &op, std::vector<unsigned char> &body,
     body.assign(m.begin() + 6, m.end());
   }
   return 0;
+}
+
+static int recv_msg(gxStream &s, uint8_t &op, std::vector<unsigned char> &body,
+		    size_t max_raw, unsigned long long *bytes_in, std::string &err)
+{
+  gxBlockHeader gx;
+  if(s.ReadHeader(gx) != gxSOCKET_NO_ERROR) {
+    err = std::string("receive failed: ") + s.SocketExceptionMessage();
+    return -1;
+  }
+  if(gxStream::BlockStatus(gx) == gxCloseConnection) { err.clear(); return 1; }
+  if(gxStream::BlockStatus(gx) != gxSendBlock) { err = "unexpected block"; return -1; }
+  std::vector<unsigned char> m;
+  if(s.ReadBlock(m, gx) != gxSOCKET_NO_ERROR || m.size() < 6) {
+    err = std::string("receive failed: ") + s.SocketExceptionMessage();
+    return -1;
+  }
+  if(bytes_in) *bytes_in += m.size();
+  return decode_msg(gx, m, op, body, max_raw, err);
 }
 
 int gxReplHasZlib() { return (int)have_zlib; }
@@ -1622,7 +1633,19 @@ int gxReplRemote::SetState(const std::string &set, const gxReplStreamState &s,
 
 gxReplServer::gxReplServer(const gxReplConfig &c) : cfg(c), local(c) { }
 
-gxReplServer::~gxReplServer() { server.Close(); }
+gxReplServer::~gxReplServer() { }
+
+void gxReplServer::Stop()
+{
+  stop = true;
+  gxDatabaseServer *d = dbs;
+  if(d) d->Stop();
+}
+
+bool gxReplServer::Claims(const gxBlockHeader &gx, const std::vector<unsigned char> &body)
+{
+  return gxStream::BlockStatus(gx) == gxSendBlock && body.size() >= 6 && body[0] == OP_HELLO;
+}
 
 void gxReplServer::write_status()
 {
@@ -1631,9 +1654,12 @@ void gxReplServer::write_status()
     std::to_string(now_s()) + ", \"port\": " + std::to_string(cfg.listen_port) +
     ", \"applied_records\": " + std::to_string(local.applied_records) +
     ", \"applied_pages\": " + std::to_string(local.applied_pages) + ", \"clients\": [";
+  std::vector<std::string> conns;
+  gxDatabaseServer *d = dbs;
+  if(d) conns = d->Connections();
   std::lock_guard<std::mutex> g(status_lock);
   bool first = true;
-  for(auto &e : conn_info) { j += (first ? "" : ", ") + json_str(e.second); first = false; }
+  for(auto &e : conns) { j += (first ? "" : ", ") + json_str(e); first = false; }
   j += "], \"sets\": {";
   first = true;
   for(auto &sc : cfg.sets) {
@@ -1646,89 +1672,58 @@ void gxReplServer::write_status()
 }
 
 int gxReplServer::Run(std::string &err)
+// 11/08/2026: The listener, handshakes and limits are the database object
+// server's (gxdbserver.h); this server is its replication service.
 {
-  signal(SIGPIPE, SIG_IGN);
   if(local.RecoverAll(err) != 0) return -1;
-  server.SetClientCAFile(cfg.ca);
-  for(auto &cn : cfg.allow_cn) server.AllowClientCN(cn);
-  for(auto &fp : cfg.allow_fingerprint) {
-    if(server.AllowClientFingerprint(fp) != 0) { err = "bad fingerprint " + fp; return -1; }
-  }
-  if(server.Listen(cfg.listen_port, cfg.cert, cfg.key, cfg.key_passphrase,
-		   cfg.listen_address) != 0) {
-    err = "listen on port " + std::to_string(cfg.listen_port) + ": " + server.Error();
-    return -1;
-  }
-  glog("serving %zu set(s) on %s:%d", cfg.sets.size(),
-       cfg.listen_address.empty() ? "*" : cfg.listen_address.c_str(), server.Port());
-  write_status();
-  int slot = 0;
-  long long last_status = 0;
-  while(!stop) {
-    if(now_s() - last_status >= 5) { write_status(); last_status = now_s(); }
-    if(server.Listener().WaitReadable(500) <= 0) continue;
-    // 11/07/2026: Only the TCP accept runs here. The TLS handshake runs
-    // in its own thread with a short timeout, so a connection that never
-    // starts or finishes TLS (a scanner on an open port) cannot hold up
-    // the workstation's connection.
-    gxSocket c = server.Listener().Accept();
-    if(!c.IsOpen()) continue;
-    if(handshaking >= cfg.max_handshakes) {
-      glog("dropped %s: %d handshakes already running", c.PeerIPAddress().c_str(), (int)handshaking);
-      c.Close();
-      continue;
+  gxDatabaseServerConfig dc;
+  dc.listen_address = cfg.listen_address;
+  dc.listen_port = cfg.listen_port;
+  dc.cert = cfg.cert; dc.key = cfg.key; dc.key_passphrase = cfg.key_passphrase;
+  dc.ca = cfg.ca;
+  dc.allow_cn = cfg.allow_cn;
+  dc.allow_fingerprint = cfg.allow_fingerprint;
+  dc.max_clients = cfg.max_clients;
+  dc.max_handshakes = cfg.max_handshakes;
+  dc.handshake_timeout = cfg.handshake_timeout;
+  dc.timeout = cfg.timeout;
+  dc.max_block = (unsigned long)(cfg.max_message * 4 + 1024 * 1024);
+  gxDatabaseServer server(dc);
+  server.AddService(this);
+  bool announced = false;
+  server.SetTick([&]() {
+    if(!announced) {
+      glog("serving %zu set(s) on %s:%d", cfg.sets.size(),
+	   cfg.listen_address.empty() ? "*" : cfg.listen_address.c_str(), server.Port());
+      announced = true;
     }
-    handshaking++;
-    int id = ++slot;
-    std::thread(&gxReplServer::handshake, this, id, std::make_shared<gxSocket>(std::move(c))).detach();
-  }
-  server.Close();
-  for(int i = 0; i < 100 && (clients > 0 || handshaking > 0); i++) usleep(100000);
+    write_status();
+  }, 5);
+  dbs = &server;
+  if(stop) server.Stop();
+  int rc = server.Run(err);
+  dbs = 0;
   write_status();
-  return 0;
+  return rc;
 }
 
-void gxReplServer::handshake(int slot, std::shared_ptr<gxSocket> c)
+void gxReplServer::Serve(gxDatabaseSession &ses)
 {
-  std::string ip = c->PeerIPAddress();
-  auto s = std::make_shared<gxStream>();
-  s->SetTimeOut(cfg.handshake_timeout);
-  s->SetMaxBlockSize((gxUINT32)(cfg.max_message * 4 + 1024 * 1024));
-  int rc = server.Handshake(s->Connection(), std::move(*c));
-  if(rc != 0) {
-    glog("refused %s: %s", ip.c_str(), s->Connection().Error().c_str());
-    s->Close();
-    handshaking--;
-    return;
-  }
-  // Only clients that passed the certificate checks count against max_clients
-  if(clients.fetch_add(1) >= cfg.max_clients) {
-    clients--;
-    glog("refused %s: %d clients already", s->Connection().PeerCN().c_str(), cfg.max_clients);
-    s->Close();
-    handshaking--;
-    return;
-  }
-  handshaking--;
-  s->SetTimeOut(cfg.timeout);
-  serve(slot, s);
-}
-
-void gxReplServer::serve(int slot, std::shared_ptr<gxStream> s)
-{
-  std::string who = s->Connection().PeerCN() + "@" + s->Connection().Host();
+  gxStream *s = &ses.Stream();
+  std::string who = ses.PeerCN() + "@" + ses.PeerHost();
   glog("client %s connected", who.c_str());
-  {
-    std::lock_guard<std::mutex> g(status_lock);
-    conn_info[slot] = who + " since " + std::to_string(now_s());
-  }
   bool hello = false;
   bool peer_zlib = false;
+  bool first = true;
   std::string err;
   while(!stop) {
     uint8_t op = 0;
     std::vector<unsigned char> body;
-    if(recv_msg(*s, op, body, cfg.max_message * 4 + 1024 * 1024, 0, err) != 0) break;
+    if(first) {
+      first = false;
+      if(decode_msg(ses.first_header, ses.first_body, op, body, cfg.max_message * 4 + 1024 * 1024, err) != 0) break;
+    }
+    else if(recv_msg(*s, op, body, cfg.max_message * 4 + 1024 * 1024, 0, err) != 0) break;
     RBuf r(body.data(), body.size());
     WBuf w;
     std::string e;
@@ -1752,7 +1747,7 @@ void gxReplServer::serve(int slot, std::shared_ptr<gxStream> s)
       }
       hello = true;
       who = s->Connection().PeerCN() + " (" + node + ")@" + s->Connection().Host();
-      { std::lock_guard<std::mutex> g(status_lock); conn_info[slot] = who + " since " + std::to_string(now_s()); }
+      ses.SetDescription(who);
       w.u32(gxREPL_PROTOCOL); w.str(cfg.node); w.u32((uint32_t)cfg.sets.size());
       for(auto &sc : cfg.sets) { w.str(sc.name); w.str(sc.accept); }
       w.u32(have_zlib);
@@ -1855,11 +1850,6 @@ void gxReplServer::serve(int slot, std::shared_ptr<gxStream> s)
   }
   s->Close();
   glog("client %s disconnected%s%s", who.c_str(), err.empty() ? "" : ": ", err.c_str());
-  {
-    std::lock_guard<std::mutex> g(status_lock);
-    conn_info.erase(slot);
-  }
-  clients--;
 }
 
 // ---------------- Client ----------------

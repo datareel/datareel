@@ -486,6 +486,24 @@ def test_torn_ship_log_tail():
         env.stop()
 
 
+def test_server_unclaimed_first_block():
+    """The database object server gives a session to the service that claims its first block. A
+    first block no service claims (here an object-access 'A' block with no object service set up)
+    closes that session only, and the server goes on serving."""
+    env = Env("unclaimed", {"db": {}})
+    ws, aws = env.roots["db"]
+    put(os.path.join(ws, "a.gxd"), b"after")
+    env.start_server()
+    try:
+        r = run([os.path.join(BIN, "gxrepl_testwriter"), "rawblock", env.cli_conf, "A"])
+        assert r.stdout.strip() == "closed", r.stdout + env.logs()
+        assert env.once().returncode == 0, env.logs()
+        assert os.path.exists(os.path.join(aws, "a.gxd"))
+        assert "no service for its first block" in env.logs(), env.logs()
+    finally:
+        env.stop()
+
+
 def test_link_loss_and_catch_up():
     env = Env("link", {"db": {}})
     ws, aws = env.roots["db"]

@@ -24,6 +24,35 @@
 // that skipped its own checks would, to accept PATH as a copy (rawapply: a
 // one-piece file update) or to send PATH as a source (rawdiff). Prints "ok"
 // or "error: ..." (exit 2).
+// 11/08/2026: gxrepl_testwriter rawblock CONF STATUS: a TLS client with
+// CONF's certificate sends one block with net status STATUS (a letter,
+// e.g. A) and 4 bytes, then prints "closed" if the server closes the
+// session, else "answered".
+static int rawblock(const char *conf, const char *status)
+{
+  datareel::gxReplConfig cfg;
+  std::string err;
+  if(cfg.Load(conf, err) != 0) { fprintf(stderr, "%s\n", err.c_str()); return 2; }
+  datareel::gxStream st;
+  st.SetTimeOut(10);
+  datareel::gxsTLSConnection &c = st.Connection();
+  c.SetCAFile(cfg.ca);
+  c.SetClientCert(cfg.cert, cfg.key, cfg.key_passphrase);
+  c.SetVerifyPeer(true);
+  datareel::gxSocket sock;
+  if(sock.Connect(cfg.connect_host, cfg.connect_port, 10) != 0) { printf("connect failed\n"); return 2; }
+  sock.SetIOTimeout(10);
+  if(c.AttachClient(std::move(sock), cfg.server_name) != 0) { printf("TLS: %s\n", c.Error().c_str()); return 2; }
+  datareel::gxBlockHeader gx;
+  st.SetBlockStatus(gx, (__SBYTE__)status[0]);
+  gx.block_length = 4;
+  if(st.WriteBlock("abcd", gx) != datareel::gxSOCKET_NO_ERROR) { printf("closed\n"); return 0; }
+  datareel::gxBlockHeader back;
+  if(st.ReadHeader(back) != datareel::gxSOCKET_NO_ERROR) { printf("closed\n"); return 0; }
+  printf("answered\n");
+  return 0;
+}
+
 static int raw(const std::string &mode, const char *conf, const char *set, const char *path)
 {
   datareel::gxReplConfig cfg;
@@ -123,6 +152,7 @@ int main(int argc, char **argv)
   }
   std::string mode = argv[1], root = argv[2];
   if((mode == "rawapply" || mode == "rawdiff") && argc == 5) return raw(mode, argv[2], argv[3], argv[4]);
+  if(mode == "rawblock" && argc == 4) return rawblock(argv[2], argv[3]);
   if(mode == "check") return check(root);
   long commits = 100, per = 5, sleep_ms = 0;
   bool ship = true;
