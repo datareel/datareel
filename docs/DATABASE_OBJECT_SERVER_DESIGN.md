@@ -1,14 +1,17 @@
 # DataReel database object server (port 2073): design, phase 2
 
 Status (11/09/2026): phase 1 (gxrepl protocol 2, databases only, safe reads, power-off fixes) is
-done. Phase 2 steps 1 to 4 are built and tested on branch gxrepl-phase2:
+done. Phase 2 (steps 1 to 6) is built and tested on branch gxrepl-phase2:
 1. gxDatabaseServer (`gxdbserver.h`)
 2. the multiplex (`gxdbmux.h`)
 3. replication as a service on channels: protocol 3, durable ACK, retention floor
 4. the object service (`gxdbobject.h`) and examples (`utils/dbserver`)
-Step 5 (the power-loss shim and its tests) and step 6 (the docs, including protocol 3 in section 11)
-are next. The mux core and the threaded replication and object tests are clean under
-ThreadSanitizer. See `utils/gxrepl/README.md`.
+5. the power-loss simulator (`utils/gxrepl/powerloss_shim.c`) and its tests, which found and fixed
+   two power-loss gaps (section 12)
+6. these docs: protocol 3 and the object service on the wire (section 11)
+
+The suite (`utils/gxrepl/test_gxrepl.py`, 35 tests) passes, and the whole suite is clean under
+ThreadSanitizer. See `utils/gxrepl/README.md`. Section 10 still has open questions for dougg.
 
 ## 1. What exists today
 
@@ -37,11 +40,11 @@ There will be one server on 2073: the **DataReel database object server**.
 | New file | Content |
 |---|---|
 | `include/gxdbserver.h`, `src/gxdbserver.cpp` | `gxDatabaseServer`: the listener, handshake thread, sessions, service registry, scheduler |
-| `include/gxdbchannel.h`, `src/gxdbchannel.cpp` | The multiplex: channel table, frames, credits, per-channel queues |
+| `include/gxdbmux.h`, `src/gxdbmux.cpp` | The multiplex: channel table, frames, credits, per-channel queues, the I/O thread |
 | `include/gxdbobject.h`, `src/gxdbobject.cpp` | Object service: add, change, delete, request on a named database |
 | `gxrepl.h/.cpp` | The replication service on the same channels (`gxReplServer` becomes a service) |
 | `utils/gxrepl` | Thin front end: `gxrepl serve` starts `gxDatabaseServer` with both services |
-| `examples/dbserver/` | `object_client.cpp`, `object_server.cpp`, `replication_pair.cpp`, in DataReel example style |
+| `utils/dbserver/` | `object_server.cpp` and `object_client.cpp`, in DataReel example style |
 
 OSA supplies only configs and `automate/` scripts. No OSA logic goes into the library.
 
@@ -52,7 +55,7 @@ Every frame is still one gxStream block, so the framing and its size checks stay
 - `A`/`C`/`D`/`R` keep working, unchanged, for single-database legacy clients (the
   `stream_server.cpp` style) on a session that never opened a channel.
 
-Mux frame body: `u8 kind, u32 channel, u64 seq, u32 flags, payload`.
+Mux frame body: `u8 'M', u8 kind, u32 channel, u64 seq, u32 flags, payload` (exact layout in section 11.3).
 
 | kind | Direction | Meaning |
 |---|---|---|
@@ -124,17 +127,23 @@ Both:
 - Torn tails are cut by checksum: ship log records (rec_check), journal commits (jcheck).
 - Status and lock files are written with a temporary file, a rename and a folder sync.
 
-Remaining gaps after phase 1 (to fix in phase 2):
-1. An `ApplyFiles` batch over 1000 files is split into several journal transactions, so it is not
-   atomic across the parts. Phase 2 applies a commit as one transaction whatever its size, by
-   streaming it into one journal.
-2. A database read in several parts without a ship log can leave the copy holding a mixed version
-   until the retry completes. Readers of the copy can see that mix (its mtime is 0). Phase 2 stages
-   a whole file version on the receiver and swaps it in, or requires the ship log for live databases.
-3. A delete removes the file without a folder sync, so after a power loss the file can come back.
-   The next pass deletes it again (harmless). Phase 2 syncs folders after deletes.
-4. Retention is by age and size, not by ACK (see Sender).
-5. There is no power-loss test yet (see section 8).
+Gaps found after phase 1, and where they stand (11/09/2026):
+1. **Open.** An `ApplyFiles` batch over 1000 files is split into several journal transactions, so it
+   is not atomic across the parts. Only a first copy or a whole-set verify sends that many files at
+   once; each part is atomic, and a crash between parts leaves files that the next pass sends again.
+2. **Open.** A database read in several parts without a ship log can leave the copy holding a mixed
+   version until the retry completes (its mtime is 0 so the next scan sends it again). Live
+   databases should have a ship log; the others are published by a swap, which is read safely.
+3. **Fixed (step 5).** A delete now syncs the folders it removed files from.
+4. **Fixed (step 3).** Retention follows the copies' durable ACKs (the floor in `acked/`), capped
+   by the disk limit.
+5. **Fixed (step 5).** The power-loss tests (section 12).
+6. **Fixed (step 5, found by the power-loss test).** A new database or journal file's name was not
+   durable: commits synced the journal file but never its folder, so a power cut soon after a
+   database was made could lose the file, commits and all. `gxdFPTRCreate()` now syncs the folder
+   after every create (POSIX).
+7. **Fixed (step 5, found by the power-loss test).** A crash in the middle of a floor write left
+   `acked/<copy>.gxrtmp`, which the ship-log purge read as another copy's floor. Purge skips it now.
 
 ## 7. Object service
 
@@ -165,10 +174,10 @@ Object service:
 Crash and power-off:
 - kill -9 at random points on both sides during a multi-database apply. Each copy is always a whole
   commit and catches up with no gap or duplicate.
-- **Power-loss shim:** a test build links an I/O shim (`DATAREEL_TEST_POWERLOSS`) that records every
-  write and keeps a "durable image" updated only by fsync/fdatasync, including folder entries on a
-  folder sync. At a random fsync count, the test kills both sides, rebuilds the folders from the
-  durable images only, restarts, and checks:
+- **Power-loss shim** (built in step 5 as an `LD_PRELOAD` library, section 12): it keeps a "durable
+  image" updated only by fsync/fdatasync, including folder entries on a folder sync. At a random
+  moment the test kills one or both sides, rebuilds the folders from the durable images only,
+  restarts, and checks:
   - each copy is a whole commit
   - the sender's log is not behind its files
   - catch-up ends with no gap or duplicate
@@ -195,13 +204,16 @@ About 4 to 5 days in total, delivered in that order, with the suite green at eac
   flag), or as a manual `gxrepl once --pull`?
 - Retention disk cap per stream when a copy is down for days (today 2 GB).
 
-## 11. Language-neutral spec of what is on disk and on the wire today (for ports, e.g. DataReel 6.3)
+## 11. Language-neutral spec of what is on disk and on the wire (for ports, e.g. DataReel 6.3)
 
-These are the formats of DataReel 7.3.1 with replication protocol 2 (phase 1). All integers are in
-the **native byte order** of the writer. The hello refuses a peer with another byte order, address
-size or page size. Strings are `u32 length` followed by that many bytes, with no terminator.
-`bytes` is `u64 length` followed by the bytes. Paths are relative to a set root, `/`-separated, and
-never contain `.`, `..` or empty components.
+These are the formats of DataReel 7.3.1 with replication protocol 3 (phase 2, 11/09/2026). All
+integers are in the **native byte order** of the writer. The hello refuses a peer with another byte
+order, address size or page size. Strings (`str`) are `u32 length` followed by that many bytes, with
+no terminator. `bytes` is `u64 length` followed by the bytes. Paths are relative to a set root,
+`/`-separated, and never contain `.`, `..` or empty components.
+
+Protocol 3 replaced protocol 2 on 11/08/2026: a protocol 2 peer's HELLO is refused (the protocol
+number differs), so both nodes of a pair are updated together.
 
 ### 11.1 gxStream block (the transport, TLS only)
 
@@ -219,7 +231,75 @@ Each block is a header and then `block_length` bytes. The header is sent as the 
 The header is 16 bytes in the 32-bit engine and 24 bytes in the 64-bit one. A receiver checks
 `block_length` against its limit before it allocates any memory. Blocks are never sent unencrypted.
 
-### 11.2 Replication message (inside an `'S'` block)
+### 11.2 Sessions: what the first block decides
+
+The server (`gxDatabaseServer`) reads one block after the TLS handshake and gives the connection to
+the first service that claims it:
+
+| First block | Session |
+|---|---|
+| `'S'`, body starts with `'M'` (0x4D) | Multiplex session (11.3): replication and objects, many channels |
+| `'S'`, body is a replication message with op 1 (HELLO) | Plain replication session: one request at a time, no channels (tools and tests use it) |
+| `'A'` or `'R'` | Legacy object client (11.6), only if the config names a `legacy_db` |
+| anything else | Closed at once |
+
+A replication message never starts with 0x4D (op codes are 1 to 101), so the two `'S'` kinds cannot
+be mixed up.
+
+### 11.3 Multiplex frame (gxdbmux.h)
+
+Each frame is one gxStream block (11.1) with net status `'S'` and file status `'V'`. Its body:
+
+| Offset | Field | Type | Value |
+|---|---|---|---|
+| 0 | mark | u8 | `'M'` |
+| 1 | kind | u8 | table below |
+| 2 | channel | u32 | 0 = the connection; 1 and up = channels |
+| 6 | seq | u64 | DATA: counts 1, 2, 3... per channel and direction; 0 for the rest |
+| 14 | flags | u32 | bit 0 (`LAST`): the last DATA frame of a message |
+| 18 | payload | | by kind |
+
+| kind | Name | Payload | Rules |
+|---|---|---|---|
+| 1 | HELLO | `str "GXDBMUX", u32 version (1)` | Channel 0. The client sends it first and the server answers with its own. Another magic or version ends the connection |
+| 2 | OPEN | `str service, str name, str mode, u64 credit` | The opener picks a free channel id. `credit` is the opener's receive queue size: the accepter may send that many DATA bytes |
+| 3 | OPENED | `u64 credit, bytes extra` | The channel is open. `credit` is the accepter's queue size. `extra` is service data (empty today) |
+| 4 | REFUSED | `str reason` | Closes that channel only |
+| 5 | DATA | service bytes | Counted against the credit. A message is DATA frames up to the one with `LAST`, joined. A frame's payload is at most 1 MB |
+| 6 | CREDIT | `u64 bytes` | The receiver took that many bytes out of its queue: the sender may send that many more. Sent each time a quarter of the queue is taken, or when the queue empties |
+| 7 | ACK | `u64 seq, u64 lsn` | Durable apply (11.4) |
+| 8 | ERROR | `str reason` | Closes that channel only. A peer that sends past its credit gets `ERROR "over credit"` |
+| 9 | CLOSE | (none) | Channel 0: the connection. Otherwise that channel |
+
+Rules:
+- A frame for a channel that is closed is dropped (late frames are normal).
+- Each side owns one I/O thread per connection and sends control frames (HELLO, OPEN, OPENED,
+  REFUSED, CREDIT, ACK, ERROR, CLOSE) before DATA.
+- DATA from different channels is sent by deficit round-robin, 256 KB a turn. That is not part of
+  the wire format, but it is what keeps a large set from holding up a small one; a port should do
+  the same.
+- The default queue (and so the initial credit) is 16 MB per channel. A receiver may grant less,
+  never more than it can hold.
+
+### 11.4 Replication on the multiplex (service `repl`)
+
+1. The client sends HELLO (11.3) and waits for the server's.
+2. It sends `OPEN channel 1, "repl", name "", mode "control"`. The server accepts one control channel
+   per connection.
+3. On channel 1 it sends the replication HELLO (11.5, op 1). Only HELLO is allowed on channel 1, and
+   HELLO is not allowed anywhere else.
+4. It sends `OPEN channel N, "repl", <set>, push|pull` for each set, with N = 2, 3... The server
+   refuses a set it does not have, `push` to a set it is the source of, or `pull` from a set it is
+   the copy of. A refused set does not stop the others.
+5. Each set channel carries requests and replies (11.5) for its own set only, in order. The server
+   serves each channel on its own thread, so sets apply in parallel.
+6. After an APPLYLOG is applied durably (the pages are synced and the applied position is written,
+   11.9), the server sends the OK reply and then `ACK seq lsn` on that channel: seq is the request's
+   last frame and lsn the applied lsn. The client writes the retention floor (11.7) from the OK
+   reply's applied lsn, which the server only sends once the apply is durable. The ACK carries the
+   same lsn for the channel status.
+
+### 11.5 Replication message (a DATA message on a repl channel, or an `'S'` block on a plain session)
 
 | Field | Type | Value |
 |---|---|---|
@@ -228,11 +308,12 @@ The header is 16 bytes in the 32-bit engine and 24 bytes in the 64-bit one. A re
 | raw_length | u32 | length of the uncompressed body; refused above `4 * max_message + 1 MB` |
 | body | bytes (raw) | the uncompressed body, or a zlib stream that inflates to `raw_length` bytes |
 
-Every request gets exactly one reply message (OK or error), in order. A `'L'` block closes the session.
+Every request gets exactly one reply message (OK or error), in order, on the same channel (or the
+same plain session). On a plain session a `'L'` block closes the session.
 
 | op | Name | Request body | OK reply body |
 |---|---|---|---|
-| 1 | HELLO | `str "GXREPL", u32 protocol (2), str node, u32 sizeof(FAU) (4\|8), u32 page size (4096), u32 0x01020304, u32 zlib (0\|1)` | `u32 protocol, str node, u32 n, n x (str set, str accept), u32 zlib` |
+| 1 | HELLO | `str "GXREPL", u32 protocol (3), str node, u32 sizeof(FAU) (4\|8), u32 page size (4096), u32 0x01020304, u32 zlib (0\|1)` | `u32 protocol, str node, u32 n, n x (str set, str accept), u32 zlib` |
 | 10 | STREAMS | `str set` | `u32 n, n x stream` |
 | 11 | READLOG | `str set, str stream, u64 from_lsn, u64 max_bytes` | `u32 status (0 ok, 1 gone), u64 next_lsn, bytes records` |
 | 12 / 21 | SMANIFEST / TMANIFEST | `str set` | `u32 n, n x file` |
@@ -259,7 +340,40 @@ Rules both sides enforce:
 - A path must be a database file (`.gxd`, `.btx`, or the set's `include` patterns).
 - It must not be hidden, excluded or databento, and must not lead through a symlink out of the set.
 
-### 11.3 Ship log (sender, `<set root>/.gxrepl/log/<stream>/`)
+### 11.6 Objects on the multiplex (service `object`) and legacy object clients
+
+`OPEN channel N, "object", <database>, read|write`, after the multiplex HELLO (no replication HELLO
+is needed). The server refuses:
+- a database its config does not name (`[db NAME]`);
+- `write` on a database whose `access` is `read`;
+- `write` on a database inside a set this server receives (a replicated copy).
+
+Each DATA message is one request: `u8 op`, then its body. Each reply is `u8 status` (0 ok, 1 error),
+then the result, or `str error`.
+
+| op | Name | Request body | Result |
+|---|---|---|---|
+| 1 | ADD | `bytes data` | `u64 address` |
+| 2 | REQUEST | `u64 address` | `bytes data` |
+| 3 | CHANGE | `u64 address, bytes data` (the object's own length) | (none) |
+| 4 | DELETE | `u64 address` | (none) |
+| 5 | FIRST | (none) | `u64 address` (0: none) |
+| 6 | NEXT | `u64 address` | `u64 next address` (0: none) |
+
+How the server handles requests:
+- Each change (ADD, CHANGE, DELETE) is one `gxdJournal` transaction, committed durably before the
+  reply. An answered change survives a power cut (`test_power_loss_object_service`).
+- A read of a replicated copy holds `gxdJournalReadLock` on the set's `apply.jnl`, so it never sees
+  half of a commit.
+
+A legacy object client (the 6.x gxStream style) uses no channels. It talks to the config's
+`legacy_db`:
+- an `'A'` block with the object's bytes gets `gxStream::WriteResultBlock(address)`;
+- an `'R'` block with an 8-byte address gets one block with the object's bytes (empty if there is
+  none);
+- `'L'` ends the session, and any other block closes it.
+
+### 11.7 Ship log (sender, `<set root>/.gxrepl/log/<stream>/`)
 
 | File | Content |
 |---|---|
@@ -268,8 +382,18 @@ Rules both sides enforce:
 | `journal` | the journal's path, relative to the root |
 | `files` | the journal's database files, one relative path per line |
 | `<first lsn as 16 hex>.gxl` | segments |
+| `acked/<copy>` | the retention floor (protocol 3): one line, the decimal lsn that copy has applied durably. `<copy>` is the copy's node name with every character other than letters, digits, `-`, `_` and `.` made `_` |
 
-These small files are written with a temporary file, fdatasync, a rename and a folder sync.
+These small files are written with a temporary file (`<name>.gxrtmp`), fdatasync, a rename and a
+folder sync. A reader skips names that start with `.` or end in `.gxrtmp` (a write a crash stopped).
+
+Purge: when a segment fills, the writer removes old segments, oldest first, and never the one in
+use. It stops at the first segment that must stay. A segment goes only if both hold:
+- it is older than `keep_days`;
+- every record in it is at or below the lowest floor in `acked/` (or `acked/` is empty).
+
+The size cap (`max_bytes`) still removes the oldest segments. A copy that then needs a removed record
+sees its position below the log's first lsn and is verified whole (hash compare) instead.
 
 Segment layout:
 - **Segment header**, 32 bytes: `char[8] "GXRSEG01"`, `char[16]` log id (hex), `u64` first lsn.
@@ -284,7 +408,7 @@ Segment layout:
 - **Torn tail**: the writer's Open() reads the last segment and cuts it back to the end of the last
   record whose magic, length and check are valid.
 
-### 11.4 Apply journal (receiver, `<set root>/.gxrepl/apply.jnl`) and database journals
+### 11.8 Apply journal (receiver, `<set root>/.gxrepl/apply.jnl`) and database journals
 
 Both use the gxdJournal file format (`gxdjrnl.cpp`). It's only read back on the machine that wrote it.
 
@@ -299,7 +423,7 @@ How an apply and a recovery work:
   committed pages, sync every file, and clear the header with a sync.
 - **Recovery** stops at the first invalid record. A transaction without its commit record is ignored.
 
-### 11.5 Applied position (receiver, `<set root>/.gxrepl/state/<stream>.state`)
+### 11.9 Applied position (receiver, `<set root>/.gxrepl/state/<stream>.state`)
 
 - One line: `<log id> <applied lsn>\n`.
 - It's written only after the pages are durable: a temporary file `.gxrtmp`, fdatasync, a rename and
@@ -307,7 +431,7 @@ How an apply and a recovery work:
 - After a restart, the client asks the copy for this position and sends from `lsn + 1`.
 - A different log id means a new log on the source, so the copy is verified (hash compare) first.
 
-### 11.6 Status file (both, `status_file`)
+### 11.10 Status file (both, `status_file`)
 
 JSON, written atomically (a temporary file, fdatasync, a rename and a folder sync). Client fields:
 
@@ -316,14 +440,45 @@ JSON, written atomically (a temporary file, fdatasync, a rename and a folder syn
   pieces_sent, bytes_sent, deletes, last_error`
 - `streams.<name>`: `source, copy, lag`
 
-## 12. Power-loss test: plan
+Server fields: `node, role ("server"), time, port, applied_records, applied_pages`, `clients` (one
+string per connection), `sets.<name>: accept, root, last`, and `channels` (one per open set
+channel: `set, mode, state, queue_frames, queue_bytes, frames, error`).
 
-Phase 1 has kill -9 tests on both sides (link loss, writer crash) and a torn ship-log tail test. It
-has no simulated power loss yet. That's planned for phase 2 (section 8): an I/O shim built only into
-test binaries that keeps a "durable image" updated only on fsync, fdatasync and folder syncs, and
-restarts from that image at random points. It's not a small change, because the shim has to cover
-pwrite, write, rename, unlink, mkdir and ftruncate for both the library and the test writer, so it
-isn't in phase 1.
+## 12. Power-loss tests (step 5)
+
+`utils/gxrepl/powerloss_shim.c` is a test-only `LD_PRELOAD` library. It is never linked into a
+program. The test compiles it and loads it into the writer, the gxrepl server and the gxrepl client.
+It replaces `fsync` and `fdatasync`. After each successful call on a watched folder (`PL_ROOTS`):
+- a file's bytes at that moment go to `PL_DURABLE/inodes/<dev>_<ino>`
+- a folder's entries (type, inode, name) go to `PL_DURABLE/dirs/<dev>_<ino>`
+
+Folders are kept by inode, so a renamed folder keeps its entries. Saves are a temporary file and a
+rename under a lock, so processes and threads can share one image. `PL_TRACE` logs every call seen.
+
+A cut, in the test: SIGKILL every process on the side being cut. Then the folder is rebuilt from the
+image only:
+- A name exists only if its folder was synced after the name was made.
+- A file has the bytes of its last sync; a name whose bytes were never synced is an empty file.
+- In "mix" cycles each file keeps its unsynced bytes or not, at random, because the page cache may
+  have written some of them back.
+
+The model is stricter than ext4 or XFS, which commit some metadata on their own. That is the point:
+it only lets through what POSIX promises.
+
+| Test | What it shows |
+|---|---|
+| `test_power_loss_shim_model` | The model itself: unsynced bytes lost, a rename undone without a folder sync, a name lost without one, the safe sync-rename-sync kept |
+| `test_power_loss_both_nodes` | 6 cuts of the writer, the client and the server at once (3 with mix), each during live commits and the copy of a 1-5 MB file in parts. After each cut: the source's floor is not ahead of the copy's durable position; the writer recovers; the copy catches up to the same files, `gxrepl_testwriter check` passes on both sides, and the lag is 0 |
+| `test_power_loss_source_node` | 4 cuts of the writer's node only (the server keeps running) |
+| `test_power_loss_copy_node` | 4 cuts of the server's node only (the client reconnects) |
+| `test_power_loss_object_service` | 5 cuts of the server while a client adds and changes objects. Every object the server answered is there with its last answered bytes, and the database walks end to end |
+
+What the tests found (both fixed, section 6 items 6 and 7): a new database file's name was not
+synced, and a stopped floor write was read as a floor.
+
+Not covered by the shim: `msync`, `sync_file_range`, `O_SYNC`/`O_DSYNC` writes and `syncfs`.
+DataReel uses none of these (only `fsync` and `fdatasync`, `gxdFPTRSync`). Windows has no shim:
+NTFS journals its own metadata, and `FlushFileBuffers` is the only call.
 
 ## 13. DataReel 6.3 port: legacy DataReel classes, not the C++ standard library (dougg, 11/08)
 
@@ -337,7 +492,7 @@ a peer with another address size, page size or byte order.
 | Piece | State in 6.3 |
 |---|---|
 | gxDatabase / gxBtree file formats | The same as 7.3 (6.2-compatible) |
-| gxdJournal (`GXDWAL01`, `WFRM`/`WCMT` records) and `gxdJournalReadLock` | Present: the same on-disk format as section 11.4 |
+| gxdJournal (`GXDWAL01`, `WFRM`/`WCMT` records) and `gxdJournalReadLock` | Present: the same on-disk format as section 11.8 |
 | gxdPageCache | Present |
 | gxStream / gxSocket | Present, **without TLS**: TLS is only on WIP branch `6.3-wip-net-tls` (1dff199), not in the build |
 | gxSSL, gxThread, gxMutex, gxCondition, gxString, gxList, MemoryBuffer, gxConfig, gxdFPTR | Present |
