@@ -74,11 +74,15 @@ Changes:
 #include "gxstream.h"
 #include "gxdrepl.h"
 #include "gxdbserver.h" // 11/08/2026: gxReplServer is a service of the database object server
+#include "gxdbmux.h"    // 11/08/2026: protocol 3, many sets over one connection
+#include <set>
+#include <thread>
 
 namespace datareel {
 
 // 2 (11/08/2026): databases only (a node refuses flat files), status 3 on a read that changed
-const int gxREPL_PROTOCOL = 2;
+// 3 (11/08/2026): the client uses the database object server's multiplex: one channel per set
+const int gxREPL_PROTOCOL = 3;
 const int gxREPL_DEFAULT_PORT = gxsDATA_PORT; // 2073
 const uint32_t gxREPL_PIECE = 64 * 1024;
 
@@ -284,6 +288,12 @@ public:
 	       std::string &full, std::string &err) const;
   // Finish a batch a crash left in a set's apply journal
   int RecoverAll(std::string &err);
+  // 11/08/2026: The retention floor. As the source of a set, note the last
+  // lsn a copy applied durably (<root>/.gxrepl/log/<stream>/acked/<copy>),
+  // so the writer's ship log keeps what that copy still needs (up to its
+  // size cap).
+  int WriteAckFloor(const std::string &set, const std::string &stream,
+		    const std::string &copy, unsigned long long lsn, std::string &err);
 
   unsigned long long applied_records = 0, applied_pages = 0;
 
@@ -316,6 +326,17 @@ public:
   int Connect(std::string &err); // TLS, then the hello
   void Close();
   bool IsOpen() const;
+  // 11/08/2026: Protocol 3. ConnectMux(): TLS, the multiplex HELLO, then
+  // the gxrepl HELLO on a control channel. OpenSetChannel(): a channel
+  // for one set (mode push or pull; the server checks it). UseChannel():
+  // this object makes its calls on a channel of another, connected one
+  // (one object per set, each used by its own thread).
+  int ConnectMux(std::string &err);
+  int OpenSetChannel(uint32_t ch, const std::string &set, const std::string &mode,
+		     std::string &err);
+  void UseChannel(gxReplRemote &connected, uint32_t ch);
+  gxdMuxSession *Mux() { return mux; }
+  uint32_t Channel() const { return mux_ch; }
   const std::string &PeerNode() const { return peer_node; }
   // The server's sets and what it accepts (target, source or both)
   const std::map<std::string, std::string> &PeerSets() const {
@@ -356,10 +377,15 @@ private:
 	   std::vector<unsigned char> &reply, std::string &err);
   int start_tunnel(std::string &err);
   void stop_tunnel();
+  int connect_tls(std::string &err);
+  int hello(std::string &err);
 
 private:
   gxReplConfig cfg;
   std::unique_ptr<gxStream> stream;
+  std::unique_ptr<gxdMuxSession> own_mux; // 11/08/2026: protocol 3
+  gxdMuxSession *mux = 0;
+  uint32_t mux_ch = 0;
   std::string peer_node;
   std::map<std::string, std::string> peer_sets;
   int tunnel_pid = -1;
@@ -425,8 +451,19 @@ public:
   int Prepare(std::string &err) { return local.RecoverAll(err); }
   void WriteStatus() { write_status(); }
 
+  // 11/08/2026: The state of one session (or one multiplex channel)
+  struct ReqState {
+    bool hello = false, peer_zlib = false;
+    std::string who, peer_cn, peer_host;
+    gxDatabaseSession *ses = 0;
+    std::string only_set;           // A channel serves only its own set
+  };
+
 private:
   void write_status();
+  int dispatch(uint8_t op, const std::vector<unsigned char> &body,
+	       std::vector<unsigned char> &reply, std::string &e, ReqState &st);
+  void serve_mux(gxDatabaseSession &ses);
 
 private:
   gxReplConfig cfg;
@@ -435,6 +472,7 @@ private:
   std::atomic<bool> stop{false};
   std::mutex status_lock;
   std::map<std::string, std::string> set_last; // set -> last change note
+  std::set<gxdMuxSession *> muxes;              // 11/08/2026: for the status
 };
 
 // Counters and state of one set, kept by the client and written to the
@@ -461,11 +499,13 @@ public:
   // Force a full verify at the next pass (SIGHUP). A connect verifies only
   // the ship-log streams; plain files get the size/mtime scan unless a full
   // verify is due (full_verify_interval) or asked for (this, or once).
-  void RequestVerify() { verify_now = true; }
+  void RequestVerify() { verify_gen++; }
 
 private:
   int pass(gxReplRemote &remote, bool once, const std::string &only_set,
 	   std::string &err);
+  int run_sets(gxReplRemote &remote, bool once, const std::string &only_set,
+	       std::string &err);
   int sync_set(gxReplSource &src, gxReplTarget &tgt,
 	       const gxReplSetConfig &sc, bool once, std::string &err);
   int sync_file(gxReplSource &src, gxReplTarget &tgt, const std::string &set,
@@ -481,10 +521,17 @@ private:
   gxReplConfig cfg;
   gxReplLocal local;
   std::atomic<bool> stop{false};
-  std::atomic<bool> verify_now{false};
-  std::atomic<bool> connect_verify{false}; // 11/08/2026: verify the ship-log streams after a connect
-  bool pass_connected = false;              // 11/08/2026: for the status written during a long pass
-  long long last_status_write = 0;          // 11/08/2026
+  // 11/08/2026: Each set runs on its own thread (protocol 3), so the verify
+  // requests are per set: a SIGHUP bumps verify_gen, and each set does a
+  // full verify when it has not seen the current generation; a connect
+  // puts every set in cverify_sets. Both under flag_lock.
+  std::atomic<unsigned long> verify_gen{0};
+  std::mutex flag_lock;
+  std::map<std::string, unsigned long> verify_seen;
+  std::set<std::string> cverify_sets;
+  std::atomic<bool> pass_connected{false};  // 11/08/2026: for the status written during a long pass
+  std::atomic<long long> last_status_write{0}; // 11/08/2026
+  std::mutex status_write_lock;             // 11/08/2026: sets write the status from their threads
   std::map<std::string, gxReplSetStatus> status;
   std::map<std::string, std::vector<std::string> > verify_streams;
   long long connected_since = 0;

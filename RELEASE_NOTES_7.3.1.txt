@@ -232,3 +232,20 @@ same version, a mismatch is refused in the hello):
   other database files get the size and mtime scan, and the full hash
   verify runs when full_verify_interval says so (or SIGHUP, once).
 - The client writes its status file every 5 seconds during a pass.
+
+Database object server (11/08/2026, phase 2; replication protocol 3):
+- gxdbserver.h: gxDatabaseServer, one TLS listener on the database
+  port shared by services (client certificates, handshakes off the
+  accept loop, session limits); a session goes to the service that
+  claims its first block.
+- gxdbmux.h: gxdMuxSession, many databases over one connection: a
+  channel per database with its own order, bounded queue, credit flow
+  control and errors; one I/O thread per connection (non-blocking, so
+  both sides can send at once); deficit round-robin between channels.
+- gxrepl: the replication service of the server. The client opens a
+  channel per set and runs each set on its own thread (the server has
+  an applier thread per channel); a refused set ends only its channel.
+  Durable ACK after a log apply, and the ACK floor in the ship log
+  (acked/<copy>): an old segment goes only when every copy has it, up
+  to the size cap.
+- gxsTLSConnection::TakeBuffered().

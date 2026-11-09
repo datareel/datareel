@@ -23,6 +23,19 @@ open, the client opens an SSH tunnel to the server's loopback and still speaks T
 
 ## How it works
 
+**Protocol 3 (11/08/2026): one connection, one channel per set.** The server is the DataReel
+database object server (`gxdbserver.h`) and replication is one of its services. The client opens a
+multiplex session (`gxdbmux.h`), says HELLO on a control channel, then opens one channel per set
+(mode push or pull; the server refuses a set it lacks or a wrong role, and only that channel ends).
+Each set runs on its own thread on the client, and on its own applier thread on the server, so
+sets replicate at once and a large or slow set never holds up a small one. Each channel has its own
+bounded queue and credit, and a full queue holds back only that set's sender. After a durable log
+apply the server sends an ACK with the applied lsn, and the client writes it as the **retention
+floor** (`<root>/.gxrepl/log/<stream>/acked/<copy>`): the writer's ship log removes an old segment
+only when every copy has all of it, up to the size cap (2 GB; a copy that needs a removed record is
+verified instead). The server status lists each channel and its queue.
+Failback after a fail over is manual for now: `gxrepl once` with a pull config on the workstation.
+
 - **Replication set:** a folder of databases (`root`), for example one published database folder
   or a folder of day databases. `direction = push` copies the client's
   folder to the server; `pull` copies the server's to the client. The server lists each set it

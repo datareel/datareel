@@ -155,6 +155,8 @@ int main(int argc, char **argv)
   if(mode == "rawblock" && argc == 4) return rawblock(argv[2], argv[3]);
   if(mode == "check") return check(root);
   long commits = 100, per = 5, sleep_ms = 0;
+  unsigned long long seg_bytes = 0, max_bytes = 0;  // 11/08/2026: ship log retention tests
+  int keep_days = -1;
   bool ship = true;
   for(int i = 3; i < argc; i++) {
     std::string a = argv[i];
@@ -163,6 +165,9 @@ int main(int argc, char **argv)
     else if(a == "--sleep" && i + 1 < argc) sleep_ms = atol(argv[++i]);
     else if(a == "--seed" && i + 1 < argc) rng_state ^= strtoull(argv[++i], 0, 10) * 2654435761ULL;
     else if(a == "--no-ship") ship = false;
+    else if(a == "--segment" && i + 1 < argc) seg_bytes = strtoull(argv[++i], 0, 10);
+    else if(a == "--keep-days" && i + 1 < argc) keep_days = atoi(argv[++i]);
+    else if(a == "--max-bytes" && i + 1 < argc) max_bytes = strtoull(argv[++i], 0, 10);
     else { fprintf(stderr, "unknown option %s\n", a.c_str()); return 64; }
   }
   std::string dn = root + "/data.gxd", in = root + "/index.gxd", jn = root + "/writer.jnl";
@@ -183,6 +188,10 @@ int main(int argc, char **argv)
   }
   if(ship && j.EnableShipLog(root.c_str()) != gxDBASE_NO_ERROR) {
     fprintf(stderr, "EnableShipLog failed\n"); return 1;
+  }
+  if(ship && j.ShipLog()) {
+    if(seg_bytes) j.ShipLog()->SetSegmentSize(seg_bytes);
+    if(keep_days >= 0 || max_bytes) j.ShipLog()->SetRetention(keep_days >= 0 ? keep_days : 7, max_bytes ? max_bytes : 2ULL * 1024 * 1024 * 1024);
   }
   IndexObj io;
   memset(&io, 0, sizeof(io));

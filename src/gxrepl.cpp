@@ -292,10 +292,13 @@ enum {
   OP_OK = 100, OP_ERR = 101
 };
 
-static int send_msg(gxStream &s, uint8_t op, const std::vector<unsigned char> &body,
-		    int level, unsigned long long *bytes_out, std::string &err)
+// 11/08/2026: A message (op, flags, raw length, body; zlib when it pays)
+// as bytes: the body of a gxStream 'S' block (protocol 2) or of a
+// multiplex message (protocol 3)
+static void pack_msg(uint8_t op, const std::vector<unsigned char> &body, int level,
+		     std::vector<unsigned char> &m)
 {
-  std::vector<unsigned char> m;
+  m.clear();
   m.reserve(body.size() + 6);
   m.push_back(op);
   uint32_t raw = (uint32_t)body.size();
@@ -320,6 +323,13 @@ static int send_msg(gxStream &s, uint8_t op, const std::vector<unsigned char> &b
     m.insert(m.end(), (unsigned char *)&raw, (unsigned char *)&raw + 4);
     m.insert(m.end(), body.begin(), body.end());
   }
+}
+
+static int send_msg(gxStream &s, uint8_t op, const std::vector<unsigned char> &body,
+		    int level, unsigned long long *bytes_out, std::string &err)
+{
+  std::vector<unsigned char> m;
+  pack_msg(op, body, level, m);
   gxBlockHeader gx;
   s.SetBlockStatus(gx, gxSendBlock);
   gx.block_length = (gxUINT32)m.size();
@@ -333,11 +343,21 @@ static int send_msg(gxStream &s, uint8_t op, const std::vector<unsigned char> &b
 
 // 11/08/2026: A message from a block already read (the database object
 // server reads a session's first block to choose the service)
+static int unpack_msg(const std::vector<unsigned char> &m, uint8_t &op,
+		      std::vector<unsigned char> &body, size_t max_raw, std::string &err);
+
 static int decode_msg(const gxBlockHeader &gx, const std::vector<unsigned char> &m, uint8_t &op,
 		      std::vector<unsigned char> &body, size_t max_raw, std::string &err)
 {
   if(gxStream::BlockStatus(gx) == gxCloseConnection) { err.clear(); return 1; }
   if(gxStream::BlockStatus(gx) != gxSendBlock) { err = "unexpected block"; return -1; }
+  return unpack_msg(m, op, body, max_raw, err);
+}
+
+// 11/08/2026: The message bytes back to op and body
+static int unpack_msg(const std::vector<unsigned char> &m, uint8_t &op,
+		      std::vector<unsigned char> &body, size_t max_raw, std::string &err)
+{
   if(m.size() < 6) { err = "short message"; return -1; }
   op = m[0];
   uint8_t flags = m[1];
@@ -1261,6 +1281,21 @@ int gxReplLocal::Delete(const std::string &set, const std::vector<std::string> &
   return 0;
 }
 
+int gxReplLocal::WriteAckFloor(const std::string &set, const std::string &stream,
+			       const std::string &copy, unsigned long long lsn, std::string &err)
+{
+  SetState_ *s = set_state(set, err);
+  if(!s) return -1;
+  if(stream.empty() || stream.find('/') != std::string::npos || stream[0] == '.') { err = "bad stream"; return -1; }
+  std::string name;
+  for(char c : copy) name += (isalnum((unsigned char)c) || c == '-' || c == '_' || c == '.') ? c : '_';
+  if(name.empty() || name[0] == '.') name = "copy";
+  std::string dir = s->root + "/.gxrepl/log/" + stream + "/acked";
+  if(mkdirs(dir) != 0) { err = "cannot make " + dir; return -1; }
+  if(write_atomic(dir + "/" + name, std::to_string(lsn) + "\n") != 0) { err = "cannot write " + dir; return -1; }
+  return 0;
+}
+
 int gxReplLocal::RecoverAll(std::string &err)
 {
   for(auto &sc : cfg.sets) {
@@ -1287,11 +1322,20 @@ gxReplRemote::~gxReplRemote()
 
 bool gxReplRemote::IsOpen() const
 {
+  if(mux) return mux->Alive();      // 11/08/2026: a multiplex channel
   return stream && stream->Connection().IsOpen();
 }
 
 void gxReplRemote::Close()
 {
+  if(own_mux) {                     // 11/08/2026: the multiplex owns the I/O now
+    own_mux->Shutdown("closed");
+    own_mux.reset();
+    mux = 0;
+    if(stream) { stream->Close(); stream.reset(); }
+    return;
+  }
+  mux = 0;
   if(stream) {
     if(stream->Connection().IsOpen() && stream->Connection().IsSecure()) 
       stream->CloseConnection(); // Tell the server this client is done
@@ -1373,6 +1417,45 @@ void gxReplRemote::stop_tunnel()
 }
 
 int gxReplRemote::Connect(std::string &err)
+// Protocol 2: TLS, then the gxrepl HELLO on the plain session
+{
+  if(connect_tls(err) != 0) return -1;
+  return hello(err);
+}
+
+// 11/08/2026: Protocol 3: TLS, the multiplex, and the gxrepl HELLO on the
+// control channel (1). Each set then opens its own channel.
+int gxReplRemote::ConnectMux(std::string &err)
+{
+  if(connect_tls(err) != 0) return -1;
+  gxdMuxOptions o;
+  o.max_block = cfg.max_message * 4 + 1024 * 1024;
+  own_mux.reset(new gxdMuxSession(gxdMuxStreamTransport(*stream), o));
+  own_mux->Start();
+  if(own_mux->Hello(err, cfg.timeout * 1000) != 0) { Close(); return -1; }
+  if(own_mux->Open(1, "repl", "", "control", 0, err, cfg.timeout * 1000) != 0) { Close(); return -1; }
+  mux = own_mux.get();
+  mux_ch = 1;
+  return hello(err);
+}
+
+int gxReplRemote::OpenSetChannel(uint32_t ch, const std::string &set, const std::string &mode,
+				 std::string &err)
+{
+  if(!mux) { err = "not a multiplex connection"; return -1; }
+  return mux->Open(ch, "repl", set, mode, 0, err, cfg.timeout * 1000);
+}
+
+void gxReplRemote::UseChannel(gxReplRemote &c, uint32_t ch)
+{
+  peer_node = c.peer_node;
+  peer_sets = c.peer_sets;
+  peer_zlib = c.peer_zlib;
+  mux = c.mux;
+  mux_ch = ch;
+}
+
+int gxReplRemote::connect_tls(std::string &err)
 {
   Close();
   std::string host = cfg.connect_host;
@@ -1405,6 +1488,11 @@ int gxReplRemote::Connect(std::string &err)
     stream.reset();
     return -1;
   }
+  return 0;
+}
+
+int gxReplRemote::hello(std::string &err)
+{
   WBuf w;
   w.str("GXREPL"); w.u32(gxREPL_PROTOCOL); w.str(cfg.node);
   w.u32((uint32_t)sizeof(FAU)); w.u32((uint32_t)gxdPageSize); w.u32(0x01020304);
@@ -1435,6 +1523,29 @@ int gxReplRemote::call(const std::vector<unsigned char> &req,
 {
   reply.clear();
   if(req.empty()) return 0;
+  if(mux) {
+    // 11/08/2026: Protocol 3: the request and its reply on this object's channel
+    std::vector<unsigned char> body(req.begin() + 1, req.end()), m, back;
+    pack_msg(req[0], body, peer_zlib ? cfg.compress : 0, m);
+    if(mux->Send(mux_ch, m, gxdMUX_LAST, err) != 0) return -1;
+    bytes_out += m.size();
+    uint64_t seq = 0;
+    int rc = mux->ReceiveMessage(mux_ch, back, seq, cfg.timeout * 1000, err);
+    if(rc == 1) { err = "no reply in " + std::to_string(cfg.timeout) + " s"; return -1; }
+    if(rc != 0) return -1;
+    bytes_in += back.size();
+    uint8_t op = 0;
+    if(unpack_msg(back, op, reply, cfg.max_message * 4 + 1024 * 1024, err) != 0) return -1;
+    messages++;
+    if(op == OP_ERR) {
+      RBuf r(reply.data(), reply.size());
+      err = r.str();
+      if(err.empty()) err = "error from the server";
+      return 1;
+    }
+    if(op != OP_OK) { err = "bad reply"; return -1; }
+    return 0;
+  }
   if(!stream) { err = "not connected"; return -1; }
   std::vector<unsigned char> body(req.begin() + 1, req.end());
   if(send_msg(*stream, req[0], body, peer_zlib ? cfg.compress : 0, &bytes_out, err) != 0) {
@@ -1644,7 +1755,12 @@ void gxReplServer::Stop()
 
 bool gxReplServer::Claims(const gxBlockHeader &gx, const std::vector<unsigned char> &body)
 {
-  return gxStream::BlockStatus(gx) == gxSendBlock && body.size() >= 6 && body[0] == OP_HELLO;
+  // A gxrepl HELLO (protocol 2), or a multiplex HELLO (protocol 3)
+  if(gxStream::BlockStatus(gx) != gxSendBlock || body.size() < 6) return false;
+  if(body[0] == OP_HELLO) return true;
+  gxdMuxFrame f;
+  return body[0] == gxdMUX_MARK && gxdMuxDecodeBody(body.data(), body.size(), f) == 0 &&
+    f.kind == gxdMUX_HELLO;
 }
 
 void gxReplServer::write_status()
@@ -1667,7 +1783,21 @@ void gxReplServer::write_status()
       ", \"root\": " + json_str(sc.root) + ", \"last\": " + json_str(set_last[sc.name]) + "}";
     first = false;
   }
-  j += "}}\n";
+  // 11/08/2026: Each multiplex channel: its set and its queue (frames and
+  // bytes waiting to be applied)
+  j += "}, \"channels\": [";
+  first = true;
+  for(auto *mx : muxes) {
+    for(auto &c : mx->Status()) {
+      if(c.mode == "control") continue;
+      j += std::string(first ? "" : ", ") + "{\"set\": " + json_str(c.name) + ", \"mode\": " + json_str(c.mode) +
+	", \"state\": " + json_str(c.state) + ", \"queue_frames\": " + std::to_string(c.in_frames) +
+	", \"queue_bytes\": " + std::to_string(c.in_bytes) + ", \"frames\": " + std::to_string(c.received_frames) +
+	", \"error\": " + json_str(c.error) + "}";
+      first = false;
+    }
+  }
+  j += "]}\n";
   write_atomic(cfg.status_file, j);
 }
 
@@ -1707,47 +1837,37 @@ int gxReplServer::Run(std::string &err)
   return rc;
 }
 
-void gxReplServer::Serve(gxDatabaseSession &ses)
+// 11/08/2026: One request (op and body), its reply. Returns 0 (reply =
+// the OK body) or -1 (e = the error). Shared by the plain session and
+// every multiplex channel.
+int gxReplServer::dispatch(uint8_t op, const std::vector<unsigned char> &body,
+			   std::vector<unsigned char> &reply, std::string &e, ReqState &st)
 {
-  gxStream *s = &ses.Stream();
-  std::string who = ses.PeerCN() + "@" + ses.PeerHost();
-  glog("client %s connected", who.c_str());
-  bool hello = false;
-  bool peer_zlib = false;
-  bool first = true;
-  std::string err;
-  while(!stop) {
-    uint8_t op = 0;
-    std::vector<unsigned char> body;
-    if(first) {
-      first = false;
-      if(decode_msg(ses.first_header, ses.first_body, op, body, cfg.max_message * 4 + 1024 * 1024, err) != 0) break;
-    }
-    else if(recv_msg(*s, op, body, cfg.max_message * 4 + 1024 * 1024, 0, err) != 0) break;
-    RBuf r(body.data(), body.size());
-    WBuf w;
-    std::string e;
-    int rc = 0;
-    auto role_ok = [&](const std::string &set, bool as_target) -> bool {
+  RBuf r(body.data(), body.size());
+  WBuf w;
+  int rc = 0;
+  auto role_ok = [&](const std::string &set, bool as_target) -> bool {
+      // 11/08/2026: A multiplex channel serves only its own set
+      if(!st.only_set.empty() && set != st.only_set) { e = "set " + set + " is not this channel's"; return false; }
       const gxReplSetConfig *sc = cfg.Set(set);
       if(!sc) { e = "no set " + set + " on " + cfg.node; return false; }
       if(as_target && sc->accept == "source") { e = "set " + set + " is a source on " + cfg.node; return false; }
       if(!as_target && sc->accept == "target") { e = "set " + set + " is a copy on " + cfg.node; return false; }
       return true;
     };
-    if(!hello && op != OP_HELLO) { glog("client %s: no hello", who.c_str()); break; }
+
     switch(op) {
     case OP_HELLO: {
       std::string magic = r.str(); uint32_t proto = r.u32(); std::string node = r.str();
       uint32_t fau = r.u32(), page = r.u32(), endian = r.u32();
-      peer_zlib = r.u32() != 0 && have_zlib;
+      st.peer_zlib = r.u32() != 0 && have_zlib;
       if(!r.ok || magic != "GXREPL" || proto != (uint32_t)gxREPL_PROTOCOL ||
 	 fau != sizeof(FAU) || page != gxdPageSize || endian != 0x01020304) {
 	e = "incompatible client (protocol, build or platform)"; rc = -1; break;
       }
-      hello = true;
-      who = s->Connection().PeerCN() + " (" + node + ")@" + s->Connection().Host();
-      ses.SetDescription(who);
+      st.hello = true;
+      st.who = st.peer_cn + " (" + node + ")@" + st.peer_host;
+      if(st.ses) st.ses->SetDescription(st.who);
       w.u32(gxREPL_PROTOCOL); w.str(cfg.node); w.u32((uint32_t)cfg.sets.size());
       for(auto &sc : cfg.sets) { w.str(sc.name); w.str(sc.accept); }
       w.u32(have_zlib);
@@ -1839,17 +1959,128 @@ void gxReplServer::Serve(gxDatabaseSession &ses)
     default:
       e = "unknown operation"; rc = -1;
     }
+  reply.swap(w.b);
+  return rc;
+}
+
+// 11/08/2026: Protocol 3. One multiplex session, many sets at once: the
+// control channel (1) carries the HELLO, then each set has its own
+// channel, served by its own thread in order (the per-database queue and
+// applier of the design). A channel only touches its own set; an error
+// closes that channel only. After a durable log apply the channel gets an
+// ACK with the applied lsn.
+void gxReplServer::serve_mux(gxDatabaseSession &ses)
+{
+  gxdMuxFrame first;
+  if(gxdMuxDecodeBody(ses.first_body.data(), ses.first_body.size(), first) != 0) return;
+  gxdMuxOptions o;
+  o.max_block = cfg.max_message * 4 + 1024 * 1024;
+  gxdMuxSession mux(gxdMuxStreamTransport(ses.Stream()), o);
+  std::mutex hm;
+  ReqState base;
+  base.peer_cn = ses.PeerCN(); base.peer_host = ses.PeerHost(); base.ses = &ses;
+  base.who = base.peer_cn + "@" + base.peer_host;
+  std::atomic<bool> hello_ok{false};
+  mux.SetOpenHandler([&](uint32_t, const std::string &service, const std::string &name,
+			 const std::string &mode, std::vector<unsigned char> &, std::string &why) -> bool {
+    if(service != "repl") { why = "no service " + service + " on " + cfg.node; return false; }
+    if(mode == "control") return !hello_ok;
+    if(!hello_ok) { why = "hello first"; return false; }
+    const gxReplSetConfig *sc = cfg.Set(name);
+    if(!sc) { why = "no set " + name + " on " + cfg.node; return false; }
+    if(mode == "push" && sc->accept == "source") { why = "set " + name + " is a source on " + cfg.node; return false; }
+    if(mode == "pull" && sc->accept == "target") { why = "set " + name + " is a copy on " + cfg.node; return false; }
+    if(mode != "push" && mode != "pull") { why = "bad mode " + mode; return false; }
+    return true;
+  });
+  mux.Start(&first);
+  { std::lock_guard<std::mutex> g(status_lock); muxes.insert(&mux); }
+  glog("client %s connected (multiplex)", base.who.c_str());
+  std::vector<std::thread> workers;
+  while(!stop && mux.Alive()) {
+    uint32_t ch; std::string sv, nm, md;
+    if(mux.AcceptChannel(ch, sv, nm, md, 500) != 0) continue;
+    workers.emplace_back([&, ch, nm, md]() {
+      ReqState st;
+      { std::lock_guard<std::mutex> g(hm); st = base; }
+      // Test hook: GXREPL_TEST_SLOW_SET=<set>:<ms> slows that set's channel
+      // (each request waits ms first), to show it does not hold up others
+      int slow_ms = 0;
+      const char *sl = getenv("GXREPL_TEST_SLOW_SET");
+      if(sl) { std::string v = sl; size_t c = v.find(':');
+	if(c != std::string::npos && v.substr(0, c) == nm) slow_ms = atoi(v.c_str() + c + 1); }
+      st.only_set = md == "control" ? std::string("\x01") : nm;  // The control channel serves no set
+      st.hello = md != "control";
+      while(!stop) {
+	std::vector<unsigned char> msg, body, reply;
+	uint64_t seq = 0;
+	std::string e;
+	int rc = mux.ReceiveMessage(ch, msg, seq, 1000, e);
+	if(rc == 1) continue;
+	if(rc < 0) break;
+	uint8_t op = 0;
+	if(unpack_msg(msg, op, body, cfg.max_message * 4 + 1024 * 1024, e) != 0) { mux.CloseChannel(ch, e); break; }
+	if(slow_ms > 0) usleep((useconds_t)slow_ms * 1000);
+	int r;
+	if((op == OP_HELLO) != (md == "control")) { e = "the control channel carries the hello, the set channels the rest"; r = -1; }
+	else r = dispatch(op, body, reply, e, st);
+	if(op == OP_HELLO && r == 0) {
+	  std::lock_guard<std::mutex> g(hm);
+	  base.peer_zlib = st.peer_zlib; base.who = st.who;
+	  hello_ok = true;
+	}
+	std::vector<unsigned char> out;
+	if(r == 0) pack_msg(OP_OK, reply, st.peer_zlib ? cfg.compress : 0, out);
+	else { WBuf we; we.str(e); pack_msg(OP_ERR, we.b, 0, out); }
+	if(mux.Send(ch, out, gxdMUX_LAST, e) != 0) break;
+	if(op == OP_APPLYLOG && r == 0 && reply.size() >= 8) {
+	  uint64_t lsn; memcpy(&lsn, reply.data(), 8);
+	  mux.Ack(ch, seq, lsn);   // Durable: the pages and the applied lsn are synced
+	}
+      }
+    });
+  }
+  mux.Shutdown(stop ? "server stopping" : "");
+  for(auto &t : workers) t.join();
+  { std::lock_guard<std::mutex> g(status_lock); muxes.erase(&mux); }
+  std::string why = mux.Error();
+  glog("client %s disconnected%s%s", base.who.c_str(), why.empty() ? "" : ": ", why.c_str());
+}
+
+void gxReplServer::Serve(gxDatabaseSession &ses)
+{
+  // 11/08/2026: A multiplex session (protocol 3: many sets at once)
+  if(!ses.first_body.empty() && ses.first_body[0] == gxdMUX_MARK) { serve_mux(ses); return; }
+  gxStream *s = &ses.Stream();
+  ReqState st;
+  st.peer_cn = ses.PeerCN(); st.peer_host = ses.PeerHost(); st.ses = &ses;
+  st.who = st.peer_cn + "@" + st.peer_host;
+  glog("client %s connected", st.who.c_str());
+  bool first = true;
+  std::string err;
+  while(!stop) {
+    uint8_t op = 0;
+    std::vector<unsigned char> body;
+    if(first) {
+      first = false;
+      if(decode_msg(ses.first_header, ses.first_body, op, body, cfg.max_message * 4 + 1024 * 1024, err) != 0) break;
+    }
+    else if(recv_msg(*s, op, body, cfg.max_message * 4 + 1024 * 1024, 0, err) != 0) break;
+    if(!st.hello && op != OP_HELLO) { glog("client %s: no hello", st.who.c_str()); break; }
+    std::vector<unsigned char> reply;
+    std::string e;
+    int rc = dispatch(op, body, reply, e, st);
     int sent;
-    if(rc == 0) sent = send_msg(*s, OP_OK, w.b, peer_zlib ? cfg.compress : 0, 0, err);
+    if(rc == 0) sent = send_msg(*s, OP_OK, reply, st.peer_zlib ? cfg.compress : 0, 0, err);
     else {
       WBuf we; we.str(e);
       sent = send_msg(*s, OP_ERR, we.b, 0, 0, err);
-      if(op == OP_HELLO) { glog("client %s refused: %s", who.c_str(), e.c_str()); break; }
+      if(op == OP_HELLO) { glog("client %s refused: %s", st.who.c_str(), e.c_str()); break; }
     }
     if(sent != 0) break;
   }
   s->Close();
-  glog("client %s disconnected%s%s", who.c_str(), err.empty() ? "" : ": ", err.c_str());
+  glog("client %s disconnected%s%s", st.who.c_str(), err.empty() ? "" : ": ", err.c_str());
 }
 
 // ---------------- Client ----------------
@@ -1861,6 +2092,7 @@ gxReplClient::~gxReplClient() { }
 void gxReplClient::write_status(bool connected, const std::string &note)
 {
   if(cfg.status_file.empty()) return;
+  std::lock_guard<std::mutex> wl(status_write_lock);   // 11/08/2026: set threads write it too
   last_status_write = now_s();
   std::string j = "{\"node\": " + json_str(cfg.node) + ", \"role\": \"client\", \"time\": " +
     std::to_string(now_s()) + ", \"connected\": " + (connected ? "true" : "false") +
@@ -1913,6 +2145,13 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
     unsigned long long lsn = 0;
     if(tgt.ApplyLog(set, s.name, s.log_id, out, lsn, err) != 0) return -1;
     ts.lsn = lsn;
+    // 11/08/2026: The copy has it durably: the retention floor, when this
+    // node is the source (never fatal)
+    if(static_cast<gxReplSource *>(&local) == &src) {
+      std::string fe;
+      if(local.WriteAckFloor(set, s.name, peer.empty() ? "copy" : peer, lsn, fe) != 0)
+	glog("set %s: %s", set.c_str(), fe.c_str());
+    }
     st.records += recs.size();
     st.bytes_sent += out.size();
   }
@@ -2005,12 +2244,18 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
   std::map<std::string, gxReplStreamState> tstates;
   for(auto &x : tv) tstates[x.name] = x;
 
-  bool full = once || verify_now || (sc.full_verify_interval > 0 && now - st.last_full_verify >= sc.full_verify_interval);
+  bool asked, cverify;
+  {
+    std::lock_guard<std::mutex> g(flag_lock);
+    asked = verify_seen[sc.name] != verify_gen;   // A SIGHUP this set has not answered
+    cverify = cverify_sets.count(sc.name) > 0;    // A connect this set has not answered
+  }
+  bool full = once || asked || (sc.full_verify_interval > 0 && now - st.last_full_verify >= sc.full_verify_interval);
   bool verify = full || (sc.verify_interval > 0 && now - st.last_verify >= sc.verify_interval);
   // 11/08/2026: After a connect, verify the files the ship-log streams cover (the commit feed may have
   // moved on while the link was down). Plain files only get the size/mtime scan: hashing every one of
   // them on each connect read all of a 22 GB osa_data at idle I/O (13 hours) for nothing.
-  bool cverify = connect_verify;
+
   auto &vlist = verify_streams[sc.name];
 
   // 1. The commit feed
@@ -2061,6 +2306,12 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     for(auto &x : tv2) if(x.name == s->name) {
       tstates[x.name] = x;
       st.streams[s->name] = std::make_pair(s->next_lsn ? s->next_lsn - 1 : 0, x.lsn);
+      // 11/08/2026: The verified copy's position is durable: the retention floor
+      if(static_cast<gxReplSource *>(&local) == &src && x.log_id == s->log_id) {
+	std::string fe;
+	if(local.WriteAckFloor(sc.name, s->name, peer.empty() ? "copy" : peer, x.lsn, fe) != 0)
+	  glog("set %s: %s", sc.name.c_str(), fe.c_str());
+      }
     }
     st.verifies++;
     glog("set %s: stream %s verified (%d file(s))", sc.name.c_str(), s->name.c_str(), synced);
@@ -2135,6 +2386,7 @@ int gxReplClient::pass(gxReplRemote &remote, bool once, const std::string &only_
 {
   gxReplRemoteTarget rtgt(remote);
   int worst = 0;
+  unsigned long gen0 = verify_gen;
   for(auto &sc : cfg.sets) {
     if(stop) break;
     if(!only_set.empty() && sc.name != only_set) continue;
@@ -2168,20 +2420,35 @@ int gxReplClient::pass(gxReplRemote &remote, bool once, const std::string &only_
     if(rc < 0 && !remote.IsOpen()) { err = e; return -1; }
     if(rc < 0) worst = 2;
   }
-  verify_now = false;
-  connect_verify = false;
+  {
+    // 11/08/2026: The verify requests this pass answered, for its sets only
+    std::lock_guard<std::mutex> g(flag_lock);
+    for(auto &sc : cfg.sets) {
+      if(!only_set.empty() && sc.name != only_set) continue;
+      verify_seen[sc.name] = gen0;
+      cverify_sets.erase(sc.name);
+    }
+  }
   return worst;
 }
 
 int gxReplClient::Run(bool once, const std::string &only_set, std::string &err)
+// 11/08/2026: Protocol 3: one connection, one multiplex channel and one
+// thread for each set, so the sets replicate at once and a large set
+// does not hold up a small one.
 {
   signal(SIGPIPE, SIG_IGN);
   if(local.RecoverAll(err) != 0) return 2;
+  {
+    // Every set's status and flags exist before any set's thread starts
+    std::lock_guard<std::mutex> g(flag_lock);
+    for(auto &sc : cfg.sets) { status[sc.name].direction = sc.direction; verify_seen[sc.name] = verify_gen; }
+  }
   int backoff = 1;
   while(!stop) {
     gxReplRemote remote(cfg);
     std::string e;
-    if(remote.Connect(e) != 0) {
+    if(remote.ConnectMux(e) != 0) {
       glog("cannot connect: %s (retry in %d s)", e.c_str(), backoff);
       peer.clear();
       write_status(false, e);
@@ -2194,38 +2461,97 @@ int gxReplClient::Run(bool once, const std::string &only_set, std::string &err)
     peer = remote.PeerNode();
     connected_since = now_s();
     glog("connected to %s (%s)", peer.c_str(), cfg.ssh_tunnel.empty() ? "direct" : "ssh tunnel");
-    connect_verify = true; // 11/08/2026: was verify_now (a full verify of every file on each connect)
-    pass_connected = true;
-    long long last_status = 0;
-    while(!stop) {
-      std::string pe;
-      unsigned long long before = work_count();
-      int rc = pass(remote, once, only_set, pe);
-      // Write the status after a pass that moved data, else every 2 s
-      if(work_count() != before || now_s() - last_status >= 2 || rc != 0 || once) {
-	write_status(remote.IsOpen(), pe);
-	last_status = now_s();
-      }
-      if(rc < 0 || !remote.IsOpen()) {
-	glog("connection lost: %s", pe.c_str());
-	if(once) { err = pe; return 2; }
-	break;
-      }
-      if(once) {
-	if(rc == 0) {
-	  // A second pass finds nothing to do when every set is the same
-	  rc = pass(remote, false, only_set, pe);
-	  write_status(remote.IsOpen(), pe);
-	}
-	if(rc != 0) err = pe.empty() ? "a set is not in step (see the status)" : pe;
-	return rc == 0 ? 0 : 1;
-      }
-      interruptible_sleep(cfg.poll_ms, stop);
+    {
+      // A connect verifies the ship-log streams of every set once
+      std::lock_guard<std::mutex> g(flag_lock);
+      cverify_sets.clear();
+      for(auto &sc : cfg.sets) cverify_sets.insert(sc.name);
     }
+    pass_connected = true;
+    int rc = run_sets(remote, once, only_set, e);
     pass_connected = false;
+    if(once) {
+      if(rc != 0) err = e.empty() ? "a set is not in step (see the status)" : e;
+      write_status(remote.IsOpen(), e);
+      return rc;
+    }
+    if(!stop) glog("connection lost: %s", e.c_str());
     write_status(false, "disconnected");
   }
   return 0;
+}
+
+int gxReplClient::run_sets(gxReplRemote &remote, bool once, const std::string &only_set,
+			   std::string &err)
+// Returns (once) 0 every set in step, 1 a set not, 2 the connection
+// failed; otherwise when the connection ends or Stop().
+{
+  struct Job {
+    const gxReplSetConfig *sc = 0;
+    std::unique_ptr<gxReplRemote> ch;
+    int rc = 0;
+    std::string e;
+    std::atomic<bool> done{false};
+  };
+  std::vector<std::unique_ptr<Job> > jobs;
+  uint32_t next = 2;
+  for(auto &sc : cfg.sets) {
+    if(!only_set.empty() && sc.name != only_set) continue;
+    std::unique_ptr<Job> j(new Job);
+    j->sc = &sc;
+    std::string e;
+    uint32_t ch = next++;
+    if(remote.OpenSetChannel(ch, sc.name, sc.direction, e) != 0) {
+      // Refused (no such set, the wrong role): this set only
+      gxReplSetStatus &st = status[sc.name];
+      if(e != st.last_error) glog("set %s: %s", sc.name.c_str(), e.c_str());
+      st.ok = false; st.last_error = e;
+      j->rc = remote.IsOpen() ? 1 : -1; j->e = e; j->done = true;
+      jobs.push_back(std::move(j));
+      continue;
+    }
+    j->ch.reset(new gxReplRemote(cfg));
+    j->ch->UseChannel(remote, ch);
+    jobs.push_back(std::move(j));
+  }
+  std::vector<std::thread> threads;
+  for(auto &jp : jobs) {
+    Job *j = jp.get();
+    if(j->done) continue;
+    threads.emplace_back([this, j, once]() {
+      while(!stop) {
+	std::string pe;
+	int rc = pass(*j->ch, once, j->sc->name, pe);
+	if(rc < 0 && !j->ch->IsOpen()) { j->rc = -1; j->e = pe; break; }
+	if(once) {
+	  // A second pass finds nothing to do when the set is the same
+	  if(rc == 0) rc = pass(*j->ch, false, j->sc->name, pe);
+	  j->rc = rc < 0 ? -1 : rc; j->e = pe;
+	  break;
+	}
+	interruptible_sleep(cfg.poll_ms, stop);
+      }
+      j->done = true;
+    });
+  }
+  // The status while the sets run
+  for(;;) {
+    bool all = true;
+    for(auto &jp : jobs) if(!jp->done) all = false;
+    if(all) break;
+    if(now_s() - last_status_write >= 2) write_status(remote.IsOpen(), "");
+    usleep(200000);
+  }
+  for(auto &t : threads) t.join();
+  int worst = 0;
+  std::string e;
+  for(auto &jp : jobs) {
+    if(jp->rc < 0) { worst = -1; e = jp->e; }
+    else if(worst >= 0 && jp->rc > worst) { worst = jp->rc; e = jp->e; }
+  }
+  err = e;
+  if(once) return worst < 0 ? 2 : (worst == 0 ? 0 : 1);
+  return worst < 0 ? -1 : 0;
 }
 
 } // namespace datareel

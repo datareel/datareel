@@ -99,10 +99,11 @@ class Env:
         self.server = None
         self.client = None
 
-    def start_server(self):
+    def start_server(self, extra_env=None):
         self.srv_log = open(os.path.join(self.dir, "server.log"), "a")
+        e = dict(os.environ, **extra_env) if extra_env else None
         self.server = subprocess.Popen([os.path.join(BIN, "gxrepl"), "serve", "--config", self.srv_conf],
-                                       stdout=self.srv_log, stderr=subprocess.STDOUT)
+                                       stdout=self.srv_log, stderr=subprocess.STDOUT, env=e)
         for _ in range(100):
             try:
                 socket.create_connection(("127.0.0.1", self.port), 0.2).close()
@@ -511,6 +512,133 @@ def test_mux_unit():
     for line in r.stdout.splitlines():
         print("    " + line, flush=True)
     assert r.returncode == 0, r.stdout
+
+
+def server_status(env):
+    try:
+        with open(env.srv_status) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def test_many_sets_at_once():
+    """Protocol 3: four sets over one connection, each on its own channel and thread, their writers
+    committing at the same time. Each copy matches its own commits, and the server shows a channel
+    for each set."""
+    names = ["db1", "db2", "db3", "db4"]
+    env = Env("manysets", {n: {} for n in names})
+    env.start_server()
+    env.start_client()
+    try:
+        ws_writers = [writer_bg(env.roots[n][0], "--commits", 250, "--per", 3, "--sleep", 4, "--seed", 20 + k)
+                      for k, n in enumerate(names)]
+        chans = set()
+        end = time.time() + 30
+        while time.time() < end and len(chans) < len(names):
+            chans = {c["set"] for c in server_status(env).get("channels", [])}
+            time.sleep(0.3)
+        for w in ws_writers:
+            assert w.wait(120) == 0, w.stdout.read()
+        for n in names:
+            wait_same(env, n, 90)
+            check_db(env.roots[n][1])
+        assert chans == set(names), f"server channels {chans}"
+        ok = {n: env.status()["sets"][n]["ok"] for n in names}
+        assert all(ok.values()), ok
+    finally:
+        env.stop()
+
+
+def test_refused_set_others_continue():
+    """A set the server refuses (unknown there, or the wrong role) closes only its own channel:
+    the other set replicates, and the status says why the refused ones are not in step."""
+    env = Env("refusedset", {"good": {}, "ghost": {}, "src": {"accept": "source"}})
+    with open(env.srv_conf) as f:
+        conf = f.read()
+    k = conf.index("[set ghost]")
+    k2 = conf.index("[set src]")
+    with open(env.srv_conf, "w") as f:      # the server has no "ghost" set
+        f.write(conf[:k] + conf[k2:])
+    ws, aws = env.roots["good"]
+    assert writer(ws, "--commits", 40).returncode == 0
+    put(os.path.join(env.roots["ghost"][0], "g.gxd"), b"ghost")
+    put(os.path.join(env.roots["src"][0], "s.gxd"), b"src")
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "good", 60)
+        check_db(aws)
+        st = wait_status(env, lambda s: s["sets"]["ghost"]["last_error"] and s["sets"]["src"]["last_error"]
+                         and s["sets"]["good"]["ok"])["sets"]
+        assert "no set ghost" in st["ghost"]["last_error"], st["ghost"]
+        assert "source" in st["src"]["last_error"], st["src"]
+        assert st["good"]["ok"], st["good"]
+        assert not os.path.exists(os.path.join(env.roots["src"][1], "s.gxd"))
+    finally:
+        env.stop()
+
+
+def test_slow_set_does_not_block_small():
+    """A slow set (each request delayed on the server) next to a small live one: the small set stays
+    real time while the slow one is still copying."""
+    env = Env("slowset", {"big": {}, "small": {}})
+    big_ws, big_aws = env.roots["big"]
+    for i in range(150):
+        put(os.path.join(big_ws, f"b{i}.gxd"), os.urandom(40000 + i))
+    small_ws, small_aws = env.roots["small"]
+    env.start_server(extra_env={"GXREPL_TEST_SLOW_SET": "big:60"})
+    env.start_client()
+    try:
+        t0 = time.time()
+        w = writer_bg(small_ws, "--commits", 60, "--per", 2, "--sleep", 20, "--seed", 3)
+        assert w.wait(60) == 0, w.stdout.read()
+        wait_same(env, "small", 30)
+        t_small = time.time() - t0
+        big_done = same(big_ws, big_aws)[0]
+        check_db(small_aws)
+        print(f"    small set in step after {t_small:.1f}s; big set done then: {big_done}", flush=True)
+        assert not big_done, "the slow set finished too quickly to show anything"
+        wait_same(env, "big", 120)
+    finally:
+        env.stop()
+
+
+def test_retention_floor():
+    """The ship log keeps what a copy has not acknowledged (the ACK floor, acked/<copy>). With the
+    copy offline, old segments it already has are removed and the ones it still needs stay; the copy
+    then catches up."""
+    env = Env("floor", {"db": {}})
+    ws, aws = env.roots["db"]
+    opts = ["--segment", "6000", "--keep-days", "1"]
+    assert writer(ws, "--commits", 60, "--per", 2, *opts).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 60)
+        logdir = os.path.join(ws, ".gxrepl", "log")
+        stream = os.path.join(logdir, os.listdir(logdir)[0])
+        acked = os.path.join(stream, "acked")
+        st = wait_status(env, lambda s: os.path.isdir(acked) and os.listdir(acked))
+        floor = int(open(os.path.join(acked, os.listdir(acked)[0])).read())
+        assert floor > 0, floor
+        env.kill("client")                                # the copy goes offline
+        assert writer(ws, "--commits", 60, "--per", 2, "--seed", 8, *opts).returncode == 0
+        segs = sorted(f for f in os.listdir(stream) if f.endswith(".gxl"))
+        old = time.time() - 3 * 86400
+        for f in segs:                                    # every segment is past keep-days now
+            os.utime(os.path.join(stream, f), (old, old))
+        assert writer(ws, "--commits", 10, "--per", 2, "--seed", 9, *opts).returncode == 0   # rolls, purges
+        left = sorted(int(f[:16], 16) for f in os.listdir(stream) if f.endswith(".gxl"))
+        assert left and left[0] <= floor + 1, f"a segment the copy needs (after lsn {floor}) was removed: {left[:5]}"
+        assert left[0] > 1, "nothing the copy had was removed"
+        # The copy comes back and catches up (the writer's restarts left open records, which a copy
+        # answers with a hash verify of the stream's files; the log it still needed is all there)
+        env.start_client()
+        wait_same(env, "db", 60)
+        check_db(aws)
+    finally:
+        env.stop()
 
 
 def test_link_loss_and_catch_up():

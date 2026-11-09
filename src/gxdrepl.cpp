@@ -508,9 +508,30 @@ void gxdShipLog::purge()
   unsigned long long total = 0;
   for(auto &s : segs) total += s.size;
   time_t cutoff = time(0) - (time_t)keep_days * 86400;
-  for(auto &s : segs) {
+  // 11/08/2026: The ACK floor. Each copy's replicator writes the last lsn
+  // the copy applied durably to acked/<copy> (gxrepl). An old segment goes
+  // only when every copy has all its records; the size cap still wins (a
+  // copy that needs a dropped record is verified whole instead).
+  unsigned long long floor = 0;
+  bool have_floor = false;
+  DIR *ad = opendir((dir + "/acked").c_str());
+  if(ad) {
+    struct dirent *ae;
+    while((ae = readdir(ad)) != 0) {
+      if(ae->d_name[0] == '.') continue;
+      std::string v;
+      if(read_small(dir + "/acked/" + ae->d_name, v) != 0) continue;
+      unsigned long long l = strtoull(v.c_str(), 0, 10);
+      if(!have_floor || l < floor) { floor = l; have_floor = true; }
+    }
+    closedir(ad);
+  }
+  for(size_t i = 0; i < segs.size(); i++) {
+    SegF &s = segs[i];
     if(s.first == seg_first) break;
-    int old = keep_days > 0 && s.mtime < cutoff;
+    unsigned long long next_first = i + 1 < segs.size() ? segs[i + 1].first : next_lsn;
+    int acked = !have_floor || next_first <= floor + 1;   // Every record in it applied by every copy
+    int old = keep_days > 0 && s.mtime < cutoff && acked;
     int big = max_bytes_kept > 0 && total > max_bytes_kept;
     if(!old && !big) break;
     if(unlink(s.path.c_str()) == 0) total -= s.size;
