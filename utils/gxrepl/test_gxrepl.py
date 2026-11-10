@@ -1459,6 +1459,36 @@ def test_ship_log_total_cap():
         env.stop()
 
 
+def test_writer_lock_refuses_changes():
+    """11/10/2026 (review): while a local writer holds a set's writer_lock on the copy (this node took over), gxrepl
+    changes nothing there (the pass is refused with "a local writer holds"); once the writer lets go the copy
+    catches up. gxrepl holds the locks shared for the whole of each change, so a writer starting meanwhile waits."""
+    import fcntl
+    env = Env("wlock", {"db": {"client": ["writer_lock = w.lock"], "server": ["writer_lock = w.lock"]}})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 3).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 60)
+        before = {n: open(os.path.join(aws, n), "rb").read() for n in os.listdir(aws) if n.endswith(".gxd")}
+        fd = os.open(os.path.join(aws, "w.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            assert writer(ws, "--commits", 4, "--seed", 51).returncode == 0
+            st = wait_status(env, lambda s: "a local writer holds" in (s["sets"]["db"].get("last_error") or ""), 60)
+            after = {n: open(os.path.join(aws, n), "rb").read() for n in os.listdir(aws) if n.endswith(".gxd")}
+            assert after == before, "the copy changed while its writer held the lock"
+            print(f"    refused while held: {st['sets']['db']['last_error'][:90]}", flush=True)
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+        wait_same(env, "db", 90)
+        check_db(aws)
+    finally:
+        env.stop()
+
+
 def test_commit_block_copy_matches_one_commit():
     """11/10/2026: a live folder whose writer commits in place WITHOUT the journal write lock (no ship log), with a
     seqlock commit block (commit_block = commit.bin@8). Every copy gxrepl accepts is one whole commit: the files and

@@ -909,6 +909,37 @@ int gxReplLocal::SafePath(const gxReplSetConfig &sc, const std::string &rel,
   return 0;
 }
 
+// 11/10/2026 (review): the writer locks held (shared) for the whole of a
+// change to the copy: writer_active() checked them and let go at once, so a
+// writer starting between the check and the apply (a split brain) could
+// share the files with it. A writer's exclusive lock now waits or fails
+// until the change is done.
+struct WriterHold {
+  std::vector<int> fds;
+  ~WriterHold() { for(int fd : fds) { flock(fd, LOCK_UN); close(fd); } }
+};
+
+static int hold_writer_locks(const gxReplSetConfig &sc, WriterHold &h, std::string &err)
+{
+  for(auto &rel : sc.writer_locks) {
+    std::string p = sc.root + "/" + rel;
+    int fd = open(p.c_str(), O_RDONLY | O_CLOEXEC);
+    if(fd < 0) continue;
+    if(flock(fd, LOCK_SH | LOCK_NB) != 0) {
+      bool busy = errno == EWOULDBLOCK;
+      close(fd);
+      if(busy) {
+	err = "set " + sc.name + ": a local writer holds " + rel +
+	  " (this node is active), refusing to change the copy";
+	return 1;
+      }
+      continue;
+    }
+    h.fds.push_back(fd);
+  }
+  return 0;
+}
+
 int gxReplLocal::writer_active(const gxReplSetConfig &sc, std::string &err)
 {
   for(auto &rel : sc.writer_locks) {
@@ -1284,7 +1315,8 @@ int gxReplLocal::SetState(const std::string &set, const gxReplStreamState &st,
   SetState_ *s = set_state(set, err);
   if(!s) return -1;
   std::lock_guard<std::mutex> g(s->m);
-  if(writer_active(s->sc, err)) return -1;
+  WriterHold wh;                             // 11/10/2026: held until this change is done
+  if(hold_writer_locks(s->sc, wh, err)) return -1;
   return write_state(s, st, err);
 }
 
@@ -1351,7 +1383,8 @@ int gxReplLocal::MarkGen(const std::string &set, const std::string &path, uint32
   std::string full;
   if(SafePath(s->sc, path, full, err) != 0) return -1;
   std::lock_guard<std::mutex> g(s->m);
-  if(writer_active(s->sc, err)) return -1;
+  WriterHold wh;                             // 11/10/2026: held until this change is done
+  if(hold_writer_locks(s->sc, wh, err)) return -1;
   // the unit's seal says "copying" until the copy is whole again (SealUnit): the folder's own writers
   // (osa_repl_copy.h in open_stock) refuse to open a folder sealed so with an odd generation
   if(mkdirs(s->root + "/.gxrepl/units") != 0 ||
@@ -1375,7 +1408,8 @@ int gxReplLocal::SealUnit(const std::string &set, const std::string &folder, uin
   std::string full;
   if(SafePath(s->sc, folder.empty() ? s->sc.commit_block : folder + "/" + s->sc.commit_block, full, err) != 0) return -1;
   std::lock_guard<std::mutex> g(s->m);
-  if(writer_active(s->sc, err)) return -1;
+  WriterHold wh;                             // 11/10/2026: held until this change is done
+  if(hold_writer_locks(s->sc, wh, err)) return -1;
   bool ok = true;
   std::string m = unit_manifest(s->sc, s->root, folder, gen, ok);
   if(!ok) { err = "cannot read the files of " + folder; return -1; }
@@ -1561,7 +1595,8 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
   SetState_ *s = set_state(set, err);
   if(!s) return -1;
   std::lock_guard<std::mutex> g(s->m);
-  if(writer_active(s->sc, err)) return -1;
+  WriterHold wh;                             // 11/10/2026: held until this change is done
+  if(hold_writer_locks(s->sc, wh, err)) return -1;
   std::map<std::string, gxReplStreamState> m;
   read_states(s, m, err);
   auto it = m.find(stream);
@@ -1597,7 +1632,8 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   SetState_ *s = set_state(set, err);
   if(!s) return -1;
   std::lock_guard<std::mutex> g(s->m);
-  if(writer_active(s->sc, err)) return -1;
+  WriterHold wh;                             // 11/10/2026: held until this change is done
+  if(hold_writer_locks(s->sc, wh, err)) return -1;
   std::map<std::string, gxReplStreamState> states;
   read_states(s, states, err);
   std::map<std::string, gxReplStreamState> changed;
@@ -1695,7 +1731,8 @@ int gxReplLocal::Delete(const std::string &set, const std::vector<std::string> &
   SetState_ *s = set_state(set, err);
   if(!s) return -1;
   std::lock_guard<std::mutex> g(s->m);
-  if(writer_active(s->sc, err)) return -1;
+  WriterHold wh;                             // 11/10/2026: held until this change is done
+  if(hold_writer_locks(s->sc, wh, err)) return -1;
   // 11/09/2026: Sync the folders after the removes, so a power loss cannot
   // bring a deleted file back (the next pass would delete it again, but a
   // copy should not go back in time)
@@ -2812,16 +2849,26 @@ int gxReplClient::sync_unit(gxReplSource &src, gxReplTarget &tgt, const gxReplSe
     if(tgt.MarkGen(sc.name, cb_path, sc.commit_gen_offset, te ? (tg | 1) : 1, err) != 0) return -1;
     return 0;
   };
+  // 11/10/2026 (review): a retry lists the unit's files again (a file the
+  // writer added or removed since the pass listed them is not missed)
+  std::vector<gxReplFile> fresh;
+  std::vector<const gxReplFile *> cur(files);
   for(int attempt = 0; attempt < 10 && !stop; attempt++) {
     uint64_t g0 = 0, g1 = 0;
     int exists = 0;
+    if(attempt > 0) {
+      if(src.Manifest(sc.name, fresh, err) != 0) return -1;
+      cur.clear();
+      std::string unit = dir_of(cb_path);
+      for(auto &f : fresh) if(dir_of(f.path) == unit) cur.push_back(&f);
+    }
     if(src.CommitGen(sc.name, cb_path, sc.commit_gen_offset, g0, exists, err) != 0) return -1;
     if(!exists) { err = cb_path + " is gone from the source"; return 1; }
     if(g0 & 1) { usleep(100000); continue; }        // a batch is writing: wait for it
     // the copy is marked in progress (an odd generation) before its files change
     if(mark() != 0) return -1;
     bool redo = false;
-    for(auto *f : files) {
+    for(auto *f : cur) {
       if(f->path == cb_path) continue;
       std::string e;
       int rc = sync_file(src, tgt, sc.name, f->path, 0, st, e);
