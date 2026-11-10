@@ -125,6 +125,15 @@ struct GXDLCODE_API gxReplSetConfig {
   // segments go first (a copy that needed one is verified whole) and the
   // status warns. 0: no cap.
   unsigned long long ship_log_max_total = 4ULL * 1024 * 1024 * 1024;
+  // 11/10/2026: Indexes the copy rebuilds itself (e.g. "by_*.btx"): never
+  // sent or deleted by gxrepl, and their pages in log records are skipped.
+  // The copy (a commit_block set) runs derived_rebuild ("{dir}" = the
+  // folder) once a folder's generation is even and has not changed for
+  // derived_delay seconds, under the apply lock; "gxrepl torn" refuses a
+  // folder whose derived indexes are missing, stale or failed.
+  std::vector<std::string> derived;
+  std::string derived_rebuild;
+  int derived_delay = 30;
 };
 
 struct GXDLCODE_API gxReplConfig {
@@ -308,6 +317,13 @@ public:
 // A fail over must not promote such a copy ("gxrepl torn", exit 1).
 // Returns the count of folders checked; "torn" lists "folder: why".
 GXDLCODE_API int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn);
+// 11/10/2026: Rebuild the derived indexes of a commit_block set's copy
+// where its generation moved (see gxReplSetConfig::derived). "seen" keeps,
+// per folder, the generation and when it was first seen (the quiet time).
+// Returns the count of folders rebuilt; "log" gets one line each.
+GXDLCODE_API int gxReplDerivedRefresh(const gxReplSetConfig &sc,
+				      std::map<std::string, std::pair<uint64_t, long long> > &seen,
+				      std::vector<std::string> &log);
 
 // The sets of this node, as source and as copy
 class GXDLCODE_API gxReplLocal : public gxReplSource, public gxReplTarget {

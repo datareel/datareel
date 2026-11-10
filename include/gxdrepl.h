@@ -91,6 +91,11 @@ struct gxdPage;
 const uint32_t gxdShipCommit = 1;
 const uint32_t gxdShipOpen   = 2;
 const uint32_t gxdShipGap    = 3;
+// 11/10/2026: a commit record whose payload is compressed: u32 raw length,
+// then a zlib stream of the gxdShipCommit payload. The writer uses it when
+// the library has zlib and it is smaller (GXDSHIP_COMPRESS=0 turns it off);
+// readers take both types, so older logs still read.
+const uint32_t gxdShipCommitZ = 4;
 const size_t gxdShipRecordHeaderSize = 32;
 const size_t gxdShipSegmentHeaderSize = 32;
 const unsigned long long gxdShipDefaultSegmentSize = 64ULL * 1024 * 1024;
@@ -127,6 +132,22 @@ public:
   int AppendCommit(const std::vector<gxdShipFile> &files);
 
   void SetSync(int on) { sync = on; } // fdatasync each record
+  // 11/10/2026: zlib level for commit records (0 off; default 1, or the
+  // environment's GXDSHIP_COMPRESS). Bytes before / after, for measuring.
+  void SetCompress(int level) { compress = level; }
+  // 11/10/2026: files (name or path patterns, fnmatch) whose pages are left
+  // out of the records: indexes the copy rebuilds itself (gxrepl "derived").
+  // Use it only with "derived" on both sides of the set.
+  void SetExclude(const std::vector<std::string> &patterns) { exclude = patterns; }
+  // 11/10/2026: the writer's commit block (a memory-mapped seqlock block
+  // outside the journal, such as OSA's commit.bin) as it will be once the
+  // next commit lands: "full_path" (inside the set root) and its bytes (at
+  // most one page; the file is "n" bytes). The next commit record carries
+  // it as its last file, so the copy applies the data, the commit block and
+  // its generation together. Call it right before each journal Commit().
+  void SetCommitBlock(const std::string &full_path, const void *bytes, size_t n);
+  unsigned long long RawBytes() const { return raw_bytes; }
+  unsigned long long StoredBytes() const { return stored_bytes; }
   void SetSegmentSize(unsigned long long bytes) { seg_size = bytes; }
   void SetRetention(int days, unsigned long long max_bytes) {
     keep_days = days; max_bytes_kept = max_bytes;
@@ -165,6 +186,14 @@ private:
   int keep_days;
   int sync;
   int pending_gap;
+  int compress = -1;            // -1: the default (GXDSHIP_COMPRESS, else 1)
+  std::vector<std::string> exclude;
+  std::string cb_path;          // 11/10/2026: SetCommitBlock()
+  std::vector<unsigned char> cb_page;
+  unsigned long long cb_size = 0;
+  int cb_pending = 0;
+  unsigned long long raw_bytes = 0, stored_bytes = 0;
+  std::vector<unsigned char> zbuf;
   unsigned long long appends, failures;
   std::vector<std::string> files_list;
   std::vector<unsigned char> buf;
@@ -189,6 +218,13 @@ struct gxdShipCommitFile {
 // record is damaged (nothing after it is returned).
 GXDLCODE_API int gxdParseShipRecords(const unsigned char *p, size_t n,
 				     std::vector<gxdShipRecordView> &recs);
+// 11/10/2026: Split a commit record (gxdShipCommit or gxdShipCommitZ):
+// a compressed payload is inflated into "storage", which the page pointers
+// in "files" point into, so keep it while they are used. Returns 0, -1 if
+// it is damaged (or compressed and the library has no zlib).
+GXDLCODE_API int gxdParseShipCommitRecord(const gxdShipRecordView &r,
+					  std::vector<unsigned char> &storage,
+					  std::vector<gxdShipCommitFile> &files);
 // Split a commit record's payload. Returns 0, or -1 if it is damaged.
 GXDLCODE_API int gxdParseShipCommit(const unsigned char *p, size_t n,
 				    std::vector<gxdShipCommitFile> &files);

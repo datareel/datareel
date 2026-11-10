@@ -173,12 +173,13 @@ static int shiplog(const std::string &dir, unsigned long long from)
       time_t t = (time_t)(r.time_us / 1000000);
       struct tm tmv; localtime_r(&t, &tmv);
       char tb[32]; strftime(tb, sizeof(tb), "%Y-%m-%d %H:%M:%S", &tmv);
-      const char *ty = r.type == gxdShipCommit ? "commit" : r.type == gxdShipOpen ? "open" :
-	r.type == gxdShipGap ? "gap" : "?";
-      printf("%llu %s.%06llu %s", r.lsn, tb, r.time_us % 1000000, ty);
-      if(r.type == gxdShipCommit) {
+      const char *ty = r.type == gxdShipCommit ? "commit" : r.type == gxdShipCommitZ ? "commit(z)" :
+	r.type == gxdShipOpen ? "open" : r.type == gxdShipGap ? "gap" : "?";
+      printf("%llu %s.%06llu %s %u bytes", r.lsn, tb, r.time_us % 1000000, ty, r.len);
+      if(r.type == gxdShipCommit || r.type == gxdShipCommitZ) {
 	std::vector<gxdShipCommitFile> files;
-	if(gxdParseShipCommit(r.payload, r.len, files) == 0) {
+	std::vector<unsigned char> storage;
+	if(gxdParseShipCommitRecord(r, storage, files) == 0) {
 	  for(auto &f : files) printf("  %s %zu page(s) size %llu", f.name.c_str(), f.pages.size(), f.size);
 	}
 	else printf("  (damaged)");

@@ -40,9 +40,13 @@ the BSDs, macOS); on Windows Open() and the reader return errors.
 #include <algorithm>
 #include "gxdrepl.h"
 #include "gxdpcache.h"
+#if defined (DATAREEL_HAVE_ZLIB)
+#include <zlib.h>     // 11/10/2026: compressed commit records
+#endif
 
 #if !defined (__WIN32__)
 #include <dirent.h>
+#include <fnmatch.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -203,6 +207,29 @@ int gxdParseShipCommit(const unsigned char *p, size_t n,
     files.push_back(f);
   }
   return off == n ? 0 : -1;
+}
+
+int gxdParseShipCommitRecord(const gxdShipRecordView &r, std::vector<unsigned char> &storage,
+			     std::vector<gxdShipCommitFile> &files)
+{
+  files.clear();
+  if(r.type == gxdShipCommit) return gxdParseShipCommit(r.payload, r.len, files);
+  if(r.type != gxdShipCommitZ || r.len < 8) return -1;
+#if defined (DATAREEL_HAVE_ZLIB)
+  // 11/10/2026: [u32 raw size][u32 CRC-32 of the raw payload][zlib]: the CRC
+  // is checked on what inflate gives back, not only on the stored bytes
+  if(r.len < 8) return -1;
+  uint32_t raw = sget32(r.payload), want = sget32(r.payload + 4);
+  if(raw == 0 || raw > gxdShipMaxPayload) return -1;
+  storage.resize(raw);
+  uLongf out = raw;
+  if(uncompress(storage.data(), &out, r.payload + 8, (uLong)(r.len - 8)) != Z_OK || out != raw) return -1;
+  if((uint32_t)crc32(crc32(0L, Z_NULL, 0), storage.data(), (uInt)raw) != want) return -1;
+  return gxdParseShipCommit(storage.data(), storage.size(), files);
+#else
+  (void)storage;
+  return -1;
+#endif
 }
 
 #if !defined (__WIN32__)
@@ -617,6 +644,16 @@ int gxdShipLog::write_files_list(const std::vector<std::string> &names)
   return 0;
 }
 
+void gxdShipLog::SetCommitBlock(const std::string &full_path, const void *bytes, size_t n)
+{
+  if(n > gxdPageSize) n = gxdPageSize;
+  cb_path = full_path;
+  cb_page.assign(gxdPageSize, 0);
+  if(n) memcpy(cb_page.data(), bytes, n);
+  cb_size = n;
+  cb_pending = 1;
+}
+
 int gxdShipLog::AppendCommit(const std::vector<gxdShipFile> &files)
 {
   if(lock_fd < 0) return fail("the ship log is not open");
@@ -627,7 +664,8 @@ int gxdShipLog::AppendCommit(const std::vector<gxdShipFile> &files)
   }
   std::vector<std::string> names;
   buf.clear();
-  sput32(buf, (uint32_t)files.size());
+  // 11/10/2026: excluded (derived) files are left out of the record
+  std::vector<size_t> keep;
   for(size_t i = 0; i < files.size(); i++) {
     std::string rel = RelativePath(root, files[i].path);
     if(rel.empty()) {
@@ -635,6 +673,21 @@ int gxdShipLog::AppendCommit(const std::vector<gxdShipFile> &files)
       failures++;
       return fail(files[i].path + " is outside the set " + root);
     }
+    std::string base = rel.substr(rel.find_last_of('/') == std::string::npos ? 0 : rel.find_last_of('/') + 1);
+    bool skip = false;
+    for(auto &p : exclude)
+      if(fnmatch(p.c_str(), base.c_str(), 0) == 0 || fnmatch(p.c_str(), rel.c_str(), 0) == 0) { skip = true; break; }
+    if(!skip) keep.push_back(i);
+  }
+  // 11/10/2026: the commit block (SetCommitBlock) goes as the last file
+  std::string cb_rel;
+  if(cb_pending) {
+    cb_rel = RelativePath(root, cb_path);
+    if(cb_rel.empty()) { cb_pending = 0; failures++; pending_gap = 1; return fail(cb_path + " is outside the set " + root); }
+  }
+  sput32(buf, (uint32_t)(keep.size() + (cb_pending ? 1 : 0)));
+  for(size_t i : keep) {
+    std::string rel = RelativePath(root, files[i].path);
     names.push_back(rel);
     sput32(buf, (uint32_t)rel.size());
     buf.insert(buf.end(), rel.begin(), rel.end());
@@ -647,6 +700,16 @@ int gxdShipLog::AppendCommit(const std::vector<gxdShipFile> &files)
       buf.insert(buf.end(), pg->data, pg->data + gxdPageSize);
     }
   }
+  if(cb_pending) {
+    names.push_back(cb_rel);
+    sput32(buf, (uint32_t)cb_rel.size());
+    buf.insert(buf.end(), cb_rel.begin(), cb_rel.end());
+    sput64(buf, (uint64_t)cb_size);
+    sput32(buf, 1);
+    sput64(buf, 0);
+    buf.insert(buf.end(), cb_page.begin(), cb_page.end());
+    cb_pending = 0;
+  }
   std::vector<std::string> sorted = names;
   std::sort(sorted.begin(), sorted.end());
   sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
@@ -658,7 +721,31 @@ int gxdShipLog::AppendCommit(const std::vector<gxdShipFile> &files)
     all.erase(std::unique(all.begin(), all.end()), all.end());
     if(all != files_list && write_files_list(all) != 0) rc = -1;
   }
-  if(append(gxdShipCommit, buf.data(), buf.size()) != 0) {
+  // 11/10/2026: compressed when the library has zlib and it is smaller
+  uint32_t type = gxdShipCommit;
+  const unsigned char *pay = buf.data();
+  size_t plen = buf.size();
+  raw_bytes += buf.size();
+#if defined (DATAREEL_HAVE_ZLIB)
+  if(compress < 0) {
+    const char *e = getenv("GXDSHIP_COMPRESS");
+    compress = e ? atoi(e) : 1;
+    if(compress < 0 || compress > 9) compress = 1;
+  }
+  if(compress > 0 && buf.size() > 64) {
+    uLongf zn = compressBound((uLong)buf.size());
+    zbuf.resize(8 + zn);
+    uint32_t raw = (uint32_t)buf.size();
+    uint32_t crc = (uint32_t)crc32(crc32(0L, Z_NULL, 0), buf.data(), (uInt)buf.size());
+    memcpy(zbuf.data(), &raw, 4);              // little endian, as sput32 (the library is little endian only)
+    memcpy(zbuf.data() + 4, &crc, 4);
+    if(compress2(zbuf.data() + 8, &zn, buf.data(), (uLong)buf.size(), compress) == Z_OK && 8 + zn < buf.size()) {
+      type = gxdShipCommitZ; pay = zbuf.data(); plen = 8 + zn;
+    }
+  }
+#endif
+  stored_bytes += plen;
+  if(append(type, pay, plen) != 0) {
     pending_gap = 1;
     failures++;
     return -1;
@@ -704,6 +791,19 @@ int gxdShipLogReader::list_segments(std::vector<Seg> &segs)
   return 0;
 }
 
+// 11/10/2026: what a record costs against a message limit: its stored size,
+// or for a compressed record its inflated size when that is bigger (the
+// receiver holds the inflated payload)
+static size_t record_cost(uint32_t type, uint32_t len, const unsigned char *payload)
+{
+  size_t c = (size_t)len;
+  if(type == gxdShipCommitZ && len >= 8 && payload) {
+    size_t raw = (size_t)sget32(payload);
+    if(raw > c) c = raw;
+  }
+  return c + gxdShipRecordHeaderSize;
+}
+
 // Walk the records of one segment from "off" (lsn "lsn"), calling
 // "fn(view, offset)" for each valid record until fn returns false.
 // Returns the offset and lsn after the last record walked.
@@ -731,7 +831,13 @@ static int walk_segment(int f, const std::string &log_id,
     uint32_t len = sget32(rh + 24);
     if(len > gxdShipMaxPayload) break;
     if(sget64(rh + 8) != lsn) break;
-    if(too_big && lsn >= big_from && (size_t)len + sizeof(rh) > big_max) { *too_big = 1; return 0; }
+    if(too_big && lsn >= big_from) {
+      unsigned char raw4[4] = {0, 0, 0, 0};
+      uint32_t type = sget32(rh + 4);
+      if(type == gxdShipCommitZ && len >= 8 &&
+	 pread(f, raw4, 4, (off_t)(off + sizeof(rh))) != 4) break;
+      if(record_cost(type, len, raw4) > big_max) { *too_big = 1; return 0; }
+    }
     rec.resize(sizeof(rh) + len);
     memcpy(rec.data(), rh, sizeof(rh));
     if(len && pread(f, rec.data() + sizeof(rh), len,
@@ -823,6 +929,7 @@ int gxdShipLogReader::Read(unsigned long long from, size_t max_bytes,
   if(list_segments(segs) != 0) return -1;
   if(segs.empty()) return from <= 1 ? 0 : 1;
   if(from < segs.front().first) return 1;
+  size_t cost = 0;     // 11/10/2026: the records' cost (record_cost) against max_bytes
   size_t i = 0;
   for(size_t k = 0; k < segs.size(); k++) if(segs[k].first <= from) i = k;
   for(; i < segs.size(); i++) {
@@ -851,11 +958,13 @@ int gxdShipLogReader::Read(unsigned long long from, size_t max_bytes,
 	index_add(segs[i].path, l, at);
 	at += rec.size();
 	if(l < from) return true;
-	if(count > 0 && out.size() + rec.size() > max_bytes) {
+	size_t c = record_cost(sget32(rec.data() + 4), sget32(rec.data() + 24), rec.data() + gxdShipRecordHeaderSize);
+	if(count > 0 && cost + c > max_bytes) {
 	  full = 1;
 	  return false;
 	}
 	out.insert(out.end(), rec.begin(), rec.end());
+	cost += c;
 	count++;
 	next = l + 1;
 	return true;

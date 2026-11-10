@@ -1622,6 +1622,32 @@ def test_big_record_resyncs():
         env.stop()
 
 
+def test_big_compressed_record_counts_inflated():
+    """11/10/2026 (review): a compressed record counts against max_message by its inflated size: one that is
+    small on disk but inflates past max_message is never sent (the copy resyncs its files), so a receiver never
+    inflates more than max_message; smaller compressed records still drain."""
+    env = Env("bigz", {"db": {}})                        # max_message = 262144 in these tests
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 5).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 60)
+        assert writer(ws, "--commits", 1, "--big-zero", 1500000).returncode == 0   # ~1.5 MB, a few KB stored
+        r = run([os.path.join(BIN, "gxrepl"), "shiplog", os.path.join(ws, ".gxrepl", "log", "writer.jnl")])
+        assert "commit(z)" in r.stdout, r.stdout[-1500:]
+        assert writer(ws, "--commits", 6, "--seed", 79).returncode == 0
+        wait_same(env, "db", 90)
+        check_db(aws)
+        wait_status(env, lambda s: s["sets"]["db"]["ok"] and
+                    all(x["lag"] == 0 for x in s["sets"]["db"]["streams"].values()), 60)
+        log = open(os.path.join(env.dir, "client.log")).read()
+        print(f"    {log.count('bigger than max_message')} resync(s) for the record that inflates past max_message", flush=True)
+        assert "bigger than max_message" in log, log[-2000:]
+    finally:
+        env.stop()
+
+
 def torn(env):
     return run([os.path.join(BIN, "gxrepl"), "torn", "--config", env.srv_conf])
 
@@ -1745,6 +1771,126 @@ def judge_copy(env, aws, gl):
     finally:
         if fd is not None:
             os.close(fd)
+
+
+def test_commit_block_ship_log_copy_is_sealed():
+    """11/10/2026: a commit_block folder fed by the ship log: each commit record carries the commit block
+    (gxdShipLog::SetCommitBlock), the copy applies data, commit block and its seal "log G L" as one batch, and
+    "gxrepl torn" passes at every record; the plain scan never writes commit.bin; a commit block changed after
+    its seal is caught."""
+    env = Env("cb_log", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 3, "--commit-block").returncode == 0
+    env.start_server()
+    seal = os.path.join(aws, ".gxrepl", "units", "_root")
+    try:
+        env.start_client()
+        wait_same(env, "db", 120)
+        assert writer(ws, "--commits", 5, "--commit-block", "--seed", 41).returncode == 0
+        wait_same(env, "db", 120)
+        t = torn(env)
+        s = open(seal).readline().split()
+        g = gen_of(os.path.join(aws, "commit.bin"))
+        print(f"    after 5 shipped commits: torn exit {t.returncode}, seal {s}, copy generation {g}", flush=True)
+        assert t.returncode == 0, t.stdout
+        assert s[0] == "log" and int(s[1]) == g, (s, g)
+        env.stop()
+        with open(os.path.join(aws, "commit.bin"), "r+b") as f:     # a commit block that is not the sealed one
+            f.seek(8)
+            f.write((g + 2).to_bytes(8, "little"))
+        t = torn(env)
+        assert t.returncode == 1 and "sealed by ship log record" in t.stdout, t.stdout
+    finally:
+        env.stop()
+
+
+def test_commit_block_old_ship_format_is_unsealed():
+    """11/10/2026: records from a writer that does not ship its commit block (the old format) still apply, but the
+    copy never gets a commit block from the scan (it would race the records): "gxrepl torn" reports it unsealed."""
+    env = Env("cb_old", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 3, "--commit-block", "--old-ship-format").returncode == 0
+    env.start_server()
+    try:
+        env.start_client()
+        wait_same_files = time.time() + 60
+        while time.time() < wait_same_files and not os.path.exists(os.path.join(aws, "data.gxd")):
+            time.sleep(0.5)
+        assert writer(ws, "--commits", 4, "--commit-block", "--old-ship-format", "--seed", 42).returncode == 0
+        st = wait_status(env, lambda s: s["sets"]["db"]["streams"] and
+                         all(x["lag"] == 0 for x in s["sets"]["db"]["streams"].values()), 60)
+        t = torn(env)
+        print(f"    old format: torn exit {t.returncode}: {t.stdout.strip()[:160]}", flush=True)
+        assert t.returncode == 1 and ("UNSEALED" in t.stdout or "never sealed" in t.stdout), t.stdout
+    finally:
+        env.stop()
+
+
+def test_commit_block_ship_log_kill_storm():
+    """11/10/2026 (review): 60 random kill -9 of the client while it drains the ship log of a writer committing
+    about 6 times a second: by content (the writer's gen log), every even copy is one whole commit, and "gxrepl
+    torn" refuses every copy that is not."""
+    env = Env("cb_log_kills", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 3, "--commit-block", "--big", 4 * 1024 * 1024).returncode == 0
+    env.start_server()
+    gl = os.path.join(env.dir, "gen.log")
+    rng = random.Random(61)
+    try:
+        env.start_client()
+        wait_same(env, "db", 120)
+        env.kill("client")
+        w = writer_bg(ws, "--commits", 100000, "--per", 3, "--sleep", 150, "--commit-block", "--seed", 8,
+                      "--gen-log", gl)
+        stats = {"whole": 0, "refused_whole": 0, "caught": 0, "missed": 0, "unknown": 0}
+        for i in range(60):
+            env.start_client()
+            time.sleep(rng.uniform(0.05, 1.2))
+            env.kill("client")
+            v, tr = judge_copy(env, aws, gl)
+            if v == "whole":
+                stats["whole"] += 1
+                if tr.returncode != 0:
+                    stats["refused_whole"] += 1
+            elif v in ("torn", "odd"):
+                stats["caught" if tr.returncode == 1 else "missed"] += 1
+            else:
+                stats["unknown"] += 1
+        print(f"    60 kills mid-drain: {stats['whole']} whole ({stats['refused_whole']} refused), {stats['caught']} "
+              f"not whole and refused, {stats['missed']} not whole and PASSED, {stats['unknown']} unknown", flush=True)
+        assert stats["missed"] == 0, stats
+        assert stats["whole"] >= 30, stats
+        # and 20 kills while a copy is filled from nothing (the stream verify, in pieces): half copies happen
+        fill = {"whole": 0, "refused_whole": 0, "caught": 0, "missed": 0, "unknown": 0}
+        for i in range(20):
+            for n in os.listdir(aws):
+                p2 = os.path.join(aws, n)
+                shutil.rmtree(p2) if os.path.isdir(p2) else os.unlink(p2)
+            env.start_client()
+            time.sleep(rng.uniform(0.05, 0.8))
+            env.kill("client")
+            v, tr = judge_copy(env, aws, gl)
+            if v == "empty":
+                fill["unknown"] += 1
+            elif v == "whole":
+                fill["whole"] += 1
+                if tr.returncode != 0:
+                    fill["refused_whole"] += 1
+            elif v in ("torn", "odd") or (v is None and os.path.exists(os.path.join(aws, "data.gxd"))):
+                fill["caught" if tr.returncode == 1 else "missed"] += 1
+                if tr.returncode != 1 and fill["missed"] <= 3:
+                    hs = run([os.path.join(BIN, "gxrepl_testwriter"), "hashes", aws]).stdout.strip()
+                    sp = os.path.join(aws, ".gxrepl", "units", "_root")
+                    print(f"      missed: verdict {v}, hashes '{hs}', seal '{open(sp).read().strip() if os.path.exists(sp) else None}'"
+                          f", torn: {tr.stdout.strip()[:200]}", flush=True)
+            else:
+                fill["unknown"] += 1
+        w.kill(); w.wait()
+        print(f"    20 kills mid-fill: {fill['whole']} whole ({fill['refused_whole']} refused), {fill['caught']} "
+              f"not whole and refused, {fill['missed']} not whole and PASSED, {fill['unknown']} empty", flush=True)
+        assert fill["missed"] == 0, fill
+    finally:
+        env.stop()
 
 
 def test_commit_block_no_even_torn_copy():
@@ -1925,6 +2071,88 @@ def test_version_names_the_build():
                   r"git ([0-9a-f]{7,40}(\+dirty)?|unknown), built (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC|unknown)$",
                   r.stdout.strip())
     assert m, r.stdout
+
+
+def test_compressed_log_records():
+    """11/10/2026: commit records are zlib-compressed (type 4) when smaller; a log holding both kinds (older
+    uncompressed records, GXDSHIP_COMPRESS=0) replicates whole."""
+    env = Env("zlog", {"db": {}})
+    ws, aws = env.roots["db"]
+    e0 = dict(os.environ, GXDSHIP_COMPRESS="0")
+    r = run([os.path.join(BIN, "gxrepl_testwriter"), "write", ws, "--commits", "10", "--per", "4"], env=e0)
+    assert r.returncode == 0, r.stdout
+    assert writer(ws, "--commits", 10, "--per", 4, "--seed", 12).returncode == 0      # compressed
+    dump = run([os.path.join(BIN, "gxrepl"), "shiplog", os.path.join(ws, ".gxrepl", "log", "writer.jnl")]).stdout
+    plain = [int(l.split()[4]) for l in dump.splitlines() if " commit " in l]
+    packed = [int(l.split()[4]) for l in dump.splitlines() if " commit(z) " in l]
+    assert plain and packed, dump[-1500:]
+    print(f"    commit records: {len(plain)} plain, mean {sum(plain) // len(plain)} bytes; {len(packed)} compressed, "
+          f"mean {sum(packed) // len(packed)} bytes", flush=True)
+    # (the test writer's objects are random bytes: a record is stored compressed only when that is smaller than
+    # its own raw form; the size win is measured on osa_ingest's real pages, not here)
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 60)
+        check_db(aws)
+        assert writer(ws, "--commits", 5, "--seed", 13).returncode == 0
+        wait_same(env, "db", 60)
+        check_db(aws)
+    finally:
+        env.stop()
+
+
+def test_derived_index_rebuilt_on_copy():
+    """11/10/2026: derived = index.gxd: the sender never ships it, the copy rebuilds it (derived_rebuild) once a
+    folder's generation is quiet for derived_delay, and "gxrepl torn" refuses the copy while the derived index is
+    missing, stale or failed; after the rebuild the copy reads the same as the source."""
+    rebuild = f"{os.path.join(BIN, 'gxrepl_testwriter')} reindex {{dir}} {{lsn}}"
+    opts = {"client": CB_OPTS["client"] + ["derived = index.gxd"],
+            "server": CB_OPTS["server"] + ["derived = index.gxd", f"derived_rebuild = {rebuild}", "derived_delay = 3"]}
+    env = Env("derived", {"db": opts})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 20, "--no-ship", "--commit-block").returncode == 0
+    env.start_server()
+    try:
+        assert env.once().returncode == 0
+        assert not os.path.exists(os.path.join(aws, "index.gxd")), "the derived index was shipped"
+        t = torn(env)
+        assert t.returncode == 1 and "derived indexes missing" in t.stdout, t.stdout
+        end = time.time() + 30
+        while time.time() < end and torn(env).returncode != 0:
+            time.sleep(0.5)
+        t = torn(env)
+        assert t.returncode == 0, t.stdout + env.logs()
+        check_db(aws)                                      # the rebuilt index agrees with the data
+        # A new commit: stale until the copy rebuilds it again
+        assert writer(ws, "--commits", 3, "--no-ship", "--commit-block", "--seed", 31).returncode == 0
+        assert env.once().returncode == 0
+        t = torn(env)
+        assert t.returncode == 1 and "stale" in t.stdout, t.stdout
+        end = time.time() + 30
+        while time.time() < end and torn(env).returncode != 0:
+            time.sleep(0.5)
+        assert torn(env).returncode == 0
+        check_db(aws)
+        assert "derived indexes rebuilt" in open(os.path.join(env.dir, "server.log")).read()
+    finally:
+        env.stop()
+    # A rebuild that fails is a failed state, never promoted
+    with open(env.srv_conf) as f:
+        conf = f.read().replace(f"derived_rebuild = {rebuild}", "derived_rebuild = false")
+    with open(env.srv_conf, "w") as f:
+        f.write(conf)
+    assert writer(ws, "--commits", 2, "--no-ship", "--commit-block", "--seed", 32).returncode == 0
+    env.start_server()
+    try:
+        assert env.once().returncode == 0
+        end = time.time() + 30
+        while time.time() < end and "failed" not in torn(env).stdout:
+            time.sleep(0.5)
+        t = torn(env)
+        assert t.returncode == 1 and "failed" in t.stdout, t.stdout
+    finally:
+        env.stop()
 
 
 def test_missing_root_is_empty():

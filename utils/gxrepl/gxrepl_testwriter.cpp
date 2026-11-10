@@ -343,6 +343,57 @@ static int hashes(const std::string &root)
   return 0;
 }
 
+// 11/10/2026: reindex DIR: rebuild index.gxd (the derived index of a test
+// folder) from data.gxd: the objects' count, sum and next id, and the
+// commit count from commit.bin (a --commit-block folder). Exit 0, or 1.
+static int check(const std::string &root);
+static unsigned long long stamp_lsn = 0;   // 11/10/2026: reindex DIR [LSN]
+static int reindex(const std::string &root)
+{
+  gxDatabase db, ix;
+  if(db.Open((root + "/data.gxd").c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { printf("reindex: no data.gxd\n"); return 1; }
+  IndexObj io;
+  memset(&io, 0, sizeof(io));
+  std::vector<unsigned char> buf;
+  for(FAU_t a = db.FindFirstObject(); a != (FAU_t)0; a = db.FindNextObject(a)) {
+    __ULWORD__ n = db.ObjectLength(a);
+    if(n < sizeof(ObjHdr)) continue;
+    buf.resize(n);
+    if(db.Read(buf.data(), n, a) != gxDBASE_NO_ERROR) continue;
+    ObjHdr h; memcpy(&h, buf.data(), sizeof(h));
+    if(sizeof(h) + h.len > n || obj_check(h, buf.data() + sizeof(h)) != h.check) { printf("reindex: a bad object\n"); return 1; }
+    io.count++;
+    io.sum += (unsigned long long)h.id * 1000003ULL + h.version;
+    if(h.id + 1 > io.next_id) io.next_id = h.id + 1;
+  }
+  FILE *cf = fopen((root + "/commit.bin").c_str(), "rb");
+  if(!cf) { printf("reindex: no commit.bin\n"); return 1; }
+  unsigned char blk[24] = {0};
+  size_t got = fread(blk, 1, sizeof(blk), cf);
+  fclose(cf);
+  if(got != sizeof(blk)) { printf("reindex: commit.bin short\n"); return 1; }
+  uint64_t cc = 0; memcpy(&cc, blk + 16, 8);
+  io.commits = cc;
+  std::string tmp = root + "/.index.gxd.rebuild";
+  unlink(tmp.c_str());
+  if(ix.Create(tmp.c_str()) != gxDBASE_NO_ERROR) { printf("reindex: cannot create\n"); return 1; }
+  FAU_t ia = ix.Alloc(sizeof(io));
+  if(!ia || ix.Write(&io, sizeof(io), ia) != gxDBASE_NO_ERROR) { printf("reindex: cannot write\n"); return 1; }
+  ix.Close();
+  if(rename(tmp.c_str(), (root + "/index.gxd").c_str()) != 0) { printf("reindex: cannot rename\n"); return 1; }
+  db.Close();
+  if(check(root) != 0) return 1;               // the rebuilt index must check against the data
+  // 11/10/2026: the stamp gxrepl checks: "gen G lsn L records N keys K" (keys: what the index holds)
+  uint64_t g = 0; memcpy(&g, blk + 8, 8);
+  FILE *sf = fopen((root + "/.derived.stamp.tmp").c_str(), "w");
+  if(!sf) { printf("reindex: cannot stamp\n"); return 1; }
+  fprintf(sf, "gen %llu lsn %llu records %llu keys %llu\n", (unsigned long long)g, stamp_lsn,
+	  (unsigned long long)io.count, (unsigned long long)io.count);
+  fflush(sf); fsync(fileno(sf)); fclose(sf);
+  if(rename((root + "/.derived.stamp.tmp").c_str(), (root + "/derived.stamp").c_str()) != 0) return 1;
+  return 0;
+}
+
 static int check(const std::string &root)
 {
   gxDatabase db, ix;
@@ -420,6 +471,7 @@ int main(int argc, char **argv)
   if(mode == "objverify" && argc == 5) return objverify(argv[2], argv[3], argv[4]);
   if(mode == "check") return check(root);
   if(mode == "hashes") return hashes(root);
+  if(mode == "reindex") { if(argc > 3) stamp_lsn = strtoull(argv[3], 0, 10); return reindex(root); }
   long commits = 100, per = 5, sleep_ms = 0;
   unsigned long long seg_bytes = 0, max_bytes = 0;  // 11/08/2026: ship log retention tests
   int keep_days = -1;
@@ -431,6 +483,8 @@ int main(int argc, char **argv)
   // slowest commit (Begin to Commit) in ms and the count, written at the end.
   bool commit_block = false;
   unsigned long long big = 0;
+  bool big_zero = false;
+  bool old_ship_format = false;    // 11/10/2026: no commit block in the records
   std::string latency_out;
   std::string gen_log;            // 11/10/2026: after each commit "<generation> <data hash> <index hash>"
   for(int i = 3; i < argc; i++) {
@@ -443,6 +497,8 @@ int main(int argc, char **argv)
     else if(a == "--ship-root" && i + 1 < argc) ship_root = argv[++i];
     else if(a == "--commit-block") commit_block = true;
     else if(a == "--big" && i + 1 < argc) big = strtoull(argv[++i], 0, 10);
+    else if(a == "--old-ship-format") old_ship_format = true;
+    else if(a == "--big-zero" && i + 1 < argc) { big = strtoull(argv[++i], 0, 10); big_zero = true; }
     else if(a == "--latency-out" && i + 1 < argc) latency_out = argv[++i];
     else if(a == "--gen-log" && i + 1 < argc) gen_log = argv[++i];
     else if(a == "--segment" && i + 1 < argc) seg_bytes = strtoull(argv[++i], 0, 10);
@@ -519,7 +575,9 @@ int main(int argc, char **argv)
       memset(&h, 0, sizeof(h));
       h.id = io.next_id++; h.version = 1; h.len = (gxUINT32)big;
       buf.assign(sizeof(h) + big, 0);
-      for(unsigned long long i = 0; i < big; i += 4096) buf[sizeof(h) + i] = (unsigned char)rnd();
+      // random bytes, so it does not compress (a ship-log record over max_message stays over it)
+      if(!big_zero)                    // 11/10/2026: --big-zero: zeros (compresses to almost nothing)
+	for(unsigned long long i = 0; i + 8 <= big; i += 8) { unsigned long long r8 = rnd(); memcpy(&buf[sizeof(h) + i], &r8, 8); }
       h.check = obj_check(h, buf.data() + sizeof(h));
       memcpy(buf.data(), &h, sizeof(h));
       FAU_t a = db.Alloc((__ULWORD__)buf.size());
@@ -576,6 +634,16 @@ int main(int argc, char **argv)
     }
     io.commits++;
     ix.Write(&io, sizeof(io), ia);
+    // 11/10/2026: the commit block as it will be once this commit lands goes in the record (as OSA's
+    // writers do), unless --old-ship-format (a log from before that: the copy reports the unit unsealed)
+    if(cbfd >= 0 && j.ShipLog() && !old_ship_format) {
+      unsigned char nb[4096];
+      memset(nb, 0, sizeof(nb));
+      if(pread(cbfd, nb, sizeof(nb), 0) != (ssize_t)sizeof(nb)) { fprintf(stderr, "commit.bin\n"); return 1; }
+      uint64_t g2 = gen + 1, c2 = io.commits;
+      memcpy(nb + 8, &g2, 8); memcpy(nb + 16, &c2, 8);
+      j.ShipLog()->SetCommitBlock(root + "/commit.bin", nb, sizeof(nb));
+    }
     if(j.Commit() != gxDBASE_NO_ERROR) { fprintf(stderr, "commit failed\n"); return 1; }
     cb_write(++gen, true);                       // even: the files are this commit
     if(!gen_log.empty()) {

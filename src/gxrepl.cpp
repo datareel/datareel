@@ -56,6 +56,8 @@ Database replication over gxStream. See gxrepl.h. POSIX only.
 #include <algorithm>
 #include <chrono>
 #include <list>
+#include <deque>
+#include <functional>
 #include <set>
 #include <thread>
 #include "gxdjrnl.h"
@@ -515,6 +517,9 @@ int gxReplConfig::Load(const std::string &fname, std::string &err)
 	}
       }
       else if(k == "ship_log_max_total") cur->ship_log_max_total = strtoull(v.c_str(), 0, 10);
+      else if(k == "derived") { auto l = split_list(v); cur->derived.insert(cur->derived.end(), l.begin(), l.end()); }
+      else if(k == "derived_rebuild") cur->derived_rebuild = v;
+      else if(k == "derived_delay") cur->derived_delay = atoi(v.c_str());
       else known = false;
     }
     else {
@@ -634,8 +639,19 @@ static bool has_databento(const std::string &rel)
   return false;
 }
 
+// 11/10/2026: a derived index (gxReplSetConfig::derived), by name or path
+static bool is_derived(const gxReplSetConfig &sc, const std::string &rel)
+{
+  if(sc.derived.empty()) return false;
+  std::string base = rel.substr(rel.find_last_of('/') == std::string::npos ? 0 : rel.find_last_of('/') + 1);
+  for(auto &p : sc.derived)
+    if(fnmatch(p.c_str(), base.c_str(), 0) == 0 || fnmatch(p.c_str(), rel.c_str(), 0) == 0) return true;
+  return false;
+}
+
 static bool excluded(const gxReplSetConfig &sc, const std::string &rel)
 {
+  if(is_derived(sc, rel)) return true;   // 11/10/2026: rebuilt by the copy, never sent or deleted
   std::string base = rel.substr(rel.find_last_of('/') == std::string::npos ? 0 : rel.find_last_of('/') + 1);
   for(int i = 0; default_excludes[i]; i++) {
     if(fnmatch(default_excludes[i], base.c_str(), 0) == 0) return true;
@@ -750,6 +766,13 @@ static std::string unit_seal_check(const gxReplSetConfig &sc, const std::string 
   fclose(f);
   unsigned long long sg = 0;
   if(have.compare(0, 7, "copying") == 0) return "a copy of it is under way, or stopped half way";
+  if(have.compare(0, 4, "log ") == 0) {             // fed by the ship log: whole at the record that sealed it
+    unsigned long long lg = 0, ll = 0;
+    if(sscanf(have.c_str(), "log %llu %llu", &lg, &ll) != 2) return "a damaged seal";
+    if(lg != gen) return "sealed by ship log record " + std::to_string(ll) + " at generation " + std::to_string(lg) +
+		    ", the commit block says " + std::to_string((unsigned long long)gen);
+    return "";
+  }
   if(sscanf(have.c_str(), "gen %llu", &sg) != 1) return "a damaged seal";
   if(sg != gen) return "sealed at generation " + std::to_string(sg) + ", the commit block says " + std::to_string((unsigned long long)gen);
   bool ok = true;
@@ -1049,6 +1072,57 @@ int gxReplLocal::Diff(const std::string &set, const gxReplDiffRequest &rq,
 	return 0;
       }
     }
+    // 11/10/2026: a commit block the ship log keeps is never read from its
+    // file (the writer changes it outside the journal lock): it is the one
+    // the latest record carried, at or before this position. None left in
+    // the log: "gone" (the copy keeps its own, and promote-check judges it)
+    if(!s->sc.commit_block.empty() && base_of(rq.path) == s->sc.commit_block) {
+      std::vector<unsigned char> page;
+      unsigned long long fsize = 0;
+      bool found = false;
+      unsigned long long from = u.lsn > 64 ? u.lsn - 63 : 1;
+      if(info.first_lsn && from < info.first_lsn) from = info.first_lsn;
+      while(from <= u.lsn && info.first_lsn) {
+	std::vector<unsigned char> out;
+	unsigned long long nx = 0;
+	unsigned long cnt = 0;
+	int rc = rd->Read(from, cfg.max_message, out, nx, cnt);
+	if(rc == 2) { from++; continue; }           // a record bigger than a message: past it
+	if(rc != 0 || cnt == 0) break;
+	std::vector<gxdShipRecordView> recs;
+	if(gxdParseShipRecords(out.data(), out.size(), recs) != 0) break;
+	for(auto &r : recs) {
+	  if(r.lsn > u.lsn) break;
+	  if(r.type != gxdShipCommit && r.type != gxdShipCommitZ) continue;
+	  std::vector<unsigned char> storage;
+	  std::vector<gxdShipCommitFile> fl;
+	  if(gxdParseShipCommitRecord(r, storage, fl) != 0) continue;
+	  for(auto &f : fl) if(f.name == rq.path) {
+	    for(auto &pp : f.pages) if(pp.first == 0) {
+	      page.assign(pp.second, pp.second + gxdPageSize);
+	      fsize = f.size;
+	      found = true;
+	    }
+	  }
+	}
+	from = nx;
+	if(nx == 0) break;
+      }
+      if(!found) { res.status = 1; return 0; }
+      struct stat cst;
+      u.path = rq.path;
+      u.size = fsize;
+      bool have_st = stat(full.c_str(), &cst) == 0;
+      u.mode = have_st ? (cst.st_mode & 07777) : 0644;
+      u.mtime_ns = have_st ? (long long)cst.st_mtim.tv_sec * 1000000000LL + cst.st_mtim.tv_nsec : 0;
+      gxReplPiece p;
+      p.offset = 0;
+      p.data.assign(page.begin(), page.begin() + (size_t)std::min<unsigned long long>(fsize, gxdPageSize));
+      u.pieces.push_back(std::move(p));
+      res.pieces = 1; res.sent = 1; res.more = 0; res.next = fsize;
+      u.last = 1;
+      return 0;
+    }
   }
 
   // 11/08/2026: A database file no ship log covers. If its folder has a
@@ -1329,15 +1403,23 @@ int gxReplLocal::apply_batch(SetState_ *s,
   std::string &err)
 {
   if(pages.empty()) return 0;
+  // 11/10/2026: commit blocks after the files they describe, the unit seals
+  // last (one transaction; the order is the order the pages reach the files)
   std::vector<gxdApplyFile> af;
-  for(auto &e : pages) {
-    std::string dir = e.first.substr(0, e.first.find_last_of('/'));
-    if(mkdirs(dir) != 0) { err = "cannot make " + dir; return -1; }
-    gxdApplyFile f;
-    f.path = e.first;
-    f.size = e.second.first;
-    f.pages = e.second.second;
-    af.push_back(f);
+  for(int pass = 0; pass < 3; pass++) {
+    for(auto &e : pages) {
+      int kind = 0;
+      if(e.first.compare(0, s->root.size() + 15, s->root + "/.gxrepl/units/") == 0) kind = 2;
+      else if(!s->sc.commit_block.empty() && base_of(e.first) == s->sc.commit_block) kind = 1;
+      if(kind != pass) continue;
+      std::string dir = e.first.substr(0, e.first.find_last_of('/'));
+      if(mkdirs(dir) != 0) { err = "cannot make " + dir; return -1; }
+      gxdApplyFile f;
+      f.path = e.first;
+      f.size = e.second.first;
+      f.pages = e.second.second;
+      af.push_back(f);
+    }
   }
   std::string jdir = s->root + "/.gxrepl";
   if(mkdirs(jdir) != 0) { err = "cannot make " + jdir; return -1; }
@@ -1387,7 +1469,7 @@ static unsigned long long add_records(gxReplLocal &L, const gxReplSetConfig &sc,
 				      const std::vector<unsigned char> &records,
 				      unsigned long long expect_first,
 				      PageBatch &batch, unsigned long long &count,
-				      std::string &err)
+				      std::string &err, std::deque<std::vector<unsigned char> > &keep)
 {
   std::vector<gxdShipRecordView> recs;
   if(gxdParseShipRecords(records.data(), records.size(), recs) != 0) {
@@ -1398,12 +1480,14 @@ static unsigned long long add_records(gxReplLocal &L, const gxReplSetConfig &sc,
   for(auto &r : recs) {
     if(r.lsn != want) { err = "log records out of order"; return 0; }
     want++;
-    if(r.type != gxdShipCommit) continue;
+    if(r.type != gxdShipCommit && r.type != gxdShipCommitZ) continue;
     std::vector<gxdShipCommitFile> files;
-    if(gxdParseShipCommit(r.payload, r.len, files) != 0) {
+    keep.emplace_back();                     // a compressed payload is inflated here (the batch points into it)
+    if(gxdParseShipCommitRecord(r, keep.back(), files) != 0) {
       err = "damaged commit record " + std::to_string(r.lsn); return 0;
     }
     for(auto &f : files) {
+      if(is_derived(sc, f.name)) continue;   // 11/10/2026: the copy rebuilds it
       std::string full, e2;
       if(L.SafePath(sc, f.name, full, e2) != 0) {
 	glog("set %s: skipped %s in record %llu: %s", sc.name.c_str(),
@@ -1417,6 +1501,56 @@ static unsigned long long add_records(gxReplLocal &L, const gxReplSetConfig &sc,
   }
   count += recs.size();
   return want - 1;
+}
+
+// 11/10/2026: For each commit block in a batch that came from the ship log
+// (a record's, or the source's copy of a record's), the unit's seal "log G L"
+// (its generation, the stream position) joins the batch; apply_batch writes
+// it after the commit block, in the same transaction.
+static std::string read_seal(const std::string &root, const std::string &unit)
+{
+  std::string s;
+  FILE *f = fopen((root + "/.gxrepl/units/" + unit_key(unit)).c_str(), "rb");
+  if(!f) return s;
+  char b[64]; size_t n = fread(b, 1, sizeof(b), f);
+  fclose(f);
+  s.assign(b, n);
+  return s;
+}
+
+static void put_seal(PageBatch &batch, const std::string &root, const std::string &unit, const std::string &body,
+		     std::deque<std::string> &seals)
+{
+  seals.push_back(body);
+  seals.back().resize(gxdPageSize, '\0');
+  auto &ent = batch[root + "/.gxrepl/units/" + unit_key(unit)];
+  ent.first = body.size();
+  ent.second.clear();
+  ent.second[0] = (const unsigned char *)seals.back().data();
+}
+
+static int add_unit_seals(const gxReplSetConfig &sc, const std::string &root, PageBatch &batch,
+			  unsigned long long lsn, std::deque<std::string> &seals, std::string &err,
+			  const std::function<bool(const std::string &)> &allow)
+{
+  if(sc.commit_block.empty()) return 0;
+  std::vector<std::pair<std::string, std::string> > add;
+  for(auto &e : batch) {
+    if(e.first.compare(0, root.size() + 1, root + "/") != 0) continue;
+    std::string rel = e.first.substr(root.size() + 1);
+    if(base_of(rel) != sc.commit_block) continue;
+    if(!allow(dir_of(rel))) continue;
+    auto pg = e.second.second.find(0);
+    if(pg == e.second.second.end() || e.second.first < sc.commit_gen_offset + 8) continue;
+    uint64_t g = 0;
+    memcpy(&g, pg->second + sc.commit_gen_offset, 8);
+    if(g & 1) continue;                              // a block inside a batch: never a seal
+    add.push_back(std::make_pair(dir_of(rel),
+				 "log " + std::to_string((unsigned long long)g) + " " + std::to_string(lsn) + "\n"));
+  }
+  if(!add.empty() && mkdirs(root + "/.gxrepl/units") != 0) { err = "cannot make the seals folder"; return -1; }
+  for(auto &a2 : add) put_seal(batch, root, a2.first, a2.second, seals);
+  return 0;
 }
 
 int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
@@ -1435,10 +1569,17 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
     err = "stream " + stream + " is not in step (verify first)"; return -1;
   }
   PageBatch batch;
+  std::deque<std::vector<unsigned char> > keep;
   unsigned long long count = 0;
   unsigned long long last = add_records(*this, s->sc, records, it->second.lsn + 1,
-					batch, count, err);
+					batch, count, err, keep);
   if(last == 0) return -1;
+  // 11/10/2026: the record's commit block (gxdShipLog::SetCommitBlock) makes
+  // its unit whole at this record: its seal goes in the same transaction
+  std::deque<std::string> seals;
+  // (a unit a verify is filling, "copying", stays so: only its commit block, sent after its files, seals it)
+  if(add_unit_seals(s->sc, s->root, batch, last, seals, err,
+		    [&](const std::string &u) { return read_seal(s->root, u).compare(0, 7, "copying") != 0; }) != 0) return -1;
   if(apply_batch(s, batch, err) != 0) return -1;
   gxReplStreamState st = it->second;
   st.lsn = last;
@@ -1461,19 +1602,24 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   read_states(s, states, err);
   std::map<std::string, gxReplStreamState> changed;
   PageBatch batch;
+  std::deque<std::vector<unsigned char> > keep;
   std::list< std::vector<unsigned char> > padded;
   std::vector<std::string> fulls(v.size());
+  std::set<std::string> not_in_step;
   for(size_t i = 0; i < v.size(); i++) {
     const gxReplFileUpdate &u = v[i];
     if(SafePath(s->sc, u.path, fulls[i], err) != 0) return -1;
     if(!u.stream.empty()) {
       auto it = states.find(u.stream);
       bool same = it != states.end() && it->second.log_id == u.log_id;
+      // 11/10/2026: an update not in step with the copy's stream (a first
+      // fill, a new log, a resync) leaves its unit "copying" (see below)
+      if(!same) not_in_step.insert(dir_of(u.path));
       if(same && it->second.lsn != u.lsn) {
 	if(it->second.lsn > u.lsn || u.records.empty()) continue; // Stale
 	unsigned long long count = 0, e = 0;
 	std::string e2;
-	e = add_records(*this, s->sc, u.records, it->second.lsn + 1, batch, count, e2);
+	e = add_records(*this, s->sc, u.records, it->second.lsn + 1, batch, count, e2, keep);
 	if(e != u.lsn) continue; // Stale
 	applied_records += count;
       }
@@ -1498,6 +1644,34 @@ int gxReplLocal::ApplyFiles(const std::string &set,
       }
     }
     results[i] = 0;
+  }
+  // 11/10/2026: seals. A file of a commit_block unit that gets pieces not in
+  // step with the copy's stream (a first fill, a new log, a resync; in step,
+  // records bring every file to the same position) makes the unit "copying"
+  // in this transaction; its
+  // commit block, sent from the log after the folder's files, seals it "log G
+  // L". A commit block carried by records seals a unit only if no file of it
+  // is being filled (not "copying", no pieces here).
+  std::deque<std::string> seals;
+  if(!s->sc.commit_block.empty()) {
+    std::set<std::string> filling, cb_units;
+    for(size_t i = 0; i < v.size(); i++) {
+      if(results[i] != 0) continue;
+      if(base_of(v[i].path) == s->sc.commit_block) { if(!v[i].stream.empty()) cb_units.insert(dir_of(v[i].path)); }
+      else if(!v[i].pieces.empty() && (v[i].stream.empty() || not_in_step.count(dir_of(v[i].path))))
+	filling.insert(dir_of(v[i].path));
+    }
+    if(!filling.empty() && mkdirs(s->root + "/.gxrepl/units") != 0) { err = "cannot make the seals folder"; return -1; }
+    for(auto &u : filling) put_seal(batch, s->root, u, "copying\n", seals);
+    if(!changed.empty()) {
+      unsigned long long lsn = 0;
+      for(auto &c : changed) lsn = std::max(lsn, c.second.lsn);
+      if(add_unit_seals(s->sc, s->root, batch, lsn, seals, err, [&](const std::string &u) {
+	    if(filling.count(u)) return false;
+	    if(cb_units.count(u)) return true;
+	    return read_seal(s->root, u).compare(0, 7, "copying") != 0;
+	  }) != 0) return -1;
+    }
   }
   if(apply_batch(s, batch, err) != 0) return -1;
   for(size_t i = 0; i < v.size(); i++) {
@@ -2141,7 +2315,22 @@ int gxReplServer::Run(std::string &err)
   }, 5);
   dbs = &server;
   if(stop) server.Stop();
+  // 11/10/2026: the derived index rebuilds of the sets this server copies (their own thread: a rebuild can take long)
+  std::thread derived_worker([&]() {
+    std::map<std::string, std::map<std::string, std::pair<uint64_t, long long> > > seen;
+    while(!stop) {
+      for(auto &sc : cfg.sets) {
+	if(stop || sc.accept == "source" || sc.derived.empty()) continue;
+	std::vector<std::string> lines;
+	gxReplDerivedRefresh(sc, seen[sc.name], lines);
+	for(auto &l : lines) glog("%s", l.c_str());
+      }
+      for(int i = 0; i < 10 && !stop; i++) usleep(200000);
+    }
+  });
   int rc = server.Run(err);
+  stop = true;
+  derived_worker.join();
   dbs = 0;
   write_status();
   return rc;
@@ -2730,7 +2919,13 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     if(!s) { it = vlist.erase(it); continue; }
     if(!have_sm) { if(src.Manifest(sc.name, sm, err) != 0) return -1; have_sm = true; }
     int synced = 0, failed = 0;
-    for(auto &f : s->files) {
+    // 11/10/2026: the commit blocks last, and only when every other file of
+    // the stream is in step: the copy's unit is "copying" until then
+    std::vector<std::string> order;
+    for(auto &f : s->files) if(sc.commit_block.empty() || base_of(f) != sc.commit_block) order.push_back(f);
+    for(auto &f : s->files) if(!sc.commit_block.empty() && base_of(f) == sc.commit_block) order.push_back(f);
+    for(auto &f : order) {
+      if(failed && !sc.commit_block.empty() && base_of(f) == sc.commit_block) break;
       bool on_source = false;
       for(auto &m : sm) if(m.path == f) { on_source = true; break; }
       if(!on_source) continue;
@@ -2832,9 +3027,19 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
 	if(rc > 0) { failures++; { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
       }
     }
+    // 11/10/2026: in a folder the ship log keeps, the commit block comes only
+    // in the records (gxdShipLog::SetCommitBlock): never by this loop, whose
+    // copy would race the records (an old-format log without it: unsealed)
+    std::set<std::string> log_dirs, sent_dirs, failed_dirs;
+    std::vector<const gxReplFile *> deferred_cb;
+    if(!sc.commit_block.empty()) for(auto &cf : cover_of) log_dirs.insert(dir_of(cf.first));
     for(auto &f : sm) {
       if(stop) break;
       if(!unit_dirs.empty() && unit_dirs.count(dir_of(f.path))) continue;
+      if(!log_dirs.empty() && base_of(f.path) == sc.commit_block && log_dirs.count(dir_of(f.path))) {
+	if(cover_of.count(f.path)) deferred_cb.push_back(&f);   // after the folder's other files
+	continue;
+      }
       // 11/08/2026: Keep the status current during a long pass
       if(now_s() - last_status_write >= 5) write_status(pass_connected, "");
       auto t = tmap.find(f.path);
@@ -2856,6 +3061,23 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
       std::string e;
       int rc = sync_file(src, tgt, sc.name, f.path, cover, st, e);
       if(rc < 0) { err = e; return -1; }
+      if(rc > 0) { failures++; failed_dirs.insert(dir_of(f.path)); { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
+      else sent_dirs.insert(dir_of(f.path));
+    }
+    // 11/10/2026: a ship-log folder's commit block, from the log, after its
+    // other files (it seals the unit): when one of them was synced, or it is
+    // missing on the copy, or on a verify
+    for(auto *cbf : deferred_cb) {
+      if(stop) break;
+      std::string d = dir_of(cbf->path);
+      if(failed_dirs.count(d)) continue;
+      auto cv = cover_of.find(cbf->path);
+      bool missing = tmap.find(cbf->path) == tmap.end();
+      if(!missing && !sent_dirs.count(d) && !(full || verify || cverify)) continue;
+      if(std::find(vlist.begin(), vlist.end(), cv->second->name) != vlist.end()) continue;
+      std::string e;
+      int rc = sync_file(src, tgt, sc.name, cbf->path, cv->second, st, e);
+      if(rc < 0) { err = e; return -1; }
       if(rc > 0) { failures++; { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
     }
     if(sc.deletes && !stop) {
@@ -2875,6 +3097,142 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     if(failures) return 1;
   }
   return vlist.empty() ? 0 : 1;
+}
+
+// 11/10/2026: derived index state, one file per folder:
+// <root>/.gxrepl/derived/<folder with '/' as '#'>: "<generation> ok|failed <note>"
+static std::string derived_state_path(const gxReplSetConfig &sc, const std::string &rel)
+{
+  std::string n = rel.empty() ? std::string("_root") : "_" + rel;   // never "." or a dot name
+  for(auto &c : n) if(c == '/') c = '#';
+  return sc.root + "/.gxrepl/derived/" + n;
+}
+
+// 11/10/2026: the lsn of the ship log record that last sealed a unit ("log G L"), 0 if the ship log did not
+static unsigned long long unit_log_lsn(const gxReplSetConfig &sc, const std::string &rel, unsigned long long *gen = 0)
+{
+  FILE *f = fopen((sc.root + "/.gxrepl/units/" + unit_key(rel)).c_str(), "rb");
+  if(!f) return 0;
+  unsigned long long g = 0, l = 0;
+  if(fscanf(f, "log %llu %llu", &g, &l) != 2) l = 0;
+  fclose(f);
+  if(gen) *gen = g;
+  return l;
+}
+
+// The rebuild's stamp, <folder>/derived.stamp: "gen G lsn L records N keys K"
+// (the derived_rebuild command writes it; osa_ingest --rebuild-index does)
+static bool derived_stamp_ok(const gxReplSetConfig &sc, const std::string &rel, uint64_t gen, std::string &why)
+{
+  std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
+  FILE *f = fopen((dir + "/derived.stamp").c_str(), "r");
+  if(!f) { why = "not stamped (no derived.stamp)"; return false; }
+  unsigned long long g = 0, l = 0, n = 0, k = 0;
+  int got = fscanf(f, "gen %llu lsn %llu records %llu keys %llu", &g, &l, &n, &k);
+  fclose(f);
+  if(got != 4) { why = "a damaged derived.stamp"; return false; }
+  if(g != gen) { why = "stamped at generation " + std::to_string(g) + ", the copy is at " + std::to_string((unsigned long long)gen); return false; }
+  if(n != k) { why = "stamped with " + std::to_string(k) + " keys for " + std::to_string(n) + " records"; return false; }
+  unsigned long long sl = unit_log_lsn(sc, rel);
+  if(sl && l != sl) { why = "stamped at ship log record " + std::to_string(l) + ", the copy applied " + std::to_string(sl); return false; }
+  return true;
+}
+
+static bool derived_ok(const gxReplSetConfig &sc, const std::string &rel, uint64_t gen, std::string &why)
+{
+  FILE *f = fopen(derived_state_path(sc, rel).c_str(), "r");
+  if(!f) { why = "missing (never built)"; return false; }
+  unsigned long long g = 0; char st[32] = {0};
+  int n = fscanf(f, "%llu %31s", &g, st);
+  fclose(f);
+  if(n != 2) { why = "unknown (a damaged state file)"; return false; }
+  if(strcmp(st, "ok") != 0) { why = "failed their rebuild or check (generation " + std::to_string(g) + ")"; return false; }
+  if(g != gen) { why = "stale (built from generation " + std::to_string(g) + ", the copy is at " + std::to_string((unsigned long long)gen) + ")"; return false; }
+  // and every derived file the rebuild made is there
+  std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
+  DIR *d = opendir(dir.c_str());
+  int found = 0;
+  struct dirent *e;
+  while(d && (e = readdir(d)) != 0) if(e->d_name[0] != '.' && is_derived(sc, rel.empty() ? std::string(e->d_name) : rel + "/" + e->d_name)) found++;
+  if(d) closedir(d);
+  if(!found) { why = "missing (no derived file in the folder)"; return false; }
+  return derived_stamp_ok(sc, rel, gen, why);
+}
+
+static void derived_folders(const gxReplSetConfig &sc, const std::string &rel, std::vector<std::string> &out)
+{
+  std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
+  DIR *d = opendir(dir.c_str());
+  if(!d) return;
+  std::vector<std::string> subs;
+  bool has_cb = false;
+  struct dirent *e;
+  while((e = readdir(d)) != 0) {
+    std::string n = e->d_name;
+    if(n.empty() || n[0] == '.') continue;
+    struct stat st;
+    if(lstat((dir + "/" + n).c_str(), &st) != 0) continue;
+    if(S_ISDIR(st.st_mode)) subs.push_back(rel.empty() ? n : rel + "/" + n);
+    else if(n == sc.commit_block) has_cb = true;
+  }
+  closedir(d);
+  if(has_cb) out.push_back(rel);
+  for(auto &s : subs) derived_folders(sc, s, out);
+}
+
+int gxReplDerivedRefresh(const gxReplSetConfig &sc,
+			 std::map<std::string, std::pair<uint64_t, long long> > &seen,
+			 std::vector<std::string> &log)
+{
+  if(sc.derived.empty() || sc.derived_rebuild.empty() || sc.commit_block.empty()) return 0;
+  std::vector<std::string> folders;
+  derived_folders(sc, "", folders);
+  int rebuilt = 0;
+  long long now = (long long)time(0);
+  for(auto &rel : folders) {
+    std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
+    auto read_gen = [&](uint64_t &g) -> bool {
+      int fd = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
+      ssize_t n = fd >= 0 ? pread(fd, &g, sizeof(g), (off_t)sc.commit_gen_offset) : -1;
+      if(fd >= 0) close(fd);
+      return n == (ssize_t)sizeof(g);
+    };
+    uint64_t g = 0;
+    if(!read_gen(g) || (g & 1)) continue;                       // torn or in progress: not yet
+    std::string why;
+    if(derived_ok(sc, rel, g, why)) { seen.erase(rel); continue; }
+    auto &s = seen[rel];
+    if(s.first != g || s.second == 0) { s.first = g; s.second = now; continue; }   // first seen: wait to be quiet
+    if(now - s.second < sc.derived_delay) continue;
+    // The apply lock (exclusive): no apply changes the folder while its indexes are rebuilt
+    std::string jname = sc.root + "/.gxrepl/apply.jnl";
+    mkdirs(sc.root + "/.gxrepl/derived");
+    int lk = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if(lk < 0 || flock(lk, LOCK_EX) != 0) { if(lk >= 0) close(lk); continue; }
+    uint64_t g2 = 0;
+    if(!read_gen(g2) || g2 != g) { flock(lk, LOCK_UN); close(lk); s.first = g2; s.second = now; continue; }
+    std::string cmd = sc.derived_rebuild, q = "'";
+    for(char c : dir) { if(c == '\'') q += "'\\''"; else q += c; }
+    q += "'";
+    for(size_t at; (at = cmd.find("{dir}")) != std::string::npos; ) cmd.replace(at, 5, q);
+    // 11/10/2026: {lsn}: the ship log record the folder was sealed at (0 if none), for the stamp
+    std::string ls = std::to_string(unit_log_lsn(sc, rel));
+    for(size_t at; (at = cmd.find("{lsn}")) != std::string::npos; ) cmd.replace(at, 5, ls);
+    int rc = system((cmd + " >/dev/null 2>&1").c_str());
+    flock(lk, LOCK_UN);
+    close(lk);
+    bool ok = rc == 0;
+    std::string body = std::to_string((unsigned long long)g) + (ok ? " ok" : " failed") +
+      " rc=" + std::to_string(rc) + "\n";
+    if(write_atomic(derived_state_path(sc, rel), body) != 0)
+      log.push_back("set " + sc.name + ": cannot write " + derived_state_path(sc, rel));
+    log.push_back("set " + sc.name + ": " + (rel.empty() ? std::string(".") : rel) + ": derived indexes " +
+		  (ok ? "rebuilt" : "FAILED (rc " + std::to_string(rc) + ")") + " for generation " +
+		  std::to_string((unsigned long long)g));
+    seen.erase(rel);
+    rebuilt++;
+  }
+  return rebuilt;
 }
 
 // 11/10/2026: see gxrepl.h
@@ -2904,7 +3262,8 @@ static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const 
   if(has_db || has_cb) {
     checked++;
     std::string where = rel.empty() ? "." : rel;
-    if(!has_cb) torn.push_back(where + ": database files and no " + sc.commit_block);
+    if(!has_cb) torn.push_back(where + ": UNSEALED: database files and no " + sc.commit_block +
+			       " (a copy that never got one, or a ship log whose records do not carry it)");
     else {
       uint64_t g = 0;
       int fd = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
@@ -2917,6 +3276,8 @@ static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const 
 	// 11/10/2026: an even generation is not enough: the files must be the sealed ones
 	std::string why = unit_seal_check(sc, rel, g);
 	if(!why.empty()) torn.push_back(where + ": " + why);
+	// and its derived indexes must be built from this generation, and good
+	else if(!sc.derived.empty() && !derived_ok(sc, rel, g, why)) torn.push_back(where + ": derived indexes " + why);
       }
     }
   }
