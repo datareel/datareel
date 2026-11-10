@@ -1834,6 +1834,56 @@ def test_commit_block_ship_log_copy_is_sealed():
         env.stop()
 
 
+def test_commit_block_records_without_block_are_torn():
+    """11/10/2026 (review r4c): a sealed ship-log copy then gets records WITHOUT the commit block (an older writer, or
+    another journal writer of the folder): its data moves past the sealed generation, so the unit is "copying-log"
+    and "gxrepl torn" fails, until a record carries the commit block again. A seal's lsn must equal the stream's
+    applied lsn: a copy whose stream position is past its seal fails too."""
+    env = Env("cb_nocb", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 3, "--commit-block").returncode == 0
+    env.start_server()
+    seal = os.path.join(aws, ".gxrepl", "units", "_root")
+    try:
+        env.start_client()
+        wait_same(env, "db", 120)
+        assert writer(ws, "--commits", 2, "--commit-block", "--seed", 61).returncode == 0
+        wait_same(env, "db", 120)
+        t = torn(env)
+        assert t.returncode == 0, t.stdout
+        s = open(seal).read().split()
+        assert s[0] == "log" and len(s) == 4, s
+        # records without the commit block (the old format)
+        assert writer(ws, "--commits", 3, "--commit-block", "--old-ship-format", "--seed", 62).returncode == 0
+        wait_status(env, lambda st: st["sets"]["db"]["streams"] and
+                    all(x["lag"] == 0 for x in st["sets"]["db"]["streams"].values()), 60)
+        assert torn(env).returncode == 1                       # torn from here on (during the reopen's verify too)
+        end = time.time() + 30
+        while time.time() < end and not open(seal).read().startswith("copying-log"):
+            assert torn(env).returncode == 1
+            time.sleep(0.2)
+        t = torn(env)
+        print(f"    records without the commit block: torn exit {t.returncode}: {t.stdout.strip()[:300]!r}", flush=True)
+        assert t.returncode == 1 and "without its commit block" in t.stdout, t.stdout
+        # a record that carries it again: whole and sealed at its lsn
+        assert writer(ws, "--commits", 2, "--commit-block", "--seed", 63).returncode == 0
+        wait_same(env, "db", 120)
+        t = torn(env)
+        assert t.returncode == 0, t.stdout
+        s = open(seal).read().split()
+        env.stop()
+        stf = os.path.join(aws, ".gxrepl", "state", s[3] + ".state")
+        body = open(stf).read().split()
+        assert int(body[1]) == int(s[2]), (body, s)
+        with open(stf, "w") as f:                                    # the stream past its seal
+            f.write(f"{body[0]} {int(body[1]) + 1}\n")
+        t = torn(env)
+        print(f"    stream past the seal: torn exit {t.returncode}: {t.stdout.strip()[:150]}", flush=True)
+        assert t.returncode == 1 and "records past the seal" in t.stdout, t.stdout
+    finally:
+        env.stop()
+
+
 def test_commit_block_old_ship_format_is_unsealed():
     """11/10/2026: records from a writer that does not ship its commit block (the old format) still apply, but the
     copy never gets a commit block from the scan (it would race the records): "gxrepl torn" reports it unsealed."""

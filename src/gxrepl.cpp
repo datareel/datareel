@@ -765,12 +765,26 @@ static std::string unit_seal_check(const gxReplSetConfig &sc, const std::string 
   while((n = fread(b, 1, sizeof(b), f)) > 0) have.append(b, n);
   fclose(f);
   unsigned long long sg = 0;
+  if(have.compare(0, 11, "copying-log") == 0)
+    return "ship log records changed it without its commit block (an older writer?): torn until a record carries it";
   if(have.compare(0, 7, "copying") == 0) return "a copy of it is under way, or stopped half way";
   if(have.compare(0, 4, "log ") == 0) {             // fed by the ship log: whole at the record that sealed it
     unsigned long long lg = 0, ll = 0;
-    if(sscanf(have.c_str(), "log %llu %llu", &lg, &ll) != 2) return "a damaged seal";
+    char sname[256] = {0};
+    int got = sscanf(have.c_str(), "log %llu %llu %255s", &lg, &ll, sname);
+    if(got < 2) return "a damaged seal";
     if(lg != gen) return "sealed by ship log record " + std::to_string(ll) + " at generation " + std::to_string(lg) +
 		    ", the commit block says " + std::to_string((unsigned long long)gen);
+    // 11/10/2026 (review): and no record past the seal changed it unsealed: the stream's applied lsn is the seal's
+    if(got < 3) return "an old seal without its stream (sealed before the stream check)";
+    FILE *sf = fopen((sc.root + "/.gxrepl/state/" + sname + ".state").c_str(), "r");
+    if(!sf) return std::string("no applied position for stream ") + sname;
+    char id[64]; unsigned long long al = 0;
+    int sg = fscanf(sf, "%63s %llu", id, &al);
+    fclose(sf);
+    if(sg != 2) return std::string("a damaged position for stream ") + sname;
+    if(al != ll) return "sealed at ship log record " + std::to_string(ll) + ", the copy applied up to " +
+		   std::to_string(al) + " (records past the seal)";
     return "";
   }
   if(sscanf(have.c_str(), "gen %llu", &sg) != 1) return "a damaged seal";
@@ -1110,7 +1124,7 @@ int gxReplLocal::Diff(const std::string &set, const gxReplDiffRequest &rq,
     if(!s->sc.commit_block.empty() && base_of(rq.path) == s->sc.commit_block) {
       std::vector<unsigned char> page;
       unsigned long long fsize = 0;
-      bool found = false;
+      bool found = false, stale = false;
       unsigned long long from = u.lsn > 64 ? u.lsn - 63 : 1;
       if(info.first_lsn && from < info.first_lsn) from = info.first_lsn;
       while(from <= u.lsn && info.first_lsn) {
@@ -1128,18 +1142,26 @@ int gxReplLocal::Diff(const std::string &set, const gxReplDiffRequest &rq,
 	  std::vector<unsigned char> storage;
 	  std::vector<gxdShipCommitFile> fl;
 	  if(gxdParseShipCommitRecord(r, storage, fl) != 0) continue;
-	  for(auto &f : fl) if(f.name == rq.path) {
-	    for(auto &pp : f.pages) if(pp.first == 0) {
-	      page.assign(pp.second, pp.second + gxdPageSize);
-	      fsize = f.size;
-	      found = true;
+	  bool has_cb = false, touches = false;
+	  for(auto &f : fl) {
+	    if(f.name == rq.path) {
+	      for(auto &pp : f.pages) if(pp.first == 0) {
+		page.assign(pp.second, pp.second + gxdPageSize);
+		fsize = f.size;
+		has_cb = true;
+	      }
 	    }
+	    else if(dir_of(f.name) == dir_of(rq.path) && !is_derived(s->sc, f.name)) touches = true;
 	  }
+	  // 11/10/2026 (review r4c): a later record that changed the folder
+	  // without its commit block makes the block at this position unknown
+	  if(has_cb) { found = true; stale = false; }
+	  else if(touches) stale = true;
 	}
 	from = nx;
 	if(nx == 0) break;
       }
-      if(!found) { res.status = 1; return 0; }
+      if(!found || stale) { res.status = 1; return 0; }   // "gone": the copy keeps its own (and its seal)
       struct stat cst;
       u.path = rq.path;
       u.size = fsize;
@@ -1499,11 +1521,14 @@ typedef std::map<std::string, std::pair<unsigned long long,
 
 // Add the pages of whole log records to a batch. Returns the last lsn,
 // or 0 with "err" set.
+// unit_cb (11/10/2026 review): for each commit_block unit a commit record
+// changed, whether the LAST such record carried the unit's commit block
 static unsigned long long add_records(gxReplLocal &L, const gxReplSetConfig &sc,
 				      const std::vector<unsigned char> &records,
 				      unsigned long long expect_first,
 				      PageBatch &batch, unsigned long long &count,
-				      std::string &err, std::deque<std::vector<unsigned char> > &keep)
+				      std::string &err, std::deque<std::vector<unsigned char> > &keep,
+				      std::map<std::string, bool> *unit_cb = 0)
 {
   std::vector<gxdShipRecordView> recs;
   if(gxdParseShipRecords(records.data(), records.size(), recs) != 0) {
@@ -1519,6 +1544,16 @@ static unsigned long long add_records(gxReplLocal &L, const gxReplSetConfig &sc,
     keep.emplace_back();                     // a compressed payload is inflated here (the batch points into it)
     if(gxdParseShipCommitRecord(r, keep.back(), files) != 0) {
       err = "damaged commit record " + std::to_string(r.lsn); return 0;
+    }
+    if(unit_cb && !sc.commit_block.empty()) {
+      std::map<std::string, bool> here;
+      for(auto &f : files) {
+	if(is_derived(sc, f.name)) continue;
+	bool cb = base_of(f.name) == sc.commit_block;
+	bool &h = here[dir_of(f.name)];
+	h = h || cb;
+      }
+      for(auto &hu : here) (*unit_cb)[hu.first] = hu.second;
     }
     for(auto &f : files) {
       if(is_derived(sc, f.name)) continue;   // 11/10/2026: the copy rebuilds it
@@ -1563,24 +1598,70 @@ static void put_seal(PageBatch &batch, const std::string &root, const std::strin
   ent.second[0] = (const unsigned char *)seals.back().data();
 }
 
+// A seal a verify's fill left ("copying"): only the commit block sent after
+// the unit's files clears it. "copying-log" (records changed the unit without
+// its commit block) clears at the next record that carries it.
+static bool fill_copying(const std::string &seal)
+{
+  return seal.compare(0, 8, "copying\n") == 0 || seal == "copying";
+}
+
+// 11/10/2026 (review): the seals of a ship log apply, in its transaction:
+// - a unit whose last changing record lacked its commit block: "copying-log"
+//   (its data is past its commit block; torn until a record carries it);
+// - a unit whose commit block came (allow()): "log G L S" (generation, lsn,
+//   stream);
+// - every other unit sealed "log G L S" by this stream: L moves to "lsn" (an
+//   open or gap record changes no data), so a seal's L always equals the
+//   stream's applied lsn and promote-check can compare them.
 static int add_unit_seals(const gxReplSetConfig &sc, const std::string &root, PageBatch &batch,
-			  unsigned long long lsn, std::deque<std::string> &seals, std::string &err,
+			  unsigned long long lsn, const std::string &stream,
+			  const std::map<std::string, bool> &unit_cb,
+			  std::deque<std::string> &seals, std::string &err,
 			  const std::function<bool(const std::string &)> &allow)
 {
   if(sc.commit_block.empty()) return 0;
   std::vector<std::pair<std::string, std::string> > add;
+  std::set<std::string> done;
+  for(auto &uc : unit_cb) if(!uc.second) {
+    done.insert(uc.first);
+    if(!allow(uc.first)) continue;           // a fill's "copying" stays: it is the stronger mark
+    add.push_back(std::make_pair(uc.first, std::string("copying-log\n")));
+  }
   for(auto &e : batch) {
     if(e.first.compare(0, root.size() + 1, root + "/") != 0) continue;
     std::string rel = e.first.substr(root.size() + 1);
     if(base_of(rel) != sc.commit_block) continue;
-    if(!allow(dir_of(rel))) continue;
+    if(done.count(dir_of(rel)) || !allow(dir_of(rel))) continue;
     auto pg = e.second.second.find(0);
     if(pg == e.second.second.end() || e.second.first < sc.commit_gen_offset + 8) continue;
     uint64_t g = 0;
     memcpy(&g, pg->second + sc.commit_gen_offset, 8);
     if(g & 1) continue;                              // a block inside a batch: never a seal
-    add.push_back(std::make_pair(dir_of(rel),
-				 "log " + std::to_string((unsigned long long)g) + " " + std::to_string(lsn) + "\n"));
+    add.push_back(std::make_pair(dir_of(rel), "log " + std::to_string((unsigned long long)g) + " " +
+				 std::to_string(lsn) + " " + stream + "\n"));
+    done.insert(dir_of(rel));
+  }
+  // carry forward: this stream's other "log" seals follow its lsn
+  if(!stream.empty()) {
+    std::string ud = root + "/.gxrepl/units";
+    DIR *d = opendir(ud.c_str());
+    struct dirent *de;
+    while(d && (de = readdir(d)) != 0) {
+      std::string n = de->d_name;
+      if(n.empty() || n[0] != '_') continue;
+      FILE *f = fopen((ud + "/" + n).c_str(), "rb");
+      if(!f) continue;
+      char sname[256] = {0}; unsigned long long g = 0, l = 0;
+      int got = fscanf(f, "log %llu %llu %255s", &g, &l, sname);
+      fclose(f);
+      if(got != 3 || stream != sname || l == lsn) continue;
+      std::string unit = n == "_root" ? std::string() : n.substr(1);
+      for(auto &c : unit) if(c == '#') c = '/';
+      if(done.count(unit)) continue;
+      add.push_back(std::make_pair(unit, "log " + std::to_string(g) + " " + std::to_string(lsn) + " " + stream + "\n"));
+    }
+    if(d) closedir(d);
   }
   if(!add.empty() && mkdirs(root + "/.gxrepl/units") != 0) { err = "cannot make the seals folder"; return -1; }
   for(auto &a2 : add) put_seal(batch, root, a2.first, a2.second, seals);
@@ -1606,15 +1687,16 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
   PageBatch batch;
   std::deque<std::vector<unsigned char> > keep;
   unsigned long long count = 0;
+  std::map<std::string, bool> unit_cb;
   unsigned long long last = add_records(*this, s->sc, records, it->second.lsn + 1,
-					batch, count, err, keep);
+					batch, count, err, keep, &unit_cb);
   if(last == 0) return -1;
   // 11/10/2026: the record's commit block (gxdShipLog::SetCommitBlock) makes
   // its unit whole at this record: its seal goes in the same transaction
   std::deque<std::string> seals;
   // (a unit a verify is filling, "copying", stays so: only its commit block, sent after its files, seals it)
-  if(add_unit_seals(s->sc, s->root, batch, last, seals, err,
-		    [&](const std::string &u) { return read_seal(s->root, u).compare(0, 7, "copying") != 0; }) != 0) return -1;
+  if(add_unit_seals(s->sc, s->root, batch, last, stream, unit_cb, seals, err,
+		    [&](const std::string &u) { return !fill_copying(read_seal(s->root, u)); }) != 0) return -1;
   if(apply_batch(s, batch, err) != 0) return -1;
   gxReplStreamState st = it->second;
   st.lsn = last;
@@ -1642,6 +1724,7 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   std::list< std::vector<unsigned char> > padded;
   std::vector<std::string> fulls(v.size());
   std::set<std::string> not_in_step;
+  std::map<std::string, bool> unit_cb;      // 11/10/2026 (review): see add_records()
   for(size_t i = 0; i < v.size(); i++) {
     const gxReplFileUpdate &u = v[i];
     if(SafePath(s->sc, u.path, fulls[i], err) != 0) return -1;
@@ -1655,7 +1738,7 @@ int gxReplLocal::ApplyFiles(const std::string &set,
 	if(it->second.lsn > u.lsn || u.records.empty()) continue; // Stale
 	unsigned long long count = 0, e = 0;
 	std::string e2;
-	e = add_records(*this, s->sc, u.records, it->second.lsn + 1, batch, count, e2, keep);
+	e = add_records(*this, s->sc, u.records, it->second.lsn + 1, batch, count, e2, keep, &unit_cb);
 	if(e != u.lsn) continue; // Stale
 	applied_records += count;
       }
@@ -1699,13 +1782,19 @@ int gxReplLocal::ApplyFiles(const std::string &set,
     }
     if(!filling.empty() && mkdirs(s->root + "/.gxrepl/units") != 0) { err = "cannot make the seals folder"; return -1; }
     for(auto &u : filling) put_seal(batch, s->root, u, "copying\n", seals);
-    if(!changed.empty()) {
-      unsigned long long lsn = 0;
-      for(auto &c : changed) lsn = std::max(lsn, c.second.lsn);
-      if(add_unit_seals(s->sc, s->root, batch, lsn, seals, err, [&](const std::string &u) {
+    // a commit block sent from the log, after the folder's files, is the
+    // unit's own: it seals it whatever records came before it in this batch
+    for(auto &u : cb_units) unit_cb.erase(u);
+    for(auto &u : filling) unit_cb.erase(u);
+    bool first = true;
+    for(auto &c : changed) {
+      std::map<std::string, bool> mine;      // the copying-log marks do not depend on the stream: once
+      if(first) mine = unit_cb;
+      first = false;
+      if(add_unit_seals(s->sc, s->root, batch, c.second.lsn, c.first, mine, seals, err, [&](const std::string &u) {
 	    if(filling.count(u)) return false;
 	    if(cb_units.count(u)) return true;
-	    return read_seal(s->root, u).compare(0, 7, "copying") != 0;
+	    return !fill_copying(read_seal(s->root, u));
 	  }) != 0) return -1;
     }
   }

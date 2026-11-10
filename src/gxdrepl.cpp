@@ -721,6 +721,15 @@ int gxdShipLog::AppendCommit(const std::vector<gxdShipFile> &files)
     all.erase(std::unique(all.begin(), all.end()), all.end());
     if(all != files_list && write_files_list(all) != 0) rc = -1;
   }
+  // 11/10/2026 (review): a record's size is a u32 and readers refuse more
+  // than gxdShipMaxPayload (1 GB): such a commit is not logged (a gap: the
+  // copy verifies the stream instead)
+  if(buf.size() > gxdShipMaxPayload) {
+    pending_gap = 1;
+    failures++;
+    return fail("a commit record of " + std::to_string((unsigned long long)buf.size()) +
+		" bytes is over the 1 GB record limit (a gap is logged; the copy verifies the stream)");
+  }
   // 11/10/2026: compressed when the library has zlib and it is smaller
   uint32_t type = gxdShipCommit;
   const unsigned char *pay = buf.data();
