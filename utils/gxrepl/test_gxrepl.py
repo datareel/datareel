@@ -270,9 +270,7 @@ def test_live_changes():
     env.start_server()
     env.start_client()
     try:
-        # 11/09/2026: 1000 commits (was 400): the writer's open record starts a verify, and once
-        # (1 run in 7) that verify covered all of a 400 commit run, so no record was ever drained
-        w = writer_bg(ws, "--commits", 1000, "--per", 4, "--sleep", 5, "--seed", 7)
+        w = writer_bg(ws, "--commits", 400, "--per", 4, "--sleep", 5, "--seed", 7)
         # Other database files (no ship log) change while the writer runs
         for i in range(20):
             put(os.path.join(ws, f"side/f{i % 7}.gxd"), os.urandom(random.randint(10, 90000)))
@@ -290,8 +288,11 @@ def test_live_changes():
             if (lag and max(lag) == 0) or time.time() > end:
                 break
             time.sleep(0.2)
-        assert st["records"] > 0, st
+        # 11/10/2026: the copy reached the source's log position. (It was "records > 0": the records a pass
+        # drained. In some full-suite runs a verify carried every change, which is correct, so no record
+        # was ever drained and the count check failed.)
         assert lag and max(lag) == 0, st
+        assert all(s["source"] > 0 and s["copy"] == s["source"] for s in st["streams"].values()), st
     finally:
         env.stop()
 
@@ -1314,6 +1315,510 @@ os.rename(os.path.join(r, "keep/d.tmp"), os.path.join(r, "keep/d")); dsync("keep
             got[os.path.relpath(os.path.join(dp, n), root)] = open(os.path.join(dp, n), "rb").read()
     want = {"a": b"synced", "b": b"", "old": b"old", "keep/d": b"d"}
     assert got == want, got
+
+
+def purge(root, stream=None):
+    args = [os.path.join(BIN, "gxrepl_testwriter"), "purge", root] + ([stream] if stream else [])
+    r = run(args)
+    assert r.returncode == 0, r.stdout
+    return r.stdout
+
+
+def streams_of(root):
+    d = os.path.join(root, ".gxrepl", "log")
+    return sorted(n for n in os.listdir(d) if not n.startswith(".")) if os.path.isdir(d) else []
+
+
+def test_shiplog_purge_after_archive():
+    """11/10/2026: osa_ingest's layout: one journal per day folder, the ship log at the set root. A day moved away
+    (archived) leaves its stream; the purge removes it once the copy has ACKed all of it, keeps one no copy has
+    ACKed or whose writer is open, never touches a live day's stream, and the next writer's open sweeps the rest."""
+    env = Env("shiplog_purge", {"db": {"client": ["deletes = yes"]}})
+    ws, aws = env.roots["db"]
+    arc = os.path.join(env.dir, "archive")
+    os.makedirs(arc)
+    day = lambda d: os.path.join(ws, d)
+    for d in ("2026-11-06", "2026-11-07"):
+        os.makedirs(day(d))
+        assert writer(day(d), "--commits", 5, "--ship-root", ws).returncode == 0
+    s6, s7 = "2026-11-06_writer.jnl", "2026-11-07_writer.jnl"
+    assert streams_of(ws) == [s6, s7], streams_of(ws)
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 60)
+        wait_status(env, lambda s: all(x["lag"] == 0 for x in s["sets"]["db"]["streams"].values())
+                    and len(s["sets"]["db"]["streams"]) == 2)
+        # 1. Archive 11-06 (its folder moves out of the set): its stream goes; the live 11-07 one stays
+        os.rename(day("2026-11-06"), os.path.join(arc, "2026-11-06"))
+        out = purge(ws, s6)
+        assert out.strip() == "removed " + s6, out
+        assert purge(ws) == "", "the orphan sweep touched a live stream"
+        assert streams_of(ws) == [s7], streams_of(ws)
+        # 2. A stream whose writer is open is kept
+        w = writer_bg(day("2026-11-07"), "--commits", 100000, "--sleep", 20, "--ship-root", ws)
+        time.sleep(1.0)
+        assert "its writer is open" in purge(ws, s7)
+        w.kill(); w.wait()
+        # 3. A day the copy never ACKed (the client is down) is kept, even after its folder moved away
+        env.kill("client")
+        os.makedirs(day("2026-11-08"))
+        assert writer(day("2026-11-08"), "--commits", 3, "--ship-root", ws).returncode == 0
+        s8 = "2026-11-08_writer.jnl"
+        os.rename(day("2026-11-08"), os.path.join(arc, "2026-11-08"))
+        out = purge(ws, s8)
+        assert "no copy has acknowledged it yet" in out, out
+        assert s8 in streams_of(ws)
+        # 4. The copy comes back and applies all of it; the next writer's open (gxdShipLog::Open) sweeps it
+        env.start_client()
+        wait_status(env, lambda s: s["sets"]["db"]["streams"].get(s8, {}).get("lag", 1) == 0, 60)
+        acked = os.path.join(ws, ".gxrepl", "log", s8, "acked")
+        end = time.time() + 30
+        while time.time() < end and not (os.path.isdir(acked) and os.listdir(acked)):
+            time.sleep(0.2)
+        os.makedirs(day("2026-11-09"))
+        assert writer(day("2026-11-09"), "--commits", 2, "--ship-root", ws).returncode == 0
+        assert s8 not in streams_of(ws), streams_of(ws)
+        assert streams_of(ws) == [s7, "2026-11-09_writer.jnl"], streams_of(ws)
+        wait_same(env, "db", 60)
+        check_db(os.path.join(aws, "2026-11-07"))
+        check_db(os.path.join(aws, "2026-11-09"))
+    finally:
+        env.stop()
+
+
+def test_shiplog_purge_fails_closed():
+    """11/10/2026: a stream whose log cannot be read (no log.id, a damaged segment) is kept, never taken as empty;
+    dot-named folders in the log folder (.purged-*) are never streams."""
+    env = Env("purge_closed", {"db": {"client": ["deletes = yes"]}})
+    ws, aws = env.roots["db"]
+    arc = os.path.join(env.dir, "archive")
+    os.makedirs(arc)
+    for d in ("2026-11-01", "2026-11-02", "2026-11-03"):
+        os.makedirs(os.path.join(ws, d))
+        assert writer(os.path.join(ws, d), "--commits", 3, "--ship-root", ws).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_status(env, lambda s: len(s["sets"]["db"]["streams"]) == 3 and
+                    all(x["lag"] == 0 for x in s["sets"]["db"]["streams"].values()), 60)
+        logd = os.path.join(ws, ".gxrepl", "log")
+        for s in ("2026-11-01_writer.jnl", "2026-11-02_writer.jnl"):
+            acked = os.path.join(logd, s, "acked")
+            end = time.time() + 20
+            while time.time() < end and not (os.path.isdir(acked) and os.listdir(acked)):
+                time.sleep(0.2)
+        env.kill("client")
+        for d in ("2026-11-01", "2026-11-02"):
+            os.rename(os.path.join(ws, d), os.path.join(arc, d))
+        os.remove(os.path.join(logd, "2026-11-01_writer.jnl", "log.id"))
+        out = purge(ws, "2026-11-01_writer.jnl")
+        assert "kept" in out and "no log.id" in out, out
+        seg = [f for f in os.listdir(os.path.join(logd, "2026-11-02_writer.jnl")) if f.endswith(".gxl")][0]
+        with open(os.path.join(logd, "2026-11-02_writer.jnl", seg), "r+b") as f:
+            f.write(b"\0" * 16)                                       # the segment header damaged
+        out = purge(ws, "2026-11-02_writer.jnl")
+        assert "kept" in out and "cannot be read" in out, out
+        assert sorted(streams_of(ws)) == ["2026-11-01_writer.jnl", "2026-11-02_writer.jnl", "2026-11-03_writer.jnl"]
+        # A dot-named copy of a live stream is not a stream
+        shutil.copytree(os.path.join(logd, "2026-11-03_writer.jnl"), os.path.join(logd, ".purged-2026-11-03_writer.jnl-1"))
+        env.start_client()
+        st = wait_status(env, lambda s: s["sets"]["db"]["ok"] and "2026-11-03_writer.jnl" in s["sets"]["db"]["streams"], 60)
+        assert not [n for n in st["sets"]["db"]["streams"] if n.startswith(".")], st["sets"]["db"]["streams"]
+    finally:
+        env.stop()
+
+
+def test_ship_log_total_cap():
+    """11/10/2026: the ship logs of a set are capped together (ship_log_max_total): the oldest segments go, the
+    status warns and shows the .gxrepl and ship-log sizes, and the copy still ends the same."""
+    cap = 400000
+    env = Env("logcap", {"db": {"client": ["ship_log_max_total = %d" % cap]}})
+    ws, aws = env.roots["db"]
+    for d in ("a", "b"):
+        os.makedirs(os.path.join(ws, d))
+        assert writer(os.path.join(ws, d), "--commits", 80, "--per", 3, "--segment", 30000,
+                      "--ship-root", ws).returncode == 0
+    logd = os.path.join(ws, ".gxrepl", "log")
+    total = lambda: sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fn in os.walk(logd) for f in fn
+                        if f.endswith(".gxl"))
+    assert total() > cap, total()
+    env.start_server()
+    env.start_client()
+    try:
+        st = wait_status(env, lambda s: s["sets"]["db"].get("warn", "").startswith("WARN"), 60)
+        s = st["sets"]["db"]
+        assert s["ship_log_bytes"] > 0 and s["gxrepl_bytes"] >= s["ship_log_bytes"], s
+        newest = sum(max((os.path.getsize(os.path.join(logd, n, f)) for f in os.listdir(os.path.join(logd, n))
+                          if f.endswith(".gxl")), default=0) for n in streams_of(ws))
+        assert total() <= cap + newest, (total(), cap, newest)
+        wait_same(env, "db", 90)
+        check_db(os.path.join(aws, "a"))
+        check_db(os.path.join(aws, "b"))
+    finally:
+        env.stop()
+
+
+def test_commit_block_copy_matches_one_commit():
+    """11/10/2026: a live folder whose writer commits in place WITHOUT the journal write lock (no ship log), with a
+    seqlock commit block (commit_block = commit.bin@8). Every copy gxrepl accepts is one whole commit: the files and
+    commit.bin agree (gxrepl_testwriter check). A commit.bin changed in place with its size and mtime kept (as an
+    mmap'd block does) is still found, by its generation."""
+    opts = {"client": ["commit_block = commit.bin@8", "include = commit.bin", "verify_interval = 0",
+                       "full_verify_interval = 0"],
+            "server": ["commit_block = commit.bin@8", "include = commit.bin"]}
+    env = Env("commit_block", {"db": opts})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 5, "--no-ship", "--commit-block").returncode == 0
+    env.start_server()
+    try:
+        w = writer_bg(ws, "--commits", 100000, "--per", 2, "--sleep", 300, "--no-ship", "--commit-block", "--seed", 3)
+        good = 0
+        for i in range(10):
+            r = env.once()
+            if r.returncode == 0:
+                c = run([os.path.join(BIN, "gxrepl_testwriter"), "check", aws])
+                assert c.returncode == 0, f"pass {i}: an accepted copy is not one commit: {c.stdout}"
+                good += 1
+        w.kill(); w.wait()
+        assert good >= 3, f"only {good} of 10 passes ended in step"
+        assert env.once().returncode == 0
+        check_db(aws)
+        # In place, size and mtime kept: found by the generation
+        env.start_client()
+        wait_status(env, lambda s: s["sets"]["db"]["ok"], 30)
+        cb = os.path.join(ws, "commit.bin")
+        st0 = os.stat(cb)
+        with open(cb, "r+b") as f:
+            f.seek(8)
+            g = int.from_bytes(f.read(8), "little")
+            f.seek(8)
+            f.write((g + 2).to_bytes(8, "little"))
+        os.utime(cb, ns=(st0.st_atime_ns, st0.st_mtime_ns))
+        assert os.stat(cb).st_mtime_ns == st0.st_mtime_ns and os.stat(cb).st_size == st0.st_size
+        want = open(cb, "rb").read()
+        end = time.time() + 30
+        while time.time() < end and open(os.path.join(aws, "commit.bin"), "rb").read() != want:
+            time.sleep(0.3)
+        assert open(os.path.join(aws, "commit.bin"), "rb").read() == want, "the in-place commit.bin change was missed"
+    finally:
+        env.stop()
+
+
+def drop_cache(path):
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+    finally:
+        os.close(fd)
+
+
+def test_verify_does_not_stall_the_writer():
+    """11/10/2026: a full verify of a large live database (ship log on, so commits take the journal write lock)
+    reads it in batches of at most 4 MB / 100 ms under the read lock, so the writer's commits wait well under 1 s,
+    with a cold cache and other reads loading the disk."""
+    big = 256 * 1024 * 1024
+    env = Env("stall", {"db": {"client": ["verify_interval = 0", "full_verify_interval = 0"]}})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 2, "--big", big).returncode == 0
+    env.start_server()
+    env.start_client(extra_env={k: os.environ[k] for k in ("GXREPL_TEST_WHOLE_FILE_LOCK",) if k in os.environ})
+    load = None
+    try:
+        wait_same(env, "db", 300)
+        loadfile = os.path.join(env.dir, "load.bin")
+        with open(loadfile, "wb") as f:
+            for _ in range(256):
+                f.write(os.urandom(1024 * 1024))
+        for pth in (os.path.join(ws, "data.gxd"), os.path.join(aws, "data.gxd"), loadfile):
+            drop_cache(pth)
+        load = subprocess.Popen(["bash", "-c", f"while :; do dd if={loadfile} of=/dev/null bs=1M iflag=direct status=none || sleep 1; done"])
+        # 11/10/2026: CPU load as well (the review saw 16.8 s at load 35): GXREPL_TEST_CPU_LOAD busy processes
+        cpu = [subprocess.Popen(["bash", "-c", "while :; do :; done"])
+               for _ in range(int(os.environ.get("GXREPL_TEST_CPU_LOAD", "0")))]
+        lat = os.path.join(env.dir, "latency.txt")
+        rchar = lambda: int([ln.split()[1] for ln in open(f"/proc/{env.client.pid}/io") if ln.startswith("rchar")][0])
+        # A commit every 0.4 s, like osa_ingest's bursts: the client drains the log between commits (a pass drains
+        # first, so a writer that never pauses defers verifies until it does) and the verify runs meanwhile
+        w = writer_bg(ws, "--commits", 100000, "--per", 30, "--sleep", 400, "--latency-out", lat, "--seed", 9)
+        w_start = time.time()
+        time.sleep(2.0)                                            # past the writer's own open-record verify
+        for pth in (os.path.join(ws, "data.gxd"), os.path.join(aws, "data.gxd")):
+            drop_cache(pth)
+        r0 = rchar()
+        env.client.send_signal(signal.SIGHUP)                      # a full verify while it commits
+        # The writer runs until the verify has read most of the file (under heavy load that takes longer)
+        end = time.time() + 600
+        while time.time() < end and (rchar() - r0) < 0.9 * big and w.poll() is None:
+            time.sleep(0.5)
+        time.sleep(2)
+        w.kill(); w.wait()
+        w_end = time.time()
+        read_mb = (rchar() - r0) / 1048576
+        worst, n = open(lat).read().split()
+        worst = float(worst)
+        # The verify must have read the file while the writer committed (else the test proves nothing):
+        # the client is the source here, so its reads are the verify's
+        print(f"    writer: {n} commits in {w_end - w_start:.0f} s while a full verify read {read_mb:.0f} MB of a "
+              f"{big // 1048576} MB live file (cold cache, disk load); slowest commit {worst:.0f} ms", flush=True)
+        assert read_mb >= 0.8 * big / 1048576, f"the verify read only {read_mb:.0f} MB during the writer's run"
+        assert worst < 1000, f"a commit waited {worst:.0f} ms"
+        wait_same(env, "db", 300)
+        check_db(aws)
+    finally:
+        if load:
+            load.kill(); load.wait()
+        for c in locals().get("cpu", []) or []:
+            c.kill(); c.wait()
+        env.stop()
+
+
+def test_server_does_not_leak_descriptors():
+    """11/10/2026: read_states() never closed the state folder, so each State() call leaked a descriptor (a large
+    copy in parts ran the server out of them: "cannot lock apply.jnl"). The count stays flat over many passes."""
+    env = Env("fdleak", {"db": {}})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 3).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 60)
+        fds = lambda: len(os.listdir(f"/proc/{env.server.pid}/fd"))
+        n0 = fds()
+        for i in range(20):
+            assert writer(ws, "--commits", 2, "--seed", 50 + i).returncode == 0
+            time.sleep(0.3)
+        wait_same(env, "db", 60)
+        n1 = fds()
+        assert n1 <= n0 + 5, f"server descriptors {n0} -> {n1}"
+    finally:
+        env.stop()
+
+
+def test_big_record_resyncs():
+    """11/10/2026: a ship-log record bigger than max_message (an osa_ingest rebuild writes one of 500 MB) is never
+    sent: the copy's position is reset, its files are resynced in pieces, and the records after it drain as usual."""
+    env = Env("bigrec", {"db": {}})                      # max_message = 262144 in these tests
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 5).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 60)
+        assert writer(ws, "--commits", 1, "--big", 1500000).returncode == 0     # one ~1.5 MB record
+        assert writer(ws, "--commits", 6, "--seed", 77).returncode == 0
+        wait_same(env, "db", 90)
+        check_db(aws)
+        st = wait_status(env, lambda s: s["sets"]["db"]["ok"] and
+                         all(x["lag"] == 0 for x in s["sets"]["db"]["streams"].values()), 60)
+        log = open(os.path.join(env.dir, "client.log")).read()
+        assert "bigger than max_message" in log, log[-2000:]
+        assert log.count("bigger than max_message") <= 3, "a resync loop: " + log[-2000:]
+        n0 = st["sets"]["db"]["records"]
+        assert writer(ws, "--commits", 4, "--seed", 78).returncode == 0          # and the log goes on
+        wait_same(env, "db", 60)
+        st = wait_status(env, lambda s: s["sets"]["db"]["records"] > n0, 30)
+    finally:
+        env.stop()
+
+
+def torn(env):
+    return run([os.path.join(BIN, "gxrepl"), "torn", "--config", env.srv_conf])
+
+
+CB_OPTS = {"client": ["commit_block = commit.bin@8", "include = commit.bin", "verify_interval = 0",
+                      "full_verify_interval = 0"],
+           "server": ["commit_block = commit.bin@8", "include = commit.bin"]}
+
+
+def gen_of(path):
+    with open(path, "rb") as f:
+        f.seek(8)
+        return int.from_bytes(f.read(8), "little")
+
+
+def test_commit_block_marks_torn_copies():
+    """11/10/2026: the copy's commit block goes odd before a unit's files change, so a copy that could not finish
+    (the writer commits faster than a copy) is torn for "gxrepl torn" (exit 1, a fail over must not promote it);
+    once the writer pauses the copy is whole again (exit 0)."""
+    env = Env("cb_torn", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 5, "--no-ship", "--commit-block").returncode == 0
+    env.start_server()
+    try:
+        assert env.once().returncode == 0
+        r = torn(env)
+        assert r.returncode == 0 and "0 torn" in r.stdout, r.stdout
+        w = writer_bg(ws, "--commits", 100000, "--per", 1, "--no-ship", "--commit-block", "--seed", 5)
+        time.sleep(0.5)
+        r = env.once()                                   # every try sees a new generation: gives up
+        w.kill(); w.wait()
+        if r.returncode != 0:
+            t = torn(env)
+            assert t.returncode == 1 and "TORN" in t.stdout and "odd" in t.stdout, t.stdout
+        # The kill may have left the SOURCE in a batch (an odd generation): no copy is accepted until its
+        # writer opens again and recovers (as OSA's writers do), so the copy stays torn meanwhile
+        assert writer(ws, "--commits", 1, "--no-ship", "--commit-block", "--seed", 8).returncode == 0
+        r = env.once()
+        assert r.returncode == 0, r.stdout
+        t = torn(env)
+        assert t.returncode == 0 and "0 torn" in t.stdout, t.stdout
+        check_db(aws)
+    finally:
+        env.stop()
+
+
+def test_commit_block_heartbeat_is_not_a_change():
+    """11/10/2026: a writer's heartbeat rewrites commit.bin (bytes after the generation, and its mtime) without a
+    commit: the folder is not read again."""
+    env = Env("cb_beat", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 20, "--no-ship", "--commit-block").returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 60)
+        time.sleep(3)
+        st0 = env.status()["sets"]["db"]
+        for i in range(4):
+            with open(os.path.join(ws, "commit.bin"), "r+b") as f:
+                f.seek(40)
+                f.write(os.urandom(16))                  # a heartbeat
+            time.sleep(1.2)
+        time.sleep(3)
+        st1 = env.status()["sets"]["db"]
+        assert st1["files_sent"] == st0["files_sent"] and st1["pieces_sent"] == st0["pieces_sent"], (st0, st1)
+    finally:
+        env.stop()
+
+
+def watch_copy(env, ws, aws, seconds):
+    """Sample the copy's commit block while a writer runs: the distinct even generations it showed."""
+    seen = set()
+    end = time.time() + seconds
+    while time.time() < end:
+        try:
+            g = gen_of(os.path.join(aws, "commit.bin"))
+            if g % 2 == 0:
+                seen.add(g)
+        except OSError:
+            pass
+        time.sleep(0.2)
+    return seen
+
+
+def test_commit_block_converges_while_committing():
+    """11/10/2026: an unlocked writer committing in place 5 times a second on an 8 MB folder: the copy keeps
+    reaching whole commits while it runs (no lock, no ship log), and ends equal."""
+    env = Env("cb_conv", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 3, "--big", 8 * 1024 * 1024, "--no-ship", "--commit-block").returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 120)
+        w = writer_bg(ws, "--commits", 150, "--per", 2, "--sleep", 200, "--no-ship", "--commit-block", "--seed", 6)
+        seen = watch_copy(env, ws, aws, 25)
+        assert w.wait(120) == 0
+        print(f"    8 MB, 5 commits/s: the copy reached {len(seen)} whole commits in 25 s", flush=True)
+        assert len(seen) >= 5, f"the copy reached only {len(seen)} commits"
+        wait_same(env, "db", 60)
+        check_db(aws)
+    finally:
+        env.stop()
+
+
+def test_commit_block_converges_large():
+    """11/10/2026: a 434 MB folder (like a realtime day) whose writer commits every 2 s, unlocked: the copy keeps
+    up with whole commits."""
+    env = Env("cb_large", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 2, "--big", 434 * 1024 * 1024, "--no-ship", "--commit-block").returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 600)
+        w = writer_bg(ws, "--commits", 20, "--per", 3, "--sleep", 2000, "--no-ship", "--commit-block", "--seed", 7)
+        seen = watch_copy(env, ws, aws, 40)
+        assert w.wait(120) == 0
+        print(f"    434 MB, a commit every 2 s: the copy reached {len(seen)} whole commits in 40 s", flush=True)
+        assert len(seen) >= 4, f"the copy reached only {len(seen)} commits"
+        wait_same(env, "db", 300)
+        check_db(aws)
+    finally:
+        env.stop()
+
+
+def test_purge_unreadable_ack_and_trim():
+    """11/10/2026: an acked/<copy> file that cannot be read keeps the stream even when another copy ACKed it all;
+    a writer that opens a stream whose one segment every copy has applied starts a new segment (trim)."""
+    env = Env("purge_minor", {"db": {}})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d1"))
+    assert writer(os.path.join(ws, "d1"), "--commits", 3, "--ship-root", ws).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_status(env, lambda s: all(x["lag"] == 0 for x in s["sets"]["db"]["streams"].values())
+                    and s["sets"]["db"]["streams"], 60)
+        s1 = os.path.join(ws, ".gxrepl", "log", "d1_writer.jnl")
+        acked = os.path.join(s1, "acked")
+        end = time.time() + 20
+        while time.time() < end and not (os.path.isdir(acked) and os.listdir(acked)):
+            time.sleep(0.2)
+        segs0 = sorted(f for f in os.listdir(s1) if f.endswith(".gxl"))
+        assert writer(os.path.join(ws, "d1"), "--commits", 1, "--ship-root", ws, "--seed", 9).returncode == 0
+        segs1 = sorted(f for f in os.listdir(s1) if f.endswith(".gxl"))
+        assert len(segs1) == len(segs0) + 1, (segs0, segs1)      # rolled: the acked one can go by retention
+        env.kill("client")
+        open(os.path.join(s1, "acked", "other-copy"), "w").write("garbage\n")
+        os.rename(os.path.join(ws, "d1"), os.path.join(env.dir, "d1_gone"))
+        out = purge(ws, "d1_writer.jnl")
+        assert "kept" in out and "cannot be read" in out, out
+    finally:
+        env.stop()
+
+
+def test_version_names_the_build():
+    """11/10/2026: "gxrepl version" names the protocol (gxrepl_build.sh checks it), the git head of the DataReel
+    sources (+dirty, or unknown outside a git checkout) and the build time (or unknown)."""
+    import re as _re
+    r = run([os.path.join(BIN, "gxrepl"), "version"])
+    assert r.returncode == 0, r.stdout
+    m = _re.match(r"gxrepl \(DataReel [\d.]+\), protocol 3, default port 2073, zlib (yes|no), "
+                  r"git ([0-9a-f]{7,40}(\+dirty)?|unknown), built (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC|unknown)$",
+                  r.stdout.strip())
+    assert m, r.stdout
+
+
+def test_missing_root_is_empty():
+    """11/10/2026: a set whose root does not exist yet (db/news/oodb before its first nightly publish) is an
+    empty set on both nodes, not an error; once the source makes the folder, its first publish replicates."""
+    env = Env("missing_root", {"db": {"client": ["deletes = yes", "include = commit.bin"],
+                                      "server": ["include = commit.bin"]}})
+    ws, aws = env.roots["db"]
+    shutil.rmtree(ws)
+    shutil.rmtree(aws, ignore_errors=True)
+    env.start_server()
+    env.start_client()
+    try:
+        r = env.once()
+        assert r.returncode == 0, "once with a missing root: " + r.stdout + env.logs()
+        wait_status(env, lambda s: s.get("sets", {}).get("db", {}).get("ok") is True
+                    and not s["sets"]["db"].get("last_error"), 30)
+        assert not os.path.exists(aws) or not tree(aws), "files on the copy of a missing root"
+        # The first publish: a day folder swapped in by a rename, as the nightly does
+        tmp = ws + ".tmp"
+        os.makedirs(os.path.join(tmp, "2026/11/09"))
+        assert writer(os.path.join(tmp, "2026/11/09"), "--commits", 4).returncode == 0
+        put(os.path.join(tmp, "2026/11/09/commit.bin"), os.urandom(64))
+        os.rename(tmp, ws)
+        wait_same(env, "db", 60)
+        check_db(os.path.join(aws, "2026/11/09"))
+        st = env.status()["sets"]["db"]
+        assert st["ok"] and not st["last_error"], st
+    finally:
+        env.stop()
 
 
 def test_power_loss_object_service():

@@ -8,6 +8,8 @@
 //   gxrepl once   --config FILE [--set NAME] [--key-fd N]
 //   gxrepl status --config FILE
 //   gxrepl check  --config FILE
+//   gxrepl torn   --config FILE [--set NAME]   the copies of commit_block sets that are not one whole
+//                 commit (exit 1: a fail over must not promote them)
 //   gxrepl fingerprint CERT.pem
 //   gxrepl shiplog STREAM_DIR [--from LSN]
 //   gxrepl version
@@ -19,6 +21,12 @@
 // memory file (memfd), never in a file on disk.
 //
 // Exit codes: 0 ok, 1 a set is not in step (once), 2 error, 64 usage.
+#ifndef GXREPL_GIT_HEAD
+#define GXREPL_GIT_HEAD "unknown"    // 11/10/2026: set by gxrepl_version.cmake
+#endif
+#ifndef GXREPL_BUILD_TIME
+#define GXREPL_BUILD_TIME "unknown"
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -57,7 +65,7 @@ static void on_hup(int)
 static int usage()
 {
   fprintf(stderr,
-	  "usage: gxrepl serve|run|once|status|check --config FILE [--set NAME] [--key-fd N]\n"
+	  "usage: gxrepl serve|run|once|status|check|torn --config FILE [--set NAME] [--key-fd N]\n"
 	  "       gxrepl fingerprint CERT.pem\n"
 	  "       gxrepl shiplog STREAM_DIR [--from LSN]\n"
 	  "       gxrepl version\n");
@@ -181,9 +189,10 @@ int main(int argc, char **argv)
   if(argc < 2) return usage();
   std::string cmd = argv[1];
   if(cmd == "version") {
-    printf("gxrepl (DataReel %s), protocol %d, default port %d, zlib %s\n",
+    // 11/10/2026: the git head and build time come from CMake (gxrepl_version.cmake)
+    printf("gxrepl (DataReel %s), protocol %d, default port %d, zlib %s, git %s, built %s\n",
 	   DATAREEL_VERSION_STRING, gxREPL_PROTOCOL, gxREPL_DEFAULT_PORT,
-	   gxReplHasZlib() ? "yes" : "no");
+	   gxReplHasZlib() ? "yes" : "no", GXREPL_GIT_HEAD, GXREPL_BUILD_TIME);
     return 0;
   }
   if(cmd == "fingerprint") return argc == 3 ? fingerprint(argv[2]) : usage();
@@ -224,6 +233,23 @@ int main(int argc, char **argv)
       return 1;
     }
     return 0;
+  }
+  if(cmd == "torn") {
+    // 11/10/2026: the copies of commit_block sets that are not one whole
+    // commit; exit 1 if any (a fail over must not promote them)
+    int bad = 0, any = 0;
+    for(auto &s : cfg.sets) {
+      if(!only_set.empty() && s.name != only_set) continue;
+      if(s.commit_block.empty()) continue;
+      any = 1;
+      std::vector<std::string> torn;
+      int n = datareel::gxReplTornCopies(s, torn);
+      printf("set %s: %d folder(s) checked, %zu torn\n", s.name.c_str(), n, torn.size());
+      for(auto &x : torn) printf("  TORN %s\n", x.c_str());
+      if(!torn.empty()) bad = 1;
+    }
+    if(!any) printf("no set with commit_block\n");
+    return bad;
   }
   if(cmd == "check") {
     printf("node %s, role %s, %zu set(s)\n", cfg.node.c_str(), cfg.role.c_str(), cfg.sets.size());

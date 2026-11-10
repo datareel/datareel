@@ -80,6 +80,7 @@ Changes:
 #include "gxdlcode.h"
 
 #include <stdint.h>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -192,6 +193,30 @@ GXDLCODE_API int gxdParseShipRecords(const unsigned char *p, size_t n,
 GXDLCODE_API int gxdParseShipCommit(const unsigned char *p, size_t n,
 				    std::vector<gxdShipCommitFile> &files);
 
+// 11/10/2026: Remove a stream's log (<set_root>/.gxrepl/log/<stream>) once
+// nothing needs it: its writer is gone (writer.lock free) and every copy
+// that ACKed it (acked/<copy>) has applied its last record. A stream no
+// copy has ACKed is kept. Returns 0 removed, 1 kept ("why" says why), -1
+// on an error. Call it when the stream's database has moved away (osa_ingest
+// does after it archives a day).
+GXDLCODE_API int gxdShipLogPurgeStream(const std::string &set_root,
+				       const std::string &stream, std::string &why);
+// Every stream of set_root whose journal no longer exists there goes through
+// gxdShipLogPurgeStream(). Returns the count removed; "removed" and "held"
+// (with the reason) list them. gxdShipLog::Open() runs it as a backstop.
+GXDLCODE_API int gxdShipLogPurgeOrphans(const std::string &set_root,
+					std::vector<std::string> *removed = 0,
+					std::vector<std::string> *held = 0);
+
+// 11/10/2026: Keep the ship logs of set_root (every stream) at most
+// max_total bytes, removing the oldest segments first (never a stream's
+// newest). 0 only measures. Returns the bytes left; "before" the bytes
+// found, "removed" the count of segments removed.
+GXDLCODE_API unsigned long long gxdShipLogEnforceTotal(const std::string &set_root,
+						       unsigned long long max_total,
+						       unsigned long long *before = 0,
+						       int *removed = 0);
+
 // Reader side (gxrepl): reads a stream's log while the writer appends.
 class GXDLCODE_API gxdShipLogReader
 {
@@ -211,7 +236,9 @@ public:
   // "max_bytes" (always at least one record when there is one). Sets
   // "next" to the lsn after the last record copied and "count".
   // Returns 0, 1 if "from" is older than the oldest record kept (or
-  // the log id changed), -1 on an error.
+  // the log id changed), 2 if the record at "from" is bigger than
+  // "max_bytes" (11/10/2026: not read; the copy resyncs the files instead),
+  // -1 on an error.
   int Read(unsigned long long from, size_t max_bytes,
 	   std::vector<unsigned char> &out, unsigned long long &next,
 	   unsigned long &count);
@@ -224,9 +251,16 @@ private:
 
 private:
   std::string dir, log_id, error;
-  // Where the last read or scan stopped
-  std::string pos_path;
-  unsigned long long pos_off = 0, pos_lsn = 0;
+  // 11/10/2026: Two cursors, so finding the log's end (GetInfo) never moves
+  // the reading place and a Read() never rescans a segment from its start:
+  // where the end scan stopped, and where the last Read() stopped
+  std::string end_path, rd_path;
+  unsigned long long end_off = 0, end_lsn = 0, rd_off = 0, rd_lsn = 0;
+  // A sparse lsn -> offset index of one segment (every 16th record), filled
+  // by both walks: a Read() of an older lsn starts at the nearest one
+  std::string idx_path;
+  std::map<unsigned long long, unsigned long long> idx;
+  void index_add(const std::string &path, unsigned long long lsn, unsigned long long off);
 };
 
 } // namespace datareel

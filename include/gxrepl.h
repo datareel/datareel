@@ -110,6 +110,21 @@ struct GXDLCODE_API gxReplSetConfig {
   // belong to a database folder (e.g. commit.bin, sources.json, export/*.gz).
   // Flat files go by DRCM's rsync.
   std::vector<std::string> include;
+  // 11/10/2026: A live database folder whose writer keeps a seqlock commit
+  // block: "commit_block = commit.bin@8" names the file and the byte offset
+  // of its u64 generation (odd while a batch writes the files). A folder
+  // holding that file is copied as one unit: a change is found by the
+  // generation (an mmap'd commit block keeps its size and mtime), and a copy
+  // is accepted only when the source generation was even and the same
+  // before and after every file of the folder was read (else it is read
+  // again), so the copy always matches one commit. Empty: off.
+  std::string commit_block;
+  uint32_t commit_gen_offset = 8;
+  // 11/10/2026: The ship logs of this set (all streams under
+  // <root>/.gxrepl/log) may use at most this many bytes; the oldest
+  // segments go first (a copy that needed one is verified whole) and the
+  // status warns. 0: no cap.
+  unsigned long long ship_log_max_total = 4ULL * 1024 * 1024 * 1024;
 };
 
 struct GXDLCODE_API gxReplConfig {
@@ -226,6 +241,14 @@ public:
 		       std::string &err) = 0;
   virtual int Diff(const std::string &set, const gxReplDiffRequest &rq,
 		   gxReplDiffResult &res, std::string &err) = 0;
+  // 11/10/2026: The u64 at "offset" of the file (a seqlock commit block's
+  // generation; see gxReplSetConfig::commit_block). exists 0: no such file.
+  virtual int CommitGen(const std::string &set, const std::string &path,
+			uint32_t offset, uint64_t &gen, int &exists,
+			std::string &err) {
+    (void)set; (void)path; (void)offset; gen = 0; exists = 0;
+    err = "commit generations are not supported"; return -1;
+  }
 };
 
 class GXDLCODE_API gxReplTarget {
@@ -252,7 +275,27 @@ public:
 		     std::string &err) = 0;
   virtual int SetState(const std::string &set, const gxReplStreamState &s,
 		       std::string &err) = 0;
+  // 11/10/2026: Mark a copy's commit block in progress: write "gen" (odd) at
+  // "offset" of the copy's file, synced, before a unit's files are copied
+  virtual int MarkGen(const std::string &set, const std::string &path,
+		      uint32_t offset, uint64_t gen, std::string &err) {
+    (void)set; (void)path; (void)offset; (void)gen;
+    err = "marking a commit block is not supported"; return -1;
+  }
+  virtual int CommitGen(const std::string &set, const std::string &path,
+			uint32_t offset, uint64_t &gen, int &exists,
+			std::string &err) {
+    (void)set; (void)path; (void)offset; gen = 0; exists = 0;
+    err = "commit generations are not supported"; return -1;
+  }
 };
+
+// 11/10/2026: The folders of a commit_block set's copy that are not one
+// whole commit: a commit block with an odd generation (a copy in progress,
+// or one that stopped half way) or database files with no commit block.
+// A fail over must not promote such a copy ("gxrepl torn", exit 1).
+// Returns the count of folders checked; "torn" lists "folder: why".
+GXDLCODE_API int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn);
 
 // The sets of this node, as source and as copy
 class GXDLCODE_API gxReplLocal : public gxReplSource, public gxReplTarget {
@@ -275,6 +318,10 @@ public:
 	    std::string &err) override;
   int Hashes(const std::string &set, const std::string &path, uint32_t piece,
 	     std::vector<uint64_t> &h, int &exists, std::string &err) override;
+  int CommitGen(const std::string &set, const std::string &path, uint32_t offset,
+		uint64_t &gen, int &exists, std::string &err) override;
+  int MarkGen(const std::string &set, const std::string &path, uint32_t offset,
+	      uint64_t gen, std::string &err) override;
   int ApplyLog(const std::string &set, const std::string &stream,
 	       const std::string &log_id,
 	       const std::vector<unsigned char> &records,
@@ -365,6 +412,10 @@ public:
 		     std::string &err);
   int Hashes(const std::string &set, const std::string &path, uint32_t piece,
 	     std::vector<uint64_t> &h, int &exists, std::string &err);
+  int CommitGen(const std::string &set, const std::string &path, uint32_t offset,
+		uint64_t &gen, int &exists, std::string &err) override;
+  int MarkGen(const std::string &set, const std::string &path, uint32_t offset,
+	      uint64_t gen, std::string &err);
   int ApplyLog(const std::string &set, const std::string &stream,
 	       const std::string &log_id,
 	       const std::vector<unsigned char> &records,
@@ -411,6 +462,14 @@ public:
   int Hashes(const std::string &set, const std::string &path, uint32_t piece,
 	     std::vector<uint64_t> &h, int &exists, std::string &err) override {
     return remote.Hashes(set, path, piece, h, exists, err);
+  }
+  int CommitGen(const std::string &set, const std::string &path, uint32_t offset,
+		uint64_t &gen, int &exists, std::string &err) override {
+    return remote.CommitGen(set, path, offset, gen, exists, err);
+  }
+  int MarkGen(const std::string &set, const std::string &path, uint32_t offset,
+	      uint64_t gen, std::string &err) override {
+    return remote.MarkGen(set, path, offset, gen, err);
   }
   int ApplyLog(const std::string &set, const std::string &stream,
 	       const std::string &log_id,
@@ -495,6 +554,11 @@ struct gxReplSetStatus {
     bytes_sent{0}, deletes{0}, verifies{0};
   std::map<std::string, std::pair<unsigned long long, unsigned long long> >
     streams; // name -> (source next lsn - 1, copy lsn)
+  // 11/10/2026: the source's <root>/.gxrepl and its ship logs (bytes), and a
+  // warning (the ship logs reached ship_log_max_total)
+  std::atomic<unsigned long long> gxrepl_bytes{0}, ship_log_bytes{0};
+  std::string warn;                       // kept an hour after the cap was last reached
+  long long warn_time = 0;
   std::mutex m;
 };
 
@@ -516,6 +580,9 @@ private:
 	   std::string &err);
   int run_sets(gxReplRemote &remote, bool once, const std::string &only_set,
 	       std::string &err);
+  int sync_unit(gxReplSource &src, gxReplTarget &tgt, const gxReplSetConfig &sc,
+		const std::vector<const gxReplFile *> &files, const std::string &cb_path,
+		gxReplSetStatus &st, std::string &err);
   int sync_set(gxReplSource &src, gxReplTarget &tgt,
 	       const gxReplSetConfig &sc, bool once, std::string &err);
   int sync_file(gxReplSource &src, gxReplTarget &tgt, const std::string &set,

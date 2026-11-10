@@ -182,6 +182,38 @@ static int write_atomic(const std::string &path, const std::string &s)
   return 0;
 }
 
+// 11/10/2026: helpers for the commit-block units and the .gxrepl size
+static std::string dir_of(const std::string &rel)
+{
+  size_t k = rel.find_last_of('/');
+  return k == std::string::npos ? std::string() : rel.substr(0, k);
+}
+
+static std::string base_of(const std::string &rel)
+{
+  size_t k = rel.find_last_of('/');
+  return k == std::string::npos ? rel : rel.substr(k + 1);
+}
+
+static unsigned long long dir_bytes(const std::string &path)
+{
+  unsigned long long n = 0;
+  DIR *d = opendir(path.c_str());
+  if(!d) return 0;
+  struct dirent *e;
+  while((e = readdir(d)) != 0) {
+    std::string name = e->d_name;
+    if(name == "." || name == "..") continue;
+    std::string p = path + "/" + name;
+    struct stat st;
+    if(lstat(p.c_str(), &st) != 0) continue;
+    if(S_ISDIR(st.st_mode)) n += dir_bytes(p);
+    else if(S_ISREG(st.st_mode)) n += (unsigned long long)st.st_size;
+  }
+  closedir(d);
+  return n;
+}
+
 static std::string json_str(const std::string &s)
 {
   std::string o = "\"";
@@ -287,7 +319,7 @@ static const uint32_t have_zlib = 0;
 
 enum {
   OP_HELLO = 1, OP_STREAMS = 10, OP_READLOG = 11, OP_SMANIFEST = 12,
-  OP_DIFF = 13, OP_STATE = 20, OP_TMANIFEST = 21, OP_HASHES = 22,
+  OP_DIFF = 13, OP_COMMITGEN = 14, OP_MARKGEN = 15, OP_STATE = 20, OP_TMANIFEST = 21, OP_HASHES = 22,
   OP_APPLYLOG = 23, OP_APPLYFILES = 24, OP_DELETE = 25, OP_SETSTATE = 26,
   OP_OK = 100, OP_ERR = 101
 };
@@ -473,6 +505,16 @@ int gxReplConfig::Load(const std::string &fname, std::string &err)
       else if(k == "writer_lock") { auto l = split_list(v); cur->writer_locks.insert(cur->writer_locks.end(), l.begin(), l.end()); }
       else if(k == "deletes") cur->deletes = (v == "yes" || v == "true" || v == "1");
       else if(k == "include") { auto l = split_list(v); cur->include.insert(cur->include.end(), l.begin(), l.end()); }
+      else if(k == "commit_block") {         // 11/10/2026: NAME[@OFFSET] (offset of the u64 generation, default 8)
+	size_t at = v.find('@');
+	cur->commit_block = v.substr(0, at);
+	if(at != std::string::npos) cur->commit_gen_offset = (uint32_t)strtoul(v.c_str() + at + 1, 0, 10);
+	if(cur->commit_block.empty() || cur->commit_block.find('/') != std::string::npos || cur->commit_gen_offset > 4088) {
+	  fclose(f); err = fname + ":" + std::to_string(ln) + ": commit_block must be NAME@OFFSET (a file name, offset 0-4088)";
+	  return -1;
+	}
+      }
+      else if(k == "ship_log_max_total") cur->ship_log_max_total = strtoull(v.c_str(), 0, 10);
       else known = false;
     }
     else {
@@ -796,7 +838,8 @@ int gxReplLocal::Streams(const std::string &set, std::vector<gxReplStream> &v,
   std::vector<std::string> names;
   while((e = readdir(d)) != 0) {
     std::string n = e->d_name;
-    if(n == "." || n == "..") continue;
+    // 11/10/2026: dot names are never streams (.purged-<stream>-<pid> while a purge removes one)
+    if(n.empty() || n[0] == '.') continue;
     names.push_back(n);
   }
   closedir(d);
@@ -843,6 +886,7 @@ int gxReplLocal::ReadLog(const std::string &set, const std::string &stream,
   int rc = rd->Read(from, max_bytes, out, next, count);
   if(rc < 0) { err = rd->Error(); return -1; }
   if(rc == 1) status = 1;
+  if(rc == 2) status = 2;   // 11/10/2026: the record at "from" is bigger than a message
   return 0;
 }
 
@@ -888,6 +932,10 @@ int gxReplLocal::Diff(const std::string &set, const gxReplDiffRequest &rq,
 
   gxdJournalReadLock rl;
   gxReplFileUpdate &u = res.update;
+  // 11/10/2026: the 4 MB / 100 ms budget of a request counts from here, so the
+  // ship-log read under the lock is part of it
+  struct timespec t_start;
+  clock_gettime(CLOCK_MONOTONIC, &t_start);
   if(cover) {
     if(!cover->journal.empty()) {
       std::string jp = cover->journal[0] == '/' ? cover->journal : s->root + "/" + cover->journal;
@@ -960,6 +1008,10 @@ int gxReplLocal::Diff(const std::string &set, const gxReplDiffRequest &rq,
   size_t sent = u.records.size();
   std::vector<unsigned char> buf(piece);
   res.more = 0;
+  // 11/10/2026: A request holds the journal read lock for at most 4 MB of
+  // reading or 100 ms, then returns (more) so the writer can commit before
+  // the next request: a verify of a large live file never stalls it.
+  unsigned long long read_bytes = 0;
   while(off < size) {
     size_t n = (size_t)std::min<unsigned long long>(piece, size - off);
     ssize_t got = pread(fd, buf.data(), n, (off_t)off);
@@ -981,7 +1033,16 @@ int gxReplLocal::Diff(const std::string &set, const gxReplDiffRequest &rq,
       res.sent++;
     }
     off += n;
+    read_bytes += n;
     if(sent >= max_bytes && off < size) { res.more = 1; break; }
+    if(off < size) {
+      struct timespec t_now;
+      clock_gettime(CLOCK_MONOTONIC, &t_now);
+      long long ms = (t_now.tv_sec - t_start.tv_sec) * 1000LL + (t_now.tv_nsec - t_start.tv_nsec) / 1000000;
+      // (Test hook GXREPL_TEST_WHOLE_FILE_LOCK=1: the old behavior, the whole file in one request, to compare)
+      static const bool whole = getenv("GXREPL_TEST_WHOLE_FILE_LOCK") != 0;
+      if(!whole && (read_bytes >= 4ULL * 1024 * 1024 || ms >= 100)) { res.more = 1; break; }
+    }
   }
   res.next = off;
   u.last = res.more ? 0 : 1;
@@ -1028,6 +1089,7 @@ int gxReplLocal::read_states(SetState_ *s,
     }
     fclose(f);
   }
+  closedir(d);   // 11/10/2026: was missing: every State() call leaked a folder handle
   return 0;
 }
 
@@ -1099,6 +1161,49 @@ int gxReplLocal::Hashes(const std::string &set, const std::string &path,
   }
   close(fd);
   return 0;
+}
+
+// 11/10/2026: The generation of a seqlock commit block (gxReplSetConfig::commit_block)
+int gxReplLocal::CommitGen(const std::string &set, const std::string &path, uint32_t offset,
+			   uint64_t &gen, int &exists, std::string &err)
+{
+  gen = 0;
+  exists = 0;
+  SetState_ *s = set_state(set, err);
+  if(!s) return -1;
+  if(offset > 4088) { err = "bad commit block offset"; return -1; }
+  std::string full;
+  if(SafePath(s->sc, path, full, err) != 0) return -1;
+  int fd = open(full.c_str(), O_RDONLY);
+  if(fd < 0) return 0;
+  uint64_t g = 0;
+  ssize_t n = pread(fd, &g, sizeof(g), (off_t)offset);
+  close(fd);
+  if(n != (ssize_t)sizeof(g)) return 0;   // shorter than the block: as if missing
+  exists = 1;
+  gen = g;
+  return 0;
+}
+
+// 11/10/2026: Mark the copy's commit block in progress (a copy of a unit is
+// under way): an odd generation, synced. A copy left odd is torn ("gxrepl torn")
+int gxReplLocal::MarkGen(const std::string &set, const std::string &path, uint32_t offset,
+			 uint64_t gen, std::string &err)
+{
+  SetState_ *s = set_state(set, err);
+  if(!s) return -1;
+  if(offset > 4088) { err = "bad commit block offset"; return -1; }
+  std::string full;
+  if(SafePath(s->sc, path, full, err) != 0) return -1;
+  std::lock_guard<std::mutex> g(s->m);
+  if(writer_active(s->sc, err)) return -1;
+  int fd = open(full.c_str(), O_WRONLY);
+  if(fd < 0) return 0;                       // no copy yet: a folder with no commit block is incomplete anyway
+  ssize_t n = pwrite(fd, &gen, sizeof(gen), (off_t)offset);
+  int rc = (n == (ssize_t)sizeof(gen) && fdatasync(fd) == 0) ? 0 : -1;
+  close(fd);
+  if(rc != 0) err = "cannot mark " + path;
+  return rc;
 }
 
 int gxReplLocal::apply_batch(SetState_ *s,
@@ -1728,6 +1833,28 @@ int gxReplRemote::Hashes(const std::string &set, const std::string &path,
   return 0;
 }
 
+int gxReplRemote::CommitGen(const std::string &set, const std::string &path, uint32_t offset,
+			    uint64_t &gen, int &exists, std::string &err)
+{
+  WBuf w; w.str(set); w.str(path); w.u32(offset);
+  std::vector<unsigned char> rep;
+  if(call(mkreq(OP_COMMITGEN, w), rep, err)) return -1;
+  RBuf r(rep.data(), rep.size());
+  exists = (int)r.u32();
+  gen = r.u64();
+  if(!r.ok) { err = "bad reply"; return -1; }
+  return 0;
+}
+
+int gxReplRemote::MarkGen(const std::string &set, const std::string &path, uint32_t offset,
+			  uint64_t gen, std::string &err)
+{
+  WBuf w; w.str(set); w.str(path); w.u32(offset); w.u64(gen);
+  std::vector<unsigned char> rep;
+  if(call(mkreq(OP_MARKGEN, w), rep, err)) return -1;
+  return 0;
+}
+
 int gxReplRemote::ApplyLog(const std::string &set, const std::string &stream_name,
 			   const std::string &log_id,
 			   const std::vector<unsigned char> &records,
@@ -1960,6 +2087,19 @@ int gxReplServer::dispatch(uint8_t op, const std::vector<unsigned char> &body,
       w.u32((uint32_t)v.size()); for(auto &x : v) enc(w, x);
       break;
     }
+    case OP_MARKGEN: {            // 11/10/2026: the copy's side only
+      std::string set = r.str(), path = r.str(); uint32_t off = r.u32(); uint64_t g = r.u64();
+      if(!r.ok) { e = "bad request"; rc = -1; break; }
+      if(!role_ok(set, true) || local.MarkGen(set, path, off, g, e) != 0) { rc = -1; break; }
+      break;
+    }
+    case OP_COMMITGEN: {          // 11/10/2026: either side of a set reads it
+      std::string set = r.str(), path = r.str(); uint32_t off = r.u32();
+      uint64_t g = 0; int exists = 0;
+      if(!(role_ok(set, true) || role_ok(set, false)) || local.CommitGen(set, path, off, g, exists, e) != 0) { rc = -1; break; }
+      w.u32((uint32_t)exists); w.u64(g);
+      break;
+    }
     case OP_HASHES: {
       std::string set = r.str(), path = r.str(); uint32_t piece = r.u32();
       std::vector<uint64_t> h; int exists = 0;
@@ -2164,6 +2304,8 @@ void gxReplClient::write_status(bool connected, const std::string &note)
       ", \"records\": " + std::to_string(st.records) + ", \"files_sent\": " + std::to_string(st.files_sent) +
       ", \"pieces_sent\": " + std::to_string(st.pieces_sent) + ", \"bytes_sent\": " + std::to_string(st.bytes_sent) +
       ", \"deletes\": " + std::to_string(st.deletes) + ", \"last_error\": " + json_str(st.last_error) +
+      ", \"gxrepl_bytes\": " + std::to_string(st.gxrepl_bytes) + ", \"ship_log_bytes\": " +
+      std::to_string(st.ship_log_bytes) + ", \"warn\": " + json_str(st.warn) +
       ", \"streams\": {";
     bool f2 = true;
     for(auto &e : st.streams) {
@@ -2190,6 +2332,28 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
     if(src.ReadLog(set, s.name, ts.lsn + 1, cfg.max_message, out, next, status, err) != 0)
       return -1;
     if(status == 1) { verify = true; return 0; }
+    if(status == 2) {
+      // 11/10/2026: the next record is bigger than a message (an osa_ingest
+      // rebuild writes one of 500 MB): never sent. The copy's position is
+      // reset, so its files are resynced in pieces from a position after it
+      // (the verify), and the records after that are drained as usual.
+      glog("set %s: stream %s: record %llu is bigger than max_message (%zu): the copy resyncs its files",
+	   set.c_str(), s.name.c_str(), ts.lsn + 1, cfg.max_message);
+      gxReplStreamState rs;
+      rs.name = s.name; rs.log_id = "resync"; rs.lsn = 0;
+      if(tgt.SetState(set, rs, err) != 0) return -1;
+      ts = rs;
+      verify = true;
+      // Every file of the stream is resynced (the stream verify), not only the
+      // one a sync_file() had in hand: the first file's pieces move the copy's
+      // position past the big record for all of them
+      auto &vl = verify_streams[set];
+      if(std::find(vl.begin(), vl.end(), s.name) == vl.end()) {
+	glog("set %s: stream %s needs a verify (a record bigger than max_message)", set.c_str(), s.name.c_str());
+	vl.push_back(s.name);
+      }
+      return 0;
+    }
     if(out.empty()) return 0;
     std::vector<gxdShipRecordView> recs;
     if(gxdParseShipRecords(out.data(), out.size(), recs) != 0) { err = "damaged log records"; return -1; }
@@ -2257,6 +2421,13 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
 	else if(res.update.mtime_ns != first_mt) torn = true;
 	if(torn) res.update.mtime_ns = 0;
       }
+      // 11/10/2026: a batch the source cut short (4 MB / 100 ms of reading, so the
+      // writer can commit) with no piece that differs: nothing to apply, read on
+      if(res.more && res.update.pieces.empty() && res.update.records.empty()) {
+	st.pieces_sent += res.sent;
+	start = res.next;
+	continue;
+      }
       std::vector<gxReplFileUpdate> ups(1, res.update);
       std::vector<int> results;
       if(tgt.ApplyFiles(set, ups, results, err) != 0) return -1;
@@ -2282,6 +2453,59 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
   }
   if(stop) return 0;
   err = "gave up on " + path + " after 6 tries (it keeps changing)";
+  return 1;
+}
+
+// 11/10/2026: One database folder with a seqlock commit block, copied so the
+// copy matches one commit: the source generation is read (even: no batch
+// writing), every file of the folder copied, the commit block last, and the
+// generation read again; any change and the folder is read again.
+int gxReplClient::sync_unit(gxReplSource &src, gxReplTarget &tgt, const gxReplSetConfig &sc,
+			    const std::vector<const gxReplFile *> &files, const std::string &cb_path,
+			    gxReplSetStatus &st, std::string &err)
+{
+  // 11/10/2026: the copy's commit block is kept odd (in progress, torn) from
+  // the first change to its files until a whole commit is in; a failed
+  // attempt copied the source's (even) block, so it is marked again
+  auto mark = [&]() -> int {
+    uint64_t tg = 0; int te = 0;
+    if(tgt.CommitGen(sc.name, cb_path, sc.commit_gen_offset, tg, te, err) != 0) return -1;
+    if(te && !(tg & 1) && tgt.MarkGen(sc.name, cb_path, sc.commit_gen_offset, tg | 1, err) != 0) return -1;
+    return 0;
+  };
+  for(int attempt = 0; attempt < 10 && !stop; attempt++) {
+    uint64_t g0 = 0, g1 = 0;
+    int exists = 0;
+    if(src.CommitGen(sc.name, cb_path, sc.commit_gen_offset, g0, exists, err) != 0) return -1;
+    if(!exists) { err = cb_path + " is gone from the source"; return 1; }
+    if(g0 & 1) { usleep(100000); continue; }        // a batch is writing: wait for it
+    // the copy is marked in progress (an odd generation) before its files change
+    if(mark() != 0) return -1;
+    bool redo = false;
+    for(auto *f : files) {
+      if(f->path == cb_path) continue;
+      std::string e;
+      int rc = sync_file(src, tgt, sc.name, f->path, 0, st, e);
+      if(rc < 0) { err = e; return -1; }
+      if(rc > 0) { redo = true; break; }
+    }
+    if(redo) { usleep(100000); continue; }
+    std::string e;
+    int rc = sync_file(src, tgt, sc.name, cb_path, 0, st, e);
+    if(rc < 0) { err = e; return -1; }
+    if(rc > 0) { usleep(100000); continue; }
+    if(src.CommitGen(sc.name, cb_path, sc.commit_gen_offset, g1, exists, err) != 0) return -1;
+    if(exists && g1 == g0) {
+      uint64_t tg = 0; int te = 0;
+      if(tgt.CommitGen(sc.name, cb_path, sc.commit_gen_offset, tg, te, err) != 0) return -1;
+      if(te && tg == g0) return 0;                 // the copy is commit g0, whole
+    }
+    if(mark() != 0) return -1;                     // not one commit: torn until the next try
+    usleep(100000);                                // it committed meanwhile: read the folder again
+  }
+  if(mark() != 0) return -1;
+  if(stop) return 0;
+  err = "gave up on " + dir_of(cb_path) + " after 10 tries (it commits faster than a copy)";
   return 1;
 }
 
@@ -2374,6 +2598,22 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
 
   // 3. Scan, and verify when due
   if(verify || cverify || now - st.last_scan >= sc.scan_interval) {
+    // 11/10/2026: The source's .gxrepl and ship logs: measured, and the ship logs capped
+    if(static_cast<gxReplSource *>(&local) == &src) {
+      unsigned long long before = 0;
+      int removed = 0;
+      st.ship_log_bytes = gxdShipLogEnforceTotal(sc.root, sc.ship_log_max_total, &before, &removed);
+      st.gxrepl_bytes = dir_bytes(sc.root + "/.gxrepl");
+      std::lock_guard<std::mutex> lg(st.m);
+      if(sc.ship_log_max_total && before > sc.ship_log_max_total) {
+	st.warn = "WARN: the ship logs reached ship_log_max_total (" + std::to_string(before) + " > " +
+	  std::to_string(sc.ship_log_max_total) + " bytes): " + std::to_string(removed) +
+	  " old segment(s) removed; a copy that needed them is verified whole";
+	st.warn_time = now;
+	glog("set %s: %s", sc.name.c_str(), st.warn.c_str());
+      }
+      else if(!st.warn.empty() && now - st.warn_time >= 3600) st.warn.clear();   // an hour under the cap
+    }
     if(!have_sm) { if(src.Manifest(sc.name, sm, err) != 0) return -1; have_sm = true; }
     std::vector<gxReplFile> tm;
     if(tgt.Manifest(sc.name, tm, err) != 0) return -1;
@@ -2383,8 +2623,48 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     for(auto &s : streams) for(auto &f : s.files) cover_of[f] = &s;
     long long recent_ns = now_ns() - (long long)sc.verify_recent_hours * 3600LL * 1000000000LL;
     int failures = 0;
+    // 11/10/2026: Folders with a seqlock commit block (commit_block) go as a unit:
+    // changed when the generation (or a file's size/mtime) differs, and copied
+    // until the source generation was even and unchanged over the whole read
+    std::set<std::string> unit_dirs;
+    if(!sc.commit_block.empty()) {
+      std::map<std::string, std::vector<const gxReplFile *> > folders;
+      for(auto &f : sm) folders[dir_of(f.path)].push_back(&f);
+      for(auto &fd : folders) {
+	if(stop) break;
+	const gxReplFile *cb = 0;
+	bool covered = false;
+	for(auto *f : fd.second) {
+	  if(base_of(f->path) == sc.commit_block) cb = f;
+	  if(cover_of.count(f->path)) covered = true;
+	}
+	if(!cb || covered) continue;                 // no commit block, or the ship log keeps it
+	unit_dirs.insert(fd.first);
+	bool changed = full || verify;
+	for(auto *f : fd.second) {
+	  auto t = tmap.find(f->path);
+	  if(t == tmap.end()) { changed = true; continue; }
+	  // 11/10/2026: the commit block goes by its generation, never its size or
+	  // mtime (a heartbeat write must not make the folder be read again)
+	  if(f == cb) continue;
+	  if(t->second->size != f->size || t->second->mtime_ns != f->mtime_ns || t->second->mode != f->mode) changed = true;
+	}
+	if(!changed) {
+	  uint64_t sg = 0, tg = 0; int se = 0, te = 0; std::string e;
+	  if(src.CommitGen(sc.name, cb->path, sc.commit_gen_offset, sg, se, e) != 0) { err = e; return -1; }
+	  if(tgt.CommitGen(sc.name, cb->path, sc.commit_gen_offset, tg, te, e) != 0) { err = e; return -1; }
+	  changed = !te || sg != tg;
+	}
+	if(!changed) continue;
+	std::string e;
+	int rc = sync_unit(src, tgt, sc, fd.second, cb->path, st, e);
+	if(rc < 0) { err = e; return -1; }
+	if(rc > 0) { failures++; { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
+      }
+    }
     for(auto &f : sm) {
       if(stop) break;
+      if(!unit_dirs.empty() && unit_dirs.count(dir_of(f.path))) continue;
       // 11/08/2026: Keep the status current during a long pass
       if(now_s() - last_status_write >= 5) write_status(pass_connected, "");
       auto t = tmap.find(f.path);
@@ -2425,6 +2705,56 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     if(failures) return 1;
   }
   return vlist.empty() ? 0 : 1;
+}
+
+// 11/10/2026: see gxrepl.h
+static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const std::string &rel,
+		      int &checked, std::vector<std::string> &torn)
+{
+  std::string dir = rel.empty() ? root : root + "/" + rel;
+  DIR *d = opendir(dir.c_str());
+  if(!d) return;
+  std::vector<std::string> subs;
+  bool has_db = false, has_cb = false;
+  struct dirent *e;
+  while((e = readdir(d)) != 0) {
+    std::string n = e->d_name;
+    if(n.empty() || n[0] == '.') continue;                 // .gxrepl, publish leftovers
+    std::string p = dir + "/" + n;
+    struct stat st;
+    if(lstat(p.c_str(), &st) != 0) continue;
+    if(S_ISDIR(st.st_mode)) { subs.push_back(rel.empty() ? n : rel + "/" + n); continue; }
+    if(!S_ISREG(st.st_mode)) continue;
+    size_t dot = n.find_last_of('.');
+    std::string ext = dot == std::string::npos ? "" : n.substr(dot);
+    if(ext == ".gxd" || ext == ".btx") has_db = true;
+    if(n == sc.commit_block) has_cb = true;
+  }
+  closedir(d);
+  if(has_db || has_cb) {
+    checked++;
+    std::string where = rel.empty() ? "." : rel;
+    if(!has_cb) torn.push_back(where + ": database files and no " + sc.commit_block);
+    else {
+      uint64_t g = 0;
+      int fd = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
+      ssize_t n = fd >= 0 ? pread(fd, &g, sizeof(g), (off_t)sc.commit_gen_offset) : -1;
+      if(fd >= 0) close(fd);
+      if(n != (ssize_t)sizeof(g)) torn.push_back(where + ": " + sc.commit_block + " is short");
+      else if(g & 1) torn.push_back(where + ": generation " + std::to_string((unsigned long long)g) +
+				    " is odd (a copy in progress, or one that stopped half way)");
+    }
+  }
+  for(auto &s : subs) torn_walk(sc, root, s, checked, torn);
+}
+
+int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn)
+{
+  torn.clear();
+  int checked = 0;
+  if(sc.commit_block.empty()) return 0;
+  torn_walk(sc, sc.root, "", checked, torn);
+  return checked;
 }
 
 unsigned long long gxReplClient::work_count() const

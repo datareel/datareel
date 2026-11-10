@@ -189,7 +189,9 @@ not call it still replicate, by scan.
 
 ## OSA
 
-- Build: `cmake -S cpp -B cpp/build && cmake --build cpp/build -j` writes `cpp/bin/gxrepl`.
+- Build: `automate/gxrepl_build.sh --apply` builds and installs `cpp/bin/gxrepl` (the old one kept as
+  `gxrepl.prev` when it differs). The main `cpp/build` builds gxrepl as a compile check only and
+  leaves it in `cpp/build`; it never writes `cpp/bin/gxrepl`.
 - Run: `automate/gxrepl.sh start|stop|restart|ensure|verify|once|status|check|fg`. It loads this
   node's key from the encrypted EPDB (`drsecrets.sh gxrepl-ws` on the workstation, `gxrepl-aws`
   on AWS) and hands it to gxrepl on descriptor 3, so the key never lands in a file, an argument
@@ -198,7 +200,7 @@ not call it still replicate, by scan.
 - Certificates: `automate/gxrepl_certs.sh make --server-san DNS:aws-osa,IP:<AWS address>` makes a
   private CA and both certificates. The keys go into the EPDB records `gxrepl/ca`, `gxrepl/aws`
   and `gxrepl/workstation`, and the certificates into `~/.config/gxrepl/pki`.
-- Ship log: `osa_ingest --ship-log $OSAvar/osa_monitor` and
+- Ship log: `osa_ingest --ship-log $OSAvar/osa_monitor/realtime` and
   `osa_learn_ingest --ship-log $OSAvar/osa_learn` (both off by default).
 
 ## Tests

@@ -315,9 +315,11 @@ same plain session). On a plain session a `'L'` block closes the session.
 |---|---|---|---|
 | 1 | HELLO | `str "GXREPL", u32 protocol (3), str node, u32 sizeof(FAU) (4\|8), u32 page size (4096), u32 0x01020304, u32 zlib (0\|1)` | `u32 protocol, str node, u32 n, n x (str set, str accept), u32 zlib` |
 | 10 | STREAMS | `str set` | `u32 n, n x stream` |
-| 11 | READLOG | `str set, str stream, u64 from_lsn, u64 max_bytes` | `u32 status (0 ok, 1 gone), u64 next_lsn, bytes records` |
+| 11 | READLOG | `str set, str stream, u64 from_lsn, u64 max_bytes` | `u32 status (0 ok, 1 gone, 2 the record at from_lsn is bigger than max_bytes: the copy resyncs the stream's files), u64 next_lsn, bytes records` |
 | 12 / 21 | SMANIFEST / TMANIFEST | `str set` | `u32 n, n x file` |
-| 13 | DIFF | `str set, diffreq` | `u32 status (0 ok, 1 no file, 2 apply log first, 3 changed while read), u64 next, u32 more, u64 pieces, u64 sent, update` |
+| 13 | DIFF | `str set, diffreq` | `u32 status (0 ok, 1 no file, 2 apply log first, 3 changed while read), u64 next, u32 more, u64 pieces, u64 sent, update`. A request reads at most 4 MB or 100 ms under the journal read lock, then returns `more` |
+| 14 | COMMITGEN | `str set, str path, u32 offset` | `u32 exists, u64 generation` (the u64 at offset: a seqlock commit block's generation, `commit_block`) |
+| 15 | MARKGEN | `str set, str path, u32 offset, u64 gen` | (empty): the copy writes `gen` (odd: a unit copy in progress) at offset, synced; copy side only |
 | 20 | STATE | `str set` | `u32 n, n x streamstate` |
 | 22 | HASHES | `str set, str path, u32 piece` | `u32 exists, u32 n, n x u64 hash` |
 | 23 | APPLYLOG | `str set, str stream, str log_id, bytes records` | `u64 applied_lsn` |

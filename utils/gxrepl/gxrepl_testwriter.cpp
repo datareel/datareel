@@ -13,6 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <time.h>
 #include <algorithm>
 #include <string>
 #include <map>
@@ -335,6 +337,22 @@ static int check(const std::string &root)
     count++;
     sum += (unsigned long long)h.id * 1000003ULL + h.version;
   }
+  // 11/10/2026: a commit block, when there is one, must be at rest (even) and name this commit
+  FILE *cf = fopen((root + "/commit.bin").c_str(), "rb");
+  if(cf) {
+    unsigned char blk[24] = {0};
+    size_t got = fread(blk, 1, sizeof(blk), cf);
+    fclose(cf);
+    uint64_t g = 0, cc = 0;
+    memcpy(&g, blk + 8, 8); memcpy(&cc, blk + 16, 8);
+    uint32_t magic = 0;
+    memcpy(&magic, blk, 4);
+    if(magic == 0x42435754 && (got != sizeof(blk) || (g & 1) || cc != io.commits)) {   // only a "TWCB" block
+      printf("check: commit.bin generation %llu commits %llu, the files hold commit %llu: MISMATCH\n",
+	     (unsigned long long)g, (unsigned long long)cc, (unsigned long long)io.commits);
+      return 1;
+    }
+  }
   printf("check: %llu objects, %llu bad, index count %llu, commits %llu, %s\n",
 	 count, bad, (unsigned long long)io.count, (unsigned long long)io.commits,
 	 (bad == 0 && count == io.count && sum == io.sum) ? "OK" : "MISMATCH");
@@ -352,6 +370,20 @@ int main(int argc, char **argv)
   if(mode == "rawblock" && argc == 4) return rawblock(argv[2], argv[3]);
   if(mode == "objects" && argc == 6) return objects(argv[2], argv[3], argv[4], atoi(argv[5]));
   if(mode == "legacyobj" && argc == 3) return legacyobj(argv[2]);
+  if(mode == "purge" && (argc == 3 || argc == 4)) {
+    // 11/10/2026: purge SETROOT [STREAM]: one stream, or every stream whose journal is gone
+    if(argc == 4) {
+      std::string why;
+      int rc = datareel::gxdShipLogPurgeStream(argv[2], argv[3], why);
+      if(rc == 0) printf("removed %s\n", argv[3]); else printf("kept %s: %s\n", argv[3], why.c_str());
+      return rc < 0 ? 2 : 0;
+    }
+    std::vector<std::string> removed, held;
+    datareel::gxdShipLogPurgeOrphans(argv[2], &removed, &held);
+    for(auto &r : removed) printf("removed %s\n", r.c_str());
+    for(auto &h : held) printf("kept %s\n", h.c_str());
+    return 0;
+  }
   if(mode == "objstream" && (argc == 4 || argc == 5)) return objstream(argv[2], argv[3], argc == 5 ? atoi(argv[4]) : 0);
   if(mode == "objverify" && argc == 5) return objverify(argv[2], argv[3], argv[4]);
   if(mode == "check") return check(root);
@@ -359,6 +391,14 @@ int main(int argc, char **argv)
   unsigned long long seg_bytes = 0, max_bytes = 0;  // 11/08/2026: ship log retention tests
   int keep_days = -1;
   bool ship = true;
+  std::string ship_root = root;   // 11/10/2026: --ship-root SET: the day folder layout (ROOT inside SET)
+  // 11/10/2026: --commit-block: keep ROOT/commit.bin, a seqlock commit block like OSA's (u32 magic, u32
+  // version, u64 generation at 8: odd while a commit writes the files, u64 commits at 16), written in
+  // place (pwrite). --big N: the first commit adds one object of N bytes. --latency-out FILE: the
+  // slowest commit (Begin to Commit) in ms and the count, written at the end.
+  bool commit_block = false;
+  unsigned long long big = 0;
+  std::string latency_out;
   for(int i = 3; i < argc; i++) {
     std::string a = argv[i];
     if(a == "--commits" && i + 1 < argc) commits = atol(argv[++i]);
@@ -366,6 +406,10 @@ int main(int argc, char **argv)
     else if(a == "--sleep" && i + 1 < argc) sleep_ms = atol(argv[++i]);
     else if(a == "--seed" && i + 1 < argc) rng_state ^= strtoull(argv[++i], 0, 10) * 2654435761ULL;
     else if(a == "--no-ship") ship = false;
+    else if(a == "--ship-root" && i + 1 < argc) ship_root = argv[++i];
+    else if(a == "--commit-block") commit_block = true;
+    else if(a == "--big" && i + 1 < argc) big = strtoull(argv[++i], 0, 10);
+    else if(a == "--latency-out" && i + 1 < argc) latency_out = argv[++i];
     else if(a == "--segment" && i + 1 < argc) seg_bytes = strtoull(argv[++i], 0, 10);
     else if(a == "--keep-days" && i + 1 < argc) keep_days = atoi(argv[++i]);
     else if(a == "--max-bytes" && i + 1 < argc) max_bytes = strtoull(argv[++i], 0, 10);
@@ -387,7 +431,7 @@ int main(int argc, char **argv)
   if(j.Attach(&db) != gxDBASE_NO_ERROR || j.Attach(&ix) != gxDBASE_NO_ERROR) {
     fprintf(stderr, "attach failed\n"); return 1;
   }
-  if(ship && j.EnableShipLog(root.c_str()) != gxDBASE_NO_ERROR) {
+  if(ship && j.EnableShipLog(ship_root.c_str()) != gxDBASE_NO_ERROR) {
     fprintf(stderr, "EnableShipLog failed\n"); return 1;
   }
   if(ship && j.ShipLog()) {
@@ -406,9 +450,50 @@ int main(int argc, char **argv)
   }
   else ix.Read(&io, sizeof(io), ia);
 
+  int cbfd = -1;
+  uint64_t gen = 0;
+  if(commit_block) {
+    cbfd = open((root + "/commit.bin").c_str(), O_RDWR | O_CREAT, 0644);
+    if(cbfd < 0) { fprintf(stderr, "commit.bin\n"); return 1; }
+    unsigned char blk[4096];
+    memset(blk, 0, sizeof(blk));
+    if(pread(cbfd, blk, sizeof(blk), 0) != (ssize_t)sizeof(blk)) {
+      uint32_t magic = 0x42435754, ver = 1;     // "TWCB"
+      memcpy(blk, &magic, 4); memcpy(blk + 4, &ver, 4);
+      uint64_t c0 = io.commits; memcpy(blk + 16, &c0, 8);
+      if(pwrite(cbfd, blk, sizeof(blk), 0) != (ssize_t)sizeof(blk)) { fprintf(stderr, "commit.bin\n"); return 1; }
+    }
+    memcpy(&gen, blk + 8, 8);
+    if(gen & 1) gen++;                           // a writer died in a batch: the files were recovered
+  }
+  auto cb_write = [&](uint64_t g, bool with_commits) {
+    if(cbfd < 0) return;
+    if(pwrite(cbfd, &g, 8, 8) != 8) { }
+    if(with_commits) { uint64_t c = io.commits; if(pwrite(cbfd, &c, 8, 16) != 8) { } }
+  };
+  double worst_ms = 0;
+  long timed = 0;
   std::vector<unsigned char> buf;
   for(long c = 0; c < commits; c++) {
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    cb_write(++gen, false);                      // odd: the files are changing
     if(j.Begin() != gxDBASE_NO_ERROR) { fprintf(stderr, "begin failed\n"); return 1; }
+    if(big && c == 0) {
+      ObjHdr h;
+      memset(&h, 0, sizeof(h));
+      h.id = io.next_id++; h.version = 1; h.len = (gxUINT32)big;
+      buf.assign(sizeof(h) + big, 0);
+      for(unsigned long long i = 0; i < big; i += 4096) buf[sizeof(h) + i] = (unsigned char)rnd();
+      h.check = obj_check(h, buf.data() + sizeof(h));
+      memcpy(buf.data(), &h, sizeof(h));
+      FAU_t a = db.Alloc((__ULWORD__)buf.size());
+      if(a == (FAU_t)0 || db.Write(buf.data(), (__ULWORD__)buf.size(), a) != gxDBASE_NO_ERROR) {
+	fprintf(stderr, "big write failed\n"); return 1;
+      }
+      io.count++;
+      io.sum += (unsigned long long)h.id * 1000003ULL + h.version;
+    }
     for(long k = 0; k < per; k++) {
       ObjHdr h;
       memset(&h, 0, sizeof(h));
@@ -457,7 +542,21 @@ int main(int argc, char **argv)
     io.commits++;
     ix.Write(&io, sizeof(io), ia);
     if(j.Commit() != gxDBASE_NO_ERROR) { fprintf(stderr, "commit failed\n"); return 1; }
+    cb_write(++gen, true);                       // even: the files are this commit
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    double ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+    if(c > 0 || !big) { if(ms > worst_ms) worst_ms = ms; timed++; }   // the big first commit is not timed
+    if(!latency_out.empty() && timed > 0) {      // after every commit, so a test may stop the writer at any time
+      std::string tmp = latency_out + ".tmp";
+      FILE *lf = fopen(tmp.c_str(), "w");
+      if(lf) { fprintf(lf, "%.1f %ld\n", worst_ms, timed); fclose(lf); rename(tmp.c_str(), latency_out.c_str()); }
+    }
     if(sleep_ms) usleep((useconds_t)sleep_ms * 1000);
+  }
+  if(cbfd >= 0) close(cbfd);
+  if(!latency_out.empty()) {
+    FILE *lf = fopen(latency_out.c_str(), "w");
+    if(lf) { fprintf(lf, "%.1f %ld\n", worst_ms, timed); fclose(lf); }
   }
   j.Close();
   ix.Close();

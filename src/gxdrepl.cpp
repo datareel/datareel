@@ -235,6 +235,35 @@ static int read_small(const std::string &path, std::string &s)
   return 0;
 }
 
+// 11/10/2026: The lowest lsn every copy has applied (acked/<copy>). Fails
+// closed: an acked file that cannot be read counts as floor 0 (keep it all),
+// even when another copy ACKed more. Returns false when no copy ever ACKed.
+static bool read_ack_floor(const std::string &dir, unsigned long long &floor, bool &unreadable)
+{
+  floor = 0;
+  unreadable = false;
+  bool have = false;
+  DIR *ad = opendir((dir + "/acked").c_str());
+  if(!ad) return false;
+  struct dirent *ae;
+  while((ae = readdir(ad)) != 0) {
+    if(ae->d_name[0] == '.') continue;
+    // 11/09/2026: A crash in the middle of a write leaves <copy>.gxrtmp (found by the power loss test)
+    size_t nl = strlen(ae->d_name);
+    if(nl > 7 && strcmp(ae->d_name + nl - 7, ".gxrtmp") == 0) continue;
+    std::string v;
+    char *end = 0;
+    unsigned long long l = 0;
+    if(read_small(dir + "/acked/" + ae->d_name, v) != 0 || v.empty() ||
+       ((l = strtoull(v.c_str(), &end, 10)), end == v.c_str())) {
+      unreadable = true; l = 0;
+    }
+    if(!have || l < floor) { floor = l; have = true; }
+  }
+  closedir(ad);
+  return have;
+}
+
 static int write_small(const std::string &path, const std::string &s)
 // Atomic: a temp file, synced, renamed over the old one
 {
@@ -445,11 +474,24 @@ int gxdShipLog::Open(const char *set_root, const char *stream,
       else close(f);
     }
   }
+  // 11/10/2026: A stream whose one segment every copy has applied would
+  // never shrink (the current segment is never purged): start a new one, so
+  // the old one goes by the retention rules
+  if(fd >= 0 && seg_end > gxdShipSegmentHeaderSize) {
+    unsigned long long fl = 0;
+    bool unreadable = false;
+    if(read_ack_floor(dir, fl, unreadable) && !unreadable && next_lsn > 1 && fl >= next_lsn - 1) {
+      if(open_segment() != 0) { std::string e = error; Close(); return fail(e); }
+    }
+  }
   if(append(gxdShipOpen, 0, 0) != 0) {
     std::string e = error;
     Close();
     return fail(e);
   }
+  // 11/10/2026: The backstop: streams of this set whose database is gone
+  // (a day folder archived or removed) and that every copy has applied
+  gxdShipLogPurgeOrphans(root, 0, 0);
   return 0;
 }
 
@@ -513,22 +555,8 @@ void gxdShipLog::purge()
   // only when every copy has all its records; the size cap still wins (a
   // copy that needs a dropped record is verified whole instead).
   unsigned long long floor = 0;
-  bool have_floor = false;
-  DIR *ad = opendir((dir + "/acked").c_str());
-  if(ad) {
-    struct dirent *ae;
-    while((ae = readdir(ad)) != 0) {
-      if(ae->d_name[0] == '.') continue;
-      // 11/09/2026: A crash in the middle of a write leaves <copy>.gxrtmp (found by the power loss test)
-      size_t nl = strlen(ae->d_name);
-      if(nl > 7 && strcmp(ae->d_name + nl - 7, ".gxrtmp") == 0) continue;
-      std::string v;
-      if(read_small(dir + "/acked/" + ae->d_name, v) != 0) continue;
-      unsigned long long l = strtoull(v.c_str(), 0, 10);
-      if(!have_floor || l < floor) { floor = l; have_floor = true; }
-    }
-    closedir(ad);
-  }
+  bool unreadable = false;
+  bool have_floor = read_ack_floor(dir, floor, unreadable);
   for(size_t i = 0; i < segs.size(); i++) {
     SegF &s = segs[i];
     if(s.first == seg_first) break;
@@ -645,8 +673,8 @@ int gxdShipLogReader::Open(const std::string &stream_dir)
 {
   dir = stream_dir;
   error.clear();
-  pos_path.clear();
-  pos_off = pos_lsn = 0;
+  end_path.clear(); rd_path.clear(); idx_path.clear(); idx.clear();
+  end_off = end_lsn = rd_off = rd_lsn = 0;
   std::string s;
   if(read_small(dir + "/log.id", s) != 0 || s.size() < 16) {
     error = "no log.id in " + dir;
@@ -679,10 +707,14 @@ int gxdShipLogReader::list_segments(std::vector<Seg> &segs)
 // Walk the records of one segment from "off" (lsn "lsn"), calling
 // "fn(view, offset)" for each valid record until fn returns false.
 // Returns the offset and lsn after the last record walked.
+// 11/10/2026: "too_big", when given: a record at or after "big_from" whose
+// payload is over "big_max" stops the walk before its payload is read
+// (*too_big = 1): a reader never loads a 500 MB record to find it is too big.
 template <class F>
 static int walk_segment(int f, const std::string &log_id,
 			unsigned long long &off, unsigned long long &lsn,
-			F fn)
+			F fn, unsigned long long big_from = 0, size_t big_max = 0,
+			int *too_big = 0)
 {
   if(off == 0) {
     unsigned char h[gxdShipSegmentHeaderSize];
@@ -699,6 +731,7 @@ static int walk_segment(int f, const std::string &log_id,
     uint32_t len = sget32(rh + 24);
     if(len > gxdShipMaxPayload) break;
     if(sget64(rh + 8) != lsn) break;
+    if(too_big && lsn >= big_from && (size_t)len + sizeof(rh) > big_max) { *too_big = 1; return 0; }
     rec.resize(sizeof(rh) + len);
     memcpy(rec.data(), rh, sizeof(rh));
     if(len && pread(f, rec.data() + sizeof(rh), len,
@@ -721,21 +754,25 @@ int gxdShipLogReader::scan_end(const std::vector<Seg> &segs,
   int f = open(last.path.c_str(), O_RDONLY);
   if(f < 0) { error = "cannot open " + last.path; return -1; }
   unsigned long long off = 0, lsn = last.first;
-  if(pos_path == last.path && pos_lsn >= last.first) {
-    off = pos_off; lsn = pos_lsn;
+  if(end_path == last.path && end_lsn >= last.first) {
+    off = end_off; lsn = end_lsn;
   }
+  unsigned long long at = off;
   int rc = walk_segment(f, log_id, off, lsn,
-			[](const std::vector<unsigned char> &,
-			   unsigned long long) { return true; });
+			[&](const std::vector<unsigned char> &rec, unsigned long long l) {
+			  if(at < gxdShipSegmentHeaderSize) at = gxdShipSegmentHeaderSize;
+			  index_add(last.path, l, at);
+			  at += rec.size();
+			  return true; });
   close(f);
   if(rc != 0) {
     // A segment of another log id: nothing readable after it
     next = last.first;
     return 0;
   }
-  pos_path = last.path;
-  pos_off = off;
-  pos_lsn = lsn;
+  end_path = last.path;
+  end_off = off;
+  end_lsn = lsn;
   next = lsn;
   return 0;
 }
@@ -750,7 +787,7 @@ int gxdShipLogReader::GetInfo(Info &info)
   }
   if(s.substr(0, 16) != log_id) {
     log_id = s.substr(0, 16); // The log was made again
-    pos_path.clear();
+    end_path.clear(); rd_path.clear(); idx_path.clear(); idx.clear();
   }
   info.log_id = log_id;
   if(read_small(dir + "/journal", s) == 0) {
@@ -796,12 +833,23 @@ int gxdShipLogReader::Read(unsigned long long from, size_t max_bytes,
       return -1;
     }
     unsigned long long off = 0, lsn = segs[i].first;
-    if(pos_path == segs[i].path && pos_lsn <= from && pos_lsn >= lsn) {
-      off = pos_off; lsn = pos_lsn;
+    // 11/10/2026: start at the last read's place, else the nearest indexed record at or before "from"
+    if(rd_path == segs[i].path && rd_lsn <= from && rd_lsn >= lsn) {
+      off = rd_off; lsn = rd_lsn;
     }
-    int full = 0;
+    if(idx_path == segs[i].path && !idx.empty()) {
+      auto it = idx.upper_bound(from);
+      if(it != idx.begin()) {
+	--it;
+	if(it->first > lsn || off == 0) { lsn = it->first; off = it->second; }
+      }
+    }
+    int full = 0, big = 0;
+    unsigned long long at = off < gxdShipSegmentHeaderSize ? gxdShipSegmentHeaderSize : off;
     int rc = walk_segment(f, log_id, off, lsn,
       [&](const std::vector<unsigned char> &rec, unsigned long long l) {
+	index_add(segs[i].path, l, at);
+	at += rec.size();
 	if(l < from) return true;
 	if(count > 0 && out.size() + rec.size() > max_bytes) {
 	  full = 1;
@@ -811,19 +859,209 @@ int gxdShipLogReader::Read(unsigned long long from, size_t max_bytes,
 	count++;
 	next = l + 1;
 	return true;
-      });
+      }, from, max_bytes, &big);
     close(f);
+    if(big && count == 0) { next = from; return 2; }   // 11/10/2026: the record at "from" is bigger than max_bytes
+    if(big) return 0;                                  // a big one after some: send these first
     if(rc != 0) {
       if(count == 0) return 1; // A segment of another log id
       return 0;
     }
-    pos_path = segs[i].path;
-    pos_off = off;
-    pos_lsn = lsn;
+    rd_path = segs[i].path;
+    rd_off = off;
+    rd_lsn = lsn;
     if(full) return 0;
   }
   if(count == 0 && next < from) next = from;
   return 0;
+}
+
+
+void gxdShipLogReader::index_add(const std::string &path, unsigned long long lsn, unsigned long long off)
+{
+  if(idx_path != path) { idx.clear(); idx_path = path; }
+  // Every 16th record (and a segment's first), at most 1M entries
+  if((lsn % 16 == 0 || idx.empty()) && idx.size() < 1000000) idx[lsn] = off;
+}
+
+// 11/10/2026: Stream retention when a database goes away
+// ------------------------------------------------------
+// A stream's log is removed only when nothing can need it: its writer is
+// gone (writer.lock is free) and every copy that ACKed it (acked/<copy>)
+// has applied its last record. A stream no copy has ACKed is kept: the
+// copy may not have seen it yet. The folder is renamed first, so a reader
+// never sees half of it, then removed.
+static int remove_tree(const std::string &path)
+{
+  DIR *d = opendir(path.c_str());
+  if(!d) return unlink(path.c_str()) == 0 || errno == ENOENT ? 0 : -1;
+  struct dirent *e;
+  int rc = 0;
+  while((e = readdir(d)) != 0) {
+    std::string n = e->d_name;
+    if(n == "." || n == "..") continue;
+    std::string p = path + "/" + n;
+    struct stat st;
+    if(lstat(p.c_str(), &st) != 0) continue;
+    if(S_ISDIR(st.st_mode)) { if(remove_tree(p) != 0) rc = -1; }
+    else if(unlink(p.c_str()) != 0) rc = -1;
+  }
+  closedir(d);
+  if(rmdir(path.c_str()) != 0) rc = -1;
+  return rc;
+}
+
+int gxdShipLogPurgeStream(const std::string &set_root, const std::string &stream,
+			  std::string &why)
+{
+  why.clear();
+  if(stream.empty() || stream[0] == '.' || stream.find('/') != std::string::npos) {
+    why = "bad stream name"; return -1;
+  }
+  std::string root = real_path(set_root);
+  if(root.empty()) { why = "no such folder: " + set_root; return -1; }
+  std::string logdir = root + "/.gxrepl/log", dir = logdir + "/" + stream;
+  struct stat st;
+  if(stat(dir.c_str(), &st) != 0) { why = "no such stream"; return 1; }
+  int lk = open((dir + "/writer.lock").c_str(), O_RDWR | O_CREAT, 0640);
+  if(lk < 0) { why = "cannot open its writer.lock"; return -1; }
+  if(flock(lk, LOCK_EX | LOCK_NB) != 0) { close(lk); why = "its writer is open"; return 1; }
+  // 11/10/2026: Fail closed: a stream whose log cannot be read (no log.id, a
+  // damaged segment) is kept, never taken as empty
+  std::string idv;
+  if(read_small(dir + "/log.id", idv) != 0 || idv.size() < 16) { close(lk); why = "no log.id (kept: cannot tell what it holds)"; return 1; }
+  // Every segment's header must be whole and name this log
+  {
+    DIR *sd = opendir(dir.c_str());
+    struct dirent *se;
+    while(sd && (se = readdir(sd)) != 0) {
+      std::string n = se->d_name;
+      if(n.size() != 20 || n.compare(16, 4, ".gxl") != 0) continue;
+      unsigned char h[gxdShipSegmentHeaderSize];
+      int sf = open((dir + "/" + n).c_str(), O_RDONLY);
+      ssize_t got = sf >= 0 ? pread(sf, h, sizeof(h), 0) : -1;
+      if(sf >= 0) close(sf);
+      if(got != (ssize_t)sizeof(h) || memcmp(h, gxdShipSegMagic, 8) != 0 || memcmp(h + 8, idv.data(), 16) != 0) {
+	closedir(sd); close(lk);
+	why = "its log cannot be read (kept): segment " + n + " is damaged";
+	return 1;
+      }
+    }
+    if(sd) closedir(sd);
+  }
+  gxdShipLogReader rd;
+  gxdShipLogReader::Info info;
+  if(rd.Open(dir) != 0 || rd.GetInfo(info) != 0) { close(lk); why = "its log cannot be read (kept): " + rd.Error(); return 1; }
+  unsigned long long last = info.next_lsn ? info.next_lsn - 1 : 0;
+  unsigned long long floor = 0;
+  bool unreadable = false;
+  bool have = read_ack_floor(dir, floor, unreadable);
+  if(unreadable) { close(lk); why = "an acked/<copy> file cannot be read (kept: a copy may need it)"; return 1; }
+  if(have && floor < last) {
+    close(lk);
+    why = "a copy has applied up to " + std::to_string(floor) + " of " + std::to_string(last);
+    return 1;
+  }
+  int acked = have ? 1 : 0;
+  if(acked == 0 && last > 0) { close(lk); why = "no copy has acknowledged it yet"; return 1; }
+  std::string gone = logdir + "/.purged-" + stream + "-" + std::to_string((long)getpid());
+  if(rename(dir.c_str(), gone.c_str()) != 0) { close(lk); why = "cannot rename it"; return -1; }
+  close(lk);
+  int dfd = open(logdir.c_str(), O_RDONLY);
+  if(dfd >= 0) { fsync(dfd); close(dfd); }
+  if(remove_tree(gone) != 0) { why = "renamed to " + gone + " but not all removed"; return -1; }
+  return 0;
+}
+
+int gxdShipLogPurgeOrphans(const std::string &set_root, std::vector<std::string> *removed,
+			   std::vector<std::string> *held)
+{
+  std::string root = real_path(set_root);
+  if(root.empty()) return 0;
+  std::string logdir = root + "/.gxrepl/log";
+  DIR *d = opendir(logdir.c_str());
+  if(!d) return 0;
+  std::vector<std::string> names;
+  struct dirent *e;
+  while((e = readdir(d)) != 0) {
+    std::string n = e->d_name;
+    if(n[0] == '.') continue;
+    names.push_back(n);
+  }
+  closedir(d);
+  int n_removed = 0;
+  for(auto &n : names) {
+    std::string j;
+    if(read_small(logdir + "/" + n + "/journal", j) != 0) continue;   // not a stream, or not written yet
+    while(!j.empty() && (j.back() == '\n' || j.back() == '\r')) j.pop_back();
+    if(j.empty()) continue;
+    std::string jfull = j[0] == '/' ? j : root + "/" + j;
+    struct stat st;
+    if(stat(jfull.c_str(), &st) == 0) continue;                      // its database is still here
+    std::string why;
+    int rc = gxdShipLogPurgeStream(root, n, why);
+    if(rc == 0) { n_removed++; if(removed) removed->push_back(n); }
+    else if(held) held->push_back(n + ": " + why);
+  }
+  return n_removed;
+}
+
+
+// 11/10/2026: The ship logs of a set together may use at most max_total
+// bytes: the oldest segments of all its streams go first (never a stream's
+// newest one, which its writer appends to). A copy that needed a removed
+// record finds its position below the log's first lsn and is verified
+// whole. max_total 0 only measures. Returns the bytes left; "before" gets
+// the bytes found, "removed" the segments removed.
+unsigned long long gxdShipLogEnforceTotal(const std::string &set_root, unsigned long long max_total,
+					  unsigned long long *before, int *removed)
+{
+  if(before) *before = 0;
+  if(removed) *removed = 0;
+  std::string logdir = set_root + "/.gxrepl/log";
+  DIR *d = opendir(logdir.c_str());
+  if(!d) return 0;
+  struct Seg { std::string path; unsigned long long size; time_t mtime; };
+  std::vector<Seg> old;
+  unsigned long long total = 0;
+  struct dirent *e;
+  std::vector<std::string> streams;
+  while((e = readdir(d)) != 0) {
+    std::string n = e->d_name;
+    if(n.empty() || n[0] == '.') continue;
+    streams.push_back(n);
+  }
+  closedir(d);
+  for(auto &s : streams) {
+    std::string sd = logdir + "/" + s;
+    DIR *sdd = opendir(sd.c_str());
+    if(!sdd) continue;
+    std::vector<Seg> segs;
+    while((e = readdir(sdd)) != 0) {
+      std::string n = e->d_name;
+      if(n.size() != 20 || n.compare(16, 4, ".gxl") != 0) continue;
+      struct stat st;
+      if(stat((sd + "/" + n).c_str(), &st) != 0) continue;
+      segs.push_back(Seg{sd + "/" + n, (unsigned long long)st.st_size, st.st_mtime});
+      total += (unsigned long long)st.st_size;
+    }
+    closedir(sdd);
+    std::sort(segs.begin(), segs.end(), [](const Seg &a, const Seg &b) { return a.path < b.path; });
+    if(!segs.empty()) segs.pop_back();                 // the newest: its writer appends to it
+    old.insert(old.end(), segs.begin(), segs.end());
+  }
+  if(before) *before = total;
+  if(max_total == 0 || total <= max_total) return total;
+  std::sort(old.begin(), old.end(), [](const Seg &a, const Seg &b) {
+    return a.mtime != b.mtime ? a.mtime < b.mtime : a.path < b.path; });
+  for(auto &s : old) {
+    if(total <= max_total) break;
+    if(unlink(s.path.c_str()) == 0 || errno == ENOENT) {
+      total = total > s.size ? total - s.size : 0;
+      if(removed) (*removed)++;
+    }
+  }
+  return total;
 }
 
 #else // __WIN32__
@@ -842,6 +1080,14 @@ int gxdShipLogReader::GetInfo(Info &) { return -1; }
 int gxdShipLogReader::Read(unsigned long long, size_t,
 			   std::vector<unsigned char> &, unsigned long long &,
 			   unsigned long &) { return -1; }
+
+int gxdShipLogPurgeStream(const std::string &, const std::string &, std::string &why)
+{ why = "replication is not supported on Windows"; return -1; }
+int gxdShipLogPurgeOrphans(const std::string &, std::vector<std::string> *, std::vector<std::string> *)
+{ return 0; }
+
+unsigned long long gxdShipLogEnforceTotal(const std::string &, unsigned long long, unsigned long long *before, int *removed)
+{ if(before) *before = 0; if(removed) *removed = 0; return 0; }
 
 #endif // __WIN32__
 
