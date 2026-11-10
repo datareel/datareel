@@ -282,6 +282,18 @@ public:
     (void)set; (void)path; (void)offset; (void)gen;
     err = "marking a commit block is not supported"; return -1;
   }
+  // 11/10/2026: Seal a unit copied whole at generation "gen": the copy hashes
+  // the folder's database files and keeps them with "gen" (written atomically,
+  // after the commit block), so "gxrepl torn" checks the content, not only the
+  // generation. SealGen: the generation a folder was sealed at (0: never).
+  virtual int SealUnit(const std::string &set, const std::string &folder,
+		       uint64_t gen, std::string &err) {
+    (void)set; (void)folder; (void)gen; err = "sealing is not supported"; return -1;
+  }
+  virtual int SealGen(const std::string &set, const std::string &folder,
+		      uint64_t &gen, std::string &err) {
+    (void)set; (void)folder; gen = 0; err = "sealing is not supported"; return -1;
+  }
   virtual int CommitGen(const std::string &set, const std::string &path,
 			uint32_t offset, uint64_t &gen, int &exists,
 			std::string &err) {
@@ -322,6 +334,8 @@ public:
 		uint64_t &gen, int &exists, std::string &err) override;
   int MarkGen(const std::string &set, const std::string &path, uint32_t offset,
 	      uint64_t gen, std::string &err) override;
+  int SealUnit(const std::string &set, const std::string &folder, uint64_t gen, std::string &err) override;
+  int SealGen(const std::string &set, const std::string &folder, uint64_t &gen, std::string &err) override;
   int ApplyLog(const std::string &set, const std::string &stream,
 	       const std::string &log_id,
 	       const std::vector<unsigned char> &records,
@@ -416,6 +430,8 @@ public:
 		uint64_t &gen, int &exists, std::string &err) override;
   int MarkGen(const std::string &set, const std::string &path, uint32_t offset,
 	      uint64_t gen, std::string &err);
+  int SealUnit(const std::string &set, const std::string &folder, uint64_t gen, std::string &err);
+  int SealGen(const std::string &set, const std::string &folder, uint64_t &gen, std::string &err);
   int ApplyLog(const std::string &set, const std::string &stream,
 	       const std::string &log_id,
 	       const std::vector<unsigned char> &records,
@@ -470,6 +486,12 @@ public:
   int MarkGen(const std::string &set, const std::string &path, uint32_t offset,
 	      uint64_t gen, std::string &err) override {
     return remote.MarkGen(set, path, offset, gen, err);
+  }
+  int SealUnit(const std::string &set, const std::string &folder, uint64_t gen, std::string &err) override {
+    return remote.SealUnit(set, folder, gen, err);
+  }
+  int SealGen(const std::string &set, const std::string &folder, uint64_t &gen, std::string &err) override {
+    return remote.SealGen(set, folder, gen, err);
   }
   int ApplyLog(const std::string &set, const std::string &stream,
 	       const std::string &log_id,

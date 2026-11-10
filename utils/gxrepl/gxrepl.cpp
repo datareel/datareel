@@ -21,8 +21,14 @@
 // memory file (memfd), never in a file on disk.
 //
 // Exit codes: 0 ok, 1 a set is not in step (once), 2 error, 64 usage.
+#ifdef GXREPL_STAMPED                // 11/10/2026: gxrepl_version.cmake writes these at build time
+extern const char *gxrepl_git_head();
+extern const char *gxrepl_build_time();
+#define GXREPL_GIT_HEAD gxrepl_git_head()
+#define GXREPL_BUILD_TIME gxrepl_build_time()
+#endif
 #ifndef GXREPL_GIT_HEAD
-#define GXREPL_GIT_HEAD "unknown"    // 11/10/2026: set by gxrepl_version.cmake
+#define GXREPL_GIT_HEAD "unknown"
 #endif
 #ifndef GXREPL_BUILD_TIME
 #define GXREPL_BUILD_TIME "unknown"

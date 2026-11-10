@@ -319,7 +319,7 @@ static const uint32_t have_zlib = 0;
 
 enum {
   OP_HELLO = 1, OP_STREAMS = 10, OP_READLOG = 11, OP_SMANIFEST = 12,
-  OP_DIFF = 13, OP_COMMITGEN = 14, OP_MARKGEN = 15, OP_STATE = 20, OP_TMANIFEST = 21, OP_HASHES = 22,
+  OP_DIFF = 13, OP_COMMITGEN = 14, OP_MARKGEN = 15, OP_SEALUNIT = 16, OP_SEALGEN = 17, OP_STATE = 20, OP_TMANIFEST = 21, OP_HASHES = 22,
   OP_APPLYLOG = 23, OP_APPLYFILES = 24, OP_DELETE = 25, OP_SETSTATE = 26,
   OP_OK = 100, OP_ERR = 101
 };
@@ -678,6 +678,87 @@ static bool is_db_file(const gxReplSetConfig &sc, const std::string &rel)
   }
   return false;
 }
+
+// 11/10/2026: A unit's seal: <root>/.gxrepl/units/<folder key>: "copying"
+// from the first mark of a copy (MarkGen), then, written atomically before
+// the commit block lands, "gen G" and, per database file of the
+// folder (not the commit block, not derived), "path<TAB>size<TAB>hash". A copy
+// is whole when its commit block's generation is G and every file matches.
+static std::string unit_key(const std::string &rel)
+{
+  std::string n = rel.empty() ? std::string("_root") : "_" + rel;
+  for(auto &c : n) if(c == '/') c = '#';
+  return n;
+}
+
+static int file_hash(const std::string &path, unsigned long long &size, uint64_t &h)
+{
+  int fd = open(path.c_str(), O_RDONLY);
+  if(fd < 0) return -1;
+  std::vector<unsigned char> b(1 << 20);
+  h = 0x5EA1ULL; size = 0;
+  ssize_t n;
+  while((n = read(fd, b.data(), b.size())) > 0) { h = gxdReplHash(b.data(), (size_t)n, h); size += (unsigned long long)n; }
+  close(fd);
+  return n < 0 ? -1 : 0;
+}
+
+// The files of a unit folder a seal lists, sorted
+static std::vector<std::string> unit_files(const gxReplSetConfig &sc, const std::string &root, const std::string &rel)
+{
+  std::vector<std::string> out;
+  std::string dir = rel.empty() ? root : root + "/" + rel;
+  DIR *d = opendir(dir.c_str());
+  if(!d) return out;
+  struct dirent *e;
+  while((e = readdir(d)) != 0) {
+    std::string n = e->d_name;
+    if(n.empty() || n[0] == '.' || n == sc.commit_block) continue;
+    struct stat st;
+    if(lstat((dir + "/" + n).c_str(), &st) != 0 || !S_ISREG(st.st_mode)) continue;
+    std::string r = rel.empty() ? n : rel + "/" + n;
+    if(!is_db_file(sc, r) || excluded(sc, r)) continue;
+    out.push_back(r);
+  }
+  closedir(d);
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+static std::string unit_manifest(const gxReplSetConfig &sc, const std::string &root, const std::string &rel,
+				 uint64_t gen, bool &ok)
+{
+  ok = true;
+  std::string m = "gen " + std::to_string((unsigned long long)gen) + "\n";
+  for(auto &r : unit_files(sc, root, rel)) {
+    unsigned long long size = 0; uint64_t h = 0;
+    if(file_hash(root + "/" + r, size, h) != 0) { ok = false; continue; }
+    char hx[17]; snprintf(hx, sizeof(hx), "%016llx", (unsigned long long)h);
+    m += r + "\t" + std::to_string(size) + "\t" + hx + "\n";
+  }
+  return m;
+}
+
+// "": sealed and the same; else why not
+static std::string unit_seal_check(const gxReplSetConfig &sc, const std::string &rel, uint64_t gen)
+{
+  std::string path = sc.root + "/.gxrepl/units/" + unit_key(rel), have;
+  FILE *f = fopen(path.c_str(), "rb");
+  if(!f) return "never sealed (no whole copy since the seal was added)";
+  char b[65536]; size_t n;
+  while((n = fread(b, 1, sizeof(b), f)) > 0) have.append(b, n);
+  fclose(f);
+  unsigned long long sg = 0;
+  if(have.compare(0, 7, "copying") == 0) return "a copy of it is under way, or stopped half way";
+  if(sscanf(have.c_str(), "gen %llu", &sg) != 1) return "a damaged seal";
+  if(sg != gen) return "sealed at generation " + std::to_string(sg) + ", the commit block says " + std::to_string((unsigned long long)gen);
+  bool ok = true;
+  std::string now = unit_manifest(sc, sc.root, rel, gen, ok);
+  if(!ok) return "a file cannot be read";
+  if(now != have) return "its files differ from the seal of generation " + std::to_string(sg);
+  return "";
+}
+
 
 static void walk(const gxReplSetConfig &sc, const std::string &root,
 		 const std::string &rel, std::vector<gxReplFile> &v, int depth)
@@ -1197,6 +1278,12 @@ int gxReplLocal::MarkGen(const std::string &set, const std::string &path, uint32
   if(SafePath(s->sc, path, full, err) != 0) return -1;
   std::lock_guard<std::mutex> g(s->m);
   if(writer_active(s->sc, err)) return -1;
+  // the unit's seal says "copying" until the copy is whole again (SealUnit): the folder's own writers
+  // (osa_repl_copy.h in open_stock) refuse to open a folder sealed so with an odd generation
+  if(mkdirs(s->root + "/.gxrepl/units") != 0 ||
+     write_atomic(s->root + "/.gxrepl/units/" + unit_key(dir_of(path)), "copying\n") != 0) {
+    err = "cannot write the seal of " + dir_of(path); return -1;
+  }
   int fd = open(full.c_str(), O_WRONLY);
   if(fd < 0) return 0;                       // no copy yet: a folder with no commit block is incomplete anyway
   ssize_t n = pwrite(fd, &gen, sizeof(gen), (off_t)offset);
@@ -1204,6 +1291,36 @@ int gxReplLocal::MarkGen(const std::string &set, const std::string &path, uint32
   close(fd);
   if(rc != 0) err = "cannot mark " + path;
   return rc;
+}
+
+int gxReplLocal::SealUnit(const std::string &set, const std::string &folder, uint64_t gen, std::string &err)
+{
+  SetState_ *s = set_state(set, err);
+  if(!s) return -1;
+  if(s->sc.commit_block.empty()) { err = "set " + set + " has no commit_block"; return -1; }
+  std::string full;
+  if(SafePath(s->sc, folder.empty() ? s->sc.commit_block : folder + "/" + s->sc.commit_block, full, err) != 0) return -1;
+  std::lock_guard<std::mutex> g(s->m);
+  if(writer_active(s->sc, err)) return -1;
+  bool ok = true;
+  std::string m = unit_manifest(s->sc, s->root, folder, gen, ok);
+  if(!ok) { err = "cannot read the files of " + folder; return -1; }
+  if(mkdirs(s->root + "/.gxrepl/units") != 0 ||
+     write_atomic(s->root + "/.gxrepl/units/" + unit_key(folder), m) != 0) { err = "cannot write the seal of " + folder; return -1; }
+  return 0;
+}
+
+int gxReplLocal::SealGen(const std::string &set, const std::string &folder, uint64_t &gen, std::string &err)
+{
+  gen = 0;
+  SetState_ *s = set_state(set, err);
+  if(!s) return -1;
+  FILE *f = fopen((s->root + "/.gxrepl/units/" + unit_key(folder)).c_str(), "rb");
+  if(!f) return 0;
+  unsigned long long g = 0;
+  if(fscanf(f, "gen %llu", &g) == 1) gen = g;
+  fclose(f);
+  return 0;
 }
 
 int gxReplLocal::apply_batch(SetState_ *s,
@@ -1855,6 +1972,24 @@ int gxReplRemote::MarkGen(const std::string &set, const std::string &path, uint3
   return 0;
 }
 
+int gxReplRemote::SealUnit(const std::string &set, const std::string &folder, uint64_t gen, std::string &err)
+{
+  WBuf w; w.str(set); w.str(folder); w.u64(gen);
+  std::vector<unsigned char> rep;
+  return call(mkreq(OP_SEALUNIT, w), rep, err) ? -1 : 0;
+}
+
+int gxReplRemote::SealGen(const std::string &set, const std::string &folder, uint64_t &gen, std::string &err)
+{
+  WBuf w; w.str(set); w.str(folder);
+  std::vector<unsigned char> rep;
+  if(call(mkreq(OP_SEALGEN, w), rep, err)) return -1;
+  RBuf r(rep.data(), rep.size());
+  gen = r.u64();
+  if(!r.ok) { err = "bad reply"; return -1; }
+  return 0;
+}
+
 int gxReplRemote::ApplyLog(const std::string &set, const std::string &stream_name,
 			   const std::string &log_id,
 			   const std::vector<unsigned char> &records,
@@ -2085,6 +2220,20 @@ int gxReplServer::dispatch(uint8_t op, const std::vector<unsigned char> &body,
       std::vector<gxReplStreamState> v;
       if(!role_ok(set, true) || local.State(set, v, e) != 0) { rc = -1; break; }
       w.u32((uint32_t)v.size()); for(auto &x : v) enc(w, x);
+      break;
+    }
+    case OP_SEALUNIT: {           // 11/10/2026: the copy's side only
+      std::string set = r.str(), folder = r.str(); uint64_t g = r.u64();
+      if(!r.ok) { e = "bad request"; rc = -1; break; }
+      if(!role_ok(set, true) || local.SealUnit(set, folder, g, e) != 0) { rc = -1; break; }
+      break;
+    }
+    case OP_SEALGEN: {
+      std::string set = r.str(), folder = r.str();
+      uint64_t g = 0;
+      if(!r.ok) { e = "bad request"; rc = -1; break; }
+      if(!role_ok(set, true) || local.SealGen(set, folder, g, e) != 0) { rc = -1; break; }
+      w.u64(g);
       break;
     }
     case OP_MARKGEN: {            // 11/10/2026: the copy's side only
@@ -2470,7 +2619,8 @@ int gxReplClient::sync_unit(gxReplSource &src, gxReplTarget &tgt, const gxReplSe
   auto mark = [&]() -> int {
     uint64_t tg = 0; int te = 0;
     if(tgt.CommitGen(sc.name, cb_path, sc.commit_gen_offset, tg, te, err) != 0) return -1;
-    if(te && !(tg & 1) && tgt.MarkGen(sc.name, cb_path, sc.commit_gen_offset, tg | 1, err) != 0) return -1;
+    // always: the target also turns the unit's seal into "copying" (a writer refuses to open such a folder)
+    if(tgt.MarkGen(sc.name, cb_path, sc.commit_gen_offset, te ? (tg | 1) : 1, err) != 0) return -1;
     return 0;
   };
   for(int attempt = 0; attempt < 10 && !stop; attempt++) {
@@ -2490,15 +2640,33 @@ int gxReplClient::sync_unit(gxReplSource &src, gxReplTarget &tgt, const gxReplSe
       if(rc > 0) { redo = true; break; }
     }
     if(redo) { usleep(100000); continue; }
-    std::string e;
-    int rc = sync_file(src, tgt, sc.name, cb_path, 0, st, e);
-    if(rc < 0) { err = e; return -1; }
-    if(rc > 0) { usleep(100000); continue; }
-    if(src.CommitGen(sc.name, cb_path, sc.commit_gen_offset, g1, exists, err) != 0) return -1;
-    if(exists && g1 == g0) {
+    // 11/10/2026: the commit block, read ONCE: its own generation must be g0
+    // (even: no batch began since the files were read), and those very bytes
+    // are written last, after the data files (their apply syncs them) and
+    // the unit's seal (the hashes of its files)
+    gxReplDiffRequest rq;
+    rq.path = cb_path;
+    rq.max_bytes = cfg.max_message;
+    gxReplDiffResult res;
+    if(src.Diff(sc.name, rq, res, err) != 0) return -1;
+    uint64_t inside = 0;
+    bool whole = res.status == 0 && !res.more && !res.update.pieces.empty() &&
+      res.update.pieces[0].offset == 0 && res.update.pieces[0].data.size() >= sc.commit_gen_offset + 8;
+    if(whole) memcpy(&inside, res.update.pieces[0].data.data() + sc.commit_gen_offset, 8);
+    if(!whole || inside != g0) { if(mark() != 0) return -1; usleep(100000); continue; }
+    // The seal before the commit block, while the copy is still marked odd: a stop between the two leaves an
+    // odd (refused) copy, never a whole copy with a stale seal
+    if(tgt.SealUnit(sc.name, dir_of(cb_path), g0, err) != 0) return -1;
+    std::vector<gxReplFileUpdate> ups(1, res.update);
+    std::vector<int> results;
+    if(tgt.ApplyFiles(sc.name, ups, results, err) != 0) return -1;
+    if(results.empty() || results[0] != 0) { if(mark() != 0) return -1; usleep(100000); continue; }
+    st.files_sent++;
+    (void)g1;
+    {
       uint64_t tg = 0; int te = 0;
       if(tgt.CommitGen(sc.name, cb_path, sc.commit_gen_offset, tg, te, err) != 0) return -1;
-      if(te && tg == g0) return 0;                 // the copy is commit g0, whole
+      if(te && tg == g0) return 0;                 // the copy is commit g0, whole and sealed
     }
     if(mark() != 0) return -1;                     // not one commit: torn until the next try
     usleep(100000);                                // it committed meanwhile: read the folder again
@@ -2650,10 +2818,12 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
 	  if(t->second->size != f->size || t->second->mtime_ns != f->mtime_ns || t->second->mode != f->mode) changed = true;
 	}
 	if(!changed) {
-	  uint64_t sg = 0, tg = 0; int se = 0, te = 0; std::string e;
+	  uint64_t sg = 0, tg = 0, sealed = 0; int se = 0, te = 0; std::string e;
 	  if(src.CommitGen(sc.name, cb->path, sc.commit_gen_offset, sg, se, e) != 0) { err = e; return -1; }
 	  if(tgt.CommitGen(sc.name, cb->path, sc.commit_gen_offset, tg, te, e) != 0) { err = e; return -1; }
-	  changed = !te || sg != tg;
+	  // 11/10/2026: a copy not sealed at its own generation is copied (and sealed) again
+	  if(tgt.SealGen(sc.name, fd.first, sealed, e) != 0) { err = e; return -1; }
+	  changed = !te || sg != tg || sealed != tg;
 	}
 	if(!changed) continue;
 	std::string e;
@@ -2743,6 +2913,11 @@ static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const 
       if(n != (ssize_t)sizeof(g)) torn.push_back(where + ": " + sc.commit_block + " is short");
       else if(g & 1) torn.push_back(where + ": generation " + std::to_string((unsigned long long)g) +
 				    " is odd (a copy in progress, or one that stopped half way)");
+      else {
+	// 11/10/2026: an even generation is not enough: the files must be the sealed ones
+	std::string why = unit_seal_check(sc, rel, g);
+	if(!why.empty()) torn.push_back(where + ": " + why);
+      }
     }
   }
   for(auto &s : subs) torn_walk(sc, root, s, checked, torn);

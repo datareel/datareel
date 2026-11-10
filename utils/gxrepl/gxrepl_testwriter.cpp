@@ -311,6 +311,38 @@ static gxUINT32 obj_check(const ObjHdr &h, const unsigned char *p)
   return (gxUINT32)(x ^ (x >> 32));
 }
 
+// 11/10/2026: a file's content hash (gxdReplHash over 1 MB reads), 0 if missing
+static uint64_t content_hash(const std::string &path)
+{
+  int fd = open(path.c_str(), O_RDONLY);
+  if(fd < 0) return 0;
+  std::vector<unsigned char> b(1 << 20);
+  uint64_t h = 0x5EA1ULL;
+  ssize_t n;
+  while((n = read(fd, b.data(), b.size())) > 0) h = datareel::gxdReplHash(b.data(), (size_t)n, h);
+  close(fd);
+  return h;
+}
+
+static uint64_t read_gen(const std::string &root)
+{
+  uint64_t g = ~0ULL;
+  int fd = open((root + "/commit.bin").c_str(), O_RDONLY);
+  if(fd >= 0) { if(pread(fd, &g, 8, 8) != 8) g = ~0ULL; close(fd); }
+  return g;
+}
+
+// hashes DIR: "<generation> <data.gxd hash> <index.gxd hash>", or "unstable" when the generation moved meanwhile
+static int hashes(const std::string &root)
+{
+  uint64_t g0 = read_gen(root);
+  uint64_t hd = content_hash(root + "/data.gxd"), hi = content_hash(root + "/index.gxd");
+  uint64_t g1 = read_gen(root);
+  if(g0 != g1) { printf("unstable\n"); return 0; }
+  printf("%llu %016llx %016llx\n", (unsigned long long)g0, (unsigned long long)hd, (unsigned long long)hi);
+  return 0;
+}
+
 static int check(const std::string &root)
 {
   gxDatabase db, ix;
@@ -387,6 +419,7 @@ int main(int argc, char **argv)
   if(mode == "objstream" && (argc == 4 || argc == 5)) return objstream(argv[2], argv[3], argc == 5 ? atoi(argv[4]) : 0);
   if(mode == "objverify" && argc == 5) return objverify(argv[2], argv[3], argv[4]);
   if(mode == "check") return check(root);
+  if(mode == "hashes") return hashes(root);
   long commits = 100, per = 5, sleep_ms = 0;
   unsigned long long seg_bytes = 0, max_bytes = 0;  // 11/08/2026: ship log retention tests
   int keep_days = -1;
@@ -399,6 +432,7 @@ int main(int argc, char **argv)
   bool commit_block = false;
   unsigned long long big = 0;
   std::string latency_out;
+  std::string gen_log;            // 11/10/2026: after each commit "<generation> <data hash> <index hash>"
   for(int i = 3; i < argc; i++) {
     std::string a = argv[i];
     if(a == "--commits" && i + 1 < argc) commits = atol(argv[++i]);
@@ -410,6 +444,7 @@ int main(int argc, char **argv)
     else if(a == "--commit-block") commit_block = true;
     else if(a == "--big" && i + 1 < argc) big = strtoull(argv[++i], 0, 10);
     else if(a == "--latency-out" && i + 1 < argc) latency_out = argv[++i];
+    else if(a == "--gen-log" && i + 1 < argc) gen_log = argv[++i];
     else if(a == "--segment" && i + 1 < argc) seg_bytes = strtoull(argv[++i], 0, 10);
     else if(a == "--keep-days" && i + 1 < argc) keep_days = atoi(argv[++i]);
     else if(a == "--max-bytes" && i + 1 < argc) max_bytes = strtoull(argv[++i], 0, 10);
@@ -543,6 +578,14 @@ int main(int argc, char **argv)
     ix.Write(&io, sizeof(io), ia);
     if(j.Commit() != gxDBASE_NO_ERROR) { fprintf(stderr, "commit failed\n"); return 1; }
     cb_write(++gen, true);                       // even: the files are this commit
+    if(!gen_log.empty()) {
+      FILE *gl = fopen(gen_log.c_str(), "a");
+      if(gl) {
+	fprintf(gl, "%llu %016llx %016llx\n", (unsigned long long)gen,
+		(unsigned long long)content_hash(dn), (unsigned long long)content_hash(in));
+	fclose(gl);
+      }
+    }
     clock_gettime(CLOCK_MONOTONIC, &t1);
     double ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
     if(c > 0 || !big) { if(ms > worst_ms) worst_ms = ms; timed++; }   // the big first commit is not timed

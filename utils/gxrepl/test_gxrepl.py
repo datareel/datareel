@@ -1692,59 +1692,153 @@ def test_commit_block_heartbeat_is_not_a_change():
         env.stop()
 
 
-def watch_copy(env, ws, aws, seconds):
-    """Sample the copy's commit block while a writer runs: the distinct even generations it showed."""
-    seen = set()
+def gen_log_map(path):
+    out = {}
+    try:
+        for line in open(path):
+            g, hd, hi = line.split()
+            out[int(g)] = (hd, hi)
+    except OSError:
+        pass
+    return out
+
+
+def copy_verdict(aws, log):
+    """The copy now: "whole" (even, its content the writer's at that generation), "torn" (even, other content),
+    "odd" (marked in progress), or None (it moved while read, or a generation the log does not have)."""
+    r = run([os.path.join(BIN, "gxrepl_testwriter"), "hashes", aws]).stdout.split()
+    if len(r) != 3:
+        return None
+    g = int(r[0])
+    if g & 1:
+        return "odd"
+    if g not in log:
+        return None
+    return "whole" if (r[1], r[2]) == log[g] else "torn"
+
+
+def sample_copy(aws, gen_log, seconds, period=0.2):
+    counts = {"whole": 0, "torn": 0, "odd": 0, None: 0}
+    wholes = set()
     end = time.time() + seconds
     while time.time() < end:
-        try:
-            g = gen_of(os.path.join(aws, "commit.bin"))
-            if g % 2 == 0:
-                seen.add(g)
-        except OSError:
-            pass
-        time.sleep(0.2)
-    return seen
+        log = gen_log_map(gen_log)
+        v = copy_verdict(aws, log)
+        counts[v] += 1
+        if v == "whole":
+            wholes.add(run([os.path.join(BIN, "gxrepl_testwriter"), "hashes", aws]).stdout.split()[0])
+        time.sleep(period)
+    return counts, wholes
 
 
-def test_commit_block_converges_while_committing():
-    """11/10/2026: an unlocked writer committing in place 5 times a second on an 8 MB folder: the copy keeps
-    reaching whole commits while it runs (no lock, no ship log), and ends equal."""
-    env = Env("cb_conv", {"db": CB_OPTS})
+def test_commit_block_no_even_torn_copy():
+    """11/10/2026 (review): sampled by content (the writer logs each commit's file hashes), a commit_block copy
+    of a writer committing every 0.7 s (commits land mid-copy) is never even and torn: 121 samples, 0
+    even-but-torn, and at least 10 of them even (so the even case is tested)."""
+    env = Env("cb_samples", {"db": CB_OPTS})
     ws, aws = env.roots["db"]
-    assert writer(ws, "--commits", 3, "--big", 8 * 1024 * 1024, "--no-ship", "--commit-block").returncode == 0
+    assert writer(ws, "--commits", 2, "--big", 8 * 1024 * 1024, "--no-ship", "--commit-block").returncode == 0
     env.start_server()
     env.start_client()
+    gl = os.path.join(env.dir, "gen.log")
     try:
         wait_same(env, "db", 120)
-        w = writer_bg(ws, "--commits", 150, "--per", 2, "--sleep", 200, "--no-ship", "--commit-block", "--seed", 6)
-        seen = watch_copy(env, ws, aws, 25)
-        assert w.wait(120) == 0
-        print(f"    8 MB, 5 commits/s: the copy reached {len(seen)} whole commits in 25 s", flush=True)
-        assert len(seen) >= 5, f"the copy reached only {len(seen)} commits"
-        wait_same(env, "db", 60)
-        check_db(aws)
+        w = writer_bg(ws, "--commits", 100000, "--per", 2, "--sleep", 700, "--no-ship", "--commit-block",
+                      "--seed", 6, "--gen-log", gl)
+        counts = {"whole": 0, "torn": 0, "odd": 0, None: 0}
+        n = 0
+        end = time.time() + 120
+        while n < 121 and time.time() < end:
+            v = copy_verdict(aws, gen_log_map(gl))
+            if v is not None:
+                counts[v] += 1
+                n += 1
+            time.sleep(0.15)
+        w.kill(); w.wait()
+        print(f"    8 MB, a commit every 0.7 s: {n} samples by content: {counts['whole']} whole, {counts['odd']} marked "
+              f"in progress, {counts['torn']} even but torn", flush=True)
+        assert n >= 121, n
+        assert counts["torn"] == 0, counts
+        assert counts["whole"] >= 10, counts  # the case under test: even copies of a busy writer
     finally:
         env.stop()
 
 
-def test_commit_block_converges_large():
-    """11/10/2026: a 434 MB folder (like a realtime day) whose writer commits every 2 s, unlocked: the copy keeps
-    up with whole commits."""
-    env = Env("cb_large", {"db": CB_OPTS})
+def test_commit_block_kill_storm():
+    """11/10/2026 (review): 60 random kill -9 of the client while it copies units of a writer committing every
+    0.7 s: every copy that is not whole by content fails "gxrepl torn" (promote-check), no whole copy does,
+    and one byte changed under an even seal fails it too."""
+    env = Env("cb_kills", {"db": CB_OPTS})
     ws, aws = env.roots["db"]
-    assert writer(ws, "--commits", 2, "--big", 434 * 1024 * 1024, "--no-ship", "--commit-block").returncode == 0
+    assert writer(ws, "--commits", 2, "--big", 4 * 1024 * 1024, "--no-ship", "--commit-block").returncode == 0
+    env.start_server()
+    gl = os.path.join(env.dir, "gen.log")
+    rng = random.Random(60)
+    try:
+        assert env.once().returncode == 0
+        w = writer_bg(ws, "--commits", 100000, "--per", 2, "--sleep", 700, "--no-ship", "--commit-block",
+                      "--seed", 7, "--gen-log", gl)
+        stats = {"whole": 0, "refused_whole": 0, "caught": 0, "missed": 0, "unknown": 0}
+        for i in range(60):
+            env.start_client()
+            time.sleep(rng.uniform(0.05, 1.5))
+            env.kill("client")
+            v = copy_verdict(aws, gen_log_map(gl))
+            tr = torn(env)
+            if v in ("torn", "odd"):
+                if tr.returncode == 1:
+                    stats["caught"] += 1
+                else:
+                    stats["missed"] += 1
+            elif v == "whole":
+                stats["whole"] += 1
+                if tr.returncode != 0:
+                    stats["refused_whole"] += 1
+            else:
+                stats["unknown"] += 1
+        w.kill(); w.wait()
+        print(f"    60 kills: {stats['whole']} whole ({stats['refused_whole']} refused), {stats['caught']} torn and "
+              f"refused, {stats['missed']} torn and PASSED promote-check, {stats['unknown']} unknown", flush=True)
+        assert stats["missed"] == 0, stats
+        assert stats["refused_whole"] == 0, stats
+        assert stats["whole"] >= 5 and stats["caught"] >= 5, stats  # both cases happened
+        # an even copy whose bytes differ from its seal (what a torn even copy would be) is refused
+        env.start_client()
+        wait_same(env, "db", 120)
+        env.stop()
+        assert torn(env).returncode == 0
+        dn = [f for f in sorted(os.listdir(aws)) if f.endswith(".gxd")][0]
+        with open(os.path.join(aws, dn), "r+b") as f:
+            f.seek(4096)
+            b = f.read(1)
+            f.seek(4096)
+            f.write(bytes([b[0] ^ 0xFF]))
+        tr = torn(env)
+        print(f"    one byte changed under an even seal: torn exit {tr.returncode}: {tr.stdout.strip()[:120]}", flush=True)
+        assert tr.returncode == 1, tr
+    finally:
+        env.stop()
+
+
+def test_commit_block_converges_slow_writer():
+    """11/10/2026: by content, a copy keeps reaching whole commits of a writer that commits every 2 s (8 MB);
+    frequent writers belong on the ship log (the review measured 5 commits/s: about 1 whole commit in 25 s)."""
+    env = Env("cb_conv", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 2, "--big", 8 * 1024 * 1024, "--no-ship", "--commit-block").returncode == 0
     env.start_server()
     env.start_client()
+    gl = os.path.join(env.dir, "gen.log")
     try:
-        wait_same(env, "db", 600)
-        w = writer_bg(ws, "--commits", 20, "--per", 3, "--sleep", 2000, "--no-ship", "--commit-block", "--seed", 7)
-        seen = watch_copy(env, ws, aws, 40)
-        assert w.wait(120) == 0
-        print(f"    434 MB, a commit every 2 s: the copy reached {len(seen)} whole commits in 40 s", flush=True)
-        assert len(seen) >= 4, f"the copy reached only {len(seen)} commits"
-        wait_same(env, "db", 300)
-        check_db(aws)
+        wait_same(env, "db", 120)
+        w = writer_bg(ws, "--commits", 20, "--per", 2, "--sleep", 2000, "--no-ship", "--commit-block", "--seed", 6,
+                      "--gen-log", gl)
+        counts, wholes = sample_copy(aws, gl, 40)
+        w.wait(120)
+        print(f"    8 MB, a commit every 2 s, by content: {len(wholes)} distinct whole commits in 40 s "
+              f"({counts['torn']} even but torn)", flush=True)
+        assert counts["torn"] == 0, counts
+        assert len(wholes) >= 4, wholes
     finally:
         env.stop()
 
