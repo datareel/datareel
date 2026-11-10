@@ -1731,6 +1731,22 @@ def sample_copy(aws, gen_log, seconds, period=0.2):
     return counts, wholes
 
 
+def judge_copy(env, aws, gl):
+    """The copy's verdict by content and "gxrepl torn", read under a shared lock on the copy's apply.jnl (as a
+    reader of the copy does): an apply the server is still finishing for a killed client is never read half way."""
+    import fcntl
+    jp = os.path.join(aws, ".gxrepl", "apply.jnl")
+    fd = os.open(jp, os.O_RDWR | os.O_CREAT, 0o600) if os.path.isdir(os.path.dirname(jp)) else None
+    try:
+        if fd is not None:
+            fcntl.flock(fd, fcntl.LOCK_SH)
+        v = copy_verdict(aws, gen_log_map(gl)) if os.path.exists(os.path.join(aws, "data.gxd")) else "empty"
+        return v, torn(env)
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def test_commit_block_no_even_torn_copy():
     """11/10/2026 (review): sampled by content (the writer logs each commit's file hashes), a commit_block copy
     of a writer committing every 0.7 s (commits land mid-copy) is never even and torn: 121 samples, 0
@@ -1802,6 +1818,32 @@ def test_commit_block_kill_storm():
         assert stats["missed"] == 0, stats
         assert stats["refused_whole"] == 0, stats
         assert stats["whole"] >= 5 and stats["caught"] >= 5, stats  # both cases happened
+        # 11/10/2026 (review): 20 kills while the copy is filled from nothing (a first copy of the unit)
+        fill = {"whole": 0, "refused_whole": 0, "caught": 0, "missed": 0, "empty": 0}
+        w = writer_bg(ws, "--commits", 100000, "--per", 2, "--sleep", 700, "--no-ship", "--commit-block",
+                      "--seed", 9, "--gen-log", gl)
+        for i in range(20):
+            for n in os.listdir(aws):
+                p2 = os.path.join(aws, n)
+                shutil.rmtree(p2) if os.path.isdir(p2) else os.unlink(p2)
+            env.start_client()
+            time.sleep(rng.uniform(0.05, 1.5))
+            env.kill("client")
+            v, tr = judge_copy(env, aws, gl)
+            if v == "empty":
+                fill["empty"] += 1
+            elif v == "whole":
+                fill["whole"] += 1
+                if tr.returncode != 0:
+                    fill["refused_whole"] += 1
+            elif v in ("torn", "odd"):
+                fill["caught" if tr.returncode == 1 else "missed"] += 1
+            else:
+                fill["empty"] += 1
+        w.kill(); w.wait()
+        print(f"    20 kills mid-fill: {fill['whole']} whole ({fill['refused_whole']} refused), {fill['caught']} not whole "
+              f"and refused, {fill['missed']} not whole and PASSED, {fill['empty']} empty or unknown", flush=True)
+        assert fill["missed"] == 0 and fill["refused_whole"] == 0, fill
         # an even copy whose bytes differ from its seal (what a torn even copy would be) is refused
         env.start_client()
         wait_same(env, "db", 120)
