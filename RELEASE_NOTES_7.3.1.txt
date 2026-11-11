@@ -296,3 +296,91 @@ Replication fixes from the 11/10 reviews (gxrepl-var-r3):
   trim it. ship_log_max_total is in bytes.
 - "gxrepl version" names the git head of the DataReel sources (+dirty)
   and the build time (gxrepl_version.cmake), or "unknown".
+
+Ship-log volume and whole copies (11/10, gxrepl-var-r4 / r4d):
+- Volume. Commit records are zlib-compressed (type 4, gxdShipCommitZ:
+  raw size, a CRC-32 of the raw payload checked after inflate, zlib) when
+  that is smaller; readers take both types (gxdParseShipCommitRecord), so
+  older logs still read. GXDSHIP_COMPRESS=0 turns it off. Derived indexes
+  (per set "derived = GLOB") are left out of the records at the writer
+  (gxdShipLog::SetExclude; OSA: osa_ingest --ship-log-derived) and rebuilt
+  on the copy ("derived_rebuild = CMD {dir} [{lsn}]", "derived_delay").
+  Measured on OSA's realtime day, per 50-line commit: 1,477,740 bytes of
+  pages, 179 KB compressed, 8.9 KB with both (167x less): about 9 KB per
+  commit, about 100 MB a day for the realtime set instead of 15-20 GB
+  shipped as pages. No measurable CPU.
+- Limits. A record counts against max_message by its stored size, or its
+  inflated size when that is bigger; keep max_message above the largest
+  record (a bigger one is never sent: the copy resyncs its files, and at
+  256 KB in the tests the copy fell 68 records behind on such resyncs).
+  AppendCommit refuses a record over 1 GB raw (the size is a u32): it
+  logs a gap and the copy verifies the stream.
+- The commit block travels in the record. gxdShipLog::SetCommitBlock()
+  gives the writer's commit block (as it is once the commit lands) to the
+  next commit record, as its last file; the copy applies the pages, the
+  commit block and the unit's seal "log G L S" (generation, lsn, stream)
+  in one apply.jnl transaction. A record that changes a unit without its
+  commit block seals it "copying-log" (torn until a record carries the
+  block); a fill out of step with the copy's stream seals it "copying"
+  until the commit block, sent after the folder's files, lands. The source
+  serves a ship-log folder's commit block from its log, never its file,
+  and never one older than a later record that changed the folder.
+- "gxrepl torn" (promote-check) requires, for a ship-log unit, the seal's
+  generation = the commit block's and the seal's lsn = the stream's
+  applied lsn, and for derived indexes a stamp (<folder>/derived.stamp:
+  "gen G lsn L records N keys K") at that generation and lsn with keys =
+  records. Old-format logs (no commit block) apply but are UNSEALED.
+
+Power-loss tests and fixes (11/09/2026, phase 2 step 5):
+- utils/gxrepl/powerloss_shim.c: a test-only LD_PRELOAD library that
+  keeps what a disk would still have after a power cut (a file's bytes
+  when it is fsynced, a folder's entries when the folder is fsynced).
+  test_gxrepl.py cuts the writer's node, the server's node or both at
+  random moments, rebuilds the folders from that image only, and checks
+  the copies, the retention floor and the object service.
+- gxdFPTRCreate() now syncs the folder after it creates a file (POSIX).
+  Before, a new database or journal could be lost in a power cut with
+  every commit made to it, since commits synced only the file.
+- The ship-log purge skips acked/<copy>.gxrtmp, which a crash in the
+  middle of a floor write leaves; it was read as another copy's floor.
+- gxrepl deletes now sync the folders they removed files from.
+- The design document (docs/DATABASE_OBJECT_SERVER_DESIGN.md) section
+  11 specifies protocol 3: sessions, the multiplex frame, replication
+  and objects on channels, the retention floor, and the status files.
+
+Replication fixes from the 11/10 reviews (gxrepl-var-r3):
+- The ship-log reader keeps two cursors (the end scan and the last read)
+  and a sparse lsn -> offset index, so a Read() never rescans a segment.
+  A Diff request's 4 MB / 100 ms read-lock budget counts the log read.
+  Measured: the slowest writer commit during a full verify of a 256 MB
+  live file was 204 ms at load 31 (2078 ms with the old whole-file lock).
+- A ship-log record bigger than max_message (an osa_ingest rebuild writes
+  one of 500 MB) is never sent or even read: READLOG status 2, the copy's
+  position is reset and the stream's files are resynced in pieces.
+- commit_block copies: the copy's commit block is marked odd (protocol op
+  15, MARKGEN) before a unit's files change and stays odd until a whole
+  commit is in; "gxrepl torn" / "gxrepl.sh promote-check" lists torn copies
+  (exit 1) so a fail over does not promote them. A heartbeat write to the
+  commit block is not a change. Measured: an unlocked 8 MB writer at 5
+  commits/s and a 434 MB folder with a commit every 2 s both keep copying
+  whole commits.
+- Stream purge: an acked/<copy> file that cannot be read keeps the stream
+  even when another copy ACKed it; a stream whose one segment every copy
+  applied starts a new segment when its writer opens, so retention can
+  trim it. ship_log_max_total is in bytes.
+- "gxrepl version" names the git head of the DataReel sources (+dirty)
+  and the build time (gxrepl_version.cmake), or "unknown".
+
+Ship-log volume (11/10, gxrepl-var-r4):
+- Commit records are zlib-compressed (type 4, gxdShipCommitZ) when that is
+  smaller; readers take both types (gxdParseShipCommitRecord), so older
+  logs still read. GXDSHIP_COMPRESS=0 turns it off. Measured on OSA's
+  realtime day: 1.48 MB -> 179 KB per commit, no measurable CPU.
+- Derived indexes: per set "derived = GLOB" (never sent, never deleted on
+  the copy, their pages skipped in log records), "derived_rebuild = CMD
+  {dir}" and "derived_delay" on the copy: the server rebuilds a folder's
+  indexes once its generation is quiet, under the apply lock, and keeps a
+  state file; "gxrepl torn" refuses missing, stale or failed ones.
+  gxdShipLog::SetExclude() leaves such files out of the records at the
+  writer (OSA: osa_ingest --ship-log-derived). With both: 8.9 KB per
+  commit (167x less).
