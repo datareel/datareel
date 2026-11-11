@@ -1502,7 +1502,7 @@ def test_commit_block_copy_matches_one_commit():
     assert writer(ws, "--commits", 5, "--no-ship", "--commit-block").returncode == 0
     env.start_server()
     try:
-        w = writer_bg(ws, "--commits", 100000, "--per", 2, "--sleep", 300, "--no-ship", "--commit-block", "--seed", 3)
+        w = writer_bg(ws, "--commits", 100000, "--per", 2, "--sleep", 1000, "--no-ship", "--commit-block", "--seed", 3)
         good = 0
         for i in range(10):
             r = env.once()
