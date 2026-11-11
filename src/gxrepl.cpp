@@ -2774,7 +2774,8 @@ void gxReplClient::write_status(bool connected, const std::string &note)
       ", \"streams\": {";
     bool f2 = true;
     for(auto &e : st.streams) {
-      long long lag = (long long)e.second.first - (long long)e.second.second;
+      // 11/11/2026 (review): never negative (a copy ahead of a restarted source log, a stopped client's old entry)
+      long long lag = e.second.first > e.second.second ? (long long)(e.second.first - e.second.second) : 0;
       j += (f2 ? "" : ", ") + json_str(e.first) + ": {\"source\": " + std::to_string(e.second.first) +
 	", \"copy\": " + std::to_string(e.second.second) + ", \"lag\": " + std::to_string(lag) + "}";
       f2 = false;
@@ -3345,6 +3346,7 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
   // were last rebuilt: a busy day (never quiet for derived_delay) is
   // rebuilt every derived_busy_rebuild seconds anyway
   static std::map<std::string, long long> behind_since, built_at;
+  static std::set<std::string> told;            // folders whose "a writer is active" skip was logged
   for(auto &rel : folders) {
     std::string key = sc.name + "|" + rel;
     std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
@@ -3366,6 +3368,17 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
       if(s.first != g || s.second == 0) { s.first = g; s.second = now; continue; }   // first seen: wait to be quiet
       if(now - s.second < sc.derived_delay) continue;
     }
+    // 11/11/2026 (review r4e): never while a local writer is active (a take over: the writer owns its
+    // indexes, and its own open rebuilds them; a rebuild here would rename files under it). The writer
+    // locks are held shared for the whole rebuild, so a writer starting meanwhile waits or refuses.
+    WriterHold wh;
+    std::string we;
+    if(hold_writer_locks(sc, wh, we)) {
+      if(told.insert(key).second)
+	log.push_back("set " + sc.name + ": " + (rel.empty() ? std::string(".") : rel) +
+		      ": derived indexes not rebuilt: " + we);
+      continue;
+    }
     // The apply lock (exclusive): no apply changes the folder while its indexes are rebuilt
     std::string jname = sc.root + "/.gxrepl/apply.jnl";
     mkdirs(sc.root + "/.gxrepl/derived");
@@ -3386,6 +3399,15 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
     int rc = system((cmd + " >/dev/null 2>&1").c_str());
     flock(lk, LOCK_UN);
     close(lk);
+    // 11/11/2026 (review): exit 3 = the folder moved during the rebuild (osa_ingest --rebuild-index): not a
+    // failure, the indexes stay behind and are tried again (only a real failure is recorded as failed)
+    if(rc != -1 && WIFEXITED(rc) && WEXITSTATUS(rc) == 3) {
+      log.push_back("set " + sc.name + ": " + (rel.empty() ? std::string(".") : rel) +
+		    ": derived indexes not rebuilt: the folder moved during the rebuild (tried again)");
+      s.first = 0; s.second = 0;
+      built_at[key] = now;
+      continue;
+    }
     bool ok = rc == 0;
     std::string body = std::to_string((unsigned long long)g) + (ok ? " ok" : " failed") +
       " rc=" + std::to_string(rc) + "\n";
@@ -3396,6 +3418,7 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
 		  std::to_string((unsigned long long)g) + (busy ? " (busy: never quiet)" : ""));
     seen.erase(rel);
     built_at[key] = now;
+    told.erase(key);
     rebuilt++;
   }
   return rebuilt;

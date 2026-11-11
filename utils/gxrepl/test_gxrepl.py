@@ -2231,6 +2231,63 @@ def test_derived_busy_writer_never_quiet():
         env.stop()
 
 
+def test_derived_no_rebuild_while_writer_active():
+    """11/11/2026 (review r4e): the copy's derived rebuild never runs while a local writer holds its writer_lock (a
+    take over: the writer owns its indexes, its own open rebuilds them): no rebuild, no new file, the skip logged;
+    once the writer lets go the index is rebuilt. A rebuild that exits 3 (the folder moved) is behind, not failed."""
+    import fcntl
+    rebuild = f"{os.path.join(BIN, 'gxrepl_testwriter')} reindex {{dir}} {{lsn}}"
+    opts = {"client": CB_OPTS["client"] + ["derived = index.gxd"],
+            "server": CB_OPTS["server"] + ["derived = index.gxd", f"derived_rebuild = {rebuild}", "derived_delay = 1",
+                                           "derived_busy_rebuild = 2", "writer_lock = w.lock"]}
+    env = Env("derived_writer", {"db": opts})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 6, "--no-ship", "--commit-block").returncode == 0
+    os.makedirs(aws, exist_ok=True)
+    fd = os.open(os.path.join(aws, "w.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    env.start_server()
+    try:
+        assert env.once().returncode == 0
+        assert not os.path.exists(os.path.join(aws, "index.gxd"))
+        fcntl.flock(fd, fcntl.LOCK_EX)                     # the take over: a writer runs on the copy's node
+        time.sleep(12)                                     # many derived_delay / busy periods
+        log = open(os.path.join(env.dir, "server.log")).read()
+        print(f"    writer active 12 s: index.gxd {'MADE' if os.path.exists(os.path.join(aws, 'index.gxd')) else 'not made'}, "
+              f"{log.count('derived indexes rebuilt')} rebuilds, skip logged {'not rebuilt: ' in log}", flush=True)
+        assert not os.path.exists(os.path.join(aws, "index.gxd"))
+        assert "derived indexes rebuilt" not in log
+        assert "derived indexes not rebuilt" in log and "a local writer holds" in log
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        end = time.time() + 30
+        while time.time() < end and not os.path.exists(os.path.join(aws, "index.gxd")):
+            time.sleep(0.5)
+        assert os.path.exists(os.path.join(aws, "index.gxd"))
+        end = time.time() + 30
+        while time.time() < end and "INDEXES" in torn(env).stdout:
+            time.sleep(0.5)
+        assert torn(env).returncode == 0
+        check_db(aws)
+    finally:
+        os.close(fd)
+        env.stop()
+    # a rebuild that exits 3 (the folder moved while it read): behind, tried again, never "failed"
+    with open(env.srv_conf) as f:
+        conf = f.read().replace(f"derived_rebuild = {rebuild}", "derived_rebuild = sh -c 'exit 3'")
+    with open(env.srv_conf, "w") as f:
+        f.write(conf)
+    assert writer(ws, "--commits", 2, "--no-ship", "--commit-block", "--seed", 91).returncode == 0
+    env.start_server()
+    try:
+        assert env.once().returncode == 0
+        time.sleep(6)
+        t = torn(env)
+        log = open(os.path.join(env.dir, "server.log")).read()
+        assert "moved during the rebuild" in log, log[-1500:]
+        assert t.returncode == 0 and "INDEXES" in t.stdout and "failed" not in t.stdout, t.stdout
+    finally:
+        env.stop()
+
+
 def test_derived_index_rebuilt_on_copy():
     """11/10/2026: derived = index.gxd: the sender never ships it, the copy rebuilds it (derived_rebuild) once a
     folder's generation is quiet for derived_delay; "gxrepl torn" warns (INDEXES, exit 0) while the derived index is
