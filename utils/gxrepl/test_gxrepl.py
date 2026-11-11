@@ -2182,10 +2182,60 @@ def test_compressed_log_records():
         env.stop()
 
 
+def test_derived_busy_writer_never_quiet():
+    """11/11/2026 (r4e): a writer that never pauses (a commit every 4 s, ship log on, the realtime case): the copy's
+    derived index never goes quiet for derived_delay, so derived_busy_rebuild rebuilds it anyway under the apply lock;
+    for the whole run "gxrepl torn" exits 0 (the index is at worst a warning), the copy keeps up, and after the writer
+    stops the index ends rebuilt at the copy's generation."""
+    rebuild = f"{os.path.join(BIN, 'gxrepl_testwriter')} reindex {{dir}} {{lsn}}"
+    opts = {"client": CB_OPTS["client"] + ["derived = index.gxd"],
+            "server": CB_OPTS["server"] + ["derived = index.gxd", f"derived_rebuild = {rebuild}", "derived_delay = 30",
+                                           "derived_busy_rebuild = 40"]}
+    env = Env("derived_busy", {"db": opts})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 3, "--commit-block").returncode == 0
+    env.start_server()
+    env.start_client()
+    secs = int(os.environ.get("GXREPL_BUSY_SECS", "300"))
+    try:
+        wait_status(env, lambda s: s["sets"]["db"]["streams"] and
+                    all(x["lag"] == 0 for x in s["sets"]["db"]["streams"].values()), 120)
+        w = writer_bg(ws, "--commits", 100000, "--per", 2, "--sleep", 4000, "--commit-block", "--seed", 71)
+        rc1, warned, checks, lags = 0, 0, 0, []
+        end = time.time() + secs
+        while time.time() < end:
+            t = torn(env)
+            checks += 1
+            if t.returncode != 0:
+                rc1 += 1
+                print(f"      rc {t.returncode}: {t.stdout.strip()[:200]}", flush=True)
+            if "INDEXES" in t.stdout:
+                warned += 1
+            st = env.status() or {}
+            lags.append(max([x["lag"] for x in st.get("sets", {}).get("db", {}).get("streams", {}).values()] or [0]))
+            time.sleep(5)
+        w.kill(); w.wait()
+        log = open(os.path.join(env.dir, "server.log")).read()
+        busy = log.count("(busy: never quiet)")
+        print(f"    {secs} s of a commit every 4 s: {checks} promote-checks, {rc1} rc 1, {warned} INDEXES warnings, "
+              f"{busy} busy rebuilds, worst lag {max(lags)} records", flush=True)
+        assert rc1 == 0, rc1
+        assert busy >= 2, busy
+        # quiet now: the index ends rebuilt at the copy's generation
+        end = time.time() + 120
+        while time.time() < end and "INDEXES" in torn(env).stdout:
+            time.sleep(1)
+        t = torn(env)
+        assert t.returncode == 0 and "INDEXES" not in t.stdout, t.stdout
+    finally:
+        env.stop()
+
+
 def test_derived_index_rebuilt_on_copy():
     """11/10/2026: derived = index.gxd: the sender never ships it, the copy rebuilds it (derived_rebuild) once a
-    folder's generation is quiet for derived_delay, and "gxrepl torn" refuses the copy while the derived index is
-    missing, stale or failed; after the rebuild the copy reads the same as the source."""
+    folder's generation is quiet for derived_delay; "gxrepl torn" warns (INDEXES, exit 0) while the derived index is
+    missing or stale (the take over rebuilds it) and refuses a failed rebuild (exit 1); after the rebuild the copy
+    reads the same as the source."""
     rebuild = f"{os.path.join(BIN, 'gxrepl_testwriter')} reindex {{dir}} {{lsn}}"
     opts = {"client": CB_OPTS["client"] + ["derived = index.gxd"],
             "server": CB_OPTS["server"] + ["derived = index.gxd", f"derived_rebuild = {rebuild}", "derived_delay = 3"]}
@@ -2197,22 +2247,24 @@ def test_derived_index_rebuilt_on_copy():
         assert env.once().returncode == 0
         assert not os.path.exists(os.path.join(aws, "index.gxd")), "the derived index was shipped"
         t = torn(env)
-        assert t.returncode == 1 and "derived indexes missing" in t.stdout, t.stdout
+        # 11/11/2026 (r4e): indexes behind are a warning, not torn (the take over's writer open rebuilds them)
+        assert t.returncode == 0 and "INDEXES" in t.stdout and "derived indexes missing" in t.stdout, t.stdout
         end = time.time() + 30
-        while time.time() < end and torn(env).returncode != 0:
+        while time.time() < end and "INDEXES" in torn(env).stdout:
             time.sleep(0.5)
         t = torn(env)
-        assert t.returncode == 0, t.stdout + env.logs()
+        assert t.returncode == 0 and "INDEXES" not in t.stdout, t.stdout + env.logs()
         check_db(aws)                                      # the rebuilt index agrees with the data
         # A new commit: stale until the copy rebuilds it again
         assert writer(ws, "--commits", 3, "--no-ship", "--commit-block", "--seed", 31).returncode == 0
         assert env.once().returncode == 0
         t = torn(env)
-        assert t.returncode == 1 and "stale" in t.stdout, t.stdout
+        assert t.returncode == 0 and "stale" in t.stdout and "INDEXES" in t.stdout, t.stdout
         end = time.time() + 30
-        while time.time() < end and torn(env).returncode != 0:
+        while time.time() < end and "INDEXES" in torn(env).stdout:
             time.sleep(0.5)
-        assert torn(env).returncode == 0
+        t = torn(env)
+        assert t.returncode == 0 and "INDEXES" not in t.stdout, t.stdout
         check_db(aws)
         assert "derived indexes rebuilt" in open(os.path.join(env.dir, "server.log")).read()
     finally:

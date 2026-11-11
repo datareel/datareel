@@ -330,6 +330,11 @@ Ship-log volume and whole copies (11/10, gxrepl-var-r4 / r4d):
   applied lsn, and for derived indexes a stamp (<folder>/derived.stamp:
   "gen G lsn L records N keys K") at that generation and lsn with keys =
   records. Old-format logs (no commit block) apply but are UNSEALED.
+- Busy days (r4e, 11/11): missing or stale derived indexes are a warning
+  ("INDEXES", exit 0), not torn: a take over's writer rebuilds them; a
+  rebuild that failed stays torn. "derived_busy_rebuild" (default 900 s)
+  rebuilds a folder that is never quiet for derived_delay anyway, under
+  the apply lock.
 
 Power-loss tests and fixes (11/09/2026, phase 2 step 5):
 - utils/gxrepl/powerloss_shim.c: a test-only LD_PRELOAD library that

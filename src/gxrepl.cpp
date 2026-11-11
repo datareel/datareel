@@ -520,6 +520,7 @@ int gxReplConfig::Load(const std::string &fname, std::string &err)
       else if(k == "derived") { auto l = split_list(v); cur->derived.insert(cur->derived.end(), l.begin(), l.end()); }
       else if(k == "derived_rebuild") cur->derived_rebuild = v;
       else if(k == "derived_delay") cur->derived_delay = atoi(v.c_str());
+      else if(k == "derived_busy_rebuild") cur->derived_busy_rebuild = atoi(v.c_str());   // 11/11/2026
       else known = false;
     }
     else {
@@ -2998,7 +2999,9 @@ int gxReplClient::sync_unit(gxReplSource &src, gxReplTarget &tgt, const gxReplSe
   }
   if(mark() != 0) return -1;
   if(stop) return 0;
-  err = "gave up on " + dir_of(cb_path) + " after 10 tries (it commits faster than a copy)";
+  // 11/11/2026 (review): the set's root folder has an empty relative name: say "." (was "gave up on  after")
+  err = "gave up on " + (dir_of(cb_path).empty() ? std::string(".") : dir_of(cb_path)) +
+    " after 10 tries (it commits faster than a copy)";
   return 1;
 }
 
@@ -3274,16 +3277,21 @@ static bool derived_stamp_ok(const gxReplSetConfig &sc, const std::string &rel, 
   return true;
 }
 
-static bool derived_ok(const gxReplSetConfig &sc, const std::string &rel, uint64_t gen, std::string &why)
+// 11/11/2026 (r4e): a folder's derived indexes: 0 good for this generation,
+// 1 behind (missing, stale, not stamped yet: a busy writer's day never goes
+// quiet; the take over rebuilds them, osa_ingest's writer open), 2 bad (a
+// rebuild that ran and failed, a damaged state or stamp: a take over's
+// rebuild would fail the same way)
+static int derived_status(const gxReplSetConfig &sc, const std::string &rel, uint64_t gen, std::string &why)
 {
   FILE *f = fopen(derived_state_path(sc, rel).c_str(), "r");
-  if(!f) { why = "missing (never built)"; return false; }
+  if(!f) { why = "missing (never built)"; return 1; }
   unsigned long long g = 0; char st[32] = {0};
   int n = fscanf(f, "%llu %31s", &g, st);
   fclose(f);
-  if(n != 2) { why = "unknown (a damaged state file)"; return false; }
-  if(strcmp(st, "ok") != 0) { why = "failed their rebuild or check (generation " + std::to_string(g) + ")"; return false; }
-  if(g != gen) { why = "stale (built from generation " + std::to_string(g) + ", the copy is at " + std::to_string((unsigned long long)gen) + ")"; return false; }
+  if(n != 2) { why = "unknown (a damaged state file)"; return 2; }
+  if(strcmp(st, "ok") != 0) { why = "failed their rebuild or check (generation " + std::to_string(g) + ")"; return 2; }
+  if(g != gen) { why = "stale (built from generation " + std::to_string(g) + ", the copy is at " + std::to_string((unsigned long long)gen) + ")"; return 1; }
   // and every derived file the rebuild made is there
   std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
   DIR *d = opendir(dir.c_str());
@@ -3291,8 +3299,16 @@ static bool derived_ok(const gxReplSetConfig &sc, const std::string &rel, uint64
   struct dirent *e;
   while(d && (e = readdir(d)) != 0) if(e->d_name[0] != '.' && is_derived(sc, rel.empty() ? std::string(e->d_name) : rel + "/" + e->d_name)) found++;
   if(d) closedir(d);
-  if(!found) { why = "missing (no derived file in the folder)"; return false; }
-  return derived_stamp_ok(sc, rel, gen, why);
+  if(!found) { why = "missing (no derived file in the folder)"; return 1; }
+  if(derived_stamp_ok(sc, rel, gen, why)) return 0;
+  // a stamp that does not say this generation / record is behind; one that is
+  // damaged or holds the wrong key count is a bad rebuild
+  return (why.compare(0, 10, "stamped at") == 0 || why.compare(0, 11, "not stamped") == 0) ? 1 : 2;
+}
+
+static bool derived_ok(const gxReplSetConfig &sc, const std::string &rel, uint64_t gen, std::string &why)
+{
+  return derived_status(sc, rel, gen, why) == 0;
 }
 
 static void derived_folders(const gxReplSetConfig &sc, const std::string &rel, std::vector<std::string> &out)
@@ -3325,7 +3341,12 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
   derived_folders(sc, "", folders);
   int rebuilt = 0;
   long long now = (long long)time(0);
+  // 11/11/2026 (r4e): when a folder's indexes went behind, and when they
+  // were last rebuilt: a busy day (never quiet for derived_delay) is
+  // rebuilt every derived_busy_rebuild seconds anyway
+  static std::map<std::string, long long> behind_since, built_at;
   for(auto &rel : folders) {
+    std::string key = sc.name + "|" + rel;
     std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
     auto read_gen = [&](uint64_t &g) -> bool {
       int fd = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
@@ -3336,17 +3357,25 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
     uint64_t g = 0;
     if(!read_gen(g) || (g & 1)) continue;                       // torn or in progress: not yet
     std::string why;
-    if(derived_ok(sc, rel, g, why)) { seen.erase(rel); continue; }
+    if(derived_ok(sc, rel, g, why)) { seen.erase(rel); behind_since.erase(key); continue; }
+    if(!behind_since.count(key)) behind_since[key] = now;
+    bool busy = sc.derived_busy_rebuild > 0 && now - behind_since[key] >= sc.derived_busy_rebuild &&
+      now - (built_at.count(key) ? built_at[key] : 0) >= sc.derived_busy_rebuild;
     auto &s = seen[rel];
-    if(s.first != g || s.second == 0) { s.first = g; s.second = now; continue; }   // first seen: wait to be quiet
-    if(now - s.second < sc.derived_delay) continue;
+    if(!busy) {
+      if(s.first != g || s.second == 0) { s.first = g; s.second = now; continue; }   // first seen: wait to be quiet
+      if(now - s.second < sc.derived_delay) continue;
+    }
     // The apply lock (exclusive): no apply changes the folder while its indexes are rebuilt
     std::string jname = sc.root + "/.gxrepl/apply.jnl";
     mkdirs(sc.root + "/.gxrepl/derived");
     int lk = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
     if(lk < 0 || flock(lk, LOCK_EX) != 0) { if(lk >= 0) close(lk); continue; }
     uint64_t g2 = 0;
-    if(!read_gen(g2) || g2 != g) { flock(lk, LOCK_UN); close(lk); s.first = g2; s.second = now; continue; }
+    // (a busy rebuild takes the generation the folder holds now: no apply
+    // can change it while the lock is held)
+    if(!read_gen(g2) || (g2 & 1) || (!busy && g2 != g)) { flock(lk, LOCK_UN); close(lk); s.first = g2; s.second = now; continue; }
+    g = g2;
     std::string cmd = sc.derived_rebuild, q = "'";
     for(char c : dir) { if(c == '\'') q += "'\\''"; else q += c; }
     q += "'";
@@ -3364,8 +3393,9 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
       log.push_back("set " + sc.name + ": cannot write " + derived_state_path(sc, rel));
     log.push_back("set " + sc.name + ": " + (rel.empty() ? std::string(".") : rel) + ": derived indexes " +
 		  (ok ? "rebuilt" : "FAILED (rc " + std::to_string(rc) + ")") + " for generation " +
-		  std::to_string((unsigned long long)g));
+		  std::to_string((unsigned long long)g) + (busy ? " (busy: never quiet)" : ""));
     seen.erase(rel);
+    built_at[key] = now;
     rebuilt++;
   }
   return rebuilt;
@@ -3373,7 +3403,7 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
 
 // 11/10/2026: see gxrepl.h
 static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const std::string &rel,
-		      int &checked, std::vector<std::string> &torn)
+		      int &checked, std::vector<std::string> &torn, std::vector<std::string> &warn)
 {
   std::string dir = rel.empty() ? root : root + "/" + rel;
   DIR *d = opendir(dir.c_str());
@@ -3412,21 +3442,34 @@ static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const 
 	// 11/10/2026: an even generation is not enough: the files must be the sealed ones
 	std::string why = unit_seal_check(sc, rel, g);
 	if(!why.empty()) torn.push_back(where + ": " + why);
-	// and its derived indexes must be built from this generation, and good
-	else if(!sc.derived.empty() && !derived_ok(sc, rel, g, why)) torn.push_back(where + ": derived indexes " + why);
+	// and its derived indexes: a bad rebuild is torn (a take over's would
+	// fail too); indexes behind a busy day are a warning: the take over
+	// rebuilds them (11/11/2026, r4e)
+	else if(!sc.derived.empty()) {
+	  int ds = derived_status(sc, rel, g, why);
+	  if(ds == 2) torn.push_back(where + ": derived indexes " + why);
+	  else if(ds == 1) warn.push_back(where + ": derived indexes " + why + " (rebuilt by the take over's writer open)");
+	}
       }
     }
   }
-  for(auto &s : subs) torn_walk(sc, root, s, checked, torn);
+  for(auto &s : subs) torn_walk(sc, root, s, checked, torn, warn);
+}
+
+int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn, std::vector<std::string> &warn)
+{
+  torn.clear();
+  warn.clear();
+  int checked = 0;
+  if(sc.commit_block.empty()) return 0;
+  torn_walk(sc, sc.root, "", checked, torn, warn);
+  return checked;
 }
 
 int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn)
 {
-  torn.clear();
-  int checked = 0;
-  if(sc.commit_block.empty()) return 0;
-  torn_walk(sc, sc.root, "", checked, torn);
-  return checked;
+  std::vector<std::string> warn;
+  return gxReplTornCopies(sc, torn, warn);
 }
 
 unsigned long long gxReplClient::work_count() const

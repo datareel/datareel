@@ -249,10 +249,11 @@ int main(int argc, char **argv)
       if(!only_set.empty() && s.name != only_set) continue;
       if(s.commit_block.empty()) continue;
       any = 1;
-      std::vector<std::string> torn;
-      int n = datareel::gxReplTornCopies(s, torn);
+      std::vector<std::string> torn, warn;
+      int n = datareel::gxReplTornCopies(s, torn, warn);
       printf("set %s: %d folder(s) checked, %zu torn\n", s.name.c_str(), n, torn.size());
       for(auto &x : torn) printf("  TORN %s\n", x.c_str());
+      for(auto &x : warn) printf("  INDEXES %s\n", x.c_str());   // 11/11/2026: a warning, not torn
       if(!torn.empty()) bad = 1;
     }
     if(!any) printf("no set with commit_block\n");

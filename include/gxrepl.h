@@ -134,6 +134,12 @@ struct GXDLCODE_API gxReplSetConfig {
   std::vector<std::string> derived;
   std::string derived_rebuild;
   int derived_delay = 30;
+  // 11/11/2026 (r4e): a folder whose indexes stay behind this long (a busy
+  // writer's day, never quiet for derived_delay) is rebuilt anyway, under
+  // the apply lock, at the generation it holds; 0 = only when quiet.
+  // Missing or stale indexes are a warning in "gxrepl torn", not torn: a
+  // take over's writer open rebuilds them; a failed rebuild stays torn.
+  int derived_busy_rebuild = 900;
 };
 
 struct GXDLCODE_API gxReplConfig {
@@ -317,6 +323,10 @@ public:
 // A fail over must not promote such a copy ("gxrepl torn", exit 1).
 // Returns the count of folders checked; "torn" lists "folder: why".
 GXDLCODE_API int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn);
+// 11/11/2026 (r4e): and "warn": folders whose derived indexes are behind
+// (missing or stale; the take over rebuilds them), not torn
+GXDLCODE_API int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn,
+				  std::vector<std::string> &warn);
 // 11/10/2026: Rebuild the derived indexes of a commit_block set's copy
 // where its generation moved (see gxReplSetConfig::derived). "seen" keeps,
 // per folder, the generation and when it was first seen (the quiet time).
