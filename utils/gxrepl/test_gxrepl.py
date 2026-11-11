@@ -99,10 +99,10 @@ class Env:
         self.server = None
         self.client = None
 
-    def start_server(self, extra_env=None):
+    def start_server(self, extra_env=None, args=()):
         self.srv_log = open(os.path.join(self.dir, "server.log"), "a")
         e = dict(os.environ, **extra_env) if extra_env else None
-        self.server = subprocess.Popen([os.path.join(BIN, "gxrepl"), "serve", "--config", self.srv_conf],
+        self.server = subprocess.Popen([os.path.join(BIN, "gxrepl"), "serve", "--config", self.srv_conf, *args],
                                        stdout=self.srv_log, stderr=subprocess.STDOUT, env=e)
         for _ in range(100):
             try:
@@ -285,7 +285,10 @@ def test_live_changes():
         while True:
             st = env.status()["sets"]["db"]
             lag = [s["lag"] for s in st["streams"].values()]
-            if (lag and max(lag) == 0) or time.time() > end:
+            # 11/11/2026: lag is clamped at 0 (r4e), so a status written in the middle of a pass (a stale source
+            # position below the copy's) already shows lag 0: wait for copy == source as well
+            same = all(s["source"] > 0 and s["copy"] == s["source"] for s in st["streams"].values())
+            if (lag and max(lag) == 0 and same) or time.time() > end:
                 break
             time.sleep(0.2)
         # 11/10/2026: the copy reached the source's log position. (It was "records > 0": the records a pass
@@ -819,6 +822,61 @@ def test_pull_direction():
         assert r.returncode == 0, r.stdout
         ok, why = same(aws, ws)
         assert ok, why
+    finally:
+        env.stop()
+
+
+def test_failback_pull_all():
+    """11/11/2026: failback (gxrepl.sh failback): after a take over AWS's writer changed its copy (a commit_block set
+    plus a plain database file); with the server started --accept-both, the client's once --pull-all brings every set
+    back to this node, deletes nothing that only this node has, and the pulled copies pass promote-check here. A normal
+    server (no --accept-both) refuses the pull; a writer holding its lock on this node refuses it too."""
+    env = Env("failback", {"db": {"client": CB_OPTS["client"] + ["writer_lock = w.lock"],
+                                  "server": CB_OPTS["server"]}})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 5, "--no-ship", "--commit-block").returncode == 0
+    env.start_server()
+    try:
+        assert env.once().returncode == 0
+        ok, why = same(ws, aws)
+        assert ok, why
+        env.stop()
+        # the take over: AWS's writer commits on its copy; this node keeps a file AWS never had
+        assert writer(aws, "--commits", 7, "--no-ship", "--commit-block", "--seed", 81).returncode == 0
+        os.makedirs(os.path.join(aws, "notes"), exist_ok=True)
+        os.makedirs(os.path.join(ws, "keep"), exist_ok=True)
+        assert writer(os.path.join(aws, "notes"), "--commits", 3, "--no-ship", "--commit-block", "--seed", 82).returncode == 0
+        assert writer(os.path.join(ws, "keep"), "--commits", 2, "--no-ship", "--commit-block", "--seed", 83).returncode == 0
+        pull = [os.path.join(BIN, "gxrepl"), "once", "--config", env.cli_conf, "--pull-all"]
+        # a normal server refuses to be a source
+        env.start_server()
+        r = run(pull)
+        assert r.returncode != 0, r.stdout
+        env.stop()
+        # failback: the server for this run accepts both ways
+        env.start_server(args=("--accept-both",))
+        import fcntl
+        fd = os.open(os.path.join(ws, "w.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)                                   # a writer runs here: refused
+        try:
+            r = run(pull)
+            assert r.returncode != 0, r.stdout
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+        r = run(pull)
+        assert r.returncode == 0, r.stdout + env.logs()
+        check_db(ws)                                                     # AWS's commits are here now
+        check_db(os.path.join(ws, "notes"))                              # a folder only AWS had: pulled
+        check_db(os.path.join(ws, "keep"))                               # a folder only this node had: kept
+        for n in ("data.gxd", "index.gxd", "commit.bin"):
+            with open(os.path.join(ws, n), "rb") as a, open(os.path.join(aws, n), "rb") as b:
+                assert a.read() == b.read(), n
+        t = run([os.path.join(BIN, "gxrepl"), "torn", "--config", env.cli_conf, "--copied-only"])
+        print(f"    failback: pulled, promote-check here exit {t.returncode}: {t.stdout.strip()!r}", flush=True)
+        assert t.returncode == 0 and "OWN keep" in t.stdout, t.stdout
+        # without --copied-only the folder this node made is "never sealed": the failback check needs the flag
+        assert run([os.path.join(BIN, "gxrepl"), "torn", "--config", env.cli_conf]).returncode == 1
     finally:
         env.stop()
 
@@ -1471,6 +1529,8 @@ def test_writer_lock_refuses_changes():
     env.start_client()
     try:
         wait_same(env, "db", 60)
+        # 11/11/2026 (review): the hold makes a lock file that did not exist yet (no writer has run on the copy)
+        assert os.path.exists(os.path.join(aws, "w.lock"))
         before = {n: open(os.path.join(aws, n), "rb").read() for n in os.listdir(aws) if n.endswith(".gxd")}
         fd = os.open(os.path.join(aws, "w.lock"), os.O_RDWR | os.O_CREAT, 0o600)
         fcntl.flock(fd, fcntl.LOCK_EX)

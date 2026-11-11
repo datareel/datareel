@@ -72,6 +72,7 @@ static int usage()
 {
   fprintf(stderr,
 	  "usage: gxrepl serve|run|once|status|check|torn --config FILE [--set NAME] [--key-fd N]\n"
+	  "       gxrepl serve --accept-both ... / once --pull-all ...   (failback: automate/gxrepl.sh failback)\n"
 	  "       gxrepl fingerprint CERT.pem\n"
 	  "       gxrepl shiplog STREAM_DIR [--from LSN]\n"
 	  "       gxrepl version\n");
@@ -210,17 +211,26 @@ int main(int argc, char **argv)
     return shiplog(argv[2], from);
   }
   std::string conf, only_set, key_fd;
+  bool accept_both = false, pull_all = false, copied_only = false;
   for(int i = 2; i < argc; i++) {
     std::string a = argv[i];
     if(a == "--config" && i + 1 < argc) conf = argv[++i];
     else if(a == "--set" && i + 1 < argc) only_set = argv[++i];
     else if(a == "--key-fd" && i + 1 < argc) key_fd = std::string("fd:") + argv[++i];
+    else if(a == "--accept-both" && cmd == "serve") accept_both = true;   // 11/11/2026: failback
+    else if(a == "--pull-all" && cmd == "once") pull_all = true;          // 11/11/2026: failback
+    else if(a == "--copied-only" && cmd == "torn") copied_only = true;    // 11/11/2026: failback
     else return usage();
   }
   if(conf.empty()) return usage();
   gxReplConfig cfg;
   std::string err;
   if(cfg.Load(conf, err) != 0) { fprintf(stderr, "gxrepl: %s\n", err.c_str()); return 2; }
+  // 11/11/2026: failback (automate/gxrepl.sh failback): for this run only, the server's copies may also be
+  // read as sources (serve --accept-both), and the client pulls every set once with no deletes (once
+  // --pull-all: never deletes a file of this node that the other one lacks). The config files are unchanged.
+  if(accept_both) for(auto &s : cfg.sets) s.accept = "both";
+  if(pull_all) for(auto &s : cfg.sets) { s.direction = "pull"; s.deletes = false; }
   if(!only_set.empty() && !cfg.Set(only_set)) {
     fprintf(stderr, "gxrepl: no set %s in %s\n", only_set.c_str(), conf.c_str());
     return 2;
@@ -249,11 +259,26 @@ int main(int argc, char **argv)
       if(!only_set.empty() && s.name != only_set) continue;
       if(s.commit_block.empty()) continue;
       any = 1;
-      std::vector<std::string> torn, warn;
+      std::vector<std::string> torn, warn, own;
       int n = datareel::gxReplTornCopies(s, torn, warn);
+      // 11/11/2026: --copied-only (after a failback pull): judge only folders gxrepl copied (they have a seal);
+      // a folder this node made itself and gxrepl never touched is its own data, not a copy
+      if(copied_only) {
+	std::vector<std::string> keep;
+	for(auto &x : torn) {
+	  std::string where = x.substr(0, x.find(':'));
+	  std::string key = where == "." ? std::string("_root") : "_" + where;
+	  for(auto &c : key) if(c == '/') c = '#';
+	  struct stat sst;
+	  if(stat((s.root + "/.gxrepl/units/" + key).c_str(), &sst) == 0) keep.push_back(x);
+	  else own.push_back(where);
+	}
+	torn.swap(keep);
+      }
       printf("set %s: %d folder(s) checked, %zu torn\n", s.name.c_str(), n, torn.size());
       for(auto &x : torn) printf("  TORN %s\n", x.c_str());
       for(auto &x : warn) printf("  INDEXES %s\n", x.c_str());   // 11/11/2026: a warning, not torn
+      for(auto &x : own) printf("  OWN %s (never copied by gxrepl: this node's own data)\n", x.c_str());
       if(!torn.empty()) bad = 1;
     }
     if(!any) printf("no set with commit_block\n");

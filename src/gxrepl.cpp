@@ -939,6 +939,13 @@ static int hold_writer_locks(const gxReplSetConfig &sc, WriterHold &h, std::stri
   for(auto &rel : sc.writer_locks) {
     std::string p = sc.root + "/" + rel;
     int fd = open(p.c_str(), O_RDONLY | O_CLOEXEC);
+    // 11/11/2026 (review): a lock file that does not exist yet is made (in a folder that exists), so the hold
+    // covers a writer that starts during this change too (it would have created the file and locked it)
+    if(fd < 0 && errno == ENOENT) {
+      std::string dir = p.substr(0, p.find_last_of('/'));
+      struct stat dst;
+      if(stat(dir.c_str(), &dst) == 0 && S_ISDIR(dst.st_mode)) fd = open(p.c_str(), O_RDONLY | O_CREAT | O_CLOEXEC, 0644);
+    }
     if(fd < 0) continue;
     if(flock(fd, LOCK_SH | LOCK_NB) != 0) {
       bool busy = errno == EWOULDBLOCK;
