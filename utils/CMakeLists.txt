@@ -21,7 +21,13 @@ if(NOT WIN32)
   target_link_libraries(object_server PRIVATE DataReel::datareel)
   add_executable(object_client dbserver/object_client.cpp)
   target_link_libraries(object_client PRIVATE DataReel::datareel)
-  set(_dr_repl_tools gxrepl gxrepl_testwriter gxdbmux_test object_server object_client)
+  # 11/12/2026: tests of the vector index (gxvindex.h), DataReel 7.4
+  add_executable(vix_test vix_test/vix_test.cpp)
+  target_link_libraries(vix_test PRIVATE DataReel::datareel)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(vix_test PRIVATE -ffp-contract=off)
+  endif()
+  set(_dr_repl_tools gxrepl gxrepl_testwriter gxdbmux_test object_server object_client vix_test)
 endif()
 
 set_target_properties(db_debug ix_debug ${_dr_repl_tools} PROPERTIES

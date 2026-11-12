@@ -104,6 +104,10 @@ mkdir -p "$WORK/run_damaged" && cd "$WORK/run_damaged" &&
   check damaged_files "$BUILD/tests/damaged_files" 300 7
 mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" &&
   check journal_test "$BUILD/tests/journal_test" 20 7
+# Vector index (gxvindex.h, 7.4): kernels, exact and graph search,
+# Merge, Repair, concurrent searches and 20 crash rounds
+mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" &&
+  check vix_test "$BUILD/utils/vix_test"
 for t in stream_security_test proto_security_test support_security_test; do
   mkdir -p "$WORK/run_$t" && cd "$WORK/run_$t" && check $t "$BUILD/tests/$t"
 done
