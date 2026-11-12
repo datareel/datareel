@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -35,6 +35,11 @@ Changes:
 Parse() handles IPv6 literal hosts ([2001:db8::1]:8443), user 
 information, query strings and fragments. Resolve() turns a 
 relative redirect location into an absolute URL.
+
+11/01/2026: Added HasControlChars() and DecodeStrict(), which
+refuses %00, other encoded control characters and bad % escapes, for
+servers that map a decoded path to a file. Parse() refuses URLs
+with control characters and hosts with spaces.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -89,6 +94,15 @@ public:
 
   // Decode %XX sequences, and '+' as a space when plus_is_space is true
   static std::string Decode(std::string_view s, bool plus_is_space = false);
+
+  // 11/01/2026: Decode() for servers. Returns false, and leaves out
+  // empty, if s has a '%' not followed by two hex digits or the 
+  // result holds a NUL or other control character (0x00-0x1F, 0x7F).
+  static bool DecodeStrict(std::string_view s, std::string &out,
+			   bool plus_is_space = false);
+
+  // 11/01/2026: True if s holds a byte 0x00-0x1F or 0x7F
+  static bool HasControlChars(std::string_view s);
 };
 
 } // namespace datareel

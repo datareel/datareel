@@ -133,6 +133,20 @@ else()
   message(FATAL_ERROR "DATAREEL_SSL must be OPENSSL or SCHANNEL, not '${DATAREEL_SSL}'")
 endif()
 
+# 11/07/2026: zlib compresses gxrepl replication messages (gxrepl.h).
+# Optional: without it messages travel uncompressed, and the hello
+# tells the other node so it never sends compressed ones.
+option(DATAREEL_ZLIB "Compress replication messages with zlib if found" ON)
+set(DATAREEL_HAVE_ZLIB OFF)
+if(DATAREEL_ZLIB)
+  find_package(ZLIB)
+  if(ZLIB_FOUND)
+    target_compile_definitions(datareel PRIVATE DATAREEL_HAVE_ZLIB)
+    target_link_libraries(datareel PUBLIC ZLIB::ZLIB)
+    set(DATAREEL_HAVE_ZLIB ON)
+  endif()
+endif()
+
 # Platform
 if(WIN32)
   target_compile_definitions(datareel PUBLIC
@@ -184,6 +198,9 @@ endif()
 if(NOT WIN32)
   find_dependency(Threads)
 endif()
+if(@DATAREEL_HAVE_ZLIB@)
+  find_dependency(ZLIB)
+endif()
 include("${CMAKE_CURRENT_LIST_DIR}/DataReelTargets.cmake")
 ]=])
 configure_package_config_file(
@@ -206,4 +223,5 @@ endif()
 
 message(STATUS "DataReel ${PROJECT_VERSION}: SSL=${DATAREEL_SSL} "
   "64-bit database=${DATAREEL_64BIT_DATABASE} "
-  "native types=${DATAREEL_NATIVE_TYPES} GUI=${DATAREEL_GUI}")
+  "native types=${DATAREEL_NATIVE_TYPES} GUI=${DATAREEL_GUI} "
+  "zlib=${DATAREEL_HAVE_ZLIB}")

@@ -107,7 +107,7 @@ Plain text protocols were removed. Typical changes:
 | `gxsSMTPClient` on port 25 | `gxsSMTPClient::Connect(host, 587, gxsMAIL_STARTTLS)` or port 465 |
 | `gxsPOP3Client` on port 110 plain | `Connect(host)` (995) or `Connect(host, 110, gxsMAIL_STARTTLS)` |
 | `gxsFTPClient` plain FTP | FTPS: `Connect(host)` (AUTH TLS on 21) |
-| `gxStream` over plain `gxSocket` | `gxStream` over TLS: servers `Accept(stream.Connection())` |
+| `gxStream` over plain `gxSocket` | `gxStream` over TLS with client certificates: servers use `gxStreamServer` and `Accept(stream)` |
 | `gxSSL` with SSLv3/TLS 1.0 methods | `gxSSL_TLS` (1.2 and 1.3), `gxSSL_TLSv1_2`, `gxSSL_TLSv1_3` |
 
 Servers now need a certificate and private key. Clients verify the

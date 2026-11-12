@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -58,6 +58,15 @@ timeout values.
 the method and status code arrays with gxsHTTPMessage, which holds 
 a request or response line, its headers and its body as std::string 
 values, and functions to read and write one over a TLS connection.
+
+11/01/2026: Added gxsHTTPParseRequest() and gxsHTTPParseResponse(),
+which parse a message held in a buffer with the same code used on a
+TLS connection, and the gxsHTTPIsToken(), gxsHTTPHasControlChars()
+and gxsHTTPValidHeader() checks. Messages with control characters in
+the start line or headers, header names that are not tokens, both
+chunked Transfer-Encoding and Content-Length, conflicting Content-
+Length values, status codes that are not 3 digits, a 101 response or
+more than 10 interim responses are refused.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -121,6 +130,30 @@ GXDLCODE_API int gxsHTTPReadResponse(gxsTLSConnection &conn,
 				     gxsHTTPMessage &msg,
 				     bool head_request = false,
 				     std::size_t max_body = 1024*1024*1024);
+
+// 11/01/2026: Parse a request or response held in buf, as the read
+// functions above do on a connection. A response with no length is
+// read to the end of buf. If consumed is not null it is set to the
+// number of bytes used. Returns 0 if successful.
+GXDLCODE_API int gxsHTTPParseRequest(std::string_view buf, 
+				     gxsHTTPMessage &msg,
+				     std::size_t max_body = 16*1024*1024,
+				     std::size_t *consumed = 0);
+GXDLCODE_API int gxsHTTPParseResponse(std::string_view buf, 
+				      gxsHTTPMessage &msg,
+				      bool head_request = false,
+				      std::size_t max_body = 1024*1024*1024,
+				      std::size_t *consumed = 0);
+
+// 11/01/2026: Field checks (RFC 7230). A token is one or more of
+// the characters allowed in a method or header name. Control
+// characters are 0x00-0x1F and 0x7F; allow_tab permits HTAB, which
+// is allowed in a header value.
+GXDLCODE_API bool gxsHTTPIsToken(std::string_view s);
+GXDLCODE_API bool gxsHTTPHasControlChars(std::string_view s, 
+					 bool allow_tab = false);
+GXDLCODE_API bool gxsHTTPValidHeader(std::string_view name, 
+				     std::string_view value);
 
 // Standard reason phrase for a status code, such as "Not Found"
 GXDLCODE_API const char *gxsHTTPStatusCodeMessage(int status);

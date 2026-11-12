@@ -65,6 +65,7 @@ Differences from the OpenSSL version:
 
 #include <stdio.h>
 #include <string.h>
+#include <new> // 11/01/2026: std::nothrow for gxsc_grow()
 
 namespace datareel {
 
@@ -81,6 +82,7 @@ struct gxSchannelCTX
     cert = 0;
     cert_store = 0;
     ca_store = 0;
+    client_ca_store = 0; // 11/01/2026
     key = 0;
   }
 
@@ -90,6 +92,9 @@ struct gxSchannelCTX
   PCCERT_CONTEXT cert;       // Local certificate, servers or client certs
   HCERTSTORE cert_store;     // Store holding the local cert and its chain
   HCERTSTORE ca_store;       // Trusted CAs loaded from the CA list
+  // 11/01/2026: Servers only. CAs trusted for client certificates; a
+  // server context with this store asks clients for a certificate.
+  HCERTSTORE client_ca_store;
   NCRYPT_KEY_HANDLE key;     // Imported private key, deleted with the CTX
 };
 
@@ -142,14 +147,24 @@ const int gxSchannelRxSize = 16384 + 2048;
 // --------------------------------------------------------------
 // Internal helper functions
 // --------------------------------------------------------------
+// 11/01/2026: Largest buffer gxsc_grow() will allocate. A TLS record
+// is at most 16 KB plus overhead and a handshake flight with a long
+// certificate chain fits easily, so a peer that keeps sending bytes
+// Schannel cannot use can no longer double the buffer until the int
+// size overflows.
+const int gxSchannelMaxBuf = 256 * 1024;
+
 static int gxsc_grow(char *&buf, int &size, int used, int needed)
 // Make sure buf can hold needed bytes, keeping the first used bytes.
 // Returns 0 if successful or -1 if memory could not be allocated.
 {
   if(needed <= size) return 0;
+  // 11/01/2026: Fail beyond the cap instead of overflowing new_size
+  if(needed <= 0 || needed > gxSchannelMaxBuf) return -1;
   int new_size = size ? size : 1024;
   while(new_size < needed) new_size *= 2;
-  char *p = new char[new_size];
+  if(new_size > gxSchannelMaxBuf) new_size = gxSchannelMaxBuf;
+  char *p = new (std::nothrow) char[new_size];
   if(!p) return -1;
   if(buf) {
     if(used > 0) memmove(p, buf, used);
@@ -406,6 +421,46 @@ static void gxsc_free_ctx(gxSchannelCTX *c)
   c->cert_store = 0;
   if(c->ca_store) CertCloseStore(c->ca_store, 0);
   c->ca_store = 0;
+  if(c->client_ca_store) CertCloseStore(c->client_ca_store, 0); // 11/01/2026
+  c->client_ca_store = 0;
+}
+
+static int gxsc_load_ca_store(const char *fname, HCERTSTORE &store)
+// 11/01/2026: Load the CA certificates in a PEM (one or more
+// certificates) or DER file into a new memory store. Used for the CA
+// list and the client CA list. Returns 0 if at least one certificate
+// was loaded. The caller closes the store, also after a failure.
+{
+  store = 0;
+  std::vector<unsigned char> mbuf;
+  if(gxsc_read_file(fname, mbuf) != 0) return -1;
+  store = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, 0);
+  if(!store) {
+    gxSchannelLastStatus = (long)GetLastError();
+    return -1;
+  }
+  int num_certs = 0;
+  unsigned offset = 0;
+  std::string label;
+  std::vector<unsigned char> der;
+  if(gxsc_is_pem(mbuf)) {
+    while(gxsc_pem_next(mbuf, offset, label, der) == 0) {
+      if(label != "CERTIFICATE" && label != "TRUSTED CERTIFICATE") continue;
+      if(CertAddEncodedCertificateToStore(store, X509_ASN_ENCODING,
+					  (const BYTE *)der.data(),
+					  (DWORD)der.size(),
+					  CERT_STORE_ADD_USE_EXISTING, 0)) {
+	num_certs++;
+      }
+    }
+  }
+  else if(CertAddEncodedCertificateToStore(store, X509_ASN_ENCODING,
+					   (const BYTE *)mbuf.data(),
+					   (DWORD)mbuf.size(),
+					   CERT_STORE_ADD_USE_EXISTING, 0)) {
+    num_certs++;
+  }
+  return num_certs > 0 ? 0 : -1;
 }
 
 static int gxsc_send_all(SOCKET s, const char *buf, int bytes)
@@ -527,6 +582,7 @@ void gxSSL::clear_strings()
   passwd.clear();
   cert_file.clear();
   host_name.clear();
+  client_ca_list.clear(); // 11/01/2026
 }
 
 int gxSSL::is_ssl_null()
@@ -599,41 +655,20 @@ gxSSL_CTX_t *gxSSL::InitCTX()
   }
 
   if(!ca_list.empty()) {
-    std::vector<unsigned char> mbuf;
-    if(gxsc_read_file(ca_list.c_str(), mbuf) != 0) {
+    // 11/01/2026: Loaded by gxsc_load_ca_store(), shared with the
+    // client CA list
+    if(gxsc_load_ca_store(ca_list.c_str(), ctx->ca_store) != 0) {
       DestroyCTX();
       ssl_error = gxSSL_CALIST_ERROR;
       return 0;
     }
-    ctx->ca_store = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, 0);
-    if(!ctx->ca_store) {
-      sc_set_status((long)GetLastError());
-      DestroyCTX();
-      ssl_error = gxSSL_CALIST_ERROR;
-      return 0;
-    }
-    int num_certs = 0;
-    unsigned offset = 0;
-    std::string label;
-    std::vector<unsigned char> der;
-    if(gxsc_is_pem(mbuf)) {
-      while(gxsc_pem_next(mbuf, offset, label, der) == 0) {
-	if(label != "CERTIFICATE" && label != "TRUSTED CERTIFICATE") continue;
-	if(CertAddEncodedCertificateToStore(ctx->ca_store, X509_ASN_ENCODING,
-					    (const BYTE *)der.data(),
-					    (DWORD)der.size(),
-					    CERT_STORE_ADD_USE_EXISTING, 0)) {
-	  num_certs++;
-	}
-      }
-    }
-    else if(CertAddEncodedCertificateToStore(ctx->ca_store, X509_ASN_ENCODING,
-					     (const BYTE *)mbuf.data(),
-					     (DWORD)mbuf.size(),
-					     CERT_STORE_ADD_USE_EXISTING, 0)) {
-      num_certs++;
-    }
-    if(num_certs == 0) {
+  }
+
+  // 11/01/2026: A server with a client CA list asks every client for a
+  // certificate (ASC_REQ_MUTUAL_AUTH in sc_handshake()) and
+  // VerifyClientCert() checks it against only these CAs
+  if(!client_ca_list.empty() && !is_client) {
+    if(gxsc_load_ca_store(client_ca_list.c_str(), ctx->client_ca_store) != 0) {
       DestroyCTX();
       ssl_error = gxSSL_CALIST_ERROR;
       return 0;
@@ -1073,6 +1108,9 @@ int gxSSL::sc_handshake(int is_accept, int have_input)
   DWORD asc_flags = ASC_REQ_SEQUENCE_DETECT | ASC_REQ_REPLAY_DETECT |
     ASC_REQ_CONFIDENTIALITY | ASC_REQ_EXTENDED_ERROR |
     ASC_REQ_ALLOCATE_MEMORY | ASC_REQ_STREAM;
+  // 11/01/2026: Ask the client for its certificate. Schannel does not
+  // fail the handshake when none is sent; VerifyClientCert() does.
+  if(ctx->client_ca_store) asc_flags |= ASC_REQ_MUTUAL_AUTH;
   DWORD out_flags = 0;
   TimeStamp expiry;
   SEC_CHAR *target = host_name.empty() ? 0 : (SEC_CHAR *)host_name.c_str();
@@ -1678,6 +1716,177 @@ const char *gxSSL::CertVerifyErrorString(long X509_return_code)
   snprintf(sbuf, sizeof(sbuf), "Certificate error 0x%08lX",
 	  (unsigned long)(DWORD)X509_return_code);
   return sbuf;
+}
+
+int gxSSL::VerifyClientCert(long *X509_return_code)
+// 11/01/2026: Server side check of the client certificate, after the
+// handshake. The chain is built with the certificates the client sent
+// and the client CA list, the root must be in the client CA list (the
+// same rule VerifyCert() uses with a CA list), and the SSL policy is
+// checked for client authentication. The Windows CERT_E_* code is
+// passed back in X509_return_code, 0 if the certificate is valid.
+// Returns 0 if successful.
+{
+  if(X509_return_code) *X509_return_code = 0;
+  if(is_ssl_null()) return ssl_error;
+  if(!ssl->has_ctxt || !ssl->handshake_done) {
+    return ssl_error = gxSSL_SSL_INIT_ERROR;
+  }
+  if(!ctx || !ctx->client_ca_store) return ssl_error = gxSSL_CALIST_ERROR;
+
+  PCCERT_CONTEXT cert = 0;
+  SECURITY_STATUS st = QueryContextAttributesA(&ssl->ctxt,
+					       SECPKG_ATTR_REMOTE_CERT_CONTEXT,
+					       &cert);
+  sc_set_status((long)st);
+  if(st != SEC_E_OK || !cert) return ssl_error = gxSSL_PEERCERT_ERROR;
+
+  HCERTSTORE extra_store = cert->hCertStore;
+  HCERTSTORE collection = CertOpenStore(CERT_STORE_PROV_COLLECTION, 0, 0, 0, 0);
+  if(collection) {
+    if(cert->hCertStore) {
+      CertAddStoreToCollection(collection, cert->hCertStore, 0, 0);
+    }
+    CertAddStoreToCollection(collection, ctx->client_ca_store, 0, 0);
+    extra_store = collection;
+  }
+
+  CERT_CHAIN_PARA chain_para;
+  memset(&chain_para, 0, sizeof(chain_para));
+  chain_para.cbSize = sizeof(chain_para);
+  PCCERT_CHAIN_CONTEXT chain = 0;
+  long code = 0;
+  if(!CertGetCertificateChain(0, cert, 0, extra_store, &chain_para, 0, 0,
+			      &chain)) {
+    code = (long)GetLastError();
+    if(code == 0) code = (long)CERT_E_CHAINING;
+  }
+  else {
+    // Only the CAs in the client CA list are trusted: the root of the
+    // chain must be one of them
+    code = (long)CERT_E_UNTRUSTEDROOT;
+    if(chain->cChain > 0 && chain->rgpChain[0]->cElement > 0) {
+      PCERT_SIMPLE_CHAIN simple = chain->rgpChain[0];
+      PCCERT_CONTEXT root = 
+	simple->rgpElement[simple->cElement-1]->pCertContext;
+      PCCERT_CONTEXT found = CertFindCertificateInStore(ctx->client_ca_store,
+        X509_ASN_ENCODING, 0, CERT_FIND_EXISTING, root, 0);
+      if(found) {
+	CertFreeCertificateContext(found);
+	code = 0;
+      }
+    }
+    if(code == 0) {
+      SSL_EXTRA_CERT_CHAIN_POLICY_PARA ssl_para;
+      memset(&ssl_para, 0, sizeof(ssl_para));
+      ssl_para.cbSize = sizeof(ssl_para);
+      ssl_para.dwAuthType = AUTHTYPE_CLIENT;
+      ssl_para.pwszServerName = 0;
+      CERT_CHAIN_POLICY_PARA policy_para;
+      memset(&policy_para, 0, sizeof(policy_para));
+      policy_para.cbSize = sizeof(policy_para);
+      policy_para.dwFlags = CERT_CHAIN_POLICY_ALLOW_UNKNOWN_CA_FLAG;
+      policy_para.pvExtraPolicyPara = &ssl_para;
+      CERT_CHAIN_POLICY_STATUS status;
+      memset(&status, 0, sizeof(status));
+      status.cbSize = sizeof(status);
+      if(!CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, chain,
+					   &policy_para, &status)) {
+	code = (long)GetLastError();
+	if(code == 0) code = (long)CERT_E_CHAINING;
+      }
+      else {
+	code = (long)status.dwError;
+      }
+    }
+    CertFreeCertificateChain(chain);
+  }
+  if(collection) CertCloseStore(collection, 0);
+  CertFreeCertificateContext(cert);
+
+  if(X509_return_code) *X509_return_code = code;
+  if(code != 0) {
+    sc_set_status(code);
+    return ssl_error = gxSSL_CERT_VER_ERROR;
+  }
+  return ssl_error = gxSSL_NO_ERROR;
+}
+
+int gxSSL::GetPeerCertIdentity(std::string &sha256_fingerprint, 
+			       std::string &cn)
+// 11/01/2026: Passes back the SHA-256 fingerprint and the subject CN
+// of the peer's certificate. Returns 0 if successful.
+{
+  sha256_fingerprint.clear(); cn.clear();
+  if(is_ssl_null()) return ssl_error;
+  if(!ssl->has_ctxt) return ssl_error = gxSSL_SSL_INIT_ERROR;
+  PCCERT_CONTEXT cert = 0;
+  SECURITY_STATUS st = QueryContextAttributesA(&ssl->ctxt,
+					       SECPKG_ATTR_REMOTE_CERT_CONTEXT,
+					       &cert);
+  sc_set_status((long)st);
+  if(st != SEC_E_OK || !cert) return ssl_error = gxSSL_PEERCERT_ERROR;
+
+  // SHA-256 of the DER certificate
+  BYTE md[32];
+  DWORD md_len = (DWORD)sizeof(md);
+  if(!CryptHashCertificate2(L"SHA256", 0, 0, cert->pbCertEncoded,
+			    cert->cbCertEncoded, md, &md_len) || 
+     md_len != (DWORD)sizeof(md)) {
+    sc_set_status((long)GetLastError());
+    CertFreeCertificateContext(cert);
+    return ssl_error = gxSSL_SHA_ERROR;
+  }
+  static const char hex[] = "0123456789ABCDEF";
+  for(DWORD i = 0; i < md_len; i++) {
+    if(i > 0) sha256_fingerprint += ':';
+    sha256_fingerprint += hex[(md[i] >> 4) & 0x0F];
+    sha256_fingerprint += hex[md[i] & 0x0F];
+  }
+
+  // Exactly one CN, with no NUL in it, or none at all (the same rule
+  // as the OpenSSL version)
+  CERT_NAME_INFO *info = 0;
+  DWORD info_len = 0;
+  if(CryptDecodeObjectEx(X509_ASN_ENCODING, X509_NAME,
+			 cert->pCertInfo->Subject.pbData,
+			 cert->pCertInfo->Subject.cbData,
+			 CRYPT_DECODE_ALLOC_FLAG, 0, &info, &info_len) && info) {
+    CERT_RDN_ATTR *cn_attr = 0;
+    int num_cn = 0;
+    for(DWORD i = 0; i < info->cRDN; i++) {
+      for(DWORD j = 0; j < info->rgRDN[i].cRDNAttr; j++) {
+	CERT_RDN_ATTR *a = &info->rgRDN[i].rgRDNAttr[j];
+	if(a->pszObjId && strcmp(a->pszObjId, szOID_COMMON_NAME) == 0) {
+	  cn_attr = a;
+	  num_cn++;
+	}
+      }
+    }
+    if(num_cn == 1) {
+      DWORD n = CertRDNValueToStrW(cn_attr->dwValueType, &cn_attr->Value, 0, 0);
+      if(n > 1) {
+	wchar_t *w = new wchar_t[n];
+	DWORD got = CertRDNValueToStrW(cn_attr->dwValueType, &cn_attr->Value,
+				       w, n);
+	// got counts the terminating NUL; a shorter string means the CN
+	// has a NUL in it
+	if(got == n && wcslen(w) + 1 == (size_t)n) {
+	  int u = WideCharToMultiByte(CP_UTF8, 0, w, -1, 0, 0, 0, 0);
+	  if(u > 1) {
+	    std::vector<char> ubuf((size_t)u);
+	    if(WideCharToMultiByte(CP_UTF8, 0, w, -1, ubuf.data(), u, 0, 0) == u) {
+	      cn.assign(ubuf.data(), (size_t)(u - 1));
+	    }
+	  }
+	}
+	delete[] w;
+      }
+    }
+    LocalFree(info);
+  }
+  CertFreeCertificateContext(cert);
+  return ssl_error = gxSSL_NO_ERROR;
 }
 
 int gxSSL::InitPRNG(const char *r_file, int /* check_prng_init */)

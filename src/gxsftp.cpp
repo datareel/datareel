@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -81,6 +81,12 @@ connection's TLS session. Transfers are passive only (EPSV, then
 PASV), and the data connection always goes to the server's own 
 address, never to the address in a PASV reply. Files are read and 
 written with std::fstream.
+
+11/01/2026: Replies are parsed by ParseReply() (3 digit codes only),
+PASV/EPSV ports by ParsePASVPort()/ParseEPSVPort() with strtol() and
+range checks (atoi() overflow was undefined), SIZE by 
+ParseSizeReply() (reading "213" alone went past the end of the 
+string), and List()/GetString() stop at SetMaxSize() bytes.
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -88,6 +94,7 @@ written with std::fstream.
 
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include "gxsftp.h"
 #include "strutil.h"
 
@@ -95,33 +102,145 @@ namespace datareel {
 
 
 
+// 11/01/2026: One reply parser for the connection and for buffers.
+// next_line returns false at the end of input. Returns the code, -1
+// if there was no reply, -2 if it was malformed or -3 if a multi-line
+// reply did not end.
+static int parse_reply(const std::function<bool(std::string &)> &next_line,
+		       std::string &reply)
+{
+  reply.clear();
+  std::string line;
+  if(!next_line(line)) return -1;
+  reply = line;
+  if(line.size() < 3 || line[0] < '1' || line[0] > '5' ||
+     line[1] < '0' || line[1] > '9' || line[2] < '0' || line[2] > '9' ||
+     (line.size() > 3 && line[3] != ' ' && line[3] != '-')) return -2;
+  std::string code = line.substr(0, 3);
+  if(line.size() > 3 && line[3] == '-') {
+    for(int lines = 0; ; lines++) {
+      if(lines > 10000 || reply.size() > 1024*1024 || !next_line(line)) {
+	return -3;
+      }
+      reply += "\n" + line;
+      if(line.size() >= 4 && line.compare(0, 3, code) == 0 && line[3] == ' ') break;
+    }
+  }
+  return (code[0] - '0') * 100 + (code[1] - '0') * 10 + (code[2] - '0');
+}
+
+int gxsFTPClient::ParseReply(std::string_view buf, std::string &reply,
+			     std::size_t *consumed)
+{
+  std::size_t pos = 0;
+  auto next_line = [&](std::string &line) -> bool {
+    std::size_t nl = buf.find('\n', pos);
+    if(nl == std::string_view::npos || nl - pos > 8192) return false;
+    line.assign(buf.data() + pos, nl - pos);
+    pos = nl + 1;
+    if(!line.empty() && line.back() == '\r') line.pop_back();
+    return true;
+  };
+  int rv = parse_reply(next_line, reply);
+  if(consumed) *consumed = pos;
+  return rv < 0 ? -1 : rv;
+}
+
 int gxsFTPClient::read_reply()
 // Read a reply, which may span several lines ("150-" ... "150 ").
 // Returns the reply code or -1 if the connection failed.
 {
   last_reply.clear();
   last_code = 0;
-  std::string line;
-  if(!conn.ReadLine(line, 8192)) {
+  auto next_line = [this](std::string &line) -> bool {
+    return conn.ReadLine(line, 8192);
+  };
+  int rv = parse_reply(next_line, last_reply);
+  if(rv == -1) {
     fail("FTP exception: No reply from server" +
 	 (conn.Error().empty() ? std::string() : ": " + conn.Error()));
     return -1;
   }
-  last_reply = line;
-  if(line.size() < 3) { fail("FTP exception: Bad reply: " + line); return -1; }
-  std::string code = line.substr(0, 3);
-  if(line.size() > 3 && line[3] == '-') {
-    for(int lines = 0; ; lines++) {
-      if(lines > 10000 || !conn.ReadLine(line, 8192)) {
-	fail("FTP exception: Incomplete reply");
-	return -1;
-      }
-      last_reply += "\n" + line;
-      if(line.size() >= 4 && line.compare(0, 3, code) == 0 && line[3] == ' ') break;
-    }
-  }
-  last_code = std::atoi(code.c_str());
+  if(rv == -2) { fail("FTP exception: Bad reply: " + last_reply); return -1; }
+  if(rv < 0) { fail("FTP exception: Incomplete reply"); return -1; }
+  last_code = rv;
   return last_code;
+}
+
+// 11/01/2026: A decimal number from 0 to max_value with no sign, 
+// white space inside or other characters
+static bool parse_number(std::string_view s, long max_value, long &out)
+{
+  std::string t = trim(s);
+  if(t.empty() || t.size() > 6) return false;
+  for(char c : t) if(c < '0' || c > '9') return false;
+  char *end = 0;
+  long v = std::strtol(t.c_str(), &end, 10);
+  if(*end != '\0' || v < 0 || v > max_value) return false;
+  out = v;
+  return true;
+}
+
+static bool is_digit(char c) { return c >= '0' && c <= '9'; }
+
+int gxsFTPClient::ParsePASVPort(std::string_view reply)
+{
+  // 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2)
+  std::string_view fields;
+  std::size_t a = reply.find('(');
+  if(a != std::string_view::npos) {
+    std::size_t b = reply.find(')', a);
+    if(b == std::string_view::npos) return -1;
+    fields = reply.substr(a + 1, b - a - 1);
+  }
+  else { // Some servers leave out the parentheses (RFC 1123 4.1.2.6)
+    std::size_t i = reply.size() > 4 ? 4 : reply.size(); // Skip the code
+    while(i < reply.size() && !is_digit(reply[i])) i++;
+    fields = reply.substr(i);
+    std::size_t e = fields.size();
+    while(e > 0 && !is_digit(fields[e-1])) e--;
+    fields = fields.substr(0, e);
+  }
+  std::vector<std::string> f = split(fields, ',');
+  if(f.size() != 6) return -1;
+  long v[6];
+  for(int i = 0; i < 6; i++) {
+    if(!parse_number(f[i], 255, v[i])) return -1;
+  }
+  long port = v[4] * 256 + v[5];
+  if(port < 1 || port > 65535) return -1;
+  return (int)port;
+}
+
+int gxsFTPClient::ParseEPSVPort(std::string_view reply)
+{
+  // 229 Entering Extended Passive Mode (|||port|), where '|' can be
+  // any printable character other than a digit (RFC 2428)
+  std::size_t a = reply.find('(');
+  if(a == std::string_view::npos || a + 5 > reply.size()) return -1;
+  char d = reply[a+1];
+  if(d < 33 || d > 126 || is_digit(d)) return -1;
+  if(reply[a+2] != d || reply[a+3] != d) return -1;
+  std::size_t e = reply.find(d, a + 4);
+  if(e == std::string_view::npos || e + 1 >= reply.size() || 
+     reply[e+1] != ')') return -1;
+  long port = 0;
+  if(!parse_number(reply.substr(a + 4, e - a - 4), 65535, port)) return -1;
+  if(port < 1) return -1;
+  return (int)port;
+}
+
+bool gxsFTPClient::ParseSizeReply(std::string_view reply, long long &bytes)
+{
+  bytes = -1;
+  std::size_t nl = reply.rfind('\n'); // Last line of the reply
+  if(nl != std::string_view::npos) reply = reply.substr(nl + 1);
+  if(reply.size() < 5 || reply.compare(0, 4, "213 ") != 0) return false;
+  std::string n = trim(reply.substr(4));
+  if(n.empty() || n.size() > 18) return false;
+  for(char c : n) if(!is_digit(c)) return false;
+  bytes = std::strtoll(n.c_str(), 0, 10);
+  return true;
 }
 
 int gxsFTPClient::Command(const std::string &cmd, const std::string &expect)
@@ -184,21 +303,16 @@ int gxsFTPClient::open_data(gxsTLSConnection &data, const std::string &cmd)
   int port = 0;
   if(Command("EPSV", "229") == 0) {
     // 229 Entering Extended Passive Mode (|||port|)
-    std::size_t a = last_reply.find("(|||");
-    if(a != std::string::npos) port = std::atoi(last_reply.c_str() + a + 4);
+    // 11/01/2026: Parsed with range checks by ParseEPSVPort()
+    port = ParseEPSVPort(last_reply);
   }
   if(port <= 0) {
     if(Command("PASV", "227") != 0) return -1;
     // 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2). Only the port is
     // used; the data connection goes to the control connection's host.
-    std::size_t a = last_reply.find('(');
-    std::size_t b = last_reply.find(')', a == std::string::npos ? 0 : a);
-    if(a == std::string::npos || b == std::string::npos) {
-      return fail("FTP exception: Bad PASV reply: " + last_reply);
-    }
-    std::vector<std::string> f = split(last_reply.substr(a + 1, b - a - 1), ',');
-    if(f.size() != 6) return fail("FTP exception: Bad PASV reply: " + last_reply);
-    port = std::atoi(f[4].c_str()) * 256 + std::atoi(f[5].c_str());
+    // 11/01/2026: Each field must be 0-255 (ParsePASVPort())
+    port = ParsePASVPort(last_reply);
+    if(port <= 0) return fail("FTP exception: Bad PASV reply: " + last_reply);
   }
   if(port <= 0 || port > 65535) return fail("FTP exception: Bad data port");
 
@@ -231,7 +345,8 @@ int gxsFTPClient::List(const std::string &path, std::string &listing, bool full)
   std::string cmd = full ? "LIST" : "NLST";
   if(!path.empty()) cmd += " " + path;
   if(open_data(data, cmd) != 0) return -1;
-  if(!data.ReadAll(listing)) {
+  // 11/01/2026: At most max_size bytes
+  if(!data.ReadAll(listing, max_size)) {
     data.Close();
     read_reply();
     return fail("FTP exception: Listing failed: " + data.Error());
@@ -244,7 +359,8 @@ int gxsFTPClient::GetString(const std::string &remote, std::string &out)
   out.clear();
   gxsTLSConnection data;
   if(open_data(data, "RETR " + remote) != 0) return -1;
-  if(!data.ReadAll(out)) {
+  // 11/01/2026: At most max_size bytes
+  if(!data.ReadAll(out, max_size)) {
     data.Close();
     read_reply();
     return fail("FTP exception: Download failed: " + data.Error());
@@ -357,7 +473,10 @@ int gxsFTPClient::Size(const std::string &path, long long &bytes)
 {
   bytes = -1;
   if(Command("SIZE " + path, "213") != 0) return -1;
-  bytes = std::atoll(last_reply.c_str() + 4);
+  // 11/01/2026: c_str() + 4 read past the end of a "213" reply
+  if(!ParseSizeReply(last_reply, bytes)) {
+    return fail("FTP exception: Bad SIZE reply: " + last_reply);
+  }
   return 0;
 }
 

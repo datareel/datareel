@@ -353,6 +353,31 @@ server accepts with `server.Accept(stream.Connection())`, then loops on
 `SetMaxBlockSize()` (64 MB by default). See
 `examples/tls/stream_server.cpp` and `stream_client.cpp`.
 
+Database servers use mutual TLS. Use `gxStreamServer` (a
+`gxsTLSServer` that requires client certificates): before `Listen()`
+call `SetClientCAFile("client_ca.pem")` and allow clients with
+`AllowClientFingerprint(sha256)` (from
+`openssl x509 -in client.pem -noout -fingerprint -sha256`) and/or
+`AllowClientCN(name)`. Without them `Listen()` returns `-1`; only
+`AllowAnonymousClients(true)` runs an open server. `Accept(stream)`
+closes clients without an allowed certificate, and
+`stream.Connection().PeerCN()` / `PeerFingerprint()` say who
+connected (escape control characters before logging them). Clients
+call `stream.SetClientCert("client.pem", "client.key")` before
+`Connect()`. A plain `gxsTLSServer` asks for client certificates only
+if `SetClientCAFile()` is set, so HTTPS servers are unchanged.
+
+```cpp
+gxStreamServer server;
+server.SetClientCAFile("client_ca.pem");
+server.AllowClientCN("app-server-1");
+if(server.Listen(port, "server.pem", "server.key") != 0) { /* Error() */ }
+gxStream stream;
+if(server.Accept(stream) == 0) {
+  std::cout << "Client " << stream.Connection().PeerCN() << "\n";
+}
+```
+
 ## Raw sockets
 
 `gxSocket` is the IPv4/IPv6 socket under everything above:
@@ -370,5 +395,8 @@ that cannot use TLS; attach a connected socket to TLS with
   with `SetCAFile()` instead, and put the host name or IP address in
   the certificate's subjectAltName.
 - Using one `gxsTLSConnection` from two threads at the same time.
+- Calling `AllowAnonymousClients(true)` on a `gxStreamServer` to get
+  past the `Listen()` error: give it a client CA and an allow list,
+  and give each client its own certificate.
 - Treating a `0` return from `gxsHTTPClient::Get()` as HTTP success:
   it means a response arrived; check `resp.status`.

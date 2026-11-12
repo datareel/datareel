@@ -73,8 +73,11 @@ number; records left in the file after that have an old salt.
 #include <stdint.h>
 #include <limits.h>
 #include <time.h>
+#include <atomic>
+#include <limits>
 #include <map>
 #include "gxdjrnl.h"
+#include "gxdrepl.h"
 #include "gxbtree.h"
 #include "btcache.h"
 
@@ -205,11 +208,13 @@ gxdJournal::gxdJournal()
   jerror = gxDBASE_NO_ERROR;
   commits = checkpoints = 0;
   pages_logged = pages_written = 0;
+  ship = 0;
 }
 
 gxdJournal::~gxdJournal()
 {
   Close();
+  DisableShipLog();
 }
 
 gxDatabaseError gxdJournal::Recover(const char *jname,
@@ -290,6 +295,13 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
       if(gxdFPTRReadAt(jfp, c.data(), (__ULWORD__)c.size(), pos) != c.size())
 	break;
       if(jcheck(c.data() + 4, len - 4) != jget32(c.data() + len)) break;
+      // 10/31/2026: A size the file address type cannot hold is damage
+      int bad_size = 0;
+      for(size_t i = 0; i < paths.size(); i++) {
+	if(jget64(c.data() + 16 + 8 * i) > 
+	   (uint64_t)std::numeric_limits<FAU_t>::max()) bad_size = 1;
+      }
+      if(bad_size) break;
       for(size_t i = 0; i < paths.size(); i++) {
 	sizes[i] = jget64(c.data() + 16 + 8 * i);
 	has_size[i] = 1;
@@ -313,6 +325,11 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
     }
     for(auto &e : committed) {
       if(err != gxDBASE_NO_ERROR) break;
+      // 10/31/2026: A page past the file's committed size is cut off by
+      // the truncate below anyway. Skipping it also keeps a damaged or
+      // crafted page number from turning into a wrapped file offset.
+      if(e.first.second >= ((uint64_t)sizes[e.first.first] + gxdPageSize - 1) /
+	 gxdPageSize) continue;
       if(gxdFPTRReadAt(jfp, buf.data(), gxdPageSize, e.second) != gxdPageSize ||
 	 gxdFPTRWriteAt(fps[e.first.first], buf.data(), gxdPageSize,
 			(FAU_t)(e.first.second * gxdPageSize)) != gxdPageSize)
@@ -489,6 +506,10 @@ gxDatabaseError gxdJournal::Commit(int durable)
   for(size_t i = 0; i < files.size(); i++)
     dirty += files[i].f->PageCache()->DirtyPages();
 
+  // 11/07/2026: The pages of each file, kept for the ship log
+  std::vector< std::vector<gxdPage *> > shipped;
+  if(ship && dirty) shipped.resize(files.size());
+
   if(dirty) {
     if(!header_written) {
       if(WriteHeader() != gxDBASE_NO_ERROR)
@@ -499,6 +520,7 @@ gxDatabaseError gxdJournal::Commit(int durable)
     std::vector<gxdPage *> v;
     for(size_t i = 0; i < files.size(); i++) {
       files[i].f->PageCache()->GetDirtyPages(v);
+      if(ship) shipped[i] = v;
       for(size_t k = 0; k < v.size(); k++) {
 	size_t start = out.size();
 	jput32(out, gxdJournalPageMagic);
@@ -550,6 +572,10 @@ gxDatabaseError gxdJournal::Commit(int durable)
     // Write the batch to the files now. The journal holds it, so a
     // crash part way through is repaired by recovery.
     if(dirty && write_lock) gxdFPTRLock(jfp, 1);
+    // 11/07/2026: The commit is in the journal. Append it to the ship
+    // log under the write lock, before its pages reach the files, so a
+    // reader holding gxdJournalReadLock sees files that match the log.
+    if(ship && dirty) ship_commit(shipped);
     for(size_t i = 0; i < files.size(); i++) {
       gxdPageCache *pc = files[i].f->PageCache();
       pc->CommitTxn();
@@ -562,6 +588,7 @@ gxDatabaseError gxdJournal::Commit(int durable)
     if(dirty && write_lock) gxdFPTRUnlock(jfp);
   }
   else {
+    if(ship && dirty) ship_commit(shipped);
     for(size_t i = 0; i < files.size(); i++)
       files[i].f->PageCache()->CommitTxn();
   }
@@ -643,6 +670,150 @@ gxDatabaseError gxdJournal::Rollback()
     if(files[i].btx) files[i].btx->ReadBtreeHeader();
   }
   return jerror = gxDBASE_NO_ERROR;
+}
+
+void gxdJournal::ship_commit(const std::vector< std::vector<gxdPage *> > &v)
+// 11/07/2026: Append a commit to the ship log. A failure is kept in
+// the ship log (it writes a gap record with its next record) and never
+// fails the commit.
+{
+  std::vector<gxdShipFile> sf(files.size());
+  for(size_t i = 0; i < files.size(); i++) {
+    sf[i].path = files[i].path;
+    sf[i].size = (unsigned long long)files[i].f->PageCache()->FileSize();
+    if(i < v.size()) sf[i].pages = &v[i];
+  }
+  // 11/08/2026: Power-off safety: the record is synced before the pages
+  // reach the files (unless the journal itself does not sync)
+  ship->SetSync(sync_level != gxdJOURNAL_SYNC_OFF ? 1 : 0);
+  ship->AppendCommit(sf);
+}
+
+gxDatabaseError gxdJournal::EnableShipLog(const char *set_root, 
+					  const char *stream)
+{
+  if(!set_root || !*set_root) return jerror = gxDBASE_NULL_PTR;
+  if(!jfp) return jerror = gxDBASE_FILE_NOT_READY;
+  if(in_txn) return jerror = gxDBASE_FILE_NOT_READY;
+  if(write_mode != gxdJOURNAL_WRITE_THROUGH) 
+    return jerror = gxDBASE_FILE_NOT_READY;
+  DisableShipLog();
+  gxdShipLog *log = new gxdShipLog;
+  if(log->Open(set_root, stream, jfull_path(jname.c_str()).c_str()) != 0) {
+    delete log;
+    return jerror = gxDBASE_FILE_OPEN_ERROR;
+  }
+  ship = log;
+  write_lock = 1;
+  return jerror = gxDBASE_NO_ERROR;
+}
+
+void gxdJournal::DisableShipLog()
+{
+  if(ship) {
+    ship->Close();
+    delete ship;
+    ship = 0;
+  }
+}
+
+gxDatabaseError gxdJournal::ApplyPages(const char *jname,
+				       const std::vector<gxdApplyFile> &af,
+				       unsigned long long *pages_written)
+{
+  if(pages_written) *pages_written = 0;
+  if(!jname) return gxDBASE_NULL_PTR;
+  if(af.empty()) return gxDBASE_NO_ERROR;
+  if(af.size() > gxdJournalMaxFiles) return gxDBASE_BAD_REFERENCE;
+
+  // Finish a batch an earlier call left in the journal
+  gxDatabaseError err = Recover(jname);
+  if(err != gxDBASE_NO_ERROR) return err;
+
+  // Every file must exist before Recover() opens it
+  for(size_t i = 0; i < af.size(); i++) {
+    if(af[i].path.empty() || af[i].path.size() > 4096) 
+      return gxDBASE_BAD_REFERENCE;
+    if(af[i].size > (unsigned long long)std::numeric_limits<FAU_t>::max())
+      return gxDBASE_BAD_REFERENCE;
+    if(!gxdFPTRExists(af[i].path.c_str())) {
+      gxdFPTR *f = gxdFPTRCreate(af[i].path.c_str());
+      if(!f) return gxDBASE_FILE_CREATION_ERROR;
+      gxdFPTRClose(f);
+    }
+  }
+
+  gxdFPTR *jfp = gxdFPTRExists(jname) ? 
+    gxdFPTROpen(jname, gxDBASE_READWRITE) : gxdFPTRCreate(jname);
+  if(!jfp) return gxDBASE_FILE_OPEN_ERROR;
+
+  // 11/08/2026: atomic, several replication channels apply at once
+  static std::atomic<unsigned> counter{0};
+  uint32_t salt = (uint32_t)(((unsigned)time(0) * 2654435761u) ^
+			     ((counter.fetch_add(1) + 1) * 40503u) ^ 0x5A17u);
+  if(salt == 0) salt = 1;
+  std::vector<unsigned char> h(gxdJournalMagic, gxdJournalMagic + 8);
+  jput32(h, gxdJournalVersion);
+  jput32(h, salt);
+  jput32(h, (uint32_t)af.size());
+  jput32(h, (uint32_t)gxdPageSize);
+  for(size_t i = 0; i < af.size(); i++) {
+    jput32(h, (uint32_t)af[i].path.size());
+    h.insert(h.end(), af[i].path.begin(), af[i].path.end());
+  }
+  jput32(h, jcheck(h.data(), h.size()));
+
+  // The header goes in last, after every record is synced, so a crash
+  // part way leaves nothing that Recover() would replay.
+  std::vector<unsigned char> out;
+  out.reserve(1024 * 1024 + gxdJournalPageHdrSize + gxdPageSize);
+  FAU_t pos = (FAU_t)h.size();
+  unsigned long long npages = 0;
+  int ok = 1;
+  if(gxdFPTRTruncate(jfp, (FAU_t)0) != 0) ok = 0;
+  for(size_t i = 0; ok && i < af.size(); i++) {
+    for(auto &e : af[i].pages) {
+      if(!e.second) { ok = 0; break; }
+      size_t start = out.size();
+      jput32(out, gxdJournalPageMagic);
+      jput32(out, salt);
+      jput32(out, (uint32_t)i);
+      jput32(out, 1);
+      jput64(out, (uint64_t)e.first);
+      jput32(out, jcheck(out.data() + start + 4, 20, e.second, gxdPageSize));
+      out.insert(out.end(), e.second, e.second + gxdPageSize);
+      npages++;
+      if(out.size() >= 1024 * 1024) {
+	if(gxdFPTRWriteAt(jfp, out.data(), (__ULWORD__)out.size(), pos) !=
+	   out.size()) { ok = 0; break; }
+	pos += (FAU_t)out.size();
+	out.clear();
+      }
+    }
+  }
+  if(ok) {
+    size_t start = out.size();
+    jput32(out, gxdJournalCommitMagic);
+    jput32(out, salt);
+    jput32(out, 1);
+    jput32(out, (uint32_t)af.size());
+    for(size_t i = 0; i < af.size(); i++) jput64(out, (uint64_t)af[i].size);
+    jput32(out, jcheck(out.data() + start + 4, out.size() - start - 4));
+    if(gxdFPTRWriteAt(jfp, out.data(), (__ULWORD__)out.size(), pos) !=
+       out.size()) ok = 0;
+  }
+  if(ok && gxdFPTRSync(jfp, 0) != 0) ok = 0;
+  if(ok && (gxdFPTRWriteAt(jfp, h.data(), (__ULWORD__)h.size(), (FAU_t)0) !=
+	    h.size() || gxdFPTRSync(jfp, 0) != 0)) ok = 0;
+  gxdFPTRClose(jfp);
+  if(!ok) return gxDBASE_FILE_WRITE_ERROR;
+
+  unsigned long n = 0;
+  err = Recover(jname, &n);
+  if(err != gxDBASE_NO_ERROR) return err;
+  if(n != 1) return gxDBASE_FILE_WRITE_ERROR;
+  if(pages_written) *pages_written = npages;
+  return gxDBASE_NO_ERROR;
 }
 
 gxDatabaseError gxdJournalReadLock::Lock(const char *jname)

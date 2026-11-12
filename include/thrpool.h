@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/26/2026
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ---------- Include File Description and Details  ---------- //
@@ -52,6 +52,7 @@ place. ThreadPool replaces thrPool.
 #include <future>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <tuple>
 #include <type_traits>
@@ -67,20 +68,46 @@ public:
   explicit ThreadPool(std::size_t num_threads = 0) {
     if(num_threads == 0) num_threads = std::thread::hardware_concurrency();
     if(num_threads == 0) num_threads = 1;
-    workers.reserve(num_threads);
-    for(std::size_t i = 0; i < num_threads; i++) {
-      workers.emplace_back([this] { WorkerLoop(); });
+    // 11/01/2026: If a thread cannot be started (std::system_error) the
+    // threads already running were destroyed while joinable, which calls
+    // std::terminate(). Stop and join them, then rethrow.
+    try {
+      workers.reserve(num_threads);
+      for(std::size_t i = 0; i < num_threads; i++) {
+	workers.emplace_back([this] { WorkerLoop(); });
+      }
+    }
+    catch(...) {
+      Shutdown();
+      throw;
     }
   }
 
   // Finish every queued task, then stop and join the workers
-  ~ThreadPool() {
+  ~ThreadPool() { Shutdown(); }
+
+  // 11/01/2026: Finish every queued task, then stop and join the
+  // workers. Later calls do nothing. After this, and once the destructor
+  // has started, Submit() throws std::runtime_error. Do not call it from
+  // a task (a worker cannot join itself); that throws std::logic_error.
+  void Shutdown() {
+    if(CurrentPool() == this) {
+      throw std::logic_error("ThreadPool::Shutdown() called from a task");
+    }
     {
       std::lock_guard<std::mutex> lock(mtx);
       stopping = true;
     }
     work_cv.notify_all();
-    for(auto &w : workers) w.join();
+    std::lock_guard<std::mutex> join_lock(join_mtx);
+    for(auto &w : workers) {
+      if(w.joinable()) w.join();
+    }
+  }
+
+  bool IsStopping() {
+    std::lock_guard<std::mutex> lock(mtx);
+    return stopping;
   }
 
   ThreadPool(const ThreadPool &) = delete;
@@ -88,6 +115,9 @@ public:
 
 public:
   // Queue a task. The returned future holds its result or exception.
+  // 11/01/2026: Throws std::runtime_error after Shutdown() (or once the
+  // destructor has started) instead of queuing a task that might never
+  // run. That includes tasks submitting follow-up work at that point.
   template<class F, class... Args>
   auto Submit(F &&f, Args &&...args)
     -> std::future<std::invoke_result_t<std::decay_t<F>, std::decay_t<Args>...>> {
@@ -99,14 +129,23 @@ public:
     std::future<R> result = task->get_future();
     {
       std::lock_guard<std::mutex> lock(mtx);
+      if(stopping) { // 11/01/2026
+	throw std::runtime_error("ThreadPool::Submit() after shutdown");
+      }
       tasks.emplace_back([task] { (*task)(); });
     }
     work_cv.notify_one();
     return result;
   }
 
-  // Block until the queue is empty and no task is running
+  // Block until the queue is empty and no task is running.
+  // 11/01/2026: Must not be called from a task: the calling task counts
+  // as running, so Wait() would never return. That now throws
+  // std::logic_error instead of deadlocking.
   void Wait() {
+    if(CurrentPool() == this) {
+      throw std::logic_error("ThreadPool::Wait() called from a task");
+    }
     std::unique_lock<std::mutex> lock(mtx);
     idle_cv.wait(lock, [this] { return tasks.empty() && active == 0; });
   }
@@ -119,7 +158,14 @@ public:
   }
 
 private:
+  // 11/01/2026: The pool whose worker is the calling thread, if any
+  static ThreadPool *&CurrentPool() {
+    static thread_local ThreadPool *pool = nullptr;
+    return pool;
+  }
+
   void WorkerLoop() {
+    CurrentPool() = this;
     for(;;) {
       std::function<void()> task;
       {
@@ -143,6 +189,7 @@ private:
   std::vector<std::thread> workers;
   std::deque<std::function<void()>> tasks;
   std::mutex mtx;
+  std::mutex join_mtx; // 11/01/2026: Serializes Shutdown() joins
   std::condition_variable work_cv;
   std::condition_variable idle_cv;
   std::size_t active = 0;

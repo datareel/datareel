@@ -75,14 +75,47 @@ throughout the library.
 
 #include "gxdfptr.h"
 
+#if defined (__UNIX__)
+#include <fcntl.h>   // 11/09/2026: the folder sync in gxdFPTRCreate()
+#include <unistd.h>
+#include <string.h>
+#endif
+
 namespace datareel {
 
 
+
+static gxdFPTR *gxdFPTRCreateFile(const char *fname);
 
 GXDLCODE_API gxdFPTR *gxdFPTRCreate(const char *fname)
 // Create a new file and truncate existing files.
 // Returns a null value if the file cannot be
 // created.
+// 11/09/2026: On UNIX the folder is synced after the create, so the new
+// name survives a power loss. Without it a database or journal created
+// and then committed to (each commit syncs the journal file, not the
+// folder) could be gone after a power cut, commits and all (found by
+// the gxrepl power loss test, utils/gxrepl/powerloss_shim.c).
+{
+  gxdFPTR *stream = gxdFPTRCreateFile(fname);
+#if defined (__UNIX__)
+  if(stream && fname) {
+    const char *slash = strrchr(fname, '/');
+    char dir[4096];
+    if(!slash) { dir[0] = '.'; dir[1] = 0; }
+    else if(slash == fname) { dir[0] = '/'; dir[1] = 0; }
+    else if((size_t)(slash - fname) < sizeof(dir)) { memcpy(dir, fname, (size_t)(slash - fname)); dir[slash - fname] = 0; }
+    else dir[0] = 0;
+    if(dir[0]) {
+      int dfd = open(dir, O_RDONLY | O_DIRECTORY);
+      if(dfd >= 0) { fsync(dfd); close(dfd); }
+    }
+  }
+#endif
+  return stream;
+}
+
+static gxdFPTR *gxdFPTRCreateFile(const char *fname)
 {
 #if defined (__GXD_USE_FPTR64__)
   return gxdFPTR64Create(fname);

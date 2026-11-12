@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -70,6 +70,9 @@ with one HTTPS-only client built on gxsTLSConnection. http:// URLs
 and redirects to them are refused. The server certificate and host 
 name are checked by default. Responses can be chunked, and bodies 
 are returned in a std::string or written to a file.
+
+11/01/2026: A redirect to another host or port drops the extra
+headers from AddHeader() as well as the credentials.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -122,11 +125,17 @@ int gxsHTTPClient::send_one(const std::string &method, const gxsURLInfo &u,
   std::string user = !u.user.empty() ? u.user : auth_user;
   std::string pass = !u.user.empty() ? u.passwd : auth_passwd;
   // Credentials are not sent to another host after a redirect
-  if(!auth_host.empty() && u.host != auth_host) user.clear();
+  // 11/01/2026: or to another port on the same host, and neither are
+  // the extra headers (Authorization, Cookie, API keys, ...)
+  bool same_origin = auth_host.empty() || 
+    (u.host == auth_host && u.port == auth_port);
+  if(!same_origin) user.clear();
   if(!user.empty()) {
     req.SetHeader("Authorization", gxsBasicAuthenticationEncode(user, pass));
   }
-  for(const auto &h : extra_headers) req.SetHeader(h.first, h.second);
+  if(same_origin) {
+    for(const auto &h : extra_headers) req.SetHeader(h.first, h.second);
+  }
   if(!body.empty() || method == "POST" || method == "PUT") {
     if(!content_type.empty()) req.SetHeader("Content-Type", content_type);
     req.body = body;
@@ -159,7 +168,10 @@ int gxsHTTPClient::Request(const std::string &method, const std::string &url,
       return fail("HTTP exception: Only https:// URLs are supported: " + current);
     }
     final_url = current;
-    if(auth_host.empty()) auth_host = u.host;
+    if(auth_host.empty()) {
+      auth_host = u.host;
+      auth_port = u.port; // 11/01/2026: Compare the port too
+    }
     if(send_one(current_method, u, current_body, content_type, response) != 0) {
       return -1;
     }

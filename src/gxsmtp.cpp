@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/23/2001
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -52,6 +52,11 @@ Mail is only sent over TLS: implicit TLS (port 465) or STARTTLS
 never used in plain text. Login() uses AUTH PLAIN or AUTH LOGIN, 
 multi-line replies are read in full, and message bodies are dot 
 stuffed. SendMessage() writes RFC 5322 headers.
+
+11/01/2026: angle() kept everything after '<', so "a@b> NOTIFY=..."
+added ESMTP parameters to MAIL FROM/RCPT TO. NormalizeAddress() now
+requires one <...> with nothing after it, and replies are parsed by
+ParseReply(), which requires 3 digit codes.
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -59,6 +64,7 @@ stuffed. SendMessage() writes RFC 5322 headers.
 
 #include <cstdlib>
 #include <ctime>
+#include <functional>
 #include "gxsmtp.h"
 #include "gxs_b64.h"
 #include "strutil.h"
@@ -74,29 +80,71 @@ int gxsSMTPClient::fail(const std::string &msg)
   return -1;
 }
 
+// 11/01/2026: One reply parser for the connection and for buffers.
+// next_line returns false at the end of input. Returns the code, -1
+// if a line could not be read, -2 if a line was malformed or -3 if
+// the reply is too long.
+static int parse_reply(const std::function<bool(std::string &)> &next_line,
+		       std::string &reply)
+{
+  reply.clear();
+  std::string line;
+  for(int lines = 0; lines < 1000; lines++) {
+    if(!next_line(line)) return -1;
+    if(!reply.empty()) reply += "\n";
+    reply += line;
+    if(line.size() < 3 || line[0] < '1' || line[0] > '5' ||
+       line[1] < '0' || line[1] > '9' || line[2] < '0' || line[2] > '9' ||
+       (line.size() > 3 && line[3] != ' ' && line[3] != '-')) return -2;
+    if(line.size() == 3 || line[3] != '-') {
+      return (line[0] - '0') * 100 + (line[1] - '0') * 10 + (line[2] - '0');
+    }
+  }
+  return -3;
+}
+
+int gxsSMTPClient::ParseReply(std::string_view buf, std::string &reply,
+			      std::size_t *consumed)
+{
+  std::size_t pos = 0;
+  auto next_line = [&](std::string &line) -> bool {
+    std::size_t nl = buf.find('\n', pos);
+    if(nl == std::string_view::npos || nl - pos > 4096) return false;
+    line.assign(buf.data() + pos, nl - pos);
+    pos = nl + 1;
+    if(!line.empty() && line.back() == '\r') line.pop_back();
+    return true;
+  };
+  int rv = parse_reply(next_line, reply);
+  if(consumed) *consumed = pos;
+  return rv < 0 ? -1 : rv;
+}
+
 int gxsSMTPClient::read_reply()
 // Read a reply, which may span several "250-" lines. Returns the
 // reply code or -1 if the connection failed.
 {
   last_reply.clear();
   last_code = 0;
-  std::string line;
-  for(int lines = 0; lines < 1000; lines++) {
-    if(!conn.ReadLine(line, 4096)) {
-      fail("SMTP exception: No reply from server" + 
-	   (conn.Error().empty() ? std::string() : ": " + conn.Error()));
-      return -1;
-    }
-    if(line.size() < 3) { fail("SMTP exception: Bad reply: " + line); return -1; }
-    if(!last_reply.empty()) last_reply += "\n";
-    last_reply += line;
-    if(line.size() == 3 || line[3] != '-') {
-      last_code = std::atoi(line.substr(0, 3).c_str());
-      return last_code;
-    }
+  auto next_line = [this](std::string &line) -> bool {
+    return conn.ReadLine(line, 4096);
+  };
+  int rv = parse_reply(next_line, last_reply);
+  if(rv == -1) {
+    fail("SMTP exception: No reply from server" + 
+	 (conn.Error().empty() ? std::string() : ": " + conn.Error()));
+    return -1;
   }
-  fail("SMTP exception: Reply is too long");
-  return -1;
+  if(rv == -2) { 
+    fail("SMTP exception: Bad reply: " + last_reply.substr(last_reply.rfind('\n') + 1));
+    return -1;
+  }
+  if(rv < 0) {
+    fail("SMTP exception: Reply is too long");
+    return -1;
+  }
+  last_code = rv;
+  return last_code;
 }
 
 int gxsSMTPClient::Command(const std::string &cmd, const std::string &expect)
@@ -175,24 +223,60 @@ int gxsSMTPClient::Login(const std::string &user, const std::string &passwd)
   return Command(gxsBase64Encode(passwd), "235");
 }
 
-static std::string angle(const std::string &address)
+// 11/01/2026: Replaces angle(), which kept everything after the '<'
+// so "a@b> NOTIFY=SUCCESS ORCPT=..." became ESMTP parameters
+static bool address_char(unsigned char c)
 {
+  return c > 0x20 && c != 0x7F && c != '<' && c != '>';
+}
+
+bool gxsSMTPClient::NormalizeAddress(const std::string &address, 
+				     std::string &out, bool allow_empty)
+{
+  out.clear();
   std::string a = trim(address);
-  if(!a.empty() && a[0] == '<') return a;
-  // "Name <user@host>" keeps only the address part
+  std::string inner;
   std::size_t lt = a.find('<');
-  if(lt != std::string::npos) return a.substr(lt);
-  return "<" + a + ">";
+  if(lt == std::string::npos) {
+    inner = a;
+  }
+  else {
+    // "Name <user@host>" keeps only the address part. There must be
+    // one '<' and one '>', and the '>' must end the string.
+    std::size_t gt = a.find('>');
+    if(gt == std::string::npos || gt < lt || gt + 1 != a.size()) return false;
+    for(std::size_t i = 0; i < lt; i++) { // Display name
+      unsigned char c = (unsigned char)a[i];
+      if(c < 0x20 || c == 0x7F) return false;
+    }
+    inner = a.substr(lt + 1, gt - lt - 1);
+  }
+  for(unsigned char c : inner) {
+    if(!address_char(c)) return false;
+  }
+  if(inner.empty() && !allow_empty) return false;
+  out = "<" + inner + ">";
+  return true;
 }
 
 int gxsSMTPClient::MailFrom(const std::string &address)
 {
-  return Command("MAIL FROM:" + angle(address), "250");
+  std::string a;
+  // 11/01/2026: Refuse addresses that would add ESMTP parameters
+  if(!NormalizeAddress(address, a, true)) {
+    return fail("SMTP exception: Bad sender address");
+  }
+  return Command("MAIL FROM:" + a, "250");
 }
 
 int gxsSMTPClient::RcptTo(const std::string &address)
 {
-  return Command("RCPT TO:" + angle(address), "25");
+  std::string a;
+  // 11/01/2026: Refuse addresses that would add ESMTP parameters
+  if(!NormalizeAddress(address, a, false)) {
+    return fail("SMTP exception: Bad recipient address");
+  }
+  return Command("RCPT TO:" + a, "25");
 }
 
 int gxsSMTPClient::Data(const std::string &message)

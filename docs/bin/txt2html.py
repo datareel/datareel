@@ -33,12 +33,13 @@ HEAD = '''<!doctype html>
 <main class="dr-main">
 '''
 FOOT = '''</main>
-<footer class="dr-footer">DataReel 7.3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>
 '''
 
 LINKS = {
+  'RELEASE_NOTES_7.3.1.txt': 'release_notes_7_3_1.html',
   'RELEASE_NOTES_7.3.txt': 'release_notes_7_3.html',
   'RELEASE_NOTES_7.2.txt': 'release_notes_7_2.html',
   'RELEASE_NOTES_7.1.txt': 'release_notes_7_1.html',

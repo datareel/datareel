@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 01/25/2000
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -61,6 +61,9 @@ with one HTTPS-only client built on gxsTLSConnection. http:// URLs
 and redirects to them are refused. The server certificate and host 
 name are checked by default. Responses can be chunked, and bodies 
 are returned in a std::string or written to a file.
+
+11/01/2026: A redirect to another host or port drops the extra
+headers from AddHeader() as well as the credentials.
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -98,6 +101,8 @@ public: // Settings
     auth_user = user; auth_passwd = passwd;
   }
   // Extra headers sent with every request
+  // 11/01/2026: but not after a redirect to another host or port,
+  // since they often hold Cookie or token values
   void AddHeader(const std::string &name, const std::string &value) {
     extra_headers.emplace_back(name, value);
   }
@@ -136,6 +141,9 @@ private:
   std::string user_agent = "DataReel/7";
   std::string auth_user, auth_passwd;
   std::string auth_host; // Host of the first request in a redirect chain
+  // 11/01/2026: Port of the first request. Credentials and the extra
+  // headers are only sent to the same host and port.
+  int auth_port = 0;
   std::vector<std::pair<std::string, std::string>> extra_headers;
   std::string error;
   std::string final_url;

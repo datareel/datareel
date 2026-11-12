@@ -45,11 +45,19 @@ with gxsTLSServer::Accept(stream.Connection()). Block lengths read
 from the network are checked against SetMaxBlockSize() before any 
 memory is allocated, and requested blocks are returned in a 
 std::vector instead of a new[] buffer.
+
+11/01/2026: The block functions refuse to run unless the connection
+is secure (gxSOCKET_SSL_ERROR), so a failed or skipped TLS handshake
+can never send database blocks in cleartext. WriteBlock() rejects a
+block_length over INT_MAX instead of truncating it. Added
+WriteResultBlock(FAU_t)/ReadResultBlock(FAU_t&) so a 64-bit file
+address survives the round trip.
 ==============================================================
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
 
+#include <climits>
 #include <cstring>
 #include "gxstream.h"
 
@@ -77,6 +85,8 @@ void gxStream::SetBlockStatus(gxBlockHeader &gx, __SBYTE__ net_status,
 
 int gxStream::WriteHeader(gxBlockHeader &gx)
 {
+  // 11/01/2026: Never send database blocks in cleartext
+  if(!conn.IsSecure()) return set_error(gxSOCKET_SSL_ERROR);
   if(conn.Send(&gx, (int)sizeof(gxBlockHeader)) != (int)sizeof(gxBlockHeader)) {
     return set_error(gxSOCKET_BLOCKHEADER_ERROR);
   }
@@ -85,6 +95,13 @@ int gxStream::WriteHeader(gxBlockHeader &gx)
 
 int gxStream::WriteBlock(const void *buf, gxBlockHeader &gx)
 {
+  // 11/01/2026: Check before anything is sent. A length over INT_MAX
+  // was truncated by the int cast below.
+  if((__ULWORD__)gx.block_length > (__ULWORD__)INT_MAX) {
+    return set_error(gxSOCKET_BLOCKSIZE_ERROR);
+  }
+  if(gx.block_length > 0 && !buf) return set_error(gxSOCKET_BLOCKSIZE_ERROR);
+  if(!conn.IsSecure()) return set_error(gxSOCKET_SSL_ERROR);
   if(WriteHeader(gx) != gxSOCKET_NO_ERROR) return stream_error;
   int len = (int)(__ULWORD__)gx.block_length;
   if(len > 0 && conn.Send(buf, len) != len) {
@@ -95,6 +112,8 @@ int gxStream::WriteBlock(const void *buf, gxBlockHeader &gx)
 
 int gxStream::WriteBlock(const void *buf, int bytes)
 {
+  // 11/01/2026: A negative count became a huge block_length
+  if(bytes < 0) return set_error(gxSOCKET_BLOCKSIZE_ERROR);
   gxBlockHeader gx;
   SetBlockStatus(gx, gxSendBlock);
   gx.block_length = (__ULWORD__)bytes;
@@ -103,6 +122,8 @@ int gxStream::WriteBlock(const void *buf, int bytes)
 
 int gxStream::ReadHeader(gxBlockHeader &gx)
 {
+  // 11/01/2026: Never accept database blocks in cleartext
+  if(!conn.IsSecure()) return set_error(gxSOCKET_SSL_ERROR);
   std::string s;
   if(conn.Read(s, sizeof(gxBlockHeader)) != (int)sizeof(gxBlockHeader)) {
     return set_error(conn.IsOpen() ? gxSOCKET_BLOCKHEADER_ERROR : 
@@ -123,6 +144,7 @@ int gxStream::ReadBlock(std::vector<unsigned char> &buf,
 			const gxBlockHeader &gx)
 {
   buf.clear();
+  if(!conn.IsSecure()) return set_error(gxSOCKET_SSL_ERROR); // 11/01/2026
   __ULWORD__ len = gx.block_length;
   if(len > max_block) return set_error(gxSOCKET_BLOCKSIZE_ERROR);
   if(len == 0) return set_error(gxSOCKET_NO_ERROR);
@@ -191,6 +213,13 @@ int gxStream::ReadAckBlock()
 
 int gxStream::WriteResultBlock(int result_code)
 {
+  return WriteResultBlock((FAU_t)result_code);
+}
+
+int gxStream::WriteResultBlock(FAU_t result_code)
+// 11/01/2026: The header's block_nd_fptr field is as wide as FAU, so
+// a 64-bit file address travels whole (int truncated it)
+{
   gxBlockHeader ack;
   SetBlockStatus(ack, gxAcknowledgeBlock);
   ack.block_nd_fptr = (FAU)result_code; // The result travels in the header
@@ -202,12 +231,21 @@ int gxStream::WriteResultBlock(int result_code)
 
 int gxStream::ReadResultBlock(int &result_code)
 {
+  FAU_t code = (FAU_t)0;
+  if(ReadResultBlock(code) != gxSOCKET_NO_ERROR) return stream_error;
+  result_code = (int)code;
+  return set_error(gxSOCKET_NO_ERROR);
+}
+
+int gxStream::ReadResultBlock(FAU_t &result_code)
+// 11/01/2026: Full width result, see WriteResultBlock(FAU_t)
+{
   gxBlockHeader ack;
   if(ReadHeader(ack) != gxSOCKET_NO_ERROR || 
      BlockStatus(ack) != gxAcknowledgeBlock) {
     return set_error(gxSOCKET_BLOCKACK_ERROR);
   }
-  result_code = (int)ack.block_nd_fptr;
+  result_code = (FAU_t)ack.block_nd_fptr;
   return set_error(gxSOCKET_NO_ERROR);
 }
 

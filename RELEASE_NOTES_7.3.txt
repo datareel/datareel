@@ -1,6 +1,9 @@
 DataReel 7.3 Beta Release Notes, 10/31/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
+DataReel 7.3.1 fixes the problems a security scan found; see
+RELEASE_NOTES_7.3.1.txt.
+
 DataReel 7.3 is a beta release. DataReel 6.2 remains the stable
 release for production use until DataReel 7 is final; please report
 problems through https://datareel.com/contact.php.

@@ -45,6 +45,12 @@ the source code and documentation supplied with the third party library.
 #include "gxdlcode.h"
 
 #include "gxssl.h"
+
+#if defined (__UNIX__)
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 #include "strutil.h"
 
 namespace datareel {
@@ -275,14 +281,13 @@ int gxSSL::CloseSSLSocket(int destroy_ssl)
 // Returns a non-zero value if the function fails.
 {
   if(!ssl) return ssl_error;
+  // 11/01/2026: Send our close_notify once and do not wait for the
+  // peer's. The second SSL_shutdown() blocked on a silent peer, which
+  // hung Close() and the destructors. 0 means our close_notify went
+  // out and the peer's has not arrived yet, which is fine because the
+  // socket is closed next.
   int rv = SSL_shutdown(ssl);
-  if(!rv) {
-    int open_socket = -1;
-    BIO_get_fd(SSL_get_rbio(ssl), &open_socket);
-    if(open_socket >= 0) shutdown(open_socket, 1);
-    rv = SSL_shutdown(ssl);
-  }
-  if(rv != 1) {
+  if(rv != 0 && rv != 1) {
     return ssl_error = gxSSL_SHUTDOWN_ERROR;
   }
   if(destroy_ssl) DestroySSL();
@@ -571,9 +576,34 @@ SSL_CTX *gxSSL::InitCTX()
     }
   }
 
+  // 11/01/2026: A server with a client CA list requires a client
+  // certificate whose chain leads to one of those CAs. They are the
+  // only trusted CAs in this context, so a certificate from a public
+  // CA in the system store cannot pass.
+  if(!client_ca_list.empty() && !is_client) {
+    if(!SSL_CTX_load_verify_locations(ctx, client_ca_list.c_str(), 0)) {
+      ssl_error = gxSSL_CALIST_ERROR;
+      DestroyCTX();
+      return 0;
+    }
+    // CA names sent in the certificate request, so clients that hold
+    // several certificates pick the right one
+    STACK_OF(X509_NAME) *names = SSL_load_client_CA_file(client_ca_list.c_str());
+    if(!names) {
+      ssl_error = gxSSL_CALIST_ERROR;
+      DestroyCTX();
+      return 0;
+    }
+    SSL_CTX_set_client_CA_list(ctx, names); // ctx owns names now
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, 0);
+    // Session resumption with peer verification needs a session ID
+    // context; without one OpenSSL refuses resumed sessions
+    static const unsigned char sid_ctx[] = "datareel-mtls";
+    SSL_CTX_set_session_id_context(ctx, sid_ctx, sizeof(sid_ctx) - 1);
+  }
   // Trusted CA certificates used by VerifyCert(): the CA list if one
   // was set, or the system certificate store
-  if(!ca_list.empty()) {
+  else if(!ca_list.empty()) {
     if(!(SSL_CTX_load_verify_locations(ctx, ca_list.c_str(), 0))) {
       ssl_error = gxSSL_CALIST_ERROR;
       DestroyCTX();
@@ -654,6 +684,7 @@ void gxSSL::clear_strings()
   ca_list.clear();
   passwd.clear();
   cert_file.clear();
+  client_ca_list.clear(); // 11/01/2026
 }
 
 int gxSSL::is_ssl_null()
@@ -848,6 +879,71 @@ const char *gxSSL::CertVerifyErrorString(long X509_return_code)
   return X509_verify_cert_error_string(X509_return_code);
 }
 
+int gxSSL::VerifyClientCert(long *X509_return_code)
+// 11/01/2026: Server side check of the client certificate. The chain
+// was checked during the handshake against the client CA list (see
+// InitCTX()); this makes sure a certificate was sent and that the
+// check passed. SSL_get_verify_result() alone returns X509_V_OK when
+// no certificate was sent, so the certificate is checked first.
+// Returns 0 if successful.
+{
+  if(X509_return_code) *X509_return_code = 0;
+  if(is_ssl_null()) return ssl_error;
+  // The context may belong to another gxSSL object (gxsTLSServer), so
+  // look at the verify mode instead of this object's client CA list
+  if(!(SSL_get_verify_mode(ssl) & SSL_VERIFY_PEER)) {
+    return ssl_error = gxSSL_CALIST_ERROR;
+  }
+  X509 *cert = SSL_get_peer_certificate(ssl);
+  if(!cert) return ssl_error = gxSSL_PEERCERT_ERROR;
+  X509_free(cert);
+  long rv = SSL_get_verify_result(ssl);
+  if(X509_return_code) *X509_return_code = rv;
+  if(rv != X509_V_OK) return ssl_error = gxSSL_CERT_VER_ERROR;
+  return ssl_error = gxSSL_NO_ERROR;
+}
+
+int gxSSL::GetPeerCertIdentity(std::string &sha256_fingerprint, 
+			       std::string &cn)
+// 11/01/2026: Passes back the SHA-256 fingerprint and the subject CN
+// of the peer's certificate. Returns 0 if successful.
+{
+  sha256_fingerprint.clear(); cn.clear();
+  if(is_ssl_null()) return ssl_error;
+  X509 *cert = SSL_get_peer_certificate(ssl);
+  if(!cert) return ssl_error = gxSSL_PEERCERT_ERROR;
+
+  unsigned char md[EVP_MAX_MD_SIZE];
+  unsigned int md_len = 0;
+  if(!X509_digest(cert, EVP_sha256(), md, &md_len) || md_len == 0) {
+    X509_free(cert);
+    return ssl_error = gxSSL_SHA_ERROR;
+  }
+  static const char hex[] = "0123456789ABCDEF";
+  for(unsigned int i = 0; i < md_len; i++) {
+    if(i > 0) sha256_fingerprint += ':';
+    sha256_fingerprint += hex[(md[i] >> 4) & 0x0F];
+    sha256_fingerprint += hex[md[i] & 0x0F];
+  }
+
+  // Exactly one CN, with no NUL in it, or none at all
+  X509_NAME *name = X509_get_subject_name(cert);
+  int pos = name ? X509_NAME_get_index_by_NID(name, NID_commonName, -1) : -1;
+  if(pos >= 0 && X509_NAME_get_index_by_NID(name, NID_commonName, pos) < 0) {
+    ASN1_STRING *data = X509_NAME_ENTRY_get_data(X509_NAME_get_entry(name, pos));
+    unsigned char *utf8 = 0;
+    int len = data ? ASN1_STRING_to_UTF8(&utf8, data) : -1;
+    if(len > 0 && utf8) {
+      if(memchr(utf8, 0, (std::size_t)len) == 0) {
+	cn.assign((const char *)utf8, (std::size_t)len);
+      }
+    }
+    if(utf8) OPENSSL_free(utf8);
+  }
+  X509_free(cert);
+  return ssl_error = gxSSL_NO_ERROR;
+}
+
 int gxSSL::InitPRNG(const char *r_file, int check_prng_init)
 // Function used to initialize the pseudo random number generator 
 // using a random number file. If check_prng_init is true the 
@@ -911,6 +1007,23 @@ static int gxssl_keygen_cb(EVP_PKEY_CTX *kctx)
 }
 #endif
 
+static FILE *gxssl_open_private(const char *fname)
+// 11/01/2026: Create or truncate a file for a private key, readable and
+// writable by the owner only (0600) on POSIX systems. On Windows the
+// file gets the folder's permissions; keep keys in a private folder.
+{
+#if defined (__UNIX__)
+  int fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+  if(fd < 0) return 0;
+  fchmod(fd, 0600); // An existing file keeps its old mode otherwise
+  FILE *fp = fdopen(fd, "wb");
+  if(!fp) close(fd);
+  return fp;
+#else
+  return fopen(fname, "w+b");
+#endif
+}
+
 int gxSSL::MakeRSAPrivateKey(const char *key_fname, int key_len,
 			     KeyGenCallbackFunc cb_func, void *cb_arg)
 // Function used to write a private RSA (Rivest, Shamir, Adleman) key to 
@@ -970,7 +1083,10 @@ int gxSSL::MakeRSAPrivateKey(const char *key_fname, int key_len,
 
   if(!private_key) return ssl_error = gxSSL_RSAGEN_ERROR;
 
-  FILE *fp = fopen(key_fname, "w+b");
+  // 11/01/2026: Create the private key file readable by its owner only.
+  // fopen() created it with the umask permissions (often 0644), so other
+  // users on the machine could read the key.
+  FILE *fp = gxssl_open_private(key_fname);
   if(!fp) {
     app_err_str = str_cat("SSL exception: Can't write RSA private key file ", key_fname);
     EVP_PKEY_free(private_key);
@@ -1025,10 +1141,10 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
   }
 
   EVP_PKEY *private_key = PEM_read_PrivateKey(fp, 0, 0, 0);
+  fclose(fp); // 11/01/2026: Was left open when the key could not be read
   if(!private_key) {
     return ssl_error = gxSSL_KEY_ERROR;
   }
-  fclose(fp);
 
   X509 *x = X509_new(); // 10/14/2026: Was "x = x=X509_new()" (undefined order)
   if(!x) {
@@ -1041,7 +1157,9 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
   X509_set_version(x,2);
   ASN1_INTEGER_set(X509_get_serialNumber(x), ci.sn);
   X509_gmtime_adj(X509_get_notBefore(x), 0);
-  X509_gmtime_adj(X509_get_notAfter(x), (long)(60*60*24*ci.days));
+  // 11/01/2026: Multiply in long; an int product overflowed for large
+  // day counts
+  X509_gmtime_adj(X509_get_notAfter(x), 60L*60L*24L*(long)ci.days);
   X509_set_pubkey(x, private_key);
 
   X509_NAME *name = X509_get_subject_name(x);
@@ -1196,6 +1314,7 @@ int gxSSL::MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
     return ssl_error = gxSSL_APPDEF_ERROR;
   }
   if(!PEM_write_X509(fp, x)) {
+    fclose(fp); // 11/01/2026: Was left open on a write error
     X509_free(x);
     EVP_PKEY_free(private_key);
     CRYPTO_cleanup_all_ex_data();

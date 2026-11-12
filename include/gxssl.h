@@ -370,6 +370,31 @@ public:  // Key, cert, and passwd functions
   // certificate and return a string for a VerifyCert() return code
   int GetPeerCertInfo(std::string &subject, std::string &issuer);
   static const char *CertVerifyErrorString(long X509_return_code);
+
+  // 11/01/2026: Client certificates (mutual TLS) for servers. Set the
+  // CA file used to check client certificates before InitCTX() on a
+  // server. A server context made with one asks every client for a
+  // certificate and fails the handshake if none is sent or its chain
+  // does not lead to a CA in this file. Only the CAs in this file are
+  // trusted for client certificates (not the system store).
+  void SetClientCAList(const char *s) { client_ca_list = s ? s : ""; }
+  const char *ClientCAList() { return client_ca_list.c_str(); }
+  // 11/01/2026: Server side, after AcceptSSLSocket(). Checks that the
+  // client sent a certificate and that its chain leads to a CA in the
+  // client CA list. Passes back the X509_V_* code (Windows CERT_E_*
+  // code with Schannel) in X509_return_code. Returns 0 if the
+  // certificate is valid, gxSSL_PEERCERT_ERROR if there is none,
+  // gxSSL_CALIST_ERROR if no client CA list is loaded, or
+  // gxSSL_CERT_VER_ERROR.
+  int VerifyClientCert(long *X509_return_code = 0);
+  // 11/01/2026: Passes back the SHA-256 fingerprint of the peer's
+  // certificate (upper case hex bytes separated by colons, the same as
+  // "openssl x509 -fingerprint -sha256") and its subject common name
+  // in UTF-8. cn is empty if the subject has no CN, more than one CN,
+  // or a CN with a NUL character in it. Does not check the chain.
+  // Returns 0 if successful or gxSSL_PEERCERT_ERROR if the peer did
+  // not send a certificate.
+  int GetPeerCertIdentity(std::string &sha256_fingerprint, std::string &cn);
   int HasVerifyCert() { return verify_cert == 1; } 
   int RequireVerifyCert() { return verify_cert = 1; }
   int NoVerifyCert() { return verify_cert = 0; }
@@ -436,6 +461,7 @@ protected: // OpenSSL passwords, keys, and certs
   std::string cert_file;    // Certificate file
   std::string ca_list;      // Certificate authority list
   std::string passwd;       // Cert or key passphrase
+  std::string client_ca_list; // 11/01/2026: CAs for client certificates
   int verify_cert;
 
 protected: // SSL library objects 

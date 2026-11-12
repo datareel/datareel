@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/01/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ---------- Include File Description and Details  ---------- //
@@ -67,7 +67,9 @@ public:
   LogFile &operator=(const LogFile &) = delete;
 
 public:
-  // Open for append, creating the file if needed
+  // Open for append, creating the file if needed.
+  // 11/01/2026: POSIX creates new files with mode 0640 and refuses
+  // symbolic links and non-regular files (Open and OverWrite).
   bool Open(const std::string &fname);
 
   // Create a new file or truncate an existing one
@@ -80,7 +82,9 @@ public:
   const std::string &FileName() const { return file_name; }
 
 public:
-  // Write "Oct 26, 2026 14:05:09 message\n" as one locked write
+  // Write "Oct 26, 2026 14:05:09 message\n" as one locked write.
+  // 11/01/2026: CR and LF in message are written as \r and \n so one
+  // call is always one log entry.
   bool WriteLine(std::string_view message);
 
   // Write text as-is, with no time stamp or new line

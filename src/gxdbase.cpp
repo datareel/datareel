@@ -344,14 +344,17 @@ gxDatabaseError gxDatabase::Close()
 // Close the open database file. Returns a non-zero value
 // to indicate an error condition or zero if successful.
 {
-  if(IsOpen()) {
+  // 10/31/2026: Close the file whenever it is open. A file that failed
+  // the signature test in Open() (is_ok cleared) used to stay open, so
+  // each failed open of a file of the wrong type leaked a descriptor.
+  if(fp) {
 
-    // Write the header if this file was opened with write access
-    if(ReadyForWriting()) WriteFileHdr();
+    // Write the header if this file was opened with write access. Never
+    // write to a file that failed the open checks.
+    if(IsOK() && ReadyForWriting()) WriteFileHdr();
 
-    // 10/31/2026: Writes still held by an unfinished transaction are
-    // dropped here. A journal that was spilled restores the file when it
-    // is recovered.
+    // 10/31/2026: Writes still held by an unfinished journal transaction
+    // are dropped here; they were never committed.
     DisablePageCache();
 
     if(gxdFPTRClose(fp) != 0) {
@@ -623,7 +626,8 @@ gxUINT32 gxDatabase::WriteObjectChecksum(FAU_t object_address)
       break;
   }
 
-  gxUINT32 CRC;
+  // 10/31/2026: Was returned without a value when the file was not open
+  gxUINT32 CRC = (gxUINT32)0;
   __ULWORD__ bytes;
   gxBlockHeader blk_hdr;
 
@@ -746,6 +750,16 @@ __ULWORD__ gxDatabase::CalcChecksum(__ULWORD__ bytes, FAU_t file_address,
   // damaged header gave a huge count (block_length shorter than the
   // header wraps around), and new char[] then threw std::bad_alloc.
   FAU_t eof = GetEOF();
+  // 10/31/2026: The header's end of file comes from the file too. Use
+  // the real file size when it is smaller, so a damaged header cannot
+  // ask for a buffer of any size (found by fuzzing).
+  if(fp) {
+    FAU_t pos = gxdFPTRTell(fp);
+    FAU_t size = gxdFPTRSeek(fp, (FAU_t)0, gxDBASE_SEEK_END);
+    gxdFPTRSeek(fp, pos, gxDBASE_SEEK_BEG);
+    if(pcache && pcache->FileSize() > size) size = pcache->FileSize();
+    if(size > (FAU_t)0 && size < eof) eof = size;
+  }
   if((file_address < (FAU_t)0) || (file_address > eof) ||
      ((unsigned long long)bytes > (unsigned long long)(eof - file_address))) {
     gxd_error = gxDBASE_BADBLOCK_ERROR;
@@ -1073,9 +1087,19 @@ FAU_t gxDatabase::TotalBlocks()
 
     if(!IsOK()) break;
 
-    // If this is not a valid block, find the next one
-    if(!TestBlockHeader(blk_hdr)) {
-      block_address = FindFirstBlock(block_address);
+    // If this is not a valid block, find the next one. 10/31/2026: A
+    // block shorter than its own header (a damaged length) is skipped
+    // like any bad block. A length of zero kept the address the same, so
+    // the count never ended, and tiny lengths made the count rescan the
+    // same bytes over and over (both found by fuzzing).
+    // A length past the end of the file is damage too: in the 64-bit
+    // engine a huge length wrapped the address back to an earlier block,
+    // so the count looped for ever.
+    if(!TestBlockHeader(blk_hdr) || 
+       (blk_hdr.block_length < (__ULWORD__)BlockHeaderSize()) ||
+       ((unsigned long long)blk_hdr.block_length > 
+	(unsigned long long)(file_header.gxd_eof - block_address))) {
+      block_address = FindFirstBlock(block_address + 1);
     }
     else {
       block_address += blk_hdr.block_length;
@@ -1215,13 +1239,20 @@ __ULWORD__ gxDatabase::ObjectLength(FAU_t object_address)
 
   __ULWORD__ len;
 
+  // 11/01/2026: A damaged header with a block length shorter than its
+  // own overhead would underflow to a huge object length. Return 0.
+  __ULWORD__ overhead = (__ULWORD__)BlockHeaderSize();
+
   // Adjust the number of bytes to allocate space of block header
   // according to the revision letter.
   switch(rev_letter) {
     case '\0' : case ' ' : case 'e' : case 'E' :
+      if(blk_hdr.block_length < overhead) return 0;
       len = blk_hdr.block_length - BlockHeaderSize();    
       break;
     default: // Rev 'A', 'B', 'C', and 'D'
+      overhead += (__ULWORD__)sizeof(gxChecksum);
+      if(blk_hdr.block_length < overhead) return 0;
       len = blk_hdr.block_length - BlockHeaderSize();
       len -= sizeof(gxChecksum);
       break;
@@ -1245,6 +1276,10 @@ __ULWORD__ gxDatabase::BlockLength(FAU_t object_address)
 
   if(ReadBlockHdr(blk_hdr, block_address) != gxDBASE_NO_ERROR)
     return 0;
+
+  // 11/01/2026: A block can never be shorter than its header. Treat a
+  // damaged length as an error so callers do not subtract past zero.
+  if(blk_hdr.block_length < (__ULWORD__)BlockHeaderSize()) return 0;
 
   return blk_hdr.block_length;
 }
@@ -2105,9 +2140,20 @@ static FAU_t gxd_next_block(gxDatabase &db, FAU_t block_address, FAU_t eof)
 {
   gxBlockHeader hdr;
   if(db.ReadBlockHdr(hdr, block_address) != gxDBASE_NO_ERROR) return 0;
-  FAU_t next = block_address + (FAU_t)hdr.block_length;
-  if(next <= block_address) next = block_address + 1; // Always advance
-  if((FAU_t)(next + db.BlockHeaderSize()) > eof) return (FAU_t)0;
+  // 11/01/2026: Compare the length unsigned against the room left in
+  // the file. block_address plus a damaged length cast to FAU_t could
+  // overflow (undefined behaviour) for lengths near the type's maximum.
+  if((block_address < (FAU_t)0) || (block_address >= eof)) return (FAU_t)0;
+  FAU_t next;
+  if((hdr.block_length == 0) ||
+     ((unsigned long long)hdr.block_length >
+      (unsigned long long)(eof - block_address))) {
+    next = block_address + 1; // Damaged length: search from the next byte
+  }
+  else {
+    next = block_address + (FAU_t)hdr.block_length;
+  }
+  if(next > eof - (FAU_t)db.BlockHeaderSize()) return (FAU_t)0;
   if(gxd_valid_block(db, next, eof)) return next;
   return db.FindFirstBlock(next);
 }
