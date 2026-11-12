@@ -31,6 +31,7 @@ The vector index, see gxvindex.h.
 // ----------------------------------------------------------- //
 #include "gxvindex.h"
 #include "gxvkern.h"
+#include "gxcrc32.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -119,6 +120,12 @@ struct gxvVisited {
 };
 thread_local gxvVisited gxv_visited;
 
+// Decoded node vectors (float16 and int8 indexes): one for the node a
+// query is measured against, two for node-to-node distances
+thread_local float gxv_buf_q[gxvMaxDim];
+thread_local float gxv_buf_a[gxvMaxDim];
+thread_local float gxv_buf_b[gxvMaxDim];
+
 // A search result kept in a max heap on (distance, id)
 struct gxvCand {
   float d;
@@ -204,7 +211,7 @@ void gxVectorIndex::Clear()
   dim = 0;
   elem_type = gxvFLOAT32;
   metric = gxvL2;
-  m = m0 = ef_construction = node_size = top_level = 0;
+  m = m0 = ef_construction = node_size = vbytes = top_level = 0;
   entry = 0;
   memset(spec, 0, sizeof(spec));
   node_count = live_count = deleted_count = change_count = 0;
@@ -216,7 +223,7 @@ void gxVectorIndex::Clear()
 
 void gxVectorIndex::InitArrays()
 {
-  vectors.Init(dim);
+  vectors.Init((vbytes + 3) / 4);
   ids.Init(1);
   tags.Init(gxvTagCount);
   live.Init(1);
@@ -238,12 +245,13 @@ const char *gxVectorIndex::ErrorMessage(gxvError err)
     case gxv_BAD_FILE: return "Not a vector index file, or a damaged node";
     case gxv_BAD_VERSION: return "Vector index file version not supported";
     case gxv_BAD_ARG: return "Bad argument";
-    case gxv_UNSUPPORTED: return "Element type not supported yet";
+    case gxv_UNSUPPORTED: return "Element type not supported by this library";
     case gxv_SPEC_MISMATCH: return "The vector spec differs from the file's";
     case gxv_DUPLICATE_ID: return "The id is already in the index";
     case gxv_ID_NOT_FOUND: return "The id is not in the index";
     case gxv_NOT_FINITE: return "The vector has a NaN or infinite value";
     case gxv_READ_ONLY: return "The vector index is open read only";
+    case gxv_OUT_OF_RANGE: return "A vector value is too large for the element type";
   }
   return "Unknown vector index error";
 }
@@ -279,7 +287,7 @@ gxvError gxVectorIndex::Create(const char *fname, unsigned d,
   Clear();
   if(!fname || d == 0 || d > gxvMaxDim || M < 2 || M > 128) return gxv_BAD_ARG;
   if(met != gxvL2 && met != gxvCOSINE && met != gxvIP) return gxv_BAD_ARG;
-  if(type != gxvFLOAT32) return gxv_UNSUPPORTED;
+  if(type != gxvFLOAT32 && type != gxvFLOAT16 && type != gxvINT8) return gxv_BAD_ARG;
   if(s && strlen(s) >= gxvSpecSize) return gxv_BAD_ARG;
   if(efc == 0) efc = 200;
   if(efc > 100000) return gxv_BAD_ARG;
@@ -296,7 +304,8 @@ gxvError gxVectorIndex::Create(const char *fname, unsigned d,
   m = M;
   m0 = 2 * M;
   ef_construction = efc;
-  node_size = nNEIGHBORS + 8 * m0 + 4 * dim;
+  vbytes = CodeBytes(type, dim);
+  node_size = nNEIGHBORS + 8 * m0 + vbytes;
   if(s) strcpy(spec, s);
   InitArrays();
   graph_saved = 1; // An empty graph
@@ -439,11 +448,16 @@ gxvError gxVectorIndex::ReadHeader()
   spec[gxvSpecSize - 1] = 0;
   graph_saved = get<unsigned>(h, hGRAPH) == 1;
   if(dim == 0 || dim > gxvMaxDim || get<unsigned>(h, hNTAGS) != gxvTagCount ||
-     m < 2 || m > 128 || m0 != 2 * m || node_size != nNEIGHBORS + 8 * m0 + 4 * dim) {
+     m < 2 || m > 128 || m0 != 2 * m) {
     return gxv_BAD_FILE;
   }
+  // A type from a later version: its node layout is not known here
+  if(elem_type != gxvFLOAT32 && elem_type != gxvFLOAT16 && elem_type != gxvINT8) {
+    return gxv_UNSUPPORTED;
+  }
+  vbytes = CodeBytes(elem_type, dim);
+  if(node_size != nNEIGHBORS + 8 * m0 + vbytes) return gxv_BAD_FILE;
   if(metric != gxvL2 && metric != gxvCOSINE && metric != gxvIP) return gxv_BAD_FILE;
-  if(elem_type != gxvFLOAT32) return gxv_UNSUPPORTED;
   if(ef_construction == 0 || ef_construction > 100000) ef_construction = 200;
   if(node_count > 0xFFFFFFF0ULL) return gxv_BAD_FILE;
   InitArrays();
@@ -487,7 +501,7 @@ gxvError gxVectorIndex::LoadNodes()
     int alive = (flags & gxvNodeDeleted) == 0;
     if(alive && by_id.count(id)) return gxv_BAD_FILE; // Two live nodes
     size_t n = ids.size();
-    memcpy(vectors.Push(), b.data() + nNEIGHBORS + 8 * m0, 4 * (size_t)dim);
+    memcpy(vectors.Push(), b.data() + nNEIGHBORS + 8 * m0, vbytes);
     unsigned *t = tags.Push();
     for(unsigned i = 0; i < gxvTagCount; i++) t[i] = get<unsigned>(b.data(), nTAGS + 4 * i);
     *ids.Push() = id;
@@ -613,6 +627,65 @@ void gxVectorIndex::Prepare(const float *vec, float *out) const
   if(metric == gxvCOSINE) gxv_normalize(out, dim);
 }
 
+unsigned gxVectorIndex::CodeBytes(gxvElementType type, unsigned d)
+{
+  switch(type) {
+    case gxvFLOAT16: return 2 * d;
+    case gxvINT8: return d + 4; // The bytes, then the float scale
+    default: return 4 * d;
+  }
+}
+
+gxvError gxVectorIndex::Encode(const float *p, unsigned char *code) const
+{
+  switch(elem_type) {
+    case gxvFLOAT16:
+      for(unsigned i = 0; i < dim; i++) {
+	if(!(fabsf(p[i]) <= 65504.0f)) return gxv_OUT_OF_RANGE;
+      }
+      for(unsigned i = 0; i < dim; i++) {
+	unsigned short h = gxv_f16_from_float(p[i]);
+	memcpy(code + 2 * (size_t)i, &h, 2);
+      }
+      return gxv_NO_ERROR;
+    case gxvINT8: {
+      float s = gxv_i8_encode(p, (signed char *)code, dim);
+      memcpy(code + dim, &s, 4);
+      return gxv_NO_ERROR;
+    }
+    default:
+      memcpy(code, p, 4 * (size_t)dim);
+      return gxv_NO_ERROR;
+  }
+}
+
+void gxVectorIndex::Decode(const unsigned char *code, float *out) const
+{
+  switch(elem_type) {
+    case gxvFLOAT16:
+      for(unsigned i = 0; i < dim; i++) {
+	unsigned short h;
+	memcpy(&h, code + 2 * (size_t)i, 2);
+	out[i] = gxv_float_from_f16(h);
+      }
+      break;
+    case gxvINT8: {
+      float s;
+      memcpy(&s, code + dim, 4);
+      gxv_i8_decode((const signed char *)code, s, out, dim);
+      break;
+    }
+    default:
+      memcpy(out, code, 4 * (size_t)dim);
+      break;
+  }
+}
+
+float gxVectorIndex::DistTo(const float *q, size_t n) const
+{
+  return Distance(q, Vec(n, gxv_buf_q));
+}
+
 float gxVectorIndex::Distance(const float *a, const float *b) const
 {
   switch(metric) {
@@ -677,11 +750,11 @@ void gxVectorIndex::SearchLayer(const float *q, std::vector<gxvPair> &eps,
     cand.pop();
     const unsigned *list;
     unsigned cnt = ListOf(c.second, level, list);
-    for(unsigned i = 0; i < cnt; i++) gxv_prefetch(Vec(list[i]));
+    for(unsigned i = 0; i < cnt; i++) gxv_prefetch(Code(list[i]));
     for(unsigned i = 0; i < cnt; i++) {
       unsigned x = list[i];
       if(vis.Seen(x)) continue;
-      gxvPair p(Distance(q, Vec(x)), x);
+      gxvPair p(DistTo(q, x), x);
       if(top.size() < ef || p < top.top()) {
 	cand.push(p);
 	top.push(p);
@@ -709,10 +782,10 @@ void gxVectorIndex::Heuristic(std::vector<gxvPair> &cands, unsigned keep,
   kept.reserve(keep);
   for(const gxvPair &c : cands) {
     if(kept.size() >= keep) break;
-    const float *cv = c.second == newn ? q : Vec(c.second);
+    const float *cv = c.second == newn ? q : Vec(c.second, gxv_buf_a);
     int good = 1;
     for(const gxvPair &r : kept) {
-      const float *rv = r.second == newn ? q : Vec(r.second);
+      const float *rv = r.second == newn ? q : Vec(r.second, gxv_buf_b);
       if(Distance(cv, rv) < c.first) {
 	good = 0;
 	break;
@@ -735,7 +808,7 @@ void gxVectorIndex::PlanInsert(size_t newn, const float *q, unsigned level,
     return;
   }
   unsigned cur = (unsigned)entry_node;
-  float curd = Distance(q, Vec(cur));
+  float curd = DistTo(q, cur);
   for(unsigned l = top_level; l > level; l--) {
     int changed = 1;
     while(changed) {
@@ -743,7 +816,7 @@ void gxVectorIndex::PlanInsert(size_t newn, const float *q, unsigned level,
       const unsigned *list;
       unsigned cnt = ListOf(cur, l, list);
       for(unsigned i = 0; i < cnt; i++) {
-	float d = Distance(q, Vec(list[i]));
+	float d = DistTo(q, list[i]);
 	if(d < curd || (d == curd && list[i] < cur)) {
 	  curd = d;
 	  cur = list[i];
@@ -772,10 +845,12 @@ void gxVectorIndex::PlanInsert(size_t newn, const float *q, unsigned level,
 	ch.list.push_back((unsigned)newn);
       }
       else {
-	const float *ev = Vec(s.second);
+	// ev in buffer a, each neighbor in buffer b; Heuristic() below
+	// reuses both, after ev is no longer needed
+	const float *ev = Vec(s.second, gxv_buf_a);
 	std::vector<gxvPair> c;
 	c.reserve(cnt + 1);
-	for(unsigned i = 0; i < cnt; i++) c.push_back(gxvPair(Distance(ev, Vec(list[i])), list[i]));
+	for(unsigned i = 0; i < cnt; i++) c.push_back(gxvPair(Distance(ev, Vec(list[i], gxv_buf_b)), list[i]));
 	c.push_back(gxvPair(s.first, (unsigned)newn));
 	Heuristic(c, mmax, newn, q);
 	for(const gxvPair &x : c) ch.list.push_back(x.second);
@@ -812,9 +887,11 @@ void gxVectorIndex::BuildGraph()
     upper.at(n)->assign((size_t)level * (m + 1), 0);
   }
   gxvPlan plan;
+  std::vector<float> qb(dim);
   for(size_t n = 0; n < count; n++) {
     if(!*live.at(n)) continue;
-    PlanInsert(n, Vec(n), *levels.at(n), plan);
+    // The decoded node, as Insert() measured it
+    PlanInsert(n, Vec(n, qb.data()), *levels.at(n), plan);
     ApplyPlan(n, plan);
   }
 }
@@ -834,7 +911,7 @@ gxvError gxVectorIndex::WriteNode(size_t n)
   unsigned c = ListOf(n, 0, list);
   put<unsigned>(b.data(), nN0, c);
   for(unsigned i = 0; i < c; i++) put<long long>(b.data(), nNEIGHBORS + 8 * i, (long long)*addresses.at(list[i]));
-  memcpy(b.data() + nNEIGHBORS + 8 * m0, Vec(n), 4 * (size_t)dim);
+  memcpy(b.data() + nNEIGHBORS + 8 * m0, Code(n), vbytes);
   if(db.Write(b.data(), node_size, *addresses.at(n)) != gxDBASE_NO_ERROR) return gxv_DB_ERROR;
   if(level == 0) return gxv_NO_ERROR;
   std::vector<unsigned char> u(gxv_upper_size(level, m), 0);
@@ -855,8 +932,8 @@ gxvError gxVectorIndex::WriteNode(size_t n)
 // Writes
 // ----------------------------------------------------------- //
 
-gxvError gxVectorIndex::InsertWith(long long id, const float *prepared,
-				   const unsigned *t, long long replace)
+gxvError gxVectorIndex::InsertWith(long long id, const unsigned char *code,
+				   const float *q, const unsigned *t, long long replace)
 {
   // 1. Work out the links under the shared lock: searches keep running,
   // and no other writer can change the graph (wmu is held).
@@ -866,7 +943,7 @@ gxvError gxVectorIndex::InsertWith(long long id, const float *prepared,
     gxvReadLock r(turn, mu);
     newn = ids.size();
     if(newn >= 0xFFFFFFF0ULL) return gxv_BAD_ARG;
-    PlanInsert(newn, prepared, LevelFor(id, m), plan);
+    PlanInsert(newn, q, LevelFor(id, m), plan);
   }
   const unsigned level = plan.level;
 
@@ -889,7 +966,7 @@ gxvError gxVectorIndex::InsertWith(long long id, const float *prepared,
   put<long long>(b.data(), nUPPER, (long long)uaddr);
   put<unsigned>(b.data(), nN0, (unsigned)plan.own[0].size());
   for(size_t i = 0; i < plan.own[0].size(); i++) put<long long>(b.data(), nNEIGHBORS + 8 * i, fau(plan.own[0][i]));
-  memcpy(b.data() + nNEIGHBORS + 8 * m0, prepared, 4 * (size_t)dim);
+  memcpy(b.data() + nNEIGHBORS + 8 * m0, code, vbytes);
   if(db.Write(b.data(), node_size, addr) != gxDBASE_NO_ERROR) return gxv_DB_ERROR;
   if(level > 0) {
     std::vector<unsigned char> u(gxv_upper_size(level, m), 0);
@@ -939,7 +1016,7 @@ gxvError gxVectorIndex::InsertWith(long long id, const float *prepared,
 
   // 3. Link it: the only part that holds searches back
   gxvWriteLock x(turn, mu);
-  memcpy(vectors.Push(), prepared, 4 * (size_t)dim);
+  memcpy(vectors.Push(), code, vbytes);
   *ids.Push() = id;
   unsigned *nt = tags.Push();
   for(unsigned i = 0; i < gxvTagCount; i++) nt[i] = t ? t[i] : 0;
@@ -970,9 +1047,15 @@ gxvError gxVectorIndex::Insert(long long id, const float *vec,
   gxvError err = Check(vec);
   if(err != gxv_NO_ERROR) return err;
   if(by_id.count(id)) return gxv_DUPLICATE_ID;
-  std::vector<float> prepared(dim);
+  // Normalize (cosine), store in the element type, and link the node by
+  // its decoded vector, the one every later distance uses
+  std::vector<float> prepared(dim), q(dim);
+  std::vector<unsigned char> code(vbytes);
   Prepare(vec, prepared.data());
-  return InsertWith(id, prepared.data(), t, -1);
+  err = Encode(prepared.data(), code.data());
+  if(err != gxv_NO_ERROR) return err;
+  Decode(code.data(), q.data());
+  return InsertWith(id, code.data(), q.data(), t, -1);
 }
 
 gxvError gxVectorIndex::Update(long long id, const float *vec,
@@ -984,16 +1067,20 @@ gxvError gxVectorIndex::Update(long long id, const float *vec,
   auto it = by_id.find(id);
   if(it == by_id.end()) return gxv_ID_NOT_FOUND;
   size_t n = it->second;
-  std::vector<float> prepared(dim);
+  std::vector<float> prepared(dim), q(dim);
+  std::vector<unsigned char> code(vbytes);
   Prepare(vec, prepared.data());
-  if(memcmp(prepared.data(), Vec(n), 4 * (size_t)dim) != 0) {
+  err = Encode(prepared.data(), code.data());
+  if(err != gxv_NO_ERROR) return err;
+  if(memcmp(code.data(), Code(n), vbytes) != 0) { // The stored form changes
     // A new vector moves the node in the graph: a new node replaces it
     unsigned keep[gxvTagCount];
     if(!t) {
       memcpy(keep, tags.at(n), sizeof(keep));
       t = keep;
     }
-    return InsertWith(id, prepared.data(), t, (long long)n);
+    Decode(code.data(), q.data());
+    return InsertWith(id, code.data(), q.data(), t, (long long)n);
   }
   if(!t) return gxv_NO_ERROR;
   unsigned char tb[4 * gxvTagCount];
@@ -1003,6 +1090,133 @@ gxvError gxVectorIndex::Update(long long id, const float *vec,
   memcpy(tags.at(n), t, sizeof(tb));
   change_count++;
   return gxv_NO_ERROR;
+}
+
+// ----------------------------------------------------------- //
+// Vector members
+// ----------------------------------------------------------- //
+
+static const char gxv_member_magic[4] = { 'G', 'X', 'V', 'M' };
+
+unsigned gxVectorIndex::SpecCRC() const
+{
+  return (unsigned)calcCRC32(spec, (unsigned)strlen(spec));
+}
+
+gxvError gxVectorIndex::MakeMember(const float *vec, std::vector<unsigned char> &member) const
+{
+  if(!is_open) return gxv_NOT_OPEN;
+  if(!vec) return gxv_BAD_ARG;
+  if(!gxv_finite(vec, dim)) return gxv_NOT_FINITE;
+  std::vector<float> prepared(dim);
+  Prepare(vec, prepared.data());
+  member.assign(MemberSize(), 0);
+  memcpy(member.data(), gxv_member_magic, 4);
+  member[4] = (unsigned char)elem_type;
+  put<unsigned short>(member.data(), 6, (unsigned short)dim);
+  put<unsigned>(member.data(), 8, SpecCRC());
+  return Encode(prepared.data(), member.data() + gxvMemberHead);
+}
+
+gxvError gxVectorIndex::CheckMember(const unsigned char *m, unsigned len) const
+{
+  if(!is_open) return gxv_NOT_OPEN;
+  if(!m || len != MemberSize() || memcmp(m, gxv_member_magic, 4) != 0) return gxv_BAD_ARG;
+  if(m[4] != (unsigned char)elem_type || get<unsigned short>(m, 6) != dim) return gxv_BAD_ARG;
+  if(get<unsigned>(m, 8) != SpecCRC()) return gxv_SPEC_MISMATCH;
+  std::vector<float> v(dim); // A damaged record must not put NaN in the index
+  Decode(m + gxvMemberHead, v.data());
+  if(!gxv_finite(v.data(), dim)) return gxv_NOT_FINITE;
+  return gxv_NO_ERROR;
+}
+
+gxvError gxVectorIndex::MemberVector(const unsigned char *m, unsigned len, float *vec) const
+{
+  gxvError err = CheckMember(m, len);
+  if(err != gxv_NO_ERROR) return err;
+  if(vec) Decode(m + gxvMemberHead, vec);
+  return gxv_NO_ERROR;
+}
+
+gxvError gxVectorIndex::PutCode(long long id, const unsigned char *code, const unsigned *t,
+				int update)
+{
+  if(read_only) return gxv_READ_ONLY;
+  std::vector<float> q(dim);
+  Decode(code, q.data());
+  auto it = by_id.find(id);
+  if(!update) {
+    if(it != by_id.end()) return gxv_DUPLICATE_ID;
+    return InsertWith(id, code, q.data(), t, -1);
+  }
+  if(it == by_id.end()) return gxv_ID_NOT_FOUND;
+  size_t n = it->second;
+  if(memcmp(code, Code(n), vbytes) != 0) {
+    unsigned keep[gxvTagCount];
+    if(!t) {
+      memcpy(keep, tags.at(n), sizeof(keep));
+      t = keep;
+    }
+    return InsertWith(id, code, q.data(), t, (long long)n);
+  }
+  if(!t) return gxv_NO_ERROR;
+  unsigned char tb[4 * gxvTagCount];
+  for(unsigned i = 0; i < gxvTagCount; i++) put<unsigned>(tb, 4 * i, t[i]);
+  if(db.Write(tb, sizeof(tb), *addresses.at(n) + nTAGS) != gxDBASE_NO_ERROR) return gxv_DB_ERROR;
+  gxvWriteLock x(turn, mu);
+  memcpy(tags.at(n), t, sizeof(tb));
+  change_count++;
+  return gxv_NO_ERROR;
+}
+
+gxvError gxVectorIndex::InsertMember(long long id, const unsigned char *m, unsigned len,
+				     const unsigned *t)
+{
+  std::lock_guard<std::mutex> w(wmu);
+  gxvError err = CheckMember(m, len);
+  if(err != gxv_NO_ERROR) return err;
+  return PutCode(id, m + gxvMemberHead, t, 0);
+}
+
+gxvError gxVectorIndex::UpdateMember(long long id, const unsigned char *m, unsigned len,
+				     const unsigned *t)
+{
+  std::lock_guard<std::mutex> w(wmu);
+  gxvError err = CheckMember(m, len);
+  if(err != gxv_NO_ERROR) return err;
+  return PutCode(id, m + gxvMemberHead, t, 1);
+}
+
+int gxVectorIndex::MemberMatches(long long id, const unsigned char *m, unsigned len) const
+{
+  if(CheckMember(m, len) != gxv_NO_ERROR) return 0;
+  gxvReadLock lock(turn, mu);
+  auto it = by_id.find(id);
+  if(it == by_id.end()) return 0;
+  return memcmp(m + gxvMemberHead, Code(it->second), vbytes) == 0;
+}
+
+gxvError gxVectorIndex::Rename(long long old_id, long long new_id)
+{
+  std::lock_guard<std::mutex> w(wmu);
+  if(!is_open) return gxv_NOT_OPEN;
+  if(read_only) return gxv_READ_ONLY;
+  auto it = by_id.find(old_id);
+  if(it == by_id.end()) return gxv_ID_NOT_FOUND;
+  if(old_id == new_id) return gxv_NO_ERROR;
+  if(by_id.count(new_id)) return gxv_DUPLICATE_ID;
+  size_t n = it->second;
+  std::vector<unsigned char> code(Code(n), Code(n) + vbytes);
+  std::vector<float> q(dim);
+  Decode(code.data(), q.data());
+  unsigned t[gxvTagCount];
+  memcpy(t, tags.at(n), sizeof(t));
+  gxvError err = InsertWith(new_id, code.data(), q.data(), t, (long long)n);
+  if(err == gxv_NO_ERROR) {
+    gxvWriteLock x(turn, mu);
+    by_id.erase(old_id);
+  }
+  return err;
 }
 
 gxvError gxVectorIndex::Delete(long long id)
@@ -1042,7 +1256,7 @@ gxvError gxVectorIndex::Get(long long id, float *vec, unsigned *t) const
   auto it = by_id.find(id);
   if(it == by_id.end()) return gxv_ID_NOT_FOUND;
   size_t n = it->second;
-  if(vec) memcpy(vec, Vec(n), 4 * (size_t)dim);
+  if(vec) Decode(Code(n), vec);
   if(t) memcpy(t, tags.at(n), 4 * gxvTagCount);
   return gxv_NO_ERROR;
 }
@@ -1063,7 +1277,7 @@ void gxVectorIndex::ExactLocked(const float *q, unsigned k,
     long long id = *ids.at(n);
     if(filter && !filter->Match(id, tags.at(n))) continue;
     gxvCand c;
-    c.d = Distance(q, Vec(n));
+    c.d = DistTo(q, n);
     c.id = id;
     c.n = n;
     if(heap.size() < k) {
@@ -1134,7 +1348,7 @@ gxvError gxVectorIndex::Search(const float *query, unsigned k,
 
   // Down the upper levels, one closest node at a time
   unsigned cur = (unsigned)entry_node;
-  float curd = Distance(q.data(), Vec(cur));
+  float curd = DistTo(q.data(), cur);
   for(unsigned l = top_level; l > 0; l--) {
     int changed = 1;
     while(changed) {
@@ -1142,7 +1356,7 @@ gxvError gxVectorIndex::Search(const float *query, unsigned k,
       const unsigned *list;
       unsigned cnt = ListOf(cur, l, list);
       for(unsigned i = 0; i < cnt; i++) {
-	float d = Distance(q.data(), Vec(list[i]));
+	float d = DistTo(q.data(), list[i]);
 	if(d < curd || (d == curd && list[i] < cur)) {
 	  curd = d;
 	  cur = list[i];
@@ -1180,11 +1394,11 @@ gxvError gxVectorIndex::Search(const float *query, unsigned k,
     cand.pop();
     const unsigned *list;
     unsigned cnt = ListOf(c.second, 0, list);
-    for(unsigned i = 0; i < cnt; i++) gxv_prefetch(Vec(list[i]));
+    for(unsigned i = 0; i < cnt; i++) gxv_prefetch(Code(list[i]));
     for(unsigned i = 0; i < cnt; i++) {
       unsigned x = list[i];
       if(vis.Seen(x)) continue;
-      float d = Distance(q.data(), Vec(x));
+      float d = DistTo(q.data(), x);
       if(top.size() < ef || d < lower) {
 	cand.push(gxvPair(d, x));
 	if(accept(x)) take(d, x);
@@ -1298,7 +1512,7 @@ gxvError gxVectorIndex::Merge(const char *out_fname,
 	return gxv_DUPLICATE_ID;
       }
       size_t nn = out.ids.size();
-      memcpy(out.vectors.Push(), in.Vec(n), 4 * (size_t)out.dim);
+      memcpy(out.vectors.Push(), in.Code(n), out.vbytes); // Codes as stored
       *out.ids.Push() = id;
       memcpy(out.tags.Push(), in.tags.at(n), 4 * gxvTagCount);
       *out.live.Push() = 1;
@@ -1370,6 +1584,7 @@ unsigned long gxVectorIndex::Verify(int (*resolve)(long long, void *),
     return 1;
   }
   std::vector<unsigned char> b(node_size), u;
+  std::vector<float> dec(dim);
   const size_t count = ids.size();
   for(size_t n = 0; n < count; n++) {
     long long id = *ids.at(n);
@@ -1380,10 +1595,11 @@ unsigned long gxVectorIndex::Verify(int (*resolve)(long long, void *),
     if(get<long long>(b.data(), nID) != id) note(id, "id differs from the file");
     int alive = (get<unsigned>(b.data(), nFLAGS) & gxvNodeDeleted) == 0;
     if(alive != (int)*live.at(n)) note(id, "deleted flag differs from the file");
-    if(memcmp(b.data() + nNEIGHBORS + 8 * m0, Vec(n), 4 * (size_t)dim) != 0) {
+    if(memcmp(b.data() + nNEIGHBORS + 8 * m0, Code(n), vbytes) != 0) {
       note(id, "vector differs from the file");
     }
-    if(!gxv_finite(Vec(n), dim)) note(id, "vector not finite");
+    Decode(Code(n), dec.data());
+    if(!gxv_finite(dec.data(), dim)) note(id, "vector not finite");
     if(*live.at(n) && resolve && !resolve(id, data)) note(id, "object not found");
     // The graph: every link names a node, and the file holds the same
     const unsigned *list;

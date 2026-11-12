@@ -39,6 +39,7 @@ and off and on every node.
 Changes:
 ==============================================================
 11/12/2026: New in DataReel 7.4 (vector extensions, phase A).
+11/12/2026: Phase C: float16 and int8 element conversions.
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -61,6 +62,19 @@ GXDLCODE_API float gxv_normalize(float *v, unsigned dim);
 
 // 1 if every element is a finite number
 GXDLCODE_API int gxv_finite(const float *v, unsigned dim);
+
+// Element types (phase C). IEEE binary16: round to nearest, ties to
+// even, subnormals kept; values above 65504 in size become infinity
+// (gxVectorIndex refuses them first with gxv_OUT_OF_RANGE).
+GXDLCODE_API unsigned short gxv_f16_from_float(float f);
+GXDLCODE_API float gxv_float_from_f16(unsigned short h);
+
+// int8, symmetric per vector: s = max|v| / 127 (0 for a zero vector),
+// q[i] = clamp(lrintf(v[i] / s), -127, 127). Returns s. Decoding gives
+// q[i] * s, within s / 2 of v[i].
+GXDLCODE_API float gxv_i8_encode(const float *v, signed char *q, unsigned dim);
+GXDLCODE_API void gxv_i8_decode(const signed char *q, float scale, float *out,
+				unsigned dim);
 
 } // namespace datareel
 

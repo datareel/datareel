@@ -84,6 +84,17 @@ the dot product. Smaller is closer in all three. Results are sorted by
 distance, then by id, so equal distances always come back in the same
 order.
 
+Element types (phase C): gxvFLOAT32 keeps the vector as given;
+gxvFLOAT16 rounds each value to IEEE binary16 (half the size; values
+above 65504 in size are refused with gxv_OUT_OF_RANGE); gxvINT8 keeps
+one signed byte per value and a scale per vector (a quarter of the
+size), within half a step (max|v| / 254) of each value. gxvCOSINE
+vectors are normalized first, then stored. Every distance, during
+inserts as well as searches, is computed on the decoded vectors, so a
+node's place in the graph does not depend on how it got in (Insert,
+Repair or Merge); queries are not rounded. Get() returns the decoded
+vector.
+
 After gxdJournal::Rollback() call Reload(): the rollback restores the
 file but not the copy in memory.
 
@@ -94,7 +105,10 @@ entry node (its block address), node count, deleted count, spec, graph
 state (offset 136: 0 = no graph saved, 1 = saved). Node block: id
 (int64), flags (1 = deleted), level, tags[4], upper-level block
 address (int64, 0 = none), level 0 neighbor count (and 4 zero bytes),
-M0 neighbor block addresses (int64), vector. Upper-level block: owner
+M0 neighbor block addresses (int64), vector. The vector is stored in
+its element type: gxvFLOAT32 4 * dim bytes; gxvFLOAT16 2 * dim bytes
+(IEEE binary16); gxvINT8 dim signed bytes then a float32 scale (dim + 4
+bytes). Node size = 48 + 8 * M0 + those bytes. Upper-level block: owner
 node address (int64), magic 0x55565847 ("GXVU"), level count, then per
 level 1..L: neighbor count, 4 zero bytes, M neighbor addresses (int64).
 
@@ -103,6 +117,8 @@ Changes:
 11/12/2026: New in DataReel 7.4 (vector extensions, phase A).
 11/12/2026: Phase B: HNSW graph search, Merge(), Repair(), Update()
 as delete + insert, writers find neighbors under the shared lock.
+11/12/2026: Phase C: gxvFLOAT16 and gxvINT8 element types,
+gxv_OUT_OF_RANGE. gxvFLOAT32 files are unchanged.
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -123,8 +139,8 @@ namespace datareel {
 
 enum gxvElementType {
   gxvFLOAT32 = 1,
-  gxvFLOAT16 = 2, // Phase C
-  gxvINT8 = 3     // Phase C
+  gxvFLOAT16 = 2, // IEEE binary16 (phase C)
+  gxvINT8 = 3     // Signed bytes and a float scale per vector (phase C)
 };
 
 enum gxvMetric {
@@ -140,12 +156,13 @@ enum gxvError {
   gxv_BAD_FILE,       // Not a vector index, or a damaged header or node
   gxv_BAD_VERSION,
   gxv_BAD_ARG,
-  gxv_UNSUPPORTED,    // Element type not built yet
+  gxv_UNSUPPORTED,    // Element type this library does not know
   gxv_SPEC_MISMATCH,
   gxv_DUPLICATE_ID,
   gxv_ID_NOT_FOUND,
   gxv_NOT_FINITE,     // NaN or infinity in a vector
-  gxv_READ_ONLY
+  gxv_READ_ONLY,
+  gxv_OUT_OF_RANGE    // A value too large for the element type (float16: 65504)
 };
 
 const unsigned gxvMaxDim = 4096;
@@ -155,6 +172,7 @@ const unsigned gxvHeaderSize = 256; // The static area
 const unsigned gxvVersion = 1;
 const unsigned gxvMaxLevel = 31;
 const unsigned gxvExactLimit = 4096; // Search() is exact up to this many nodes
+const unsigned gxvMemberHead = 12;   // Bytes before the code in a vector member
 
 // Per-node arrays kept in fixed-size chunks, so growing an index never
 // copies what is already there (no stall while searches wait).
@@ -235,6 +253,33 @@ public:
   gxvError Update(long long id, const float *vec, const unsigned *tags = 0);
   gxvError Delete(long long id); // A tombstone: the node is kept, not found
   int Contains(long long id) const;
+
+  // Vector members (phase C): a record (an InfoHog member, or a fixed
+  // char field of MemberSize() bytes in a POD record) keeps its vector in
+  // the index's stored form. The member is a 12-byte head ("GXVM",
+  // element type, 0, dim as 16 bits, CRC-32 of the spec) and the code
+  // bytes. InsertMember() and UpdateMember() put the member's code in the
+  // index unchanged, so record and node always hold the same bytes; a
+  // member of another type, dimension or spec is refused (gxv_BAD_ARG,
+  // gxv_SPEC_MISMATCH). Write the record and the index in the same
+  // gxdJournal transaction (attach the data file, its index files and
+  // Database()); the id is the record's address (its root FAU).
+  unsigned CodeSize() const { return vbytes; }
+  unsigned MemberSize() const { return gxvMemberHead + vbytes; }
+  unsigned SpecCRC() const;
+  gxvError MakeMember(const float *vec, std::vector<unsigned char> &member) const;
+  gxvError MemberVector(const unsigned char *member, unsigned len, float *vec) const;
+  gxvError InsertMember(long long id, const unsigned char *member, unsigned len,
+			const unsigned *tags = 0);
+  gxvError UpdateMember(long long id, const unsigned char *member, unsigned len,
+			const unsigned *tags = 0);
+  // 1 when node id is live and holds exactly this member's code (for a
+  // Verify() resolver that reads the record)
+  int MemberMatches(long long id, const unsigned char *member, unsigned len) const;
+  // The record moved to a new address (an InfoHog record that grew): the
+  // node gets the new id, with its stored code and tags (a new node
+  // replaces the old one, as in Update)
+  gxvError Rename(long long old_id, long long new_id);
   // The stored vector (unit length for gxvCOSINE) and tags
   gxvError Get(long long id, float *vec, unsigned *tags = 0) const;
 
@@ -306,17 +351,33 @@ private:
   gxvError Check(const float *vec) const;
   void Prepare(const float *vec, float *out) const;
   float Distance(const float *a, const float *b) const;
+  // The stored form of a prepared vector, and back. Every distance uses
+  // decoded vectors, so a node's distances never depend on how it got in.
+  gxvError Encode(const float *prepared, unsigned char *code) const;
+  void Decode(const unsigned char *code, float *out) const;
+  static unsigned CodeBytes(gxvElementType type, unsigned dim);
   void Clear();
   void InitArrays();
   // With wmu held: insert a prepared vector; replace >= 0 also deletes
   // that node in the same step (Update)
-  gxvError InsertWith(long long id, const float *prepared, const unsigned *t,
-		      long long replace);
+  gxvError InsertWith(long long id, const unsigned char *code, const float *q,
+		      const unsigned *t, long long replace);
+  gxvError CheckMember(const unsigned char *m, unsigned len) const;
+  // With wmu held: store code for id (insert, or update an existing node)
+  gxvError PutCode(long long id, const unsigned char *code, const unsigned *t, int update);
   void ExactLocked(const float *q, unsigned k, std::vector<gxvResult> &results,
 		   const gxvFilter *filter) const;
 
   // Graph
-  const float *Vec(size_t n) const { return vectors.at(n); }
+  const unsigned char *Code(size_t n) const { return (const unsigned char *)vectors.at(n); }
+  // Node n's vector as floats: the stored floats for gxvFLOAT32, else
+  // decoded into buf (dim floats)
+  const float *Vec(size_t n, float *buf) const {
+    if(elem_type == gxvFLOAT32) return vectors.at(n);
+    Decode(Code(n), buf);
+    return buf;
+  }
+  float DistTo(const float *q, size_t n) const; // q against node n
   unsigned ListOf(size_t n, unsigned level, const unsigned *&list) const;
   void SetList(size_t n, unsigned level, const unsigned *list, unsigned count);
   void SearchLayer(const float *q, std::vector<std::pair<float, unsigned> > &eps,
@@ -342,6 +403,7 @@ private:
   unsigned m0;
   unsigned ef_construction;
   unsigned node_size;
+  unsigned vbytes;         // Bytes of one stored vector (CodeBytes)
   unsigned top_level;
   long long entry;
   char spec[gxvSpecSize];
@@ -356,7 +418,9 @@ private:
   double level_mult;
 
   // One entry per node, in file order
-  gxvChunks<float> vectors;   // dim each
+  // The stored codes, vbytes each, kept in float-sized words (vbytes
+  // rounded up to 4) so a gxvFLOAT32 vector is read as floats directly
+  gxvChunks<float> vectors;
   gxvChunks<long long> ids;
   gxvChunks<unsigned> tags;   // gxvTagCount each
   gxvChunks<unsigned char> live;

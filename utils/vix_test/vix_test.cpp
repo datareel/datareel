@@ -12,9 +12,18 @@
 // ------------- Program Description and Details ------------- //
 // ----------------------------------------------------------- //
 /*
-Tests of the vector index (gxvindex.h), phase A:
+Tests of the vector index (gxvindex.h), phases A to C:
 
   vix_test [work_dir] [--crash-rounds N] [--bench]
+  vix_test [work_dir] --gate N [--dim D] [--type f32|f16|i8] [--efc E]
+           [--live SECONDS] [--uniform]
+
+Searches, graphs, Merge, Repair and crashes run for each element type
+(float32, float16, int8); the float16 and int8 runs also check recall
+against the exact answer on the float vectors, and that Merge() and
+Repair() rebuild the same graph the inserts built. The element tests
+convert all 63488 finite float16 values both ways and check rounding,
+subnormals, the 65504 limit and the int8 error bound.
 
 1. Kernels: fixed summation order, SIMD-safe results.
 2. Exact search: every metric against a brute force reference, tag
@@ -52,6 +61,7 @@ Exit code 0 when every test passes.
 #include "gxvindex.h"
 #include "gxvkern.h"
 #include "gxdjrnl.h"
+#include "infohog.h"
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -70,6 +80,28 @@ static int checks = 0;
 
 static std::string dir;
 static std::string path(const char *name) { return dir + "/" + name; }
+
+// Element types under test (phase C). The float32 runs print the same
+// lines as before; the others say their type.
+struct ElemType { gxvElementType type; const char *tag; };
+static const ElemType TYPES[3] = { { gxvFLOAT32, "f32" }, { gxvFLOAT16, "f16" }, { gxvINT8, "i8" } };
+static std::string label(const ElemType &et, const char *name)
+{
+  return et.type == gxvFLOAT32 ? std::string(name) : std::string(et.tag) + " " + name;
+}
+static std::string tagged(const ElemType &et, const std::string &file)
+{
+  return et.type == gxvFLOAT32 ? path(file.c_str()) : path((std::string(et.tag) + "_" + file).c_str());
+}
+static long long file_size(const std::string &f)
+{
+  FILE *fp = fopen(f.c_str(), "rb");
+  if(!fp) return -1;
+  fseek(fp, 0, SEEK_END);
+  long long n = ftell(fp);
+  fclose(fp);
+  return n;
+}
 
 static void rand_vec(std::mt19937 &g, float *v, unsigned dim)
 {
@@ -112,7 +144,128 @@ static void test_kernels()
   CHECK(!gxv_finite(bad, 2), "NaN not caught");
 }
 
-struct RefNode { long long id; std::vector<float> v; unsigned t[4]; int live; };
+// v: the vector given; d (float16 / int8 indexes): the decoded vector the
+// index stores, already normalized for cosine
+static unsigned short f16(float x) { return gxv_f16_from_float(x); }
+
+// Phase C element conversions and the index's handling of them
+static void test_elements()
+{
+  // float16: every finite half value goes to float and back unchanged
+  int bad = 0, finite = 0;
+  for(unsigned h = 0; h < 65536; h++) {
+    if(((h >> 10) & 0x1Fu) == 0x1Fu) continue; // infinity and NaN
+    finite++;
+    if(gxv_f16_from_float(gxv_float_from_f16((unsigned short)h)) != h) bad++;
+  }
+  CHECK(bad == 0 && finite == 63488, "f16 round trip: %d of %d differ", bad, finite);
+  CHECK(gxv_float_from_f16(0x3C00) == 1.0f && gxv_float_from_f16(0x7BFF) == 65504.0f &&
+	gxv_float_from_f16(0x0001) == ldexpf(1.0f, -24) && gxv_float_from_f16(0x0400) == ldexpf(1.0f, -14) &&
+	gxv_float_from_f16(0xC000) == -2.0f && signbit(gxv_float_from_f16(0x8000)), "f16 known values");
+  CHECK(isinf(gxv_float_from_f16(0x7C00)) && isnan(gxv_float_from_f16(0x7E00)), "f16 infinity and NaN");
+  // Round to nearest, ties to even
+  CHECK(f16(1.0f + ldexpf(1.0f, -11)) == 0x3C00, "f16 tie to even (down)");
+  CHECK(f16(1.0f + 3.0f * ldexpf(1.0f, -11)) == 0x3C02, "f16 tie to even (up)");
+  CHECK(f16(nextafterf(1.0f + ldexpf(1.0f, -11), 2.0f)) == 0x3C01, "f16 above a tie rounds up");
+  CHECK(f16(nextafterf(1.0f + ldexpf(1.0f, -11), 0.0f)) == 0x3C00, "f16 below a tie rounds down");
+  // Subnormals: kept, with ties to even, and the carry into the normals
+  CHECK(f16(ldexpf(1.0f, -25)) == 0x0000, "f16 2^-25 ties to zero");
+  CHECK(f16(nextafterf(ldexpf(1.0f, -25), 1.0f)) == 0x0001, "f16 just above 2^-25");
+  CHECK(f16(3.0f * ldexpf(1.0f, -25)) == 0x0002 && f16(5.0f * ldexpf(1.0f, -25)) == 0x0002,
+	"f16 subnormal ties to even");
+  CHECK(f16(1023.5f * ldexpf(1.0f, -24)) == 0x0400, "f16 largest subnormal rounds up to 2^-14");
+  CHECK(f16(-ldexpf(1.0f, -20)) == 0x8010, "f16 negative subnormal");
+  // The largest value: 65504; 65519 rounds to it, 65520 would be infinity
+  CHECK(f16(65504.0f) == 0x7BFF && f16(65519.0f) == 0x7BFF && f16(65520.0f) == 0x7C00 &&
+	f16(-65504.0f) == 0xFBFF, "f16 limits");
+
+  // The index refuses values above 65504 with gxv_OUT_OF_RANGE
+  std::string f = path("elem_f16.vix");
+  {
+    gxVectorIndex vix;
+    CHECK(vix.Create(f.c_str(), 4, gxvFLOAT16) == gxv_NO_ERROR && vix.NodeSize() == 48 + 8 * 32 + 8,
+	  "f16 create, node size %u", vix.NodeSize());
+    float ok[4] = { 1.0f, -2.5f, 65504.0f, -65504.0f }, out[4];
+    float big[4] = { 1.0f, 2.0f, 65504.5f, 0.0f }, neg[4] = { 0.0f, -70000.0f, 0.0f, 0.0f };
+    CHECK(vix.Insert(1, ok) == gxv_NO_ERROR, "f16 insert at the limit");
+    CHECK(vix.Insert(2, big) == gxv_OUT_OF_RANGE && vix.Insert(3, neg) == gxv_OUT_OF_RANGE,
+	  "f16 out of range refused");
+    CHECK(vix.Update(1, neg) == gxv_OUT_OF_RANGE && vix.Count() == 1, "f16 update out of range refused");
+    CHECK(vix.Get(1, out) == gxv_NO_ERROR && memcmp(ok, out, sizeof(ok)) == 0, "f16 exact values kept");
+    float third[4] = { 1.0f / 3.0f, 0.1f, 1e-6f, 3e-8f };
+    CHECK(vix.Insert(4, third) == gxv_NO_ERROR && vix.Get(4, out) == gxv_NO_ERROR, "f16 insert");
+    int good = 1;
+    for(int i = 0; i < 4; i++) good &= out[i] == gxv_float_from_f16(f16(third[i]));
+    CHECK(good, "f16 Get() returns the decoded values");
+    CHECK(strcmp(gxVectorIndex::ErrorMessage(gxv_OUT_OF_RANGE), "Unknown vector index error") != 0,
+	  "OUT_OF_RANGE has a message");
+    vix.Close();
+    CHECK(vix.Open(f.c_str(), gxDBASE_READONLY) == gxv_NO_ERROR && vix.ElementType() == gxvFLOAT16 &&
+	  vix.Count() == 2, "f16 reopen");
+    vix.Close();
+  }
+  {
+    // A file with an element type from a later version is refused
+    gxDatabase db;
+    db.Open(f.c_str());
+    unsigned four = 4;
+    db.Write(&four, 4, (FAU_t)db.FileHeaderSize() + 16); // The static area follows the file header
+    db.Close();
+    gxVectorIndex vix;
+    CHECK(vix.Open(f.c_str()) == gxv_UNSUPPORTED, "unknown element type in a file");
+    remove(f.c_str());
+  }
+
+  // int8: s = max|v| / 127, every value within s / 2
+  signed char q[128];
+  float z[8] = { 0, 0, 0, 0, 0, 0, 0, 0 }, zd[8];
+  float s = gxv_i8_encode(z, q, 8);
+  gxv_i8_decode(q, s, zd, 8);
+  int zeros = s == 0.0f;
+  for(int i = 0; i < 8; i++) zeros &= q[i] == 0 && zd[i] == 0.0f;
+  CHECK(zeros, "int8 zero vector");
+  std::mt19937 g(17);
+  int over = 0, ends = 0;
+  for(unsigned dim = 1; dim <= 128; dim++) {
+    std::vector<float> a(dim), d(dim);
+    rand_vec(g, a.data(), dim);
+    for(float &x : a) x *= (float)(1 + dim % 7) * 10.0f;
+    s = gxv_i8_encode(a.data(), q, dim);
+    gxv_i8_decode(q, s, d.data(), dim);
+    float mx = 0;
+    for(float x : a) mx = fabsf(x) > mx ? fabsf(x) : mx;
+    if(s != mx / 127.0f) over++;
+    for(unsigned i = 0; i < dim; i++) {
+      if(fabsf(d[i] - a[i]) > 0.5f * s * (1.0f + 1e-5f)) over++;
+      if(fabsf(a[i]) == mx && (q[i] == 127 || q[i] == -127)) ends++;
+    }
+  }
+  CHECK(over == 0, "int8: %d values off by more than s / 2", over);
+  CHECK(ends >= 128, "int8: the largest value maps to +-127 (%d)", ends);
+  f = path("elem_i8.vix");
+  {
+    gxVectorIndex vix;
+    CHECK(vix.Create(f.c_str(), 16, gxvINT8) == gxv_NO_ERROR && vix.NodeSize() == 48 + 8 * 32 + 20,
+	  "int8 create, node size %u", vix.NodeSize());
+    std::vector<float> a(16), out(16), want(16);
+    rand_vec(g, a.data(), 16);
+    CHECK(vix.Insert(1, a.data()) == gxv_NO_ERROR && vix.Get(1, out.data()) == gxv_NO_ERROR, "int8 insert");
+    s = gxv_i8_encode(a.data(), q, 16);
+    gxv_i8_decode(q, s, want.data(), 16);
+    CHECK(memcmp(out.data(), want.data(), 4 * 16) == 0, "int8 Get() returns the decoded values");
+    // A change smaller than half a step stores the same codes: tags only
+    std::vector<float> b = a;
+    b[0] += s * 0.01f;
+    unsigned t[4] = { 9, 9, 9, 9 };
+    CHECK(vix.Update(1, b.data(), t) == gxv_NO_ERROR && vix.Deleted() == 0, "int8 same codes: tags in place");
+    std::string rep;
+    CHECK(vix.Verify(0, 0, 0, &rep) == 0, "int8 verify: %s", rep.c_str());
+    vix.Close();
+    remove(f.c_str());
+  }
+}
+
+struct RefNode { long long id; std::vector<float> v; std::vector<float> d; unsigned t[4]; int live; };
 
 static std::vector<gxvResult> brute(gxvMetric met, const std::vector<RefNode> &nodes,
 				    const float *q, unsigned dim, unsigned k,
@@ -124,8 +277,8 @@ static std::vector<gxvResult> brute(gxvMetric met, const std::vector<RefNode> &n
   for(const RefNode &n : nodes) {
     if(!n.live) continue;
     if(f && !f->Match(n.id, n.t)) continue;
-    std::vector<float> v = n.v;
-    if(met == gxvCOSINE) gxv_normalize(v.data(), dim);
+    std::vector<float> v = n.d.empty() ? n.v : n.d;
+    if(met == gxvCOSINE && n.d.empty()) gxv_normalize(v.data(), dim);
     gxvResult r;
     r.id = n.id;
     r.distance = ref_dist(met, qq.data(), v.data(), dim);
@@ -152,16 +305,18 @@ static int same(const std::vector<gxvResult> &a, const std::vector<gxvResult> &b
 
 static int odd_ids(long long id, const unsigned *, void *) { return (id & 1) != 0; }
 
-static void test_search()
+static void test_search(const ElemType &et)
 {
   const gxvMetric mets[3] = { gxvL2, gxvCOSINE, gxvIP };
-  const char *names[3] = { "l2", "cosine", "ip" };
+  const char *names0[3] = { "l2", "cosine", "ip" };
+  std::string lab[3] = { label(et, "l2"), label(et, "cosine"), label(et, "ip") };
+  const char *names[3] = { lab[0].c_str(), lab[1].c_str(), lab[2].c_str() };
   for(int mi = 0; mi < 3; mi++) {
     unsigned dim = 79;
     std::mt19937 g(100 + mi);
-    std::string f = path((std::string("search_") + names[mi] + ".vix").c_str());
+    std::string f = tagged(et, std::string("search_") + names0[mi] + ".vix");
     gxVectorIndex vix;
-    CHECK(vix.Create(f.c_str(), dim, gxvFLOAT32, mets[mi], 16, "test/v1") == gxv_NO_ERROR,
+    CHECK(vix.Create(f.c_str(), dim, et.type, mets[mi], 16, "test/v1") == gxv_NO_ERROR,
 	  "create %s", names[mi]);
     std::vector<RefNode> nodes;
     for(int i = 0; i < 3000; i++) {
@@ -175,6 +330,10 @@ static void test_search()
       n.t[3] = 0;
       n.live = 1;
       CHECK(vix.Insert(n.id, n.v.data(), n.t) == gxv_NO_ERROR, "insert");
+      if(et.type != gxvFLOAT32) {
+	n.d.resize(dim);
+	CHECK(vix.Get(n.id, n.d.data()) == gxv_NO_ERROR, "get decoded");
+      }
       nodes.push_back(n);
     }
     // Duplicate values: two nodes with the same vector, so ties are tested
@@ -226,7 +385,7 @@ static void test_crud()
     gxVectorIndex vix;
     CHECK(vix.Create(f.c_str(), 0) == gxv_BAD_ARG, "dim 0");
     CHECK(vix.Create(f.c_str(), gxvMaxDim + 1) == gxv_BAD_ARG, "dim too big");
-    CHECK(vix.Create(f.c_str(), dim, gxvINT8) == gxv_UNSUPPORTED, "int8 not yet");
+    CHECK(vix.Create(f.c_str(), dim, (gxvElementType)4) == gxv_BAD_ARG, "unknown element type");
     CHECK(vix.Create(f.c_str(), dim, gxvFLOAT32, gxvL2, 16, "anomaly/shock/v1/abc") == gxv_NO_ERROR, "create");
     CHECK(vix.Insert(1, a.data()) == gxv_NO_ERROR, "insert 1");
     CHECK(vix.Insert(1, b.data()) == gxv_DUPLICATE_ID, "duplicate id");
@@ -404,13 +563,17 @@ static double mean_recall(gxVectorIndex &vix, const std::vector<std::vector<floa
   return qs.empty() ? 1.0 : sum / qs.size();
 }
 
-static void test_graph()
+static std::vector<std::string> size_lines;
+
+static void test_graph(const ElemType &et)
 {
   const unsigned dim = 32, N = 20000;
   const gxvMetric mets[3] = { gxvL2, gxvCOSINE, gxvIP };
-  const char *names[3] = { "l2", "cosine", "ip" };
+  const char *names0[3] = { "l2", "cosine", "ip" };
+  std::string lab[3] = { label(et, "l2"), label(et, "cosine"), label(et, "ip") };
+  const char *names[3] = { lab[0].c_str(), lab[1].c_str(), lab[2].c_str() };
   for(int mi = 0; mi < 3; mi++) {
-    std::string f = path((std::string("graph_") + names[mi] + ".vix").c_str());
+    std::string f = tagged(et, std::string("graph_") + names0[mi] + ".vix");
     Clusters cl(dim, 100, 200 + mi);
     std::vector<std::vector<float> > pts(N, std::vector<float>(dim));
     std::vector<std::vector<float> > qs(200, std::vector<float>(dim));
@@ -422,7 +585,7 @@ static void test_graph()
     std::vector<std::vector<gxvResult> > first;
     {
       gxVectorIndex vix;
-      CHECK(vix.Create(f.c_str(), dim, gxvFLOAT32, mets[mi], 16, "graph/v1") == gxv_NO_ERROR, "create");
+      CHECK(vix.Create(f.c_str(), dim, et.type, mets[mi], 16, "graph/v1") == gxv_NO_ERROR, "create");
       int ins = 0;
       for(unsigned i = 0; i < N; i++) {
 	unsigned t[4];
@@ -457,6 +620,57 @@ static void test_graph()
       std::string rep;
       CHECK(vix.Verify(0, 0, 0, &rep) == 0, "%s: verify: %.300s", names[mi], rep.c_str());
       for(const auto &q : qs) { vix.Search(q.data(), 10, got); first.push_back(got); }
+      if(et.type != gxvFLOAT32) {
+	// Recall against the exact answer on the original float vectors
+	std::vector<RefNode> truth(N);
+	for(unsigned i = 0; i < N; i++) {
+	  truth[i].id = 10 + 3 * (long long)i;
+	  truth[i].v = pts[i];
+	  truth[i].live = 1;
+	  tags_of(i, truth[i].t);
+	}
+	double sum = 0;
+	for(const auto &q : qs) {
+	  vix.Search(q.data(), 10, got, 200);
+	  sum += recall(got, brute(mets[mi], truth, q.data(), dim, 10, 0));
+	}
+	double rt = sum / qs.size();
+	// int8 cosine is the hardest case here: unit vectors of 32 values in
+	// tight clusters, where neighbors differ by less than a quantization
+	// step; it measured 0.947 when the per-vector scale was introduced
+	double need = et.type == gxvFLOAT16 ? 0.99 : mets[mi] == gxvCOSINE ? 0.94 : 0.95;
+	printf("graph %s: recall@10 at ef 200 against float32 exact %.4f\n", names[mi], rt);
+	CHECK(rt >= need, "%s: recall against float32 %.4f below %.2f", names[mi], rt, need);
+      }
+    }
+    if(mi == 0) {
+      char line[160];
+      snprintf(line, sizeof(line), "%s: %u x %u, %lld bytes (node %u bytes)", et.tag, N, dim,
+	       file_size(f), 48 + 8 * 32 + (et.type == gxvFLOAT32 ? 4 * dim : et.type == gxvFLOAT16 ? 2 * dim : dim + 4));
+      size_lines.push_back(line);
+    }
+    {
+      // Determinism: Merge() of the file and Repair() rebuild the graph
+      // from the stored (decoded) vectors and give the same answers as
+      // the inserts did
+      std::string mf = tagged(et, std::string("graph_merged_") + names0[mi] + ".vix");
+      std::vector<std::string> one = { f };
+      CHECK(gxVectorIndex::Merge(mf.c_str(), one, "graph/v1") == gxv_NO_ERROR, "%s: merge one file", names[mi]);
+      gxVectorIndex mv;
+      CHECK(mv.Open(mf.c_str(), gxDBASE_READONLY, "graph/v1") == gxv_NO_ERROR, "%s: open merged", names[mi]);
+      int diff = 0;
+      std::vector<gxvResult> got;
+      for(size_t i = 0; i < qs.size(); i++) { mv.Search(qs[i].data(), 10, got); if(!same(got, first[i])) diff++; }
+      CHECK(diff == 0, "%s: %d searches differ after Merge()", names[mi], diff);
+      mv.Close();
+      remove(mf.c_str());
+      gxVectorIndex rv;
+      CHECK(rv.Open(f.c_str(), gxDBASE_READWRITE, "graph/v1") == gxv_NO_ERROR && rv.Repair() == gxv_NO_ERROR,
+	    "%s: repair before deletes", names[mi]);
+      diff = 0;
+      for(size_t i = 0; i < qs.size(); i++) { rv.Search(qs[i].data(), 10, got); if(!same(got, first[i])) diff++; }
+      CHECK(diff == 0, "%s: %d searches differ after Repair()", names[mi], diff);
+      rv.Close();
     }
     {
       // The graph read back from the file gives the same answers
@@ -470,9 +684,9 @@ static void test_graph()
     }
     if(mi == 0) {
       // The same inserts in the same order build the same graph
-      std::string f2 = path("graph_l2_again.vix");
+      std::string f2 = tagged(et, "graph_l2_again.vix");
       gxVectorIndex vix;
-      vix.Create(f2.c_str(), dim, gxvFLOAT32, mets[mi], 16, "graph/v1");
+      vix.Create(f2.c_str(), dim, et.type, mets[mi], 16, "graph/v1");
       for(unsigned i = 0; i < N; i++) {
 	unsigned t[4];
 	tags_of(i, t);
@@ -621,7 +835,7 @@ static void test_phase_a_files()
   remove(f.c_str());
 }
 
-static void test_merge()
+static void test_merge(const ElemType &et)
 {
   const unsigned dim = 32, per = 3000;
   Clusters cl(dim, 60, 31);
@@ -629,10 +843,10 @@ static void test_merge()
   std::vector<float> v(dim);
   long long next = 1;
   for(int d = 0; d < 3; d++) {
-    std::string f = path((std::string("day") + (char)('1' + d) + ".vix").c_str());
+    std::string f = tagged(et, std::string("day") + (char)('1' + d) + ".vix");
     days.push_back(f);
     gxVectorIndex vix;
-    vix.Create(f.c_str(), dim, gxvFLOAT32, gxvCOSINE, 16, "graph/v1");
+    vix.Create(f.c_str(), dim, et.type, gxvCOSINE, 16, "graph/v1");
     for(unsigned i = 0; i < per; i++) {
       cl.Point(v.data());
       unsigned t[4] = { i % 3, 72, 20261101u + d, 0 };
@@ -641,19 +855,19 @@ static void test_merge()
     if(d == 1) for(long long id = per + 1; id < per + 101; id++) vix.Delete(id);
     vix.Close();
   }
-  std::string out = path("month.vix"), rep;
+  std::string out = tagged(et, "month.vix"), rep;
   CHECK(gxVectorIndex::Merge(out.c_str(), days, "graph/v1", 0, 200, &rep) == gxv_NO_ERROR,
 	"merge: %s", rep.c_str());
   {
     gxVectorIndex vix;
     CHECK(vix.Open(out.c_str(), gxDBASE_READONLY, "graph/v1") == gxv_NO_ERROR, "open merged");
     CHECK(vix.Count() == 3 * per - 100 && vix.Deleted() == 0 && vix.GraphSaved() &&
-	  vix.Metric() == gxvCOSINE, "merged counts %llu", vix.Count());
+	  vix.Metric() == gxvCOSINE && vix.ElementType() == et.type, "merged counts %llu", vix.Count());
     CHECK(!vix.Contains(per + 50) && vix.Contains(per + 200), "merged: tombstones left out");
     std::vector<std::vector<float> > qs(100, std::vector<float>(dim));
     for(auto &q : qs) cl.Point(q.data());
     double r = mean_recall(vix, qs, 10, 64);
-    printf("merge: %llu nodes from 3 day files, recall@10 %.4f\n", vix.Count(), r);
+    printf("%s: %llu nodes from 3 day files, recall@10 %.4f\n", label(et, "merge").c_str(), vix.Count(), r);
     CHECK(r >= 0.95, "merged recall %.4f", r);
     gxvFilter day2;
     day2.Tag(2, 20261102);
@@ -662,23 +876,246 @@ static void test_merge()
     std::string vr;
     CHECK(vix.Verify(0, 0, 0, &vr) == 0, "merged verify: %.300s", vr.c_str());
   }
-  std::string out2 = path("month2.vix");
+  std::string out2 = tagged(et, "month2.vix");
   CHECK(gxVectorIndex::Merge(out2.c_str(), days, "graph/v2") == gxv_SPEC_MISMATCH, "merge: spec mismatch");
   std::vector<std::string> twice = { days[0], days[0] };
   CHECK(gxVectorIndex::Merge(out2.c_str(), twice) == gxv_DUPLICATE_ID, "merge: duplicate ids");
   {
-    std::string other = path("day_other.vix");
+    std::string other = tagged(et, "day_other.vix");
     gxVectorIndex vix;
-    vix.Create(other.c_str(), 16, gxvFLOAT32, gxvCOSINE, 16, "graph/v1");
+    vix.Create(other.c_str(), 16, et.type, gxvCOSINE, 16, "graph/v1");
     vix.Close();
     std::vector<std::string> mixed = { days[0], other };
     gxvError me = gxVectorIndex::Merge(out2.c_str(), mixed);
     CHECK(me == gxv_BAD_ARG, "merge: other dimension: %s", gxVectorIndex::ErrorMessage(me));
+    // Another element type, same dimension: refused too
+    vix.Create(other.c_str(), dim, et.type == gxvFLOAT32 ? gxvINT8 : gxvFLOAT32, gxvCOSINE, 16, "graph/v1");
+    vix.Close();
+    me = gxVectorIndex::Merge(out2.c_str(), mixed);
+    CHECK(me == gxv_BAD_ARG, "merge: other element type: %s", gxVectorIndex::ErrorMessage(me));
     remove(other.c_str());
   }
   for(const std::string &d : days) remove(d.c_str());
   remove(out.c_str());
   remove(out2.c_str());
+}
+
+// ----------------------------------------------------------- //
+// Vector members (phase C part 2): InfoHog records that carry their
+// vector, kept in step with a gxVectorIndex under one journal
+// ----------------------------------------------------------- //
+struct ItemName {
+  ItemName() { memset(name, 0, sizeof(name)); }
+  ItemName(const char *s) { memset(name, 0, sizeof(name)); strncpy(name, s, sizeof(name) - 1); }
+  int operator==(const ItemName &o) const { return strcmp(name, o.name) == 0; }
+  int operator<(const ItemName &o) const { return strcmp(name, o.name) < 0; }
+  int operator>(const ItemName &o) const { return strcmp(name, o.name) > 0; }
+  char name[32];
+};
+typedef InfoHog<ItemName> Item;
+typedef InfoHogKey<ItemName> ItemKey;
+enum { IT_NAME = 0, IT_VEC = 1, IT_TEXT = 2, IT_MEMBERS = 3 };
+static const unsigned MEM_DIM = 12;
+
+static int open_items(POD &pod, const std::string &data, const std::string &index)
+{
+  ItemKey key_type;
+  return pod.Open(data.c_str(), index.c_str(), key_type, InfoHogNodeOrder, gxDBASE_READWRITE,
+		  InfoHogUseIndexFile, InfoHogStaticArea, InfoHogNumTrees) == gxDBASE_NO_ERROR;
+}
+
+static void item_vec(long long i, float *v)
+{
+  for(unsigned d = 0; d < MEM_DIM; d++) v[d] = (float)((i * 37 + d * 11) % 101) / 9.0f - 5.0f;
+}
+
+// Add one record with its vector member and put the member in the index
+static long long add_item(POD &pod, gxVectorIndex &vix, long long i, const std::string &text)
+{
+  char nm[32];
+  snprintf(nm, sizeof(nm), "item%06lld", i);
+  ItemName key(nm);
+  Item it(&pod, key, IT_MEMBERS);
+  std::vector<float> v(MEM_DIM);
+  item_vec(i, v.data());
+  std::vector<unsigned char> m;
+  if(vix.MakeMember(v.data(), m) != gxv_NO_ERROR) return -1;
+  it.SetMember(m.data(), (unsigned)m.size(), IT_VEC);
+  it.SetMember(text.c_str(), (unsigned)text.size() + 1, IT_TEXT);
+  if(!it.WriteObject(0)) return -1;
+  unsigned t[4] = { (unsigned)(i % 5), 0, 0, 0 };
+  if(vix.InsertMember((long long)it.ObjectAddress(), m.data(), (unsigned)m.size(), t) != gxv_NO_ERROR) return -1;
+  return (long long)it.ObjectAddress();
+}
+
+// Every record has a live node holding its member, and nothing else is
+// in the index. Returns the number of problems.
+static int items_match(POD &pod, gxVectorIndex &vix, unsigned long long *records = 0)
+{
+  int bad = 0;
+  unsigned long long n = 0;
+  ItemKey key, compare;
+  gxBtree *btx = pod.Index();
+  if(btx->FindFirst(key)) {
+    do {
+      Item it(&pod, IT_MEMBERS);
+      n++;
+      if(!it.ReadObject(key.ObjectID())) { bad++; continue; }
+      if(!vix.MemberMatches((long long)key.ObjectID(), it.GetMember(IT_VEC), it.GetMemberLen(IT_VEC))) bad++;
+    } while(btx->FindNext(key, compare));
+  }
+  if(n != vix.Count()) bad++;
+  if(records) *records = n;
+  return bad;
+}
+
+struct ItemResolve { POD *pod; gxVectorIndex *vix; };
+static int item_exists(long long id, void *data)
+{
+  ItemResolve *r = (ItemResolve *)data;
+  Item it(r->pod, IT_MEMBERS);
+  if(!it.ReadObject((FAU_t)id)) return 0;
+  return r->vix->MemberMatches(id, it.GetMember(IT_VEC), it.GetMemberLen(IT_VEC));
+}
+
+static void test_members(const ElemType &et)
+{
+  std::string data = tagged(et, "items.ihd"), index = tagged(et, "items.ihx");
+  std::string vf = tagged(et, "items.vix"), jf = tagged(et, "items.jnl");
+  remove(data.c_str()); remove(index.c_str()); remove(vf.c_str()); remove(jf.c_str());
+  std::string L = label(et, "members");
+  const char *lab = L.c_str();
+  gxdJournal j;
+  CHECK(j.Open(jf.c_str()) == gxDBASE_NO_ERROR, "%s: journal", lab);
+  POD pod;
+  CHECK(open_items(pod, data, index), "%s: open POD", lab);
+  gxVectorIndex vix;
+  CHECK(vix.Create(vf.c_str(), MEM_DIM, et.type, gxvL2, 16, "items/v1") == gxv_NO_ERROR, "%s: create", lab);
+  vix.Database()->Sync();
+  pod.OpenDataFile()->Sync();
+  pod.IndexDBPtr()->Sync();
+  CHECK(j.Attach(pod.OpenDataFile()) == gxDBASE_NO_ERROR && j.Attach(pod.Index()) == gxDBASE_NO_ERROR &&
+	j.Attach(vix.Database()) == gxDBASE_NO_ERROR, "%s: attach data, index and vix", lab);
+  CHECK(vix.MemberSize() == gxvMemberHead + vix.CodeSize(), "%s: member size", lab);
+
+  // 1. Records and nodes in one transaction
+  j.Begin();
+  int fails = 0;
+  for(long long i = 0; i < 60; i++) if(add_item(pod, vix, i, "first text") < 0) fails++;
+  CHECK(j.Commit() == gxDBASE_NO_ERROR && fails == 0, "%s: 60 records committed (%d failed)", lab, fails);
+  unsigned long long recs = 0;
+  CHECK(items_match(pod, vix, &recs) == 0 && recs == 60, "%s: index matches the records (%llu)", lab, recs);
+  {
+    // The nearest node to a record's vector is that record
+    Item it(&pod, IT_MEMBERS);
+    ItemName k("item000007");
+    Item probe(&pod, k, IT_MEMBERS);
+    std::vector<float> q(MEM_DIM);
+    std::vector<gxvResult> r;
+    CHECK(probe.FindObject() && it.ReadObject(probe.ObjectAddress()) &&
+	  vix.MemberVector(it.GetMember(IT_VEC), it.GetMemberLen(IT_VEC), q.data()) == gxv_NO_ERROR &&
+	  vix.Exact(q.data(), 1, r) == gxv_NO_ERROR && r.size() == 1 &&
+	  r[0].id == (long long)probe.ObjectAddress() && r[0].distance == 0.0f, "%s: nearest is the record", lab);
+  }
+
+  // 2. A record that grows moves (new address): Rename() follows it. A new
+  // vector: UpdateMember(). A deleted record: Delete().
+  j.Begin();
+  {
+    ItemName k3("item000003");
+    Item a(&pod, k3, IT_MEMBERS);
+    Item it(&pod, IT_MEMBERS);
+    CHECK(a.FindObject() && it.ReadObject(a.ObjectAddress()), "%s: find item 3", lab);
+    long long old_addr = (long long)it.ObjectAddress();
+    std::string longer(400, 'x');
+    CHECK(it.ChangeMember(longer.c_str(), (unsigned)longer.size() + 1, IT_TEXT), "%s: grow item 3", lab);
+    long long new_addr = (long long)it.ObjectAddress();
+    CHECK(new_addr != old_addr && vix.Rename(old_addr, new_addr) == gxv_NO_ERROR &&
+	  !vix.Contains(old_addr) && vix.Contains(new_addr), "%s: moved record renamed (%lld -> %lld)", lab,
+	  old_addr, new_addr);
+    ItemName k4("item000004");
+    Item b(&pod, k4, IT_MEMBERS);
+    Item it4(&pod, IT_MEMBERS);
+    CHECK(b.FindObject() && it4.ReadObject(b.ObjectAddress()), "%s: find item 4", lab);
+    std::vector<float> nv(MEM_DIM);
+    item_vec(999, nv.data());
+    std::vector<unsigned char> m;
+    CHECK(vix.MakeMember(nv.data(), m) == gxv_NO_ERROR &&
+	  it4.ChangeMember(m.data(), (unsigned)m.size(), IT_VEC), "%s: change item 4's vector", lab);
+    CHECK(vix.UpdateMember((long long)it4.ObjectAddress(), m.data(), (unsigned)m.size()) == gxv_NO_ERROR,
+	  "%s: update member", lab);
+    ItemName k5("item000005");
+    Item c(&pod, k5, IT_MEMBERS);
+    long long addr5 = c.FindObject() ? (long long)c.ObjectAddress() : -1;
+    CHECK(addr5 > 0 && c.DeleteObject() && vix.Delete(addr5) == gxv_NO_ERROR, "%s: delete item 5", lab);
+  }
+  CHECK(j.Commit() == gxDBASE_NO_ERROR, "%s: commit changes", lab);
+  CHECK(items_match(pod, vix, &recs) == 0 && recs == 59, "%s: index matches after changes (%llu)", lab, recs);
+
+  // 3. Rolled back: neither the records nor the nodes stay
+  j.Begin();
+  for(long long i = 100; i < 110; i++) add_item(pod, vix, i, "rolled back");
+  CHECK(j.Rollback() == gxDBASE_NO_ERROR && vix.Reload() == gxv_NO_ERROR, "%s: rollback", lab);
+  CHECK(items_match(pod, vix, &recs) == 0 && recs == 59, "%s: index matches after rollback (%llu)", lab, recs);
+
+  // 4. Members of another index are refused
+  {
+    std::string of = tagged(et, "items_other.vix");
+    gxVectorIndex other;
+    other.Create(of.c_str(), MEM_DIM, et.type, gxvL2, 16, "items/v2");
+    std::vector<float> v(MEM_DIM);
+    item_vec(1, v.data());
+    std::vector<unsigned char> m;
+    other.MakeMember(v.data(), m);
+    CHECK(vix.InsertMember(424242, m.data(), (unsigned)m.size()) == gxv_SPEC_MISMATCH, "%s: other spec refused", lab);
+    CHECK(vix.InsertMember(424242, m.data(), (unsigned)m.size() - 1) == gxv_BAD_ARG, "%s: short member refused", lab);
+    other.Close();
+    remove(of.c_str());
+    gxVectorIndex odim;
+    odim.Create(of.c_str(), MEM_DIM + 1, et.type, gxvL2, 16, "items/v1");
+    std::vector<float> v2(MEM_DIM + 1, 1.0f);
+    odim.MakeMember(v2.data(), m);
+    CHECK(vix.InsertMember(424242, m.data(), (unsigned)m.size()) == gxv_BAD_ARG, "%s: other dimension refused", lab);
+    odim.Close();
+    remove(of.c_str());
+  }
+  ItemResolve res = { &pod, &vix };
+  std::string rep;
+  CHECK(vix.Verify(item_exists, &res, 0, &rep) == 0, "%s: verify with the records: %.300s", lab, rep.c_str());
+  j.Close();
+  vix.Close();
+  pod.Close();
+
+  // 5. A POD record with a fixed vector field
+  {
+    std::string pf = tagged(et, "parts.gxd"), pv = tagged(et, "parts.vix");
+    gxVectorIndex px;
+    px.Create(pv.c_str(), MEM_DIM, et.type, gxvCOSINE, 16, "parts/v1");
+    struct Part { char name[16]; unsigned char vec[gxvMemberHead + 4 * MEM_DIM]; } part;
+    CHECK(px.MemberSize() <= sizeof(part.vec), "%s: member fits the field", lab);
+    gxDatabase db;
+    db.Create(pf.c_str());
+    memset(&part, 0, sizeof(part));
+    strcpy(part.name, "bolt");
+    std::vector<float> v(MEM_DIM), back(MEM_DIM), dec(MEM_DIM);
+    item_vec(42, v.data());
+    std::vector<unsigned char> m;
+    px.MakeMember(v.data(), m);
+    memcpy(part.vec, m.data(), m.size());
+    FAU_t a = db.Alloc(sizeof(part));
+    db.Write(&part, sizeof(part), a);
+    CHECK(px.InsertMember((long long)a, part.vec, px.MemberSize()) == gxv_NO_ERROR, "%s: POD insert member", lab);
+    Part rd;
+    db.Read(&rd, sizeof(rd), a);
+    CHECK(px.MemberMatches((long long)a, rd.vec, px.MemberSize()) &&
+	  px.MemberVector(rd.vec, px.MemberSize(), back.data()) == gxv_NO_ERROR &&
+	  px.Get((long long)a, dec.data()) == gxv_NO_ERROR && memcmp(back.data(), dec.data(), 4 * MEM_DIM) == 0,
+	  "%s: POD record and node hold the same vector", lab);
+    db.Close();
+    px.Close();
+    remove(pf.c_str()); remove(pv.c_str());
+  }
+  remove(data.c_str()); remove(index.c_str()); remove(vf.c_str()); remove(jf.c_str());
 }
 
 #ifndef _WIN32
@@ -707,11 +1144,11 @@ static long read_progress(const std::string &pf)
   return n;
 }
 
-static void test_crash(int rounds)
+static void test_crash(int rounds, const ElemType &et)
 {
   const unsigned dim = 32;
   const int batch = 37;
-  std::string f = path("crash.vix"), jf = path("crash.jnl"), pf = path("crash.progress");
+  std::string f = tagged(et, "crash.vix"), jf = tagged(et, "crash.jnl"), pf = tagged(et, "crash.progress");
   std::mt19937 g(11);
   int ok_rounds = 0, after_commit = 0;
   long total_committed = 0;
@@ -725,7 +1162,7 @@ static void test_crash(int rounds)
       gxdJournal j;
       if(j.Open(jf.c_str()) != gxDBASE_NO_ERROR) _exit(2);
       gxVectorIndex vix;
-      if(vix.Create(f.c_str(), dim) != gxv_NO_ERROR) _exit(3);
+      if(vix.Create(f.c_str(), dim, et.type) != gxv_NO_ERROR) _exit(3);
       vix.Database()->Sync();
       j.Attach(vix.Database());
       write_progress(pf, 0); // created and synced: the parent starts its kill timer now
@@ -778,9 +1215,83 @@ static void test_crash(int rounds)
     if(batches > committed) after_commit++;
     vix.Close();
   }
-  printf("crash: %d/%d rounds recovered exactly (%ld committed batches in all; %d rounds killed "
-	 "after a commit but before its progress note, and kept it)\n", ok_rounds, rounds,
-	 total_committed, after_commit);
+  printf("%s: %d/%d rounds recovered exactly (%ld committed batches in all; %d rounds killed "
+	 "after a commit but before its progress note, and kept it)\n", label(et, "crash").c_str(),
+	 ok_rounds, rounds, total_committed, after_commit);
+  CHECK(ok_rounds == rounds, "%s: %d of %d rounds recovered exactly", label(et, "crash").c_str(),
+	ok_rounds, rounds);
+}
+#endif
+
+#ifndef _WIN32
+// Records and their index nodes under one journal: a writer killed at any
+// moment leaves records and nodes that still match after Recover()
+static void test_members_crash(int rounds, const ElemType &et)
+{
+  const int batch = 20;
+  std::string data = tagged(et, "mcrash.ihd"), index = tagged(et, "mcrash.ihx");
+  std::string vf = tagged(et, "mcrash.vix"), jf = tagged(et, "mcrash.jnl"), pf = tagged(et, "mcrash.progress");
+  std::mt19937 g(23);
+  int ok_rounds = 0;
+  long total = 0;
+  std::string L = label(et, "members crash");
+  const char *lab = L.c_str();
+  for(int round = 0; round < rounds; round++) {
+    remove(data.c_str()); remove(index.c_str()); remove(vf.c_str()); remove(jf.c_str());
+    remove(pf.c_str()); remove((pf + ".tmp").c_str());
+    pid_t pid = fork();
+    if(pid == 0) {
+      gxdJournal j;
+      if(j.Open(jf.c_str()) != gxDBASE_NO_ERROR) _exit(2);
+      POD pod;
+      if(!open_items(pod, data, index)) _exit(3);
+      gxVectorIndex vix;
+      if(vix.Create(vf.c_str(), MEM_DIM, et.type, gxvL2, 16, "items/v1") != gxv_NO_ERROR) _exit(4);
+      vix.Database()->Sync();
+      pod.OpenDataFile()->Sync();
+      pod.IndexDBPtr()->Sync();
+      j.Attach(pod.OpenDataFile());
+      j.Attach(pod.Index());
+      j.Attach(vix.Database());
+      write_progress(pf, 0);
+      for(long b = 0;; b++) {
+	j.Begin();
+	for(int i = 0; i < batch; i++) if(add_item(pod, vix, b * batch + i, "crash test record") < 0) _exit(5);
+	if(j.Commit() != gxDBASE_NO_ERROR) _exit(6);
+	write_progress(pf, b + 1);
+      }
+    }
+    for(int w = 0; w < 30000 && read_progress(pf) < 0; w++) usleep(1000);
+    CHECK(read_progress(pf) >= 0, "%s round %d: child did not start in 30 s", lab, round);
+    std::uniform_int_distribution<int> wait_us(20000, 300000);
+    usleep(wait_us(g));
+    kill(pid, SIGKILL);
+    int st = 0;
+    waitpid(pid, &st, 0);
+    long committed = read_progress(pf);
+    CHECK(committed >= 0, "%s round %d: progress note unreadable", lab, round);
+    if(committed < 0) continue;
+    CHECK(gxdJournal::Recover(jf.c_str()) == gxDBASE_NO_ERROR, "%s round %d: recover", lab, round);
+    POD pod;
+    gxVectorIndex vix;
+    int opened = open_items(pod, data, index) && vix.Open(vf.c_str()) == gxv_NO_ERROR;
+    CHECK(opened, "%s round %d: open after the crash", lab, round);
+    if(!opened) continue;
+    unsigned long long recs = 0;
+    int bad = items_match(pod, vix, &recs);
+    CHECK(bad == 0, "%s round %d: %d records and nodes differ", lab, round, bad);
+    CHECK(recs % batch == 0 && (long)(recs / batch) >= committed, "%s round %d: %llu records, %ld batches committed",
+	  lab, round, recs, committed);
+    std::string rep;
+    ItemResolve res = { &pod, &vix };
+    CHECK(vix.Verify(item_exists, &res, 0, &rep) == 0, "%s round %d: verify: %.200s", lab, round, rep.c_str());
+    if(bad == 0) ok_rounds++;
+    total += committed;
+    vix.Close();
+    pod.Close();
+  }
+  printf("%s: %d/%d rounds: records and index nodes match after Recover() (%ld committed batches of %d)\n",
+	 lab, ok_rounds, rounds, total, batch);
 }
 #endif
 
@@ -843,7 +1354,23 @@ static double pct(std::vector<double> &v, double p)
 
 // Phase B gate: an index of n vectors, searched by 3 threads while one
 // thread keeps inserting (committed batches through a journal)
-static void gate(size_t n, unsigned dim, int uniform, unsigned efc, int live_sec)
+static long rss_mb()
+{
+  long kb = 0;
+#ifndef _WIN32
+  FILE *fp = fopen("/proc/self/status", "r");
+  if(fp) {
+    char line[256];
+    while(fgets(line, sizeof(line), fp)) {
+      if(strncmp(line, "VmRSS:", 6) == 0) { kb = atol(line + 6); break; }
+    }
+    fclose(fp);
+  }
+#endif
+  return kb / 1024;
+}
+
+static void gate(size_t n, unsigned dim, int uniform, unsigned efc, int live_sec, const ElemType &et)
 {
   std::string f = path("gate.vix"), jf = path("gate.jnl");
   remove(f.c_str());
@@ -852,7 +1379,8 @@ static void gate(size_t n, unsigned dim, int uniform, unsigned efc, int live_sec
   std::mt19937 ug(43);
   auto point = [&](float *v) { if(uniform) rand_vec(ug, v, dim); else cl.Point(v); };
   gxVectorIndex vix;
-  vix.Create(f.c_str(), dim, gxvFLOAT32, gxvL2, 16, "gate/v1", efc);
+  long rss0 = rss_mb();
+  vix.Create(f.c_str(), dim, et.type, gxvL2, 16, "gate/v1", efc);
   gxdJournal j;
   j.Open(jf.c_str());
   j.SetWriteMode(gxdJOURNAL_WRITE_BACK);
@@ -872,8 +1400,11 @@ static void gate(size_t n, unsigned dim, int uniform, unsigned efc, int live_sec
     }
   }
   double build = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-  printf("gate: %zu x %u (%s), M 16, ef_construction %u: build %.0f s (%.0f us an insert), top level %u\n",
-	 n, dim, uniform ? "uniform" : "clustered", efc, build, 1e6 * build / n, vix.TopLevel());
+  printf("gate: %zu x %u (%s, %s), M 16, ef_construction %u: build %.0f s (%.0f us an insert), top level %u\n",
+	 n, dim, uniform ? "uniform" : "clustered", et.tag, efc, build, 1e6 * build / n, vix.TopLevel());
+  printf("gate: memory after the build %ld MB (RSS; %ld MB before), file %lld MB\n", rss_mb(), rss0,
+	 file_size(f) / (1024 * 1024));
+  fflush(stdout);
   std::vector<std::vector<float> > qs(200, std::vector<float>(dim));
   for(auto &q : qs) point(q.data());
   for(unsigned ef : { 32u, 64u, 128u }) {
@@ -894,6 +1425,36 @@ static void gate(size_t n, unsigned dim, int uniform, unsigned efc, int live_sec
   fl.Tag(0, 1);
   fl.Range(2, 0, 20261110);
   printf("gate: quiet, filtered (17%%), ef 64: recall %.4f\n", mean_recall(vix, qs, 20, 64, &fl));
+  if(et.type != gxvFLOAT32) {
+    // Against the exact answer on the float vectors. The points are made
+    // again from the same seeds (Clusters 42, uniform 43), so this needs
+    // no copy of the n vectors in memory: a streaming top-k per query.
+    Clusters tc(dim, 1000, 42);
+    std::mt19937 tg(43);
+    std::vector<std::vector<std::pair<float, long long> > > best(qs.size());
+    std::vector<float> p(dim);
+    for(size_t i = 0; i < n; i++) {
+      if(uniform) rand_vec(tg, p.data(), dim); else tc.Point(p.data());
+      for(size_t qi = 0; qi < qs.size(); qi++) {
+	auto &b = best[qi];
+	float d = gxv_l2sq(qs[qi].data(), p.data(), dim);
+	std::pair<float, long long> e(d, (long long)i);
+	if(b.size() < 20) { b.push_back(e); std::push_heap(b.begin(), b.end()); }
+	else if(e < b.front()) { std::pop_heap(b.begin(), b.end()); b.back() = e; std::push_heap(b.begin(), b.end()); }
+      }
+    }
+    for(unsigned ef : { 64u, 200u }) {
+      double sum = 0;
+      std::vector<gxvResult> res;
+      for(size_t qi = 0; qi < qs.size(); qi++) {
+	vix.Search(qs[qi].data(), 20, res, ef);
+	size_t hit = 0;
+	for(const auto &e : best[qi]) for(const gxvResult &r : res) if(r.id == e.second) { hit++; break; }
+	sum += (double)hit / best[qi].size();
+      }
+      printf("gate: recall@20 against float32 exact, ef %u: %.4f\n", ef, sum / qs.size());
+    }
+  }
 
   // Live: one writer, three searchers
   std::atomic<int> stop(0);
@@ -945,7 +1506,7 @@ static void gate(size_t n, unsigned dim, int uniform, unsigned efc, int live_sec
   gxVectorIndex ro;
   ro.Open(f.c_str(), gxDBASE_READONLY);
   double op = std::chrono::duration<double>(std::chrono::steady_clock::now() - a).count();
-  printf("gate: open (nodes + graph) %.1f s, graph saved %d\n", op, ro.GraphSaved());
+  printf("gate: open (nodes + graph) %.1f s, graph saved %d, memory %ld MB\n", op, ro.GraphSaved(), rss_mb());
   ro.Close();
   remove(f.c_str());
   remove(jf.c_str());
@@ -957,6 +1518,7 @@ int main(int argc, char **argv)
   int rounds = 20, do_bench = 0, uniform = 0, live_sec = 20;
   long gate_n = 0;
   unsigned gate_dim = 96, efc = 200;
+  const ElemType *gate_type = &TYPES[0];
   for(int i = 1; i < argc; i++) {
     if(!strcmp(argv[i], "--crash-rounds") && i + 1 < argc) rounds = atoi(argv[++i]);
     else if(!strcmp(argv[i], "--bench")) do_bench = 1;
@@ -965,6 +1527,12 @@ int main(int argc, char **argv)
     else if(!strcmp(argv[i], "--efc") && i + 1 < argc) efc = (unsigned)atoi(argv[++i]);
     else if(!strcmp(argv[i], "--live") && i + 1 < argc) live_sec = atoi(argv[++i]);
     else if(!strcmp(argv[i], "--uniform")) uniform = 1;
+    else if(!strcmp(argv[i], "--type") && i + 1 < argc) {
+      const char *t = argv[++i];
+      gate_type = 0;
+      for(const ElemType &et : TYPES) if(!strcmp(t, et.tag)) gate_type = &et;
+      if(!gate_type) { fprintf(stderr, "--type f32, f16 or i8\n"); return 2; }
+    }
     else dir = argv[i];
   }
 #ifndef _WIN32
@@ -972,20 +1540,24 @@ int main(int argc, char **argv)
   if(system(mk.c_str()) != 0) { }
 #endif
   if(gate_n > 0) {
-    gate((size_t)gate_n, gate_dim, uniform, efc, live_sec);
+    gate((size_t)gate_n, gate_dim, uniform, efc, live_sec, *gate_type);
     return 0;
   }
   test_kernels();
-  test_search();
+  test_elements();
+  for(const ElemType &et : TYPES) test_search(et);
   test_crud();
   test_journal();
-  test_graph();
+  for(const ElemType &et : TYPES) test_graph(et);
   test_phase_a_files();
-  test_merge();
+  for(const ElemType &et : TYPES) test_merge(et);
   test_concurrent();
+  for(const ElemType &et : TYPES) test_members(et);
 #ifndef _WIN32
-  if(rounds > 0) test_crash(rounds);
+  if(rounds > 0) for(const ElemType &et : TYPES) test_crash(rounds, et);
+  if(rounds > 0) for(const ElemType &et : TYPES) test_members_crash(rounds < 10 ? rounds : 10, et);
 #endif
+  for(const std::string &s : size_lines) printf("file size %s\n", s.c_str());
   if(do_bench) bench();
   printf("%d checks, %d failures\n", checks, failures);
   return failures ? 1 : 0;

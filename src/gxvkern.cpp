@@ -43,6 +43,7 @@ Do not build this file with -ffast-math. Floating point contraction
 #endif
 #include "gxvkern.h"
 #include <math.h>
+#include <string.h>
 #if defined(__SSE2__) || defined(_M_X64)
 #include <emmintrin.h>
 #define GXV_SSE2 1
@@ -133,6 +134,97 @@ int gxv_finite(const float *v, unsigned dim)
     if(!isfinite(v[i])) return 0;
   }
   return 1;
+}
+
+// ----------------------------------------------------------- //
+// Element types (phase C): IEEE binary16 and int8 with a scale
+// ----------------------------------------------------------- //
+
+unsigned short gxv_f16_from_float(float f)
+{
+  unsigned x;
+  memcpy(&x, &f, 4);
+  unsigned sign = (x >> 16) & 0x8000u;
+  unsigned ax = x & 0x7FFFFFFFu;
+  if(ax >= 0x7F800000u) { // Infinity or NaN (a quiet NaN stays a NaN)
+    return (unsigned short)(sign | 0x7C00u | (ax > 0x7F800000u ? 0x200u : 0u));
+  }
+  if(ax >= 0x477FF000u) return (unsigned short)(sign | 0x7C00u); // 65520 and up: infinity
+  if(ax < 0x38800000u) {
+    // Below 2^-14, the smallest normal half: a subnormal or zero.
+    // Values under 2^-25 round to zero (2^-25 itself ties to even: 0).
+    if(ax < 0x33000000u) return (unsigned short)sign;
+    unsigned e = ax >> 23;
+    unsigned m = (ax & 0x7FFFFFu) | 0x800000u;
+    unsigned shift = 126 - e; // value = m * 2^(e-150); unit 2^-24
+    unsigned h = m >> shift;
+    unsigned rem = m & ((1u << shift) - 1);
+    unsigned half = 1u << (shift - 1);
+    if(rem > half || (rem == half && (h & 1u))) h++; // May become the smallest normal
+    return (unsigned short)(sign | h);
+  }
+  // Normal: rebias the exponent (127 -> 15) and round the 13 bits dropped
+  // to nearest, ties to even; a carry moves into the exponent correctly
+  unsigned h = (ax - 0x38000000u) >> 13;
+  unsigned rem = ax & 0x1FFFu;
+  if(rem > 0x1000u || (rem == 0x1000u && (h & 1u))) h++;
+  return (unsigned short)(sign | h);
+}
+
+float gxv_float_from_f16(unsigned short h)
+{
+  unsigned sign = ((unsigned)h & 0x8000u) << 16;
+  unsigned e = ((unsigned)h >> 10) & 0x1Fu;
+  unsigned m = (unsigned)h & 0x3FFu;
+  unsigned x;
+  if(e == 0) {
+    if(m == 0) {
+      x = sign;
+    }
+    else { // Subnormal: normalize it
+      e = 113;
+      while(!(m & 0x400u)) {
+	m <<= 1;
+	e--;
+      }
+      m &= 0x3FFu;
+      x = sign | (e << 23) | (m << 13);
+    }
+  }
+  else if(e == 31) {
+    x = sign | 0x7F800000u | (m << 13);
+  }
+  else {
+    x = sign | ((e + 112) << 23) | (m << 13);
+  }
+  float f;
+  memcpy(&f, &x, 4);
+  return f;
+}
+
+float gxv_i8_encode(const float *v, signed char *q, unsigned dim)
+{
+  float mx = 0.0f;
+  for(unsigned i = 0; i < dim; i++) {
+    float a = fabsf(v[i]);
+    if(a > mx) mx = a;
+  }
+  float s = mx / 127.0f;
+  for(unsigned i = 0; i < dim; i++) {
+    long r = 0;
+    if(s > 0.0f) {
+      r = lrintf(v[i] / s);
+      if(r > 127) r = 127;
+      if(r < -127) r = -127;
+    }
+    q[i] = (signed char)r;
+  }
+  return s;
+}
+
+void gxv_i8_decode(const signed char *q, float scale, float *out, unsigned dim)
+{
+  for(unsigned i = 0; i < dim; i++) out[i] = (float)q[i] * scale;
 }
 
 } // namespace datareel
