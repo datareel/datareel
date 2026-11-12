@@ -18,6 +18,15 @@ datareel_example(db_defrag         database/defrag/testprog.cpp)
 datareel_example(db_pod            database/pod/testprog.cpp)
 datareel_example(db_infohog        database/infohog/infohog.cpp)
 
+# Object database patterns (examples/oodb). journal_recovery uses
+# fork() and kill(), so it is built on POSIX systems only.
+datareel_example(typed_objects     oodb/typed_objects.cpp)
+datareel_example(day_events        oodb/day_events.cpp)
+datareel_example(replication       oodb/replication.cpp)
+if(NOT WIN32)
+  datareel_example(journal_recovery oodb/journal_recovery.cpp)
+endif()
+
 # TLS networking
 datareel_example(tls_echo_server   tls/tls_echo_server.cpp)
 datareel_example(tls_echo_client   tls/tls_echo_client.cpp)
@@ -33,6 +42,8 @@ datareel_example(stream_client     tls/stream_client.cpp)
 datareel_example(config_file       general/config_file.cpp)
 datareel_example(logfile           general/logfile.cpp)
 datareel_example(thread_pool       general/thread_pool.cpp)
+datareel_example(trading_sessions  general/trading_sessions.cpp)
+datareel_example(string_utils      general/string_utils.cpp)
 
 # Plain text diagnostics (ICMP and telnet cannot use TLS)
 datareel_example(ping              diagnostics/ping.cpp)

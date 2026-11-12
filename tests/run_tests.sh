@@ -70,6 +70,17 @@ for p in db_simple db_database db_btree db_btree_cached db_btree_node \
   mkdir -p "$WORK/run_$p" && cd "$WORK/run_$p" && check $p sh -c "$E/$p < /dev/null"
 done
 cd "$WORK/run_db_infohog" && check db_infohog_reopen sh -c "$E/db_infohog < /dev/null"
+# Object database patterns and utilities (examples/README.txt)
+for p in trading_sessions string_utils day_events; do
+  mkdir -p "$WORK/run_$p" && cd "$WORK/run_$p" && check $p $E/$p
+done
+mkdir -p "$WORK/run_typed_objects" && cd "$WORK/run_typed_objects" &&
+  check typed_objects $E/typed_objects "$WORK/server.pem" "$WORK/server.key" --ca "$WORK/ca.pem"
+mkdir -p "$WORK/run_replication" && cd "$WORK/run_replication" &&
+  check replication $E/replication demo "$WORK/server.pem" "$WORK/server.key" --ca "$WORK/ca.pem"
+check replication_files_same cmp "$WORK/run_replication/primary.gxd" "$WORK/run_replication/replica.gxd"
+mkdir -p "$WORK/run_journal_recovery" && cd "$WORK/run_journal_recovery" &&
+  check journal_recovery $E/journal_recovery 5
 # Sample programs from the AI guides (docs/ai/samples); run twice to
 # reopen the files
 mkdir -p "$WORK/run_ai_db" && cd "$WORK/run_ai_db" &&

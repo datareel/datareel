@@ -245,8 +245,16 @@ The examples are built with the library. Each is one source file:
  examples/database/   gxDatabase, gxBtree, POD, InfoHog
  examples/tls/        TLS echo server/client, HTTPS server/client,
                       SMTP, POP3, FTPS, gxStream server/client
- examples/general/    gxConfig, LogFile, ThreadPool
+ examples/oodb/       Object database patterns: typed objects with a
+                      text export and import, gxdJournal crash
+                      recovery, a day-organized event database and
+                      replication over gxStream
+ examples/general/    gxConfig, LogFile, ThreadPool, US trading
+                      sessions (CDate), strutil/base 64/CRC-32
  examples/diagnostics ping, telnet
+
+examples/README.txt says what each of the newer examples shows and how
+to run it.
 
 tests/run_tests.sh builds everything with CMake and runs the examples
 against each other, the mail and FTPS clients against mock servers
