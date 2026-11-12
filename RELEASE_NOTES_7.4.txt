@@ -142,6 +142,73 @@ with a pragma, and the CMake files also build them with
 created and synced the file before it starts the kill timer, so a slow
 machine no longer kills the child before its first commit.
 
+PHASE C (11/12/2026): FLOAT16 AND INT8 VECTORS, VECTOR MEMBERS
+--------------------------------------------------------------
+1. Element types gxvFLOAT16 and gxvINT8 (types 2 and 3 in the header).
+   A node stores its vector as a code: float32 4 * dim bytes; float16
+   2 * dim bytes (IEEE binary16, round to nearest even, subnormals
+   kept); int8 dim signed bytes and a float32 scale per vector
+   (s = max|v| / 127, q = clamp(lrintf(v / s), -127, 127), each value
+   within s / 2). Node size = 48 + 8 * M0 + the code bytes; the header
+   check follows the type. gxvFLOAT32 files are byte-identical to
+   before (no version change); a library that does not know a type
+   refuses it with gxv_UNSUPPORTED.
+2. gxvCOSINE vectors are normalized, then stored. Every distance, in
+   inserts as well as searches, uses the decoded vector, so Insert(),
+   Repair() and Merge() build the same graph (vix_test checks it for
+   every type and metric). Queries are not rounded. Get() returns the
+   decoded vector; Update() compares stored codes.
+3. float16 values above 65504 in size are refused with the new error
+   gxv_OUT_OF_RANGE (added at the end of gxvError).
+4. gxvkern.h: gxv_f16_from_float(), gxv_float_from_f16(),
+   gxv_i8_encode(), gxv_i8_decode() (plain C, for the 6.x version).
+5. Vector members: a record carries its vector in the index's stored
+   form. MakeMember() returns MemberSize() bytes: a 12-byte head
+   ("GXVM", element type, dimension, CRC-32 of the spec) and the code.
+   Store it as an InfoHog member or a fixed char field of a POD
+   record. InsertMember() / UpdateMember() put the code in the index
+   unchanged, so record and node hold the same bytes, and refuse a
+   member of another type or dimension (gxv_BAD_ARG) or spec
+   (gxv_SPEC_MISMATCH). MemberVector() decodes one; MemberMatches()
+   compares a record's member with its node (for a Verify() resolver).
+   Rename(old_id, new_id) follows a record that moved: an InfoHog
+   record that grows gets a new address. Write the record and the index
+   in one gxdJournal transaction (attach the data file, its index files
+   and the .vix): a crash leaves both or neither.
+
+Tests (vix_test): search, graph, reopen, rebuild, delete, Repair,
+Merge and crash tests for all three types; all 63,488 finite float16
+values converted both ways, rounding ties, subnormals and the 65504
+limit; the int8 error bound; InfoHog records with a vector member and
+their index under one journal (changes, moves, rollback, 10 kill -9
+rounds per type) and a POD record with a vector field. 53,469 checks.
+Recall at ef 200 against the exact answer on the float32 vectors
+(20,000 clustered points, dimension 32): float16 0.994 to 1.000; int8
+0.980 (L2), 0.985 (inner product) and 0.947 (cosine: unit vectors in
+tight clusters, where neighbors differ by less than a quantization
+step).
+
+Gate (vix_test --gate 1000000 --dim 96 --type ..., the same set and
+machine as phase B; the build times are rough, other jobs shared the
+machine):
+
+  type   build   file    memory  quiet ef 64          vs float32  live (1 writer, 3 searchers)
+                                 recall  p50   p99    exact ef 64 inserts/s  p50    p99
+  f32    923 s   697 MB  779 MB  0.987  0.16  0.34    -           990        0.19   0.50
+  f16    1308 s  515 MB  592 MB  0.987  0.35  0.67    0.986       488        0.42   1.11
+  i8     753 s   427 MB  506 MB  0.976  0.16  0.34    0.955       1,091      0.17   0.41
+
+  (times in ms; ef 128 recall 0.999 for all three; against float32
+  exact at ef 200: f16 0.999, i8 0.973)
+
+Memory and file size include the graph (M0 = 32 links per node),
+which is now the larger part: the vectors take 384 / 192 / 100 bytes a
+node. float16 searches take about twice as long because each value is
+converted with a function call; a faster float16 decode (proved to give
+the same bits) is a possible later step. int8 is as fast as float32
+and the smallest; use float32 or float16 where recall must stay above
+0.98.
+
 LICENSE (11/12/2026)
 --------------------
 Every source header now says LGPL version 3 or later, matching the
@@ -150,8 +217,7 @@ https://www.gnu.org/licenses/ instead of the old FSF postal address.
 
 NEXT
 ----
-Phase C: float16 / int8, POD and
-InfoHog vector members. Phase D: gxrepl and the object
+Phase D: gxrepl and the object
 server's VECTOR_SEARCH. Phase E: the 6.x version with the legacy
 classes.
 DataReel 7.5 alpha: the Python module as a pip package (datareel), built

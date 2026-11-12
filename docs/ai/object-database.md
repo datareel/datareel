@@ -490,8 +490,22 @@ vix.Search(query, 20, hits, 64, &f);
   deleted nodes stay in the graph until `Repair()` rebuilds it.
 - `gxVectorIndex::Merge("month.vix", day_files, spec)` builds one index
   from many (ids must be unique across them); open it read only.
+- Element types: `gxvFLOAT16` (half the memory, recall within about
+  0.001 of float32) and `gxvINT8` (a quarter, recall about 0.02 lower;
+  lowest for cosine). Distances always use the decoded vector, so
+  inserts, `Repair()` and `Merge()` build the same graph. `Get()`
+  returns the decoded vector. float16 refuses values above 65504
+  (`gxv_OUT_OF_RANGE`).
+- A record can carry its vector: `MakeMember(vec, member)` gives
+  `MemberSize()` bytes to store as an InfoHog member or a fixed char
+  field of a POD record; `InsertMember(record_fau, member, len, tags)`
+  puts the same bytes in the index, in the same journal transaction as
+  the record. When an InfoHog record grows it moves: call
+  `Rename(old_fau, new_fau)`. `MemberMatches()` checks a record against
+  its node in a `Verify()` resolver.
 - `utils/vix_test` holds the tests (including kill -9 recovery), a
-  benchmark (`--bench`) and the graph gate (`--gate 1000000`).
+  benchmark (`--bench`) and the graph gate (`--gate 1000000 --type
+  f32|f16|i8`).
 
 ## Checking and repairing files
 

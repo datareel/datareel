@@ -67,7 +67,9 @@ database file:
   node.
 - Merge() builds one index from many (for example the day files of a month); Repair()
   rebuilds the graph; Verify() checks every vector against its object.
-- float16 and int8 storage (half and a quarter of the memory) are in progress for 7.4.
+- float16 and int8 storage (about half and a quarter of the vector memory), and vector
+  members: a POD or InfoHog record can carry its vector, kept in step with the index in
+  the same journal transaction.
 
 See [RELEASE_NOTES_7.4.txt](RELEASE_NOTES_7.4.txt) and
 [docs/ai/object-database.md](docs/ai/object-database.md).
@@ -90,7 +92,6 @@ and [README.txt](README.txt) has the complete release notes index.
 
 ### Coming next
 
-- **7.4:** float16 / int8 vectors, and vector members in POD and InfoHog records.
 - **7.5 alpha:** a Python module, published as the `datareel` pip package, built from this
   repository.
 

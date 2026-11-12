@@ -62,7 +62,7 @@
 <li>A spec string in the header (feature family, version and builder hash): an index refuses to open against a different spec, so vectors from two feature builders never mix.</li>
 <li>Distances are summed in a fixed order, so results are bit-identical on every build and node.</li>
 <li>Merge() builds one index from many (for example the day files of a month); Repair() rebuilds the graph; Verify() checks every vector against its object.</li>
-<li>float16 and int8 storage (half and a quarter of the memory) are in progress for 7.4.</li>
+<li>float16 and int8 storage (about half and a quarter of the vector memory), and vector members: a POD or InfoHog record can carry its vector, kept in step with the index in the same journal transaction.</li>
 </ul>
 <p>See <a href="release_notes_7_4.html">RELEASE_NOTES_7.4.txt</a> and <a href="ai/object-database.md">docs/ai/object-database.md</a>.</p>
 <h3 id="Building">Building</h3>
@@ -73,7 +73,6 @@ tests/run_tests.sh</pre>
 <p>The examples in <code>examples/</code> show typed objects, journal crash recovery, a day-organized event database, replication, trading sessions and the string utilities; each has a page under <code>docs/examples</code>. The full documentation starts at <a href="index.html">docs/index.html</a>, and <a href="index.html">README.txt</a> has the complete release notes index.</p>
 <h3 id="ComingNext">Coming next</h3>
 <ul>
-<li><strong>7.4:</strong> float16 / int8 vectors, and vector members in POD and InfoHog records.</li>
 <li><strong>7.5 alpha:</strong> a Python module, published as the <code>datareel</code> pip package, built from this repository.</li>
 </ul>
 <h2 id="Datareel64TheLegacyBridgeRelease">DataReel 6.4: the legacy bridge release</h2>
