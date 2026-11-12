@@ -30,11 +30,11 @@ USA
 Database replication over gxStream: a primary writes, a replica
 follows, and both files end up the same.
 
-About this example: this release of the library has no replication
-classes. (The gxrepl replication tool and its classes are being
-developed on a separate branch, rel-7.3.1-repl-final, and are not in
-7.3.) So this example builds replication from the pieces the library
-does have, to show the idea and the parts that matter:
+About this example: it builds replication by hand from the basic
+pieces (gxDatabase and gxStream) to show the idea and the parts that
+matter. For real use, DataReel 7.3.1 and later have replication built
+in: the gxrepl tool (utils/gxrepl, see utils/gxrepl/README.md) and its
+classes (gxdrepl.h, gxrepl.h). This example shows:
 
  - The primary is the only process that writes. For each change it
    makes to its own database file (insert, update or delete) it sends
@@ -56,7 +56,7 @@ does have, to show the idea and the parts that matter:
 A production replication system needs more than this: a write-ahead
 log the replica can catch up from after it was down, transactions
 (gxdJournal, see journal_recovery.cpp), several readers, reconnects
-and a way to promote the replica. That is what gxrepl adds.
+and a way to promote the replica. That is what gxrepl provides.
 
 The primary and the replica are two processes that talk over
 localhost. On POSIX systems "demo" forks the replica itself. On any

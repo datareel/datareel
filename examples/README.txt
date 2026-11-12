@@ -100,10 +100,11 @@ events written".
 
 Replication (examples/oodb/replication.cpp)
 -------------------------------------------
-This release of the library has no replication classes: gxrepl and
-its classes are being developed on the rel-7.3.1-repl-final branch
-and are not in 7.3. So this example builds replication from the
-pieces the library has, in two processes over localhost. The primary
+This example builds replication by hand from gxDatabase and
+gxStream, in two processes over localhost, to show how it works. For
+real use, the library has replication built in since 7.3.1: the
+gxrepl tool (utils/gxrepl/README.md) and its classes (gxdrepl.h,
+gxrepl.h). The primary
 makes each change (insert, update, delete) to its own database file
 and ships it over gxStream; the replica applies it to its file in the
 same order, so records land at the same addresses. At the end the

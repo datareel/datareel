@@ -763,13 +763,13 @@ The query matches the events written
  'replication': ('oodb/replication.cpp', 'Replication Example',
   'A primary ships its inserts, updates and deletes over gxStream to a replica in a second process; both database files end up the same.', [
   ('Shows', 'What It Shows', """
-<P>This release of the library has no replication classes: gxrepl and its classes are being developed on the rel-7.3.1-repl-final branch and are not in 7.3. So this example builds replication from the pieces the library has, in two processes over localhost:</P>
+<P>This example builds replication by hand from gxDatabase and gxStream, in two processes over localhost, to show how it works. For real use, the library has replication built in since 7.3.1: the gxrepl tool (utils/gxrepl) and its classes (gxdrepl.h, gxrepl.h).</P>
 <UL>
 <LI>The primary is the only writer. For each change to its own <A HREF="../classes/database/gxdbase.htm">gxDatabase</A> file it sends one operation (insert, update or delete, the file address and the record bytes) over <A HREF="../classes/socket/gxstream.htm">gxStream</A>, and waits for the replica's answer before the next one.</LI>
 <LI>The replica applies the operations in the same order. gxDatabase gives out addresses deterministically, so the records land at the primary's addresses; the replica answers each insert with its address and the primary checks it.</LI>
 <LI>At the end the primary compares the record count and a CRC-32 of every live record and its address with the replica's. The two files are byte for byte the same.</LI>
 </UL>
-<P>A production system also needs a log the replica can catch up from after it was down, transactions, several readers, reconnects and promotion of the replica. That is what gxrepl adds.</P>
+<P>A production system also needs a log the replica can catch up from after it was down, transactions, several readers, reconnects and promotion of the replica. That is what gxrepl provides.</P>
 """),
   ('Running', 'Running It', CERT_NOTE + code("""
 replication demo cert.pem key.pem --ca cert.pem     # POSIX: forks the replica
