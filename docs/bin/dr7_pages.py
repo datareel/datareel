@@ -634,6 +634,12 @@ EXAMPLES = [
   ('database/pod/testprog.cpp', 'db_pod', 'POD: a data file with one or several index files opened together.'),
   ('database/infohog/infohog.cpp', 'db_infohog', 'InfoHog object database: records with a key and variable members, add, find, change, delete, list and reopen.'),
  ]),
+ ('Object database patterns', [
+  ('oodb/typed_objects.cpp', 'typed_objects', 'A typed class sent over gxStream, stored in a gxDatabase, exported to plain text and imported back.'),
+  ('oodb/journal_recovery.cpp', 'journal_recovery', 'gxdJournal transactions: a writer killed mid-transaction, Recover(), a consistency check and Rollback(). POSIX only.'),
+  ('oodb/day_events.cpp', 'day_events', 'One database file per YYYY/MM/DD folder and a time-range query across days.'),
+  ('oodb/replication.cpp', 'replication', 'A primary ships its changes over gxStream to a replica process; both files end up the same.'),
+ ]),
  ('TLS networking', [
   ('tls/tls_echo_server.cpp', 'tls_echo_server', 'TLS server using gxsTLSServer and a ThreadPool. Usage: tls_echo_server port cert.pem key.pem'),
   ('tls/tls_echo_client.cpp', 'tls_echo_client', 'TLS client with certificate checking. Usage: tls_echo_client host port [--ca ca.pem] [--insecure]'),
@@ -649,12 +655,202 @@ EXAMPLES = [
   ('general/config_file.cpp', 'config_file', 'gxConfig: write, read and change a configuration file.'),
   ('general/logfile.cpp', 'logfile', 'LogFile shared by several threads.'),
   ('general/thread_pool.cpp', 'thread_pool', 'ThreadPool tasks, results and exceptions.'),
+  ('general/trading_sessions.cpp', 'trading_sessions', 'CDate and systime.h: US market sessions, holidays, trading days.'),
+  ('general/string_utils.cpp', 'string_utils', 'strutil.h, base 64 and CRC-32, each checked against a known answer.'),
  ]),
  ('Plain text diagnostics', [
   ('diagnostics/ping.cpp', 'ping', 'ICMP and ICMPv6 echo. Usage: ping host [count] [-4|-6]'),
   ('diagnostics/telnet_client.cpp', 'telnet_client', 'Telnet login and command (plain text; trusted networks only).'),
  ]),
 ]
+
+# Pages for single examples: name -> (source, title, lead, sections).
+# Each becomes docs/examples/<name>.htm and its row in the index links to it.
+CERT_NOTE = '<P>gxStream always uses TLS, so this example needs a certificate and key for localhost. A self-signed one is enough for a test (see also <A HREF="../classes/socket/sdiagram.htm#Certificates">Certificates</A>):</P>\n' + code("""
+openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem \\
+  -days 30 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+""")
+
+EXAMPLE_PAGES = {
+ 'typed_objects': ('oodb/typed_objects.cpp', 'Typed Objects Example',
+  'A C++ class packed into typed blocks, sent over gxStream, stored in a gxDatabase file, exported to plain text and imported back.', [
+  ('Shows', 'What It Shows', """
+<P>The whole life of a typed object in DataReel:</P>
+<OL>
+<LI>The TradeEvent class packs itself into a block that starts with a small type header: a four character type code, a layout version and the body size. Any program that reads the block knows what it holds, and a later version of the class can still read old blocks. The body is written field by field with fixed sizes, so it does not depend on structure padding.</LI>
+<LI>A client sends each packed object over TLS with <A HREF="../classes/socket/gxstream.htm">gxStream</A> (AddBlock). A server thread in the same program stores every block in a <A HREF="../classes/database/gxdbase.htm">gxDatabase</A> file and answers with its file address.</LI>
+<LI>The client reads each object back by address (RequestBlock) and checks it.</LI>
+<LI>The program walks the database file, unpacks every object and exports it to text: one key=value line per object under a comment line that says the same thing in plain words. The text file does not depend on the binary layout, so it is the long-lived, portable form.</LI>
+<LI>The text is imported into a second database file and every object is compared with the original, field by field.</LI>
+</OL>
+<P>gxStream is only the transport: the objects are the program's own class, and the database file stores whatever bytes the class packs.</P>
+"""),
+  ('Running', 'Running It', CERT_NOTE + code("""
+typed_objects cert.pem key.pem --ca cert.pem
+""") + """<P>Use --insecure instead of --ca to skip the certificate check (testing only). It writes typed_objects.gxd, typed_objects.txt and typed_objects_import.gxd in the current folder and exits with 0 when every object survives all three steps.</P>
+"""),
+  ('Output', 'Sample Output', code("""
+Server listening on 127.0.0.1:38987
+sent id 1001, stored at 128, read back OK
+...
+sent id 1005, stored at 708, read back OK
+Server stored 5 objects in typed_objects.gxd
+Exported 5 objects to typed_objects.txt
+Imported 5 objects into typed_objects_import.gxd
+Sample of the export:
+  # AMTX bought 100 shares at 3.2500 at 09:41:07 ET on 2026-11-09 (opening flush, back over VWAP)
+  event id=1001 day=2026-11-09 time=09:41:07 ticker=AMTX side=B qty=100 price=3.2500 note=opening flush, back over VWAP
+All objects match
+""")),
+ ]),
+ 'journal_recovery': ('oodb/journal_recovery.cpp', 'Journal Recovery Example',
+  'gxdJournal transactions survive a writer that is killed in the middle of one: Recover() leaves only whole batches.', [
+  ('Shows', 'What It Shows', """
+<P>A transaction groups several writes so that after a crash either all of them are in the database file or none are (gxdjrnl.h, new in 7.2). The program proves it by killing a writer in the middle of its work:</P>
+<OL>
+<LI>A child process opens a journal, creates a <A HREF="../classes/database/gxdbase.htm">gxDatabase</A> file, attaches it to the journal and writes batches of 25 records, one transaction per batch (Begin, Alloc and Write, Commit). After each commit it writes the number of committed batches to a progress file.</LI>
+<LI>The parent waits for a few commits, then kills the child with SIGKILL at a random moment, usually inside a transaction. Nothing in the child gets to clean up.</LI>
+<LI>The parent calls gxdJournal::Recover(), which writes every committed transaction left in the journal to the database file and drops the one that was not committed.</LI>
+<LI>It opens the database and checks it: every record belongs to a whole batch, no batch is partly there, and every batch the child reported is present. One more batch may be there, when the child was killed after Commit() returned and before it wrote the progress file.</LI>
+<LI>Finally it shows Rollback(): a rolled-back insert leaves no trace.</LI>
+</OL>
+<P>The program uses fork() and kill(), so it is built only on Linux and other POSIX systems.</P>
+"""),
+  ('Running', 'Running It', code("""
+journal_recovery [rounds]      # default 5
+""") + """<P>It writes journal_recovery.gxd, .jnl and .progress in the current folder and exits with 0 when every round recovers to a consistent database.</P>
+"""),
+  ('Output', 'Sample Output', code("""
+Round 1: killed after 3 committed batches; Recover() wrote 4 transactions from the journal; database holds 4 whole batches (the last commit beat its progress note) - consistent
+Round 2: killed after 6 committed batches; Recover() wrote 6 transactions from the journal; database holds 6 whole batches - consistent
+...
+Rollback: 200 records before, 200 after a rolled-back insert
+Every crash recovered to a consistent database
+""")),
+ ]),
+ 'day_events': ('oodb/day_events.cpp', 'Day Events Example',
+  'An event database organized by day: one gxDatabase file per YYYY/MM/DD folder, and a time-range query across days.', [
+  ('Shows', 'What It Shows', """
+<P>Events that are only ever looked at by time (a trade log, readings, alerts, news) fit well in one database file per day:</P>
+""" + code("""
+day_events/2026/11/09/events.gxd
+day_events/2026/11/10/events.gxd
+...
+""") + """
+<P>Every file stays small, only today's file is written, and old days can be backed up, copied or deleted one folder at a time. The program:</P>
+<OL>
+<LI>Appends fixed-size events (a UTC time stamp, a type, a ticker and a short text) to their day's file, creating the folders the first time a day is written. Events arrive in time order, so each day file is already sorted.</LI>
+<LI>Queries a range that starts inside one day and ends inside a later one. It opens only the days in the range, skips a day with no file and stops reading a day once it passes the end time.</LI>
+<LI>Checks the result against the same filter run over the events it wrote.</LI>
+</OL>
+<P>For lookups by key, add a <A HREF="../classes/database/gxbtree.htm">gxBtree</A> index next to each day's data file.</P>
+"""),
+  ('Running', 'Running It', code("""
+day_events [folder]            # default ./day_events, removed and rebuilt each run
+""")),
+  ('Output', 'Sample Output', code("""
+Appended 48 events into day folders under day_events:
+  day_events/2026/11/09/events.gxd
+  day_events/2026/11/10/events.gxd
+  day_events/2026/11/11/events.gxd
+  day_events/2026/11/13/events.gxd
+Query 2026-11-10 16:00 to 2026-11-13 15:00 UTC: 23 events from 3 day files (Nov 12 has none)
+  2026-11-10 16:05:00  news  BTCS  event 5 of Nov 10
+  ...
+The query matches the events written
+""")),
+ ]),
+ 'replication': ('oodb/replication.cpp', 'Replication Example',
+  'A primary ships its inserts, updates and deletes over gxStream to a replica in a second process; both database files end up the same.', [
+  ('Shows', 'What It Shows', """
+<P>This release of the library has no replication classes: gxrepl and its classes are being developed on the rel-7.3.1-repl-final branch and are not in 7.3. So this example builds replication from the pieces the library has, in two processes over localhost:</P>
+<UL>
+<LI>The primary is the only writer. For each change to its own <A HREF="../classes/database/gxdbase.htm">gxDatabase</A> file it sends one operation (insert, update or delete, the file address and the record bytes) over <A HREF="../classes/socket/gxstream.htm">gxStream</A>, and waits for the replica's answer before the next one.</LI>
+<LI>The replica applies the operations in the same order. gxDatabase gives out addresses deterministically, so the records land at the primary's addresses; the replica answers each insert with its address and the primary checks it.</LI>
+<LI>At the end the primary compares the record count and a CRC-32 of every live record and its address with the replica's. The two files are byte for byte the same.</LI>
+</UL>
+<P>A production system also needs a log the replica can catch up from after it was down, transactions, several readers, reconnects and promotion of the replica. That is what gxrepl adds.</P>
+"""),
+  ('Running', 'Running It', CERT_NOTE + code("""
+replication demo cert.pem key.pem --ca cert.pem     # POSIX: forks the replica
+
+replication replica 0 cert.pem key.pem              # any system, terminal 1: prints its port
+replication primary PORT --ca cert.pem              # terminal 2
+""") + """<P>The primary writes primary.gxd and the replica replica.gxd; the program exits with 0 when they match.</P>
+"""),
+  ('Output', 'Sample Output', code("""
+replica: listening on 127.0.0.1:41039
+primary: inserted 20 accounts
+primary: updated 5 accounts
+primary: deleted 4 accounts
+primary: account 21 went to address 1952 on both sides
+primary: account 22 went to address 1568 on both sides
+primary: account 23 went to address 992 on both sides
+primary: shipped 32 operations, 0 not applied the same way
+primary: 19 records, CRC 3F7571E6
+replica: 19 records, CRC 3F7571E6
+The replica matches the primary
+replica: applied 32 operations to replica.gxd
+""")),
+ ]),
+ 'trading_sessions': ('general/trading_sessions.cpp', 'Trading Sessions Example',
+  'CDate and the systime.h functions applied to US stock market sessions, holidays and trading days.', [
+  ('Shows', 'What It Shows', """
+<P><A HREF="../classes/general/cdate.htm">CDate</A> is the 4-byte date to store in records; it parses and prints M/D/YYYY and compares dates but does no calendar arithmetic, so the program adds day-of-week, next-day and trading-day math with std::tm and mktime(). The <A HREF="../classes/general/systime.htm">systime.h</A> functions format the time stamps.</P>
+<P>The rules, all in US Eastern time: pre-market 4:00 to 9:30, regular 9:30 to 16:00, post-market 16:00 to 20:00, closed otherwise and on weekends and the 2026 NYSE holidays. On the two early close days the regular session ends at 13:00 and the post-market at 17:00. 9:30 belongs to the regular session and 16:00 to the post-market.</P>
+<P>It prints the session for sample times (each checked), the trading days in November 2026, the next trading day after some dates, and the current session in New York (POSIX systems, through the TZ setting).</P>
+"""),
+  ('Running', 'Running It', code("""
+trading_sessions                       # samples, a month and now
+trading_sessions 11/27/2026 13:05      # one date and time (ET)
+""")),
+  ('Output', 'Sample Output', code("""
+Sessions at sample times (ET):
+  11/9/2026  Mon 09:29  pre-market  ok  last pre-market minute
+  11/9/2026  Mon 09:30  regular     ok  the opening bell
+  11/9/2026  Mon 16:00  post-market ok  the closing bell starts post-market
+  11/26/2026 Thu 10:00  closed      ok  Thanksgiving
+  11/27/2026 Fri 13:00  post-market ok  early close day, after the bell
+  ...
+Trading days in November 2026:
+  2 3 4 5 6 9 10 11 12 13
+  16 17 18 19 20 23 24 25 27 30
+  20 trading days
+  next trading day after 11/25/2026 (Wed) is 11/27/2026 (Fri)
+All samples match
+""")),
+ ]),
+ 'string_utils': ('general/string_utils.cpp', 'String Utilities Example',
+  'strutil.h, base 64 and CRC-32: the small helpers most programs need around a database, each checked against a known answer.', [
+  ('Shows', 'What It Shows', """
+<UL>
+<LI><A HREF="../classes/general/strutil.htm">strutil.h</A>: trim, split, case changes, case-blind compare and find, starts_with and ends_with, replace_all, cutting around a marker, printf-style format(), number conversion that never throws, copy_to() into fixed char fields and natural ordering ("run2" before "run10").</LI>
+<LI><A HREF="../classes/socket/gxs_b64.htm">gxs_b64.h</A>: base 64 (RFC 4648) for binary data in text, with line breaks ignored and bad input refused, and HTTP basic authentication.</LI>
+<LI><A HREF="../classes/database/gxcrc32.htm">gxcrc32.h</A>: CRC-32 of a buffer and of a file, computed in one call and block by block.</LI>
+</UL>
+"""),
+  ('Running', 'Running It', code("""
+string_utils [file]            # with a file, also its CRC-32 two ways
+""")),
+  ('Output', 'Sample Output', code("""
+strutil.h
+  split + trim                       5 fields: AMTX|buy|100|3.25|opening flush
+  copy_to(char[5], "TOOLONG")        "TOOL" (4 chars)
+  natural_compare sort               run1.log run2.log run10.log
+gxs_b64.h
+  encode("foobar")                   Zm9vYmFy
+  basic auth header                  Basic dHJhZGVyOnMzY3JldA==
+gxcrc32.h
+  CRC-32("123456789")                CBF43926
+All checks pass
+""")),
+ ]),
+}
+
+def example_page(name):
+    src, title, lead, secs = EXAMPLE_PAGES[name]
+    secs = secs + [('Source', 'Source', '<P>examples/%s, one source file built by examples/CMakeLists.txt as <B>%s</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>' % (src, name))]
+    return dict(file='examples/%s.htm' % name, title=title, lead=lead, sections=secs)
 
 def examples_page():
     secs = [('Building', 'Building and Running', '''
@@ -668,11 +864,12 @@ cmake-build\\examples\\Release\\db_infohog  # Windows
 <P>The database examples pause for Enter between steps; give them empty input (&lt; /dev/null or &lt; nul) to run straight through. The TLS servers need a certificate and key; see <A HREF="../classes/socket/sdiagram.htm#Certificates">Certificates</A> for making test ones. tests/run_tests.sh builds everything and runs the examples against each other and against mock mail and FTPS servers.</P>
 ''')]
     for title, items in EXAMPLES:
-        rows = ''.join('<div class="dr-fn"><code class="dr-sig">examples/%s</code><p class="dr-desc"><B>%s</B>: %s</p></div>\n' % (f, n, html.escape(d)) for f, n, d in items)
+        rows = ''.join('<div class="dr-fn"><code class="dr-sig">examples/%s</code><p class="dr-desc"><B>%s</B>: %s</p></div>\n' % (f, ('<A HREF="%s.htm">%s</A>' % (n, n)) if n in EXAMPLE_PAGES else n, html.escape(d)) for f, n, d in items)
         secs.append((re.sub(r'\W+', '', title), title, rows))
     return dict(file='examples/examples.htm', title='Example Programs', lead='Every example is one source file and is built and tested with this release.', sections=secs)
 
 PAGES.append(examples_page())
+for _name in EXAMPLE_PAGES: PAGES.append(example_page(_name))
 
 page(file='utils/utils.htm', title='Utility Programs',
  lead='Command line tools for checking and repairing DataReel database files.',

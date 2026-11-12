@@ -160,8 +160,14 @@
 <pre> examples/database/   gxDatabase, gxBtree, POD, InfoHog
  examples/tls/        TLS echo server/client, HTTPS server/client,
                       SMTP, POP3, FTPS, gxStream server/client
- examples/general/    gxConfig, LogFile, ThreadPool
+ examples/oodb/       Object database patterns: typed objects with a
+                      text export and import, gxdJournal crash
+                      recovery, a day-organized event database and
+                      replication over gxStream
+ examples/general/    gxConfig, LogFile, ThreadPool, US trading
+                      sessions (CDate), strutil/base 64/CRC-32
  examples/diagnostics ping, telnet</pre>
+<p>examples/README.txt says what each of the newer examples shows and how to run it.</p>
 <p>tests/run_tests.sh builds everything with CMake and runs the examples against each other, the mail and FTPS clients against mock servers (tests/mock_servers.py, needs python3), and tests/damaged_files, which reads deliberately damaged database files. Pass CMAKE_OPTS to test other configurations:</p>
 <pre> tests/run_tests.sh
  CMAKE_OPTS=&quot;-DDATAREEL_64BIT_DATABASE=ON&quot; tests/run_tests.sh /tmp/b64</pre>
