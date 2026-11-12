@@ -44,6 +44,9 @@ The library has no dependencies except the system TLS library
 DataReel 7.4 is a beta release. DataReel 6.2 remains the stable
 release for production use until DataReel 7 is final.
 
+README.md is a short overview of DataReel and its two release tracks:
+DataReel 7.x and the planned DataReel 6.4 legacy bridge release.
+
 The DataReel development package was produced by independent work and
 contract work released to the public through non-exclusive license
 agreements. The initial work began independently in 1997 and was
@@ -173,6 +176,7 @@ SUPPORTED PLATFORMS AND COMPILERS
 
 PACKAGE MAP
 -----------
+ README.md       Overview: what DataReel is, the 7.x and 6.4 release tracks
  CMakeLists.txt  Main build file (library, examples, utilities, tests)
  include/        DataReel headers
  src/            DataReel source files

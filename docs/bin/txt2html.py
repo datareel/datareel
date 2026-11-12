@@ -48,6 +48,7 @@ LINKS = {
   'RELEASE_NOTES_6.0.txt': 'release_notes_6_0.html',
   'CODE_REVIEW_FIXES.txt': 'code_review_fixes.html',
   'README_windows_openssl.txt': '../README_windows_openssl.txt',
+  'README.md': 'readme.html',
   'AGENTS.md': '../AGENTS.md',
   'llms-full.txt': '../llms-full.txt',
 }
@@ -59,7 +60,7 @@ def inline(s):
     s = re.sub(r'(?<![-\w/])llms\.txt', '<a href="../llms.txt">llms.txt</a>', s)
     s = re.sub(r'\bdocs/ai\b(?!/)', '<a href="ai/README.md">docs/ai</a>', s)
     for k, v in LINKS.items():
-        s = s.replace(k, '<a href="%s">%s</a>' % (v, k))
+        s = re.sub(r'(?<![\w/."])' + re.escape(k), '<a href="%s">%s</a>' % (v, k), s)
     return s
 
 def join_lines(buf):
@@ -158,4 +159,5 @@ def main():
         f.write(content)
         f.write(FOOT)
 
-main()
+if __name__ == '__main__':
+    main()
