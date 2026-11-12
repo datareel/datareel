@@ -29,6 +29,7 @@
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Building">Building and Running</A><BR>
 <A HREF="#Objectdatabase">Object database</A><BR>
+<A HREF="#Objectdatabasepatterns">Object database patterns</A><BR>
 <A HREF="#TLSnetworking">TLS networking</A><BR>
 <A HREF="#Generalsupport">General support</A><BR>
 <A HREF="#Plaintextdiagnostics">Plain text diagnostics</A></P>
@@ -52,6 +53,12 @@ cmake-build\examples\Release\db_infohog  # Windows</PRE>
 <div class="dr-fn"><code class="dr-sig">examples/database/pod/testprog.cpp</code><p class="dr-desc"><B>db_pod</B>: POD: a data file with one or several index files opened together.</p></div>
 <div class="dr-fn"><code class="dr-sig">examples/database/infohog/infohog.cpp</code><p class="dr-desc"><B>db_infohog</B>: InfoHog object database: records with a key and variable members, add, find, change, delete, list and reopen.</p></div>
 
+<h2 id="Objectdatabasepatterns">Object database patterns</h2>
+<div class="dr-fn"><code class="dr-sig">examples/oodb/typed_objects.cpp</code><p class="dr-desc"><B><A HREF="typed_objects.htm">typed_objects</A></B>: A typed class sent over gxStream, stored in a gxDatabase, exported to plain text and imported back.</p></div>
+<div class="dr-fn"><code class="dr-sig">examples/oodb/journal_recovery.cpp</code><p class="dr-desc"><B><A HREF="journal_recovery.htm">journal_recovery</A></B>: gxdJournal transactions: a writer killed mid-transaction, Recover(), a consistency check and Rollback(). POSIX only.</p></div>
+<div class="dr-fn"><code class="dr-sig">examples/oodb/day_events.cpp</code><p class="dr-desc"><B><A HREF="day_events.htm">day_events</A></B>: One database file per YYYY/MM/DD folder and a time-range query across days.</p></div>
+<div class="dr-fn"><code class="dr-sig">examples/oodb/replication.cpp</code><p class="dr-desc"><B><A HREF="replication.htm">replication</A></B>: A primary ships its changes over gxStream to a replica process; both files end up the same.</p></div>
+
 <h2 id="TLSnetworking">TLS networking</h2>
 <div class="dr-fn"><code class="dr-sig">examples/tls/tls_echo_server.cpp</code><p class="dr-desc"><B>tls_echo_server</B>: TLS server using gxsTLSServer and a ThreadPool. Usage: tls_echo_server port cert.pem key.pem</p></div>
 <div class="dr-fn"><code class="dr-sig">examples/tls/tls_echo_client.cpp</code><p class="dr-desc"><B>tls_echo_client</B>: TLS client with certificate checking. Usage: tls_echo_client host port [--ca ca.pem] [--insecure]</p></div>
@@ -67,6 +74,8 @@ cmake-build\examples\Release\db_infohog  # Windows</PRE>
 <div class="dr-fn"><code class="dr-sig">examples/general/config_file.cpp</code><p class="dr-desc"><B>config_file</B>: gxConfig: write, read and change a configuration file.</p></div>
 <div class="dr-fn"><code class="dr-sig">examples/general/logfile.cpp</code><p class="dr-desc"><B>logfile</B>: LogFile shared by several threads.</p></div>
 <div class="dr-fn"><code class="dr-sig">examples/general/thread_pool.cpp</code><p class="dr-desc"><B>thread_pool</B>: ThreadPool tasks, results and exceptions.</p></div>
+<div class="dr-fn"><code class="dr-sig">examples/general/trading_sessions.cpp</code><p class="dr-desc"><B><A HREF="trading_sessions.htm">trading_sessions</A></B>: CDate and systime.h: US market sessions, holidays, trading days.</p></div>
+<div class="dr-fn"><code class="dr-sig">examples/general/string_utils.cpp</code><p class="dr-desc"><B><A HREF="string_utils.htm">string_utils</A></B>: strutil.h, base 64 and CRC-32, each checked against a known answer.</p></div>
 
 <h2 id="Plaintextdiagnostics">Plain text diagnostics</h2>
 <div class="dr-fn"><code class="dr-sig">examples/diagnostics/ping.cpp</code><p class="dr-desc"><B>ping</B>: ICMP and ICMPv6 echo. Usage: ping host [count] [-4|-6]</p></div>
