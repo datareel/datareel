@@ -21,6 +21,7 @@
 #include <vector>
 #include "gxdbase.h"
 #include "gxdjrnl.h"
+#include "gxuint64.h" // gxUINT64; the 32-bit database headers do not include it
 #include "gxrepl.h"   // 11/08/2026: the raw commands
 
 // 11/08/2026: gxrepl_testwriter rawapply|rawdiff CONF SET PATH
