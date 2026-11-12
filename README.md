@@ -2,7 +2,7 @@
 
 DataReel is a high-performance C++ object-oriented database (OODB) with native vector
 search, database sockets and multi-node replication. It is released under the GNU Lesser
-General Public License, version 2.1 or any later version (see [LICENSE](LICENSE)).
+General Public License, version 3 or any later version (see [LICENSE](LICENSE)).
 
 There are two release tracks:
 

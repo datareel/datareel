@@ -22,6 +22,7 @@
 <div class="dr-toc-title">Contents</div>
 <p class="dr-toc"><a href="#PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</a><br>
 <a href="#PhaseB11122026HnswGraphSearchMergeRepair">Phase b (11/12/2026): hnsw graph search, merge, repair</a><br>
+<a href="#License11122026">License (11/12/2026)</a><br>
 <a href="#Next">Next</a></p>
 <p>DataReel 7.4 is in development: the OODB with AI extensions. These notes grow with each phase; nothing here is a release yet. The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
 <h2 id="PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</h2>
@@ -99,6 +100,8 @@
 <li>Opening the 1,000,000-node file (nodes and graph): 8.6 s.</li>
 </ul>
 <p>Build fix (11/12/2026, found on RHEL 10): GCC fuses a*b + c into one multiply-add (FMA) instruction on x86-64-v3, RHEL 10&#x27;s baseline, which changed the last bit of some distances and failed vix_test&#x27;s bit-exact kernel check. gxvkern.cpp and vix_test.cpp now turn contraction off with a pragma, and the CMake files also build them with -ffp-contract=off. The crash test now waits until the child has created and synced the file before it starts the kill timer, so a slow machine no longer kills the child before its first commit.</p>
+<h2 id="License11122026">License (11/12/2026)</h2>
+<p>Every source header now says LGPL version 3 or later, matching the LICENSE file (the headers said 2.1 or later), and points to <a href="https://www.gnu.org/licenses/">https://www.gnu.org/licenses/</a> instead of the old FSF postal address.</p>
 <h2 id="Next">Next</h2>
 <p>Phase C: float16 / int8, POD and InfoHog vector members. Phase D: gxrepl and the object server&#x27;s VECTOR_SEARCH. Phase E: the 6.x version with the legacy classes. DataReel 7.5 alpha: the Python module as a pip package (datareel), built from this repo.</p>
 </main>

@@ -142,6 +142,12 @@ with a pragma, and the CMake files also build them with
 created and synced the file before it starts the kill timer, so a slow
 machine no longer kills the child before its first commit.
 
+LICENSE (11/12/2026)
+--------------------
+Every source header now says LGPL version 3 or later, matching the
+LICENSE file (the headers said 2.1 or later), and points to
+https://www.gnu.org/licenses/ instead of the old FSF postal address.
+
 NEXT
 ----
 Phase C: float16 / int8, POD and
