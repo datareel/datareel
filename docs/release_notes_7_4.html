@@ -1,0 +1,107 @@
+<!doctype html>
+<!-- Generated from RELEASE_NOTES_7.4.txt by docs/bin/txt2html.py -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel 7.4 Beta Release Notes</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>DataReel 7.4 Beta Release Notes</h1>
+<div class="dr-toc-title">Contents</div>
+<p class="dr-toc"><a href="#PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</a><br>
+<a href="#PhaseB11122026HnswGraphSearchMergeRepair">Phase b (11/12/2026): hnsw graph search, merge, repair</a><br>
+<a href="#Next">Next</a></p>
+<p>DataReel 7.4 is in development: the OODB with AI extensions. These notes grow with each phase; nothing here is a release yet. The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
+<h2 id="PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</h2>
+<p>New headers gxvindex.h (gxVectorIndex, gxvFilter, gxvResult) and gxvkern.h (distance kernels); sources src/gxvindex.cpp and src/gxvkern.cpp; test program utils/vix_test.</p>
+<p>1. gxVectorIndex keeps vectors in a &quot;.vix&quot; file, which is an ordinary</p>
+<pre>   gxDatabase file: a 256-byte static area (magic &quot;GXVIX74&quot;, version,
+   dimension, element type, metric, M / M0, ef_construction, node
+   size, entry node, counts and a 63-character spec) and one
+   fixed-size block per node (64-bit object id, flags, level, four
+   32-bit tags, upper-level block, neighbor slots, vector). The graph
+   of phase B uses the neighbor slots already reserved in every node,
+   so phase A files open unchanged later.</pre>
+<p>2. Insert / Update / Delete (a tombstone) / Get / Contains, each a few</p>
+<pre>   writes to the file. Attach the index to a gxdJournal with
+   j.Attach(vix.Database()) and a commit carries an object, its B-tree
+   keys and its vector together; Rollback() then Reload().</pre>
+<p>3. Exact(query, k, results, filter): the k nearest live nodes, sorted</p>
+<pre>   by distance then id. gxvFilter tests tag ranges (equality is a
+   range of one, so session, kind and a date upper bound are all
+   tags) and an optional accept callback. (Search() was Exact() until
+   phase B.)</pre>
+<p>4. Metrics: squared L2, cosine (vectors stored unit length, distance</p>
+<pre>   1 - cosine) and inner product (minus the dot product). Float32
+   only in phase A; float16 and int8 come in phase C. Dimension 1 to
+   4096. NaN and infinite values are refused.</pre>
+<p>5. Spec guard: Create(..., spec) stores a text such as</p>
+<pre>   &quot;anomaly/shock/v1/&lt;builder hash&gt;&quot;; Open(name, mode, spec) refuses a
+   file with another spec, so vectors from a different feature
+   builder never mix in one index.</pre>
+<p>6. Concurrency: the ids, tags and vectors stay in memory while the</p>
+<pre>   index is open, so searches never read the file. Searches share a
+   lock; writers take it exclusively and go ahead of new searches
+   (writer preference), so steady searching never stalls inserts.</pre>
+<p>7. Kernels: 8 partial sums in a fixed order, the same on the SSE2</p>
+<pre>   path and the plain C path (bit-identical results); plain C-style
+   functions so the 6.x version shares them word for word.</pre>
+<p>8. Verify(resolve, data, bad, report) compares the file with memory</p>
+<pre>   and asks the caller whether each node&#x27;s object still exists.</pre>
+<p>Tests (vix_test, 32-bit and 64-bit database engines): kernels against the written-out order; Exact against a brute-force reference for all three metrics with tag, range and callback filters and equal-distance order; create / insert / update / delete / reinsert / reopen / read only / spec mismatch / bad files; journal commit and rollback; three reader threads searching during 20,000 inserts and deletes (clean under ThreadSanitizer); 45 kill -9 rounds during committed batches: every round recovered exactly the committed batches, never a partial one.</p>
+<p>Measured (4-core VM, dimension 79, k = 20): insert about 5 us; exact search of 30,000 vectors 0.9 ms p50, 150,000 6.7 ms, 1,000,000 55 ms (memory bound); opening 1,000,000 nodes 2.3 s. Sub-millisecond search over large sets is phase B&#x27;s graph.</p>
+<h2 id="PhaseB11122026HnswGraphSearchMergeRepair">Phase b (11/12/2026): hnsw graph search, merge, repair</h2>
+<p>1. Search(query, k, results, ef, filter) walks an HNSW graph kept in</p>
+<pre>   the neighbor slots of each node plus an upper-level block for the
+   nodes above level 0. A node&#x27;s level is an integer hash of its id,
+   so the same inserts in the same order build the same graph on every
+   node. Up to 4096 nodes, and for filters (or tombstones) that leave
+   fewer than about 5% of the nodes, Search() is Exact().</pre>
+<p>2. Filtered graph search: every node is a stepping stone, only live</p>
+<pre>   nodes that pass the filter are results.</pre>
+<p>3. Live inserts: Insert() works out its links under the shared lock</p>
+<pre>   (searches keep running), writes the file, then takes the exclusive
+   lock only to link the node (microseconds). Per-node arrays grow in
+   fixed chunks, so growing never copies what is there.</pre>
+<p>4. Update() with the same vector rewrites the tags in place; with a new</p>
+<pre>   vector it deletes the node and inserts a new one in one step.
+   Deleted nodes stay in the graph until Repair().</pre>
+<p>5. Repair() rebuilds the graph from the live nodes and writes it.</p>
+<pre>   Merge(out, inputs, spec) builds one index from many files (the day
+   files of a month): same dimension, metric and spec, ids unique
+   across them, tombstones left out, every link written once.</pre>
+<p>6. Phase A files open unchanged: the graph is built in memory at Open()</p>
+<pre>   (GraphSaved() = 0) and Repair() saves it. A damaged link in a saved
+   graph is handled the same way. Verify() also checks every link
+   against the file.</pre>
+<p>7. Fix: the 256-byte header was written at FAU 256 (gxDatabase</p>
+<pre>   StaticArea() returns the static area&#x27;s size, not its address), so
+   the first node block overlapped header bytes 96-255. It now sits at
+   FileHeaderSize(). Phase A was never installed, so no file has the
+   old layout.</pre>
+<p>Tests (vix_test, 32-bit and 64-bit database engines, 11,897 checks): recall against Exact for all three metrics (20,000 clustered vectors: 1.000 / 1.000 / 0.996 at ef 64), filtered recall, a selective filter equal to Exact, the graph read back from the file gives the same answers, the same inserts build the same graph, deletes (no deleted node returned) and updates, Repair(), a phase A file and a damaged link rebuilt and repaired, Merge() of three day files (and its refusals), 45 kill -9 rounds on each engine (all recovered exactly, Verify() clean including every link), three searchers during 20,000 inserts and deletes, clean under ThreadSanitizer.</p>
+<p>Gate (vix_test --gate 1000000, 4-core VM, dimension 96, M 16, ef_construction 200, k 20; one thread inserting in journal batches of 100 while three threads search):</p>
+<ul>
+<li>Clustered vectors (1000 centers, like real features): build 526 s (0.5 ms an insert); quiet ef 64 recall 0.987, p50 0.17 ms, p99 0.34 ms; live: 1,053 inserts a second during 425,758 searches, p50 0.18 ms, p99 0.61 ms (p99.9 1.4 ms); recall after 0.986; ef 128 recall 0.999 at p99 0.53 ms. Gate met.</li>
+<li>Uniform random vectors (pure noise, the worst case for any graph index): p99 0.84 ms live but recall only 0.23 at ef 64; at 50,000 nodes ef 64 / 256 / 1024 give 0.58 / 0.88 / 0.99. Noise has no near neighbors to find; real feature vectors are not like this, but a feature builder whose vectors look like noise needs a larger ef or Exact().</li>
+<li>Opening the 1,000,000-node file (nodes and graph): 8.6 s.</li>
+</ul>
+<p>Build fix (11/12/2026, found on RHEL 10): GCC fuses a*b + c into one multiply-add (FMA) instruction on x86-64-v3, RHEL 10&#x27;s baseline, which changed the last bit of some distances and failed vix_test&#x27;s bit-exact kernel check. gxvkern.cpp and vix_test.cpp now turn contraction off with a pragma, and the CMake files also build them with -ffp-contract=off. The crash test now waits until the child has created and synced the file before it starts the kill timer, so a slow machine no longer kills the child before its first commit.</p>
+<h2 id="Next">Next</h2>
+<p>Phase C: float16 / int8, POD and InfoHog vector members. Phase D: gxrepl and the object server&#x27;s VECTOR_SEARCH. Phase E: the 6.x version with the legacy classes. DataReel 7.5 alpha: the Python module as a pip package (datareel), built from this repo.</p>
+</main>
+<footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+</body>
+</html>

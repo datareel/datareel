@@ -546,6 +546,7 @@ Pick a layer:
 | A data file and its indexes opened together | `POD` | `pod.h` |
 | Objects with a key and variable length members | `InfoHog<KeyType>` | `infohog.h` |
 | Faster repeated reads | `gxDatabaseCache`, `BtreeCache` | `dbfcache.h`, `btcache.h` |
+| Nearest neighbor search on float vectors (7.4, in development) | `gxVectorIndex` | `gxvindex.h` |
 | Check and repair files | `db_debug`, `ix_debug` utilities | `utils/` |
 
 ## Concepts
@@ -970,6 +971,50 @@ int main(int argc, char **argv)
   return get_text(again, NOTES) == notes ? 0 : 1;
 }
 ```
+
+## Vectors and nearest neighbor search (7.4, in development)
+
+`gxVectorIndex` keeps float vectors in a `.vix` file, which is a normal
+`gxDatabase` file, so it goes on the same journal as its data file.
+Each node holds the 64-bit id of its object (usually the object's FAU),
+four 32-bit tags for filtering and the vector. `Search` walks an HNSW
+graph kept in the same file (sub-millisecond on a million vectors);
+`Exact` scans every node. Indexes up to 4096 nodes and filters that pass
+fewer than about 5% of the nodes are always searched exactly.
+
+```cpp
+gxdJournal j;
+j.Open("events.jnl");
+gxVectorIndex vix;
+if(vix.Open("events.vix", gxDBASE_READWRITE, "anomaly/v1/abc") != gxv_NO_ERROR)
+  vix.Create("events.vix", 79, gxvFLOAT32, gxvL2, 16, "anomaly/v1/abc");
+j.Attach(vix.Database());
+j.Begin();
+unsigned tags[4] = { session, kind, 20261111, 0 };
+vix.Insert(event_fau, vec, tags);   // same transaction as the event object
+j.Commit();
+
+gxvFilter f;
+f.Tag(0, session);                  // equal
+f.Range(2, 0, 20261110);            // up to the cutoff day: no look-ahead
+std::vector<gxvResult> hits;        // id, distance, tags; closest first
+vix.Search(query, 20, hits, 64, &f);
+```
+
+- One index per vector meaning and version: the spec text is checked on
+  `Open`, so vectors from another feature builder are refused.
+- After `gxdJournal::Rollback()` call `vix.Reload()`.
+- Ties come back ordered by id, so results are repeatable. A node's
+  graph level is a hash of its id, so the same inserts in the same
+  order build the same graph.
+- Searches run while one thread inserts: the insert finds its links
+  under the shared lock and holds searches back only to link the node.
+- `Update` with a new vector deletes the node and inserts a new one;
+  deleted nodes stay in the graph until `Repair()` rebuilds it.
+- `gxVectorIndex::Merge("month.vix", day_files, spec)` builds one index
+  from many (ids must be unique across them); open it read only.
+- `utils/vix_test` holds the tests (including kill -9 recovery), a
+  benchmark (`--bench`) and the graph gate (`--gate 1000000`).
 
 ## Checking and repairing files
 

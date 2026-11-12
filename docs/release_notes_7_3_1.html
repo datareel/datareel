@@ -21,7 +21,8 @@
 <h1>DataReel 7.3.1 Beta Release Notes</h1>
 <div class="dr-toc-title">Contents</div>
 <p class="dr-toc"><a href="#Fixes">Fixes</a><br>
-<a href="#Tests">Tests</a></p>
+<a href="#Tests">Tests</a><br>
+<a href="#DatabaseReplicationAdded11072026Beta">DATABASE REPLICATION (added 11/07/2026, beta)</a></p>
 <p>DataReel 7.3.1 is a beta bug fix release of 7.3. DataReel 6.2 remains the stable release for production use until DataReel 7 is final; please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
 <p>7.3.1 fixes the problems found by a security scan of the object database code (gxDatabase, gxBtree, BtreeCache, gxdJournal, the page cache and the file I/O layer) and by a full sweep of the rest of the library (TLS, the gxStream database protocol, HTTP, SMTP, POP3, FTPS, telnet, RS-232, ping, config, log file, thread pool and the repair tools), and adds mutual TLS to gxStream database servers. The file formats are unchanged and the API changes are additions. Rebuild programs against 7.3.1.</p>
 <p>The library version is 7.3.1 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.3.1); the soname stays libdatareel.so.7.</p>
@@ -160,7 +161,79 @@
 <li>tests/run_tests.sh: 49 checks passed on RHEL 10.2 in the default, 64-bit, 64-bit portable type and shared library builds, and under AddressSanitizer and UndefinedBehaviorSanitizer. Windows 11 (MSVC): the database examples, journal_test and damaged_files pass in 32-bit, 64-bit and 64-bit portable type builds.</li>
 </ul>
 <p>The scan itself (tools, fuzzing statistics, reproducers) is described in DATAREEL_73_SECURITY_SCAN.md in the project notes.</p>
+<h2 id="DatabaseReplicationAdded11072026Beta">DATABASE REPLICATION (added 11/07/2026, beta)</h2>
+<p>gxrepl keeps folders of object databases the same on two nodes over a gxStream TLS connection, TCP port 2073 (gxsDATA_PORT) by default, with an SSH tunnel as the fallback when the port is closed. See utils/gxrepl/README.md.</p>
+<ul>
+<li>gxdJournal::EnableShipLog(set_root, stream) / DisableShipLog(): each commit also appends the committed pages to a ship log (&lt;set_root&gt;/.gxrepl/log/&lt;stream&gt;/), under the journal&#x27;s write lock, before the pages reach the files. Write-through mode only.</li>
+<li>gxdJournal::ApplyPages(jname, files): applies pages received from another node as one journal transaction (crash safe, then Recover).</li>
+<li>gxdrepl.h: gxdShipLog (writer), gxdShipLogReader, the record parsers and gxdReplHash.</li>
+<li>gxrepl.h: gxReplConfig, gxReplServer, gxReplClient and the local and remote sources and targets.</li>
+<li>utils/gxrepl: the gxrepl program and gxrepl_testwriter (tests).</li>
+<li>CMake option DATAREEL_ZLIB (ON): compresses replication messages with zlib when it is found.</li>
+</ul>
+<p>No file format changes: a database written with the ship log is an ordinary database, and the log lives in its own folder. POSIX only.</p>
+<p>11/08/2026 changes (replication protocol 2; both nodes must run the same version, a mismatch is refused in the hello):</p>
+<ul>
+<li>Databases only. gxrepl carries DataReel database files (.gxd, .btx) and the files a set names with &quot;include&quot; (a database&#x27;s commit block, sources list, exports). The sender never offers another file, the receiver refuses one (SafePath: &quot;not a database file&quot;), deletes touch only database files, and hidden names are never copied. Flat files belong to the host&#x27;s file sync (OSA: DRCM&#x27;s rsync over ssh). Port 2073 carries database traffic only.</li>
+<li>Safe reads without a ship log: a database in a folder with a journal is read under gxdJournalReadLock; a published folder (no journal) is checked before and after each read, and a file that changed while it was read is read again (diff status 3), never sent torn.</li>
+<li>Power-off safety: a gxdJournal with the ship log enabled fdatasyncs each ship record before the commit&#x27;s pages reach the files (unless its sync level is OFF). The ship log&#x27;s small files, the copy&#x27;s applied-position files and the status file are written with fsync, rename and a folder sync. The folders of files an apply creates are synced. A torn ship-log tail is cut back to the last whole record.</li>
+<li>A reconnect verifies only the files the ship-log streams cover; other database files get the size and mtime scan, and the full hash verify runs when full_verify_interval says so (or SIGHUP, once).</li>
+<li>The client writes its status file every 5 seconds during a pass.</li>
+</ul>
+<p>Database object server (11/08/2026, phase 2; replication protocol 3):</p>
+<ul>
+<li>gxdbserver.h: gxDatabaseServer, one TLS listener on the database port shared by services (client certificates, handshakes off the accept loop, session limits); a session goes to the service that claims its first block.</li>
+<li>gxdbmux.h: gxdMuxSession, many databases over one connection: a channel per database with its own order, bounded queue, credit flow control and errors; one I/O thread per connection (non-blocking, so both sides can send at once); deficit round-robin between channels.</li>
+<li>gxrepl: the replication service of the server. The client opens a channel per set and runs each set on its own thread (the server has an applier thread per channel); a refused set ends only its channel. Durable ACK after a log apply, and the ACK floor in the ship log (acked/&lt;copy&gt;): an old segment goes only when every copy has it, up to the size cap.</li>
+<li>gxsTLSConnection::TakeBuffered().</li>
+<li>gxdbobject.h: gxObjectService, database objects over the network on the same server: [db NAME] databases, multiplex channels (service object, read or write) with ADD, REQUEST, CHANGE, DELETE, FIRST, NEXT; writes through the database journal; replicated copies are read-only and read under the apply journal lock (an apply holds it exclusively); 6.x style A/R clients on legacy_db. Examples: utils/dbserver/object_server.cpp, object_client.cpp.</li>
+</ul>
+<p>Power-loss tests and fixes (11/09/2026, phase 2 step 5):</p>
+<ul>
+<li>utils/gxrepl/powerloss_shim.c: a test-only LD_PRELOAD library that keeps what a disk would still have after a power cut (a file&#x27;s bytes when it is fsynced, a folder&#x27;s entries when the folder is fsynced). test_gxrepl.py cuts the writer&#x27;s node, the server&#x27;s node or both at random moments, rebuilds the folders from that image only, and checks the copies, the retention floor and the object service.</li>
+<li>gxdFPTRCreate() now syncs the folder after it creates a file (POSIX). Before, a new database or journal could be lost in a power cut with every commit made to it, since commits synced only the file.</li>
+<li>The ship-log purge skips acked/&lt;copy&gt;.gxrtmp, which a crash in the middle of a floor write leaves; it was read as another copy&#x27;s floor.</li>
+<li>gxrepl deletes now sync the folders they removed files from.</li>
+<li>The design document (docs/DATABASE_OBJECT_SERVER_DESIGN.md) section 11 specifies protocol 3: sessions, the multiplex frame, replication and objects on channels, the retention floor, and the status files.</li>
+</ul>
+<p>Replication fixes from the 11/10 reviews (gxrepl-var-r3):</p>
+<ul>
+<li>The ship-log reader keeps two cursors (the end scan and the last read) and a sparse lsn -&gt; offset index, so a Read() never rescans a segment. A Diff request&#x27;s 4 MB / 100 ms read-lock budget counts the log read. Measured: the slowest writer commit during a full verify of a 256 MB live file was 204 ms at load 31 (2078 ms with the old whole-file lock).</li>
+<li>A ship-log record bigger than max_message (an osa_ingest rebuild writes one of 500 MB) is never sent or even read: READLOG status 2, the copy&#x27;s position is reset and the stream&#x27;s files are resynced in pieces.</li>
+<li>commit_block copies: the copy&#x27;s commit block is marked odd (protocol op 15, MARKGEN) before a unit&#x27;s files change and stays odd until a whole commit is in; &quot;gxrepl torn&quot; / &quot;gxrepl.sh promote-check&quot; lists torn copies (exit 1) so a fail over does not promote them. A heartbeat write to the commit block is not a change. Measured: an unlocked 8 MB writer at 5 commits/s and a 434 MB folder with a commit every 2 s both keep copying whole commits.</li>
+<li>Stream purge: an acked/&lt;copy&gt; file that cannot be read keeps the stream even when another copy ACKed it; a stream whose one segment every copy applied starts a new segment when its writer opens, so retention can trim it. ship_log_max_total is in bytes.</li>
+<li>&quot;gxrepl version&quot; names the git head of the DataReel sources (+dirty) and the build time (gxrepl_version.cmake), or &quot;unknown&quot;.</li>
+</ul>
+<p>Ship-log volume and whole copies (11/10, gxrepl-var-r4 / r4d):</p>
+<ul>
+<li>Volume. Commit records are zlib-compressed (type 4, gxdShipCommitZ: raw size, a CRC-32 of the raw payload checked after inflate, zlib) when that is smaller; readers take both types (gxdParseShipCommitRecord), so older logs still read. GXDSHIP_COMPRESS=0 turns it off. Derived indexes (per set &quot;derived = GLOB&quot;) are left out of the records at the writer (gxdShipLog::SetExclude; OSA: osa_ingest --ship-log-derived) and rebuilt on the copy (&quot;derived_rebuild = CMD {dir} [{lsn}]&quot;, &quot;derived_delay&quot;). Measured on OSA&#x27;s realtime day, per 50-line commit: 1,477,740 bytes of pages, 179 KB compressed, 8.9 KB with both (167x less): about 9 KB per commit, about 100 MB a day for the realtime set instead of 15-20 GB shipped as pages. No measurable CPU.</li>
+<li>Limits. A record counts against max_message by its stored size, or its inflated size when that is bigger; keep max_message above the largest record (a bigger one is never sent: the copy resyncs its files, and at 256 KB in the tests the copy fell 68 records behind on such resyncs). AppendCommit refuses a record over 1 GB raw (the size is a u32): it logs a gap and the copy verifies the stream.</li>
+<li>The commit block travels in the record. gxdShipLog::SetCommitBlock() gives the writer&#x27;s commit block (as it is once the commit lands) to the next commit record, as its last file; the copy applies the pages, the commit block and the unit&#x27;s seal &quot;log G L S&quot; (generation, lsn, stream) in one apply.jnl transaction. A record that changes a unit without its commit block seals it &quot;copying-log&quot; (torn until a record carries the block); a fill out of step with the copy&#x27;s stream seals it &quot;copying&quot; until the commit block, sent after the folder&#x27;s files, lands. The source serves a ship-log folder&#x27;s commit block from its log, never its file, and never one older than a later record that changed the folder.</li>
+<li>&quot;gxrepl torn&quot; (promote-check) requires, for a ship-log unit, the seal&#x27;s generation = the commit block&#x27;s and the seal&#x27;s lsn = the stream&#x27;s applied lsn, and for derived indexes a stamp (&lt;folder&gt;/derived.stamp: &quot;gen G lsn L records N keys K&quot;) at that generation and lsn with keys = records. Old-format logs (no commit block) apply but are UNSEALED.</li>
+<li>Busy days (r4e, 11/11): missing or stale derived indexes are a warning (&quot;INDEXES&quot;, exit 0), not torn: a take over&#x27;s writer rebuilds them; a rebuild that failed stays torn. &quot;derived_busy_rebuild&quot; (default 900 s) rebuilds a folder that is never quiet for derived_delay anyway, under the apply lock.</li>
+</ul>
+<p>Power-loss tests and fixes (11/09/2026, phase 2 step 5):</p>
+<ul>
+<li>utils/gxrepl/powerloss_shim.c: a test-only LD_PRELOAD library that keeps what a disk would still have after a power cut (a file&#x27;s bytes when it is fsynced, a folder&#x27;s entries when the folder is fsynced). test_gxrepl.py cuts the writer&#x27;s node, the server&#x27;s node or both at random moments, rebuilds the folders from that image only, and checks the copies, the retention floor and the object service.</li>
+<li>gxdFPTRCreate() now syncs the folder after it creates a file (POSIX). Before, a new database or journal could be lost in a power cut with every commit made to it, since commits synced only the file.</li>
+<li>The ship-log purge skips acked/&lt;copy&gt;.gxrtmp, which a crash in the middle of a floor write leaves; it was read as another copy&#x27;s floor.</li>
+<li>gxrepl deletes now sync the folders they removed files from.</li>
+<li>The design document (docs/DATABASE_OBJECT_SERVER_DESIGN.md) section 11 specifies protocol 3: sessions, the multiplex frame, replication and objects on channels, the retention floor, and the status files.</li>
+</ul>
+<p>Replication fixes from the 11/10 reviews (gxrepl-var-r3):</p>
+<ul>
+<li>The ship-log reader keeps two cursors (the end scan and the last read) and a sparse lsn -&gt; offset index, so a Read() never rescans a segment. A Diff request&#x27;s 4 MB / 100 ms read-lock budget counts the log read. Measured: the slowest writer commit during a full verify of a 256 MB live file was 204 ms at load 31 (2078 ms with the old whole-file lock).</li>
+<li>A ship-log record bigger than max_message (an osa_ingest rebuild writes one of 500 MB) is never sent or even read: READLOG status 2, the copy&#x27;s position is reset and the stream&#x27;s files are resynced in pieces.</li>
+<li>commit_block copies: the copy&#x27;s commit block is marked odd (protocol op 15, MARKGEN) before a unit&#x27;s files change and stays odd until a whole commit is in; &quot;gxrepl torn&quot; / &quot;gxrepl.sh promote-check&quot; lists torn copies (exit 1) so a fail over does not promote them. A heartbeat write to the commit block is not a change. Measured: an unlocked 8 MB writer at 5 commits/s and a 434 MB folder with a commit every 2 s both keep copying whole commits.</li>
+<li>Stream purge: an acked/&lt;copy&gt; file that cannot be read keeps the stream even when another copy ACKed it; a stream whose one segment every copy applied starts a new segment when its writer opens, so retention can trim it. ship_log_max_total is in bytes.</li>
+<li>&quot;gxrepl version&quot; names the git head of the DataReel sources (+dirty) and the build time (gxrepl_version.cmake), or &quot;unknown&quot;.</li>
+</ul>
+<p>Ship-log volume (11/10, gxrepl-var-r4):</p>
+<ul>
+<li>Commit records are zlib-compressed (type 4, gxdShipCommitZ) when that is smaller; readers take both types (gxdParseShipCommitRecord), so older logs still read. GXDSHIP_COMPRESS=0 turns it off. Measured on OSA&#x27;s realtime day: 1.48 MB -&gt; 179 KB per commit, no measurable CPU.</li>
+<li>Derived indexes: per set &quot;derived = GLOB&quot; (never sent, never deleted on the copy, their pages skipped in log records), &quot;derived_rebuild = CMD {dir}&quot; and &quot;derived_delay&quot; on the copy: the server rebuilds a folder&#x27;s indexes once its generation is quiet, under the apply lock, and keeps a state file; &quot;gxrepl torn&quot; refuses missing, stale or failed ones. gxdShipLog::SetExclude() leaves such files out of the records at the writer (OSA: osa_ingest --ship-log-derived). With both: 8.9 KB per commit (167x less).</li>
+</ul>
 </main>
-<footer class="dr-footer">DataReel 7.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

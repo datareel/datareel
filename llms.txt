@@ -15,6 +15,7 @@ All classes are in namespace datareel. Link with CMake target DataReel::datareel
 ## Reference
 
 - [Readme](README.txt): What the library is for, building, file formats
+- [Release notes 7.4](RELEASE_NOTES_7.4.txt): Vector extensions: vector index file, exact and HNSW nearest-neighbor search
 - [Release notes 7.3.1](RELEASE_NOTES_7.3.1.txt): Security scan fixes for damaged files and journals
 - [Release notes 7.3](RELEASE_NOTES_7.3.txt): Memory-mapped reads, faster key-order scans and random reads
 - [Release notes 7.2](RELEASE_NOTES_7.2.txt): Journal (crash and power loss safe transactions), page cache, faster I/O and B-tree

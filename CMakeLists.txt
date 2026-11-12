@@ -71,6 +71,10 @@ file(GLOB DATAREEL_HEADERS CONFIGURE_DEPENDS
 
 add_library(datareel ${DATAREEL_SOURCES})
 add_library(DataReel::datareel ALIAS datareel)
+# No fused multiply-add in the vector kernels: distances keep the same bits on every build
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/src/gxvkern.cpp" PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+endif()
 set_target_properties(datareel PROPERTIES
   VERSION ${PROJECT_VERSION}
   SOVERSION ${PROJECT_VERSION_MAJOR}

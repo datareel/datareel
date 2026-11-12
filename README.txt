@@ -1,4 +1,4 @@
-DataReel 7.3.1 Beta Readme File
+DataReel 7.4 Beta Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -41,7 +41,7 @@ rest:
 The library has no dependencies except the system TLS library
 (OpenSSL on Linux, Schannel or OpenSSL on Windows).
 
-DataReel 7.3.1 is a beta release. DataReel 6.2 remains the stable
+DataReel 7.4 is a beta release. DataReel 6.2 remains the stable
 release for production use until DataReel 7 is final.
 
 The DataReel development package was produced by independent work and
@@ -99,8 +99,9 @@ use the C++ standard library; DataReel 7 itself does.
 WHAT CHANGED IN DATAREEL 7
 --------------------------
 See RELEASE_NOTES_7.0.txt for the full list and for porting notes,
-RELEASE_NOTES_7.1.txt, RELEASE_NOTES_7.2.txt, RELEASE_NOTES_7.3.txt and
-RELEASE_NOTES_7.3.1.txt for the changes in 7.1 to 7.3.1. In short:
+RELEASE_NOTES_7.1.txt, RELEASE_NOTES_7.2.txt, RELEASE_NOTES_7.3.txt,
+RELEASE_NOTES_7.3.1.txt and RELEASE_NOTES_7.4.txt for the changes in 7.1
+to 7.4. In short:
 
 - C++17 is required. Strings, lists, trees, threads, mutexes, files
   and time now come from the standard library. The UString/gxString,
@@ -132,6 +133,12 @@ RELEASE_NOTES_7.3.1.txt for the changes in 7.1 to 7.3.1. In short:
   names, and will not start without them unless the program
   explicitly opts out (AllowAnonymousClients(true), stream_server
   --open). Other TLS servers are unchanged.
+- 7.4 adds vector extensions to the object database: gxVectorIndex
+  keeps vectors in a ".vix" file (an ordinary gxDatabase file) with
+  exact search and an HNSW graph for fast approximate nearest-neighbor
+  search, filters, Merge() of day files and Repair()
+  (RELEASE_NOTES_7.4.txt; more phases follow). Existing file formats
+  are unchanged.
 
 LICENSE
 -------
@@ -283,6 +290,8 @@ written for AI coding assistants but useful to anyone.
 
 RELEASE HISTORY
 ---------------
+ 7.4   11/12/2026 Beta. Vector extensions: vector index, exact and HNSW
+                  search (RELEASE_NOTES_7.4.txt)
  7.3.1 11/01/2026 Beta. Security scan fixes (RELEASE_NOTES_7.3.1.txt)
  7.3  10/31/2026  Beta. Memory-mapped reads, faster scans
                   (RELEASE_NOTES_7.3.txt)
