@@ -60,6 +60,10 @@ Database replication over gxStream. See gxrepl.h. POSIX only.
 #include <set>
 #include <thread>
 #include "gxdjrnl.h"
+#include <sys/syscall.h>
+#include <sys/ioctl.h>
+#include <sys/statvfs.h>
+#include <linux/fs.h>
 #include "gxdpcache.h"
 
 #if defined (DATAREEL_HAVE_ZLIB)
@@ -80,6 +84,56 @@ static long long now_ns()
 }
 
 static std::mutex log_lock;
+
+// 11/12/2026 (F4c): a child gxrepl starts (the derived rebuild, the ssh tunnel) gets only stdin/stdout/stderr. Without
+// this it inherited every fd not opened O_CLOEXEC (gxrepl.lock, ship log state files, writer locks ...): an orphaned
+// rebuild then held gxrepl.lock, and a restarted gxrepl could not start until it ended. Called between fork and exec
+// (async-signal-safe calls only).
+static void close_inherited_fds()
+{
+#ifdef SYS_close_range
+  if(syscall(SYS_close_range, 3U, ~0U, 0U) == 0) return;
+#endif
+  long mx = sysconf(_SC_OPEN_MAX);
+  if(mx <= 0 || mx > 1048576) mx = 65536;
+  for(long fd = 3; fd < mx; fd++) close((int)fd);
+}
+
+// sh -c cmd with stdin/stdout/stderr on /dev/null and no other fd: the wait status (system()'s), -1 if it could not run
+static int run_quiet(const std::string &cmd)
+{
+  pid_t pid = fork();
+  if(pid < 0) return -1;
+  if(pid == 0) {
+    int nul = open("/dev/null", O_RDWR);
+    if(nul >= 0) { dup2(nul, 0); dup2(nul, 1); dup2(nul, 2); if(nul > 2) close(nul); }
+    close_inherited_fds();
+    execl("/bin/sh", "sh", "-c", cmd.c_str(), (char *)0);
+    _exit(127);
+  }
+  int status = 0;
+  while(waitpid(pid, &status, 0) < 0) { if(errno != EINTR) return -1; }
+  return status;
+}
+
+// 11/12/2026 (F4a/F4b): the apply lock (apply.jnl, exclusive) taken with a bounded wait instead of a blocking flock.
+// On 11/12 a derived index rebuild held it for 5-10 min (a busy rebuild of a big day on a 2-core node); an apply
+// blocked in flock while it held its set's mutex and writer holds, the other requests piled up behind that mutex and
+// the multiplexed connection had no free worker left: all 11 sets stopped. Now an apply that cannot get the lock in
+// GXREPL_APPLY_LOCK_WAIT seconds (5) answers "busy" and lets go of everything; the client tries again next pass, and
+// only that set waits for the rebuild. 0 = locked, else errno-like (EWOULDBLOCK = busy).
+static int lock_apply_bounded(int fd)
+{
+  double wait = 5;
+  if(const char *e = getenv("GXREPL_APPLY_LOCK_WAIT")) { double v = atof(e); if(v >= 0) wait = v; }
+  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
+  while(flock(fd, LOCK_EX | LOCK_NB) != 0) {
+    if(errno != EWOULDBLOCK && errno != EINTR) return errno;
+    if(std::chrono::steady_clock::now() >= end) return EWOULDBLOCK;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  return 0;
+}
 
 static void glog(const char *fmt, ...)
 {
@@ -520,6 +574,8 @@ int gxReplConfig::Load(const std::string &fname, std::string &err)
       else if(k == "derived_rebuild") cur->derived_rebuild = v;
       else if(k == "derived_delay") cur->derived_delay = atoi(v.c_str());
       else if(k == "derived_busy_rebuild") cur->derived_busy_rebuild = atoi(v.c_str());   // 11/11/2026
+      else if(k == "staged_fill") cur->staged_fill = (v == "yes" || v == "true" || v == "1");   // 11/12/2026 F7
+      else if(k == "stage_max_bytes") cur->stage_max_bytes = strtoull(v.c_str(), 0, 10);
       else known = false;
     }
     else {
@@ -618,6 +674,7 @@ struct gxReplLocal::SetState_ {
   std::string root;
   std::mutex m;
   std::map<std::string, std::unique_ptr<gxdShipLogReader> > readers;
+  std::set<std::string> staged;   // 11/13/2026 (F7 review 3): units this process began a staged copy of (MarkGen)
 };
 
 static const char *default_excludes[] = {
@@ -753,6 +810,493 @@ static std::string unit_manifest(const gxReplSetConfig &sc, const std::string &r
     m += r + "\t" + std::to_string(size) + "\t" + hx + "\n";
   }
   return m;
+}
+
+// ---------------- Staged unit copies (11/12/2026, F7) ----------------
+// <root>/.gxrepl/stage/<unit key>/ holds a copy-on-write clone of a unit's files while a copy of a newer commit
+// fills it; ".stage" names the unit, when it began, the copy's sealed generation then, and the files cloned
+// ("file NAME" lines); ".seal" is the new seal (SealUnit); ".swap" (the stage's file list) is written before the
+// files are renamed into the unit, so a stop in the middle is finished at the next start or by gxrepl promote.
+static std::string stage_dir(const std::string &root, const std::string &unit)
+{
+  return root + "/.gxrepl/stage/" + unit_key(unit);
+}
+
+static std::vector<std::string> stage_lines(const std::string &path, const char *prefix);
+
+static std::string read_small(const std::string &path)
+{
+  std::string out;
+  FILE *f = fopen(path.c_str(), "rb");
+  if(!f) return out;
+  char b[65536]; size_t n;
+  while((n = fread(b, 1, sizeof(b), f)) > 0) out.append(b, n);
+  fclose(f);
+  return out;
+}
+
+static bool read_unit_gen(const gxReplSetConfig &sc, const std::string &dir, uint64_t &g)
+{
+  int fd = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY | O_CLOEXEC);
+  ssize_t n = fd >= 0 ? pread(fd, &g, sizeof(g), (off_t)sc.commit_gen_offset) : -1;
+  if(fd >= 0) close(fd);
+  return n == (ssize_t)sizeof(g);
+}
+
+// 11/13/2026 (F7 review 1): a stage counts only while the unit it was cloned from is as it was: sealed (not
+// "copying", not dropped by a writer that took the folder) at the generation the stage began from. A stage whose
+// swap began always counts (it is finished, never dropped). Anything else is stale: never read or written, and
+// discarded at the next stage_begin, gxrepl start or promote.
+static bool stage_valid(const gxReplSetConfig &sc, const std::string &root, const std::string &unit)
+{
+  std::string sd = stage_dir(root, unit);
+  struct stat st;
+  if(stat((sd + "/.stage").c_str(), &st) != 0) return false;
+  // a swap that began counts while its commit block is still in the stage (the renames not done); once it moved,
+  // the unit is the new commit and its files are read in place (11/13/2026, F7 review round 2)
+  if(stat((sd + "/.swap").c_str(), &st) == 0) return stat((sd + "/" + sc.commit_block).c_str(), &st) == 0;
+  std::string seal = read_small(root + "/.gxrepl/units/" + unit_key(unit));
+  if(seal.empty() || seal.compare(0, 7, "copying") == 0) return false;
+  std::vector<std::string> from = stage_lines(sd + "/.stage", "from ");
+  uint64_t g = 0;
+  if(from.empty() || !read_unit_gen(sc, unit.empty() ? root : root + "/" + unit, g)) return false;
+  return strtoull(from[0].c_str(), 0, 10) == g;
+}
+
+// rel (set-relative) as it is read and written now: in its unit's stage while a valid one is open, else in place
+// 11/13/2026 (F7 review round 3, 1): only for a unit this process began a staged copy of (MarkGen, as the copy's
+// target: "mine"); a source, or an apply for a unit no staged copy of this process is filling, reads and writes
+// in place
+static std::string staged_path(const gxReplSetConfig &sc, const std::string &root, const std::string &rel,
+			       const std::string &full, bool mine)
+{
+  if(!mine || !stage_valid(sc, root, dir_of(rel))) return full;
+  return stage_dir(root, dir_of(rel)) + "/" + base_of(rel);
+}
+
+static int remove_tree(const std::string &dir)
+{
+  DIR *d = opendir(dir.c_str());
+  if(!d) return errno == ENOENT ? 0 : -1;
+  struct dirent *e;
+  int rc = 0;
+  while((e = readdir(d)) != 0) {
+    std::string n = e->d_name;
+    if(n == "." || n == "..") continue;
+    std::string p = dir + "/" + n;
+    struct stat st;
+    if(lstat(p.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) { if(remove_tree(p) != 0) rc = -1; }
+    else if(unlink(p.c_str()) != 0) rc = -1;
+  }
+  closedir(d);
+  if(rmdir(dir.c_str()) != 0) rc = -1;
+  return rc;
+}
+
+// 11/13/2026 (F7 review, LOW): a stage goes away whole or not at all: renamed to a trash name first (stages_of
+// lists only "_..." names; RecoverAll removes leftover trash), then removed
+static int discard_stage(const std::string &root, const std::string &unit)
+{
+  std::string sd = stage_dir(root, unit), base = root + "/.gxrepl/stage";
+  struct stat st;
+  if(lstat(sd.c_str(), &st) != 0) return errno == ENOENT ? 0 : -1;
+  static std::atomic<unsigned> seq{0};
+  std::string trash = base + "/.trash-" + unit_key(unit) + "-" + std::to_string((long)getpid()) + "-" +
+                      std::to_string(seq++);
+  if(rename(sd.c_str(), trash.c_str()) != 0) return -1;
+  sync_dir(base);
+  return remove_tree(trash);
+}
+
+// 11/13/2026 (F7 review round 3): a batch apply.jnl still holds goes into its files before a stage is removed
+// (the caller holds the apply lock). 0 = done (or nothing held), -1 = it still cannot be applied.
+static int recover_journal_locked(const std::string &root)
+{
+  std::string jname = root + "/.gxrepl/apply.jnl";
+  struct stat jb;
+  if(stat(jname.c_str(), &jb) != 0 || jb.st_size == 0) return 0;
+  unsigned long n = 0;
+  if(gxdJournal::Recover(jname.c_str(), &n) != gxDBASE_NO_ERROR) return -1;
+  if(truncate(jname.c_str(), 0) != 0) { }
+  return 0;
+}
+
+// A clone (FICLONE: no data copied) of "from" as "to", its mode and mtime kept; a plain copy where the file
+// system cannot clone. 0, -1.
+static int clone_file(const std::string &from, const std::string &to)
+{
+  int in = open(from.c_str(), O_RDONLY | O_CLOEXEC);
+  if(in < 0) return -1;
+  struct stat st;
+  if(fstat(in, &st) != 0) { close(in); return -1; }
+  int out = open(to.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, st.st_mode & 07777);
+  if(out < 0) { close(in); return -1; }
+  int rc = 0;
+  if(ioctl(out, FICLONE, in) != 0) {
+    std::vector<unsigned char> buf(1 << 20);
+    off_t off = 0;
+    while(true) {
+      ssize_t n = pread(in, buf.data(), buf.size(), off);
+      if(n < 0) { rc = -1; break; }
+      if(n == 0) break;
+      if(pwrite(out, buf.data(), (size_t)n, off) != n) { rc = -1; break; }
+      off += n;
+    }
+  }
+  if(rc == 0 && fdatasync(out) != 0) rc = -1;
+  struct timespec ts[2] = {st.st_atim, st.st_mtim};
+  futimens(out, ts);
+  fchmod(out, st.st_mode & 07777);
+  close(out);
+  close(in);
+  return rc;
+}
+
+// The unit's replicated files (unit_files) and its commit block, as names in the unit folder
+static std::vector<std::string> unit_names(const gxReplSetConfig &sc, const std::string &root, const std::string &unit)
+{
+  std::vector<std::string> out;
+  for(auto &r : unit_files(sc, root, unit)) out.push_back(base_of(r));
+  std::string cb = (unit.empty() ? root : root + "/" + unit) + "/" + sc.commit_block;
+  struct stat st;
+  if(stat(cb.c_str(), &st) == 0 && S_ISREG(st.st_mode)) out.push_back(sc.commit_block);
+  return out;
+}
+
+// Open (or open again: a new attempt) the unit's stage, cloned from the unit; the odd generation goes in the
+// stage's commit block, the unit itself is not touched. 0 = staged, 1 = not staged ("why": copy in place),
+// -1 error.
+static int stage_swap(const gxReplSetConfig &sc, const std::string &root, const std::string &unit, std::string &err);
+static std::map<std::string, std::string> stages_of(const std::string &root);
+
+// 11/13/2026 (F7 review round 2, 7): the set roots that have staged (for the shared free-space count) and whether
+// each one's file system clones (FICLONE), probed once
+static std::mutex g_stage_mx;
+static std::set<std::string> g_stage_roots;
+static std::map<std::string, bool> g_can_clone;
+
+static bool can_clone(const std::string &root)
+{
+  {
+    std::lock_guard<std::mutex> g(g_stage_mx);
+    g_stage_roots.insert(root);
+    auto it = g_can_clone.find(root);
+    if(it != g_can_clone.end()) return it->second;
+  }
+  std::string base = root + "/.gxrepl/stage", a = base + "/.probe-a", b = base + "/.probe-b";
+  bool ok = false;
+  if(mkdirs(base) == 0) {
+    int in = open(a.c_str(), O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if(in >= 0) {
+      char page[4096];
+      memset(page, 0x5a, sizeof(page));
+      if(pwrite(in, page, sizeof(page), 0) == (ssize_t)sizeof(page)) {
+	int out = open(b.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+	if(out >= 0) { ok = ioctl(out, FICLONE, in) == 0; close(out); }
+      }
+      close(in);
+    }
+    unlink(a.c_str());
+    unlink(b.c_str());
+  }
+#ifdef GXREPL_TEST_HOOKS
+  if(getenv("GXREPL_TEST_NO_REFLINK")) ok = false;                  // test builds: a file system with no reflink
+#endif
+  std::lock_guard<std::mutex> g(g_stage_mx);
+  g_can_clone[root] = ok;
+  return ok;
+}
+
+// What the other open stages on root's file system may still need: each one's unit size (".stage" bytes)
+static unsigned long long stages_bytes_on_dev(const std::string &root, const std::string &unit)
+{
+  struct stat me;
+  if(stat(root.c_str(), &me) != 0) return 0;
+  std::set<std::string> roots;
+  {
+    std::lock_guard<std::mutex> g(g_stage_mx);
+    roots = g_stage_roots;
+  }
+  roots.insert(root);
+  unsigned long long sum = 0;
+  for(auto &r : roots) {
+    struct stat st;
+    if(stat(r.c_str(), &st) != 0 || st.st_dev != me.st_dev) continue;
+    for(auto &e : stages_of(r)) {
+      if(r == root && e.first == unit) continue;
+      std::vector<std::string> b = stage_lines(e.second + "/.stage", "bytes ");
+      if(!b.empty()) sum += strtoull(b[0].c_str(), 0, 10);
+    }
+  }
+  return sum;
+}
+
+static int stage_begin(const gxReplSetConfig &sc, const std::string &root, const std::string &unit, uint64_t gen,
+		       std::string &why)
+{
+  std::string live = unit.empty() ? root : root + "/" + unit, sd = stage_dir(root, unit);
+  // 11/13/2026 (F7 review round 2, 1): the caller holds the apply lock. A batch the journal still holds (its pages
+  // could not be written: an ENOSPC) goes into its files first; a stage is never removed or reused under it. If it
+  // still cannot be applied, nothing is changed: this copy fails and the next pass tries again.
+  {
+    std::string jname = root + "/.gxrepl/apply.jnl";
+    struct stat jb;
+    if(stat(jname.c_str(), &jb) == 0 && jb.st_size > 0) {
+      unsigned long n = 0;
+      if(gxdJournal::Recover(jname.c_str(), &n) != gxDBASE_NO_ERROR) {
+	why = "the apply journal holds a batch that cannot be applied yet (" + jname + "): the stage is kept, "
+	      "tried again next pass";
+	return -1;
+      }
+      if(truncate(jname.c_str(), 0) != 0) { }
+    }
+  }
+  // a swap that began is finished first (it was whole)
+  {
+    struct stat sw;
+    if(stat((sd + "/.swap").c_str(), &sw) == 0) {
+      std::string e;
+      if(stage_swap(sc, root, unit, e) != 0) { why = e; return -1; }
+    }
+  }
+  // Can this copy be staged? (11/13/2026, F7 review 2 and round 2: every check first; a copy in place never
+  // leaves a stage behind, and an old stage's own space is not counted against it)
+  std::vector<std::string> names;
+  unsigned long long total = 0, others = 0;
+  int fb = 0;
+  struct stat cst;
+  if(stat((live + "/" + sc.commit_block).c_str(), &cst) != 0) fb = 2;   // no copy yet (a first copy, a folder
+                                                                       // only the source has): in place, no WARNING
+  if(!fb) {
+    std::string seal = read_small(root + "/.gxrepl/units/" + unit_key(unit));
+    uint64_t g = 0;
+    if(seal.empty() || seal.compare(0, 7, "copying") == 0 || !read_unit_gen(sc, live, g) || (g & 1)) {
+      why = "the copy is not whole now (no seal, a copy in place in progress, or an odd generation)";
+      fb = 1;
+    }
+  }
+  if(!fb) {
+    names = unit_names(sc, root, unit);
+    for(auto &n : names) {
+      struct stat st;
+      if(stat((live + "/" + n).c_str(), &st) == 0) total += (unsigned long long)st.st_size;
+    }
+    if(sc.stage_max_bytes && total > sc.stage_max_bytes) {
+      why = "the unit is " + std::to_string(total) + " bytes, over stage_max_bytes " + std::to_string(sc.stage_max_bytes);
+      fb = 1;
+    }
+  }
+  // 11/13/2026 (F7 review round 2, 7): a stage is a reflink clone; where the file system cannot clone (probed once
+  // per set root), a stage would be a full copy made under the locks: in place instead
+  if(!fb && !can_clone(root)) {
+    why = "the file system of " + root + " cannot clone files (no reflink): a stage would be a full copy";
+    fb = 1;
+  }
+  if(!fb) {
+    struct statvfs vf;
+    // a clone shares the unit's blocks, but the new commit may rewrite all of them: room for the whole unit + 256 MB,
+    // plus what every other open stage on the same file system may still need (all the sets' stages share it)
+    bool known = statvfs(root.c_str(), &vf) == 0;
+    unsigned long long avail = known ? (unsigned long long)vf.f_bavail * vf.f_frsize : 0;
+    others = stages_bytes_on_dev(root, unit);
+#ifdef GXREPL_TEST_HOOKS
+    if(const char *fbs = getenv("GXREPL_TEST_FREE_BYTES")) { known = true; avail = strtoull(fbs, 0, 10); }   // test builds
+#endif
+    if(known && avail < total + others + 256ULL * 1024 * 1024) {
+      why = "the disk has " + std::to_string(avail) + " bytes free, the unit needs " + std::to_string(total) +
+            " + 256 MB" + (others ? " (+ " + std::to_string(others) + " for the other open stages there)" : std::string(""));
+      fb = 1;
+    }
+  }
+  if(fb) {
+    if(discard_stage(root, unit) != 0) { why = "cannot clear " + sd; return -1; }
+    return fb;
+  }
+  // 11/13/2026 (F7 review round 2, 7): a retry of the same commit reuses its stage (valid, no swap begun, begun
+  // for this generation): the pages it has are not sent again
+  if(stage_valid(sc, root, unit)) {
+    std::vector<std::string> g0 = stage_lines(sd + "/.stage", "gen ");
+    if(!g0.empty() && strtoull(g0[0].c_str(), 0, 10) == gen) {
+      glog("set %s: %s: a retry of the same commit: its stage is reused", sc.name.c_str(), unit.empty() ? "." : unit.c_str());
+      return 0;
+    }
+  }
+  if(discard_stage(root, unit) != 0) { why = "cannot clear " + sd; return -1; }
+  if(mkdirs(sd) != 0) { why = "cannot make " + sd; return -1; }
+  std::string info = "unit " + (unit.empty() ? std::string(".") : unit) + "\nsince " + std::to_string((long long)time(0)) + "\n";
+  uint64_t was = 0;
+  {
+    int fd = open((live + "/" + sc.commit_block).c_str(), O_RDONLY);
+    if(fd >= 0) { if(pread(fd, &was, 8, (off_t)sc.commit_gen_offset) != 8) was = 0; close(fd); }
+  }
+  info += "from " + std::to_string((unsigned long long)was) + "\n";
+  info += "gen " + std::to_string((unsigned long long)gen) + "\n";
+  info += "bytes " + std::to_string(total) + "\n";
+  for(auto &n : names) {
+    if(clone_file(live + "/" + n, sd + "/" + n) != 0) { discard_stage(root, unit); why = "cannot clone " + n; return -1; }
+    info += "file " + n + "\n";
+  }
+  {
+    std::string cb = sd + "/" + sc.commit_block;
+    int fd = open(cb.c_str(), O_WRONLY);
+    if(fd >= 0) {
+      ssize_t n = pwrite(fd, &gen, sizeof(gen), (off_t)sc.commit_gen_offset);
+      int ok = n == (ssize_t)sizeof(gen) && fdatasync(fd) == 0;
+      close(fd);
+      if(!ok) { discard_stage(root, unit); why = "cannot mark the staged " + sc.commit_block; return -1; }
+    }
+  }
+  if(write_atomic(sd + "/.stage", info) != 0) { discard_stage(root, unit); why = "cannot write " + sd + "/.stage"; return -1; }
+  sync_dir(sd);
+  sync_dir(root + "/.gxrepl/stage");
+  return 0;
+}
+
+static std::vector<std::string> stage_lines(const std::string &path, const char *prefix)
+{
+  std::vector<std::string> out;
+  FILE *f = fopen(path.c_str(), "r");
+  if(!f) return out;
+  char b[4096];
+  size_t pl = strlen(prefix);
+  while(fgets(b, sizeof(b), f)) {
+    std::string l = b;
+    while(!l.empty() && (l.back() == '\n' || l.back() == '\r')) l.pop_back();
+    if(l.compare(0, pl, prefix) == 0) out.push_back(l.substr(pl));
+  }
+  fclose(f);
+  return out;
+}
+
+// The stage's files now (no dot files)
+static std::vector<std::string> stage_files(const std::string &sd)
+{
+  std::vector<std::string> out;
+  DIR *d = opendir(sd.c_str());
+  if(!d) return out;
+  struct dirent *e;
+  while((e = readdir(d)) != 0) {
+    std::string n = e->d_name;
+    if(n.empty() || n[0] == '.') continue;
+    out.push_back(n);
+  }
+  closedir(d);
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+// Swap a whole stage into its unit, or finish a swap that had begun (".swap" there): the files renamed into the
+// unit (the commit block last), files the stage dropped (removed by the source meanwhile) removed from the unit,
+// then the new seal, then the stage removed. Every step can be done again. The caller holds the apply lock.
+static int stage_swap(const gxReplSetConfig &sc, const std::string &root, const std::string &unit, std::string &err)
+{
+  std::string sd = stage_dir(root, unit), live = unit.empty() ? root : root + "/" + unit;
+  std::vector<std::string> list;
+  struct stat st;
+  // 11/13/2026 (F7 review round 2): a swap whose commit block already moved (a stop after the renames, before the
+  // seal): the unit is the new commit. Its new seal is written only while the unit is still as the swap left it
+  // (its old seal there, not dropped by a writer that took the folder, and its generation the new seal's); then
+  // the stage goes. Never a seal over a folder a writer owns.
+  if(stat((sd + "/.swap").c_str(), &st) == 0 && stat((sd + "/" + sc.commit_block).c_str(), &st) != 0) {
+    std::string seal = read_small(sd + "/.seal"), old = read_small(root + "/.gxrepl/units/" + unit_key(unit));
+    uint64_t g = 0;
+    if(seal.compare(0, 4, "gen ") == 0 && !old.empty() && old.compare(0, 7, "copying") != 0 &&
+       read_unit_gen(sc, live, g) && !(g & 1) && g == strtoull(seal.c_str() + 4, 0, 10)) {
+      if(mkdirs(root + "/.gxrepl/units") != 0 || write_atomic(root + "/.gxrepl/units/" + unit_key(unit), seal) != 0) {
+	err = "cannot write the seal of " + unit; return -1;
+      }
+    }
+    if(discard_stage(root, unit) != 0) { err = "cannot remove " + sd; return -1; }
+    return 0;
+  }
+  if(stat((sd + "/.swap").c_str(), &st) == 0) list = stage_lines(sd + "/.swap", "file ");
+  else {
+    if(stat((sd + "/.seal").c_str(), &st) != 0) { err = "the stage of " + unit + " has no seal yet"; return -1; }
+    std::string body;
+    list = stage_files(sd);
+    for(auto &n : list) body += "file " + n + "\n";
+    if(write_atomic(sd + "/.swap", body) != 0) { err = "cannot write " + sd + "/.swap"; return -1; }
+    sync_dir(sd);
+  }
+  // test hook (built only with -DGXREPL_TEST_HOOKS, the test builds): GXREPL_TEST_SWAP_CRASH=N ends the process
+  // after N renames (the swap is finished at the next start)
+  int crash_after = -1;
+#ifdef GXREPL_TEST_HOOKS
+  if(const char *c = getenv("GXREPL_TEST_SWAP_CRASH")) crash_after = atoi(c);
+#endif
+  // A reader of the copy that takes no lock checks the commit block: make the live one odd before any data file
+  // moves, so new files beside the old even commit block are never read as a whole commit (the stage's even
+  // commit block moves in last and ends the window).
+  if(stat((sd + "/" + sc.commit_block).c_str(), &st) == 0) {
+    int fd = open((live + "/" + sc.commit_block).c_str(), O_RDWR);
+    if(fd >= 0) {
+      uint64_t g = 0;
+      if(pread(fd, &g, 8, (off_t)sc.commit_gen_offset) == 8 && (g & 1) == 0) {
+	g += 1;
+	if(pwrite(fd, &g, 8, (off_t)sc.commit_gen_offset) != 8 || fdatasync(fd) != 0) {
+	  close(fd); err = "cannot mark " + live + "/" + sc.commit_block; return -1;
+	}
+      }
+      close(fd);
+    }
+  }
+  if(mkdirs(live) != 0) { err = "cannot make " + live; return -1; }
+  int renamed = 0;
+  std::set<std::string> keep(list.begin(), list.end());
+  for(int pass = 0; pass < 2; pass++) {               // data files, then the commit block
+    for(auto &n : list) {
+      if((n == sc.commit_block) != (pass == 1)) continue;
+      std::string from = sd + "/" + n;
+      if(stat(from.c_str(), &st) != 0) continue;       // moved already (a swap finished again)
+      if(rename(from.c_str(), (live + "/" + n).c_str()) != 0) { err = "cannot move " + from; return -1; }
+      if(++renamed == crash_after) _exit(9);
+#ifdef GXREPL_TEST_HOOKS
+      if(pass == 1 && getenv("GXREPL_TEST_SWAP_CRASH_AFTER_CB")) _exit(9);   // test builds: renames done, no seal yet
+#endif
+    }
+    if(pass == 0) {
+      for(auto &n : stage_lines(sd + "/.stage", "file "))
+	if(!keep.count(n)) unlink((live + "/" + n).c_str());
+      sync_dir(live);
+    }
+  }
+  sync_dir(live);
+  std::string seal;
+  {
+    FILE *f = fopen((sd + "/.seal").c_str(), "rb");
+    if(f) { char b[65536]; size_t n; while((n = fread(b, 1, sizeof(b), f)) > 0) seal.append(b, n); fclose(f); }
+  }
+  if(!seal.empty()) {
+    if(mkdirs(root + "/.gxrepl/units") != 0 || write_atomic(root + "/.gxrepl/units/" + unit_key(unit), seal) != 0) {
+      err = "cannot write the seal of " + unit; return -1;
+    }
+  }
+  if(discard_stage(root, unit) != 0) { err = "cannot remove " + sd; return -1; }
+  return 0;
+}
+
+// The stages of a set: unit -> its stage folder
+static std::map<std::string, std::string> stages_of(const std::string &root)
+{
+  std::map<std::string, std::string> out;
+  std::string base = root + "/.gxrepl/stage";
+  DIR *d = opendir(base.c_str());
+  if(!d) return out;
+  struct dirent *e;
+  while((e = readdir(d)) != 0) {
+    std::string n = e->d_name;
+    if(n.empty() || n[0] != '_') continue;
+    std::vector<std::string> u = stage_lines(base + "/" + n + "/.stage", "unit ");
+    std::string unit;
+    if(!u.empty()) unit = u[0] == "." ? std::string() : u[0];
+    else if(n != "_root") {                    // no .stage (a crash before it was written): unit_key decoded
+      unit = n.substr(1);
+      for(auto &c : unit) if(c == '#') c = '/';
+    }
+    out[unit] = base + "/" + n;
+  }
+  closedir(d);
+  return out;
 }
 
 // "": sealed and the same; else why not
@@ -1363,6 +1907,7 @@ int gxReplLocal::Hashes(const std::string &set, const std::string &path,
   std::string full;
   if(SafePath(s->sc, path, full, err) != 0) return -1;
   std::lock_guard<std::mutex> g(s->m);
+  full = staged_path(s->sc, s->root, path, full, s->staged.count(dir_of(path)) > 0);   // 11/12/2026 (F7): a staged unit's files as the copy has them
   int fd = open(full.c_str(), O_RDONLY);
   if(fd < 0) return 0;
   exists = 1;
@@ -1390,6 +1935,10 @@ int gxReplLocal::CommitGen(const std::string &set, const std::string &path, uint
   if(offset > 4088) { err = "bad commit block offset"; return -1; }
   std::string full;
   if(SafePath(s->sc, path, full, err) != 0) return -1;
+  {
+    std::lock_guard<std::mutex> g(s->m);          // s->staged (11/13/2026)
+    full = staged_path(s->sc, s->root, path, full, s->staged.count(dir_of(path)) > 0);   // F7: its stage, if mine
+  }
   int fd = open(full.c_str(), O_RDONLY);
   if(fd < 0) return 0;
   uint64_t g = 0;
@@ -1414,6 +1963,47 @@ int gxReplLocal::MarkGen(const std::string &set, const std::string &path, uint32
   std::lock_guard<std::mutex> g(s->m);
   WriterHold wh;                             // 11/10/2026: held until this change is done
   if(hold_writer_locks(s->sc, wh, err)) return -1;
+  // 11/12/2026 (F7): the copy goes into a stage; the unit stays whole and sealed until the stage is swapped in.
+  // In place (as before) for a set fed by a ship log (its records apply in the unit, with their seals), a unit
+  // over stage_max_bytes or a disk short of room: a WARNING once per unit and reason.
+  // 11/13/2026 (F7 review 3): the stage is begun (or the unit marked in place) under the apply lock, so gxrepl
+  // promote never removes a stage while it is cloned, and an apply's choice of stage or place stays true
+  struct ApplyLock { int fd = -1; ~ApplyLock() { if(fd >= 0) { flock(fd, LOCK_UN); close(fd); } } } alk;
+  if(!s->sc.commit_block.empty()) {
+    std::string jdir = s->root + "/.gxrepl", jname = jdir + "/apply.jnl";
+    if(mkdirs(jdir) != 0) { err = "cannot make " + jdir; return -1; }
+    alk.fd = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if(alk.fd < 0) { err = "cannot lock " + jname; return -1; }
+    if(int le = lock_apply_bounded(alk.fd)) {
+      close(alk.fd); alk.fd = -1;
+      err = le == EWOULDBLOCK ? "busy: " + jname + " is held (a derived index rebuild or a reader of the copy); tried "
+                                "again next pass" : "cannot lock " + jname;
+      return -1;
+    }
+  }
+  s->staged.erase(dir_of(path));
+  if(s->sc.staged_fill) {
+    std::map<std::string, gxReplStreamState> streams;
+    std::string se;
+    read_states(s, streams, se);
+    std::string why;
+    int rc = streams.empty() ? stage_begin(s->sc, s->root, dir_of(path), gen, why) : 1;
+    if(rc == 0) { s->staged.insert(dir_of(path)); return 0; }
+    if(rc < 0) { err = why; return -1; }
+    if(rc == 2) why = "";
+    else if(why.empty()) why = "the set is fed by a ship log";
+    static std::set<std::string> warned;
+    static std::mutex warned_mx;              // 11/13/2026 (F7 review round 2, 6): the sets' threads share it
+    std::string key = s->sc.name + "|" + dir_of(path) + "|" + why.substr(0, 20);
+    bool first;
+    {
+      std::lock_guard<std::mutex> wg(warned_mx);
+      first = !why.empty() && warned.insert(key).second;
+    }
+    if(first)
+      glog("WARNING set %s: %s: copied in place, not staged (%s)", s->sc.name.c_str(),
+	   dir_of(path).empty() ? "." : dir_of(path).c_str(), why.c_str());
+  }
   // the unit's seal says "copying" until the copy is whole again (SealUnit): the folder's own writers
   // (osa_repl_copy.h in open_stock) refuse to open a folder sealed so with an odd generation
   if(mkdirs(s->root + "/.gxrepl/units") != 0 ||
@@ -1429,6 +2019,34 @@ int gxReplLocal::MarkGen(const std::string &set, const std::string &path, uint32
   return rc;
 }
 
+// 11/12/2026 (F7): the seal of a staged unit, from its stage's files (unit_manifest's filter and order). 0, -1.
+static int stage_manifest(const gxReplSetConfig &sc, const std::string &sd, const std::string &folder, uint64_t gen,
+			  std::string &m, std::string &err)
+{
+  m = "gen " + std::to_string((unsigned long long)gen) + "\n";
+  for(auto &n : stage_files(sd)) {
+    std::string r = folder.empty() ? n : folder + "/" + n;
+    if(n == sc.commit_block || !is_db_file(sc, r) || excluded(sc, r)) continue;
+    unsigned long long size = 0; uint64_t h = 0;
+    if(file_hash(sd + "/" + n, size, h) != 0) { err = "cannot read the staged " + r; return -1; }
+    char hx[17]; snprintf(hx, sizeof(hx), "%016llx", (unsigned long long)h);
+    m += r + "\t" + std::to_string(size) + "\t" + hx + "\n";
+  }
+  return 0;
+}
+
+// 11/13/2026 (F7 review, LOW): a stage whose last commit arrived whole (its commit block even, at its seal's
+// generation, its files those the seal names) but whose swap had not begun (a stop between the two)
+static bool stage_complete(const gxReplSetConfig &sc, const std::string &sd, const std::string &folder)
+{
+  std::string seal = read_small(sd + "/.seal");
+  if(seal.compare(0, 4, "gen ") != 0) return false;
+  uint64_t want = strtoull(seal.c_str() + 4, 0, 10), g = 0;
+  if(!read_unit_gen(sc, sd, g) || (g & 1) || g != want) return false;
+  std::string m, e;
+  return stage_manifest(sc, sd, folder, g, m, e) == 0 && m == seal;
+}
+
 int gxReplLocal::SealUnit(const std::string &set, const std::string &folder, uint64_t gen, std::string &err)
 {
   SetState_ *s = set_state(set, err);
@@ -1440,6 +2058,20 @@ int gxReplLocal::SealUnit(const std::string &set, const std::string &folder, uin
   WriterHold wh;                             // 11/10/2026: held until this change is done
   if(hold_writer_locks(s->sc, wh, err)) return -1;
   bool ok = true;
+  // 11/13/2026 (F7 review 3): a staged copy whose stage went away (gxrepl promote) or went stale stops here
+  if(s->staged.count(folder) && !stage_valid(s->sc, s->root, folder)) {
+    s->staged.erase(folder);
+    err = "the stage of " + (folder.empty() ? std::string(".") : folder) + " was discarded (gxrepl promote) or went "
+          "stale: this copy stops; the next pass copies the unit again";
+    return -1;
+  }
+  if(s->staged.count(folder) && stage_valid(s->sc, s->root, folder)) {
+    // 11/12/2026 (F7): the new seal is the stage's (its files' hashes); it reaches the unit with the swap
+    std::string sd = stage_dir(s->root, folder), m;
+    if(stage_manifest(s->sc, sd, folder, gen, m, err) != 0) return -1;
+    if(write_atomic(sd + "/.seal", m) != 0) { err = "cannot write the staged seal of " + folder; return -1; }
+    return 0;
+  }
   std::string m = unit_manifest(s->sc, s->root, folder, gen, ok);
   if(!ok) { err = "cannot read the files of " + folder; return -1; }
   if(mkdirs(s->root + "/.gxrepl/units") != 0 ||
@@ -1463,7 +2095,8 @@ int gxReplLocal::SealGen(const std::string &set, const std::string &folder, uint
 int gxReplLocal::apply_batch(SetState_ *s,
   std::map<std::string, std::pair<unsigned long long,
   std::map<unsigned long long, const unsigned char *> > > &pages,
-  std::string &err)
+  std::string &err, const std::function<int(std::string &)> &in_lock,
+  const std::function<int(std::string &)> &pre_lock)
 {
   if(pages.empty()) return 0;
   // 11/10/2026: commit blocks after the files they describe, the unit seals
@@ -1491,11 +2124,15 @@ int gxReplLocal::apply_batch(SetState_ *s,
   // gxdJournalReadLock on apply.jnl; an apply holds it exclusively, so a
   // reader never sees a half-applied batch (flock: also between threads)
   int lkfd = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
-  if(lkfd < 0 || flock(lkfd, LOCK_EX) != 0) {
-    if(lkfd >= 0) close(lkfd);
-    err = "cannot lock " + jname; return -1;
+  if(lkfd < 0) { err = "cannot lock " + jname; return -1; }
+  if(int le = lock_apply_bounded(lkfd)) {
+    close(lkfd);
+    err = le == EWOULDBLOCK ? "busy: " + jname + " is held (a derived index rebuild or a reader of the copy); tried again "
+                              "next pass" : "cannot lock " + jname;
+    return -1;
   }
   struct LockGuard { int fd; ~LockGuard() { flock(fd, LOCK_UN); close(fd); } } lkg{lkfd};
+  if(pre_lock && pre_lock(err) != 0) return -1;   // 11/13/2026 (F7 review 3): checked under the lock
   // At most 1024 files a transaction
   for(size_t i = 0; i < af.size(); i += 1000) {
     std::vector<gxdApplyFile> part(af.begin() + i, af.begin() + std::min(af.size(), i + 1000));
@@ -1520,6 +2157,7 @@ int gxReplLocal::apply_batch(SetState_ *s,
     }
   }
   for(auto &d : dirs) sync_dir(d);
+  if(in_lock && in_lock(err) != 0) return -1;     // still under the apply lock
   return 0;
 }
 
@@ -1704,10 +2342,11 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
   // (a unit a verify is filling, "copying", stays so: only its commit block, sent after its files, seals it)
   if(add_unit_seals(s->sc, s->root, batch, last, stream, unit_cb, seals, err,
 		    [&](const std::string &u) { return !fill_copying(read_seal(s->root, u)); }) != 0) return -1;
-  if(apply_batch(s, batch, err) != 0) return -1;
+  // 11/12/2026: the stream's applied position is written under the same apply lock as the records' pages and their
+  // seal, not after it is let go: a reader holding the lock never sees a seal at record L with the position at L-1
   gxReplStreamState st = it->second;
   st.lsn = last;
-  if(write_state(s, st, err) != 0) return -1;
+  if(apply_batch(s, batch, err, [&](std::string &e) { return write_state(s, st, e); }) != 0) return -1;
   applied_records += count;
   lsn = last;
   return 0;
@@ -1732,9 +2371,23 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   std::vector<std::string> fulls(v.size());
   std::set<std::string> not_in_step;
   std::map<std::string, bool> unit_cb;      // 11/10/2026 (review): see add_records()
+  std::map<std::string, bool> staged_now;   // 11/13/2026 (F7 review 3): unit -> written in its stage
+  std::set<std::string> stale_units;        // round 3: a stage not mine: discarded before this apply
   for(size_t i = 0; i < v.size(); i++) {
     const gxReplFileUpdate &u = v[i];
     if(SafePath(s->sc, u.path, fulls[i], err) != 0) return -1;
+    if(!s->sc.commit_block.empty() && !staged_now.count(dir_of(u.path))) {
+      bool valid = stage_valid(s->sc, s->root, dir_of(u.path)), mine = s->staged.count(dir_of(u.path)) > 0;
+      // 11/13/2026 (F7 focused review, 1): a set fed by a ship log is never staged (MarkGen's rule): its records
+      // apply in place, so a stage of the unit (a staged copy cut before the log began) is stale: discarded under
+      // the apply lock, and this update goes in place with the records, never half into the stage
+      if(mine && (!states.empty() || !u.stream.empty())) { mine = false; s->staged.erase(dir_of(u.path)); }
+      staged_now[dir_of(u.path)] = valid && mine;
+      // 11/13/2026 (F7 review round 3, 3): a stage no copy of this process is filling (left by a lost link, its
+      // unit now updated otherwise, e.g. by the ship log): discarded under the apply lock, the update goes in place
+      if(valid && !mine) stale_units.insert(dir_of(u.path));
+    }
+    fulls[i] = staged_path(s->sc, s->root, u.path, fulls[i], staged_now[dir_of(u.path)]);   // 11/12/2026 (F7): into the unit's stage while one is open
     if(!u.stream.empty()) {
       auto it = states.find(u.stream);
       bool same = it != states.end() && it->second.log_id == u.log_id;
@@ -1788,7 +2441,8 @@ int gxReplLocal::ApplyFiles(const std::string &set,
 	filling.insert(dir_of(v[i].path));
     }
     if(!filling.empty() && mkdirs(s->root + "/.gxrepl/units") != 0) { err = "cannot make the seals folder"; return -1; }
-    for(auto &u : filling) put_seal(batch, s->root, u, "copying\n", seals);
+    for(auto &u : filling)
+      if(!staged_now[u]) put_seal(batch, s->root, u, "copying\n", seals);   // a stage keeps the unit's seal
     // a commit block sent from the log, after the folder's files, is the
     // unit's own: it seals it whatever records came before it in this batch
     for(auto &u : cb_units) unit_cb.erase(u);
@@ -1805,15 +2459,76 @@ int gxReplLocal::ApplyFiles(const std::string &set,
 	  }) != 0) return -1;
     }
   }
-  if(apply_batch(s, batch, err) != 0) return -1;
-  for(size_t i = 0; i < v.size(); i++) {
-    if(results[i] != 0 || !v[i].last) continue;
+  // 11/12/2026 (F7): a staged unit whose commit block arrives here, even (one whole commit), is swapped in, in the
+  // same apply lock as that commit block: the unit goes from its old sealed commit to the new one at once
+  std::set<std::string> finish;
+  if(!s->sc.commit_block.empty()) {
+    for(size_t i = 0; i < v.size(); i++) {
+      // round 3: only a stage this process is filling, and whose seal is written (SealUnit), is swapped in
+      struct stat sst;
+      if(results[i] != 0 || base_of(v[i].path) != s->sc.commit_block || !staged_now[dir_of(v[i].path)] ||
+	 stat((stage_dir(s->root, dir_of(v[i].path)) + "/.seal").c_str(), &sst) != 0) continue;
+      auto e = batch.find(fulls[i]);
+      if(e == batch.end()) continue;
+      auto pg = e->second.second.find(0);
+      if(pg == e->second.second.end() || e->second.first < s->sc.commit_gen_offset + 8) continue;
+      uint64_t g = 0;
+      memcpy(&g, pg->second + s->sc.commit_gen_offset, 8);
+      if(!(g & 1)) finish.insert(dir_of(v[i].path));
+    }
+  }
+  auto times = [&](size_t i) {
     chmod(fulls[i].c_str(), (mode_t)(v[i].mode & 07777));
     struct timespec ts[2];
     ts[0].tv_sec = time(0); ts[0].tv_nsec = 0;
     ts[1].tv_sec = (time_t)(v[i].mtime_ns / 1000000000LL);
     ts[1].tv_nsec = (long)(v[i].mtime_ns % 1000000000LL);
     utimensat(AT_FDCWD, fulls[i].c_str(), ts, 0);
+  };
+  // 11/13/2026 (F7 review 3): under the apply lock, before a page is written: each unit's stage is as it was when
+  // its paths were chosen, and a unit this process began staging still has its stage (gxrepl promote, a stale
+  // stage: the batch is dropped, the copy starts again next pass; never in place under an even commit block)
+  auto check = [&](std::string &e) -> int {
+    if(!stale_units.empty()) {
+      if(recover_journal_locked(s->root) != 0) {
+	e = "the apply journal holds a batch that cannot be applied yet: tried again next pass";
+	return -1;
+      }
+      for(auto &u : stale_units) {
+	if(discard_stage(s->root, u) != 0) { e = "cannot remove the stage of " + u; return -1; }
+	glog("set %s: %s: discarded a stage no copy is filling (updated in place)", s->sc.name.c_str(),
+	     u.empty() ? "." : u.c_str());
+      }
+    }
+    for(auto &kv : staged_now) {
+      std::string un = kv.first.empty() ? std::string(".") : kv.first;
+      if((stage_valid(s->sc, s->root, kv.first) && s->staged.count(kv.first)) != kv.second) {
+	e = "the stage of " + un + " changed during this apply (gxrepl promote?): batch dropped, copied again next pass";
+	return -1;
+      }
+      if(!kv.second && s->staged.count(kv.first)) {
+	s->staged.erase(kv.first);
+	e = "the stage of " + un + " was discarded (gxrepl promote) or went stale: this copy stops; the next pass "
+	    "copies the unit again";
+	return -1;
+      }
+    }
+    return 0;
+  };
+  int arc = finish.empty() ? apply_batch(s, batch, err, nullptr, check) : apply_batch(s, batch, err, [&](std::string &e) {
+      for(size_t i = 0; i < v.size(); i++)
+	if(results[i] == 0 && v[i].last && finish.count(dir_of(v[i].path))) times(i);
+#ifdef GXREPL_TEST_HOOKS
+      if(getenv("GXREPL_TEST_CRASH_BEFORE_SWAP")) _exit(9);   // test builds: a stage complete, its swap not begun
+#endif
+      for(auto &u : finish) { if(stage_swap(s->sc, s->root, u, e) != 0) return -1; s->staged.erase(u); }
+      return 0;
+    }, check);
+  if(arc != 0) return -1;
+  for(size_t i = 0; i < v.size(); i++) {
+    if(results[i] != 0 || !v[i].last) continue;
+    if(finish.count(dir_of(v[i].path))) continue;       // set before its swap
+    times(i);
   }
   for(auto &e : changed) {
     if(write_state(s, e.second, err) != 0) return -1;
@@ -1833,9 +2548,40 @@ int gxReplLocal::Delete(const std::string &set, const std::vector<std::string> &
   // bring a deleted file back (the next pass would delete it again, but a
   // copy should not go back in time)
   std::set<std::string> dirs;
+  // 11/13/2026 (F7 review round 3, 4): a delete goes into a stage only while this process's staged copy fills it;
+  // a unit whose commit block is deleted (the unit is gone from the source), or a stage nobody fills, has its
+  // stage discarded (under the apply lock, after the journal) and the delete goes in place
+  if(!s->sc.commit_block.empty()) {
+    std::set<std::string> drop;
+    for(auto &p : paths) {
+      std::string u = dir_of(p);
+      struct stat sst;
+      if(stat((stage_dir(s->root, u) + "/.stage").c_str(), &sst) != 0) continue;
+      if(base_of(p) == s->sc.commit_block || !s->staged.count(u)) drop.insert(u);
+    }
+    if(!drop.empty()) {
+      std::string jname = s->root + "/.gxrepl/apply.jnl";
+      int lk = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+      if(lk < 0) { err = "cannot lock " + jname; return -1; }
+      struct LockGuard { int fd; ~LockGuard() { flock(fd, LOCK_UN); close(fd); } } lkg{lk};
+      if(lock_apply_bounded(lk) != 0) { err = "busy: " + jname + " is held; tried again next pass"; return -1; }
+      if(recover_journal_locked(s->root) != 0) { err = "the apply journal holds a batch that cannot be applied yet"; return -1; }
+      for(auto &u : drop) {
+	if(discard_stage(s->root, u) != 0) { err = "cannot remove the stage of " + u; return -1; }
+	s->staged.erase(u);
+	glog("set %s: %s: its stage was discarded (deleted on the source, or no copy fills it)", s->sc.name.c_str(),
+	     u.empty() ? "." : u.c_str());
+      }
+    }
+  }
   for(auto &p : paths) {
     std::string full;
     if(SafePath(s->sc, p, full, err) != 0) return -1;
+    std::string sp = staged_path(s->sc, s->root, p, full, s->staged.count(dir_of(p)) > 0);   // F7: in a stage until it is swapped in
+    if(sp != full) {
+      if(unlink(sp.c_str()) != 0 && errno != ENOENT) { err = "cannot remove " + p + " from its stage"; return -1; }
+      continue;
+    }
     if(unlink(full.c_str()) != 0 && errno != ENOENT) { err = "cannot remove " + p; return -1; }
     std::string dir = full.substr(0, full.find_last_of('/'));
     while(dir.size() > s->root.size() && rmdir(dir.c_str()) == 0)
@@ -1871,6 +2617,59 @@ int gxReplLocal::RecoverAll(std::string &err)
       err = "cannot recover " + j; return -1;
     }
     if(n) glog("set %s: finished %lu unfinished apply batch(es)", sc.name.c_str(), n);
+  }
+  // 11/12/2026 (F7): the stages. 11/13 (review): under the apply lock, and never while the set's writer holds its
+  // locks (the writer owns the folder: a begun swap is left for gxrepl promote, and shows TORN). A swap that began
+  // is finished (it was whole); a stage whose last commit arrived whole is swapped in; a stale one (the unit
+  // changed since it began, or a writer took the folder) is discarded; any other waits for its copy.
+  for(auto &sc : cfg.sets) {
+    std::string base = sc.root + "/.gxrepl/stage";
+    if(DIR *d = opendir(base.c_str())) {           // a discard that stopped half way
+      std::vector<std::string> trash;
+      struct dirent *e;
+      while((e = readdir(d)) != 0) if(strncmp(e->d_name, ".trash-", 7) == 0) trash.push_back(base + "/" + e->d_name);
+      closedir(d);
+      for(auto &t : trash) remove_tree(t);
+    }
+    std::map<std::string, std::string> st = stages_of(sc.root);
+    if(st.empty()) continue;
+    WriterHold wh;
+    std::string we;
+    bool writer = hold_writer_locks(sc, wh, we) != 0;
+    std::string jname = sc.root + "/.gxrepl/apply.jnl";
+    int lk = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if(lk < 0) { err = "cannot lock " + jname; return -1; }
+    struct LockGuard { int fd; ~LockGuard() { flock(fd, LOCK_UN); close(fd); } } lkg{lk};
+    if(flock(lk, LOCK_EX) != 0) { err = "cannot lock " + jname; return -1; }
+    for(auto &e : st) {
+      const char *un = e.first.empty() ? "." : e.first.c_str();
+      struct stat sb;
+      bool swap = stat((e.second + "/.swap").c_str(), &sb) == 0;
+      if(writer) {
+	if(swap) glog("WARNING set %s: %s: the swap of a staged copy is not finished: %s (promote-check shows it TORN; "
+		      "gxrepl promote --apply finishes it once the writer stops)", sc.name.c_str(), un, we.c_str());
+	continue;
+      }
+      std::string e2;
+      // 11/13/2026 (F7 review round 3, 1): on a node that is only this set's source (a client that pushes, a
+      // server that only serves), a stage is never filled again (one left by a failback pull): discarded
+      bool target = cfg.role == "server" ? sc.accept != "source" : sc.direction != "push";
+      if(!swap && !target) {
+	if(discard_stage(sc.root, e.first) != 0) { err = "set " + sc.name + ": cannot remove " + e.second; return -1; }
+	glog("set %s: %s: discarded a stage on this set's source side (left by a failback pull?)", sc.name.c_str(), un);
+	continue;
+      }
+      // 11/13/2026 (F7 review round 2, 3): a stale stage is discarded before anything else: a complete but stale
+      // one never goes over the folder's newer data
+      if(!swap && !stage_valid(sc, sc.root, e.first)) {
+	if(discard_stage(sc.root, e.first) != 0) { err = "set " + sc.name + ": cannot remove " + e.second; return -1; }
+	glog("set %s: %s: discarded a stale stage (the unit changed since it began, or a writer took the folder)",
+	     sc.name.c_str(), un);
+      } else if(swap || stage_complete(sc, e.second, e.first)) {
+	if(stage_swap(sc, sc.root, e.first, e2) != 0) { err = "set " + sc.name + ": " + e2; return -1; }
+	glog("set %s: %s: finished the swap of a staged copy", sc.name.c_str(), un);
+      }
+    }
   }
   return 0;
 }
@@ -1942,6 +2741,7 @@ int gxReplRemote::start_tunnel(std::string &err)
     av.push_back(0);
     int nul = open("/dev/null", O_RDONLY);
     if(nul >= 0) { dup2(nul, 0); close(nul); }
+    close_inherited_fds();
     execvp(av[0], av.data());
     _exit(127);
   }
@@ -2091,12 +2891,18 @@ int gxReplRemote::call(const std::vector<unsigned char> &req,
   if(mux) {
     // 11/08/2026: Protocol 3: the request and its reply on this object's channel
     std::vector<unsigned char> body(req.begin() + 1, req.end()), m, back;
+    if(chan_broken) { err = "the channel was reset after a request had no reply"; return -1; }
     pack_msg(req[0], body, peer_zlib ? cfg.compress : 0, m);
     if(mux->Send(mux_ch, m, gxdMUX_LAST, err) != 0) return -1;
     bytes_out += m.size();
     uint64_t seq = 0;
     int rc = mux->ReceiveMessage(mux_ch, back, seq, cfg.timeout * 1000, err);
-    if(rc == 1) { err = "no reply in " + std::to_string(cfg.timeout) + " s"; return -1; }
+    if(rc == 1) {
+      err = "no reply in " + std::to_string(cfg.timeout) + " s";
+      chan_broken = true;                 // its reply may still come: never read it as the next request's
+      mux->CloseChannel(mux_ch, err);
+      return -1;
+    }
     if(rc != 0) return -1;
     bytes_in += back.size();
     uint8_t op = 0;
@@ -2108,7 +2914,7 @@ int gxReplRemote::call(const std::vector<unsigned char> &req,
       if(err.empty()) err = "error from the server";
       return 1;
     }
-    if(op != OP_OK) { err = "bad reply"; return -1; }
+    if(op != OP_OK) { err = "bad reply"; chan_broken = true; mux->CloseChannel(mux_ch, err); return -1; }
     return 0;
   }
   if(!stream) { err = "not connected"; return -1; }
@@ -2150,7 +2956,7 @@ int gxReplRemote::Streams(const std::string &set, std::vector<gxReplStream> &v,
   RBuf r(rep.data(), rep.size());
   uint32_t n = r.u32(); v.clear();
   for(uint32_t i = 0; i < n && r.ok; i++) { gxReplStream s; dec(r, s); v.push_back(s); }
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -2164,7 +2970,7 @@ int gxReplRemote::ReadLog(const std::string &set, const std::string &stream_name
   if(call(mkreq(OP_READLOG, w), rep, err)) return -1;
   RBuf r(rep.data(), rep.size());
   status = (int)r.u32(); next = r.u64(); r.bytes(out);
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -2185,7 +2991,8 @@ int gxReplRemote::Manifest(const std::string &set, std::vector<gxReplFile> &v,
   WBuf w; w.str(set);
   std::vector<unsigned char> rep;
   if(call(mkreq(OP_SMANIFEST, w), rep, err)) return -1;
-  return dec_files(rep, v, err);
+  if(dec_files(rep, v, err) != 0) { if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
+  return 0;
 }
 
 int gxReplRemote::TargetManifest(const std::string &set, std::vector<gxReplFile> &v,
@@ -2194,7 +3001,8 @@ int gxReplRemote::TargetManifest(const std::string &set, std::vector<gxReplFile>
   WBuf w; w.str(set);
   std::vector<unsigned char> rep;
   if(call(mkreq(OP_TMANIFEST, w), rep, err)) return -1;
-  return dec_files(rep, v, err);
+  if(dec_files(rep, v, err) != 0) { if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
+  return 0;
 }
 
 static void enc_diffreq(WBuf &w, const gxReplDiffRequest &rq)
@@ -2225,7 +3033,7 @@ int gxReplRemote::Diff(const std::string &set, const gxReplDiffRequest &rq,
   res.status = (int)r.u32(); res.next = r.u64(); res.more = (int)r.u32();
   res.pieces = r.u64(); res.sent = r.u64();
   dec(r, res.update);
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -2238,7 +3046,7 @@ int gxReplRemote::State(const std::string &set, std::vector<gxReplStreamState> &
   RBuf r(rep.data(), rep.size());
   uint32_t n = r.u32(); v.clear();
   for(uint32_t i = 0; i < n && r.ok; i++) { gxReplStreamState s; dec(r, s); v.push_back(s); }
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -2253,7 +3061,7 @@ int gxReplRemote::Hashes(const std::string &set, const std::string &path,
   exists = (int)r.u32();
   uint32_t n = r.u32(); h.clear();
   for(uint32_t i = 0; i < n && r.ok; i++) h.push_back(r.u64());
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -2266,7 +3074,7 @@ int gxReplRemote::CommitGen(const std::string &set, const std::string &path, uin
   RBuf r(rep.data(), rep.size());
   exists = (int)r.u32();
   gen = r.u64();
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -2293,7 +3101,7 @@ int gxReplRemote::SealGen(const std::string &set, const std::string &folder, uin
   if(call(mkreq(OP_SEALGEN, w), rep, err)) return -1;
   RBuf r(rep.data(), rep.size());
   gen = r.u64();
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -2307,7 +3115,7 @@ int gxReplRemote::ApplyLog(const std::string &set, const std::string &stream_nam
   if(call(mkreq(OP_APPLYLOG, w), rep, err)) return -1;
   RBuf r(rep.data(), rep.size());
   lsn = r.u64();
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -3402,7 +4210,7 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
     // 11/10/2026: {lsn}: the ship log record the folder was sealed at (0 if none), for the stamp
     std::string ls = std::to_string(unit_log_lsn(sc, rel));
     for(size_t at; (at = cmd.find("{lsn}")) != std::string::npos; ) cmd.replace(at, 5, ls);
-    int rc = system((cmd + " >/dev/null 2>&1").c_str());
+    int rc = run_quiet(cmd);
     flock(lk, LOCK_UN);
     close(lk);
     // 11/11/2026 (review): exit 3 = the folder moved during the rebuild (osa_ingest --rebuild-index): not a
@@ -3464,12 +4272,69 @@ static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const 
       int fd = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
       ssize_t n = fd >= 0 ? pread(fd, &g, sizeof(g), (off_t)sc.commit_gen_offset) : -1;
       if(fd >= 0) close(fd);
+      // 11/12/2026 (F7): a staged swap marks the live commit block odd for its renames (milliseconds, in the apply
+      // lock): an odd unit whose stage has its .swap list is read again for up to GXREPL_TORN_RECHECK_SEC (10) s;
+      // a swap that stopped stays odd and is reported torn
+      if(n == (ssize_t)sizeof(g) && (g & 1)) {
+	struct stat sst;
+	if(stat((stage_dir(root, rel) + "/.swap").c_str(), &sst) == 0) {
+	  double wait = 10;
+	  if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
+	  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
+	  while((g & 1) && std::chrono::steady_clock::now() < end) {
+	    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	    int fd2 = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
+	    uint64_t g2 = g;
+	    if(fd2 >= 0) { if(pread(fd2, &g2, sizeof(g2), (off_t)sc.commit_gen_offset) == (ssize_t)sizeof(g2)) g = g2; close(fd2); }
+	  }
+	}
+      }
       if(n != (ssize_t)sizeof(g)) torn.push_back(where + ": " + sc.commit_block + " is short");
       else if(g & 1) torn.push_back(where + ": generation " + std::to_string((unsigned long long)g) +
 				    " is odd (a copy in progress, or one that stopped half way)");
       else {
 	// 11/10/2026: an even generation is not enough: the files must be the sealed ones
 	std::string why = unit_seal_check(sc, rel, g);
+	// 11/12/2026: the commit block, the seal and its stream's applied position are three files: read in the middle
+	// of an apply they can disagree by one record or generation ("sealed at ship log record L, the copy applied up
+	// to L-1", "sealed by ship log record L at generation G, the commit block says G-n"). That is an apply in
+	// flight, not a torn copy: read them all again for up to GXREPL_TORN_RECHECK_SEC (10) s; a real mismatch stays
+	// and is reported.
+	auto in_flight = [](const std::string &w) { return w.compare(0, 7, "sealed ") == 0; };
+	if(in_flight(why)) {
+	  double wait = 10;
+	  if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
+	  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
+	  while(in_flight(why) && std::chrono::steady_clock::now() < end) {
+	    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	    uint64_t g2 = 0;
+	    int fd2 = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
+	    ssize_t n2 = fd2 >= 0 ? pread(fd2, &g2, sizeof(g2), (off_t)sc.commit_gen_offset) : -1;
+	    if(fd2 >= 0) close(fd2);
+	    if(n2 != (ssize_t)sizeof(g2) || (g2 & 1)) continue;
+	    g = g2;
+	    why = unit_seal_check(sc, rel, g);
+	  }
+	}
+	// 11/13/2026 (F7 review round 3, 6): files that do not match the seal while the generation moved during the
+	// check (a swap or an apply in between, no lock taken): read again for up to GXREPL_TORN_RECHECK_SEC; only a
+	// mismatch at an unchanged generation is reported
+	if(!why.empty()) {
+	  double wait = 10;
+	  if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
+	  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
+	  while(!why.empty() && std::chrono::steady_clock::now() < end) {
+	    uint64_t g3 = 0;
+	    int fd3 = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
+	    ssize_t n3 = fd3 >= 0 ? pread(fd3, &g3, sizeof(g3), (off_t)sc.commit_gen_offset) : -1;
+	    if(fd3 >= 0) close(fd3);
+	    if(n3 == (ssize_t)sizeof(g3) && g3 == g) break;            // the same generation: a real mismatch
+	    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	    if(n3 != (ssize_t)sizeof(g3) || (g3 & 1)) continue;
+	    g = g3;
+	    why = unit_seal_check(sc, rel, g);
+	  }
+	}
 	if(!why.empty()) torn.push_back(where + ": " + why);
 	// and its derived indexes: a bad rebuild is torn (a take over's would
 	// fail too); indexes behind a busy day are a warning: the take over
@@ -3492,7 +4357,158 @@ int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn, 
   int checked = 0;
   if(sc.commit_block.empty()) return 0;
   torn_walk(sc, sc.root, "", checked, torn, warn);
+  // 11/12/2026 (F7): the stages. A stage leaves its unit whole at its sealed commit (checked above): a newer copy
+  // in progress or stopped is a warning (gxrepl promote discards it). A swap that began and did not finish leaves
+  // the unit half old, half new: torn until it is finished (the next gxrepl start, or gxrepl promote).
+  for(auto &st : stages_of(sc.root)) {
+    std::string where = st.first.empty() ? "." : st.first;
+    struct stat sb;
+    if(stat((st.second + "/.swap").c_str(), &sb) == 0) {
+      // a swap in flight (the server's apply lock, milliseconds) ends with the stage removed: wait for it as above
+      double wait = 10;
+      if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
+      auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
+      while(stat((st.second + "/.swap").c_str(), &sb) == 0 && std::chrono::steady_clock::now() < end)
+	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    if(stat((st.second + "/.swap").c_str(), &sb) == 0)
+      torn.push_back(where + ": a staged copy was being swapped in and did not finish (gxrepl promote, or the next "
+		     "gxrepl start, finishes it)");
+    else if(!stage_valid(sc, sc.root, st.first))
+      warn.push_back(where + ": a stale stage (the unit changed since it began, or a writer took the folder): never "
+		     "used; the next gxrepl start or gxrepl promote discards it");
+    else {
+      std::vector<std::string> since = stage_lines(st.second + "/.stage", "since ");
+      std::string t = since.empty() ? "?" : since[0];
+      warn.push_back(where + ": a copy of a newer commit is staged since " + t + " (in progress, or stopped by a lost "
+		     "link); the copy is whole at its sealed commit; gxrepl promote discards the stage");
+    }
+  }
   return checked;
+}
+
+bool gxReplTestHooks()
+{
+#ifdef GXREPL_TEST_HOOKS
+  return true;
+#else
+  return false;
+#endif
+}
+
+// 11/12/2026 (F7): see gxrepl.h
+int gxReplPromote(const gxReplSetConfig &sc, bool apply, std::vector<std::string> &lines, std::string &err)
+{
+  std::map<std::string, std::string> st = stages_of(sc.root);
+  if(st.empty()) return 0;
+  int lk = -1;
+  if(apply) {
+    std::string jname = sc.root + "/.gxrepl/apply.jnl";
+    lk = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if(lk < 0) { err = "cannot open " + jname; return -1; }
+    // 11/13/2026 (F7 review round 2, 5): a derived index rebuild can hold the apply lock for minutes: wait up to
+    // GXREPL_PROMOTE_LOCK_WAIT (480 s, inside the DRCM gate's 600 s); then leave the stages as they are and let
+    // promote-check decide (a stage leaves its unit whole; a writer's open makes it stale, never used)
+    double wait = 480;
+    if(const char *w = getenv("GXREPL_PROMOTE_LOCK_WAIT")) { double v = atof(w); if(v >= 0) wait = v; }
+    auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
+    while(flock(lk, LOCK_EX | LOCK_NB) != 0) {
+      if(std::chrono::steady_clock::now() >= end) {
+	close(lk);
+	lines.push_back("set " + sc.name + ": " + jname + " stayed locked for " + std::to_string((long)wait) +
+			" s (a derived index rebuild?): the stages were left as they are; promote-check decides");
+	return 0;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+  }
+  // 11/13/2026 (F7 review round 3, 2): the set's writer first. While it runs, its folders are never changed: no
+  // journal replay over its files, no swap; a stage is only discarded (the writer never reads a stage).
+  WriterHold wh;
+  std::string we;
+  bool writer = hold_writer_locks(sc, wh, we) != 0;
+  if(apply) {
+    std::string jname = sc.root + "/.gxrepl/apply.jnl";
+    // 11/13/2026 (F7 review 4): a batch committed to the apply journal and not yet applied (a server that stopped
+    // inside an apply) goes into its files first: a stage it writes into is never removed under it
+    struct stat jb;
+    if(stat(jname.c_str(), &jb) == 0 && jb.st_size > 0 && writer) {
+      lines.push_back("set " + sc.name + ": " + jname + " holds an apply batch and the set's writer runs (" + we +
+		      "): it is not replayed over the writer's files and the stages are left as they are");
+      flock(lk, LOCK_UN); close(lk);
+      return -1;
+    }
+    if(stat(jname.c_str(), &jb) == 0 && jb.st_size > 0) {
+      unsigned long n = 0;
+      if(gxdJournal::Recover(jname.c_str(), &n) != gxDBASE_NO_ERROR) {
+	flock(lk, LOCK_UN); close(lk); err = "cannot recover " + jname; return -1;
+      }
+      if(n) lines.push_back("set " + sc.name + ": finished " + std::to_string(n) + " unfinished apply batch(es)");
+      if(truncate(jname.c_str(), 0) != 0) { }
+    }
+  }
+  int rc = 0;
+  for(auto &e : st) {
+    std::string unit = e.first.empty() ? std::string(".") : e.first, sd = e.second;
+    struct stat sb;
+    std::vector<std::string> since = stage_lines(sd + "/.stage", "since "), from = stage_lines(sd + "/.stage", "from ");
+    std::string when = since.empty() ? "?" : since[0];
+    if(!since.empty()) {
+      time_t t = (time_t)atoll(since[0].c_str());
+      char b[64];
+      strftime(b, sizeof(b), "%Y-%m-%d %H:%M:%S", localtime(&t));
+      when = b;
+    }
+    bool swap = stat((sd + "/.swap").c_str(), &sb) == 0;
+    if(writer && swap) {                      // the folder's writer runs: a begun swap is not finished under it
+      lines.push_back("set " + sc.name + ": " + unit + ": the swap of a staged copy is not finished: " + we +
+		      " (promote-check shows it TORN)");
+      rc = -1;
+      continue;
+    }
+    if(!writer && (swap || (stage_valid(sc, sc.root, e.first) && stage_complete(sc, sd, e.first)))) {   // round 2, 3
+      lines.push_back("set " + sc.name + ": " + unit + ": " + (apply ? "finished" : "would finish") +
+		      " the swap of a whole staged copy (staged since " + when + ")");
+      if(apply) {
+	std::string e2;
+	if(stage_swap(sc, sc.root, e.first, e2) != 0) { lines.push_back("set " + sc.name + ": " + unit + ": " + e2); rc = -1; }
+      }
+      continue;
+    }
+    // what is lost: the staged copy of a newer commit; which files it had changed
+    std::vector<std::string> changed;
+    std::string live = e.first.empty() ? sc.root : sc.root + "/" + e.first;
+    for(auto &n : stage_files(sd)) {
+      if(n == sc.commit_block) continue;
+      unsigned long long s1 = 0, s2 = 0; uint64_t h1 = 0, h2 = 0;
+      int a = file_hash(sd + "/" + n, s1, h1), b = file_hash(live + "/" + n, s2, h2);
+      if(a != 0 || b != 0 || s1 != s2 || h1 != h2) changed.push_back(n);
+    }
+    std::string ch;
+    for(size_t i = 0; i < changed.size() && i < 8; i++) ch += (i ? ", " : "") + changed[i];
+    if(changed.size() > 8) ch += ", ... (" + std::to_string(changed.size()) + " files)";
+    if(!stage_valid(sc, sc.root, e.first))
+      lines.push_back("set " + sc.name + ": " + unit + ": " + (apply ? "discarded" : "would discard") +
+		      " a stale stage (the unit changed since it began, or a writer took the folder): nothing in it is "
+		      "used");
+    else {
+      // what the copy is left at: whole at its sealed commit, unless it is not (promote-check then says TORN)
+      uint64_t lg = 0;
+      std::string lseal = read_small(sc.root + "/.gxrepl/units/" + unit_key(e.first));
+      bool whole = read_unit_gen(sc, live, lg) && !(lg & 1) && !lseal.empty() && lseal.compare(0, 7, "copying") != 0;
+      lines.push_back("set " + sc.name + ": " + unit + ": " + (apply ? "discarded" : "would discard") +
+		      " an unfinished copy of a newer commit staged since " + when + "; " +
+		      (whole ? "the copy stays whole at its sealed commit (generation " +
+		       (from.empty() ? std::string("?") : from[0]) + ")" :
+		       std::string("the copy is NOT whole (odd, unsealed or copied in place): promote-check reports it")) +
+		      "; LOST: the source's changes to this unit after that commit" + (ch.empty() ? std::string("") :
+		      std::string(" (files changed in the stage: ") + ch + ")"));
+    }
+    if(apply && discard_stage(sc.root, e.first) != 0) { lines.push_back("set " + sc.name + ": " + unit + ": cannot remove " + sd); rc = -1; }
+  }
+  if(lk >= 0) { flock(lk, LOCK_UN); close(lk); }
+  if(rc != 0) err = "a stage could not be promoted (see the lines)";
+  return rc;
 }
 
 int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn)
@@ -3647,13 +4663,27 @@ int gxReplClient::run_sets(gxReplRemote &remote, bool once, const std::string &o
     jobs.push_back(std::move(j));
   }
   std::vector<std::thread> threads;
+  std::atomic<uint32_t> next_ch{next};
   for(auto &jp : jobs) {
     Job *j = jp.get();
     if(j->done) continue;
-    threads.emplace_back([this, j, once]() {
+    threads.emplace_back([this, j, once, &remote, &next_ch]() {
       while(!stop) {
 	std::string pe;
 	int rc = pass(*j->ch, once, j->sc->name, pe);
+	// 11/12/2026 (F4e): a channel out of step (a request without a reply in time): a fresh one, the set goes on
+	if(rc != 0 && j->ch->ChannelBroken() && remote.IsOpen()) {
+	  uint32_t nch = next_ch++;
+	  std::string oe;
+	  if(remote.OpenSetChannel(nch, j->sc->name, j->sc->direction, oe) == 0) {
+	    glog("set %s: channel reset after \"%s\" (new channel %u)", j->sc->name.c_str(), pe.c_str(), nch);
+	    j->ch.reset(new gxReplRemote(cfg));
+	    j->ch->UseChannel(remote, nch);
+	    interruptible_sleep(cfg.poll_ms, stop);
+	    continue;
+	  }
+	  glog("set %s: cannot open a fresh channel: %s", j->sc->name.c_str(), oe.c_str());
+	}
 	if(rc < 0 && !j->ch->IsOpen()) { j->rc = -1; j->e = pe; break; }
 	if(once) {
 	  // A second pass finds nothing to do when the set is the same

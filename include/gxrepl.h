@@ -65,6 +65,7 @@ Changes:
 
 #include <stdint.h>
 #include <atomic>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -139,6 +140,13 @@ struct GXDLCODE_API gxReplSetConfig {
   // Missing or stale indexes are a warning in "gxrepl torn", not torn: a
   // take over's writer open rebuilds them; a failed rebuild stays torn.
   int derived_busy_rebuild = 900;
+  // 11/12/2026 (F7, staged unit copies): the copy of a commit_block unit by its files goes into a copy-on-write
+  // stage (<root>/.gxrepl/stage/<unit>/, reflinked from the unit) and is swapped in at its commit block, so the
+  // live unit stays whole at its last sealed generation until the new one is whole: a link lost in the middle of
+  // a unit copy leaves an older, whole, promotable copy instead of a torn one. A unit over stage_max_bytes, a disk
+  // short of room, or a set fed by a ship log is copied in place as before (a WARNING says why).
+  bool staged_fill = true;
+  unsigned long long stage_max_bytes = 16ULL * 1024 * 1024 * 1024;
 };
 
 struct GXDLCODE_API gxReplConfig {
@@ -326,6 +334,15 @@ GXDLCODE_API int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::st
 // (missing or stale; the take over rebuilds them), not torn
 GXDLCODE_API int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn,
 				  std::vector<std::string> &warn);
+// 11/12/2026 (F7): make a copy set's units promotable before a take over: a stage whose swap had begun is
+// finished (it was whole); any other stage (a unit copy in progress or stopped by a lost link) is discarded,
+// the unit staying whole at its sealed generation. "lines" says what was done and what was lost. apply false:
+// only says what it would do. Returns 0, -1 on an error ("err"). It takes the set's apply lock (waits up to
+// 60 s). It never touches a unit that has no stage.
+// 11/13/2026: true when the library was built with -DGXREPL_TEST_HOOKS (the test builds only)
+GXDLCODE_API bool gxReplTestHooks();
+GXDLCODE_API int gxReplPromote(const gxReplSetConfig &sc, bool apply, std::vector<std::string> &lines,
+			       std::string &err);
 // 11/10/2026: Rebuild the derived indexes of a commit_block set's copy
 // where its generation moved (see gxReplSetConfig::derived). "seen" keeps,
 // per folder, the generation and when it was first seen (the quiet time).
@@ -396,10 +413,14 @@ private:
 		  std::string &err);
   int write_state(SetState_ *s, const gxReplStreamState &st,
 		  std::string &err);
+  // in_lock (11/12/2026): run after the pages are applied, before the apply lock is let go (ApplyLog writes its
+  // stream's applied position there, so the seal and the position change together for anyone holding the lock)
   int apply_batch(SetState_ *s,
 		  std::map<std::string, std::pair<unsigned long long,
 		  std::map<unsigned long long, const unsigned char *> > > &pages,
-		  std::string &err);
+		  std::string &err, const std::function<int(std::string &)> &in_lock = nullptr,
+		  const std::function<int(std::string &)> &pre_lock = nullptr);   // pre_lock (F7 review): once the
+		  // apply lock is held, before any page is written (a non-zero return drops the batch)
 
 private:
   gxReplConfig cfg;
@@ -434,6 +455,11 @@ public:
     return peer_sets;
   }
   unsigned long long bytes_out = 0, bytes_in = 0, messages = 0;
+  // 11/12/2026 (F4e): a multiplex channel whose request had no reply in time (or whose reply did not parse) is out
+  // of step: its late reply would be read as the next request's ("bad reply" forever, the 11/12 stall). It is
+  // closed and marked; the set's thread opens a fresh channel (gxReplClient::run_sets).
+  bool ChannelBroken() const { return chan_broken; }
+  bool chan_broken = false;
 
   int Streams(const std::string &set, std::vector<gxReplStream> &v,
 	      std::string &err) override;

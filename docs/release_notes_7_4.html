@@ -23,6 +23,7 @@
 <p class="dr-toc"><a href="#PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</a><br>
 <a href="#PhaseB11122026HnswGraphSearchMergeRepair">Phase b (11/12/2026): hnsw graph search, merge, repair</a><br>
 <a href="#PhaseC11122026Float16AndInt8VectorsVectorMembers">Phase c (11/12/2026): float16 and int8 vectors, vector members</a><br>
+<a href="#GxreplFixesFromThe1112Stall11132026">Gxrepl fixes from the 11/12 stall (11/13/2026)</a><br>
 <a href="#License11122026">License (11/12/2026)</a><br>
 <a href="#Next">Next</a></p>
 <p>DataReel 7.4 is in development: the OODB with AI extensions. These notes grow with each phase; nothing here is a release yet. The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
@@ -144,6 +145,15 @@
   (times in ms; ef 128 recall 0.999 for all three; against float32
   exact at ef 200: f16 0.999, i8 0.973)</pre>
 <p>Memory and file size include the graph (M0 = 32 links per node), which is now the larger part: the vectors take 384 / 192 / 100 bytes a node. float16 searches take about twice as long because each value is converted with a function call; a faster float16 decode (proved to give the same bits) is a possible later step. int8 is as fast as float32 and the smallest; use float32 or float16 where recall must stay above 0.98.</p>
+<h2 id="GxreplFixesFromThe1112Stall11132026">Gxrepl fixes from the 11/12 stall (11/13/2026)</h2>
+<ul>
+<li>A request with no reply in time (or a reply that does not parse) closes its multiplexed channel and marks it broken; the set opens a fresh channel and the late reply is never read, so it can no longer shift every later request onto the wrong reply (&quot;bad reply&quot;).</li>
+<li>An apply waits for apply.jnl at most GXREPL_APPLY_LOCK_WAIT (5 s, non-blocking tries) and answers &quot;busy&quot;, so a long derived index rebuild no longer holds back the other applies; the client retries on its next pass.</li>
+<li>The derived rebuild and the ssh tunnel children run with only stdio open (close_range): they no longer inherit gxrepl.lock or ship-log state descriptors.</li>
+<li>An older reader race (not from the stall fixes): the applied position is now written inside the apply lock with the pages and the seal, and the torn check re-reads a seal mismatch for up to GXREPL_TORN_RECHECK_SEC (10 s), so a promote-check no longer sees a seal ahead of the copy while an apply is in flight (test test_seal_and_position_never_split).</li>
+<li>Staged unit copies: a unit&#x27;s files are copied into a reflinked stage (.gxrepl/stage/&lt;unit&gt;/) and swapped in, commit block last, when its commit block arrives, so a link lost mid-unit leaves the copy whole at its last sealed commit; &quot;gxrepl promote [--apply]&quot; recovers the apply journal, finishes a begun swap and reports what was lost. Crash test hooks only with -DGXREPL_TEST_HOOKS=ON (test builds). Upgrade note: applications that keep a gxrepl copy&#x27;s commit.bin (or its data files) open across a staged swap must reopen them when the file&#x27;s inode changes: the swap replaces the file, so an old handle keeps reading the previous copy.</li>
+<li>Tests: test_late_reply_never_desyncs_a_channel (the server stopped past the client timeout; the old build stays on &quot;bad reply&quot;) and test_slow_rebuild_never_stalls_the_other_sets (another set copies during a 20 s rebuild, gxrepl&#x27;s own shared holds are never reported as a local writer, the rebuild child inherits nothing of gxrepl&#x27;s).</li>
+</ul>
 <h2 id="License11122026">License (11/12/2026)</h2>
 <p>Every source header now says LGPL version 3 or later, matching the LICENSE file (the headers said 2.1 or later), and points to <a href="https://www.gnu.org/licenses/">https://www.gnu.org/licenses/</a> instead of the old FSF postal address.</p>
 <h2 id="Next">Next</h2>

@@ -209,6 +209,41 @@ the same bits) is a possible later step. int8 is as fast as float32
 and the smallest; use float32 or float16 where recall must stay above
 0.98.
 
+GXREPL FIXES FROM THE 11/12 STALL (11/13/2026)
+----------------------------------------------
+- A request with no reply in time (or a reply that does not parse)
+  closes its multiplexed channel and marks it broken; the set opens a
+  fresh channel and the late reply is never read, so it can no longer
+  shift every later request onto the wrong reply ("bad reply").
+- An apply waits for apply.jnl at most GXREPL_APPLY_LOCK_WAIT (5 s,
+  non-blocking tries) and answers "busy", so a long derived index
+  rebuild no longer holds back the other applies; the client retries
+  on its next pass.
+- The derived rebuild and the ssh tunnel children run with only stdio
+  open (close_range): they no longer inherit gxrepl.lock or ship-log
+  state descriptors.
+- An older reader race (not from the stall fixes): the applied
+  position is now written inside the apply lock with the pages and the
+  seal, and the torn check re-reads a seal mismatch for up to
+  GXREPL_TORN_RECHECK_SEC (10 s), so a promote-check no longer sees a
+  seal ahead of the copy while an apply is in flight (test
+  test_seal_and_position_never_split).
+- Staged unit copies: a unit's files are copied into a reflinked stage
+  (.gxrepl/stage/<unit>/) and swapped in, commit block last, when its
+  commit block arrives, so a link lost mid-unit leaves the copy whole
+  at its last sealed commit; "gxrepl promote [--apply]" recovers the
+  apply journal, finishes a begun swap and reports what was lost.
+  Crash test hooks only with -DGXREPL_TEST_HOOKS=ON (test builds).
+  Upgrade note: applications that keep a gxrepl copy's commit.bin (or
+  its data files) open across a staged swap must reopen them when the
+  file's inode changes: the swap replaces the file, so an old handle
+  keeps reading the previous copy.
+- Tests: test_late_reply_never_desyncs_a_channel (the server stopped
+  past the client timeout; the old build stays on "bad reply") and
+  test_slow_rebuild_never_stalls_the_other_sets (another set copies
+  during a 20 s rebuild, gxrepl's own shared holds are never reported
+  as a local writer, the rebuild child inherits nothing of gxrepl's).
+
 LICENSE (11/12/2026)
 --------------------
 Every source header now says LGPL version 3 or later, matching the
