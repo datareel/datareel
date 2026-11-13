@@ -142,6 +142,25 @@ with a pragma, and the CMake files also build them with
 created and synced the file before it starts the kill timer, so a slow
 machine no longer kills the child before its first commit.
 
+GXREPL FIXES FROM THE 11/12 STALL (11/13/2026)
+----------------------------------------------
+- A request with no reply in time (or a reply that does not parse)
+  closes its multiplexed channel and marks it broken; the set opens a
+  fresh channel and the late reply is never read, so it can no longer
+  shift every later request onto the wrong reply ("bad reply").
+- An apply waits for apply.jnl at most GXREPL_APPLY_LOCK_WAIT (5 s,
+  non-blocking tries) and answers "busy", so a long derived index
+  rebuild no longer holds back the other applies; the client retries
+  on its next pass.
+- The derived rebuild and the ssh tunnel children run with only stdio
+  open (close_range): they no longer inherit gxrepl.lock or ship-log
+  state descriptors.
+- Tests: test_late_reply_never_desyncs_a_channel (the server stopped
+  past the client timeout; the old build stays on "bad reply") and
+  test_slow_rebuild_never_stalls_the_other_sets (another set copies
+  during a 20 s rebuild, gxrepl's own shared holds are never reported
+  as a local writer, the rebuild child inherits nothing of gxrepl's).
+
 LICENSE (11/12/2026)
 --------------------
 Every source header now says LGPL version 3 or later, matching the
