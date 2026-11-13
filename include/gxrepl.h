@@ -435,6 +435,11 @@ public:
     return peer_sets;
   }
   unsigned long long bytes_out = 0, bytes_in = 0, messages = 0;
+  // 11/12/2026 (F4e): a multiplex channel whose request had no reply in time (or whose reply did not parse) is out
+  // of step: its late reply would be read as the next request's ("bad reply" forever, the 11/12 stall). It is
+  // closed and marked; the set's thread opens a fresh channel (gxReplClient::run_sets).
+  bool ChannelBroken() const { return chan_broken; }
+  bool chan_broken = false;
 
   int Streams(const std::string &set, std::vector<gxReplStream> &v,
 	      std::string &err) override;

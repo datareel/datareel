@@ -61,6 +61,7 @@ Database replication over gxStream. See gxrepl.h. POSIX only.
 #include <set>
 #include <thread>
 #include "gxdjrnl.h"
+#include <sys/syscall.h>
 #include "gxdpcache.h"
 
 #if defined (DATAREEL_HAVE_ZLIB)
@@ -81,6 +82,56 @@ static long long now_ns()
 }
 
 static std::mutex log_lock;
+
+// 11/12/2026 (F4c): a child gxrepl starts (the derived rebuild, the ssh tunnel) gets only stdin/stdout/stderr. Without
+// this it inherited every fd not opened O_CLOEXEC (gxrepl.lock, ship log state files, writer locks ...): an orphaned
+// rebuild then held gxrepl.lock, and a restarted gxrepl could not start until it ended. Called between fork and exec
+// (async-signal-safe calls only).
+static void close_inherited_fds()
+{
+#ifdef SYS_close_range
+  if(syscall(SYS_close_range, 3U, ~0U, 0U) == 0) return;
+#endif
+  long mx = sysconf(_SC_OPEN_MAX);
+  if(mx <= 0 || mx > 1048576) mx = 65536;
+  for(long fd = 3; fd < mx; fd++) close((int)fd);
+}
+
+// sh -c cmd with stdin/stdout/stderr on /dev/null and no other fd: the wait status (system()'s), -1 if it could not run
+static int run_quiet(const std::string &cmd)
+{
+  pid_t pid = fork();
+  if(pid < 0) return -1;
+  if(pid == 0) {
+    int nul = open("/dev/null", O_RDWR);
+    if(nul >= 0) { dup2(nul, 0); dup2(nul, 1); dup2(nul, 2); if(nul > 2) close(nul); }
+    close_inherited_fds();
+    execl("/bin/sh", "sh", "-c", cmd.c_str(), (char *)0);
+    _exit(127);
+  }
+  int status = 0;
+  while(waitpid(pid, &status, 0) < 0) { if(errno != EINTR) return -1; }
+  return status;
+}
+
+// 11/12/2026 (F4a/F4b): the apply lock (apply.jnl, exclusive) taken with a bounded wait instead of a blocking flock.
+// On 11/12 a derived index rebuild held it for 5-10 min (a busy rebuild of a big day on a 2-core node); an apply
+// blocked in flock while it held its set's mutex and writer holds, the other requests piled up behind that mutex and
+// the multiplexed connection had no free worker left: all 11 sets stopped. Now an apply that cannot get the lock in
+// GXREPL_APPLY_LOCK_WAIT seconds (5) answers "busy" and lets go of everything; the client tries again next pass, and
+// only that set waits for the rebuild. 0 = locked, else errno-like (EWOULDBLOCK = busy).
+static int lock_apply_bounded(int fd)
+{
+  double wait = 5;
+  if(const char *e = getenv("GXREPL_APPLY_LOCK_WAIT")) { double v = atof(e); if(v >= 0) wait = v; }
+  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
+  while(flock(fd, LOCK_EX | LOCK_NB) != 0) {
+    if(errno != EWOULDBLOCK && errno != EINTR) return errno;
+    if(std::chrono::steady_clock::now() >= end) return EWOULDBLOCK;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  return 0;
+}
 
 static void glog(const char *fmt, ...)
 {
@@ -1492,9 +1543,12 @@ int gxReplLocal::apply_batch(SetState_ *s,
   // gxdJournalReadLock on apply.jnl; an apply holds it exclusively, so a
   // reader never sees a half-applied batch (flock: also between threads)
   int lkfd = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
-  if(lkfd < 0 || flock(lkfd, LOCK_EX) != 0) {
-    if(lkfd >= 0) close(lkfd);
-    err = "cannot lock " + jname; return -1;
+  if(lkfd < 0) { err = "cannot lock " + jname; return -1; }
+  if(int le = lock_apply_bounded(lkfd)) {
+    close(lkfd);
+    err = le == EWOULDBLOCK ? "busy: " + jname + " is held (a derived index rebuild or a reader of the copy); tried again "
+                              "next pass" : "cannot lock " + jname;
+    return -1;
   }
   struct LockGuard { int fd; ~LockGuard() { flock(fd, LOCK_UN); close(fd); } } lkg{lkfd};
   // At most 1024 files a transaction
@@ -1943,6 +1997,7 @@ int gxReplRemote::start_tunnel(std::string &err)
     av.push_back(0);
     int nul = open("/dev/null", O_RDONLY);
     if(nul >= 0) { dup2(nul, 0); close(nul); }
+    close_inherited_fds();
     execvp(av[0], av.data());
     _exit(127);
   }
@@ -2092,12 +2147,18 @@ int gxReplRemote::call(const std::vector<unsigned char> &req,
   if(mux) {
     // 11/08/2026: Protocol 3: the request and its reply on this object's channel
     std::vector<unsigned char> body(req.begin() + 1, req.end()), m, back;
+    if(chan_broken) { err = "the channel was reset after a request had no reply"; return -1; }
     pack_msg(req[0], body, peer_zlib ? cfg.compress : 0, m);
     if(mux->Send(mux_ch, m, gxdMUX_LAST, err) != 0) return -1;
     bytes_out += m.size();
     uint64_t seq = 0;
     int rc = mux->ReceiveMessage(mux_ch, back, seq, cfg.timeout * 1000, err);
-    if(rc == 1) { err = "no reply in " + std::to_string(cfg.timeout) + " s"; return -1; }
+    if(rc == 1) {
+      err = "no reply in " + std::to_string(cfg.timeout) + " s";
+      chan_broken = true;                 // its reply may still come: never read it as the next request's
+      mux->CloseChannel(mux_ch, err);
+      return -1;
+    }
     if(rc != 0) return -1;
     bytes_in += back.size();
     uint8_t op = 0;
@@ -2109,7 +2170,7 @@ int gxReplRemote::call(const std::vector<unsigned char> &req,
       if(err.empty()) err = "error from the server";
       return 1;
     }
-    if(op != OP_OK) { err = "bad reply"; return -1; }
+    if(op != OP_OK) { err = "bad reply"; chan_broken = true; mux->CloseChannel(mux_ch, err); return -1; }
     return 0;
   }
   if(!stream) { err = "not connected"; return -1; }
@@ -2151,7 +2212,7 @@ int gxReplRemote::Streams(const std::string &set, std::vector<gxReplStream> &v,
   RBuf r(rep.data(), rep.size());
   uint32_t n = r.u32(); v.clear();
   for(uint32_t i = 0; i < n && r.ok; i++) { gxReplStream s; dec(r, s); v.push_back(s); }
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -2165,7 +2226,7 @@ int gxReplRemote::ReadLog(const std::string &set, const std::string &stream_name
   if(call(mkreq(OP_READLOG, w), rep, err)) return -1;
   RBuf r(rep.data(), rep.size());
   status = (int)r.u32(); next = r.u64(); r.bytes(out);
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -2186,7 +2247,8 @@ int gxReplRemote::Manifest(const std::string &set, std::vector<gxReplFile> &v,
   WBuf w; w.str(set);
   std::vector<unsigned char> rep;
   if(call(mkreq(OP_SMANIFEST, w), rep, err)) return -1;
-  return dec_files(rep, v, err);
+  if(dec_files(rep, v, err) != 0) { if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
+  return 0;
 }
 
 int gxReplRemote::TargetManifest(const std::string &set, std::vector<gxReplFile> &v,
@@ -2195,7 +2257,8 @@ int gxReplRemote::TargetManifest(const std::string &set, std::vector<gxReplFile>
   WBuf w; w.str(set);
   std::vector<unsigned char> rep;
   if(call(mkreq(OP_TMANIFEST, w), rep, err)) return -1;
-  return dec_files(rep, v, err);
+  if(dec_files(rep, v, err) != 0) { if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
+  return 0;
 }
 
 static void enc_diffreq(WBuf &w, const gxReplDiffRequest &rq)
@@ -2226,7 +2289,7 @@ int gxReplRemote::Diff(const std::string &set, const gxReplDiffRequest &rq,
   res.status = (int)r.u32(); res.next = r.u64(); res.more = (int)r.u32();
   res.pieces = r.u64(); res.sent = r.u64();
   dec(r, res.update);
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -2239,7 +2302,7 @@ int gxReplRemote::State(const std::string &set, std::vector<gxReplStreamState> &
   RBuf r(rep.data(), rep.size());
   uint32_t n = r.u32(); v.clear();
   for(uint32_t i = 0; i < n && r.ok; i++) { gxReplStreamState s; dec(r, s); v.push_back(s); }
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -2254,7 +2317,7 @@ int gxReplRemote::Hashes(const std::string &set, const std::string &path,
   exists = (int)r.u32();
   uint32_t n = r.u32(); h.clear();
   for(uint32_t i = 0; i < n && r.ok; i++) h.push_back(r.u64());
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -2267,7 +2330,7 @@ int gxReplRemote::CommitGen(const std::string &set, const std::string &path, uin
   RBuf r(rep.data(), rep.size());
   exists = (int)r.u32();
   gen = r.u64();
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -2294,7 +2357,7 @@ int gxReplRemote::SealGen(const std::string &set, const std::string &folder, uin
   if(call(mkreq(OP_SEALGEN, w), rep, err)) return -1;
   RBuf r(rep.data(), rep.size());
   gen = r.u64();
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -2308,7 +2371,7 @@ int gxReplRemote::ApplyLog(const std::string &set, const std::string &stream_nam
   if(call(mkreq(OP_APPLYLOG, w), rep, err)) return -1;
   RBuf r(rep.data(), rep.size());
   lsn = r.u64();
-  if(!r.ok) { err = "bad reply"; return -1; }
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
   return 0;
 }
 
@@ -3403,7 +3466,7 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
     // 11/10/2026: {lsn}: the ship log record the folder was sealed at (0 if none), for the stamp
     std::string ls = std::to_string(unit_log_lsn(sc, rel));
     for(size_t at; (at = cmd.find("{lsn}")) != std::string::npos; ) cmd.replace(at, 5, ls);
-    int rc = system((cmd + " >/dev/null 2>&1").c_str());
+    int rc = run_quiet(cmd);
     flock(lk, LOCK_UN);
     close(lk);
     // 11/11/2026 (review): exit 3 = the folder moved during the rebuild (osa_ingest --rebuild-index): not a
@@ -3648,13 +3711,27 @@ int gxReplClient::run_sets(gxReplRemote &remote, bool once, const std::string &o
     jobs.push_back(std::move(j));
   }
   std::vector<std::thread> threads;
+  std::atomic<uint32_t> next_ch{next};
   for(auto &jp : jobs) {
     Job *j = jp.get();
     if(j->done) continue;
-    threads.emplace_back([this, j, once]() {
+    threads.emplace_back([this, j, once, &remote, &next_ch]() {
       while(!stop) {
 	std::string pe;
 	int rc = pass(*j->ch, once, j->sc->name, pe);
+	// 11/12/2026 (F4e): a channel out of step (a request without a reply in time): a fresh one, the set goes on
+	if(rc != 0 && j->ch->ChannelBroken() && remote.IsOpen()) {
+	  uint32_t nch = next_ch++;
+	  std::string oe;
+	  if(remote.OpenSetChannel(nch, j->sc->name, j->sc->direction, oe) == 0) {
+	    glog("set %s: channel reset after \"%s\" (new channel %u)", j->sc->name.c_str(), pe.c_str(), nch);
+	    j->ch.reset(new gxReplRemote(cfg));
+	    j->ch->UseChannel(remote, nch);
+	    interruptible_sleep(cfg.poll_ms, stop);
+	    continue;
+	  }
+	  glog("set %s: cannot open a fresh channel: %s", j->sc->name.c_str(), oe.c_str());
+	}
 	if(rc < 0 && !j->ch->IsOpen()) { j->rc = -1; j->e = pe; break; }
 	if(once) {
 	  // A second pass finds nothing to do when the set is the same
