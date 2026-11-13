@@ -155,6 +155,12 @@ GXREPL FIXES FROM THE 11/12 STALL (11/13/2026)
 - The derived rebuild and the ssh tunnel children run with only stdio
   open (close_range): they no longer inherit gxrepl.lock or ship-log
   state descriptors.
+- An older reader race (not from the stall fixes): the applied
+  position is now written inside the apply lock with the pages and the
+  seal, and the torn check re-reads a seal mismatch for up to
+  GXREPL_TORN_RECHECK_SEC (10 s), so a promote-check no longer sees a
+  seal ahead of the copy while an apply is in flight (test
+  test_seal_and_position_never_split).
 - Tests: test_late_reply_never_desyncs_a_channel (the server stopped
   past the client timeout; the old build stays on "bad reply") and
   test_slow_rebuild_never_stalls_the_other_sets (another set copies
