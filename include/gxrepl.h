@@ -66,6 +66,7 @@ Changes:
 
 #include <stdint.h>
 #include <atomic>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -397,10 +398,12 @@ private:
 		  std::string &err);
   int write_state(SetState_ *s, const gxReplStreamState &st,
 		  std::string &err);
+  // in_lock (11/12/2026): run after the pages are applied, before the apply lock is let go (ApplyLog writes its
+  // stream's applied position there, so the seal and the position change together for anyone holding the lock)
   int apply_batch(SetState_ *s,
 		  std::map<std::string, std::pair<unsigned long long,
 		  std::map<unsigned long long, const unsigned char *> > > &pages,
-		  std::string &err);
+		  std::string &err, const std::function<int(std::string &)> &in_lock = nullptr);
 
 private:
   gxReplConfig cfg;

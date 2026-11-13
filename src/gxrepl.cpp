@@ -1515,7 +1515,7 @@ int gxReplLocal::SealGen(const std::string &set, const std::string &folder, uint
 int gxReplLocal::apply_batch(SetState_ *s,
   std::map<std::string, std::pair<unsigned long long,
   std::map<unsigned long long, const unsigned char *> > > &pages,
-  std::string &err)
+  std::string &err, const std::function<int(std::string &)> &in_lock)
 {
   if(pages.empty()) return 0;
   // 11/10/2026: commit blocks after the files they describe, the unit seals
@@ -1575,6 +1575,7 @@ int gxReplLocal::apply_batch(SetState_ *s,
     }
   }
   for(auto &d : dirs) sync_dir(d);
+  if(in_lock && in_lock(err) != 0) return -1;     // still under the apply lock
   return 0;
 }
 
@@ -1759,10 +1760,11 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
   // (a unit a verify is filling, "copying", stays so: only its commit block, sent after its files, seals it)
   if(add_unit_seals(s->sc, s->root, batch, last, stream, unit_cb, seals, err,
 		    [&](const std::string &u) { return !fill_copying(read_seal(s->root, u)); }) != 0) return -1;
-  if(apply_batch(s, batch, err) != 0) return -1;
+  // 11/12/2026: the stream's applied position is written under the same apply lock as the records' pages and their
+  // seal, not after it is let go: a reader holding the lock never sees a seal at record L with the position at L-1
   gxReplStreamState st = it->second;
   st.lsn = last;
-  if(write_state(s, st, err) != 0) return -1;
+  if(apply_batch(s, batch, err, [&](std::string &e) { return write_state(s, st, e); }) != 0) return -1;
   applied_records += count;
   lsn = last;
   return 0;
@@ -3534,6 +3536,27 @@ static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const 
       else {
 	// 11/10/2026: an even generation is not enough: the files must be the sealed ones
 	std::string why = unit_seal_check(sc, rel, g);
+	// 11/12/2026: the commit block, the seal and its stream's applied position are three files: read in the middle
+	// of an apply they can disagree by one record or generation ("sealed at ship log record L, the copy applied up
+	// to L-1", "sealed by ship log record L at generation G, the commit block says G-n"). That is an apply in
+	// flight, not a torn copy: read them all again for up to GXREPL_TORN_RECHECK_SEC (10) s; a real mismatch stays
+	// and is reported.
+	auto in_flight = [](const std::string &w) { return w.compare(0, 7, "sealed ") == 0; };
+	if(in_flight(why)) {
+	  double wait = 10;
+	  if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
+	  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
+	  while(in_flight(why) && std::chrono::steady_clock::now() < end) {
+	    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	    uint64_t g2 = 0;
+	    int fd2 = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
+	    ssize_t n2 = fd2 >= 0 ? pread(fd2, &g2, sizeof(g2), (off_t)sc.commit_gen_offset) : -1;
+	    if(fd2 >= 0) close(fd2);
+	    if(n2 != (ssize_t)sizeof(g2) || (g2 & 1)) continue;
+	    g = g2;
+	    why = unit_seal_check(sc, rel, g);
+	  }
+	}
 	if(!why.empty()) torn.push_back(where + ": " + why);
 	// and its derived indexes: a bad rebuild is torn (a take over's would
 	// fail too); indexes behind a busy day are a warning: the take over
