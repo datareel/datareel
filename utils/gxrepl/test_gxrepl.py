@@ -2269,7 +2269,7 @@ def test_derived_busy_writer_never_quiet():
             checks += 1
             if t.returncode != 0:
                 rc1 += 1
-                print(f"      rc {t.returncode}: {t.stdout.strip()[:200]}", flush=True)
+                print(f"      rc {t.returncode}: {t.stdout.strip()[:400]!r}", flush=True)
             if "INDEXES" in t.stdout:
                 warned += 1
             st = env.status() or {}
@@ -2403,6 +2403,39 @@ def test_late_reply_never_desyncs_a_channel():
                 time.sleep(0.5)
             assert st.get("ok"), (name, st)
         assert torn(env).returncode == 0
+    finally:
+        env.stop()
+
+
+def test_seal_and_position_never_split():
+    """11/12/2026 (the 7.4 thread's 1/60 and 12/60 promote-check rc 1): a ship log apply writes the records' pages
+    and the unit's seal "log G L" in one transaction, and the stream's applied position after it. A promote-check
+    read between the two saw "sealed at ship log record L, the copy applied up to L-1 (records past the seal)", a
+    torn copy that was only an apply in flight. Now the position is written under the same apply lock and the
+    check reads a split pair again before it reports. A busy writer, promote-check back to back: never that."""
+    env = Env("seal_split", {"db": dict(CB_OPTS)})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 3, "--commit-block").returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 60)
+        w = writer_bg(ws, "--commits", 100000, "--per", 1, "--sleep", 30, "--commit-block", "--seed", 41)
+        split, other, checks = 0, 0, 0
+        end = time.time() + int(os.environ.get("GXREPL_SPLIT_SECS", "60"))
+        while time.time() < end:
+            t = torn(env)
+            checks += 1
+            if t.returncode != 0:
+                if "records past the seal" in t.stdout or "the commit block says" in t.stdout:
+                    split += 1
+                elif "is odd" not in t.stdout:
+                    other += 1
+                    print(f"      rc {t.returncode}: {t.stdout.strip()[:400]!r}", flush=True)
+        w.kill(); w.wait()
+        print(f"    {checks} promote-checks under a commit every 30 ms: {split} split (seal vs position or commit block), "
+              f"{other} other", flush=True)
+        assert split == 0, split
     finally:
         env.stop()
 
