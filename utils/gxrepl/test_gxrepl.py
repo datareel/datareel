@@ -18,6 +18,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 
 BIN = None
@@ -2287,6 +2288,121 @@ def test_derived_busy_writer_never_quiet():
             time.sleep(1)
         t = torn(env)
         assert t.returncode == 0 and "INDEXES" not in t.stdout, t.stdout
+    finally:
+        env.stop()
+
+
+def test_slow_rebuild_never_stalls_the_other_sets():
+    """11/12/2026 (F4, the AWS incident): a derived index rebuild that takes minutes holds the copy's apply lock. An
+    apply of that set used to block in flock while it held the set's mutex, the other requests piled up behind it and
+    the multiplexed connection stopped every set ("no reply in 120 s", "bad reply"). Now: the other set keeps copying
+    during the rebuild, the rebuilding set's applies answer "busy" (no stall) and it catches up after; gxrepl's own
+    shared writer holds are never taken for a local writer; the rebuild child gets only stdin/out/err (no
+    gxrepl.lock, state files, locks or the key memfd)."""
+    probe = os.path.join(TMP, "slow_rebuild_probe.py")
+    with open(probe, "w") as f:
+        f.write(textwrap.dedent("""\
+            import os, subprocess, sys, time
+            out, slow = sys.argv[1], float(sys.argv[2])
+            fds = {}
+            for n in os.listdir("/proc/self/fd"):
+                try:
+                    fds[n] = os.readlink("/proc/self/fd/" + n)
+                except OSError:
+                    pass
+            open(out + ".started", "w").write(repr(fds))
+            time.sleep(slow)
+            rc = subprocess.call(sys.argv[3:])
+            open(out + ".done", "a").write("%d\\n" % rc)
+            sys.exit(rc)
+            """))
+    mark = os.path.join(TMP, "slow_rebuild")
+    for x in (".started", ".done"):
+        if os.path.exists(mark + x):
+            os.unlink(mark + x)
+    rebuild = (f"python3 -I {probe} {mark} 20 {os.path.join(BIN, 'gxrepl_testwriter')} reindex {{dir}} {{lsn}}")
+    db = {"client": CB_OPTS["client"] + ["derived = index.gxd"],
+          "server": CB_OPTS["server"] + ["derived = index.gxd", f"derived_rebuild = {rebuild}", "derived_delay = 1",
+                                         "derived_busy_rebuild = 2"]}
+    db2 = {"client": list(CB_OPTS["client"]), "server": list(CB_OPTS["server"])}
+    env = Env("slow_rebuild", {"db": db, "db2": db2})
+    ws, aws = env.roots["db"]
+    ws2, aws2 = env.roots["db2"]
+    assert writer(ws, "--commits", 3, "--commit-block").returncode == 0
+    assert writer(ws2, "--commits", 3, "--commit-block").returncode == 0
+    env.start_server(extra_env={"GXREPL_APPLY_LOCK_WAIT": "1"})
+    env.start_client()
+    try:
+        wait_same(env, "db2", 60)
+        end = time.time() + 60
+        while time.time() < end and not os.path.exists(mark + ".started"):
+            time.sleep(0.2)
+        assert os.path.exists(mark + ".started"), "no rebuild started"
+        t0 = time.time()
+        # during the rebuild (20 s): both sets change; db2 must reach its source while the rebuild still runs
+        assert writer(ws, "--commits", 2, "--commit-block", "--seed", 5).returncode == 0
+        assert writer(ws2, "--commits", 4, "--commit-block", "--seed", 6).returncode == 0
+        wait_same(env, "db2", 15)
+        took = time.time() - t0
+        assert not os.path.exists(mark + ".done"), "the rebuild ended before db2 was checked: make it slower"
+        print(f"    db2 copied in {took:.1f} s while db's rebuild ran", flush=True)
+        # after the rebuild db catches up; the copies end whole
+        end = time.time() + 90
+        while time.time() < end and not os.path.exists(mark + ".done"):
+            time.sleep(0.5)
+        wait_same(env, "db", 90)
+        t = torn(env)
+        assert t.returncode == 0, t.stdout
+        slog = open(os.path.join(env.dir, "server.log")).read()
+        clog = open(os.path.join(env.dir, "client.log")).read()
+        assert "a local writer holds" not in slog + clog, "gxrepl's own hold was taken for a local writer"
+        assert "no reply in" not in clog, "a request had no reply (the stall)"
+        print(f"    db applies answered busy {clog.count('busy:')} time(s) during the rebuild", flush=True)
+        # the rebuild child's fds: only stdio (and its own), nothing of gxrepl's
+        fds = eval(open(mark + ".started").read())
+        bad = {k: v for k, v in fds.items() if int(k) > 2 and (v.endswith(".lock") or ".state" in v or "apply.jnl" in v
+                                                              or "memfd" in v or v.endswith(".gxl") or "/.gxrepl/" in v)}
+        assert not bad, f"the rebuild child inherited {bad}"
+    finally:
+        env.stop()
+
+
+def test_late_reply_never_desyncs_a_channel():
+    """11/12/2026 (F4e, the AWS stall): the server stopped answering for longer than the client's timeout (on 11/12 the
+    workstation lost its internet for 16 min, the TCP connection survived), then the late replies came. Each set's
+    channel kept a late reply queued: every later request read the previous one's reply ("bad reply") and no set
+    copied again, silently, while the connection stayed up. Now a channel is closed at its timeout and the set's thread
+    opens a fresh one: the late replies are dropped and every set catches up."""
+    env = Env("late_reply", {"db": dict(CB_OPTS), "db2": dict(CB_OPTS)}, extra_client="timeout = 5")
+    ws, aws = env.roots["db"]
+    ws2, aws2 = env.roots["db2"]
+    assert writer(ws, "--commits", 3, "--commit-block").returncode == 0
+    assert writer(ws2, "--commits", 3, "--commit-block").returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 30)
+        wait_same(env, "db2", 30)
+        # the outage: the server answers nothing for 9 s (> the client's 5 s timeout), then answers late
+        env.server.send_signal(signal.SIGSTOP)
+        time.sleep(9)
+        env.server.send_signal(signal.SIGCONT)
+        assert writer(ws, "--commits", 4, "--commit-block", "--seed", 9).returncode == 0
+        assert writer(ws2, "--commits", 4, "--commit-block", "--seed", 10).returncode == 0
+        wait_same(env, "db", 45)
+        wait_same(env, "db2", 45)
+        clog = open(os.path.join(env.dir, "client.log")).read()
+        assert "no reply in 5 s" in clog, clog[-2000:]
+        for name in ("db", "db2"):
+            end = time.time() + 30
+            st = {}
+            while time.time() < end:
+                st = env.status()["sets"][name]
+                if st.get("ok"):
+                    break
+                time.sleep(0.5)
+            assert st.get("ok"), (name, st)
+        assert torn(env).returncode == 0
     finally:
         env.stop()
 
