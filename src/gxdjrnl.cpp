@@ -66,6 +66,9 @@ writes and syncs the database files and then clears the header's magic
 number; records left in the file after that have an old salt.
 */
 // ----------------------------------------------------------- //
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 #include "gxdlcode.h"
 
 #include <string.h>
@@ -323,6 +326,16 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
       fps[i] = gxdFPTROpen(paths[i].c_str(), gxDBASE_READWRITE);
       if(!fps[i]) { err = gxDBASE_FILE_OPEN_ERROR; break; }
     }
+#if defined(GXREPL_TEST_HOOKS) && !defined(_WIN32)
+    // 11/13/2026 test hook (test builds only): GXREPL_TEST_APPLY_FAIL=N makes the first N recoveries of a batch
+    // into a gxrepl stage fail before any page is written (an ENOSPC): the journal is kept for another try
+    if(err == gxDBASE_NO_ERROR && getenv("GXREPL_TEST_APPLY_FAIL")) {
+      static std::atomic<int> failed{0};
+      bool staged = false;
+      for(size_t i = 0; i < paths.size(); i++) if(paths[i].find("/.gxrepl/stage/") != std::string::npos) staged = true;
+      if(staged && failed.fetch_add(1) < atoi(getenv("GXREPL_TEST_APPLY_FAIL"))) err = gxDBASE_FILE_WRITE_ERROR;
+    }
+#endif
     for(auto &e : committed) {
       if(err != gxDBASE_NO_ERROR) break;
       // 10/31/2026: A page past the file's committed size is cut off by
@@ -807,6 +820,13 @@ gxDatabaseError gxdJournal::ApplyPages(const char *jname,
 	    h.size() || gxdFPTRSync(jfp, 0) != 0)) ok = 0;
   gxdFPTRClose(jfp);
   if(!ok) return gxDBASE_FILE_WRITE_ERROR;
+#if defined(GXREPL_TEST_HOOKS) && !defined(_WIN32)
+  // 11/13/2026 test hook (test builds only): GXREPL_TEST_APPLY_CRASH=1 ends the process once a batch writing into
+  // a gxrepl stage is committed to the journal and before its pages reach the files (a crash inside an apply)
+  if(getenv("GXREPL_TEST_APPLY_CRASH"))
+    for(size_t i = 0; i < af.size(); i++)
+      if(af[i].path.find("/.gxrepl/stage/") != std::string::npos) _exit(9);
+#endif
 
   unsigned long n = 0;
   err = Recover(jname, &n);

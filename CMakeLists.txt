@@ -61,6 +61,8 @@ option(DATAREEL_NATIVE_TYPES
   "Use native integer and float types instead of the portable gxINT/gxFLOAT classes" ON)
 option(DATAREEL_BUILD_EXAMPLES "Build the examples and utilities"
   ${PROJECT_IS_TOP_LEVEL})
+# 11/13/2026: gxrepl's crash test hooks (GXREPL_TEST_SWAP_CRASH): the test builds only, never a production build
+option(GXREPL_TEST_HOOKS "Build gxrepl's test-only crash hooks" OFF)
 
 # Every source file except the Schannel code, which gxssl.cpp includes
 file(GLOB DATAREEL_SOURCES CONFIGURE_DEPENDS
@@ -101,6 +103,10 @@ if(DATAREEL_64BIT_DATABASE)
   endif()
 elseif(NOT WIN32)
   target_compile_definitions(datareel PUBLIC _FILE_OFFSET_BITS=64)
+endif()
+
+if(GXREPL_TEST_HOOKS)
+  target_compile_definitions(datareel PRIVATE GXREPL_TEST_HOOKS)
 endif()
 
 # Message display
