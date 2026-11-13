@@ -161,6 +161,12 @@ GXREPL FIXES FROM THE 11/12 STALL (11/13/2026)
   GXREPL_TORN_RECHECK_SEC (10 s), so a promote-check no longer sees a
   seal ahead of the copy while an apply is in flight (test
   test_seal_and_position_never_split).
+- Staged unit copies: a unit's files are copied into a reflinked stage
+  (.gxrepl/stage/<unit>/) and swapped in, commit block last, when its
+  commit block arrives, so a link lost mid-unit leaves the copy whole
+  at its last sealed commit; "gxrepl promote [--apply]" recovers the
+  apply journal, finishes a begun swap and reports what was lost.
+  Crash test hooks only with -DGXREPL_TEST_HOOKS=ON (test builds).
 - Tests: test_late_reply_never_desyncs_a_channel (the server stopped
   past the client timeout; the old build stays on "bad reply") and
   test_slow_rebuild_never_stalls_the_other_sets (another set copies
