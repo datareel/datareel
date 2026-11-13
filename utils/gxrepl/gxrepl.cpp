@@ -10,6 +10,10 @@
 //   gxrepl check  --config FILE
 //   gxrepl torn   --config FILE [--set NAME]   the copies of commit_block sets that are not one whole
 //                 commit (exit 1: a fail over must not promote them)
+//   gxrepl promote --config FILE [--set NAME] [--apply]   (11/12/2026, F7) before a take over: finish a staged
+//                 copy whose swap began, discard every other stage (a unit copy stopped by a lost link: the unit
+//                 stays whole at its sealed commit), print what was done and what was lost, then the "torn"
+//                 check and its exit code. Without --apply: what it would do (changes nothing).
 //   gxrepl fingerprint CERT.pem
 //   gxrepl shiplog STREAM_DIR [--from LSN]
 //   gxrepl version
@@ -72,6 +76,7 @@ static int usage()
 {
   fprintf(stderr,
 	  "usage: gxrepl serve|run|once|status|check|torn --config FILE [--set NAME] [--key-fd N]\n"
+	  "       gxrepl promote --config FILE [--set NAME] [--apply]   (before a take over)\n"
 	  "       gxrepl serve --accept-both ... / once --pull-all ...   (failback: automate/gxrepl.sh failback)\n"
 	  "       gxrepl fingerprint CERT.pem\n"
 	  "       gxrepl shiplog STREAM_DIR [--from LSN]\n"
@@ -198,9 +203,9 @@ int main(int argc, char **argv)
   std::string cmd = argv[1];
   if(cmd == "version") {
     // 11/10/2026: the git head and build time come from CMake (gxrepl_version.cmake)
-    printf("gxrepl (DataReel %s), protocol %d, default port %d, zlib %s, git %s, built %s\n",
+    printf("gxrepl (DataReel %s), protocol %d, default port %d, zlib %s, git %s, built %s%s\n",
 	   DATAREEL_VERSION_STRING, gxREPL_PROTOCOL, gxREPL_DEFAULT_PORT,
-	   gxReplHasZlib() ? "yes" : "no", GXREPL_GIT_HEAD, GXREPL_BUILD_TIME);
+	   gxReplHasZlib() ? "yes" : "no", GXREPL_GIT_HEAD, GXREPL_BUILD_TIME, gxReplTestHooks() ? ", test hooks" : "");
     return 0;
   }
   if(cmd == "fingerprint") return argc == 3 ? fingerprint(argv[2]) : usage();
@@ -211,7 +216,7 @@ int main(int argc, char **argv)
     return shiplog(argv[2], from);
   }
   std::string conf, only_set, key_fd;
-  bool accept_both = false, pull_all = false, copied_only = false;
+  bool accept_both = false, pull_all = false, copied_only = false, promote_apply = false;
   for(int i = 2; i < argc; i++) {
     std::string a = argv[i];
     if(a == "--config" && i + 1 < argc) conf = argv[++i];
@@ -220,6 +225,7 @@ int main(int argc, char **argv)
     else if(a == "--accept-both" && cmd == "serve") accept_both = true;   // 11/11/2026: failback
     else if(a == "--pull-all" && cmd == "once") pull_all = true;          // 11/11/2026: failback
     else if(a == "--copied-only" && cmd == "torn") copied_only = true;    // 11/11/2026: failback
+    else if(a == "--apply" && cmd == "promote") promote_apply = true;     // 11/12/2026: F7
     else return usage();
   }
   if(conf.empty()) return usage();
@@ -251,6 +257,31 @@ int main(int argc, char **argv)
     }
     return 0;
   }
+  // 11/13/2026 (F7 review round 3): promote's exit codes, explicit (the DRCM gate reads them):
+  //   0  the stages are done and every copy is whole (promote-check 0)
+  //   1  promote-check: a copy is torn (refuse the take over)
+  //   3  promote could not do all of its work (a begun swap or an apply batch while the set's writer runs, an
+  //      I/O error: the lines say why); promote-check said the copies are whole (still refused by the gate)
+  //   2  usage / config
+  int promote_rc = -1;
+  if(cmd == "promote") {
+    // 11/12/2026 (F7): the stages first, then the same check as "torn" (its exit code)
+    int prc = 0;
+    for(auto &s : cfg.sets) {
+      if(!only_set.empty() && s.name != only_set) continue;
+      if(s.commit_block.empty()) continue;
+      std::vector<std::string> lines;
+      std::string e;
+      if(datareel::gxReplPromote(s, promote_apply, lines, e) != 0) {
+	if(!e.empty()) fprintf(stderr, "gxrepl: set %s: %s\n", s.name.c_str(), e.c_str());
+	prc = 3;
+      }
+      for(auto &l : lines) printf("%s%s\n", promote_apply ? "" : "(dry run) ", l.c_str());
+    }
+    fflush(stdout);
+    promote_rc = prc;
+    cmd = "torn";                              // always: the copies are checked whatever promote could do
+  }
   if(cmd == "torn") {
     // 11/10/2026: the copies of commit_block sets that are not one whole
     // commit; exit 1 if any (a fail over must not promote them)
@@ -277,11 +308,15 @@ int main(int argc, char **argv)
       }
       printf("set %s: %d folder(s) checked, %zu torn\n", s.name.c_str(), n, torn.size());
       for(auto &x : torn) printf("  TORN %s\n", x.c_str());
-      for(auto &x : warn) printf("  INDEXES %s\n", x.c_str());   // 11/11/2026: a warning, not torn
+      for(auto &x : warn) printf("  %s %s\n", x.find("is staged since") != std::string::npos ? "STAGED" : "INDEXES", x.c_str());   // 11/11/2026: a warning, not torn (11/12: STAGED, F7)
       for(auto &x : own) printf("  OWN %s (never copied by gxrepl: this node's own data)\n", x.c_str());
       if(!torn.empty()) bad = 1;
     }
     if(!any) printf("no set with commit_block\n");
+    if(promote_rc > 0 && !bad) {
+      printf("promote: not all of its work was done (see above); exit 3\n");
+      return 3;
+    }
     return bad;
   }
   if(cmd == "check") {
@@ -317,6 +352,17 @@ int main(int argc, char **argv)
 
   if(cmd == "serve") {
     if(cfg.role != "server") { fprintf(stderr, "gxrepl: %s is not a server config\n", conf.c_str()); return 2; }
+    // 11/13/2026 (F7 review 1): a server that may be read as a source (failback) keeps no stage: a begun swap is
+    // finished, every other stage discarded, each said, before it serves
+    if(accept_both) {
+      for(auto &sc : cfg.sets) {
+	std::vector<std::string> lines;
+	std::string pe;
+	int prc = gxReplPromote(sc, true, lines, pe);
+	for(auto &l : lines) fprintf(stderr, "gxrepl: serve --accept-both: %s\n", l.c_str());
+	if(prc != 0) fprintf(stderr, "gxrepl: serve --accept-both: set %s: %s\n", sc.name.c_str(), pe.c_str());
+      }
+    }
     gxReplServer s(cfg);
     g_server = &s;
     int rc = s.Run(err);
