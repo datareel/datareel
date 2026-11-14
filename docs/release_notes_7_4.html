@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>DataReel 7.4 Beta Release Notes</title>
+<title>DataReel 7.4 Beta 2 Release Notes</title>
 <link rel="stylesheet" href="css/datareel.css">
 <link rel="icon" href="images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
@@ -18,7 +18,7 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>DataReel 7.4 Beta Release Notes</h1>
+<h1>DataReel 7.4 Beta 2 Release Notes</h1>
 <div class="dr-toc-title">Contents</div>
 <p class="dr-toc"><a href="#PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</a><br>
 <a href="#PhaseB11122026HnswGraphSearchMergeRepair">Phase b (11/12/2026): hnsw graph search, merge, repair</a><br>
@@ -27,7 +27,7 @@
 <a href="#GxreplFixesFromThe1112Stall11132026">Gxrepl fixes from the 11/12 stall (11/13/2026)</a><br>
 <a href="#License11122026">License (11/12/2026)</a><br>
 <a href="#Next">Next</a></p>
-<p>DataReel 7.4 is in development: the OODB with AI extensions. These notes grow with each phase; nothing here is a release yet. The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
+<p>DataReel 7.4 beta 2 (tag 7.4-beta2, 11/14/2026): the OODB with AI extensions. It follows the 11/12/2026 7.4-beta preview (tag 7.4-beta, 171a3f2: vector phases A and B) and adds vector phases C and D (below), the gxrepl fixes F4, F6 and F7, the DataReel 7.3.2 replication fixes and the later ones of rel-7.3.2-next3 (the seal per folder, a stream naming new files verified again, promote-check reading each unit under a shared apply lock, GXREPL_TORN_LOCK_WAIT 15 s), and the gxrepl per-object derived apply (derived_apply = incremental, with object notes and index stamps; off by default: rebuild stays the default and the ship log is unchanged while object notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md). The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
 <h2 id="PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</h2>
 <p>New headers gxvindex.h (gxVectorIndex, gxvFilter, gxvResult) and gxvkern.h (distance kernels); sources src/gxvindex.cpp and src/gxvkern.cpp; test program utils/vix_test.</p>
 <p>1. gxVectorIndex keeps vectors in a &quot;.vix&quot; file, which is an ordinary</p>
@@ -243,7 +243,7 @@
 <h2 id="License11122026">License (11/12/2026)</h2>
 <p>Every source header now says LGPL version 3 or later, matching the LICENSE file (the headers said 2.1 or later), and points to <a href="https://www.gnu.org/licenses/">https://www.gnu.org/licenses/</a> instead of the old FSF postal address.</p>
 <h2 id="Next">Next</h2>
-<p>The per-object derived apply for gxrepl (its own branch and tests; rebuild stays the default). Phase E: the 6.x version with the legacy classes. DataReel 7.5 alpha: the Python module as a pip package (datareel), built from this repo.</p>
+<p>Turning the per-object derived apply on for a set (derived_apply = incremental) after its own measurements; rebuild stays the default. Phase E: the 6.x version with the legacy classes. DataReel 7.5 alpha: the Python module as a pip package (datareel), built from this repo.</p>
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>

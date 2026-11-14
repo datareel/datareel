@@ -1,4 +1,4 @@
-DataReel 7.4 Beta Readme File
+DataReel 7.4 Beta 2 Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -41,8 +41,10 @@ rest:
 The library has no dependencies except the system TLS library
 (OpenSSL on Linux, Schannel or OpenSSL on Windows).
 
-DataReel 7.4 is a beta release. DataReel 6.2 remains the stable
-release for production use until DataReel 7 is final.
+DataReel 7.4 is a beta release: beta 2 (tag 7.4-beta2, 11/14/2026)
+follows the 11/12/2026 7.4-beta preview (vector phases A and B).
+DataReel 6.2 remains the stable release for production use until
+DataReel 7 is final.
 
 README.md is a short overview of DataReel and its two release tracks:
 DataReel 7.x and the planned DataReel 6.4 legacy bridge release.
@@ -303,8 +305,13 @@ written for AI coding assistants but useful to anyone.
 
 RELEASE HISTORY
 ---------------
- 7.4   11/12/2026 Beta. Vector extensions: vector index, exact and HNSW
-                  search (RELEASE_NOTES_7.4.txt)
+ 7.4   11/14/2026 Beta 2 (tag 7.4-beta2). Vector extensions phases A-D:
+                  vector index, HNSW search, float16/int8, vector sets,
+                  vector searches in the object server, vector indexes
+                  under gxrepl; gxrepl F4/F6/F7, the 7.3.2 fixes and the
+                  per-object derived apply (off by default)
+                  (RELEASE_NOTES_7.4.txt). Follows the 11/12/2026
+                  7.4-beta preview (phases A-B).
  7.3.2 11/14/2026 Beta. Database replication fixes
                   (RELEASE_NOTES_7.3.2.txt)
  7.3.1 11/01/2026 Beta. Security scan fixes (RELEASE_NOTES_7.3.1.txt)

@@ -1,8 +1,17 @@
-DataReel 7.4 Development Notes (vector extensions), started 11/12/2026
+DataReel 7.4 Beta 2 Release Notes (vector extensions), 11/14/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
-DataReel 7.4 is in development: the OODB with AI extensions. These
-notes grow with each phase; nothing here is a release yet. The file
+DataReel 7.4 beta 2 (tag 7.4-beta2, 11/14/2026): the OODB with AI
+extensions. It follows the 11/12/2026 7.4-beta preview (tag 7.4-beta,
+171a3f2: vector phases A and B) and adds vector phases C and D
+(below), the gxrepl fixes F4, F6 and F7, the DataReel 7.3.2
+replication fixes and the later ones of rel-7.3.2-next3 (the seal per
+folder, a stream naming new files verified again, promote-check
+reading each unit under a shared apply lock, GXREPL_TORN_LOCK_WAIT 15
+s), and the gxrepl per-object derived apply (derived_apply =
+incremental, with object notes and index stamps; off by default:
+rebuild stays the default and the ship log is unchanged while object
+notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md). The file
 formats of 7.3 are unchanged, and the vector index is a new file type
 built on them.
 
@@ -368,8 +377,8 @@ https://www.gnu.org/licenses/ instead of the old FSF postal address.
 
 NEXT
 ----
-The per-object derived apply for gxrepl (its own branch and tests;
-rebuild stays the default). Phase E: the 6.x version with the legacy
+Turning the per-object derived apply on for a set (derived_apply =
+incremental) after its own measurements; rebuild stays the default. Phase E: the 6.x version with the legacy
 classes.
 DataReel 7.5 alpha: the Python module as a pip package (datareel), built
 from this repo.

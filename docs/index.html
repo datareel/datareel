@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>DataReel 7.4 Beta Readme</title>
+<title>DataReel 7.4 Beta 2 Readme</title>
 <link rel="stylesheet" href="css/datareel.css">
 <link rel="icon" href="images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
@@ -18,7 +18,7 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html" aria-current="page">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>DataReel 7.4 Beta Readme</h1>
+<h1>DataReel 7.4 Beta 2 Readme</h1>
 <div class="dr-toc-title">Contents</div>
 <p class="dr-toc"><a href="#Overview">Overview</a><br>
 <a href="#WhatDatareelIsGoodFor">What DataReel is good for</a><br>
@@ -41,7 +41,7 @@
 <li>Stable, portable file formats: files written by DataReel releases going back to 2001 still open, byte for byte.</li>
 </ul>
 <p>The library has no dependencies except the system TLS library (OpenSSL on Linux, Schannel or OpenSSL on Windows).</p>
-<p>DataReel 7.4 is a beta release. DataReel 6.2 remains the stable release for production use until DataReel 7 is final.</p>
+<p>DataReel 7.4 is a beta release: beta 2 (tag 7.4-beta2, 11/14/2026) follows the 11/12/2026 7.4-beta preview (vector phases A and B). DataReel 6.2 remains the stable release for production use until DataReel 7 is final.</p>
 <p><a href="readme.html">README.md</a> is a short overview of DataReel and its two release tracks: DataReel 7.x and the planned DataReel 6.4 legacy bridge release.</p>
 <p>The DataReel development package was produced by independent work and contract work released to the public through non-exclusive license agreements. The initial work began independently in 1997 and was augmented from 1999 to 2004 by code produced under contract to support various applications. Bug fixes, enhancements and additions are welcome through the DataReel website:</p>
 <p><a href="https://datareel.com/downloads/datareel/">https://datareel.com/downloads/datareel/</a> <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a></p>
@@ -178,8 +178,13 @@
 <h2 id="Documentation">Documentation</h2>
 <p>Open <a href="index.html">docs/index.html</a> in a browser. The class library pages are under docs/classes, the examples under docs/examples and the utilities under docs/utils. The guides in <a href="ai/README.md">docs/ai</a> (also collected in <a href="../llms-full.txt">llms-full.txt</a>) are short task-oriented descriptions of the API with working code, written for AI coding assistants but useful to anyone.</p>
 <h2 id="ReleaseHistory">Release history</h2>
-<pre> 7.4   11/12/2026 Beta. Vector extensions: vector index, exact and HNSW
-                  search (RELEASE_NOTES_7.4.txt)
+<pre> 7.4   11/14/2026 Beta 2 (tag 7.4-beta2). Vector extensions phases A-D:
+                  vector index, HNSW search, float16/int8, vector sets,
+                  vector searches in the object server, vector indexes
+                  under gxrepl; gxrepl F4/F6/F7, the 7.3.2 fixes and the
+                  per-object derived apply (off by default)
+                  (RELEASE_NOTES_7.4.txt). Follows the 11/12/2026
+                  7.4-beta preview (phases A-B).
  7.3.2 11/14/2026 Beta. Database replication fixes
                   (RELEASE_NOTES_7.3.2.txt)
  7.3.1 11/01/2026 Beta. Security scan fixes (RELEASE_NOTES_7.3.1.txt)
