@@ -105,6 +105,7 @@ that initialize the internal time buffers.
 #pragma warn -8080
 #endif
 
+#if defined (__WIN32__) || !(defined (__UNIX__) && defined (__REENTRANT__))
 static struct tm *systime_tm(struct tm *t)
 // 11/14/2026: localtime() and gmtime() return a null pointer for a time
 // they cannot convert (a file time out of range, for example) and the
@@ -117,6 +118,7 @@ static struct tm *systime_tm(struct tm *t)
   zero_tm.tm_year = 70;
   return &zero_tm;
 }
+#endif
 
 char *SysTimeUnit::c_str_Hours()
 {

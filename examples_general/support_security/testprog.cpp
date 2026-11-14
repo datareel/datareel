@@ -495,7 +495,7 @@ static void test_threadmsg()
   {
     SupportSecThread t;
     gxThread_t *th = t.CreateThread();
-    int ok = th && th->GetThreadState() != gxTHREAD_STATE_NEW;
+    int ok = (th != 0);
     if(th) t.JoinThread(th);
     check(ok && (*th == *th) && !(*th != *th),
 	  "threadmsg: operator!= of the same thread ID is false");

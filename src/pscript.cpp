@@ -90,6 +90,11 @@ PostScriptDrv::PostScriptDrv()
 
   tabstop = DEFAULT_TAB_SIZE;
   page_count = 0;
+  // 11/14/2026: The page size was never set, so DocumentSetup() worked
+  // from uninitialised page_width/page_height (random columns and lines
+  // per page; ConvertTextFile() looped for ever when lines per page came
+  // out below 1). Letter size by default; SetPaperSize() changes it.
+  SetPaperSize(LETTER_SIZE);
   SetFont(COURIER, 10);
   DocumentSetup();
   row = start_y;
@@ -769,16 +774,21 @@ int PostScriptDrv::ConvertTextFile(DiskFileB &infile,
 {
   if(!infile) return 0; 
   if(columns < 1) return 0; // 11/14/2026: No room for any text
+  if(lines_per_page < 1) return 0; // 11/14/2026: Looped for ever
   char bufin[BUFIN];
+  int read_error = 0; // 11/14/2026
 
   // Read in text file line by line until EOF
-  while(!infile.df_EOF()) {
+  while(!infile.df_EOF() && !read_error) {
     StartPage(page_count + 1, stream);
     row = start_y;
     line_count = lines_per_page;
     // Process the next page 
     for (int lineno = 0; lineno < line_count; lineno++) {
       if(infile.df_GetLine(bufin, MAX_LINE) != DiskFileB::df_NO_ERROR) {
+	// 11/14/2026: A read error that is not the end of the file used
+	// to start the next page and fail again, for ever
+	read_error = 1;
 	break;
       }
       if (bufin[0] == '\f') break;

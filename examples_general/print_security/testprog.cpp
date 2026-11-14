@@ -27,11 +27,10 @@ License along with this library; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  
 USA
 
-6.3 tests for the PostScript and HTML print drivers (11/14/2026). The
-drivers are compiled out of the library by default
-(__USE_POSTSCRIPT_PRINTING__, __USE_HTM_PRINTING__), so this program
-compiles their sources itself with the macros defined. Run it under
-AddressSanitizer for the over-reads.
+6.3.1 tests for the PostScript and HTML print drivers (11/14/2026),
+built into the library when __USE_POSTSCRIPT_PRINTING__ and
+__USE_HTM_PRINTING__ are defined (the default in env/linux.env and the
+CMake build). Run it under AddressSanitizer for the over-reads.
 
   ps_cut      ProcessText() truncating a long line: the copy overwrote
               the terminator and PrintLine() read past the buffer.
@@ -47,16 +46,16 @@ Returns 0 if every check passes.
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
 
-#define __USE_POSTSCRIPT_PRINTING__
-#define __USE_HTM_PRINTING__
-
 #include <stdio.h>
 #include <string.h>
 #include <string>
 #include <sstream>
 #include <fstream>
-#include "../../src/pscript.cpp"
-#include "../../src/htmldrv.cpp"
+#include <iterator>
+#include "pscript.h"
+#include "htmldrv.h"
+
+#if defined (__USE_POSTSCRIPT_PRINTING__) && defined (__USE_HTM_PRINTING__)
 
 static int failures = 0;
 
@@ -154,7 +153,8 @@ int main()
     ht.StartBody((htmCOLORS)99);
     ht.GenTable(1, 4, 75, 1, (htmCOLORS)-5);
     ht.GetSystemTime(0);
-    check(out.str().find(htmColors[0]) != std::string::npos,
+    check(out.str().find("BGCOLOR=\"#000000\"") != std::string::npos &&
+	  out.str().find("BORDERCOLOR=\"#000000\"") != std::string::npos,
 	  "html_color: colors out of range use the first color");
   }
 
@@ -162,6 +162,13 @@ int main()
   else printf("All checks passed\n");
   return failures ? 1 : 0;
 }
+#else
+int main()
+{
+  printf("SKIP: the library was built without the print drivers\n");
+  return 0;
+}
+#endif
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

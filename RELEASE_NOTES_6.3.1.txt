@@ -104,8 +104,9 @@ NETWORKING (FROM THE DATAREEL 7.3.1 SWEEP AND THE 6.x SWEEP)
 - PostScriptDrv: a cut or wrapped line lost its terminator, so the
   printer output read past the buffer; the nroff filter read past the
   end of a line. HyperText: color values out of range, a buffer leaked
-  by GetSystemTime(0). (Both drivers are compiled only with
-  __USE_POSTSCRIPT_PRINTING__ / __USE_HTM_PRINTING__.)
+  by GetSystemTime(0). (Both drivers are built when
+  __USE_POSTSCRIPT_PRINTING__ / __USE_HTM_PRINTING__ are defined, the
+  default in env/linux.env and the CMake build.)
 - SysTimeUnit::c_str_*() wrote one byte past its buffer; SysTime
   crashed on times localtime()/gmtime() cannot convert and, in the
   thread safe build, leaked a struct tm on every format call.

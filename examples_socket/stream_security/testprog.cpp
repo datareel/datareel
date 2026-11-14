@@ -261,7 +261,7 @@ static int test_dgram_request()
   reply.block_length = huge;
   if(peer.WriteHeader(sb, &a, reply) != 0) return 2;
   gxBlockHeader req, got;
-  memset(&req, 0, sizeof(req));
+  client.SetBlockStatus(req, gxRequestBlock);
   req.block_length = 1;
   gxsSocketAddress to = b;
   void *p = client.RequestBlock(sa, &to, "k", req, got);
