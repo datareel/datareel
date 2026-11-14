@@ -35,6 +35,7 @@ handle (outside any staged scope: gxrepl must notice).
 #include <fcntl.h>
 #include <string>
 #include "gxdbase.h"
+#include "gxuint64.h" // gxUINT64; the 32-bit database headers do not include it (as gxrepl_testwriter.cpp)
 #include "gxrextract.h"
 
 using namespace datareel;
