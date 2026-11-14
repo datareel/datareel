@@ -166,7 +166,8 @@ environment before it calls `EnableShipLog`). Without the notes, an incremental 
 
 An extractor turns one record into its index entries (`include/gxrextract.h`). The built-in `gxvmember` keeps a
 vector index made from the records' vector members. An application builds its own into its gxrepl and registers
-it with `gxrRegisterExtractor()`. `examples/replication/per_object` shows one end to end.
+it with `gxrRegisterExtractor()` (build gxrepl with `GXREPL_EXTRA_EXTRACTORS`). The replication example
+(`examples/oodb/replication.cpp`, `replication_walkthrough.sh`) shows one end to end.
 
 Rules worth knowing:
 

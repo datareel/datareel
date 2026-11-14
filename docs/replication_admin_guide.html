@@ -115,7 +115,7 @@ derived_count = by_time.btx        # the index whose entry count is derived.stam
 derived_apply_max_mb = 256         # most staged index pages a batch may hold
 derived_apply_max_s = 30           # longest index step of a batch</pre>
 <p>and on the writer, turn the object notes on (<code>gxdJournal::EnableObjectNotes(1)</code>, or <code>GXDSHIP_OBJECTS=1</code> in its environment before it calls <code>EnableShipLog</code>). Without the notes, an incremental set stays on rebuild.</p>
-<p>An extractor turns one record into its index entries (<code>include/gxrextract.h</code>). The built-in <code>gxvmember</code> keeps a vector index made from the records' vector members. An application builds its own into its gxrepl and registers it with <code>gxrRegisterExtractor()</code>. <code>examples/replication/per_object</code> shows one end to end.</p>
+<p>An extractor turns one record into its index entries (<code>include/gxrextract.h</code>). The built-in <code>gxvmember</code> keeps a vector index made from the records' vector members. An application builds its own into its gxrepl and registers it with <code>gxrRegisterExtractor()</code> (build gxrepl with <code>GXREPL_EXTRA_EXTRACTORS</code>). The replication example (<code>examples/oodb/replication.cpp</code>, <code>replication_walkthrough.sh</code>) shows one end to end.</p>
 <p>Rules worth knowing:</p>
 <ul>
 <li>The first incremental batch of a folder needs a stamped index, so the folder is rebuilt once first.</li>
