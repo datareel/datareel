@@ -4088,6 +4088,104 @@ def test_power_loss_copy_node():
     power_loss_cycles("pl_copy", "copy", 4)
 
 
+# ---------------- 11/14/2026: the drain-verify fix ----------------
+# A writer killed after its batch is committed in its journal but before the ship log has it
+# (GXDJRNL_TEST_KILL_BEFORE_SHIP); the next writer's journal recovery replays the batch into the files with no
+# record, and its open record asks for a verify. If that open record is drained inside a file sync
+# (GXREPL_TEST_SYNC_FILE_HOLD makes the records arrive while the reconnect's sync_file waits), the verify used
+# to be dropped: the copy stayed "in step" at the source's generation with stale pages.
+
+def _same_file(a, b):
+    try:
+        return open(a, "rb").read() == open(b, "rb").read()
+    except OSError:
+        return False
+
+
+def _drain_verify_round(name, client_env=None, recovery=True):
+    """returns (data.gxd the same at the source's generation, client log)"""
+    env = Env(name, {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    d1 = os.path.join(ws, "d1")
+    os.makedirs(d1)
+    try:
+        assert writer(d1, "--commits", 5, "--commit-block", "--ship-root", ws).returncode == 0
+        env.start_server()
+        env.start_client()
+        _wait_units(env, ws, aws, ["d1"])
+        env.kill("client")
+        hold = os.path.join(env.dir, "sync_hold")
+        # held in the sync of index.gxd, after data.gxd was compared (as the 11/14 failure: the drain then
+        # applies the records, and nothing compares data.gxd again unless the verify runs)
+        e = {"GXREPL_TEST_SYNC_FILE_HOLD": hold, "GXREPL_TEST_SYNC_FILE_HOLD_ON": "index.gxd"}
+        e.update(client_env or {})
+        env.start_client(e)
+        end = time.time() + 60
+        while time.time() < end and not os.path.exists(hold + ".held"):
+            time.sleep(0.1)
+        assert os.path.exists(hold + ".held"), "the reconnect's file sync never started\n" + env.logs()
+        if recovery:
+            # writer A: killed with a batch in its journal and not in the ship log
+            r = subprocess.run([os.path.join(BIN, "gxrepl_testwriter"), "write", d1, "--commits", "3", "--commit-block",
+                                "--ship-root", ws, "--seed", "41"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               text=True, env=dict(os.environ, GXDJRNL_TEST_KILL_BEFORE_SHIP="1"))
+            assert r.returncode == 9, "the kill hook did not stop writer A: " + str(r.returncode) + " " + r.stdout
+        # writer B: recovers A's batch (no record), writes its open record and commits
+        assert writer(d1, "--commits", 3, "--commit-block", "--ship-root", ws, "--seed", 42).returncode == 0
+        put(hold, b"go\n")
+        want = gen_of(os.path.join(d1, "commit.bin"))
+        end = time.time() + 60
+        while time.time() < end and not (gen_of(os.path.join(aws, "d1", "commit.bin")) == want and
+                                         _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd"))):
+            time.sleep(0.3)
+        time.sleep(3)                                   # passes after it: nothing more may change
+        same = gen_of(os.path.join(aws, "d1", "commit.bin")) == want and \
+            _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd"))
+        return same, open(os.path.join(env.dir, "client.log")).read()
+    finally:
+        env.stop()
+
+
+def test_drain_verify_recovered_batch_reaches_the_copy():
+    """the fix: the copy gets the pages the recovery wrote (the open record's verify, found in the file update)"""
+    same, log = _drain_verify_round("dv_both")
+    assert same, "the copy's data.gxd differs from the source at its generation\n" + log[-3000:]
+    assert "needs a verify (a writer's open record in a file update)" in log, log[-3000:]
+
+
+def test_drain_verify_sync_file_part_alone():
+    """drain()'s part off (GXREPL_TEST_NO_DRAIN_VERIFY): sync_file()'s own check of the records it applies keeps
+    the verify (this scenario's records come in the file update, not through a drain)"""
+    same, log = _drain_verify_round("dv_sync", {"GXREPL_TEST_NO_DRAIN_VERIFY": "1"})
+    assert same, "sync_file()'s part alone did not keep the verify\n" + log[-3000:]
+
+
+def test_drain_verify_both_parts_off_loses_the_pages():
+    """both parts off: the 7.3.3 behaviour, the copy keeps stale pages at the source's generation (proves the test
+    reaches the bug)"""
+    same, log = _drain_verify_round("dv_none", {"GXREPL_TEST_NO_CALLER_VERIFY": "1", "GXREPL_TEST_NO_DRAIN_VERIFY": "1"})
+    assert not same, "the copy matched with both parts off: the test does not reach the bug\n" + log[-3000:]
+
+
+def test_drain_verify_once_per_stream():
+    """note_verify() is idempotent: one "needs a verify" line and one verify for the stream, whichever drains
+    (the drain's own, then the caller's) saw the open records of two writers"""
+    same, log = _drain_verify_round("dv_once")
+    assert same, log[-3000:]
+    tail = log[log.find("connected to", log.find("connected to") + 1):]   # after the reconnect
+    assert tail.count("d1_writer.jnl needs a verify") == 1, tail
+    assert tail.count("d1_writer.jnl verified (") == 1, tail
+
+
+def test_drain_verify_clean_restart_adds_no_verify():
+    """a writer that stops cleanly and a new one: nothing to recover; the new open record gets its one verify,
+    no more, and the copy is the same"""
+    same, log = _drain_verify_round("dv_clean", recovery=False)
+    assert same, log[-3000:]
+    tail = log[log.find("connected to", log.find("connected to") + 1):]
+    assert tail.count("d1_writer.jnl needs a verify") <= 1 and "again after this one" not in tail, tail
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 
 
