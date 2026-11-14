@@ -64,6 +64,7 @@ Exit code 0 when every test passes.
 #include <atomic>
 #include "gxvindex.h"
 #include "gxvset.h"
+#include "gxvmember.h"
 #include "gxvkern.h"
 #include "gxdjrnl.h"
 #include "infohog.h"
@@ -1207,6 +1208,86 @@ static void test_vector_set()
   system(("rm -rf '" + sdir + "'").c_str());
 }
 
+// 11/14/2026 (phase D item 5): the gxvmember extractor and the rebuild from members
+static void test_member_extractor()
+{
+  const unsigned dim = 8;
+  std::string dataf = path("members.gxd"), ixa = path("members_a.vix"), ixb = path("members_b.vix");
+  remove(dataf.c_str()); remove(ixa.c_str()); remove(ixb.c_str());
+  gxVectorIndex shape;
+  CHECK(shape.Create(ixa.c_str(), dim, gxvFLOAT32, gxvL2, 8, "mtest", 100) == gxv_NO_ERROR, "create a");
+  shape.Close();
+  // POD-style records: 8 bytes of text, the member at offset 8, the day at offset 8 + MemberSize()
+  gxVectorIndex probe;
+  probe.Open(ixa.c_str());
+  const unsigned msz = probe.MemberSize();
+  gxDatabase db;
+  CHECK(db.Create(dataf.c_str()) == gxDBASE_NO_ERROR, "data file");
+  std::vector<FAU_t> addr;
+  std::vector<unsigned char> mem, rec;
+  std::vector<float> v(dim);
+  for(unsigned i = 0; i < 120; i++) {
+    for(unsigned d = 0; d < dim; d++) v[d] = (float)sin(i * 0.3 + d);
+    probe.MakeMember(v.data(), mem);
+    rec.assign(8, (unsigned char)i);
+    rec.insert(rec.end(), mem.begin(), mem.end());
+    unsigned day = 20261101 + i % 7;
+    rec.insert(rec.end(), (unsigned char *)&day, (unsigned char *)&day + 4);
+    if(i % 10 == 9) memset(rec.data() + 8, 0, 4);      // no member: not in the index
+    FAU_t a = db.Alloc((__ULWORD__)rec.size());
+    db.Write(rec.data(), (__ULWORD__)rec.size(), a);
+    addr.push_back(a);
+  }
+  probe.Close();
+  // the extractor, object by object (as an incremental copy would), then deletes
+  const gxrExtractorOps *ops = gxvMemberExtractor();
+  CHECK(ops && ops->abi_version == GXR_EXTRACTOR_ABI, "extractor ops");
+  char e[256];
+  std::string cfg = "member=offset:8 tags=-,-,offset:" + std::to_string(8 + msz) + ",-";
+  void *h = ops->Open(ixa.c_str(), dataf.c_str(), cfg.c_str(), e, sizeof(e));
+  CHECK(h != 0, "extractor open: %s", e);
+  if(!h) return;
+  std::vector<unsigned char> b;
+  for(FAU_t a : addr) {
+    unsigned n = db.ObjectLength(a); b.resize(n); db.Read(b.data(), n, a);
+    CHECK(ops->Insert(h, (uint64_t)a, b.data(), n, e, sizeof(e)) == 0, "insert: %s", e);
+  }
+  CHECK(ops->Count(h) == 108, "12 records without a member are left out (%llu)", (unsigned long long)ops->Count(h));
+  for(size_t i = 0; i < addr.size(); i += 5) {
+    unsigned n = db.ObjectLength(addr[i]); b.resize(n); db.Read(b.data(), n, addr[i]);
+    CHECK(ops->Remove(h, (uint64_t)addr[i], b.data(), n, e, sizeof(e)) == 0, "remove: %s", e);
+    db.Delete(addr[i]);
+  }
+  CHECK(ops->Remove(h, 999999, 0, 0, e, sizeof(e)) == 0, "removing a node that is not there is not an error");
+  CHECK(ops->Flush(h, 1, e, sizeof(e)) == 0, "flush");
+  ops->Close(h);
+  db.Close();
+  // a rebuild from the same records: the same live nodes, and two rebuilds are the same bytes
+  gxVectorIndex like;
+  CHECK(like.Open(ixa.c_str(), gxDBASE_READONLY) == gxv_NO_ERROR, "open a");
+  unsigned long long na = 0, nb = 0, recs = 0;
+  unsigned long long da = like.LogicalDigest(&na);
+  std::string why;
+  CHECK(gxvRebuildFromMembers(dataf, ixb, like, cfg, recs, why) == 0, "rebuild: %s", why.c_str());
+  std::string ixc = path("members_c.vix");
+  CHECK(gxvRebuildFromMembers(dataf, ixc, like, cfg, recs, why) == 0, "rebuild again: %s", why.c_str());
+  like.Close();
+  gxVectorIndex rb;
+  CHECK(rb.Open(ixb.c_str(), gxDBASE_READONLY) == gxv_NO_ERROR, "open b");
+  CHECK(rb.LogicalDigest(&nb) == da && nb == na && na > 0, "rebuild = extractor (logical; %llu nodes)", na);
+  CHECK(recs == na && (rb.FeaturesOptional() & gxvOptFromMembers), "records and the members flag");
+  unsigned lo, hi;
+  CHECK(rb.TagRange(2, lo, hi) && lo == 20261101 && hi == 20261107, "day range");
+  rb.Close();
+  std::ifstream fb(ixb, std::ios::binary), fc(ixc, std::ios::binary);
+  std::string sb((std::istreambuf_iterator<char>(fb)), std::istreambuf_iterator<char>()), sc((std::istreambuf_iterator<char>(fc)), std::istreambuf_iterator<char>());
+  CHECK(!sb.empty() && sb == sc, "two rebuilds are the same bytes");
+  gxvMemberSpec sp;
+  CHECK(sp.Parse("member=offset", why) != 0 && sp.Parse("member=infohog:1 tags=a:1", why) != 0 &&
+	sp.Parse("tags=-", why) != 0 && sp.Parse("member=infohog:1 color=red", why) != 0, "bad configs refused");
+  remove(dataf.c_str()); remove(ixa.c_str()); remove(ixb.c_str()); remove(ixc.c_str());
+}
+
 static void test_merge(const ElemType &et)
 {
   const unsigned dim = 32, per = 3000;
@@ -1940,6 +2021,7 @@ int main(int argc, char **argv)
   test_format_fields();    // 11/14/2026 (phase D)
   test_phase_c_files();
   test_vector_set();
+  test_member_extractor();
   for(const ElemType &et : TYPES) test_merge(et);
   test_concurrent();
   for(const ElemType &et : TYPES) test_members(et);

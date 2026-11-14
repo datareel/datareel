@@ -34,6 +34,7 @@ Vector indexes derived from record members (gxvmember.h).
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <sstream>
 #include <vector>
 #include "gxvmember.h"
@@ -90,13 +91,13 @@ static int infohog_member(const unsigned char *rec, unsigned len, unsigned n, co
 {
   size_t off = sizeof(gxObjectHeader);
   if(len < off + 4) return 0;
-  gxUINT32 num;
+  uint32_t num;              // (the 4 bytes as stored; gxUINT32 may be a class in some builds)
   memcpy(&num, rec + off, 4);
   off += 4;
   if(n >= num) return 0;
   for(unsigned i = 0; i <= n; i++) {
     if(len - off < 4) return 0;
-    gxUINT32 l;
+    uint32_t l;
     memcpy(&l, rec + off, 4);
     off += 4;
     if(l > len - off) return 0;

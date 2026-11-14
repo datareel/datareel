@@ -808,6 +808,13 @@ def _vix_opts():
             "server": CB_OPTS["server"] + ["derived = vectors.vix", f"derived_rebuild = {rb}", "derived_delay = 1"]}
 
 
+def _gen_or_none(path):
+    try:
+        return gen_of(path)
+    except OSError:
+        return None
+
+
 def _digest(path, kind="logical"):
     r = run([os.path.join(BIN, "vix_rebuild"), "--digest", path, "--digest-kind", kind])
     assert r.returncode == 0, r.stdout
@@ -823,7 +830,7 @@ def test_derived_vix_rebuilt_on_copy():
     data; the rebuilt file is marked derived from members."""
     env = Env("vixderived", {"db": _vix_opts()})
     ws, aws = env.roots["db"]
-    w = run([os.path.join(BIN, "gxrepl_testwriter"), "vwrite", ws, "--commits", 30, "--per", 12, "--seed", 3])
+    w = run([os.path.join(BIN, "gxrepl_testwriter"), "vwrite", ws, "--commits", "30", "--per", "12", "--seed", "3"])
     assert w.returncode == 0 and "vwrite ok" in w.stdout, w.stdout
     sl = run([os.path.join(BIN, "gxrepl"), "shiplog", os.path.join(ws, ".gxrepl", "log", os.listdir(os.path.join(ws, ".gxrepl", "log"))[0])])
     assert sl.returncode == 0 and "data.gxd" in sl.stdout and "vectors.vix" not in sl.stdout, sl.stdout[-2000:]
@@ -831,9 +838,9 @@ def test_derived_vix_rebuilt_on_copy():
     env.start_client()
     try:
         end = time.time() + 60
-        while time.time() < end and gen_of(os.path.join(aws, "commit.bin")) != gen_of(os.path.join(ws, "commit.bin")):
+        while time.time() < end and _gen_or_none(os.path.join(aws, "commit.bin")) != gen_of(os.path.join(ws, "commit.bin")):
             time.sleep(0.3)
-        assert gen_of(os.path.join(aws, "commit.bin")) == gen_of(os.path.join(ws, "commit.bin")), env.logs()
+        assert _gen_or_none(os.path.join(aws, "commit.bin")) == gen_of(os.path.join(ws, "commit.bin")), env.logs()
         # behind until the copy rebuilds it: a warning, never torn
         end = time.time() + 60
         saw_warning = False
@@ -862,7 +869,7 @@ def test_derived_vix_rebuilt_on_copy():
         r = run([os.path.join(BIN, "vix_rebuild"), "--digest", os.path.join(aws, "vectors.vix")])
         assert " opt 3" in r.stdout, "the rebuilt index is not marked derived from members: " + r.stdout
         # more commits: behind (a warning) until rebuilt again, then equal again
-        w = run([os.path.join(BIN, "gxrepl_testwriter"), "vwrite", ws, "--commits", 10, "--per", 12, "--seed", 9])
+        w = run([os.path.join(BIN, "gxrepl_testwriter"), "vwrite", ws, "--commits", "10", "--per", "12", "--seed", "9"])
         assert w.returncode == 0, w.stdout
         end = time.time() + 60
         while time.time() < end and (_digest(os.path.join(aws, "vectors.vix"))[0] != _digest(os.path.join(ws, "vectors.vix"))[0]):
