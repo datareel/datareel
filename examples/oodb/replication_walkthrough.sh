@@ -110,8 +110,14 @@ REBUILDS1=$(grep -c "derived indexes rebuilt" copy.log)
 echo "full rebuilds so far: $REBUILDS1 (the first one makes the stamped indexes the copy goes on from)"
 
 step "2. A simulated fault: the copy's vectors.vix.stamp damaged"
-printf 'XXXXXXXXXXXXXXXX' | dd of="$W/copy/vectors.vix.stamp" bs=1 seek=$(( $(stat -c %s "$W/copy/vectors.vix.stamp") - 40 )) conv=notrunc 2>/dev/null
-wait_for 60 "gxrepl to see it (rebuild needed)" grep -q "rebuild needed" copy.log
+# The copy replaces its stamps (write and rename) on every apply, so a damage made just as one is replaced
+# lands on the old file and is never seen: damage the stamp again every 2 s until gxrepl reports it.
+damage() { printf 'XXXXXXXXXXXXXXXX' | dd of="$W/copy/vectors.vix.stamp" bs=1 seek=$(( $(stat -c %s "$W/copy/vectors.vix.stamp") - 40 )) conv=notrunc 2>/dev/null; }
+end=$(( $(date +%s) + 60 ))
+until grep -q "rebuild needed" copy.log; do
+  [ "$(date +%s)" -lt "$end" ] || fail "timed out waiting for: gxrepl to see it (rebuild needed)"
+  damage; sleep 2
+done
 grep "rebuild needed" copy.log | tail -1 | sed 's/^/  log: /'
 wait_for 90 "the folder rebuilt" bash -c '[ "$(grep -c "derived indexes rebuilt" copy.log)" -gt '"$REBUILDS1"' ]'
 grep "derived indexes rebuilt" copy.log | tail -1 | sed 's/^/  log: /'
