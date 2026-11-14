@@ -4812,7 +4812,7 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
       if(r.type == gxdShipOpen || r.type == gxdShipGap) {
 	verify = true;
 	if(!test_off("GXREPL_TEST_NO_DRAIN_VERIFY"))
-	  note_verify(set, s.name, r.type == gxdShipOpen ? "a writer's open record" : "a gap record");
+	  note_verify(set, s.name, r.type == gxdShipOpen ? "a writer's open record" : "a gap record", r.lsn);
       }
     }
     unsigned long long lsn = 0;
@@ -4838,15 +4838,18 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
 // generation.
 // A stream already on the list and being verified right now (a drain inside its own verify's file syncs) is
 // verified once more after this one: files compared earlier in this verify may predate the recovery.
-void gxReplClient::note_verify(const std::string &set, const std::string &stream, const char *why)
+void gxReplClient::note_verify(const std::string &set, const std::string &stream, const char *why,
+			       unsigned long long lsn)
 {
   auto &vl = verify_streams[set];
   if(std::find(vl.begin(), vl.end(), stream) == vl.end()) {
     glog("set %s: stream %s needs a verify (%s)", set.c_str(), stream.c_str(), why);
     vl.push_back(stream);
   }
-  else if(verifying[set] == stream && verify_again[set].insert(stream).second)
-    glog("set %s: stream %s needs a verify again after this one (%s)", set.c_str(), stream.c_str(), why);
+  // 11/14/2026 (review): during the stream's own verify, the records up to the position it started from are the
+  // ones it is catching up on (a burst of writer restarts): only a record past it asks for another verify
+  else if(verifying[set] == stream && lsn > verify_from[set] && verify_again[set].insert(stream).second)
+    glog("set %s: stream %s needs a verify again after this one (%s at record %llu)", set.c_str(), stream.c_str(), why, lsn);
 }
 
 int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::string &set,
@@ -4934,12 +4937,14 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
 	std::vector<gxdShipRecordView> rv;
 	if(gxdParseShipRecords(res.update.records.data(), res.update.records.size(), rv) == 0) {
 	  for(auto &r : rv)
-	    if(r.type == gxdShipOpen || r.type == gxdShipGap) {
-	      note_verify(set, cover->name, r.type == gxdShipOpen ? "a writer's open record in a file update" : "a gap record in a file update");
+	    if((r.type == gxdShipOpen || r.type == gxdShipGap) &&
+	       (verifying[set] != cover->name || r.lsn > verify_from[set])) {
+	      note_verify(set, cover->name, r.type == gxdShipOpen ? "a writer's open record in a file update" : "a gap record in a file update",
+			  r.lsn);
 	      break;
 	    }
 	}
-	else note_verify(set, cover->name, "a file update's records could not be read");
+	else note_verify(set, cover->name, "a file update's records could not be read", res.update.lsn);
       }
       if(cover) { cs.name = res.update.stream; cs.log_id = res.update.log_id; cs.lsn = res.update.lsn; }
       st.pieces_sent += res.sent;
@@ -5095,6 +5100,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     if(!s) { it = vlist.erase(it); continue; }
     if(!have_sm) { if(src.Manifest(sc.name, sm, err) != 0) return -1; have_sm = true; }
     verifying[sc.name] = s->name;                 // 11/14/2026: see note_verify()
+    verify_from[sc.name] = s->next_lsn ? s->next_lsn - 1 : 0;
     int synced = 0, failed = 0;
     // 11/10/2026: the commit blocks last, and only when every other file of
     // the stream is in step: the copy's unit is "copying" until then
@@ -6135,6 +6141,7 @@ int gxReplClient::Run(bool once, const std::string &only_set, std::string &err)
       verify_streams[sc.name];   // Each set's thread then only looks its own entry up
       verifying[sc.name];        // 11/14/2026 (review F1): likewise, so no thread inserts a key while others look
       verify_again[sc.name];
+      verify_from[sc.name];
     }
   }
   int backoff = 1;
