@@ -46,6 +46,7 @@ Vector index sets (gxvset.h).
 #include <unistd.h>
 #endif
 #include "gxvset.h"
+#include <set>
 #include "gxcrc32.h"
 
 namespace datareel {
@@ -153,6 +154,7 @@ gxvError gxVectorSet::Parse(const std::string &text)
   std::string line;
   int have_set = 0, have_version = 0, have_spec = 0, have_dim = 0, have_elem = 0, have_metric = 0, ln = 0;
   files.clear();
+  std::set<std::string> seen;
   while(std::getline(in, line)) {
     ln++;
     if(!line.empty() && line.back() == '\r') line.pop_back();
@@ -212,7 +214,7 @@ gxvError gxVectorSet::Parse(const std::string &text)
 	else return bad("unknown field " + k2);
       }
       if(got != 15) return bad("a file line needs nodes, deleted, tag2 and crc");
-      for(auto &o : files) if(o.path == f.path) return bad("listed twice: " + f.path);
+      if(!seen.insert(f.path).second) return bad("listed twice: " + f.path);   // 11/14/2026 (7.4 scan S3): O(log n)
       files.push_back(f);
     }
     else return bad("unknown line " + key);

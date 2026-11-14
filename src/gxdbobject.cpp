@@ -251,7 +251,22 @@ int gxObjectService::vector_request(Db *d, uint8_t op, const std::vector<unsigne
 				    std::vector<unsigned char> &reply, std::string &err)
 {
   if(d->cfg.vectors.empty()) { err = "no vector index"; return -1; }
-  // The copy's apply lock first (a reader never sees a half-applied batch), then the set
+  // 11/14/2026 (7.4 scan S2): a search takes its slot (at most vec_max at once, one more waits up to 5 s) BEFORE
+  // the copy's apply lock: waiting for a slot while holding the read lock let a burst of searches keep the copy's
+  // applies "busy"
+  struct Slot {
+    gxObjectService *s = 0;
+    ~Slot() { if(s) { std::lock_guard<std::mutex> g(s->vec_m); s->vec_running--; s->vec_cv.notify_one(); } }
+  } slot;
+  unsigned slot_threads = 1;
+  if(op == gxOBJ_VECTOR_SEARCH) {
+    std::unique_lock<std::mutex> g(vec_m);
+    if(!vec_cv.wait_for(g, std::chrono::seconds(5), [&] { return vec_running < vec_max; })) { err = "busy"; return -1; }
+    vec_running++;
+    slot.s = this;
+    slot_threads = vec_threads;
+  }
+  // The copy's apply lock (a reader never sees a half-applied batch), then the set
   gxdJournalReadLock rl;
   if(!d->vec_apply_journal.empty() && access(d->vec_apply_journal.c_str(), F_OK) == 0 &&
      rl.Lock(d->vec_apply_journal.c_str()) != gxDBASE_NO_ERROR) {
@@ -315,14 +330,7 @@ int gxObjectService::vector_request(Db *d, uint8_t op, const std::vector<unsigne
   o.day_range = (flags & 1) ? 1 : 0;
   o.day_lo = dlo; o.day_hi = dhi;
   o.strict = (flags & 2) ? 1 : 0;
-  // At most vec_max searches at once: one more waits up to 5 s
-  {
-    std::unique_lock<std::mutex> g(vec_m);
-    if(!vec_cv.wait_for(g, std::chrono::seconds(5), [&] { return vec_running < vec_max; })) { err = "busy"; return -1; }
-    vec_running++;
-    o.threads = vec_threads;
-  }
-  struct Slot { gxObjectService *s; ~Slot() { std::lock_guard<std::mutex> g(s->vec_m); s->vec_running--; s->vec_cv.notify_one(); } } slot{this};
+  o.threads = slot_threads;                       // the slot was taken before the apply lock (S2)
 #ifdef GXREPL_TEST_HOOKS
   if(const char *ms = getenv("GXDB_VECTOR_TEST_HOLD_MS")) std::this_thread::sleep_for(std::chrono::milliseconds(atoi(ms)));
 #endif
