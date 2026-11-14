@@ -73,6 +73,25 @@ Database replication over gxStream. See gxrepl.h. POSIX only.
 
 namespace datareel {
 
+#if defined(GXREPL_TEST_HOOKS)
+extern GXDLCODE_API std::atomic<int> gxdJournalTestCrashNext;   // gxdjrnl.cpp
+// 11/14/2026 (test builds): GXREPL_TEST_CRASH_IN_APPLY=log:N or files:N: the server ends inside its Nth ApplyLog
+// or ApplyFiles batch, after the apply journal has it and before its pages reach the files
+static thread_local const char *apply_kind = "";
+static void test_crash_in_apply()
+{
+  const char *e = getenv("GXREPL_TEST_CRASH_IN_APPLY");
+  if(!e) return;
+  std::string v(e);
+  size_t c = v.find(':');
+  if(c == std::string::npos || v.compare(0, c, apply_kind) != 0) return;
+  static std::atomic<long> seen_log(0), seen_files(0);
+  long n = atol(v.c_str() + c + 1);
+  long k = strcmp(apply_kind, "log") == 0 ? ++seen_log : ++seen_files;
+  if(k == n) gxdJournalTestCrashNext = 1;
+}
+#endif
+
 // ---------------- Small helpers ----------------
 
 static long long now_s() { return (long long)time(0); }
@@ -2193,6 +2212,9 @@ int gxReplLocal::apply_batch(SetState_ *s,
   for(size_t i = 0; i < af.size(); i += 1000) {
     std::vector<gxdApplyFile> part(af.begin() + i, af.begin() + std::min(af.size(), i + 1000));
     unsigned long long n = 0;
+#if defined(GXREPL_TEST_HOOKS)
+    test_crash_in_apply();
+#endif
     gxDatabaseError rc = gxdJournal::ApplyPages(jname.c_str(), part, &n);
     if(rc != gxDBASE_NO_ERROR) {
       err = std::string("apply failed: ") + gxDatabaseExceptionMessage(rc);
@@ -2408,6 +2430,9 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
 			  const std::vector<unsigned char> &records,
 			  unsigned long long &lsn, std::string &err)
 {
+#if defined(GXREPL_TEST_HOOKS)
+  apply_kind = "log";
+#endif
   SetState_ *s = set_state(set, err);
   if(!s) return -1;
   std::lock_guard<std::mutex> g(s->m);
@@ -2447,6 +2472,9 @@ int gxReplLocal::ApplyFiles(const std::string &set,
 			    const std::vector<gxReplFileUpdate> &v,
 			    std::vector<int> &results, std::string &err)
 {
+#if defined(GXREPL_TEST_HOOKS)
+  apply_kind = "files";
+#endif
   results.assign(v.size(), 1);
   SetState_ *s = set_state(set, err);
   if(!s) return -1;
