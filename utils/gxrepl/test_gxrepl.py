@@ -4246,19 +4246,37 @@ def test_incremental_writer_restarts_keep_the_stamps():
         w.wait(120)
         _finish(env, ws, aws, w)
         _wait_stamped(env, aws, "d1")
+        def verifies():
+            return open(os.path.join(env.dir, "client.log")).read().count("d1_writer.jnl verified (")
+        # 11/14/2026 (review, drain-verify (c)): every writer open gets its verify (the protocol's rule), and the test
+        # writer's open can change data.gxd outside its journal, so a verify may copy by files: one rebuild. One
+        # restart: exactly one verify and at most one rebuild (none when the verify finds nothing to copy).
+        time.sleep(3)
+        v1, r1 = verifies(), _rebuilds(env)
+        r = _objects_writer(os.path.join(ws, "d1"), "--commits", 3, "--per", 6, "--commit-block", "--ship-root", ws,
+                            "--seed", 299)
+        assert r.returncode == 0, r.stdout
+        _wait_gen(ws, aws, "d1", 90)
+        _wait_stamped(env, aws, "d1")
+        time.sleep(3)
+        assert verifies() - v1 == 1 and _rebuilds(env) - r1 <= 1, f"one restart: {verifies() - v1} verifies, " \
+            f"{_rebuilds(env) - r1} rebuilds\n" + env.logs()
         n0 = _rebuilds(env)
+        nv0 = verifies()
         for i in range(8):
             r = _objects_writer(os.path.join(ws, "d1"), "--commits", 3, "--per", 6, "--commit-block", "--ship-root", ws,
                                 "--seed", 300 + i)
             assert r.returncode == 0, r.stdout
             _wait_gen(ws, aws, "d1", 90)
         _wait_stamped(env, aws, "d1")
+        time.sleep(3)
         log = open(os.path.join(env.dir, "server.log")).read()
         print(f"    8 writer restarts: {_rebuilds(env) - n0} rebuilds, {log.count('rebuild needed')} rebuild needed", flush=True)
         assert "is stamped at" not in log, env.logs()                 # the records' index step ran
-        # the test writer's open can change data.gxd outside its journal (a verify fill: the accepted cost of one
-        # rebuild); osa_ingest's never does (the replayed real day: 1 rebuild in 92 restarts)
-        assert _rebuilds(env) - n0 <= 1, env.logs()
+        # at most one verify and one rebuild per restart (8 restarts); osa_ingest's open never changes the files
+        # outside its journal (the replayed real day: 1 rebuild in 92 restarts)
+        assert verifies() - nv0 <= 8 and _rebuilds(env) - n0 <= 8, \
+            f"8 restarts: {verifies() - nv0} verifies, {_rebuilds(env) - n0} rebuilds\n" + env.logs()
         check_db(os.path.join(aws, "d1"))
     finally:
         if w.poll() is None: w.kill(); w.wait()
