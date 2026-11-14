@@ -263,9 +263,8 @@ HTTP, URL, SMTP, POP3, FTP) and the rest of the 6.x-only modules
 SysTime, Terminal). gxStream servers now need client certificates, or
 an explicit AllowAnonymousClients(true). The file formats are
 unchanged. The shared library is built as libdatareel.so.6.3.1;
-recompile and relink. Tested on Linux (RHEL 10.2) only; the Windows
-build, including Schannel, has not been compiled. See
-RELEASE_NOTES_6.3.1.txt.
+recompile and relink. Tested on RHEL 10.2 and on Windows 11 with
+Visual Studio 2026 (Schannel and OpenSSL). See RELEASE_NOTES_6.3.1.txt.
 
 VERSION 6.3
 -----------

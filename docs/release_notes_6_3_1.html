@@ -38,13 +38,14 @@
 <li>gxSSL: handshake timeout (SetHandshakeTimeout(), 60 s), close_notify sent once (a silent peer hung CloseSSLSocket() and the destructor), buffered TLS bytes seen by timed reads, SIGPIPE, VerifyCert() checks the alternative names and IP addresses (X509_check_host()), MakeCertReq() file leaks and day overflow.</li>
 <li>gxStream: block lengths from the peer are checked against SetMaxBlockSize() (64 MB) before RequestBlock() allocates and before ReadBlock() reads; new sized ReadBlock()/ReadRemoteBlock(); negative and over-INT_MAX writes refused; new WriteResultBlock64()/ ReadResultBlock64().</li>
 <li>gxDatagram (UDP): the same block length checks, sized reads and write checks as gxStream (SetMaxBlockSize(), gxDATAGRAM_DEF_MAX_BLOCK). UDP has no peer authentication.</li>
-<li>Schannel (Windows): receive buffers capped at 256 KB; mutual TLS ported from 7.3.1. NOT COMPILED OR TESTED (see TESTED PLATFORMS).</li>
+<li>Schannel (Windows): receive buffers capped at 256 KB; mutual TLS ported from 7.3.1; built and tested on Windows 11 (see TESTED PLATFORMS).</li>
 <li>gxsHTTPClient: no fixed stack buffers in the header parser, fields matched at the start of a line, strict status line and Content-Length, control characters refused, header (256 KB) and body (1 GB, SetMaxBodySize()) limits, the body offset of a header that spans packets, no CR LF from a URL into the request.</li>
 <li>gxsURL: table bounds, ports 1-65535, control characters refused, safe % decoding, new HasControlChars() and DecodeStrict().</li>
 <li>gxsSMTPClient: command buffer overflow, CR LF in commands refused, addresses normalized to &lt;user@host&gt; (parameter injection), multi-line replies, dot-stuffing and CR LF line ends in the body (SMTP smuggling), header injection in To/From/Subject.</li>
 <li>gxsPOP3Client: &quot;+OK&quot; must start the status line (a &quot;-ERR ... +OK&quot; reply was a login), command overflow, buffer bounds.</li>
 <li>gxsFTPClient: PASV parser, the data connection goes to the control connection&#x27;s address (not the address the server names), command and buffer overflows, multi-line replies.</li>
 <li>ParseServiceFileEntry() stack overflow, InChecksum16() overflow; socket example overflows and endless loops.</li>
+<li>Examples: the socket_cache server did not compile (a void function returned a value in the new serial block check); the ssl_server example stopped on Schannel builds, which need no DH file and cannot make keys (it now asks for a key and certificate made with openssl); the security_sweep test did not build for x86 (ambiguous MemoryBuffer index).</li>
 <li>Checked and not applicable to 6.x: the 7.3.1 redirect fix (the 6.x HTTP client reports Location but never follows a redirect, and has no custom header API), the FTPS data channel check (6.x FTP has no TLS: it is plaintext), the https_server path mapping (the 6.x http_server example serves a fixed page).</li>
 </ul>
 <h2>6.x-only Modules</h2>
@@ -58,8 +59,16 @@
 <li>Reviewed, no change: the thread pool, gxThread, the thread API wrapper, the database file cache, the binary search tree iterator, ASPrint, gxsXML and gxsRSS (fuzzed).</li>
 </ul>
 <h2>Tested Platforms</h2>
-<p>DataReel 6.3.1 was tested on Linux only: RHEL 10.2 (gcc 14, OpenSSL 3.x), 32-bit and 64-bit database engines. The Windows build, including the Schannel TLS code and the gxStream mutual TLS on Schannel, has NOT been compiled or tested for 6.3.1 (the 6.3 database code passed its Windows tests on 11/06/2026). Build and test on Windows before using 6.3.1 there.</p>
-<p>Results on RHEL 10.2: the library builds with no warnings; examples_database/run_db_tests.sh passes 33 of 33 on each engine; the eight database examples write files byte-identical to 6.2, and files created by 6.2 and reopened by 6.3.1 stay identical; 16 libFuzzer targets ran 5 minutes each with no errors; gcc -fanalyzer is clean on the changed files.</p>
+<p>Linux: RHEL 10.2 (gcc 14, OpenSSL 3.x), 32-bit and 64-bit database engines. The library builds with no warnings; all 73 example and utility directories build; examples_database/run_db_tests.sh passes 33 of 33 on each engine; the eight database examples write files byte-identical to 6.2, and files created by 6.2 and reopened by 6.3.1 stay identical; 16 libFuzzer targets ran 5 minutes each with no errors; gcc -fanalyzer is clean on the changed files.</p>
+<p>Windows: Windows 11, Visual Studio 2026 (MSVC 19.52), 11/14/2026.</p>
+<ul>
+<li>winslib (nmake, FINAL=1) builds with native Schannel (USESSL=0, the default) and with OpenSSL 3.5.9 (USESSL=1), for x64 with the 64-bit and the 32-bit database engine and for x86.</li>
+<li>examples_database\run_db_tests.bat passes 27 of 27 on x64 (both engines) and on x86 (Schannel builds).</li>
+<li>CMake builds with DATAREEL_SSL=SCHANNEL (x64 and Win32) and DATAREEL_SSL=OPENSSL (x64) build the library and 29 socket example programs with no errors or warnings.</li>
+<li>gxStream mutual TLS (the socket_cache example, 9 cases: allowed client by fingerprint and by CN; no client certificate, plain client, a certificate not in the allow list and a self-signed certificate with an allowed CN refused; a server without client authentication refuses to start; --open plain and --open TLS work) passes 9 of 9 with Schannel x64, Schannel Win32 and OpenSSL x64.</li>
+<li>echo, simple, multi-threaded, HTTP and HTTPS (ssl_server and https_client), host info, and the SMTP, POP3 and FTP clients (against local mock servers: mail sent, mailbox listed and read, FTP passive download and upload) work with all three builds.</li>
+<li>The UNIX-only security tests (socket, SSL, stream and protocol; they use fork()) are not run on Windows; serial and ping were not run (no COM port; raw sockets need administrator rights).</li>
+</ul>
 <h2>Tests</h2>
 <p>examples_database/run_db_tests.sh now also builds and runs examples_general/print_security (new), examples_socket/socket_security, ssl_security, stream_security (with the gxDatagram checks) and proto_security. The TLS checks make throwaway certificates with the openssl program and use 127.0.0.1. libFuzzer targets (clang): examples_general/fuzz (cfg, str, b64, html, xml, rss, rdbdef, rdbrec, dfile, membuf, misc), examples_socket/fuzz (fuzz_proto), examples_socket/stream_fuzz and examples_database/fuzz.</p>
 <p>DataReel Copyright (c) 2001-2026 DataReel Software Development</p>
