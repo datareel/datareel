@@ -596,6 +596,11 @@ gxDatabaseError gxdJournal::Commit(int durable)
     // 11/07/2026: The commit is in the journal. Append it to the ship
     // log under the write lock, before its pages reach the files, so a
     // reader holding gxdJournalReadLock sees files that match the log.
+#if defined(GXREPL_TEST_HOOKS) && !defined(_WIN32)
+    // 11/14/2026: test builds: GXDJRNL_TEST_KILL_BEFORE_SHIP: stop the writer with its batch committed in the
+    // journal but not yet in the ship log (the next writer's recovery replays it: the drain-verify test)
+    if(ship && dirty && getenv("GXDJRNL_TEST_KILL_BEFORE_SHIP")) _exit(9);
+#endif
     if(ship && dirty) ship_commit(shipped);
     for(size_t i = 0; i < files.size(); i++) {
       gxdPageCache *pc = files[i].f->PageCache();
@@ -609,6 +614,11 @@ gxDatabaseError gxdJournal::Commit(int durable)
     if(dirty && write_lock) gxdFPTRUnlock(jfp);
   }
   else {
+#if defined(GXREPL_TEST_HOOKS) && !defined(_WIN32)
+    // 11/14/2026: test builds: GXDJRNL_TEST_KILL_BEFORE_SHIP: stop the writer with its batch committed in the
+    // journal but not yet in the ship log (the next writer's recovery replays it: the drain-verify test)
+    if(ship && dirty && getenv("GXDJRNL_TEST_KILL_BEFORE_SHIP")) _exit(9);
+#endif
     if(ship && dirty) ship_commit(shipped);
     for(size_t i = 0; i < files.size(); i++)
       files[i].f->PageCache()->CommitTxn();

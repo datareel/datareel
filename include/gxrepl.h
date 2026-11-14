@@ -717,6 +717,8 @@ private:
 		gxReplSetStatus &st, std::string &err);
   int sync_set(gxReplSource &src, gxReplTarget &tgt,
 	       const gxReplSetConfig &sc, bool once, std::string &err);
+  // 11/14/2026: a stream that needs a verify (logged once)
+  void note_verify(const std::string &set, const std::string &stream, const char *why);
   int sync_file(gxReplSource &src, gxReplTarget &tgt, const std::string &set,
 		const std::string &path, const gxReplStream *cover,
 		gxReplSetStatus &st, std::string &err);
@@ -743,6 +745,9 @@ private:
   std::mutex status_write_lock;             // 11/08/2026: sets write the status from their threads
   std::map<std::string, gxReplSetStatus> status;
   std::map<std::string, std::vector<std::string> > verify_streams;
+  // 11/14/2026: the stream each set is verifying now, and streams to verify again (note_verify())
+  std::map<std::string, std::string> verifying;
+  std::map<std::string, std::set<std::string> > verify_again;
   long long connected_since = 0;
   std::string peer;
 };
