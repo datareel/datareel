@@ -2269,16 +2269,22 @@ static bool fill_copying(const std::string &seal)
 // 11/10/2026 (review): the seals of a ship log apply, in its transaction:
 // - a unit whose last changing record lacked its commit block: "copying-log"
 //   (its data is past its commit block; torn until a record carries it);
-// - a unit whose commit block came (allow()): "log G L S" (generation, lsn,
-//   stream);
-// - every other unit sealed "log G L S" by this stream: L moves to "lsn" (an
+// - a unit whose commit block came (allow()): "log G L S C" (generation, lsn,
+//   stream, and C, 11/14/2026: the last record that changed this unit, here L);
+// - every other unit sealed "log G L S C" by this stream: L moves to "lsn" (an
 //   open or gap record changes no data), so a seal's L always equals the
-//   stream's applied lsn and promote-check can compare them.
+//   stream's applied lsn and promote-check can compare them; C stays (11/14/2026,
+//   seal per folder: the unit's derived indexes, stamped at C, stay current
+//   while the stream's other folders change). Readers before C ignore it; a seal
+//   without C reads as C = L.
+// fresh (11/14/2026, seal per folder review 2): units not in step with the stream (a first fill, a new log id:
+// its lsn numbering starts again): their last change is this record, never one kept from an older numbering
 static int add_unit_seals(const gxReplSetConfig &sc, const std::string &root, PageBatch &batch,
 			  unsigned long long lsn, const std::string &stream,
 			  const std::map<std::string, bool> &unit_cb,
 			  std::deque<std::string> &seals, std::string &err,
-			  const std::function<bool(const std::string &)> &allow)
+			  const std::function<bool(const std::string &)> &allow,
+			  const std::set<std::string> *fresh = 0)
 {
   if(sc.commit_block.empty()) return 0;
   std::vector<std::pair<std::string, std::string> > add;
@@ -2298,8 +2304,32 @@ static int add_unit_seals(const gxReplSetConfig &sc, const std::string &root, Pa
     uint64_t g = 0;
     memcpy(&g, pg->second + sc.commit_gen_offset, 8);
     if(g & 1) continue;                              // a block inside a batch: never a seal
+    // 11/14/2026 (seal per folder): the 4th field is the last record that changed THIS folder (here: this batch),
+    // unless the batch only re-sent the folder as it was sealed (a verify after a writer's open or a gap: the same
+    // commit block generation, sealed by this stream, and no page of the folder's other files): then its last
+    // change stays, and so do its derived indexes
+    unsigned long long changed_at = lsn;
+    {
+      const std::string unit = dir_of(rel);
+      FILE *sf = fopen((root + "/.gxrepl/units/" + unit_key(unit)).c_str(), "rb");
+      char sname[256] = {0}; unsigned long long og = 0, ol = 0, oc = 0;
+      int got = sf ? fscanf(sf, "log %llu %llu %255s %llu", &og, &ol, sname, &oc) : 0;
+      if(sf) fclose(sf);
+      unsigned long long kept = got >= 4 ? oc : ol;
+      if(got >= 3 && og == (unsigned long long)g && stream == sname && ol <= lsn && kept <= lsn &&
+	 !(fresh && fresh->count(unit))) {
+	bool pages = false;
+	for(auto &o : batch) {
+	  if(o.first.compare(0, root.size() + 1, root + "/") != 0) continue;
+	  std::string orel = o.first.substr(root.size() + 1);
+	  if(dir_of(orel) != unit || base_of(orel) == sc.commit_block || is_derived(sc, orel)) continue;
+	  if(!o.second.second.empty()) { pages = true; break; }
+	}
+	if(!pages) changed_at = kept;
+      }
+    }
     add.push_back(std::make_pair(dir_of(rel), "log " + std::to_string((unsigned long long)g) + " " +
-				 std::to_string(lsn) + " " + stream + "\n"));
+				 std::to_string(lsn) + " " + stream + " " + std::to_string(changed_at) + "\n"));
     done.insert(dir_of(rel));
   }
   // carry forward: this stream's other "log" seals follow its lsn
@@ -2312,14 +2342,18 @@ static int add_unit_seals(const gxReplSetConfig &sc, const std::string &root, Pa
       if(n.empty() || n[0] != '_') continue;
       FILE *f = fopen((ud + "/" + n).c_str(), "rb");
       if(!f) continue;
-      char sname[256] = {0}; unsigned long long g = 0, l = 0;
-      int got = fscanf(f, "log %llu %llu %255s", &g, &l, sname);
+      char sname[256] = {0}; unsigned long long g = 0, l = 0, c = 0;
+      int got = fscanf(f, "log %llu %llu %255s %llu", &g, &l, sname, &c);
       fclose(f);
-      if(got != 3 || stream != sname || l == lsn) continue;
+      if(got < 3 || stream != sname || l == lsn) continue;
+      if(got < 4) c = l;          // 11/14/2026: a seal from before the 4th field: changed at most at its lsn
+      if(c > lsn) c = lsn;        // review 2: never past the stream's position (another numbering)
       std::string unit = n == "_root" ? std::string() : n.substr(1);
-      for(auto &c : unit) if(c == '#') c = '/';
+      for(auto &ch : unit) if(ch == '#') ch = '/';
       if(done.count(unit)) continue;
-      add.push_back(std::make_pair(unit, "log " + std::to_string(g) + " " + std::to_string(lsn) + " " + stream + "\n"));
+      // 11/14/2026 (seal per folder): the stream's position moves on, the folder's own last change stays
+      add.push_back(std::make_pair(unit, "log " + std::to_string(g) + " " + std::to_string(lsn) + " " + stream + " " +
+				   std::to_string(c) + "\n"));
     }
     if(d) closedir(d);
   }
@@ -2471,7 +2505,45 @@ int gxReplLocal::ApplyFiles(const std::string &set,
 	    if(filling.count(u)) return false;
 	    if(cb_units.count(u)) return true;
 	    return !fill_copying(read_seal(s->root, u));
-	  }) != 0) return -1;
+	  }, &not_in_step) != 0) return -1;
+    }
+    // 11/14/2026 (seal per folder): a verify that repairs an in-step unit's data (pieces of its other files, in
+    // step with its stream) changed the folder at the stream's position, even when its commit block (the same
+    // generation) comes in another apply: the seal's 4th field moves there, so its derived indexes are rebuilt
+    // review 1: a size change alone (the copy's file longer than the source's: cut) is a change too
+    // review 3: the position is of the update's stream; a unit the seal says another stream feeds (or two streams
+    // here) gets C = L, never an lsn of another numbering
+    struct Touch { unsigned long long lsn = 0; std::string stream; bool mixed = false; };
+    std::map<std::string, Touch> touched;
+    for(size_t i = 0; i < v.size(); i++) {
+      if(results[i] != 0 || v[i].stream.empty()) continue;
+      if(base_of(v[i].path) == s->sc.commit_block || is_derived(s->sc, v[i].path)) continue;
+      std::string u = dir_of(v[i].path);
+      if(filling.count(u) || cb_units.count(u) || staged_now[u]) continue;
+      bool change = !v[i].pieces.empty();
+      if(!change) {
+	struct stat fst;
+	change = stat(fulls[i].c_str(), &fst) == 0 && (unsigned long long)fst.st_size != v[i].size;
+      }
+      if(!change) continue;
+      Touch &t = touched[u];
+      if(!t.stream.empty() && t.stream != v[i].stream) t.mixed = true;
+      t.stream = v[i].stream;
+      if(v[i].lsn > t.lsn) t.lsn = v[i].lsn;
+    }
+    for(auto &tt : touched) {
+      auto &t = tt;
+      std::string key = s->root + "/.gxrepl/units/" + unit_key(t.first), body;
+      auto pend = batch.find(key);
+      if(pend != batch.end() && pend->second.second.count(0))
+	body.assign((const char *)pend->second.second.at(0), pend->second.first);
+      else body = read_small(key);
+      char sname[256] = {0}; unsigned long long g = 0, l = 0, c = 0;
+      if(sscanf(body.c_str(), "log %llu %llu %255s %llu", &g, &l, sname, &c) < 3) continue;   // not log sealed
+      unsigned long long at = t.second.lsn;
+      if(t.second.mixed || t.second.stream != sname || at > l) at = l;
+      put_seal(batch, s->root, t.first, "log " + std::to_string(g) + " " + std::to_string(l) + " " + sname + " " +
+	       std::to_string(at) + "\n", seals);
     }
   }
   // 11/12/2026 (F7): a staged unit whose commit block arrives here, even (one whole commit), is swapped in, in the
@@ -2751,6 +2823,21 @@ int gxReplLocal::Delete(const std::string &set, const std::vector<std::string> &
     dirs.insert(dir.size() >= s->root.size() ? dir : s->root);
   }
   for(auto &d : dirs) sync_dir(d);
+  // 11/14/2026 (seal per folder review 1): a file of a log-sealed folder deleted (the same generation): the folder
+  // changed at the stream's position, so C = L (its derived indexes are rebuilt)
+  if(!s->sc.commit_block.empty()) {
+    std::set<std::string> units;
+    for(auto &p : paths) if(base_of(p) != s->sc.commit_block && !is_derived(s->sc, p)) units.insert(dir_of(p));
+    for(auto &u : units) {
+      std::string key = s->root + "/.gxrepl/units/" + unit_key(u), body = read_small(key);
+      char sname[256] = {0}; unsigned long long g = 0, l = 0, c = 0;
+      int got = sscanf(body.c_str(), "log %llu %llu %255s %llu", &g, &l, sname, &c);
+      if(got < 3 || (got >= 4 && c == l)) continue;
+      if(write_atomic(key, "log " + std::to_string(g) + " " + std::to_string(l) + " " + sname + " " + std::to_string(l) + "\n") != 0) {
+	err = "cannot write the seal of " + u; return -1;
+      }
+    }
+  }
   // 11/13/2026: a unit whose last copied file went (its source folder is gone): the rest of its folder goes too
   // (only on a node that is purely the set's copy: review)
   bool pure_copy = cfg.role == "server" ? s->sc.accept == "target" : s->sc.direction == "pull";
@@ -4264,6 +4351,21 @@ static std::string derived_state_path(const gxReplSetConfig &sc, const std::stri
 }
 
 // 11/10/2026: the lsn of the ship log record that last sealed a unit ("log G L"), 0 if the ship log did not
+// 11/14/2026 (seal per folder): the last ship log record that changed the folder (the seal's 4th field; a seal
+// from before it: its lsn), 0 if the folder is not sealed by the log. Its derived indexes are current when they
+// were built at this record, whatever records of the stream's other folders came after.
+static unsigned long long unit_changed_lsn(const gxReplSetConfig &sc, const std::string &rel)
+{
+  FILE *f = fopen((sc.root + "/.gxrepl/units/" + unit_key(rel)).c_str(), "rb");
+  if(!f) return 0;
+  unsigned long long g = 0, l = 0, c = 0;
+  char sname[256] = {0};
+  int got = fscanf(f, "log %llu %llu %255s %llu", &g, &l, sname, &c);
+  fclose(f);
+  if(got < 2) return 0;
+  return got >= 4 ? c : l;
+}
+
 static unsigned long long unit_log_lsn(const gxReplSetConfig &sc, const std::string &rel, unsigned long long *gen = 0)
 {
   FILE *f = fopen((sc.root + "/.gxrepl/units/" + unit_key(rel)).c_str(), "rb");
@@ -4288,7 +4390,7 @@ static bool derived_stamp_ok(const gxReplSetConfig &sc, const std::string &rel, 
   if(got != 4) { why = "a damaged derived.stamp"; return false; }
   if(g != gen) { why = "stamped at generation " + std::to_string(g) + ", the copy is at " + std::to_string((unsigned long long)gen); return false; }
   if(n != k) { why = "stamped with " + std::to_string(k) + " keys for " + std::to_string(n) + " records"; return false; }
-  unsigned long long sl = unit_log_lsn(sc, rel);
+  unsigned long long sl = unit_changed_lsn(sc, rel);   // 11/14/2026 (seal per folder): not the stream's position
   if(sl && l != sl) { why = "stamped at ship log record " + std::to_string(l) + ", the copy applied " + std::to_string(sl); return false; }
   return true;
 }
@@ -4409,7 +4511,7 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
     q += "'";
     for(size_t at; (at = cmd.find("{dir}")) != std::string::npos; ) cmd.replace(at, 5, q);
     // 11/10/2026: {lsn}: the ship log record the folder was sealed at (0 if none), for the stamp
-    std::string ls = std::to_string(unit_log_lsn(sc, rel));
+    std::string ls = std::to_string(unit_changed_lsn(sc, rel));   // 11/14/2026 (seal per folder)
     for(size_t at; (at = cmd.find("{lsn}")) != std::string::npos; ) cmd.replace(at, 5, ls);
     int rc = run_quiet(cmd);
     flock(lk, LOCK_UN);

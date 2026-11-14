@@ -1933,7 +1933,7 @@ def test_commit_block_records_without_block_are_torn():
         t = torn(env)
         assert t.returncode == 0, t.stdout
         s = open(seal).read().split()
-        assert s[0] == "log" and len(s) == 4, s
+        assert s[0] == "log" and len(s) == 5, s   # 11/14/2026: "log G L S C" (seal per folder)
         # records without the commit block (the old format)
         assert writer(ws, "--commits", 3, "--commit-block", "--old-ship-format", "--seed", 62).returncode == 0
         wait_status(env, lambda st: st["sets"]["db"]["streams"] and
@@ -3640,6 +3640,151 @@ def test_derived_index_rebuilt_on_copy():
             time.sleep(0.5)
         t = torn(env)
         assert t.returncode == 1 and "failed" in t.stdout, t.stdout
+    finally:
+        env.stop()
+
+
+def _seal_fields(aws, unit):
+    with open(os.path.join(aws, ".gxrepl", "units", "_" + unit.replace("/", "#"))) as f:
+        return f.read().split()
+
+
+def _rebuilds_of(env, unit):
+    log = open(os.path.join(env.dir, "server.log")).read()
+    return log.count(f": {unit}: derived indexes rebuilt")
+
+
+def _wait_caught_up(env, timeout=60):
+    wait_status(env, lambda s: s["sets"]["db"]["streams"] and
+                all(x["lag"] == 0 for x in s["sets"]["db"]["streams"].values()), timeout)
+
+
+def _wait_indexes(env, timeout=60):
+    end = time.time() + timeout
+    while time.time() < end and "INDEXES" in torn(env).stdout:
+        time.sleep(0.5)
+    t = torn(env)
+    assert t.returncode == 0 and "INDEXES" not in t.stdout, t.stdout + env.logs()
+
+
+def test_derived_seal_per_folder():
+    """11/14/2026 (seal per folder, review finding 1 on the per-object apply): one ship log stream feeds two
+    folders (--stream). A record that changes only d2 moves the stream's position in d1's seal as well (promote-check
+    compares it with the applied position), but d1's own last change, the seal's 4th field, stays: d1's derived index,
+    stamped at that record, stays current, so the idle folder is never rebuilt (before: every write to any folder of
+    the stream rebuilt them all). A seal from before the 4th field reads as changed at its lsn: one rebuild, then stable
+    again. A writer's restart (its open record: a verify of the stream) that finds a folder as sealed keeps its
+    indexes; one that repairs a folder's data rebuilds only that folder.
+    "gxrepl torn" stays clean throughout."""
+    rebuild = f"{os.path.join(BIN, 'gxrepl_testwriter')} reindex {{dir}} {{lsn}}"
+    opts = {"client": CB_OPTS["client"] + ["derived = index.gxd"],
+            "server": CB_OPTS["server"] + ["derived = index.gxd", f"derived_rebuild = {rebuild}", "derived_delay = 1",
+                                           "derived_busy_rebuild = 2"]}
+    env = Env("seal_folder", {"db": opts})
+    ws, aws = env.roots["db"]
+    for d in ("d1", "d2"):
+        os.makedirs(os.path.join(ws, d), exist_ok=True)
+    w = lambda d, n, seed: writer(os.path.join(ws, d), "--commits", n, "--commit-block", "--ship-root", ws,
+                                  "--stream", "shared", "--seed", seed)
+    assert w("d1", 4, 1).returncode == 0
+    assert w("d2", 4, 2).returncode == 0
+    assert streams_of(ws) == ["shared"], streams_of(ws)
+    env.start_server()
+    env.start_client()
+    try:
+        _wait_caught_up(env)
+        _wait_indexes(env)
+        time.sleep(3)
+        stamp = open(os.path.join(aws, "d1", "derived.stamp")).read()
+        s1 = _seal_fields(aws, "d1")
+        assert s1[0] == "log" and len(s1) == 5 and s1[3] == "shared", s1
+        n1, n2 = _rebuilds_of(env, "d1"), _rebuilds_of(env, "d2")
+        assert n1 >= 1 and n2 >= 1, env.logs()
+        assert stamp.split()[3] == s1[4], (stamp, s1)          # stamped at d1's own last change
+        # Writes to d2 only: the stream's position moves on in d1's seal, its own last change stays
+        for i in range(3):
+            assert w("d2", 2, 10 + i).returncode == 0
+            _wait_caught_up(env)
+            _wait_indexes(env)
+        time.sleep(4)                                          # several derived_delay and busy periods
+        _wait_indexes(env)
+        s1b, s2b = _seal_fields(aws, "d1"), _seal_fields(aws, "d2")
+        print(f"    d1 seal {s1} -> {s1b}, d2 seal {s2b}; rebuilds d1 {n1} -> {_rebuilds_of(env, 'd1')}, "
+              f"d2 {n2} -> {_rebuilds_of(env, 'd2')}", flush=True)
+        assert int(s1b[2]) > int(s1[2]) and s1b[2] == s2b[2], (s1b, s2b)   # both at the stream's position
+        assert s1b[4] == s1[4], (s1, s1b)                                  # d1 unchanged since
+        assert int(s2b[4]) > int(s1[4]), s2b
+        assert _rebuilds_of(env, "d1") == n1, env.logs()                   # the idle folder: never rebuilt
+        assert _rebuilds_of(env, "d2") > n2
+        assert open(os.path.join(aws, "d1", "derived.stamp")).read() == stamp
+        check_db(os.path.join(aws, "d1"))
+        check_db(os.path.join(aws, "d2"))
+        # A seal from before the 4th field (an older gxrepl wrote it): changed at most at its lsn
+        sp = os.path.join(aws, ".gxrepl", "units", "_d1")
+        with open(sp, "w") as f:
+            f.write(" ".join(s1b[:4]) + "\n")
+        end = time.time() + 30
+        while time.time() < end and _rebuilds_of(env, "d1") == n1:
+            time.sleep(0.5)
+        assert _rebuilds_of(env, "d1") == n1 + 1, env.logs()
+        _wait_indexes(env)
+        assert open(os.path.join(aws, "d1", "derived.stamp")).read().split()[3] == s1b[2]
+        assert w("d2", 2, 30).returncode == 0
+        _wait_caught_up(env)
+        time.sleep(4)
+        _wait_indexes(env)
+        s1c = _seal_fields(aws, "d1")
+        assert len(s1c) == 5 and s1c[4] == s1b[2], s1c                    # carried as its lsn from then on
+        assert _rebuilds_of(env, "d1") == n1 + 1, env.logs()
+        # A writer's restart on d1 (an open record: the stream's verify) finds both folders as sealed: neither is
+        # rebuilt (review 4: the verify must have run)
+        m2 = _rebuilds_of(env, "d2")
+        v0 = open(os.path.join(env.dir, "client.log")).read().count("stream shared verified")
+        assert w("d1", 0, 40).returncode == 0
+        _wait_caught_up(env)
+        end = time.time() + 30
+        while time.time() < end and open(os.path.join(env.dir, "client.log")).read().count("stream shared verified") == v0:
+            time.sleep(0.2)
+        assert open(os.path.join(env.dir, "client.log")).read().count("stream shared verified") > v0, env.logs()
+        time.sleep(4)
+        _wait_indexes(env)
+        print(f"    writer restart on d1: d1 rebuilds {n1 + 1} -> {_rebuilds_of(env, 'd1')}, d2 {m2} -> "
+              f"{_rebuilds_of(env, 'd2')}", flush=True)
+        assert _rebuilds_of(env, "d2") == m2, env.logs()
+        assert _rebuilds_of(env, "d1") == n1 + 1, env.logs()       # the verify re-sent d1 as sealed: kept
+        # A verify that repairs d1's data (a damaged copy, same generation): that is a change, rebuilt
+        dp = os.path.join(aws, "d1", "data.gxd")
+        with open(dp, "r+b") as f:
+            f.seek(os.path.getsize(dp) // 2)
+            b = f.read(1)
+            f.seek(-1, 1)
+            f.write(bytes([b[0] ^ 0xFF]))
+        assert w("d2", 0, 50).returncode == 0                      # a restart: the stream's verify
+        _wait_caught_up(env)
+        end = time.time() + 30
+        while time.time() < end and _rebuilds_of(env, "d1") == n1 + 1:
+            time.sleep(0.5)
+        _wait_indexes(env)
+        print(f"    repaired d1: d1 seal {_seal_fields(aws, 'd1')}, rebuilds d1 {_rebuilds_of(env, 'd1')}, "
+              f"d2 {_rebuilds_of(env, 'd2')}", flush=True)
+        assert _rebuilds_of(env, "d1") == n1 + 2, env.logs()
+        assert _rebuilds_of(env, "d2") == m2, env.logs()
+        assert open(os.path.join(ws, "d1", "data.gxd"), "rb").read() == open(dp, "rb").read()
+        # Review 1: a verify that only cuts d1's data file (the copy's is longer, the same generation): a change too
+        with open(dp, "ab") as f:
+            f.write(os.urandom(5000))
+        n_now = _rebuilds_of(env, "d1")
+        assert w("d2", 0, 60).returncode == 0
+        _wait_caught_up(env)
+        end = time.time() + 30
+        while time.time() < end and _rebuilds_of(env, "d1") == n_now:
+            time.sleep(0.5)
+        _wait_indexes(env)
+        assert _rebuilds_of(env, "d1") == n_now + 1, env.logs()
+        assert _rebuilds_of(env, "d2") == m2, env.logs()
+        assert open(os.path.join(ws, "d1", "data.gxd"), "rb").read() == open(dp, "rb").read()
+        check_db(os.path.join(aws, "d1"))
+        check_db(os.path.join(aws, "d2"))
     finally:
         env.stop()
 

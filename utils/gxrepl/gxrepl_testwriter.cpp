@@ -477,6 +477,7 @@ int main(int argc, char **argv)
   int keep_days = -1;
   bool ship = true;
   std::string ship_root = root;   // 11/10/2026: --ship-root SET: the day folder layout (ROOT inside SET)
+  std::string stream_name;        // 11/14/2026: --stream NAME: one stream feeds several folders (seal per folder)
   // 11/10/2026: --commit-block: keep ROOT/commit.bin, a seqlock commit block like OSA's (u32 magic, u32
   // version, u64 generation at 8: odd while a commit writes the files, u64 commits at 16), written in
   // place (pwrite). --big N: the first commit adds one object of N bytes. --latency-out FILE: the
@@ -495,6 +496,7 @@ int main(int argc, char **argv)
     else if(a == "--seed" && i + 1 < argc) rng_state ^= strtoull(argv[++i], 0, 10) * 2654435761ULL;
     else if(a == "--no-ship") ship = false;
     else if(a == "--ship-root" && i + 1 < argc) ship_root = argv[++i];
+    else if(a == "--stream" && i + 1 < argc) stream_name = argv[++i];
     else if(a == "--commit-block") commit_block = true;
     else if(a == "--big" && i + 1 < argc) big = strtoull(argv[++i], 0, 10);
     else if(a == "--old-ship-format") old_ship_format = true;
@@ -522,7 +524,7 @@ int main(int argc, char **argv)
   if(j.Attach(&db) != gxDBASE_NO_ERROR || j.Attach(&ix) != gxDBASE_NO_ERROR) {
     fprintf(stderr, "attach failed\n"); return 1;
   }
-  if(ship && j.EnableShipLog(ship_root.c_str()) != gxDBASE_NO_ERROR) {
+  if(ship && j.EnableShipLog(ship_root.c_str(), stream_name.empty() ? 0 : stream_name.c_str()) != gxDBASE_NO_ERROR) {
     fprintf(stderr, "EnableShipLog failed\n"); return 1;
   }
   if(ship && j.ShipLog()) {
