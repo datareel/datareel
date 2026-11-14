@@ -105,8 +105,8 @@ WHAT CHANGED IN DATAREEL 7
 --------------------------
 See RELEASE_NOTES_7.0.txt for the full list and for porting notes,
 RELEASE_NOTES_7.1.txt, RELEASE_NOTES_7.2.txt, RELEASE_NOTES_7.3.txt,
-RELEASE_NOTES_7.3.1.txt, RELEASE_NOTES_7.3.2.txt and RELEASE_NOTES_7.4.txt
-for the changes in 7.1 to 7.4. In short:
+RELEASE_NOTES_7.3.1.txt, RELEASE_NOTES_7.3.2.txt, RELEASE_NOTES_7.3.3.txt
+and RELEASE_NOTES_7.4.txt for the changes in 7.1 to 7.4. In short:
 
 - C++17 is required. Strings, lists, trees, threads, mutexes, files
   and time now come from the standard library. The UString/gxString,
@@ -144,6 +144,10 @@ for the changes in 7.1 to 7.4. In short:
   are never read split, unit copies are staged and swapped in whole
   ("gxrepl promote"), and a copy's folder goes when its source folder
   goes. 7.4 has all of them.
+- 7.3.3: a copy's seal names the last record that changed its folder
+  (idle folders keep their derived indexes), "gxrepl torn" reads each
+  folder under a shared apply lock, and a verify sees files a stream
+  names during its pass. 7.4 has them too.
 - 7.4 adds vector extensions to the object database: gxVectorIndex
   keeps vectors in a ".vix" file (an ordinary gxDatabase file) with
   exact search and an HNSW graph for fast approximate nearest-neighbor
@@ -312,6 +316,8 @@ RELEASE HISTORY
                   per-object derived apply (off by default)
                   (RELEASE_NOTES_7.4.txt). Follows the 11/12/2026
                   7.4-beta preview (phases A-B).
+ 7.3.3 11/14/2026 Beta. Database replication fixes
+                  (RELEASE_NOTES_7.3.3.txt)
  7.3.2 11/14/2026 Beta. Database replication fixes
                   (RELEASE_NOTES_7.3.2.txt)
  7.3.1 11/01/2026 Beta. Security scan fixes (RELEASE_NOTES_7.3.1.txt)

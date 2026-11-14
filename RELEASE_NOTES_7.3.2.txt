@@ -1,6 +1,9 @@
 DataReel 7.3.2 Beta Release Notes, 11/14/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
+DataReel 7.3.3 fixes more database replication (gxrepl) problems found
+in production; see RELEASE_NOTES_7.3.3.txt.
+
 DataReel 7.3.2 is a beta bug fix release of 7.3.1. DataReel 6.2
 remains the stable release for production use until DataReel 7 is
 final; please report problems through https://datareel.com/contact.php.

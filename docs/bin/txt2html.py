@@ -40,6 +40,7 @@ FOOT = '''</main>
 
 LINKS = {
   'RELEASE_NOTES_7.4.txt': 'release_notes_7_4.html',
+  'RELEASE_NOTES_7.3.3.txt': 'release_notes_7_3_3.html',
   'RELEASE_NOTES_7.3.2.txt': 'release_notes_7_3_2.html',
   'RELEASE_NOTES_7.3.1.txt': 'release_notes_7_3_1.html',
   'RELEASE_NOTES_7.3.txt': 'release_notes_7_3.html',
