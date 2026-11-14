@@ -54,6 +54,7 @@ Exit code 0 when every test passes.
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 #include <sstream>
 #include <fstream>
 #include <algorithm>
@@ -62,6 +63,7 @@ Exit code 0 when every test passes.
 #include <thread>
 #include <atomic>
 #include "gxvindex.h"
+#include "gxvset.h"
 #include "gxvkern.h"
 #include "gxdjrnl.h"
 #include "infohog.h"
@@ -1041,6 +1043,170 @@ static void test_phase_c_files()
   }
 }
 
+// 11/14/2026 (phase D): gxVectorSet and the .vixset manifest
+static void test_vector_set()
+{
+  const unsigned dim = 16, days = 5, per_day = 600;
+  std::string sdir = path("set1");
+  std::string mk = "rm -rf '" + sdir + "' && mkdir -p '" + sdir + "/by day'";
+  if(system(mk.c_str()) != 0) { }
+  Clusters cl(dim, 12, 41);
+  std::vector<std::vector<float> > all;
+  std::vector<std::pair<long long, unsigned> > meta;   // id, day
+  std::vector<std::string> rels;
+  for(unsigned d = 0; d < days; d++) {
+    char rel[64]; snprintf(rel, sizeof(rel), "by day/2026111%u.vix", d);
+    rels.push_back(rel);
+    gxVectorIndex vix;
+    CHECK(vix.Create((sdir + "/" + rel).c_str(), dim, gxvFLOAT32, gxvL2, 8, "set-test", 100) == gxv_NO_ERROR, "create day %u", d);
+    std::vector<float> v(dim);
+    for(unsigned i = 0; i < per_day; i++) {
+      cl.Point(v.data());
+      long long id = (long long)d * 100000 + i;
+      unsigned t[4] = { i % 3, 0, 20261110 + d, 0 };
+      CHECK(vix.Insert(id, v.data(), t) == gxv_NO_ERROR, "insert");
+      all.push_back(v); meta.push_back(std::make_pair(id, 20261110 + d));
+    }
+    vix.Close();
+  }
+  std::string man = sdir + "/news.vixset";
+  {
+    gxVectorSet set;
+    CHECK(set.Create(man.c_str(), "news", dim, gxvFLOAT32, gxvL2, "set-test") == gxv_NO_ERROR, "create set");
+    for(auto &r : rels) CHECK(set.AddFile(r.c_str()) == gxv_NO_ERROR, "add %s: %s", r.c_str(), set.Error().c_str());
+    CHECK(set.AddFile(rels[0].c_str()) == gxv_DUPLICATE_ID, "added twice");
+    CHECK(set.AddFile("../x.vix") == gxv_BAD_ARG && set.AddFile("/tmp/x.vix") == gxv_BAD_ARG, "unsafe paths refused");
+  }
+  // Exact answers for checking: brute force over every node (L2), ties by (distance, day file, id)
+  auto brute = [&](const float *q, unsigned k, unsigned lo, unsigned hi) {
+    std::vector<std::pair<float, std::pair<unsigned, long long> > > d;
+    for(size_t n = 0; n < all.size(); n++) {
+      if(meta[n].second < lo || meta[n].second > hi) continue;
+      float s2 = 0;
+      for(unsigned j = 0; j < dim; j++) { float x = q[j] - all[n][j]; s2 += x * x; }
+      d.push_back(std::make_pair(s2, std::make_pair((unsigned)(meta[n].first / 100000), meta[n].first)));
+    }
+    std::sort(d.begin(), d.end());
+    if(d.size() > k) d.resize(k);
+    return d;
+  };
+  for(unsigned mo : { 16u, 2u }) {
+    gxVectorSet set;
+    CHECK(set.Open(man.c_str(), "set-test", mo) == gxv_NO_ERROR, "open set: %s", set.Error().c_str());
+    CHECK(set.Files().size() == days && set.Files()[3].has_tag2 && set.Files()[3].tag2_min == 20261113 &&
+	  set.Files()[3].nodes == per_day, "manifest fields");
+    std::vector<float> q(dim);
+    double hit = 0, tot = 0;
+    for(int qi = 0; qi < 40; qi++) {
+      cl.Point(q.data());
+      gxvSetSearch o;
+      o.k = 10; o.ef = 128; o.threads = (qi % 2) ? 4 : 1;
+      std::vector<gxvSetResult> r, r1;
+      CHECK(set.Search(q.data(), o, r) == gxv_NO_ERROR, "search");
+      o.threads = (qi % 2) ? 1 : 3;
+      CHECK(set.Search(q.data(), o, r1) == gxv_NO_ERROR, "search again");
+      bool same = r.size() == r1.size();
+      for(size_t i = 0; same && i < r.size(); i++) same = r[i].id == r1[i].id && r[i].file == r1[i].file && r[i].distance == r1[i].distance;
+      CHECK(same, "the same results for any number of threads (max_open %u)", mo);
+      for(size_t i = 1; i < r.size(); i++)
+	CHECK(r[i - 1].distance < r[i].distance || (r[i - 1].distance == r[i].distance &&
+	      (r[i - 1].file < r[i].file || (r[i - 1].file == r[i].file && r[i - 1].id < r[i].id))), "order (distance, file, id)");
+      auto b = brute(q.data(), 10, 0, 0xFFFFFFFFu);
+      std::set<long long> want;
+      for(auto &x : b) want.insert(x.second.second);
+      for(auto &x : r) { if(want.count(x.id)) hit++; CHECK(set.FullPath(x.file).find(rels[x.id / 100000]) != std::string::npos, "file of a result"); }
+      tot += b.size();
+      // a day range: files outside it are skipped unopened
+      o.day_range = 1; o.day_lo = 20261111; o.day_hi = 20261112; o.threads = 2;
+      CHECK(set.Search(q.data(), o, r) == gxv_NO_ERROR && set.Skipped() == 3, "day range: 3 files skipped (%llu)", set.Skipped());
+      for(auto &x : r) CHECK(x.tags[2] >= 20261111 && x.tags[2] <= 20261112, "a result outside the day range");
+    }
+    CHECK(hit / tot >= 0.95, "set recall %.3f (max_open %u)", hit / tot, mo);
+    if(mo == 2) CHECK(set.Opened() >= 3, "the LRU reopened files (%llu)", set.Opened());
+  }
+  // The live file: inserts between two searches are found, read-only (reopened when changed) and attached
+  {
+    gxVectorSet set;
+    CHECK(set.Open(man.c_str(), 0, 8) == gxv_NO_ERROR, "open for live");   // every file stays open: the live one is reloaded
+    std::vector<float> q(dim, 0.25f);
+    gxvSetSearch o; o.k = 1; o.ef = 64;
+    std::vector<gxvSetResult> r;
+    CHECK(set.Search(q.data(), o, r) == gxv_NO_ERROR && !r.empty() && r[0].distance > 0, "before the live insert");
+    {
+      gxVectorIndex w;
+      CHECK(w.Open((sdir + "/" + rels[4]).c_str()) == gxv_NO_ERROR, "writer opens the live day");
+      unsigned t[4] = { 0, 0, 20261114, 0 };
+      CHECK(w.Insert(777777, q.data(), t) == gxv_NO_ERROR, "live insert");
+      w.Close();
+    }
+    gxvError le = set.Search(q.data(), o, r);
+    CHECK(le == gxv_NO_ERROR && !r.empty() && r[0].id == 777777 && r[0].distance == 0 &&
+	  set.Reloaded() >= 1, "the read-only set sees the live insert (err %d, reloaded %llu, opened %llu, id %lld, %s)",
+	  (int)le, set.Reloaded(), set.Opened(), r.empty() ? -1LL : r[0].id, set.Error().c_str());
+    gxVectorIndex w;
+    CHECK(w.Open((sdir + "/" + rels[4]).c_str()) == gxv_NO_ERROR, "writer opens again");
+    CHECK(set.AttachOpen(rels[4].c_str(), &w) == gxv_NO_ERROR, "attach the writer's index");
+    std::vector<float> q2(dim, -0.5f);
+    unsigned t[4] = { 0, 0, 20261114, 0 };
+    CHECK(w.Insert(888888, q2.data(), t) == gxv_NO_ERROR, "insert into the attached index");
+    CHECK(set.Search(q2.data(), o, r) == gxv_NO_ERROR && !r.empty() && r[0].id == 888888, "the attached index is searched as it is");
+    CHECK(set.AttachOpen(rels[4].c_str(), 0) == gxv_NO_ERROR, "detach");
+    w.Close();
+    CHECK(set.Refresh() == gxv_NO_ERROR && set.Files()[4].nodes == per_day + 2, "refresh counts (%llu)", set.Files()[4].nodes);
+  }
+  // A missing file is skipped and counted, unless strict
+  {
+    std::string moved = sdir + "/" + rels[0], to = sdir + "/away.vix";
+    CHECK(rename(moved.c_str(), to.c_str()) == 0, "move day 0 away");
+    gxVectorSet set;
+    CHECK(set.Open(man.c_str()) == gxv_NO_ERROR, "open with a file gone");
+    std::vector<float> q(dim, 0.1f);
+    gxvSetSearch o; o.k = 5;
+    std::vector<gxvSetResult> r;
+    CHECK(set.Search(q.data(), o, r) == gxv_NO_ERROR && set.Missing() == 1 && r.size() == 5, "missing file skipped");
+    for(auto &x : r) CHECK(x.file != 0, "no result from the missing file");
+    o.strict = 1;
+    CHECK(set.Search(q.data(), o, r) == gxv_NOT_OPEN, "strict: a missing file is an error");
+    rename(to.c_str(), moved.c_str());
+  }
+  // A file replaced by one that does not match its crc is refused
+  {
+    std::string f = sdir + "/" + rels[1];
+    remove(f.c_str());
+    gxVectorIndex vix;
+    CHECK(vix.Create(f.c_str(), dim, gxvFLOAT32, gxvL2, 12, "set-test", 100) == gxv_NO_ERROR, "replace day 1 (M 12)");
+    std::vector<float> v(dim, 0.3f);
+    vix.Insert(5, v.data());
+    vix.Close();
+    gxVectorSet set;
+    CHECK(set.Open(man.c_str()) == gxv_NO_ERROR, "open");
+    gxvSetSearch o; o.k = 3;
+    std::vector<gxvSetResult> r;
+    CHECK(set.Search(v.data(), o, r) == gxv_SPEC_MISMATCH, "replaced file refused by its crc: %s", set.Error().c_str());
+  }
+  // Manifests that are not whole or hold bad lines
+  auto bad_manifest = [&](const std::string &body, gxvError want, const char *what) {
+    std::string p = sdir + "/bad.vixset";
+    FILE *fp = fopen(p.c_str(), "wb");
+    fwrite(body.data(), 1, body.size(), fp);
+    fclose(fp);
+    gxVectorSet set;
+    gxvError e = set.Open(p.c_str());
+    CHECK(e == want, "%s: %s (%d)", what, set.Error().c_str(), (int)e);
+  };
+  std::string head = "set x\nversion 1\nspec set-test\ndim 16\nelement f32\nmetric l2\ncodec 0\n";
+  bad_manifest(head + "file ../up.vix nodes=1 deleted=0 tag2=none crc=0\n", gxv_BAD_FILE, "a .. path");
+  bad_manifest(head + "file /abs.vix nodes=1 deleted=0 tag2=none crc=0\n", gxv_BAD_FILE, "an absolute path");
+  bad_manifest(head + "file a.vix deleted=0 tag2=none crc=0\n", gxv_BAD_FILE, "no nodes=");
+  bad_manifest(head + "file a.vix nodes=1 deleted=0 tag2=none\n", gxv_BAD_FILE, "no crc");
+  bad_manifest(head + "shards 4\n", gxv_BAD_FILE, "an unknown line (a later version)");
+  bad_manifest("set x\nversion 2\n", gxv_BAD_VERSION, "a later manifest version");
+  bad_manifest(head.substr(0, head.find("dim")), gxv_BAD_FILE, "not whole");
+  bad_manifest("set x\nversion 1\nspec set-test\ndim 16\nelement f8\nmetric l2\n", gxv_UNSUPPORTED, "an unknown element");
+  bad_manifest(head + "file with space/a b.vix nodes=1 deleted=0 tag2=3..4 crc=0\n", gxv_NO_ERROR, "a path with spaces");
+  system(("rm -rf '" + sdir + "'").c_str());
+}
+
 static void test_merge(const ElemType &et)
 {
   const unsigned dim = 32, per = 3000;
@@ -1773,6 +1939,7 @@ int main(int argc, char **argv)
   test_phase_a_files();
   test_format_fields();    // 11/14/2026 (phase D)
   test_phase_c_files();
+  test_vector_set();
   for(const ElemType &et : TYPES) test_merge(et);
   test_concurrent();
   for(const ElemType &et : TYPES) test_members(et);

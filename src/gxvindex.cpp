@@ -393,6 +393,9 @@ gxvError gxVectorIndex::Reload()
   gxvWriteLock lock(turn, mu);
   if(!is_open) return gxv_NOT_OPEN;
   unsigned long long changes = change_count;
+  // 11/14/2026 (phase D): a reader of a file another process writes: the database's own header first
+  db.NoteFileChanged();
+  if(db.ReadFileHdr() != gxDBASE_NO_ERROR) return gxv_DB_ERROR;
   gxvError err = ReadHeader();
   if(err == gxv_NO_ERROR) err = LoadNodes();
   change_count = changes + 1;
