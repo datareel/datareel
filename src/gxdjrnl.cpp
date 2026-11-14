@@ -85,6 +85,12 @@ number; records left in the file after that have an old salt.
 
 namespace datareel {
 
+#if defined(GXREPL_TEST_HOOKS) && !defined(_WIN32)
+// 11/14/2026 (test builds only): set by gxrepl's GXREPL_TEST_CRASH_IN_APPLY hook: the next ApplyPages() ends the
+// process once its batch is committed to the journal, before its pages reach the files
+GXDLCODE_API std::atomic<int> gxdJournalTestCrashNext(0);
+#endif
+
 static const char gxdJournalMagic[8] = { 'G','X','D','W','A','L','0','1' };
 static const uint32_t gxdJournalVersion = 1;
 static const uint32_t gxdJournalPageMagic = 0x4D524657;
@@ -882,6 +888,8 @@ gxDatabaseError gxdJournal::ApplyPages(const char *jname,
   if(getenv("GXREPL_TEST_APPLY_CRASH"))
     for(size_t i = 0; i < af.size(); i++)
       if(af[i].path.find("/.gxrepl/stage/") != std::string::npos) _exit(9);
+  // 11/14/2026: gxrepl's GXREPL_TEST_CRASH_IN_APPLY (the drain-verify variants) asks for this batch
+  if(gxdJournalTestCrashNext.exchange(0)) _exit(9);
 #endif
 
   unsigned long n = 0;
