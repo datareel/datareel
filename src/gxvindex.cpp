@@ -669,6 +669,11 @@ void gxVectorIndex::Decode(const unsigned char *code, float *out) const
       float s;
       memcpy(&s, code + dim, 4);
       gxv_i8_decode((const signed char *)code, s, out, dim);
+      // Cosine: back to unit length. Rounding each value to a step leaves
+      // the decoded vector a little off unit length, which skews 1 - dot
+      // by the length error. Part of the decode, so every distance,
+      // insert and rebuild uses the same vector.
+      if(metric == gxvCOSINE) gxv_normalize(out, dim);
       break;
     }
     default:

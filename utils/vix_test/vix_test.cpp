@@ -673,10 +673,9 @@ static void test_graph(const ElemType &et)
 	  sum += recall(got, brute(mets[mi], truth, q.data(), dim, 10, 0));
 	}
 	double rt = sum / qs.size();
-	// int8 cosine is the hardest case here: unit vectors of 32 values in
-	// tight clusters, where neighbors differ by less than a quantization
-	// step; it measured 0.947 when the per-vector scale was introduced
-	double need = et.type == gxvFLOAT16 ? 0.99 : mets[mi] == gxvCOSINE ? 0.94 : 0.95;
+	// int8 cosine needs the decode to rescale to unit length (0.947
+	// without it, 0.980 with it, on this set)
+	double need = et.type == gxvFLOAT16 ? 0.99 : 0.95;
 	printf("graph %s: recall@10 at ef 200 against float32 exact %.4f\n", names[mi], rt);
 	CHECK(rt >= need, "%s: recall against float32 %.4f below %.2f", names[mi], rt, need);
       }
@@ -1408,7 +1407,8 @@ static long rss_mb()
   return kb / 1024;
 }
 
-static void gate(size_t n, unsigned dim, int uniform, unsigned efc, int live_sec, const ElemType &et)
+static void gate(size_t n, unsigned dim, int uniform, unsigned efc, int live_sec, const ElemType &et,
+		 gxvMetric met = gxvL2)
 {
   std::string f = path("gate.vix"), jf = path("gate.jnl");
   remove(f.c_str());
@@ -1418,7 +1418,7 @@ static void gate(size_t n, unsigned dim, int uniform, unsigned efc, int live_sec
   auto point = [&](float *v) { if(uniform) rand_vec(ug, v, dim); else cl.Point(v); };
   gxVectorIndex vix;
   long rss0 = rss_mb();
-  vix.Create(f.c_str(), dim, et.type, gxvL2, 16, "gate/v1", efc);
+  vix.Create(f.c_str(), dim, et.type, met, 16, "gate/v1", efc);
   gxdJournal j;
   j.Open(jf.c_str());
   j.SetWriteMode(gxdJOURNAL_WRITE_BACK);
@@ -1438,8 +1438,9 @@ static void gate(size_t n, unsigned dim, int uniform, unsigned efc, int live_sec
     }
   }
   double build = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-  printf("gate: %zu x %u (%s, %s), M 16, ef_construction %u: build %.0f s (%.0f us an insert), top level %u\n",
-	 n, dim, uniform ? "uniform" : "clustered", et.tag, efc, build, 1e6 * build / n, vix.TopLevel());
+  printf("gate: %zu x %u (%s, %s, %s), M 16, ef_construction %u: build %.0f s (%.0f us an insert), top level %u\n",
+	 n, dim, uniform ? "uniform" : "clustered", et.tag, met == gxvL2 ? "l2" : met == gxvCOSINE ? "cosine" : "ip",
+	 efc, build, 1e6 * build / n, vix.TopLevel());
   printf("gate: memory after the build %ld MB (RSS; %ld MB before), file %lld MB\n", rss_mb(), rss0,
 	 file_size(f) / (1024 * 1024));
   fflush(stdout);
@@ -1470,12 +1471,16 @@ static void gate(size_t n, unsigned dim, int uniform, unsigned efc, int live_sec
     Clusters tc(dim, 1000, 42);
     std::mt19937 tg(43);
     std::vector<std::vector<std::pair<float, long long> > > best(qs.size());
-    std::vector<float> p(dim);
+    std::vector<float> p(dim), pn(dim);
+    std::vector<std::vector<float> > qn = qs; // Queries as the index sees them
+    if(met == gxvCOSINE) for(auto &q : qn) gxv_normalize(q.data(), dim);
     for(size_t i = 0; i < n; i++) {
       if(uniform) rand_vec(tg, p.data(), dim); else tc.Point(p.data());
+      pn = p;
+      if(met == gxvCOSINE) gxv_normalize(pn.data(), dim);
       for(size_t qi = 0; qi < qs.size(); qi++) {
 	auto &b = best[qi];
-	float d = gxv_l2sq(qs[qi].data(), p.data(), dim);
+	float d = ref_dist(met, qn[qi].data(), pn.data(), dim);
 	std::pair<float, long long> e(d, (long long)i);
 	if(b.size() < 20) { b.push_back(e); std::push_heap(b.begin(), b.end()); }
 	else if(e < b.front()) { std::pop_heap(b.begin(), b.end()); b.back() = e; std::push_heap(b.begin(), b.end()); }
@@ -1557,6 +1562,7 @@ int main(int argc, char **argv)
   long gate_n = 0;
   unsigned gate_dim = 96, efc = 200;
   const ElemType *gate_type = &TYPES[0];
+  gxvMetric gate_metric = gxvL2;
   for(int i = 1; i < argc; i++) {
     if(!strcmp(argv[i], "--crash-rounds") && i + 1 < argc) rounds = atoi(argv[++i]);
     else if(!strcmp(argv[i], "--bench")) do_bench = 1;
@@ -1565,6 +1571,13 @@ int main(int argc, char **argv)
     else if(!strcmp(argv[i], "--efc") && i + 1 < argc) efc = (unsigned)atoi(argv[++i]);
     else if(!strcmp(argv[i], "--live") && i + 1 < argc) live_sec = atoi(argv[++i]);
     else if(!strcmp(argv[i], "--uniform")) uniform = 1;
+    else if(!strcmp(argv[i], "--metric") && i + 1 < argc) {
+      const char *m = argv[++i];
+      if(!strcmp(m, "l2")) gate_metric = gxvL2;
+      else if(!strcmp(m, "cosine")) gate_metric = gxvCOSINE;
+      else if(!strcmp(m, "ip")) gate_metric = gxvIP;
+      else { fprintf(stderr, "--metric l2, cosine or ip\n"); return 2; }
+    }
     else if(!strcmp(argv[i], "--type") && i + 1 < argc) {
       const char *t = argv[++i];
       gate_type = 0;
@@ -1578,7 +1591,7 @@ int main(int argc, char **argv)
   if(system(mk.c_str()) != 0) { }
 #endif
   if(gate_n > 0) {
-    gate((size_t)gate_n, gate_dim, uniform, efc, live_sec, *gate_type);
+    gate((size_t)gate_n, gate_dim, uniform, efc, live_sec, *gate_type, gate_metric);
     return 0;
   }
   test_kernels();
