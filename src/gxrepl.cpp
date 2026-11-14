@@ -40,6 +40,7 @@ Database replication over gxStream. See gxrepl.h. POSIX only.
 #include <fcntl.h>
 #include <fnmatch.h>
 #include <limits.h>
+#include <climits>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -3998,8 +3999,10 @@ static bool test_off(const char *name)
 
 int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string &set,
 			const gxReplStream &s, gxReplStreamState &ts,
-			gxReplSetStatus &st, bool &verify, std::string &err)
+			gxReplSetStatus &st, bool &verify, std::string &err, unsigned long long *flag_lsn)
 {
+  // 11/14/2026 (review): the highest record lsn that set "verify" (ULLONG_MAX: the copy's position is gone)
+  if(flag_lsn) *flag_lsn = 0;
   for(int rounds = 0; rounds < 100000 && !stop; rounds++) {
     std::vector<unsigned char> out;
     unsigned long long next = 0;
@@ -4008,7 +4011,9 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
       return -1;
     if(status == 1) {
       verify = true;
-      if(!test_off("GXREPL_TEST_NO_DRAIN_VERIFY")) note_verify(set, s.name, "the copy's position is gone from the log");
+      if(flag_lsn) *flag_lsn = ULLONG_MAX;
+      // (review): ULLONG_MAX: always, even during the stream's own verify
+      if(!test_off("GXREPL_TEST_NO_DRAIN_VERIFY")) note_verify(set, s.name, "the copy's position is gone from the log", ULLONG_MAX);
       return 0;
     }
     if(status == 2) {
@@ -4041,8 +4046,9 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
       // used to drop the flag: a writer's open after a journal recovery never got its verify)
       if(r.type == gxdShipOpen || r.type == gxdShipGap) {
 	verify = true;
+	if(flag_lsn && r.lsn > *flag_lsn) *flag_lsn = r.lsn;
 	if(!test_off("GXREPL_TEST_NO_DRAIN_VERIFY"))
-	  note_verify(set, s.name, r.type == gxdShipOpen ? "a writer's open record" : "a gap record", r.lsn);
+	  note_verify(set, s.name, r.type == gxdShipOpen ? "a writer's open record" : "a gap record", r.lsn, s.log_id);
       }
     }
     unsigned long long lsn = 0;
@@ -4069,7 +4075,7 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
 // A stream already on the list and being verified right now (a drain inside its own verify's file syncs) is
 // verified once more after this one: files compared earlier in this verify may predate the recovery.
 void gxReplClient::note_verify(const std::string &set, const std::string &stream, const char *why,
-			       unsigned long long lsn)
+			       unsigned long long lsn, const std::string &log_id)
 {
   auto &vl = verify_streams[set];
   if(std::find(vl.begin(), vl.end(), stream) == vl.end()) {
@@ -4078,7 +4084,10 @@ void gxReplClient::note_verify(const std::string &set, const std::string &stream
   }
   // 11/14/2026 (review): during the stream's own verify, the records up to the position it started from are the
   // ones it is catching up on (a burst of writer restarts): only a record past it asks for another verify
-  else if(verifying[set] == stream && lsn > verify_from[set] && verify_again[set].insert(stream).second)
+  // (review): lsn 0 = not known, and a record of another log (remade mid-verify, lsns from 1 again): always
+  else if(verifying[set] == stream &&
+	  (lsn == 0 || log_id.empty() || log_id != verify_log_id[set] || lsn > verify_from[set]) &&
+	  verify_again[set].insert(stream).second)
     glog("set %s: stream %s needs a verify again after this one (%s at record %llu)", set.c_str(), stream.c_str(), why, lsn);
 }
 
@@ -4129,8 +4138,10 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
       if(res.status == 2 || res.update.stream.empty() != (cover == 0)) {
 	if(cover && cs.log_id == cover->log_id) {
 	  bool v = false;
-	  if(drain(src, tgt, set, *cover, cs, st, v, err) != 0) return -1;
-	  if(v && !test_off("GXREPL_TEST_NO_CALLER_VERIFY")) note_verify(set, cover->name, "an open or gap record drained by a file sync");
+	  unsigned long long vl = 0;
+	  if(drain(src, tgt, set, *cover, cs, st, v, err, &vl) != 0) return -1;
+	  if(v && !test_off("GXREPL_TEST_NO_CALLER_VERIFY"))
+	    note_verify(set, cover->name, "an open or gap record drained by a file sync", vl, cover->log_id);
 	}
 	retry = true;
 	break;
@@ -4154,8 +4165,10 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
 	// Stale: the copy is not at the stream position of the pieces
 	if(cover && cs.log_id == cover->log_id) {
 	  bool v = false;
-	  if(drain(src, tgt, set, *cover, cs, st, v, err) != 0) return -1;
-	  if(v && !test_off("GXREPL_TEST_NO_CALLER_VERIFY")) note_verify(set, cover->name, "an open or gap record drained by a file sync");
+	  unsigned long long vl = 0;
+	  if(drain(src, tgt, set, *cover, cs, st, v, err, &vl) != 0) return -1;
+	  if(v && !test_off("GXREPL_TEST_NO_CALLER_VERIFY"))
+	    note_verify(set, cover->name, "an open or gap record drained by a file sync", vl, cover->log_id);
 	}
 	retry = true;
 	break;
@@ -4168,13 +4181,14 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
 	if(gxdParseShipRecords(res.update.records.data(), res.update.records.size(), rv) == 0) {
 	  for(auto &r : rv)
 	    if((r.type == gxdShipOpen || r.type == gxdShipGap) &&
-	       (verifying[set] != cover->name || r.lsn > verify_from[set])) {
+	       (verifying[set] != cover->name || res.update.log_id != verify_log_id[set] || r.lsn > verify_from[set])) {
 	      note_verify(set, cover->name, r.type == gxdShipOpen ? "a writer's open record in a file update" : "a gap record in a file update",
-			  r.lsn);
+			  r.lsn, res.update.log_id);
 	      break;
 	    }
 	}
-	else note_verify(set, cover->name, "a file update's records could not be read", res.update.lsn);
+	// (by design: during the stream's own verify, an update at or below the position it started from is ignored)
+	else note_verify(set, cover->name, "a file update's records could not be read", res.update.lsn, res.update.log_id);
       }
       if(cover) { cs.name = res.update.stream; cs.log_id = res.update.log_id; cs.lsn = res.update.lsn; }
       st.pieces_sent += res.sent;
@@ -4331,6 +4345,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     if(!have_sm) { if(src.Manifest(sc.name, sm, err) != 0) return -1; have_sm = true; }
     verifying[sc.name] = s->name;                 // 11/14/2026: see note_verify()
     verify_from[sc.name] = s->next_lsn ? s->next_lsn - 1 : 0;
+    verify_log_id[sc.name] = s->log_id;
     int synced = 0, failed = 0;
     // 11/10/2026: the commit blocks last, and only when every other file of
     // the stream is in step: the copy's unit is "copying" until then
@@ -5201,6 +5216,7 @@ int gxReplClient::Run(bool once, const std::string &only_set, std::string &err)
       verifying[sc.name];        // 11/14/2026 (review F1): likewise, so no thread inserts a key while others look
       verify_again[sc.name];
       verify_from[sc.name];
+      verify_log_id[sc.name];
     }
   }
   int backoff = 1;
