@@ -4012,6 +4012,15 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
     if(status == 1) {
       verify = true;
       if(flag_lsn) *flag_lsn = ULLONG_MAX;
+      // 11/14/2026 (review): the copy's next records are gone from the log: its position is reset as for a record
+      // bigger than a message (status 2 below), so a file sync goes on by pieces and the stream's verify completes
+      // (before, a file sync inside the verify read "apply the log first" again on every try and gave up)
+      {
+	gxReplStreamState rs;
+	rs.name = s.name; rs.log_id = "resync"; rs.lsn = 0;
+	if(tgt.SetState(set, rs, err) != 0) return -1;
+	ts = rs;
+      }
       // (review): ULLONG_MAX: always, even during the stream's own verify
       if(!test_off("GXREPL_TEST_NO_DRAIN_VERIFY")) note_verify(set, s.name, "the copy's position is gone from the log", ULLONG_MAX);
       return 0;
