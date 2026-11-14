@@ -3067,6 +3067,53 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
   }
 }
 
+// 11/14/2026 (review A1): the index step of one batch's records with its crash guard (incremental.try, the crash
+// log and the breaker), under the apply lock before a page is written: the same for ApplyLog's records and for the
+// records a verify's file update brings (ApplyFiles)
+static void index_step(const gxReplSetConfig &sc, const std::string &root, const std::string &log_id,
+		       const std::vector<gxdShipRecordView> &recs, PageBatch &batch,
+		       std::deque<std::vector<unsigned char> > &store, std::deque<std::string> &texts,
+		       const std::map<std::string, bool> &unit_cb, unsigned long long last, double &peak_mb)
+{
+  mkdirs(derived_dir(sc));
+  // the breaker: a batch whose index step crashed gxrepl twice, or 3 crashes of the index step in an hour (any
+  // batches, 11/14/2026 review 4: a different batch each time never tripped it), puts the set back on rebuild
+  unsigned long long tf = 0, tn = 0;
+  bool left = false;
+  if(FILE *tfp = fopen(try_path(sc).c_str(), "r")) { left = true; if(fscanf(tfp, "%llu %llu", &tf, &tn) != 2) tn = 0; fclose(tfp); }
+  std::vector<long long> when;
+  {
+	long long now = (long long)time(0), t = 0;
+	if(FILE *cf = fopen(crashes_path(sc).c_str(), "r")) { while(fscanf(cf, "%lld", &t) == 1) if(t > now - breaker_window_s && t <= now) when.push_back(t); fclose(cf); }
+	if(left) {                                     // the last index step never finished: gxrepl stopped in it
+	  when.push_back(now);
+	  std::string body;
+	  for(auto x : when) body += std::to_string(x) + "\n";
+	  write_atomic(crashes_path(sc), body);
+	}
+  }
+  if(!breaker_on(sc)) {
+	std::string why;
+	if(tf == recs.front().lsn && tn >= 2)
+	  why = "the index step of ship log record " + std::to_string(tf) + " stopped gxrepl " + std::to_string(tn) + " times";
+	else if((int)when.size() >= breaker_crashes)
+	  why = "the index step stopped gxrepl " + std::to_string(when.size()) + " times in the last hour";
+	if(!why.empty()) {
+	  write_atomic(breaker_path(sc), why + "\n");
+	  glog("ALERT set %s: derived_apply back on rebuild: %s (gxrepl derived rebuild --set %s clears it)",
+	       sc.name.c_str(), why.c_str(), sc.name.c_str());
+	}
+  }
+  write_atomic(try_path(sc), std::to_string(recs.front().lsn) + " " + std::to_string(tf == recs.front().lsn ? tn + 1 : 1) + "\n");
+  bool tried = false;
+  double pk = 0;
+  struct timespec it0; clock_gettime(CLOCK_MONOTONIC, &it0);
+  incremental_apply(sc, root, log_id, recs, batch, store, texts, unit_cb, last, tried, &pk);
+  if(pk > peak_mb) peak_mb = pk;
+  if(tried) stats_line("incremental", sc.name, ms_since(it0), std::to_string(pk) + " " + std::to_string(recs.size()));
+  unlink(try_path(sc).c_str());
+}
+
 int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
 			  const std::string &log_id,
 			  const std::vector<unsigned char> &records,
@@ -3112,44 +3159,7 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
   if(s->sc.derived_apply == "incremental" && !s->sc.derived.empty() &&
      gxdParseShipRecords(records.data(), records.size(), recs) == 0 && !recs.empty()) {
     pre = [&](std::string &) -> int {
-      const gxReplSetConfig &sc = s->sc;
-      mkdirs(derived_dir(sc));
-      // the breaker: a batch whose index step crashed gxrepl twice, or 3 crashes of the index step in an hour (any
-      // batches, 11/14/2026 review 4: a different batch each time never tripped it), puts the set back on rebuild
-      unsigned long long tf = 0, tn = 0;
-      bool left = false;
-      if(FILE *tfp = fopen(try_path(sc).c_str(), "r")) { left = true; if(fscanf(tfp, "%llu %llu", &tf, &tn) != 2) tn = 0; fclose(tfp); }
-      std::vector<long long> when;
-      {
-	long long now = (long long)time(0), t = 0;
-	if(FILE *cf = fopen(crashes_path(sc).c_str(), "r")) { while(fscanf(cf, "%lld", &t) == 1) if(t > now - breaker_window_s && t <= now) when.push_back(t); fclose(cf); }
-	if(left) {                                     // the last index step never finished: gxrepl stopped in it
-	  when.push_back(now);
-	  std::string body;
-	  for(auto x : when) body += std::to_string(x) + "\n";
-	  write_atomic(crashes_path(sc), body);
-	}
-      }
-      if(!breaker_on(sc)) {
-	std::string why;
-	if(tf == recs.front().lsn && tn >= 2)
-	  why = "the index step of ship log record " + std::to_string(tf) + " stopped gxrepl " + std::to_string(tn) + " times";
-	else if((int)when.size() >= breaker_crashes)
-	  why = "the index step stopped gxrepl " + std::to_string(when.size()) + " times in the last hour";
-	if(!why.empty()) {
-	  write_atomic(breaker_path(sc), why + "\n");
-	  glog("ALERT set %s: derived_apply back on rebuild: %s (gxrepl derived rebuild --set %s clears it)",
-	       sc.name.c_str(), why.c_str(), sc.name.c_str());
-	}
-      }
-      write_atomic(try_path(sc), std::to_string(recs.front().lsn) + " " + std::to_string(tf == recs.front().lsn ? tn + 1 : 1) + "\n");
-      bool tried = false;
-      double pk = 0;
-      struct timespec it0; clock_gettime(CLOCK_MONOTONIC, &it0);
-      incremental_apply(sc, s->root, it->second.log_id, recs, batch, istore, itexts, unit_cb_records, last, tried, &pk);
-      if(pk > derived_peak_mb) derived_peak_mb = pk;
-      if(tried) stats_line("incremental", sc.name, ms_since(it0), std::to_string(pk) + " " + std::to_string(recs.size()));
-      unlink(try_path(sc).c_str());
+      index_step(s->sc, s->root, it->second.log_id, recs, batch, istore, itexts, unit_cb_records, last, derived_peak_mb);
       return 0;
     };
   }
@@ -3221,7 +3231,12 @@ int gxReplLocal::ApplyFiles(const std::string &set,
 	// folders like ApplyLog's do: on an incremental set they go through the same index step, under the apply lock
 	// (below, in check), or their folders' stamps would look behind and be rebuilt
 	if(s->sc.derived_apply == "incremental" && !s->sc.derived.empty())
-	  file_recs.push_back(FileRecs_{u.log_id, &u.records, e, unit_cb});
+	{
+	  // review A2: one entry per stream's records (two files of one folder can carry the same records)
+	  bool dup = false;
+	  for(auto &fr : file_recs) if(fr.log_id == u.log_id && fr.last == e) dup = true;
+	  if(!dup) file_recs.push_back(FileRecs_{u.log_id, &u.records, e, unit_cb});
+	}
       }
       gxReplStreamState ns;
       ns.name = u.stream; ns.log_id = u.log_id; ns.lsn = u.lsn;
@@ -3368,12 +3383,7 @@ int gxReplLocal::ApplyFiles(const std::string &set,
       std::vector<gxdShipRecordView> recs;
       if(gxdParseShipRecords(fr.records->data(), fr.records->size(), recs) != 0 || recs.empty()) continue;
       // a folder this update also fills by files has no stamps now: its index step finds that (rebuild needed)
-      bool tried = false;
-      double pk = 0;
-      struct timespec it0; clock_gettime(CLOCK_MONOTONIC, &it0);
-      incremental_apply(s->sc, s->root, fr.log_id, recs, batch, fr_store, fr_texts, fr.unit_cb, fr.last, tried, &pk);
-      if(pk > derived_peak_mb) derived_peak_mb = pk;
-      if(tried) stats_line("incremental", s->sc.name, ms_since(it0), std::to_string(pk) + " " + std::to_string(recs.size()));
+      index_step(s->sc, s->root, fr.log_id, recs, batch, fr_store, fr_texts, fr.unit_cb, fr.last, derived_peak_mb);
     }
     if(!stale_units.empty()) {
       if(recover_journal_locked(s->root) != 0) {
@@ -5767,6 +5777,7 @@ static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const 
 	  why = unit_seal_hash_check(sc, rel, g, deferred);
 	  if(!why.empty()) moved_recheck(torn_recheck_sec());
 	  if(why.empty() && g != g0 && !sc.derived.empty()) ds = derived_status(sc, rel, g, dwhy);
+	  if(why.empty() && g != g0 && sc.derived_apply == "incremental") { nostamp.clear(); derived_stamp_gaps(sc, rel, nostamp); }   // A3
 	}
 	if(!why.empty()) torn.push_back(where + ": " + why);
 	// and its derived indexes: a bad rebuild is torn (a take over's would
