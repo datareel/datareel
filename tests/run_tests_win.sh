@@ -22,6 +22,8 @@
 #   CONFIG is Release or Debug (the Visual Studio output folder)
 BUILD=${1:?usage: run_tests_win.sh BUILD_DIR CONFIG CERT_DIR [MOCK_PORT]}
 CFG=${2:?CONFIG}
+# 11/14/2026: the source tree, found before the script changes folder
+SRC=$(cd "$(dirname "$0")/.." && pwd)
 CERTS=${3:?CERT_DIR}
 MOCK=${4:-}
 E="$BUILD/examples/$CFG"; [ -d "$E" ] || E="$BUILD/examples"
@@ -73,7 +75,6 @@ mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" && check journal_test "$T
 U="$BUILD/utils/$CFG"; [ -d "$U" ] || U="$BUILD/utils"
 mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" && check vix_test "$U/vix_test"
 # 11/14/2026 (7.4): the Windows replication example: a folder copy with robocopy, digests, the index rebuild
-SRC=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$WORK/run_replication_copy" && cd "$WORK/run_replication_copy" &&
   check replication_copy cmd //c "$(cygpath -w "$SRC/examples/oodb/replication_copy_walkthrough.cmd")" \
     "$(cygpath -w "$E")" "$(cygpath -w "$U")" "$(cygpath -w "$WORK/run_replication_copy/w")"
