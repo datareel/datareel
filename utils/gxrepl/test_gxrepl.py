@@ -5348,6 +5348,110 @@ def test_drain_verify_restart_burst_one_verify():
         log = open(os.path.join(env.dir, "client.log")).read()[n:]
         assert log.count("d1_writer.jnl verified (") == 1, log
         assert "again after this one" not in log, log
+        assert _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd")), "data.gxd differs"
+    finally:
+        env.stop()
+
+
+def _during_own_verify(name, action):
+    """a reconnect verifies the stream (a writer's open while the client was down); its file sync of index.gxd is
+    held; action(env, ws, d1) runs during the hold; returns (data.gxd the same at the end, client log)"""
+    env = Env(name, {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    d1 = os.path.join(ws, "d1")
+    os.makedirs(d1)
+    try:
+        assert writer(d1, "--commits", 5, "--commit-block", "--ship-root", ws, "--segment", 65536).returncode == 0
+        env.start_server()
+        env.start_client()
+        _wait_units(env, ws, aws, ["d1"])
+        end = time.time() + 60
+        while time.time() < end and "verified (" not in open(os.path.join(env.dir, "client.log")).read():
+            time.sleep(0.2)
+        env.kill("client")
+        assert writer(d1, "--commits", 1, "--commit-block", "--ship-root", ws, "--seed", 40, "--segment", 65536).returncode == 0
+        hold = os.path.join(env.dir, "sync_hold")
+        env.start_client({"GXREPL_TEST_SYNC_FILE_HOLD": hold, "GXREPL_TEST_SYNC_FILE_HOLD_ON": "index.gxd"})
+        end = time.time() + 60
+        while time.time() < end and not os.path.exists(hold + ".held"):
+            time.sleep(0.1)
+        assert os.path.exists(hold + ".held"), "the verify's file sync never started\n" + env.logs()
+        action(env, ws, d1)
+        put(hold, b"go\n")
+        want = gen_of(os.path.join(d1, "commit.bin"))
+        end = time.time() + 90
+        while time.time() < end and not (gen_of(os.path.join(aws, "d1", "commit.bin")) == want and
+                                         _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd"))):
+            time.sleep(0.3)
+        time.sleep(3)
+        same = gen_of(os.path.join(aws, "d1", "commit.bin")) == want and \
+            _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd"))
+        return same, open(os.path.join(env.dir, "client.log")).read()
+    finally:
+        env.stop()
+
+
+def test_drain_verify_position_gone_during_its_own_verify():
+    """review: the copy's next records leave the log (the oldest segments removed) while the stream is being
+    verified: the drain's "position gone" note asks for the verify again (lsn 0 / ULLONG_MAX = always)"""
+    def act(env, ws, d1):
+        assert writer(d1, "--commits", 40, "--per", 8, "--commit-block", "--ship-root", ws, "--seed", 45,
+                      "--segment", 65536).returncode == 0
+        ld = os.path.join(ws, ".gxrepl", "log", "d1_writer.jnl")
+        segs = sorted(f for f in os.listdir(ld) if f.endswith(".gxl"))
+        assert len(segs) >= 3, segs
+        for f in segs[:-1]:
+            os.remove(os.path.join(ld, f))
+    same, log = _during_own_verify("dv_gone_own", act)
+    assert same, "the copy differs after its position left the log during its verify\n" + log[-3000:]
+    tail = log[log.find("connected to", log.find("connected to") + 1):]
+    assert "again after this one (the copy's position is gone" in tail or tail.count("verified (") >= 2, tail
+
+
+def test_drain_verify_log_remade_during_its_own_verify():
+    """review: the stream's log is made again (new log id, lsns from 1) while the stream is being verified: its
+    records are never taken for the old log's, and the copy ends byte for byte the source's"""
+    def act(env, ws, d1):
+        shutil.rmtree(os.path.join(ws, ".gxrepl", "log", "d1_writer.jnl"))
+        assert writer(d1, "--commits", 6, "--per", 8, "--commit-block", "--ship-root", ws, "--seed", 46).returncode == 0
+    same, log = _during_own_verify("dv_relog_own", act)
+    assert same, "the copy differs after the log was made again during its verify\n" + log[-3000:]
+
+
+def test_log_remade_by_a_nightly_reopen():
+    """11/14/2026 (review gap 2, osa_ingest's 20:30 late pass): a day folder archived (moved out of the set), its
+    stream's log purged, the folder reopened under the same stream name (a new log, lsns from 1), late lines
+    written, archived and purged again, with gxrepl and the writers running, two nights in a row: after each
+    night's late lines the copy's data.gxd is byte for byte the source's"""
+    env = Env("nightly_reopen", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    d1 = os.path.join(ws, "d1")
+    arch = os.path.join(env.dir, "archive")
+    os.makedirs(d1)
+    os.makedirs(arch)
+    ld = os.path.join(ws, ".gxrepl", "log", "d1_writer.jnl")
+    def g(p):                                           # the copy's folder may be gone for a moment (dead copy)
+        return gen_of(p) if os.path.exists(p) else -1
+    try:
+        assert writer(d1, "--commits", 8, "--commit-block", "--ship-root", ws).returncode == 0
+        env.start_server()
+        env.start_client()
+        _wait_units(env, ws, aws, ["d1"])
+        for night, gap in enumerate((0, 0.5, 2, 0)):     # 0: reopened before the copy saw the folder go
+            shutil.move(d1, os.path.join(arch, "d1"))     # archived: out of the set
+            shutil.rmtree(ld, ignore_errors=True)         # its stream's log purged
+            time.sleep(gap)
+            shutil.move(os.path.join(arch, "d1"), d1)     # reopened for the late lines: the same stream name
+            assert writer(d1, "--commits", 4, "--per", 6, "--commit-block", "--ship-root", ws,
+                          "--seed", 60 + night).returncode == 0
+            want = gen_of(os.path.join(d1, "commit.bin"))
+            end = time.time() + 60
+            while time.time() < end and not (g(os.path.join(aws, "d1", "commit.bin")) == want and
+                                             _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd"))):
+                time.sleep(0.3)
+            time.sleep(2)
+            assert _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd")), \
+                f"night {night + 1}: the copy's data.gxd differs from the source's\n" + env.logs()
     finally:
         env.stop()
 

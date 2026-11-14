@@ -720,13 +720,14 @@ private:
   // 11/14/2026: a stream that needs a verify (logged once)
   // lsn: the record that asks for it (0: not known). During the stream's own verify only a record past the
   // position the verify started from asks for it again.
-  void note_verify(const std::string &set, const std::string &stream, const char *why, unsigned long long lsn = 0);
+  void note_verify(const std::string &set, const std::string &stream, const char *why, unsigned long long lsn = 0,
+		   const std::string &log_id = std::string());
   int sync_file(gxReplSource &src, gxReplTarget &tgt, const std::string &set,
 		const std::string &path, const gxReplStream *cover,
 		gxReplSetStatus &st, std::string &err);
   int drain(gxReplSource &src, gxReplTarget &tgt, const std::string &set,
 	    const gxReplStream &s, gxReplStreamState &ts,
-	    gxReplSetStatus &st, bool &verify, std::string &err);
+	    gxReplSetStatus &st, bool &verify, std::string &err, unsigned long long *flag_lsn = 0);
   void write_status(bool connected, const std::string &note);
   unsigned long long work_count() const;
 
@@ -752,6 +753,7 @@ private:
   std::map<std::string, std::set<std::string> > verify_again;
   // 11/14/2026 (review: no verify cascade): the source position the stream being verified started from
   std::map<std::string, unsigned long long> verify_from;
+  std::map<std::string, std::string> verify_log_id;   // and its log id (a log remade mid-verify starts at 1 again)
   long long connected_since = 0;
   std::string peer;
 };
