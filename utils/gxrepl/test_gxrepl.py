@@ -3493,8 +3493,13 @@ def test_dead_copy_folder_goes_with_its_source():
         open(os.path.join(aws, "d1", "news.jnl"), "wb").write(b"\0" * 4096)        # a journal gxrepl never copies
         assert os.path.exists(os.path.join(aws, ".gxrepl", "units", "_d1"))
         shutil.rmtree(os.path.join(ws, "d1"))                                     # the source archives d1
-        end = time.time() + 20
-        while time.time() < end and os.path.exists(os.path.join(aws, "d1")):
+        # 11/14/2026 (review): one wait for all three (the folder, then its seal last, then the log line), so a pass
+        # caught between the folder and its seal is not a failure
+        seal = os.path.join(aws, ".gxrepl", "units", "_d1")
+        end = time.time() + 30
+        while time.time() < end and (os.path.exists(os.path.join(aws, "d1")) or os.path.exists(seal) or
+                                     "removed the copy's folder d1: gone from the source" not in
+                                     open(os.path.join(env.dir, "server.log")).read()):
             time.sleep(0.3)
         log = open(os.path.join(env.dir, "server.log")).read()
         assert not os.path.exists(os.path.join(aws, "d1")), "the dead copy folder stayed: " + str(os.listdir(os.path.join(aws, "d1")))
@@ -4209,9 +4214,12 @@ def test_diff_pieces_against_a_racing_commit():
         while time.time() < end and not os.path.exists(hold + ".held"):
             time.sleep(0.1)
         assert os.path.exists(hold + ".held"), "the file update never started\n" + env.logs()
+        g0 = gen_of(os.path.join(d1, "commit.bin"))
         w = writer_bg(d1, "--commits", 6, "--per", 20, "--commit-block", "--ship-root", ws, "--seed", 43)
         time.sleep(2)
         assert w.poll() is None, "the writer committed while the source held the journal read lock: " + w.stdout.read()
+        g1 = gen_of(os.path.join(d1, "commit.bin"))
+        assert g1 == g0 or g1 == g0 + 1, f"the writer committed while the source held the journal read lock: gen {g0} -> {g1}"
         put(hold, b"go\n")
         assert w.wait(60) == 0, w.stdout.read()
         want = gen_of(os.path.join(d1, "commit.bin"))
