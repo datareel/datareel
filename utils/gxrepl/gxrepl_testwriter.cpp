@@ -22,6 +22,7 @@
 #include "gxdbase.h"
 #include "gxdjrnl.h"
 #include "gxrepl.h"   // 11/08/2026: the raw commands
+#include "gxdstamp.h" // 11/14/2026: stamp / readstamp
 
 // 11/08/2026: gxrepl_testwriter rawapply|rawdiff CONF SET PATH
 // Connects with the client config CONF and asks the server, as a client
@@ -469,6 +470,19 @@ int main(int argc, char **argv)
   }
   if(mode == "objstream" && (argc == 4 || argc == 5)) return objstream(argv[2], argv[3], argc == 5 ? atoi(argv[4]) : 0);
   if(mode == "objverify" && argc == 5) return objverify(argv[2], argv[3], argv[4]);
+  // 11/14/2026: stamp PATH LOGID LSN: a fresh <index>.stamp; readstamp PATH: print it
+  if(mode == "stamp" && argc == 5) {
+    datareel::gxdStampData d;
+    d.log_id = argv[3]; d.lsn = strtoull(argv[4], 0, 10); d.digest_kind = datareel::gxdStampDigestBytes;
+    return datareel::gxdDerivedStamp::WriteFresh(argv[2], d) == 0 ? 0 : 1;
+  }
+  if(mode == "readstamp" && argc == 3) {
+    datareel::gxdStampData d;
+    int rc = datareel::gxdDerivedStamp::ReadFile(argv[2], d);
+    if(rc == 0) printf("stamp log %s lsn %llu\n", d.log_id.c_str(), d.lsn);
+    else printf("stamp %s\n", rc == 1 ? "none" : "damaged");
+    return rc == 0 ? 0 : 1;
+  }
   if(mode == "check") return check(root);
   if(mode == "hashes") return hashes(root);
   if(mode == "reindex") { if(argc > 3) stamp_lsn = strtoull(argv[3], 0, 10); return reindex(root); }

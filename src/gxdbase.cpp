@@ -113,6 +113,8 @@ gxDatabase::gxDatabase()
 
   write_hook = 0;
   write_hook_data = 0;
+  onotes = 0;        // 11/14/2026: Object notes
+  onote_pause = 0;
   pcache = 0;
   sync_on_flush = 0;
   write_count = 0;
@@ -242,6 +244,7 @@ gxDatabaseError gxDatabase::InitFileHdr()
 // to disk. Returns a non-zero value to indicate an error
 // condition or zero if successful.
 {
+  NoteGuard ng_(this); // 11/14/2026: not an object note
   file_header.gxd_fs_fptr = (FAU_t)0;
   file_header.gxd_eof = file_header.gxd_hs_fptr;
   file_header.gxd_hb_fptr = (FAU_t)0; 
@@ -559,6 +562,14 @@ gxDatabaseError gxDatabase::Write(const void *buf, __ULWORD__ bytes,
       if(gxd_error != gxDBASE_NO_ERROR) return gxd_error;
     }
     
+    if(onotes && onote_pause == 0) { // 11/14/2026: object notes
+      // The note reads the block header: the write position is kept
+      FAU_t waddr = gxdFPTRTell(fp);
+      gxDatabaseOperation lop = last_operation;
+      note_write(waddr, bytes);
+      gxdFPTRSeek(fp, waddr, gxDBASE_SEEK_BEG);
+      last_operation = lop;
+    }
     if(pcache) { // 10/31/2026: Write through the page cache
       FAU_t address = gxdFPTRTell(fp);
       __ULWORD__ written = pcache->Write(buf, bytes, address);
@@ -617,6 +628,7 @@ gxUINT32 gxDatabase::WriteObjectChecksum(FAU_t object_address)
 // value for the object stored in the block or zero if
 // this is the wrong revision or an error occurs.
 {
+  NoteGuard ng_(this); // 11/14/2026: not an object note
   // Perform operation according to the revision letter
   switch(rev_letter) {
     case '\0' : case ' ' : case 'e' : case 'E' :
@@ -817,6 +829,7 @@ gxDatabaseError gxDatabase::WriteBlockHdr(const gxBlockHeader &hdr,
 // a non-zero value to indicate an error condition or zero if
 // successful.
 {
+  NoteGuard ng_(this); // 11/14/2026: not an object note
   return Write(&hdr, sizeof(gxBlockHeader), block_address);
 }
 
@@ -851,6 +864,7 @@ gxDatabaseError gxDatabase::WriteFileHdr()
 // Writes the database file header. Returns a non-zero value to
 // indicate an error condition or zero if successful.
 {
+  NoteGuard ng_(this); // 11/14/2026: not an object note
   if(Write(&file_header, sizeof(gxFileHeader), gxStartOfFile) != 
      gxDBASE_NO_ERROR) {
     return gxd_error;
@@ -875,6 +889,7 @@ FAU_t gxDatabase::Alloc(__ULWORD__ bytes, gxDatabaseReclaimMethod method)
 // is written to the allocated space. Returns the file address of the newly
 // allocated block or zero if an error occurs.
 {
+  NoteGuard ng_(this); // 11/14/2026: Noted once, as an add
   FAU_t file_address = (FAU_t)0;
   gxBlockHeader blk_hdr;
   gxRecordLockHeader rlh; // Revision C and higher
@@ -958,8 +973,50 @@ FAU_t gxDatabase::Alloc(__ULWORD__ bytes, gxDatabaseReclaimMethod method)
   // Ensure that the database file header stays in sync
   // during multiple file access.
   WriteFileHdr();
+
+  // 11/14/2026: Object notes
+  if(onotes) onotes->Add(file_address + BlockHeaderSize(), object_capacity(blk_hdr));
   
   return SeekTo(file_address + BlockHeaderSize());  
+}
+
+gxUINT32 gxDatabase::object_capacity(const gxBlockHeader &blk) const
+// 11/14/2026: The data area of a block (its object length), 0 if damaged
+{
+  __ULWORD__ overhead = (__ULWORD__)BlockHeaderSize();
+  switch(rev_letter) {
+    case '\0' : case ' ' : case 'e' : case 'E' :
+      break;
+    default:
+      overhead += (__ULWORD__)sizeof(gxChecksum);
+      break;
+  }
+  if(blk.block_length < overhead) return 0;
+  return (gxUINT32)(blk.block_length - overhead);
+}
+
+void gxDatabase::note_write(FAU_t address, unsigned long long bytes)
+// 11/14/2026: Object notes for a Write() that is not internal: at an
+// object's first byte an update, inside an object noted in this
+// transaction nothing more, anywhere else the notes are incomplete.
+{
+  if(!onotes || onote_pause > 0 || !onotes->complete) return;
+  if(onotes->Covers(address, bytes)) return;
+  FAU_t block_address = address - (FAU_t)BlockHeaderSize();
+  if(block_address < (FAU_t)FileHeaderSize()) { onotes->Incomplete(); return; }
+  gxBlockHeader blk;
+  gxDatabaseError e = gxd_error;
+  onote_pause++;
+  int ok = ReadBlockHdr(blk, block_address) == gxDBASE_NO_ERROR;
+  onote_pause--;
+  gxd_error = e;
+  if(!ok || blk.block_check_word != gxInternalCheckWord ||
+     (__SBYTE__(blk.block_status & 0xff)) != gxNormalBlock) {
+    onotes->Incomplete(); return;
+  }
+  gxUINT32 cap = object_capacity(blk);
+  if(cap == 0 || bytes > (unsigned long long)cap) { onotes->Incomplete(); return; }
+  onotes->Update(address, cap);
 }
 
 int gxDatabase::Remove(FAU_t object_address)
@@ -979,6 +1036,7 @@ int gxDatabase::Delete(FAU_t object_address, int remove_object)
 // true if the block was deleted/removed or false if the
 // block was not deleted/removed.
 {
+  NoteGuard ng_(this); // 11/14/2026: Noted once, as a remove
   gxBlockHeader blk_hdr;
   
   // Address of the block header
@@ -1011,6 +1069,7 @@ int gxDatabase::Delete(FAU_t object_address, int remove_object)
       file_header.gxd_fs_fptr = block_address;
       WriteFileHdr();
     }
+    if(onotes) onotes->Remove(object_address, object_capacity(blk_hdr)); // 11/14/2026
     return 1; // Return true if successful
   }
   else {
@@ -1287,6 +1346,7 @@ __ULWORD__ gxDatabase::BlockLength(FAU_t object_address)
 int gxDatabase::UnDelete(FAU_t object_address)
 // Undeletes a block if it has not been removed or reclaimed.
 {
+  NoteGuard ng_(this); // 11/14/2026: Noted once, as an add
   gxBlockHeader blk_hdr, prev_blk; 
   FAU_t addr, block_address;
   
@@ -1379,6 +1439,7 @@ int gxDatabase::UnDelete(FAU_t object_address)
       // Write header for this block
       if(WriteBlockHdr(blk_hdr, addr)!= gxDBASE_NO_ERROR) return 0;  
 
+      if(onotes) onotes->Add(object_address, object_capacity(blk_hdr)); // 11/14/2026
       return 1; // Return true if successful
     }
     
@@ -2284,6 +2345,7 @@ gxDatabaseError gxDatabase::WriteFileLockHdr(const gxFileLockHeader &hdr)
 // Write the lock header to the file. Returns a non-zero value
 // to indicate an error condition or zero if successful.
 {
+  NoteGuard ng_(this); // 11/14/2026: not an object note
   switch(rev_letter) {
     case 'b' : case 'B' : case 'c' : case 'C' :
       break;
@@ -2319,6 +2381,7 @@ int gxDatabase::LockFile(gxDatabaseLockType l_type)
 // variable cannot be changed because it is exclusive or another thread 
 // is currently updating it. 
 {
+  NoteGuard ng_(this); // 11/14/2026: not an object note
   switch(rev_letter) {
     case 'b' : case 'B' : case 'c' : case 'C' :
       break;
@@ -2414,6 +2477,7 @@ int gxDatabase::UnlockFile(gxDatabaseLockType l_type)
 // unlocked or the lock variable cannot be changed because it is 
 // exclusive or another thread is currently updating it. 
 {
+  NoteGuard ng_(this); // 11/14/2026: not an object note
   switch(rev_letter) {
     case 'b' : case 'B' : case 'c' : case 'C' :
       break;
@@ -2551,6 +2615,7 @@ gxDatabaseError gxDatabase::WriteRecordLockHdr(const gxRecordLockHeader &hdr,
 // Write the block's record lock header. Returns a non-zero value to
 // indicate an error condition or zero if successful.
 {
+  NoteGuard ng_(this); // 11/14/2026: not an object note
   switch(rev_letter) {
     case 'c' : case 'C' : case 'd' : case 'D' :
       break;
@@ -2572,6 +2637,7 @@ int gxDatabase::LockRecord(gxDatabaseLockType l_type, FAU_t block_address)
 // changed because it is exclusive or another thread is currently 
 // updating it.
 {
+  NoteGuard ng_(this); // 11/14/2026: not an object note
   switch(rev_letter) {
     case 'c' : case 'C' : case 'd' : case 'D' :
       break;
@@ -2674,6 +2740,7 @@ int gxDatabase::UnlockRecord(gxDatabaseLockType l_type, FAU_t block_address)
 // be changed because it is exclusive or another thread is currently 
 // updating it.
 {
+  NoteGuard ng_(this); // 11/14/2026: not an object note
   switch(rev_letter) {
     case 'c' : case 'C' : case 'd' : case 'D' :
       break;
@@ -2789,6 +2856,7 @@ gxDatabaseError gxDatabase::WriteFileStatsHdr(const gxFileStatsHeader &hdr)
 // Write the lock header to the file. Returns a non-zero value
 // to indicate an error condition or zero if successful.
 {
+  NoteGuard ng_(this); // 11/14/2026: not an object note
   switch(rev_letter) {
     case 'd' : case 'D' : case 'e' : case 'E' :
       break;

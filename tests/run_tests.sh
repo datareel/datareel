@@ -93,6 +93,8 @@ mkdir -p "$WORK/run_damaged" && cd "$WORK/run_damaged" &&
   check damaged_files "$BUILD/tests/damaged_files" 300 7
 mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" &&
   check journal_test "$BUILD/tests/journal_test" 20 7
+mkdir -p "$WORK/run_derived_apply" && cd "$WORK/run_derived_apply" &&
+  check derived_apply_test "$BUILD/tests/derived_apply_test"
 for t in stream_security_test proto_security_test support_security_test; do
   mkdir -p "$WORK/run_$t" && cd "$WORK/run_$t" && check $t "$BUILD/tests/$t"
 done

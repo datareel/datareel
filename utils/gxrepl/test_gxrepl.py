@@ -4001,6 +4001,49 @@ def test_verify_sees_files_named_during_its_pass():
         env.stop()
 
 
+def test_derived_stamps_are_derived():
+    """11/14/2026 (7.4 per-object derived apply): <index>.stamp matches the set's derived pattern, so a stamp on
+    the source is never shipped (not even when an include pattern names it: never a data file), the copy's own
+    stamp is never replaced or deleted (deletes = yes), and on an incremental set an index without a stamp is a
+    warning in "gxrepl torn" (rebuild mode), never torn."""
+    rebuild = f"{os.path.join(BIN, 'gxrepl_testwriter')} reindex {{dir}} {{lsn}}"
+    opts = {"client": CB_OPTS["client"] + ["derived = index.gxd", "include = *.stamp", "deletes = yes"],
+            "server": CB_OPTS["server"] + ["derived = index.gxd", f"derived_rebuild = {rebuild}", "derived_delay = 2",
+                                           "derived_apply = incremental", "include = *.stamp"]}
+    env = Env("derived_stamps", {"db": opts})
+    ws, aws = env.roots["db"]
+    tw = os.path.join(BIN, "gxrepl_testwriter")
+    assert writer(ws, "--commits", 12, "--no-ship", "--commit-block").returncode == 0
+    assert run([tw, "stamp", os.path.join(ws, "index.gxd.stamp"), "aaaaaaaaaaaaaaaa", "999"]).returncode == 0
+    os.makedirs(aws, exist_ok=True)
+    assert run([tw, "stamp", os.path.join(aws, "index.gxd.stamp"), "bbbbbbbbbbbbbbbb", "5"]).returncode == 0
+    env.start_server()
+    try:
+        assert env.once().returncode == 0
+        r = run([tw, "readstamp", os.path.join(aws, "index.gxd.stamp")])
+        assert r.returncode == 0 and "bbbbbbbbbbbbbbbb lsn 5" in r.stdout, "the copy's stamp changed: " + r.stdout
+        assert writer(ws, "--commits", 3, "--no-ship", "--commit-block", "--seed", 41).returncode == 0
+        assert env.once().returncode == 0
+        r = run([tw, "readstamp", os.path.join(aws, "index.gxd.stamp")])
+        assert r.returncode == 0 and "bbbbbbbbbbbbbbbb lsn 5" in r.stdout, "the copy's stamp changed: " + r.stdout
+        end = time.time() + 30
+        while time.time() < end and "INDEXES" in torn(env).stdout:
+            time.sleep(0.5)
+        t = torn(env)
+        assert t.returncode == 0 and "has no stamp" not in t.stdout, t.stdout + env.logs()
+        # No stamp (a copy on older code, or one never stamped): rebuild mode, a warning only
+        os.remove(os.path.join(aws, "index.gxd.stamp"))
+        t = torn(env)
+        assert t.returncode == 0 and "index.gxd has no stamp (rebuild mode)" in t.stdout, t.stdout
+        assert not os.path.exists(os.path.join(aws, "index.gxd.stamp")), "the source's stamp was shipped"
+        # A damaged stamp: the same warning kind
+        put(os.path.join(aws, "index.gxd.stamp"), os.urandom(200))
+        t = torn(env)
+        assert t.returncode == 0 and "index.gxd has a damaged stamp (rebuild mode)" in t.stdout, t.stdout
+    finally:
+        env.stop()
+
+
 def test_missing_root_is_empty():
     """11/10/2026: a set whose root does not exist yet (db/news/oodb before its first nightly publish) is an
     empty set on both nodes, not an error; once the source makes the folder, its first publish replicates."""

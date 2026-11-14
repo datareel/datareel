@@ -68,9 +68,34 @@ loss the log does not lack a commit that the files hold. Every Open()
 also writes an open record, and gxrepl answers an open or gap record
 by comparing the stream's files with the copy.
 
+11/14/2026 (DataReel 7.4): type 5, an "objects" record. A journal with
+object notes on (gxdJournal::EnableObjectNotes(), gxdonote.h) writes
+one right before each commit record: lsn n the objects record, n+1 its
+commit. Both are written in one write under the writer lock, so a
+segment change, a purge or a copy's position never falls between them
+(gxdShipLogReader::Read() never ends a batch on one). An objects record
+whose next record is not a commit (a crash between them) is an orphan:
+it is ignored and that commit gets "rebuild needed". Readers that do not
+know type 5 skip it (gxrepl before 7.4 applies commit records only).
+Payload:
+
+  uint32  format (1)
+  uint32  flags: bit0 every file's notes are complete, bit1 the rest
+          is a zlib stream (uint32 raw length, uint32 crc32, the stream)
+  uint32  number of files, then per file:
+    uint32 name length, the name (as in the commit record)
+    uint32 flags: bit0 the file's notes are complete
+    uint32 number of objects, then per object (ascending address):
+      uint64 object address, uint8 op (1 add, 2 update, 3 remove),
+      uint32 old length, uint32 new length
+
+The files are the commit record's files, less the commit block. Derived
+files are not listed.
+
 Changes:
 ==============================================================
 11/07/2026: New in DataReel 7.3.
+11/14/2026: Objects records (type 5) for per-object derived apply.
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -78,6 +103,7 @@ Changes:
 #define __GX_DATABASE_REPLICATION_LOG_HPP__
 
 #include "gxdlcode.h"
+#include "gxdonote.h"
 
 #include <stdint.h>
 #include <map>
@@ -96,6 +122,11 @@ const uint32_t gxdShipGap    = 3;
 // the library has zlib and it is smaller (GXDSHIP_COMPRESS=0 turns it off);
 // readers take both types, so older logs still read.
 const uint32_t gxdShipCommitZ = 4;
+// 11/14/2026: objects record (see above), always right before its commit
+const uint32_t gxdShipObjects = 5;
+const uint32_t gxdShipObjectsFormat = 1;
+const uint32_t gxdShipObjectsComplete = 1;
+const uint32_t gxdShipObjectsZlib = 2;
 const size_t gxdShipRecordHeaderSize = 32;
 const size_t gxdShipSegmentHeaderSize = 32;
 const unsigned long long gxdShipDefaultSegmentSize = 64ULL * 1024 * 1024;
@@ -110,6 +141,7 @@ struct gxdShipFile {
   std::string path; // Full path
   unsigned long long size = 0;
   const std::vector<gxdPage *> *pages = 0;
+  const gxdObjectNotes *notes = 0; // 11/14/2026: object notes, if on
 };
 
 // Writer side, owned by a gxdJournal (EnableShipLog())
@@ -170,6 +202,11 @@ public:
 
 private:
   int append(uint32_t type, const unsigned char *payload, size_t len);
+  // 11/14/2026: two records (an objects record and its commit) in one write
+  int append2(uint32_t t1, const unsigned char *p1, size_t l1,
+	      uint32_t t2, const unsigned char *p2, size_t l2);
+  int build_objects(const std::vector<gxdShipFile> &files, const std::vector<size_t> &keep,
+		    const std::vector<std::string> &names);
   int open_segment();
   void purge();
   int fail(const std::string &msg);
@@ -197,6 +234,9 @@ private:
   unsigned long long appends, failures;
   std::vector<std::string> files_list;
   std::vector<unsigned char> buf;
+  std::vector<unsigned char> obuf, ozbuf; // 11/14/2026: objects record
+public: // 11/14/2026: tests only: write the objects record and stop
+  int test_split_pair = 0;  // 1: write only the objects record of the next commit
 };
 
 // A record inside a buffer of whole records (see gxdShipLogReader)
@@ -228,6 +268,37 @@ GXDLCODE_API int gxdParseShipCommitRecord(const gxdShipRecordView &r,
 // Split a commit record's payload. Returns 0, or -1 if it is damaged.
 GXDLCODE_API int gxdParseShipCommit(const unsigned char *p, size_t n,
 				    std::vector<gxdShipCommitFile> &files);
+
+// 11/14/2026: An objects record (gxdShipObjects), split
+struct gxdShipObject {
+  unsigned long long address = 0;
+  unsigned char op = 0;
+  uint32_t old_len = 0, new_len = 0;
+};
+struct gxdShipObjectFile {
+  std::string name;
+  int complete = 0;
+  std::vector<gxdShipObject> objects; // Ascending address
+};
+struct gxdShipObjectsRecord {
+  unsigned long long lsn = 0;  // The objects record's own lsn
+  int complete = 0;            // Every file's notes are complete
+  std::vector<gxdShipObjectFile> files;
+};
+// Returns 0, or -1 if it is damaged (or compressed and the library has
+// no zlib). A damaged record means "rebuild needed" for its commit.
+GXDLCODE_API int gxdParseShipObjectsRecord(const gxdShipRecordView &r,
+					   gxdShipObjectsRecord &out);
+// The objects record of the commit recs[i]: the record right before it
+// when its lsn is one less. Returns 1 found (and parsed), 0 none (a
+// commit written without notes, or the pair's first half not in "recs"),
+// -1 found but damaged.
+GXDLCODE_API int gxdShipObjectsFor(const std::vector<gxdShipRecordView> &recs,
+				   size_t i, gxdShipObjectsRecord &out);
+// 1 if recs[i] is an orphaned objects record (the next record exists and
+// is not a commit with the next lsn)
+GXDLCODE_API int gxdShipObjectsOrphan(const std::vector<gxdShipRecordView> &recs,
+				      size_t i);
 
 // 11/10/2026: Remove a stream's log (<set_root>/.gxrepl/log/<stream>) once
 // nothing needs it: its writer is gone (writer.lock free) and every copy

@@ -141,6 +141,16 @@ struct GXDLCODE_API gxReplSetConfig {
   // Missing or stale indexes are a warning in "gxrepl torn", not torn: a
   // take over's writer open rebuilds them; a failed rebuild stays torn.
   int derived_busy_rebuild = 900;
+  // 11/14/2026 (7.4): how the copy keeps its derived indexes: "rebuild"
+  // (derived_rebuild, above) or "incremental": object by object from the
+  // objects records (gxdShipObjects) with the extractor (gxrextract.h:
+  // a .so path, or "gxvmember"), each index stamped in <index>.stamp
+  // (gxdstamp.h). An index without a good stamp, an incomplete objects
+  // record or an extractor error goes back to rebuild. Missing stamps are
+  // a warning in "gxrepl torn", never torn.
+  std::string derived_apply = "rebuild";
+  std::string derived_extractor;
+  std::string derived_extractor_config;
   // 11/12/2026 (F7, staged unit copies): the copy of a commit_block unit by its files goes into a copy-on-write
   // stage (<root>/.gxrepl/stage/<unit>/, reflinked from the unit) and is swapped in at its commit block, so the
   // live unit stays whole at its last sealed generation until the new one is whole: a link lost in the middle of

@@ -66,6 +66,7 @@ Database replication over gxStream. See gxrepl.h. POSIX only.
 #include <sys/statvfs.h>
 #include <linux/fs.h>
 #include "gxdpcache.h"
+#include "gxdstamp.h"
 
 #if defined (DATAREEL_HAVE_ZLIB)
 #include <zlib.h>
@@ -599,6 +600,15 @@ int gxReplConfig::Load(const std::string &fname, std::string &err)
       else if(k == "derived_rebuild") cur->derived_rebuild = v;
       else if(k == "derived_delay") cur->derived_delay = atoi(v.c_str());
       else if(k == "derived_busy_rebuild") cur->derived_busy_rebuild = atoi(v.c_str());   // 11/11/2026
+      else if(k == "derived_apply") {        // 11/14/2026: rebuild | incremental
+	if(v != "rebuild" && v != "incremental") {
+	  fclose(f); err = fname + ":" + std::to_string(ln) + ": derived_apply must be rebuild or incremental";
+	  return -1;
+	}
+	cur->derived_apply = v;
+      }
+      else if(k == "derived_extractor") cur->derived_extractor = v;
+      else if(k == "derived_extractor_config") cur->derived_extractor_config = v;
       else if(k == "staged_fill") cur->staged_fill = (v == "yes" || v == "true" || v == "1");   // 11/12/2026 F7
       else if(k == "stage_max_bytes") cur->stage_max_bytes = strtoull(v.c_str(), 0, 10);
       else known = false;
@@ -728,7 +738,16 @@ static bool is_derived(const gxReplSetConfig &sc, const std::string &rel)
   std::string base = rel.substr(rel.find_last_of('/') == std::string::npos ? 0 : rel.find_last_of('/') + 1);
   for(auto &p : sc.derived)
     if(fnmatch(p.c_str(), base.c_str(), 0) == 0 || fnmatch(p.c_str(), rel.c_str(), 0) == 0) return true;
+  // 11/14/2026: "<derived>.stamp" (gxdstamp.h) is derived too: a copy's own,
+  // never sent, never deleted, and a primary's never shipped over it
+  if(gxdDerivedStamp::IsStamp(base)) return is_derived(sc, rel.substr(0, rel.size() - 6));
   return false;
+}
+
+// 11/14/2026: a derived index file itself (not its stamp)
+static bool is_derived_index(const gxReplSetConfig &sc, const std::string &rel)
+{
+  return !gxdDerivedStamp::IsStamp(rel) && is_derived(sc, rel);
 }
 
 static bool excluded(const gxReplSetConfig &sc, const std::string &rel)
@@ -767,6 +786,10 @@ static bool is_db_file(const gxReplSetConfig &sc, const std::string &rel)
 {
   size_t k = rel.find_last_of('/');
   std::string base = k == std::string::npos ? rel : rel.substr(k + 1);
+  // 11/14/2026: a derived index stamp (<index>.stamp) and the rebuild's
+  // derived.stamp are never data files, even when an "include" pattern
+  // matches them
+  if(gxdDerivedStamp::IsStamp(base) || base == "derived.stamp") return false;
   size_t dot = base.find_last_of('.');
   std::string ext = dot == std::string::npos ? "" : base.substr(dot);
   if(ext == ".gxd" || ext == ".btx") return true;
@@ -4499,13 +4522,31 @@ static int derived_status(const gxReplSetConfig &sc, const std::string &rel, uin
   DIR *d = opendir(dir.c_str());
   int found = 0;
   struct dirent *e;
-  while(d && (e = readdir(d)) != 0) if(e->d_name[0] != '.' && is_derived(sc, rel.empty() ? std::string(e->d_name) : rel + "/" + e->d_name)) found++;
+  while(d && (e = readdir(d)) != 0) if(e->d_name[0] != '.' && is_derived_index(sc, rel.empty() ? std::string(e->d_name) : rel + "/" + e->d_name)) found++;
   if(d) closedir(d);
   if(!found) { why = "missing (no derived file in the folder)"; return 1; }
   if(derived_stamp_ok(sc, rel, gen, why)) return 0;
   // a stamp that does not say this generation / record is behind; one that is
   // damaged or holds the wrong key count is a bad rebuild
   return (why.compare(0, 10, "stamped at") == 0 || why.compare(0, 11, "not stamped") == 0) ? 1 : 2;
+}
+
+// 11/14/2026: the derived indexes of a folder whose <index>.stamp is missing or damaged
+static void derived_stamp_gaps(const gxReplSetConfig &sc, const std::string &rel, std::vector<std::string> &out)
+{
+  std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
+  DIR *d = opendir(dir.c_str());
+  struct dirent *e;
+  while(d && (e = readdir(d)) != 0) {
+    std::string n = e->d_name;
+    if(n[0] == '.' || !is_derived_index(sc, rel.empty() ? n : rel + "/" + n)) continue;
+    gxdStampData sd;
+    int rc = gxdDerivedStamp::ReadFile(gxdDerivedStamp::PathFor(dir + "/" + n), sd);
+    if(rc == 1) out.push_back(n + " has no stamp");
+    else if(rc != 0) out.push_back(n + " has a damaged stamp");
+  }
+  if(d) closedir(d);
+  std::sort(out.begin(), out.end());
 }
 
 static bool derived_ok(const gxReplSetConfig &sc, const std::string &rel, uint64_t gen, std::string &why)
@@ -4796,6 +4837,8 @@ static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const 
 	int ds = 0;
 	std::string dwhy;
 	if(why.empty() && !sc.derived.empty()) ds = derived_status(sc, rel, g, dwhy);
+	std::vector<std::string> nostamp;                              // 11/14/2026: the stamps too, under the lock
+	if(why.empty() && sc.derived_apply == "incremental") derived_stamp_gaps(sc, rel, nostamp);
 	tl.release();                                                  // nothing slow under the lock
 	if(!deferred.empty() && why.empty()) {
 	  uint64_t g0 = g;
@@ -4810,6 +4853,9 @@ static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const 
 	else if(!sc.derived.empty()) {
 	  if(ds == 2) torn.push_back(where + ": derived indexes " + dwhy);
 	  else if(ds == 1) warn.push_back(where + ": derived indexes " + dwhy + " (rebuilt by the take over's writer open)");
+	  // 11/14/2026: incremental sets: an index without a good stamp is in rebuild mode (a copy on older code has
+	  // none): a warning, never torn (the stamps were read under the unit's lock, with the derived state)
+	  for(auto &w : nostamp) warn.push_back(where + ": " + w + " (rebuild mode)");
 	}
       }
     }

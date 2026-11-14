@@ -212,6 +212,7 @@ gxdJournal::gxdJournal()
   commits = checkpoints = 0;
   pages_logged = pages_written = 0;
   ship = 0;
+  onotes_on = 0;
 }
 
 gxdJournal::~gxdJournal()
@@ -389,6 +390,7 @@ gxDatabaseError gxdJournal::Close()
   gxDatabaseError err = gxDBASE_NO_ERROR;
   if(in_txn) Rollback();
   if(jfp) err = Detach();
+  for(size_t i = 0; i < files.size(); i++) notes_detach(files[i]);
   files.clear();
   caches.clear();
   // After a clean checkpoint the journal holds nothing to recover
@@ -420,6 +422,8 @@ gxDatabaseError gxdJournal::Attach(gxDatabase *f, size_t cache_bytes)
   jf.btx = 0;
   jf.path = jfull_path(f->DatabaseName());
   jf.written = 0;
+  jf.notes = 0;
+  if(onotes_on) notes_attach(jf);
   files.push_back(jf);
   return jerror = gxDBASE_NO_ERROR;
 }
@@ -450,6 +454,7 @@ gxDatabaseError gxdJournal::Detach()
 {
   if(in_txn) return jerror = gxDBASE_FILE_NOT_READY;
   if(Checkpoint() != gxDBASE_NO_ERROR) return jerror;
+  for(size_t i = 0; i < files.size(); i++) notes_detach(files[i]);
   files.clear();
   caches.clear();
   return jerror = gxDBASE_NO_ERROR;
@@ -466,6 +471,10 @@ gxDatabaseError gxdJournal::Begin()
   }
   for(size_t i = 0; i < files.size(); i++)
     files[i].f->PageCache()->BeginTxn();
+  // 11/14/2026: notes made outside a transaction: their pages may go
+  // with this commit, so this commit's notes for the file are incomplete
+  for(size_t i = 0; i < files.size(); i++)
+    if(files[i].notes && !files[i].notes->notes.empty()) files[i].notes->Incomplete();
   in_txn = 1;
   return jerror = gxDBASE_NO_ERROR;
 }
@@ -607,6 +616,7 @@ gxDatabaseError gxdJournal::Commit(int durable)
   }
   in_txn = 0;
   commits++;
+  notes_clear(); // 11/14/2026: the objects record went with the commit
   if(err != gxDBASE_NO_ERROR) return jerror = err;
 
   // Checkpoint when the journal is large or the committed pages pinned
@@ -675,6 +685,7 @@ gxDatabaseError gxdJournal::Rollback()
   for(size_t i = 0; i < files.size(); i++)
     files[i].f->PageCache()->RollbackTxn();
   in_txn = 0;
+  notes_clear(); // 11/14/2026
 
   // Reload the in-memory headers from the committed pages
   for(size_t i = 0; i < files.size(); i++) {
@@ -695,6 +706,7 @@ void gxdJournal::ship_commit(const std::vector< std::vector<gxdPage *> > &v)
     sf[i].path = files[i].path;
     sf[i].size = (unsigned long long)files[i].f->PageCache()->FileSize();
     if(i < v.size()) sf[i].pages = &v[i];
+    sf[i].notes = files[i].notes; // 11/14/2026: 0 when object notes are off
   }
   // 11/08/2026: Power-off safety: the record is synced before the pages
   // reach the files (unless the journal itself does not sync)
@@ -718,7 +730,42 @@ gxDatabaseError gxdJournal::EnableShipLog(const char *set_root,
   }
   ship = log;
   write_lock = 1;
+  // 11/14/2026: object notes from the environment (EnableObjectNotes())
+  const char *on = getenv("GXDSHIP_OBJECTS");
+  if(on && atoi(on) > 0) EnableObjectNotes(1);
   return jerror = gxDBASE_NO_ERROR;
+}
+
+gxDatabaseError gxdJournal::EnableObjectNotes(int on)
+{
+  if(in_txn) return jerror = gxDBASE_FILE_NOT_READY;
+  onotes_on = on ? 1 : 0;
+  for(size_t i = 0; i < files.size(); i++) {
+    if(onotes_on) notes_attach(files[i]);
+    else notes_detach(files[i]);
+  }
+  return jerror = gxDBASE_NO_ERROR;
+}
+
+void gxdJournal::notes_attach(JFile &jf)
+{
+  if(jf.notes) return;
+  jf.notes = new gxdObjectNotes;
+  jf.f->SetObjectNotes(jf.notes);
+}
+
+void gxdJournal::notes_detach(JFile &jf)
+{
+  if(!jf.notes) return;
+  if(jf.f && jf.f->ObjectNotes() == jf.notes) jf.f->SetObjectNotes(0);
+  delete jf.notes;
+  jf.notes = 0;
+}
+
+void gxdJournal::notes_clear()
+{
+  for(size_t i = 0; i < files.size(); i++)
+    if(files[i].notes) files[i].notes->Clear();
 }
 
 void gxdJournal::DisableShipLog()
