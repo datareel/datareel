@@ -213,12 +213,21 @@ static int shiplog(const std::string &dir, unsigned long long from)
   return 0;
 }
 
+// 11/14/2026 (7.4): an application's own gxrepl build (its extractors linked in): define GXREPL_EXTRA_EXTRACTORS
+// and give gxrepl_register_extractors(), which calls gxrRegisterExtractor() for each (examples/oodb/replication.cpp)
+#if defined(GXREPL_EXTRA_EXTRACTORS)
+void gxrepl_register_extractors();
+#endif
+
 #if defined(GXREPL_TEST_EXTRACTOR)
 const gxrExtractorOps *gxrepl_test_extractor_ops();   // 11/14/2026: gxrepl_testextractor.cpp (test builds)
 #endif
 
 int main(int argc, char **argv)
 {
+#if defined(GXREPL_EXTRA_EXTRACTORS)
+  gxrepl_register_extractors();
+#endif
 #if defined(GXREPL_TEST_EXTRACTOR)
   datareel::gxrRegisterExtractor("gxrepl_test", gxrepl_test_extractor_ops());
 #endif
