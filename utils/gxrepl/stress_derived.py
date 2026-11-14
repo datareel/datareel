@@ -4,6 +4,13 @@
 # same load, on throwaway local sets only (the test suite's Env: 127.0.0.1, folders under a temporary directory).
 #
 #   python3 stress_derived.py --bin BUILD/utils [--out DIR] [--speed 10] [--only steady,burst,...] [--quick]
+#                             [--past-folders 2]
+#
+# 11/14/2026 (the per-object fixes): every run is multi-folder: today's folder d1 takes the load, and
+# --past-folders past days (p1, p2, ...) take late lines (a small commit every --late-every s of real time, the
+# realtime writer's late batches) on their own streams the whole time; rebuilds are counted per folder. The gated
+# writer waits until the rebuild count has been the same for 6 s before the load is released. Each run ends with
+# every folder's index compared with a full rebuild of a copy of it (index_matches_rebuild).
 #
 # Profiles (the design study's stress plan):
 #   steady     the realtime mean (890 commits/h), peak (1,324/h), 5x and 10x peak, time-compressed by --speed
@@ -36,6 +43,9 @@ import test_gxrepl as T                                      # noqa: E402
 NICE = ["nice", "-n", "19", "ionice", "-c3"]
 # object payloads of 1,500-3,500 bytes (mean ~2.5 KB: a realtime record, a 64-byte header and the raw source line)
 SIZE_MIN, SIZE_MAX = 1500, 2000
+PAST_FOLDERS = 2    # 11/14/2026: past days taking late lines beside today's load (--past-folders)
+LATE_EVERY = 2.0    # seconds between a past folder's late commits (real time; set from --speed)
+LATE_SECS = 30      # how long the late writers run in a measured load (at most: stopped when the load ends)
 SPLIT = 1400        # a burst over ~3.5 MB goes in commits of at most 1,400 objects (under the 4 MB max_message)
 
 
@@ -197,7 +207,10 @@ class Run:
         self.env = make_env(f"{name}_{method}", method, extra_server)
         self.ws, self.aws = self.env.roots["db"]
         self.unit = "d1"
-        os.makedirs(os.path.join(self.ws, self.unit), exist_ok=True)
+        self.past = [f"p{i + 1}" for i in range(PAST_FOLDERS)]
+        for u in [self.unit] + self.past:
+            os.makedirs(os.path.join(self.ws, u), exist_ok=True)
+        self.late = []
         self.answers = os.path.join(self.env.dir, "answers.log")
         self.stats = os.path.join(self.env.dir, "stats.log")
         self.sampler = None
@@ -206,9 +219,13 @@ class Run:
         if prefill:
             r = writer_fg(os.path.join(self.ws, self.unit), self.ws, self.answers, *prefill)
             assert r.returncode == 0, r.stdout
+            for i, u in enumerate(self.past):
+                r = writer_fg(os.path.join(self.ws, u), self.ws, os.path.join(self.env.dir, f"answers_{u}.log"),
+                              "--commits", 10, "--per", 20, "--seed", 50 + i)
+                assert r.returncode == 0, r.stdout
         self.env.start_server(extra_env={"GXREPL_STATS_FILE": self.stats})
         self.env.start_client()
-        T._wait_units(self.env, self.ws, self.aws, [self.unit], 600)
+        T._wait_units(self.env, self.ws, self.aws, [self.unit] + self.past, 600)
         self.wait_index()
         self.sampler = Sampler(self.env, self.ws, self.aws, self.unit, self.answers)
         self.sampler.start()
@@ -232,6 +249,60 @@ class Run:
         self.caught_up()
         time.sleep(2)
         self.wait_index()
+        self.stable_rebuilds()
+
+    def stable_rebuilds(self, quiet=6, secs=600):
+        """until the rebuild count has not moved for "quiet" seconds (a restart's rebuild is over)"""
+        end = time.time() + secs
+        last, since = self.rebuilds(), time.time()
+        while time.time() < end and time.time() - since < quiet:
+            time.sleep(0.5)
+            n = self.rebuilds()
+            if n != last:
+                last, since = n, time.time()
+
+    def start_late(self, secs):
+        """late lines into each past folder for about "secs" seconds: a small commit every LATE_EVERY s"""
+        self.late = []
+        n = max(1, int(secs / LATE_EVERY))
+        for i, u in enumerate(self.past):
+            self.late.append(writer_bg(os.path.join(self.ws, u), self.ws, os.path.join(self.env.dir, f"answers_{u}.log"),
+                                       "--commits", n, "--per", 3, "--sleep", int(LATE_EVERY * 1000),
+                                       "--seed", int(time.time()) % 1000 + i))
+
+    def stop_late(self):
+        """the late writers end on their own (a terminate mid-commit would leave an odd commit block)"""
+        for w in self.late:
+            try:
+                w.wait(LATE_SECS + 120)
+            except subprocess.TimeoutExpired:
+                w.terminate()
+                w.wait(30)
+        self.late = []
+
+    def rebuilds_of(self, unit):
+        try:
+            return open(os.path.join(self.env.dir, "server.log")).read().count(f": {unit}: derived indexes rebuilt")
+        except OSError:
+            return 0
+
+    def index_matches_rebuild(self):
+        """each folder's copy index against a full rebuild of a copy of the folder (gxrepl digest)"""
+        out = {}
+        for u in [self.unit] + self.past:
+            src = os.path.join(self.aws, u)
+            tmp = os.path.join(self.env.dir, f"rebuild_{u}")
+            shutil.rmtree(tmp, ignore_errors=True)
+            os.makedirs(tmp)
+            for f in ("data.gxd", "commit.bin", "index.gxd"):
+                shutil.copy2(os.path.join(src, f), os.path.join(tmp, f))
+            r = subprocess.run(NICE + tw("reindex", tmp), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            d = [subprocess.run([os.path.join(T.BIN, "gxrepl"), "digest", os.path.join(x, "index.gxd")],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).stdout.strip()
+                 for x in (src, tmp)]
+            out[u] = r.returncode == 0 and d[0] == d[1] and bool(d[0])
+            shutil.rmtree(tmp, ignore_errors=True)
+        return out
 
     def release(self):
         open(self.gate, "w").close()
@@ -262,13 +333,19 @@ class Run:
         lag0 = len(s.lag)
         eq0, st0, wr0 = s.equal, s.stale, s.wrong
         cpu0, wb0 = s.cpu1, s.wb1
+        per0 = {u: self.rebuilds_of(u) for u in [self.unit] + self.past}
+        self.start_late(LATE_SECS)
         extra = fn() or {}
+        self.stop_late()
+        T._wait_units(self.env, self.ws, self.aws, [self.unit] + self.past, 600)
+        self.wait_index()
         secs = time.time() - t0
         st = read_stats(self.stats, t0_ms)
         lag = s.lag[lag0:]
         res = {"secs": round(secs, 1), "apply_lock": summary(st["apply"], secs), "rebuild_lock": summary(st["rebuild"], secs),
                "incremental_step": summary(st["incremental"], secs), "peak_staged_mb": round(st["peak_mb"], 2),
                "rebuilds": self.rebuilds() - r0,
+               "rebuilds_per_folder": {u: self.rebuilds_of(u) - per0[u] for u in per0},
                "copy_lag_gen": {"mean": round(statistics.mean(lag), 2) if lag else 0, "max": max(lag) if lag else 0},
                "lookups": {"equal": s.equal - eq0, "stale": s.stale - st0, "wrong": s.wrong - wr0},
                "cpu_s": round((s.cpu1 or 0) - (cpu0 or 0), 2), "rss_peak_mb": round(s.rss_peak / 1048576.0, 1),
@@ -284,10 +361,15 @@ class Run:
     def finish(self):
         if self.sampler:
             self.sampler.stop()
+        self.stop_late()
         ok, why = self.check()
         wrong = self.sampler.wrong_examples if self.sampler else []
+        try:
+            match = self.index_matches_rebuild()
+        except Exception as e:                       # noqa: BLE001
+            match = {"error": str(e)}
         self.env.stop()
-        return {"final_check": ok, "final_check_text": why, "wrong_examples": wrong}
+        return {"final_check": ok, "final_check_text": why, "wrong_examples": wrong, "index_matches_rebuild": match}
 
 
 def steady(method, speed, quick):
@@ -477,7 +559,12 @@ def main():
     ap.add_argument("--only", default="steady,burst,day,faults,endurance")
     ap.add_argument("--methods", default="rebuild,incremental")
     ap.add_argument("--quick", action="store_true")
+    ap.add_argument("--past-folders", type=int, default=2)
     a = ap.parse_args()
+    global PAST_FOLDERS, LATE_EVERY, LATE_SECS
+    PAST_FOLDERS = a.past_folders
+    LATE_EVERY = max(0.5, 900.0 / max(a.speed, 1.0) / 20.0)   # osa_ingest's 900 s late batches, compressed
+    LATE_SECS = 60 if a.quick else 300
     T.BIN = os.path.abspath(a.bin)
     T.TMP = tempfile.mkdtemp(prefix="gxrepl_stress_")
     T.make_pki(os.path.join(T.TMP, "pki"))
