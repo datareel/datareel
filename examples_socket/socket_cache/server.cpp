@@ -425,7 +425,7 @@ void CopySerialPortToFile(gxsFile *dev)
 	if((__ULWORD__)gx.block_length > (__ULWORD__)gxDATAGRAM_DEF_MAX_BLOCK) {
 	  cout << "Block of " << gx.block_length << " bytes is too large" 
 	       << "\n" << flush;
-	  return 0;
+	  return; // This function returns void
 	}
 	cout << "Reading database block " << gx.block_length
 	     << " bytes in length" << "\n" << flush;
