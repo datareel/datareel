@@ -1,0 +1,87 @@
+<!doctype html>
+<!-- Generated from RELEASE_NOTES_7.3.3.txt by docs/bin/txt2html.py -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel 7.3.3 Beta Release Notes</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>DataReel 7.3.3 Beta Release Notes</h1>
+<div class="dr-toc-title">Contents</div>
+<p class="dr-toc"><a href="#ReplicationFixes">Replication fixes</a><br>
+<a href="#Tests">Tests</a></p>
+<p>DataReel 7.3.3 is a beta bug fix release of 7.3.2. DataReel 6.2 remains the stable release for production use until DataReel 7 is final; please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
+<p>7.3.3 fixes more database replication (gxrepl, utils/gxrepl) problems found while it ran in production between two nodes. Database file formats and replication protocol 3 are unchanged, and the API changes are additions. A copy&#x27;s seal gains a field that a 7.3.2 gxrepl reads and ignores. Run the same version on both nodes, and rebuild programs against 7.3.3.</p>
+<p>The library version is 7.3.3 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.3.3); the soname stays libdatareel.so.7.</p>
+<h2 id="ReplicationFixes">Replication fixes</h2>
+<p>1. Seal per folder. A copy&#x27;s unit seal is now &quot;log G L S C&quot;: C is the</p>
+<pre>   ship log record that last changed that folder, while L stays the
+   stream&#x27;s applied position. Derived indexes (derived = GLOB, stamped
+   in &lt;folder&gt;/derived.stamp) are compared with C, both in &quot;gxrepl torn&quot;
+   and in the {lsn} that derived_rebuild is given.
+   Before, every record of a stream moved L in the seals of all of the
+   stream&#x27;s folders, so the indexes of folders that had not changed
+   looked stale and were rebuilt again and again. In production that was
+   most of about six rebuilds an hour, each under the apply lock.
+   - A seal without C (written by 7.3.2) reads as C = L. After an
+     upgrade, each folder is rebuilt once and then keeps its indexes.
+   - A 7.3.2 gxrepl reads a 4-field seal and ignores C.
+   - These all set C to the record that made the change:
+     - a verify repair, including a size-only change;
+     - a delete of a data file;
+     - a new log under the same stream name;
+     - a fill.
+     Two streams&#x27; numbering is never mixed.</pre>
+<p>2. A delete&#x27;s reseal comes first. When a data file of a log-sealed</p>
+<pre>   folder is deleted, the seal is rewritten with C = L before the file
+   is unlinked. This happens under the apply lock, after any pending
+   journal batch is recovered. A crash in between costs one extra
+   rebuild, never a stale index.</pre>
+<p>3. A verify sees files named during its pass. The client read each</p>
+<pre>   stream&#x27;s file list once per pass. If a stream named a new file (a
+   new unit&#x27;s commit block) while its verify ran, that file was not
+   verified, and the unit could stay &quot;copying&quot; until the next verify.
+   The list is now read again after a stream&#x27;s verify, and the stream is
+   verified again in the same pass if files joined it (at most 3 times).</pre>
+<p>4. &quot;gxrepl torn&quot; (promote-check) reads each unit under a shared lock on</p>
+<pre>   the set&#x27;s apply.jnl.
+   - The lock is taken per unit, only around that unit&#x27;s small reads:
+     commit block, seal, applied position, derived state and stamp.
+     Nothing is hashed under it. Measured on production sets, the
+     longest hold was 0.054 ms.
+   - While it holds the lock no apply is in flight, so the timed
+     re-reads are not needed.
+   - The waits share a budget per set, GXREPL_TORN_LOCK_WAIT (default
+     15 s). Past it, the rest of the set is read unlocked with the old
+     re-reads and a WARNING line; the exit code is unchanged.
+   - GXREPL_TORN_LOCK_STATS=1 prints the lock counts and hold times.
+   - gxReplTornLockStats and a 4-argument gxReplTornCopies are new. The
+     old signatures are kept.</pre>
+<p>5. ApplyFiles writes the streams&#x27; applied positions inside the apply</p>
+<pre>   lock, after any staged swap, as ApplyLog has done since 7.3.2. Before,
+   the positions were written after the lock was released, while the
+   batch&#x27;s &quot;log G L&quot; seals were already written. Even a locked reader
+   could then see &quot;sealed at record L, the copy applied up to L-1&quot; (a
+   false TORN).</pre>
+<h2 id="Tests">Tests</h2>
+<ul>
+<li>utils/gxrepl/test_gxrepl.py, new tests: - test_derived_seal_per_folder - test_delete_reseals_before_unlink - test_verify_sees_files_named_during_its_pass - test_promote_check_reads_under_the_apply_lock</li>
+<li>test_commit_block_kill_storm reads its verdict and &quot;gxrepl torn&quot; under the shared lock, as the staged storm has since 7.3.2.</li>
+<li>The full gxrepl suite passes (GXREPL_TEST_HOOKS build, RHEL 10.2).</li>
+</ul>
+</main>
+<footer class="dr-footer">DataReel 7.3.3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+</body>
+</html>

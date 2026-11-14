@@ -1,0 +1,83 @@
+DataReel 7.3.3 Beta Release Notes, 11/14/2026
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.3.3 is a beta bug fix release of 7.3.2. DataReel 6.2
+remains the stable release for production use until DataReel 7 is
+final; please report problems through https://datareel.com/contact.php.
+
+7.3.3 fixes more database replication (gxrepl, utils/gxrepl) problems
+found while it ran in production between two nodes. Database file
+formats and replication protocol 3 are unchanged, and the API changes
+are additions. A copy's seal gains a field that a 7.3.2 gxrepl reads and
+ignores. Run the same version on both nodes, and rebuild programs
+against 7.3.3.
+
+The library version is 7.3.3 (version.txt, DATAREEL_VERSION_STRING in
+gxdlcode.h, libdatareel.so.7.3.3); the soname stays libdatareel.so.7.
+
+REPLICATION FIXES
+-----------------
+1. Seal per folder. A copy's unit seal is now "log G L S C": C is the
+   ship log record that last changed that folder, while L stays the
+   stream's applied position. Derived indexes (derived = GLOB, stamped
+   in <folder>/derived.stamp) are compared with C, both in "gxrepl torn"
+   and in the {lsn} that derived_rebuild is given.
+   Before, every record of a stream moved L in the seals of all of the
+   stream's folders, so the indexes of folders that had not changed
+   looked stale and were rebuilt again and again. In production that was
+   most of about six rebuilds an hour, each under the apply lock.
+   - A seal without C (written by 7.3.2) reads as C = L. After an
+     upgrade, each folder is rebuilt once and then keeps its indexes.
+   - A 7.3.2 gxrepl reads a 4-field seal and ignores C.
+   - These all set C to the record that made the change:
+     - a verify repair, including a size-only change;
+     - a delete of a data file;
+     - a new log under the same stream name;
+     - a fill.
+     Two streams' numbering is never mixed.
+
+2. A delete's reseal comes first. When a data file of a log-sealed
+   folder is deleted, the seal is rewritten with C = L before the file
+   is unlinked. This happens under the apply lock, after any pending
+   journal batch is recovered. A crash in between costs one extra
+   rebuild, never a stale index.
+
+3. A verify sees files named during its pass. The client read each
+   stream's file list once per pass. If a stream named a new file (a
+   new unit's commit block) while its verify ran, that file was not
+   verified, and the unit could stay "copying" until the next verify.
+   The list is now read again after a stream's verify, and the stream is
+   verified again in the same pass if files joined it (at most 3 times).
+
+4. "gxrepl torn" (promote-check) reads each unit under a shared lock on
+   the set's apply.jnl.
+   - The lock is taken per unit, only around that unit's small reads:
+     commit block, seal, applied position, derived state and stamp.
+     Nothing is hashed under it. Measured on production sets, the
+     longest hold was 0.054 ms.
+   - While it holds the lock no apply is in flight, so the timed
+     re-reads are not needed.
+   - The waits share a budget per set, GXREPL_TORN_LOCK_WAIT (default
+     15 s). Past it, the rest of the set is read unlocked with the old
+     re-reads and a WARNING line; the exit code is unchanged.
+   - GXREPL_TORN_LOCK_STATS=1 prints the lock counts and hold times.
+   - gxReplTornLockStats and a 4-argument gxReplTornCopies are new. The
+     old signatures are kept.
+
+5. ApplyFiles writes the streams' applied positions inside the apply
+   lock, after any staged swap, as ApplyLog has done since 7.3.2. Before,
+   the positions were written after the lock was released, while the
+   batch's "log G L" seals were already written. Even a locked reader
+   could then see "sealed at record L, the copy applied up to L-1" (a
+   false TORN).
+
+TESTS
+-----
+- utils/gxrepl/test_gxrepl.py, new tests:
+  - test_derived_seal_per_folder
+  - test_delete_reseals_before_unlink
+  - test_verify_sees_files_named_during_its_pass
+  - test_promote_check_reads_under_the_apply_lock
+- test_commit_block_kill_storm reads its verdict and "gxrepl torn" under
+  the shared lock, as the staged storm has since 7.3.2.
+- The full gxrepl suite passes (GXREPL_TEST_HOOKS build, RHEL 10.2).
