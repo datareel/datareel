@@ -370,6 +370,40 @@ GXREPL FIXES FROM THE 11/12 STALL (11/13/2026)
   during a 20 s rebuild, gxrepl's own shared holds are never reported
   as a local writer, the rebuild child inherits nothing of gxrepl's).
 
+GXREPL: A WRITER'S OPEN OR GAP RECORD ALWAYS GETS ITS VERIFY (11/14/2026)
+-------------------------------------------------------------------------
+The same fix as DataReel 7.3.4 (branch gxrepl-drain-verify).
+- The problem: a writer killed after its batch is committed in its
+  journal but before the ship log has it leaves pages that the next
+  writer's journal recovery writes into the files with no ship log
+  record. Only the verify its open record asks for brings them to the
+  copy, and three places applied an open or gap record without that
+  verify: the two drains inside a file sync dropped the drain's flag,
+  and a file update (which carries the records from the copy's
+  position to the pieces') was applied without looking at its
+  records' types. The copy then stayed "in step" at the source's
+  generation and seal with stale data pages. Found by the 7.4 beta 2
+  test runs; in the code since gxrepl protocol 2 (11/08/2026).
+- The fix: the drain itself puts the stream on the verify list for an
+  open or gap record and for a position gone from the log, the file
+  sync keeps the drain's flag, and the file sync checks the records of
+  every file update it applies. A stream that gets such a record while
+  it is being verified is verified once more in the next pass. Each
+  part alone covers its own path.
+- In "gxrepl once", a verify that the pass itself queued runs in a
+  later pass, so that pass returns 1 ("not in step"): run it again.
+- gxReplClient has new members: install the library and the gxrepl
+  binary together.
+- Tests: test_drain_verify_* (the recovered batch reaches the copy;
+  each part alone; both parts off loses the pages; one verify per
+  stream; a clean writer restart adds none; an open record during the
+  stream's own verify), test_diff_pieces_against_a_racing_commit,
+  test_position_gone_from_the_same_log_verifies. Test builds only:
+  GXDJRNL_TEST_KILL_BEFORE_SHIP, GXREPL_TEST_SYNC_FILE_HOLD[_ON],
+  GXREPL_TEST_DIFF_STATUS2, GXREPL_TEST_DIFF_HOLD,
+  GXREPL_TEST_CRASH_IN_APPLY, GXREPL_TEST_NO_CALLER_VERIFY,
+  GXREPL_TEST_NO_DRAIN_VERIFY.
+
 LICENSE (11/12/2026)
 --------------------
 Every source header now says LGPL version 3 or later, matching the
