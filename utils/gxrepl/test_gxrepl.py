@@ -681,6 +681,125 @@ def test_object_service():
         env.stop()
 
 
+def _vec_env(name, extra_global="", vec_dir=None, server_env=None):
+    """11/14/2026 (7.4): a server whose [db news] answers vector searches from a 5-day .vixset"""
+    env = Env(name, {"db": {}})
+    vd = vec_dir or os.path.join(env.dir, "vec")
+    os.makedirs(vd, exist_ok=True)
+    r = run([os.path.join(BIN, "gxrepl_testwriter"), "vmake", vd, "5", "400"])
+    assert r.returncode == 0, r.stdout
+    with open(env.srv_conf) as f:
+        conf = f.read()
+    k = conf.index("[set db]")
+    conf = conf[:k] + f"{extra_global}\n[db news]\npath = {vd}/news.gxd\naccess = read\nvectors = {vd}/news.vixset\n\n" + conf[k:]
+    with open(env.srv_conf, "w") as f:
+        f.write(conf)
+    env.start_server(extra_env=server_env)
+    return env, vd
+
+
+def _vs(env, *a):
+    return run([os.path.join(BIN, "gxrepl_testwriter"), "vsearch", env.cli_conf, "news", *map(str, a)], timeout=60)
+
+
+def _vl(vd, *a):
+    return run([os.path.join(BIN, "gxrepl_testwriter"), "vlocal", os.path.join(vd, "news.vixset"), *map(str, a)], timeout=60)
+
+
+def test_vector_search_service():
+    """11/14/2026 (7.4): op 7 VECTOR_SEARCH and op 8 VECTOR_INFO of the object service: the answers equal a local
+    gxVectorSet search (ids, distances, order, file paths relative to the manifest), a day range skips the files
+    outside it, every malformed request is refused (and the channel still answers), a missing day file is
+    counted (strict: an error)."""
+    env, vd = _vec_env("vecsvc")
+    try:
+        for qi in range(6):
+            for extra in ((), (20261111, 20261112)):
+                a, b = _vs(env, 10, qi, *extra), _vl(vd, 10, qi, *extra)
+                assert a.returncode == 0 and b.returncode == 0, a.stdout + b.stdout + env.logs()
+                assert a.stdout == b.stdout, "remote and local differ:\n" + a.stdout + "\n" + b.stdout
+                assert len(a.stdout.strip().split("\n")) == 11, a.stdout
+                if extra:
+                    assert a.stdout.startswith("skipped 3 missing 0"), a.stdout
+                    assert all(l.split()[2] in ("day1.vix", "day2.vix") for l in a.stdout.strip().split("\n")[1:]), a.stdout
+        r = run([os.path.join(BIN, "gxrepl_testwriter"), "vinfo", env.cli_conf, "news"])
+        assert r.returncode == 0 and "version 1 dim 16 element 1 metric 1 files 5 nodes 2000 deleted 0 spec vec-test" in r.stdout, r.stdout
+        r = run([os.path.join(BIN, "gxrepl_testwriter"), "vbad", env.cli_conf, "news"])
+        assert r.returncode == 0 and "vbad ok" in r.stdout, r.stdout + env.logs()
+        # the example client
+        pki = os.path.join(TMP, "pki")
+        ex = [os.path.join(BIN, "object_client"), "127.0.0.1", str(env.port), "aws-test", f"{pki}/cli.pem",
+              f"{pki}/cli.key", f"{pki}/ca.pem", "news"]
+        r = run(ex + ["--vinfo"], timeout=30)
+        assert r.returncode == 0 and "dimension 16" in r.stdout and "5 file(s), 2000 nodes" in r.stdout, r.stdout
+        r = subprocess.run(ex + ["--vsearch", "3"], input=" ".join(["0.1"] * 16), stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True, timeout=30)
+        assert r.returncode == 0 and r.stdout.startswith("3 result(s)") and r.stdout.count("\nid ") == 3, r.stdout
+        os.rename(os.path.join(vd, "day0.vix"), os.path.join(vd, "away.vix"))
+        r = _vs(env, 10, 1)
+        assert r.returncode == 0 and r.stdout.startswith("skipped 0 missing 1"), r.stdout
+        assert "day0.vix" not in r.stdout
+        r = _vs(env, 10, 1, 20261110, 20261114, "strict")
+        assert r.returncode == 3 and "missing" in r.stdout, r.stdout
+    finally:
+        env.stop()
+
+
+def test_vector_search_busy_cap():
+    """11/14/2026 (7.4): vector_max_concurrent searches at once; one more waits up to 5 s, then is answered busy"""
+    env, vd = _vec_env("vecbusy", extra_global="vector_max_concurrent = 1",
+                       server_env={"GXDB_VECTOR_TEST_HOLD_MS": "7000"})
+    try:
+        p1 = subprocess.Popen([os.path.join(BIN, "gxrepl_testwriter"), "vsearch", env.cli_conf, "news", "5", "0"],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        time.sleep(1)
+        t0 = time.time()
+        r2 = _vs(env, 5, 1)
+        waited = time.time() - t0
+        o1 = p1.communicate(timeout=60)[0]
+        assert p1.returncode == 0, o1
+        assert r2.returncode == 3 and "busy" in r2.stdout, r2.stdout
+        assert 4.5 <= waited <= 7.5, f"waited {waited:.1f} s before busy"
+    finally:
+        env.stop()
+
+
+def test_vector_search_copy_waits_for_apply_lock():
+    """11/14/2026 (7.4): vectors inside a set this server copies are searched under the set's apply lock: a search
+    while an apply holds it waits, then answers"""
+    import fcntl
+    env = Env("veccopy", {"db": {"client": ["include = *.vix", "include = *.vixset"],
+                                 "server": ["include = *.vix", "include = *.vixset"]}})
+    ws, aws = env.roots["db"]
+    r = run([os.path.join(BIN, "gxrepl_testwriter"), "vmake", ws, "3", "300"])
+    assert r.returncode == 0, r.stdout
+    with open(env.srv_conf) as f:
+        conf = f.read()
+    k = conf.index("[set db]")
+    conf = conf[:k] + f"[db news]\npath = {aws}/news.gxd\naccess = read\nvectors = {aws}/news.vixset\n\n" + conf[k:]
+    with open(env.srv_conf, "w") as f:
+        f.write(conf)
+    env.start_server()
+    try:
+        assert env.once().returncode == 0, env.logs()
+        assert os.path.exists(os.path.join(aws, "news.vixset")) and os.path.exists(os.path.join(aws, "day2.vix"))
+        r = _vs(env, 5, 2)
+        assert r.returncode == 0 and len(r.stdout.strip().split("\n")) == 6, r.stdout + env.logs()
+        os.makedirs(os.path.join(aws, ".gxrepl"), exist_ok=True)
+        lk = open(os.path.join(aws, ".gxrepl", "apply.jnl"), "a+")
+        fcntl.flock(lk, fcntl.LOCK_EX)                      # an apply in progress
+        p = subprocess.Popen([os.path.join(BIN, "gxrepl_testwriter"), "vsearch", env.cli_conf, "news", "5", "2"],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        time.sleep(2.5)
+        assert p.poll() is None, "the search did not wait for the apply lock: " + p.stdout.read()
+        fcntl.flock(lk, fcntl.LOCK_UN)
+        lk.close()
+        out = p.communicate(timeout=30)[0]
+        assert p.returncode == 0 and out == r.stdout, out
+    finally:
+        env.stop()
+
+
 def test_object_copy_is_read_only():
     """A database inside a set the server receives is a replicated copy: object clients may read it
     (under the apply lock) but never write it."""

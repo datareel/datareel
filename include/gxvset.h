@@ -128,6 +128,13 @@ struct gxvSetSearch {
   int strict = 0;                   // 1: a missing file is an error, not skipped
 };
 
+// What one Search() did (for callers searching from several threads at once,
+// where Skipped()/Missing()/Error() belong to the last search of any thread)
+struct gxvSetStats {
+  unsigned long long skipped = 0, missing = 0;
+  std::string error;
+};
+
 class GXDLCODE_API gxVectorSet
 {
 public:
@@ -146,6 +153,9 @@ public:
   // Read the manifest. max_open: files kept open at a time (at least 1).
   // spec, when given, must be the set's.
   gxvError Open(const char *path, const char *spec = 0, unsigned max_open = 16);
+  // One .vix file as a set of one (no manifest: AddFile/RemoveFile/Refresh
+  // are refused); its path in results is the file's name
+  gxvError OpenFile(const char *vix_path, const char *spec = 0);
   void Close();
 
   // Add a file (its path relative to the manifest's folder): it is opened,
@@ -158,7 +168,7 @@ public:
   gxvError Refresh();
 
   gxvError Search(const float *query, const gxvSetSearch &opt,
-		  std::vector<gxvSetResult> &results) const;
+		  std::vector<gxvSetResult> &results, gxvSetStats *stats = 0) const;
   // A writer's own open index for a listed file (the live day): searched
   // as it is, never reopened, closed or evicted. The caller keeps it open
   // while the set uses it; 0 detaches it.
@@ -189,7 +199,7 @@ private:
   gxvError Write();
   gxvError Parse(const std::string &text);
   gxvError Check(const gxVectorIndex &vix, const std::string &rel) const;
-  std::shared_ptr<gxVectorIndex> Get(unsigned file, gxvError &err, int &is_missing) const;
+  std::shared_ptr<gxVectorIndex> Get(unsigned file, gxvError &err, int &is_missing, std::string &why) const;
 
 private:
   std::string mpath, dirpath, name, spec;
@@ -212,6 +222,7 @@ private:
   mutable std::map<unsigned, Entry> cache;
   std::map<unsigned, gxVectorIndex *> attached;   // AttachOpen()
   mutable unsigned long long skipped = 0, opened = 0, missing = 0, reloaded = 0;
+  int single = 0;                   // OpenFile(): no manifest
   mutable std::string error;
 };
 

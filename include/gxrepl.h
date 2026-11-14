@@ -186,6 +186,9 @@ struct GXDLCODE_API gxReplConfig {
   // with "err" set.
   int Load(const std::string &fname, std::string &err);
   const gxReplSetConfig *Set(const std::string &name) const;
+  // 11/14/2026 (7.4): vector searches of the object service ([db] vectors =)
+  unsigned vector_threads = 2;
+  unsigned vector_max_concurrent = 4;
 };
 
 // ---------------- Wire types ----------------

@@ -41,7 +41,30 @@ read or write, then sends one request per message:
   op 4 DELETE   u64 address          -> nothing
   op 5 FIRST                         -> u64 address (0: none)
   op 6 NEXT     u64 address          -> u64 next address (0: none)
+  op 7 VECTOR_SEARCH (7.4)           -> nearest neighbors (below)
+  op 8 VECTOR_INFO   (7.4)           -> the vector index (below)
   reply: u8 status (0 ok, 1 error), then the result or str error
+  (str: u32 length and the bytes; all numbers native little endian)
+
+Vectors (DataReel 7.4, gxvset.h): a [db NAME] with "vectors = <file>"
+(a .vixset manifest or one .vix file) also answers vector searches,
+read-only, on any channel of that database:
+  op 7 VECTOR_SEARCH  u32 version (1), u32 k (1..1000), u32 ef (0: 64,
+       at most 4096), u32 dim (the index's), u32 flags (bit 0 day range,
+       bit 1 strict: a listed file missing is an error), u32 tag_mask,
+       u32 lo[4], u32 hi[4] (tag i must be in lo[i]..hi[i] when bit i of
+       tag_mask is set), u32 day_lo, u32 day_hi (tag 2), f32 query[dim];
+       the body is exactly that long, the query finite
+    -> u32 version (1), u32 count, u32 files skipped (by their day range),
+       u32 files missing, count x { i64 id, f32 distance, u32 tags[4],
+       u32 file }, u32 names, names x { u32 file, str path } (the files
+       the results name; paths relative to the manifest's folder).
+       Results are sorted by distance, then file, then id.
+  op 8 VECTOR_INFO  (empty)
+    -> u32 version (1), u32 dim, u32 element type, u32 metric, u32 files,
+       u64 nodes, u64 deleted (the manifest's counts), str spec
+At most SetVectorLimits(threads, max_concurrent) searches run at once
+(default 4); one past it waits up to 5 s, then is answered "busy".
 
 A database opened for writing changes through its gxdJournal (one
 transaction per request; with a ship log, a remote change replicates
@@ -69,6 +92,7 @@ Changes:
 #include <map>
 #include <memory>
 #include <mutex>
+#include <condition_variable>
 #include <string>
 #include <vector>
 #include "gxdbserver.h"
@@ -78,14 +102,19 @@ namespace datareel {
 
 enum gxObjectOp {
   gxOBJ_ADD = 1, gxOBJ_REQUEST = 2, gxOBJ_CHANGE = 3, gxOBJ_DELETE = 4,
-  gxOBJ_FIRST = 5, gxOBJ_NEXT = 6
+  gxOBJ_FIRST = 5, gxOBJ_NEXT = 6,
+  gxOBJ_VECTOR_SEARCH = 7, gxOBJ_VECTOR_INFO = 8   // 11/14/2026 (7.4)
 };
+const uint32_t gxObjVectorVersion = 1;
+const uint32_t gxObjVectorMaxK = 1000;
+const uint32_t gxObjVectorMaxEf = 4096;
 
 struct GXDLCODE_API gxObjectDbConfig {
   std::string name;
   std::string path;              // The .gxd file
   std::string journal;           // Default: path + ".jnl"
   std::string access = "read";   // read or write
+  std::string vectors;           // 11/14/2026 (7.4): a .vixset manifest or a .vix file (vector searches)
 };
 
 class GXDLCODE_API gxObjectService : public gxDatabaseService {
@@ -113,14 +142,24 @@ public:
   int Request(const std::string &name, bool write, uint8_t op,
 	      const std::vector<unsigned char> &body,
 	      std::vector<unsigned char> &reply, std::string &err);
+  // 11/14/2026 (7.4): threads per vector search, searches at once
+  void SetVectorLimits(unsigned threads, unsigned max_concurrent);
 
 private:
   struct Db;
   Db *find(const std::string &name);
 
 private:
+  int vector_request(Db *d, uint8_t op, const std::vector<unsigned char> &body,
+		     std::vector<unsigned char> &reply, std::string &err);
+
+private:
   std::map<std::string, std::unique_ptr<Db> > dbs;
   std::string legacy;
+  // 11/14/2026 (7.4): vector searches (last, so the members above keep their places)
+  unsigned vec_threads = 2, vec_max = 4, vec_running = 0;
+  std::mutex vec_m;
+  std::condition_variable vec_cv;
 };
 
 } // namespace datareel

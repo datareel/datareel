@@ -67,9 +67,16 @@ static std::string file_id(const std::string &path)
 #if defined (__WIN32__) || defined (_WIN32)
   return std::to_string((unsigned long long)st.st_size) + ":" + std::to_string((long long)st.st_mtime);
 #else
-  return std::to_string((unsigned long long)st.st_size) + ":" + std::to_string((long long)st.st_mtim.tv_sec) + "." +
-    std::to_string((long long)st.st_mtim.tv_nsec);
+  // the inode first: a file replaced by a rename (a rebuilt copy) is opened again, never reloaded
+  return std::to_string((unsigned long long)st.st_ino) + "|" + std::to_string((unsigned long long)st.st_size) + ":" +
+    std::to_string((long long)st.st_mtim.tv_sec) + "." + std::to_string((long long)st.st_mtim.tv_nsec);
 #endif
+}
+
+static std::string inode_of(const std::string &id)
+{
+  size_t k = id.find('|');
+  return k == std::string::npos ? std::string() : id.substr(0, k);
 }
 
 gxVectorSet::gxVectorSet() { }
@@ -78,6 +85,7 @@ gxVectorSet::~gxVectorSet() { Close(); }
 
 void gxVectorSet::Close()
 {
+  single = 0;
   std::lock_guard<std::mutex> g(cache_mu);
   cache.clear();
   lru.clear();
@@ -236,8 +244,50 @@ gxvError gxVectorSet::Open(const char *path, const char *s, unsigned mo)
   return gxv_NO_ERROR;
 }
 
+static void fill_from(gxvSetFile &f, const gxVectorIndex &vix)
+{
+  f.nodes = vix.Count() + vix.Deleted();
+  f.deleted = vix.Deleted();
+  unsigned lo, hi;
+  f.has_tag2 = vix.TagRange(2, lo, hi);
+  f.tag2_min = f.has_tag2 ? lo : 0;
+  f.tag2_max = f.has_tag2 ? hi : 0;
+  if(!f.has_tag2 && (vix.FeaturesOptional() & gxvOptTagRanges) && vix.Count() + vix.Deleted() == 0) {
+    // an empty file with ranges kept: nothing to find (min > max): listed as an empty range
+    f.has_tag2 = 1; f.tag2_min = 0xFFFFFFFFu; f.tag2_max = 0xFFFFFFFFu;
+  }
+}
+
+gxvError gxVectorSet::OpenFile(const char *vix_path, const char *s)
+{
+  Close();
+  error.clear();
+  if(!vix_path) return gxv_BAD_ARG;
+  std::string p = vix_path;
+  size_t k = p.find_last_of('/');
+  dirpath = k == std::string::npos ? std::string() : p.substr(0, k);
+  mpath.clear();
+  gxVectorIndex vix;
+  gxvError err = vix.Open(p.c_str(), gxDBASE_READONLY, s);
+  if(err != gxv_NO_ERROR) { error = p + ": " + gxVectorIndex::ErrorMessage(err); return err; }
+  gxvSetFile f;
+  f.path = k == std::string::npos ? p : p.substr(k + 1);
+  f.crc = HeaderCrc(vix);
+  fill_from(f, vix);
+  name = f.path;
+  spec = vix.Spec();
+  dim = vix.Dim(); elem_type = vix.ElementType(); metric = vix.Metric(); codec = vix.Codec();
+  vix.Close();
+  files.push_back(f);
+  max_open = 1;
+  single = 1;
+  is_open = 1;
+  return gxv_NO_ERROR;
+}
+
 gxvError gxVectorSet::Write()
 {
+  if(single) { error = "a single file opened with OpenFile() has no manifest"; return gxv_BAD_ARG; }
   std::string t = "# gxVectorSet manifest (DataReel 7.4, gxvset.h)\n";
   t += "set " + name + "\n";
   t += "version " + std::to_string(gxvSetVersion) + "\n";
@@ -283,19 +333,6 @@ gxvError gxVectorSet::Check(const gxVectorIndex &vix, const std::string &rel) co
   return gxv_NO_ERROR;
 }
 
-static void fill_from(gxvSetFile &f, const gxVectorIndex &vix)
-{
-  f.nodes = vix.Count() + vix.Deleted();
-  f.deleted = vix.Deleted();
-  unsigned lo, hi;
-  f.has_tag2 = vix.TagRange(2, lo, hi);
-  f.tag2_min = f.has_tag2 ? lo : 0;
-  f.tag2_max = f.has_tag2 ? hi : 0;
-  if(!f.has_tag2 && (vix.FeaturesOptional() & gxvOptTagRanges) && vix.Count() + vix.Deleted() == 0) {
-    // an empty file with ranges kept: nothing to find (min > max): listed as an empty range
-    f.has_tag2 = 1; f.tag2_min = 0xFFFFFFFFu; f.tag2_max = 0xFFFFFFFFu;
-  }
-}
 
 gxvError gxVectorSet::AddFile(const char *rel)
 {
@@ -378,7 +415,7 @@ gxvError gxVectorSet::AttachOpen(const char *rel, gxVectorIndex *vix)
   return gxv_ID_NOT_FOUND;
 }
 
-std::shared_ptr<gxVectorIndex> gxVectorSet::Get(unsigned file, gxvError &err, int &is_missing) const
+std::shared_ptr<gxVectorIndex> gxVectorSet::Get(unsigned file, gxvError &err, int &is_missing, std::string &why) const
 {
   err = gxv_NO_ERROR;
   is_missing = 0;
@@ -406,6 +443,15 @@ std::shared_ptr<gxVectorIndex> gxVectorSet::Get(unsigned file, gxvError &err, in
     std::string now = file_id(full);
     if(now.empty()) { is_missing = 1; err = gxv_NOT_OPEN; return 0; }
     if(now == had) return vix;
+    if(inode_of(now) != inode_of(had)) {      // replaced: the old handle reads the old file; open it again
+      std::lock_guard<std::mutex> g(cache_mu);
+      auto c = cache.find(file);
+      if(c != cache.end() && c->second.id == had) { lru.erase(c->second.pos); cache.erase(c); }
+      vix.reset();
+    }
+  }
+  if(vix) {
+    std::string now = file_id(full);
     std::lock_guard<std::mutex> rg(*rmu);
     {
       std::lock_guard<std::mutex> g(cache_mu);
@@ -419,7 +465,7 @@ std::shared_ptr<gxVectorIndex> gxVectorSet::Get(unsigned file, gxvError &err, in
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
       now = file_id(full);
     }
-    if(err != gxv_NO_ERROR) { error = files[file].path + ": " + gxVectorIndex::ErrorMessage(err); return 0; }
+    if(err != gxv_NO_ERROR) { why = files[file].path + ": " + gxVectorIndex::ErrorMessage(err); return 0; }
     std::lock_guard<std::mutex> g(cache_mu);
     auto c = cache.find(file);
     if(c != cache.end()) c->second.id = now;
@@ -430,10 +476,10 @@ std::shared_ptr<gxVectorIndex> gxVectorSet::Get(unsigned file, gxvError &err, in
   if(id0.empty()) { is_missing = 1; err = gxv_NOT_OPEN; return 0; }
   std::shared_ptr<gxVectorIndex> nv(new gxVectorIndex);
   err = nv->Open(full.c_str(), gxDBASE_READONLY);
-  if(err != gxv_NO_ERROR) { error = files[file].path + ": " + gxVectorIndex::ErrorMessage(err); return 0; }
+  if(err != gxv_NO_ERROR) { why = files[file].path + ": " + gxVectorIndex::ErrorMessage(err); return 0; }
   err = Check(*nv, files[file].path);
   if(err == gxv_NO_ERROR && HeaderCrc(*nv) != files[file].crc) {
-    error = files[file].path + ": the file does not match its crc (replaced?)";
+    why = files[file].path + ": the file does not match its crc (replaced?)";
     err = gxv_SPEC_MISMATCH;
   }
   if(err != gxv_NO_ERROR) return 0;
@@ -456,8 +502,10 @@ std::shared_ptr<gxVectorIndex> gxVectorSet::Get(unsigned file, gxvError &err, in
   return nv;
 }
 
-gxvError gxVectorSet::Search(const float *query, const gxvSetSearch &opt, std::vector<gxvSetResult> &results) const
+gxvError gxVectorSet::Search(const float *query, const gxvSetSearch &opt, std::vector<gxvSetResult> &results,
+			     gxvSetStats *stats) const
 {
+  if(stats) *stats = gxvSetStats();
   results.clear();
   if(!is_open) return gxv_NOT_OPEN;
   if(!query || opt.k == 0) return gxv_BAD_ARG;
@@ -486,13 +534,14 @@ gxvError gxVectorSet::Search(const float *query, const gxvSetSearch &opt, std::v
   std::vector<std::vector<gxvSetResult> > per(todo.size());
   std::vector<gxvError> errs(todo.size(), gxv_NO_ERROR);
   std::vector<int> miss(todo.size(), 0);
+  std::vector<std::string> whys(todo.size());
   std::atomic<size_t> next(0);
   auto work = [&]() {
     for(size_t j; (j = next.fetch_add(1)) < todo.size(); ) {
       unsigned fi = todo[j];
       int is_missing = 0;
       gxvError e;
-      std::shared_ptr<gxVectorIndex> vix = Get(fi, e, is_missing);
+      std::shared_ptr<gxVectorIndex> vix = Get(fi, e, is_missing, whys[j]);
       if(!vix) { errs[j] = e; miss[j] = is_missing; continue; }
       // a file whose own ranges rule out the filter is skipped once open
       int out = 0;
@@ -521,19 +570,25 @@ gxvError gxVectorSet::Search(const float *query, const gxvSetSearch &opt, std::v
   }
   unsigned long long nmiss = 0;
   gxvError first = gxv_NO_ERROR;
+  std::string why;
   for(size_t j = 0; j < todo.size(); j++) {
     if(miss[j]) {
       nmiss++;
-      if(opt.strict && first == gxv_NO_ERROR) { first = gxv_NOT_OPEN; error = files[todo[j]].path + ": missing"; }
+      if(opt.strict && first == gxv_NO_ERROR) { first = gxv_NOT_OPEN; why = files[todo[j]].path + ": missing"; }
       continue;
     }
-    if(errs[j] != gxv_NO_ERROR && first == gxv_NO_ERROR) first = errs[j];
+    if(errs[j] != gxv_NO_ERROR && first == gxv_NO_ERROR) {
+      first = errs[j];
+      why = !whys[j].empty() ? whys[j] : files[todo[j]].path + ": " + gxVectorIndex::ErrorMessage(errs[j]);
+    }
   }
   {
     std::lock_guard<std::mutex> g(cache_mu);
     skipped = skip;
     missing = nmiss;
+    if(!why.empty()) error = why;
   }
+  if(stats) { stats->skipped = skip; stats->missing = nmiss; stats->error = why; }
   if(first != gxv_NO_ERROR) return first;
   for(auto &p : per) results.insert(results.end(), p.begin(), p.end());
   std::sort(results.begin(), results.end(), [](const gxvSetResult &a, const gxvSetResult &b) {

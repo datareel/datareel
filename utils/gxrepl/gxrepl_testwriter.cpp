@@ -20,6 +20,9 @@
 #include <map>
 #include <vector>
 #include "gxdbase.h"
+#include <limits>
+#include <math.h>
+#include "gxvset.h"
 #include "gxdjrnl.h"
 #include "gxuint64.h" // gxUINT64; the 32-bit database headers do not include it
 #include "gxrepl.h"   // 11/08/2026: the raw commands
@@ -443,6 +446,163 @@ static int check(const std::string &root)
   return (bad == 0 && count == io.count && sum == io.sum) ? 0 : 1;
 }
 
+// ---------------- 11/14/2026 (7.4): vector searches of the object service ----------------
+// vmake DIR DAYS PER: a set DIR/news.vixset of DAYS day files (dim 16, tag 2 = 20261110 + day), deterministic
+static unsigned vrng = 12345;
+static float vrand() { vrng = vrng * 1103515245u + 12345u; return ((vrng >> 8) & 0xFFFF) / 32768.0f - 1.0f; }
+static void vquery(int qi, std::vector<float> &q) { for(size_t d = 0; d < q.size(); d++) q[d] = (float)sin(qi * 0.77 + d * 0.41); }
+static int vmake(const std::string &dir, int days, int per)
+{
+  datareel::gxVectorSet set;
+  std::string man = dir + "/news.vixset";
+  if(set.Create(man.c_str(), "news", 16, datareel::gxvFLOAT32, datareel::gxvL2, "vec-test") != datareel::gxv_NO_ERROR) { printf("create set\n"); return 1; }
+  for(int d = 0; d < days; d++) {
+    char rel[64]; snprintf(rel, sizeof(rel), "day%d.vix", d);
+    datareel::gxVectorIndex v;
+    if(v.Create((dir + "/" + rel).c_str(), 16, datareel::gxvFLOAT32, datareel::gxvL2, 8, "vec-test", 100) != datareel::gxv_NO_ERROR) { printf("create\n"); return 1; }
+    std::vector<float> x(16);
+    for(int i = 0; i < per; i++) {
+      for(auto &e : x) e = vrand();
+      unsigned t[4] = { (unsigned)(i % 3), 0, 20261110u + (unsigned)d, 0 };
+      v.Insert((long long)d * 100000 + i, x.data(), t);
+    }
+    v.Close();
+    if(set.AddFile(rel) != datareel::gxv_NO_ERROR) { printf("add: %s\n", set.Error().c_str()); return 1; }
+  }
+  printf("vmake ok\n");
+  return 0;
+}
+
+static void p32v(std::vector<unsigned char> &v, uint32_t x) { unsigned char b[4]; memcpy(b, &x, 4); v.insert(v.end(), b, b + 4); }
+static uint32_t g32v(const std::vector<unsigned char> &v, size_t &off) { uint32_t x = 0; if(off + 4 <= v.size()) memcpy(&x, v.data() + off, 4); off += 4; return x; }
+
+static std::vector<unsigned char> vbody(uint32_t k, uint32_t ef, uint32_t dim, uint32_t flags, uint32_t dlo, uint32_t dhi,
+					 const std::vector<float> &q, uint32_t ver = 1)
+{
+  std::vector<unsigned char> b;
+  p32v(b, ver); p32v(b, k); p32v(b, ef); p32v(b, dim); p32v(b, flags); p32v(b, 0);
+  for(int i = 0; i < 8; i++) p32v(b, 0);
+  p32v(b, dlo); p32v(b, dhi);
+  const unsigned char *qb = (const unsigned char *)q.data();
+  b.insert(b.end(), qb, qb + q.size() * 4);
+  return b;
+}
+
+// The canonical print of results: one line per result "id distance file path"
+static void vprint(const std::vector<std::pair<long long, std::pair<float, std::string> > > &r, unsigned long long skipped,
+		   unsigned long long missing)
+{
+  printf("skipped %llu missing %llu\n", skipped, missing);
+  for(auto &x : r) printf("%lld %.9g %s\n", x.first, x.second.first, x.second.second.c_str());
+}
+
+// vsearch CONF DB K QI [DLO DHI [strict]] / vlocal MANIFEST K QI [DLO DHI [strict]]
+static int vsearch(int argc, char **argv, bool local)
+{
+  std::string target = argv[2];
+  int a = local ? 3 : 4;
+  uint32_t k = (uint32_t)atoi(argv[a]); int qi = atoi(argv[a + 1]);
+  uint32_t flags = 0, dlo = 0, dhi = 0;
+  if(argc > a + 3) { flags |= 1; dlo = (uint32_t)strtoul(argv[a + 2], 0, 10); dhi = (uint32_t)strtoul(argv[a + 3], 0, 10); }
+  if(argc > a + 4) flags |= 2;
+  std::vector<float> q(16);
+  vquery(qi, q);
+  std::vector<std::pair<long long, std::pair<float, std::string> > > out;
+  if(local) {
+    datareel::gxVectorSet set;
+    if(set.Open(target.c_str()) != datareel::gxv_NO_ERROR) { printf("open: %s\n", set.Error().c_str()); return 1; }
+    datareel::gxvSetSearch o; o.k = k; o.ef = 64; o.day_range = flags & 1; o.day_lo = dlo; o.day_hi = dhi; o.strict = (flags & 2) ? 1 : 0;
+    std::vector<datareel::gxvSetResult> r;
+    datareel::gxvSetStats st;
+    if(set.Search(q.data(), o, r, &st) != datareel::gxv_NO_ERROR) { printf("error %s\n", st.error.c_str()); return 3; }
+    for(auto &x : r) out.push_back(std::make_pair(x.id, std::make_pair(x.distance, set.Files()[x.file].path)));
+    vprint(out, st.skipped, st.missing);
+    return 0;
+  }
+  datareel::gxReplConfig cfg;
+  std::string err;
+  if(cfg.Load(target, err) != 0) { fprintf(stderr, "%s\n", err.c_str()); return 2; }
+  ObjClient c(cfg);
+  if(c.r.ConnectMux(err) != 0) { printf("connect: %s\n", err.c_str()); return 2; }
+  if(c.r.Mux()->Open(c.ch, "object", argv[3], "read", 0, err) != 0) { printf("open refused: %s\n", err.c_str()); return 2; }
+  std::vector<unsigned char> rep;
+  int rc = c.call(datareel::gxOBJ_VECTOR_SEARCH, vbody(k, 64, 16, flags, dlo, dhi, q), rep, err);
+  if(rc != 0) { printf("error %s\n", err.c_str()); return 3; }
+  size_t off = 0;
+  uint32_t ver = g32v(rep, off), n = g32v(rep, off), skipped = g32v(rep, off), missing = g32v(rep, off);
+  if(ver != 1) { printf("bad version %u\n", ver); return 1; }
+  struct R { long long id; float d; uint32_t file; };
+  std::vector<R> rs;
+  for(uint32_t i = 0; i < n; i++) {
+    R x; memcpy(&x.id, rep.data() + off, 8); off += 8; memcpy(&x.d, rep.data() + off, 4); off += 4; off += 16; x.file = g32v(rep, off);
+    rs.push_back(x);
+  }
+  std::map<uint32_t, std::string> names;
+  uint32_t nn = g32v(rep, off);
+  for(uint32_t i = 0; i < nn; i++) { uint32_t f = g32v(rep, off), l = g32v(rep, off); names[f] = std::string((const char *)rep.data() + off, l); off += l; }
+  if(off != rep.size()) { printf("bad reply length\n"); return 1; }
+  for(auto &x : rs) {
+    if(!names.count(x.file) || names[x.file].empty() || names[x.file][0] == '/') { printf("bad path for file %u\n", x.file); return 1; }
+    out.push_back(std::make_pair(x.id, std::make_pair(x.d, names[x.file])));
+  }
+  vprint(out, skipped, missing);
+  return 0;
+}
+
+// vinfo CONF DB; vbad CONF DB: every malformed request is refused (and the channel still works)
+static int vinfo_bad(const char *conf, const char *db, bool bad)
+{
+  datareel::gxReplConfig cfg;
+  std::string err;
+  if(cfg.Load(conf, err) != 0) { fprintf(stderr, "%s\n", err.c_str()); return 2; }
+  ObjClient c(cfg);
+  if(c.r.ConnectMux(err) != 0) { printf("connect: %s\n", err.c_str()); return 2; }
+  if(c.r.Mux()->Open(c.ch, "object", db, "read", 0, err) != 0) { printf("open refused: %s\n", err.c_str()); return 2; }
+  std::vector<unsigned char> rep;
+  if(!bad) {
+    int rc = c.call(datareel::gxOBJ_VECTOR_INFO, std::vector<unsigned char>(), rep, err);
+    if(rc != 0) { printf("error %s\n", err.c_str()); return 3; }
+    size_t off = 0;
+    uint32_t ver = g32v(rep, off), dim = g32v(rep, off), el = g32v(rep, off), met = g32v(rep, off), nf = g32v(rep, off);
+    uint64_t nodes = 0, del = 0; memcpy(&nodes, rep.data() + off, 8); off += 8; memcpy(&del, rep.data() + off, 8); off += 8;
+    uint32_t sl = g32v(rep, off);
+    std::string spec((const char *)rep.data() + off, sl);
+    printf("vinfo version %u dim %u element %u metric %u files %u nodes %llu deleted %llu spec %s\n", ver, dim, el, met, nf,
+	   (unsigned long long)nodes, (unsigned long long)del, spec.c_str());
+    return 0;
+  }
+  std::vector<float> q(16, 0.1f);
+  struct Case { const char *what; std::vector<unsigned char> body; const char *want; } cases[] = {
+    { "k 0", vbody(0, 64, 16, 0, 0, 0, q), "k must be" },
+    { "k 1001", vbody(1001, 64, 16, 0, 0, 0, q), "k must be" },
+    { "ef 5000", vbody(10, 5000, 16, 0, 0, 0, q), "ef must be" },
+    { "wrong dim", vbody(10, 64, 8, 0, 0, 0, std::vector<float>(8, 0.1f)), "dimension" },
+    { "version 2", vbody(10, 64, 16, 0, 0, 0, q, 2), "version" },
+    { "unknown flags", vbody(10, 64, 16, 8, 0, 0, q), "flags" },
+  };
+  int fails = 0;
+  for(auto &cs : cases) {
+    int rc = c.call(datareel::gxOBJ_VECTOR_SEARCH, cs.body, rep, err);
+    if(rc != 1 || err.find(cs.want) == std::string::npos) { printf("%s: not refused (%d %s)\n", cs.what, rc, err.c_str()); fails++; }
+  }
+  std::vector<unsigned char> b = vbody(10, 64, 16, 0, 0, 0, q);
+  std::vector<unsigned char> shortb(b.begin(), b.end() - 4), longb = b, nanb = b;
+  longb.push_back(0);
+  float nan = std::numeric_limits<float>::quiet_NaN();
+  memcpy(nanb.data() + nanb.size() - 4, &nan, 4);
+  std::vector<unsigned char> tiny(b.begin(), b.begin() + 10);
+  for(auto *bb : { &shortb, &longb, &nanb, &tiny }) {
+    int rc = c.call(datareel::gxOBJ_VECTOR_SEARCH, *bb, rep, err);
+    if(rc != 1) { printf("a bad body was answered\n"); fails++; }
+  }
+  int rc = c.call(datareel::gxOBJ_VECTOR_INFO, std::vector<unsigned char>(1, 0), rep, err);
+  if(rc != 1) { printf("vinfo with a body answered\n"); fails++; }
+  rc = c.call(datareel::gxOBJ_VECTOR_SEARCH, b, rep, err);
+  if(rc != 0) { printf("the channel no longer answers: %s\n", err.c_str()); fails++; }
+  printf(fails ? "vbad FAILED\n" : "vbad ok\n");
+  return fails ? 1 : 0;
+}
+
 int main(int argc, char **argv)
 {
   if(argc < 3) {
@@ -470,6 +630,11 @@ int main(int argc, char **argv)
   }
   if(mode == "objstream" && (argc == 4 || argc == 5)) return objstream(argv[2], argv[3], argc == 5 ? atoi(argv[4]) : 0);
   if(mode == "objverify" && argc == 5) return objverify(argv[2], argv[3], argv[4]);
+  if(mode == "vmake" && argc == 5) return vmake(argv[2], atoi(argv[3]), atoi(argv[4]));   // 11/14/2026 (7.4)
+  if(mode == "vsearch" && argc >= 6) return vsearch(argc, argv, false);
+  if(mode == "vlocal" && argc >= 5) return vsearch(argc, argv, true);
+  if(mode == "vinfo" && argc == 4) return vinfo_bad(argv[2], argv[3], false);
+  if(mode == "vbad" && argc == 4) return vinfo_bad(argv[2], argv[3], true);
   if(mode == "check") return check(root);
   if(mode == "hashes") return hashes(root);
   if(mode == "reindex") { if(argc > 3) stamp_lsn = strtoull(argv[3], 0, 10); return reindex(root); }

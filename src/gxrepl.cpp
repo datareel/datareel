@@ -560,6 +560,7 @@ int gxReplConfig::Load(const std::string &fname, std::string &err)
       if(k == "path") curdb->path = v;
       else if(k == "journal") curdb->journal = v;
       else if(k == "access") curdb->access = v;
+      else if(k == "vectors") curdb->vectors = v;      // 11/14/2026 (7.4): a .vixset or a .vix
       else known = false;
     }
     else if(cur) {
@@ -595,6 +596,8 @@ int gxReplConfig::Load(const std::string &fname, std::string &err)
     else {
       if(k == "node") node = v;
       else if(k == "legacy_db") legacy_db = v;   // 11/08/2026: 6.x style object clients
+      else if(k == "vector_threads") vector_threads = (unsigned)atoi(v.c_str());          // 11/14/2026 (7.4)
+      else if(k == "vector_max_concurrent") vector_max_concurrent = (unsigned)atoi(v.c_str());
       else if(k == "role") role = v;
       else if(k == "connect") {
 	size_t c = v.rfind(':');
@@ -3354,6 +3357,7 @@ gxReplServer::gxReplServer(const gxReplConfig &c) : cfg(c), local(c)
   // under the set's apply journal lock.
   if(!cfg.object_dbs.empty()) {
     objsvc.reset(new gxObjectService(cfg.object_dbs, cfg.legacy_db));
+    objsvc->SetVectorLimits(cfg.vector_threads, cfg.vector_max_concurrent);   // 11/14/2026 (7.4)
     for(auto &sc : cfg.sets)
       if(sc.accept == "target" || sc.accept == "both")
 	objsvc->ProtectRoot(real_path(sc.root).empty() ? sc.root : real_path(sc.root), sc.root + "/.gxrepl/apply.jnl");
