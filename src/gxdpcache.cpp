@@ -208,6 +208,7 @@ __ULWORD__ gxdPageCache::Write(const void *buf, __ULWORD__ bytes,
   const unsigned char *in = (const unsigned char *)buf;
 
   if(!in_txn) {
+    if(staged) return (__ULWORD__)0;   // 11/14/2026: never to the file
     // Write through, then update the pages already in the cache
     __ULWORD__ written = gxdFPTRWriteAt(fp, buf, bytes, address);
     __ULWORD__ done = 0;
@@ -335,6 +336,7 @@ int gxdPageCache::WriteLoggedPages()
 // of the file. Returns zero if successful or a non-zero value if a
 // write failed.
 {
+  if(staged) return 1;                 // 11/14/2026: never to the file
   if(logged_count == 0) return 0;
   std::vector<gxdPage *> v;
   GetPages(v, 1);

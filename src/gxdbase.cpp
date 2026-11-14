@@ -66,6 +66,7 @@ returned the last block again at the end, so walks never ended.
 
 #include <new>
 #include "gxdbase.h"
+#include "gxdstage.h"
 #include "strutil.h"
 
 namespace datareel {
@@ -429,12 +430,19 @@ gxDatabaseError gxDatabase::EnablePageCache(size_t bytes, int use_map)
   if(size == (FAU_t)-1) return gxd_error = gxDBASE_FILE_SEEK_ERROR;
   Seek((FAU_t)0, gxDBASE_SEEK_BEG);
   pcache = new gxdPageCache(fp, size, bytes, use_map);
+  // 11/14/2026: inside a staged scope the cache is staged, in a transaction
+  if(gxdStagedScope *sc = gxdStagedScope::Current()) {
+    pcache->SetStaged(1);
+    pcache->BeginTxn();
+    sc->Add(this);
+  }
   return gxd_error = gxDBASE_NO_ERROR;
 }
 
 void gxDatabase::DisablePageCache()
 {
   if(pcache) {
+    if(pcache->Staged()) gxdStagedScope::Forget(this); // 11/14/2026
     delete pcache;
     pcache = 0;
   }
@@ -569,6 +577,12 @@ gxDatabaseError gxDatabase::Write(const void *buf, __ULWORD__ bytes,
       note_write(waddr, bytes);
       gxdFPTRSeek(fp, waddr, gxDBASE_SEEK_BEG);
       last_operation = lop;
+    }
+    // 11/14/2026: inside a staged scope every write goes to a staged cache
+    if(!pcache && gxdStagedScope::Current()) {
+      FAU_t keep = gxdFPTRTell(fp);
+      if(EnablePageCache() != gxDBASE_NO_ERROR) return gxd_error = gxDBASE_FILE_WRITE_ERROR;
+      gxdFPTRSeek(fp, keep, gxDBASE_SEEK_BEG);
     }
     if(pcache) { // 10/31/2026: Write through the page cache
       FAU_t address = gxdFPTRTell(fp);

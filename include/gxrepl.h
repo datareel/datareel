@@ -80,6 +80,8 @@ Changes:
 #include <set>
 #include <thread>
 
+#include "gxrextract.h"
+
 namespace datareel {
 
 // 2 (11/08/2026): databases only (a node refuses flat files), status 3 on a read that changed
@@ -151,6 +153,12 @@ struct GXDLCODE_API gxReplSetConfig {
   std::string derived_apply = "rebuild";
   std::string derived_extractor;
   std::string derived_extractor_config;
+  // 11/14/2026: the data file of a folder the indexes derive from (a name
+  // pattern, e.g. "data.gxd"); incremental needs it and commit_block
+  std::string derived_source;
+  // 11/14/2026: most changed index pages one batch may hold in memory
+  // (MB); past it the batch's indexes are rebuilt instead
+  unsigned long long derived_apply_max_mb = 256;
   // 11/12/2026 (F7, staged unit copies): the copy of a commit_block unit by its files goes into a copy-on-write
   // stage (<root>/.gxrepl/stage/<unit>/, reflinked from the unit) and is swapped in at its commit block, so the
   // live unit stays whole at its last sealed generation until the new one is whole: a link lost in the middle of
@@ -457,6 +465,9 @@ private:
 private:
   gxReplConfig cfg;
   std::map<std::string, SetState_ *> sets;
+public:
+  double derived_peak_mb = 0;   // 11/14/2026: most staged index MB of one batch (incremental derived apply)
+private:
   std::mutex lock;
 };
 
@@ -719,6 +730,10 @@ private:
   long long connected_since = 0;
   std::string peer;
 };
+
+// 11/14/2026 (7.4): a built-in derived index extractor (gxrextract.h), linked into the program, for
+// "derived_extractor = <name>" (found before any .so path). Call it before the sets are opened. 0, or -1.
+GXDLCODE_API int gxrRegisterExtractor(const char *name, const gxrExtractorOps *ops);
 
 } // namespace datareel
 

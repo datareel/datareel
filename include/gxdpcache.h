@@ -111,6 +111,10 @@ public: // Transaction functions used by gxdJournal
   void CommitTxn();   // Dirty pages become logged pages
   void RollbackTxn(); // Drop the open transaction's changes
   int InTxn() const { return in_txn; }
+  // 11/14/2026: staged (gxdstage.h): nothing reaches the file, ever: a
+  // write outside a transaction and WriteLoggedPages() fail
+  void SetStaged(int on) { staged = on; }
+  int Staged() const { return staged; }
   size_t DirtyPages() const { return dirty_count; }
   size_t LoggedPages() const { return logged_count; }
   void GetDirtyPages(std::vector<gxdPage *> &v);
@@ -142,6 +146,7 @@ private:
   size_t logged_count;
   size_t pinned_count; // Dirty or logged pages, kept out of the LRU list
   int in_txn;
+  int staged = 0; // 11/14/2026
   // 10/31/2026: Read-only map of the file. Clean data that is not in a
   // page is copied straight from the map: no system call and no page.
   int use_map;

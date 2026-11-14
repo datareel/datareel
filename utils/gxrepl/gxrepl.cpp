@@ -198,8 +198,15 @@ static int shiplog(const std::string &dir, unsigned long long from)
   return 0;
 }
 
+#if defined(GXREPL_TEST_EXTRACTOR)
+const gxrExtractorOps *gxrepl_test_extractor_ops();   // 11/14/2026: gxrepl_testextractor.cpp (test builds)
+#endif
+
 int main(int argc, char **argv)
 {
+#if defined(GXREPL_TEST_EXTRACTOR)
+  datareel::gxrRegisterExtractor("gxrepl_test", gxrepl_test_extractor_ops());
+#endif
   if(argc < 2) return usage();
   std::string cmd = argv[1];
   if(cmd == "version") {

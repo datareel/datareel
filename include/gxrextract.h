@@ -36,18 +36,25 @@ point:
 
   extern "C" const gxrExtractorOps *gxr_extractor(void);
 
-For each commit, under the apply lock and inside the copy's staged
-transaction, gxrepl reads the old bytes of every noted object, applies
-the commit's pages, reads the new bytes, and then for each object in
-ascending address calls Remove(old bytes) (update and remove) and then
-Insert(new bytes) (add and update), and finally Flush() with the
-commit's lsn. Any error, or an incomplete or missing objects record,
+For each batch of records, under the apply lock, gxrepl reads the old
+bytes of every noted object from the copy's data file and the new bytes
+from the same file with the batch's pages laid over it (nothing is
+written yet), then, inside a staged scope (gxdstage.h: no write of the
+extractor can reach a file), calls Open(), Remove(old bytes) for every
+removed and updated object, Insert(new bytes) for every added and
+updated object (each in ascending address), Flush() with the batch's
+last lsn and Count(). The index pages the extractor changed, its
+<index>.stamp, the data pages and the copy's position are then written
+as one atomic batch, and Close() is called. Any error, an incomplete or
+missing objects record, or more staged pages than derived_apply_max_mb
 puts the index back on a full rebuild ("rebuild needed").
 
 Rules for an extractor:
   - deterministic: the same objects in the same order give the same
     index bytes (or, for a B-tree, the same keys);
   - no I/O but the index (and its own open), no threads, no globals;
+  - keep the index open from Open() to Close() and write every header
+    (gxBtree::WriteBtreeHeader(), the file header) in Flush();
   - Remove() of an entry that is not there is not an error (0);
   - return 0 for success, non-zero for an error, with a message of at
     most "err_len" bytes in "err".
@@ -72,10 +79,10 @@ extern "C" {
 typedef struct gxrExtractorOps {
   uint32_t abi_version;                 /* GXR_EXTRACTOR_ABI */
   const char *(*Version)(void);         /* Name and version, for logs */
-  /* Open the index "index_path" (attached by the caller to the copy's
-     journal through the returned handle's database, if any) for the
-     data file "data_path". "config" is the set's derived_extractor_config
-     (may be empty). Returns a handle, or 0 with a message in err. */
+  /* Open the index "index_path" for the data file "data_path" (read
+     the data file only if need be). "config" is the set's
+     derived_extractor_config (may be empty). Returns a handle, or 0
+     with a message in err. */
   void *(*Open)(const char *index_path, const char *data_path,
 		const char *config, char *err, size_t err_len);
   int (*Remove)(void *h, uint64_t object_address,
@@ -84,12 +91,21 @@ typedef struct gxrExtractorOps {
   int (*Insert)(void *h, uint64_t object_address,
 		const unsigned char *new_bytes, uint32_t len,
 		char *err, size_t err_len);
-  /* End of one commit: "lsn" is the commit's ship log lsn */
+  /* End of one batch: "lsn" is its last ship log lsn */
   int (*Flush)(void *h, uint64_t lsn, char *err, size_t err_len);
+  /* Entries in the index now (gxrepl checks it against the data's
+     object count in derived.stamp) */
+  uint64_t (*Count)(void *h);
   void (*Close)(void *h);
 } gxrExtractorOps;
 
 typedef const gxrExtractorOps *(*gxrExtractorEntry)(void);
+
+/* During an extractor call: read "len" bytes at "offset" of a file of
+   the set (its full path) as it will be once the batch is applied (the
+   batch's pages over the file; zeros past its end). Returns the bytes
+   read, or -1 outside an extractor call. gxrepl provides it. */
+int gxrReadAfterBatch(const char *path, uint64_t offset, void *buf, uint32_t len);
 
 #ifdef __cplusplus
 }

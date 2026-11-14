@@ -3475,6 +3475,109 @@ def _wait_rebuilt(env, aws, unit, secs=60):
     assert os.path.exists(os.path.join(aws, unit, "index.gxd")), "the derived index was never rebuilt"
 
 
+def _incr_opts(extractor="gxrepl_test", extra_server=()):
+    """11/14/2026: a set whose copy keeps index.gxd object by object (derived_apply = incremental)"""
+    o = _derived_opts(["derived_apply = incremental", f"derived_extractor = {extractor}", "derived_source = data.gxd"]
+                      + list(extra_server))
+    return o
+
+
+def _so():
+    return os.path.join(BIN, "gxrepl_testextractor.so")
+
+
+def _objects_writer(root, *args, extra_env=None):
+    """the testwriter with object notes on (its ship log carries objects records)"""
+    e = dict(os.environ, GXDSHIP_OBJECTS="1", **(extra_env or {}))
+    return subprocess.run([os.path.join(BIN, "gxrepl_testwriter"), "write", root, *map(str, args)],
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=e)
+
+
+def _gen(path):
+    try:
+        with open(path, "rb") as f:
+            f.seek(8)
+            return int.from_bytes(f.read(8), "little")
+    except OSError:
+        return -1
+
+
+def _wait_gen(ws, aws, unit, secs=60):
+    end = time.time() + secs
+    want = _gen(os.path.join(ws, unit, "commit.bin"))
+    while time.time() < end and _gen(os.path.join(aws, unit, "commit.bin")) != want:
+        time.sleep(0.2)
+    assert _gen(os.path.join(aws, unit, "commit.bin")) == want, "the copy did not reach the source's generation"
+
+
+def _wait_stamped(env, aws, unit, secs=60):
+    st = os.path.join(aws, unit, "index.gxd.stamp")
+    end = time.time() + secs
+    while time.time() < end and (not os.path.exists(st) or "INDEXES" in torn(env).stdout):
+        time.sleep(0.3)
+    assert os.path.exists(st), "the rebuilt index was never stamped\n" + env.logs()
+    t = torn(env)
+    assert t.returncode == 0 and "INDEXES" not in t.stdout, t.stdout
+
+
+def _rebuilds(env):
+    try:
+        return open(os.path.join(env.dir, "server.log")).read().count("derived indexes rebuilt")
+    except OSError:
+        return 0
+
+
+def _objects_writer_bg(root, *args, extra_env=None):
+    e = dict(os.environ, GXDSHIP_OBJECTS="1", **(extra_env or {}))
+    return subprocess.Popen([os.path.join(BIN, "gxrepl_testwriter"), "write", root, *map(str, args)],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=e)
+
+
+def _incremental_round(extractor, name):
+    # one writer process the whole time (a new writer's open record makes the copy verify: a fill by files)
+    env = Env(name, {"db": _incr_opts(extractor, ["derived_delay = 0", "derived_busy_rebuild = 2"])})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d1"))
+    w = _objects_writer_bg(os.path.join(ws, "d1"), "--commits", 120, "--per", 6, "--sleep", 250, "--commit-block",
+                           "--ship-root", ws)
+    time.sleep(1.5)
+    env.start_server()
+    env.start_client()
+    try:
+        _wait_stamped(env, aws, "d1")
+        r0 = _rebuilds(env)
+        assert r0 >= 1
+        assert w.poll() is None, "the writer ended before the index was stamped: make it longer"
+        g0 = _gen(os.path.join(aws, "d1", "commit.bin"))
+        assert w.wait(timeout=180) == 0, w.stdout.read()
+        _wait_gen(ws, aws, "d1")
+        t = torn(env)                             # in step at once: no rebuild after the last commit
+        assert t.returncode == 0 and "INDEXES" not in t.stdout, t.stdout + env.logs()
+        check_db(os.path.join(aws, "d1"))         # the index agrees with the data and the commit block
+        st = open(os.path.join(aws, ".gxrepl", "derived", "_d1")).read()
+        assert "ok incremental" in st, st
+        assert _gen(os.path.join(aws, "d1", "commit.bin")) > g0 + 20, "too few commits applied object by object"
+        assert _rebuilds(env) == r0, "a rebuild ran after the stamps: " + env.logs()
+        log = open(os.path.join(env.dir, "server.log")).read()
+        assert "rebuild needed" not in log.split("derived indexes rebuilt")[-1], log[-2000:]
+    finally:
+        if w.poll() is None:
+            w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_derived_apply_builtin():
+    """11/14/2026 (7.4): derived_apply = incremental with the built-in test extractor: the first fill (by files)
+    drops the stamps, the derived pass rebuilds and stamps the folder, then every ship log batch updates index.gxd
+    object by object in the apply's own transaction (no derived_delay, no rebuild), and the index checks."""
+    _incremental_round("gxrepl_test", "incr_builtin")
+
+
+def test_incremental_derived_apply_so():
+    """11/14/2026 (7.4): the same with the extractor loaded from gxrepl_testextractor.so"""
+    _incremental_round(_so(), "incr_so")
+
+
 def test_dead_copy_folder_goes_with_its_source():
     """11/13/2026 (dead copy folders): the source drops a unit folder (osa_ingest archives a day at 20:30). The copy
     deletes what gxrepl copied AND the files it never copies (the rebuilt derived index, a writer's journal), then
