@@ -4224,6 +4224,38 @@ def test_diff_pieces_against_a_racing_commit():
         env.stop()
 
 
+def test_position_gone_from_the_same_log_verifies():
+    """11/14/2026 (review item 1): the copy offline while its next records leave the log (the same log id: the
+    oldest segments removed, as ship_log_max_total does): at the reconnect the copy is verified and matches"""
+    env = Env("pos_gone", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    d1 = os.path.join(ws, "d1")
+    os.makedirs(d1)
+    try:
+        assert writer(d1, "--commits", 5, "--commit-block", "--ship-root", ws, "--segment", 65536).returncode == 0
+        env.start_server()
+        env.start_client()
+        _wait_units(env, ws, aws, ["d1"])
+        env.kill("client")
+        env.kill("server")
+        assert writer(d1, "--commits", 60, "--per", 8, "--commit-block", "--ship-root", ws, "--segment", 65536,
+                      "--seed", 44).returncode == 0
+        ld = os.path.join(ws, ".gxrepl", "log", "d1_writer.jnl")
+        segs = sorted(f for f in os.listdir(ld) if f.endswith(".gxl"))
+        assert len(segs) >= 3, segs
+        for f in segs[:2]:                              # the copy's next records go, the log id stays
+            os.remove(os.path.join(ld, f))
+        n = len(open(os.path.join(env.dir, "client.log")).read())
+        env.start_server()
+        env.start_client()
+        _wait_units(env, ws, aws, ["d1"], 90)
+        log = open(os.path.join(env.dir, "client.log")).read()[n:]
+        assert "needs a verify" in log, log
+        assert "gave up on" not in log, log
+    finally:
+        env.stop()
+
+
 def test_drain_verify_once_per_stream():
     """note_verify() is idempotent: one "needs a verify" line and one verify for the stream, whichever drains
     (the drain's own, then the caller's) saw the open records of two writers"""
