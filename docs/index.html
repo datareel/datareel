@@ -89,7 +89,7 @@
 <li>Everything is in the datareel namespace. &quot;using namespace datareel;&quot; is added for you so 6.x code that uses unqualified names compiles; define DATAREEL_NO_GLOBAL_NAMES to turn that off.</li>
 <li>CMake builds the library, examples and tests on Linux and Windows and installs a find_package(DataReel) package.</li>
 <li>Database, index and InfoHog files are unchanged.</li>
-<li>7.1 removed the gxRDBMS relational tables; use SQLite for relational needs.</li>
+<li>7.1 removed the gxRDBMS relational tables; use an embedded SQL database for relational needs.</li>
 <li>7.2 adds gxdJournal (atomic, crash and power loss safe transactions over a data file and its indexes), an optional page cache, faster file I/O and a faster B-tree cache. File formats are unchanged.</li>
 <li>7.3 reads records through a memory map and makes key-order scans and random reads faster.</li>
 <li>7.3.1 fixes the problems a full security sweep found (damaged files and journals, TLS, the database stream protocol, HTTP, mail, FTPS, telnet, RS-232, ping and the support code), and gxStream database servers use mutual TLS: gxStreamServer requires client certificates from a client CA plus an allow list of fingerprints or names, and will not start without them unless the program explicitly opts out (AllowAnonymousClients(true), stream_server --open). Other TLS servers are unchanged.</li>

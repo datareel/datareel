@@ -73,7 +73,7 @@ WHAT CHANGED
    until a checkpoint (64 MB): fewer writes for a program that is the
    only user of the files, but other processes do not see the data
    until then. SetSyncLevel(OFF) skips the checkpoint syncs for
-   Commit(0) work, like SQLite's synchronous=OFF.
+   Commit(0) work, like the "no sync" setting of embedded SQL databases.
 
    Readers in other processes see whole batches after Commit()
    returns. A reader that runs while a commit writes its pages can see
@@ -128,10 +128,11 @@ SATA SSD, XFS. Ops/s, median of 3 runs:
  7.1                    83,827   76,453  174,957  218,694  151,092   66,721      265
  7.2, no code change   137,543  128,469  217,368 1,249,539 212,531   86,917      353
  7.2 + journal         663,541  171,869  268,542  652,149  127,558  107,841    1,003
- SQLite 3.46 WAL       666,603   90,840  281,075 7,355,031 113,561  132,841    1,660
+ embedded SQL (WAL)    666,603   90,840  281,075 7,355,031 113,561  132,841    1,660
 
 The ordered scan reads the data file in record order, not key order;
-SQLite keeps rows in its B-tree leaves. Full report: claude_code_docs
+the embedded SQL database (a typical one, in WAL mode) keeps rows in
+its B-tree leaves. Full report: claude_code_docs
 DATAREEL_72_OODB_FIXES.md.
 
 HOW IT WAS TESTED

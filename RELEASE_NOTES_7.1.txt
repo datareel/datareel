@@ -23,7 +23,7 @@ find_package(DataReel 7) finds 7.1.
 
 REMOVED, AND WHAT TO USE INSTEAD
 --------------------------------
- gxRDBMS relational tables        SQLite for relational needs
+ gxRDBMS relational tables        An embedded SQL database
  (gxrdbms.h, gxrdbhdr.h,
  gxrdbdef.h), db_rdbms example
 
@@ -38,8 +38,8 @@ FILE FORMATS
 ------------
 Database, index and InfoHog files are unchanged and are byte-for-byte
 identical to the files 7.0 and 6.2 write. gxRDBMS table files can no
-longer be opened; read them with 6.2 or 7.0 and move the data to
-SQLite.
+longer be opened; read them with 6.2 or 7.0 and move the data to an
+embedded SQL database.
 
 HOW THE RELEASE WAS TESTED
 --------------------------

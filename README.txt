@@ -121,8 +121,8 @@ to 7.4. In short:
 - CMake builds the library, examples and tests on Linux and Windows
   and installs a find_package(DataReel) package.
 - Database, index and InfoHog files are unchanged.
-- 7.1 removed the gxRDBMS relational tables; use SQLite for
-  relational needs.
+- 7.1 removed the gxRDBMS relational tables; use an embedded SQL
+  database for relational needs.
 - 7.2 adds gxdJournal (atomic, crash and power loss safe transactions
   over a data file and its indexes), an optional page cache, faster
   file I/O and a faster B-tree cache. File formats are unchanged.

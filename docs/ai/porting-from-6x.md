@@ -42,7 +42,7 @@ open unchanged; most porting work is replacing removed classes.
 | `HyperText`, `PostScriptDrv`, report writers | `std::ostream` |
 | `Terminal` | ncurses |
 | `gxDeviceCache` | none |
-| `gxRDBMS` relational tables | SQLite |
+| `gxRDBMS` relational tables | An embedded SQL database |
 
 ## Strings
 

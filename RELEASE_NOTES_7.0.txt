@@ -59,7 +59,7 @@ REMOVED, AND WHAT TO USE INSTEAD
  leaktest (MSVC CRT)              AddressSanitizer, valgrind
  gxsSocketUtils (gxsutils.h)      (moved into gxsPing)
  wserror (Winsock messages)       gxSocket::SocketExceptionMessage()
- gxrdbsql.h (empty placeholder)   SQLite if you need SQL
+ gxrdbsql.h (empty placeholder)   An embedded SQL database if you need SQL
  stdafx.h, gxdlincs.h, wxincs.h,  (not needed)
  wx2incs.h
  hexdump, ffind, txfilter utils   xxd, find, sed, PowerShell

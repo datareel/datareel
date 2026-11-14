@@ -28,7 +28,7 @@
 <p>DataReel is an object database (OODB) and cross platform communications toolkit for C++. 7.1 removes the gxRDBMS relational tables so the library is made of its two parts: the object database (gxDatabase, gxBtree, POD, InfoHog and the database utilities) and TLS networking. Everything else is unchanged from 7.0; see <a href="release_notes_7_0.html">RELEASE_NOTES_7.0.txt</a> for the move from 6.x to DataReel 7.</p>
 <p>The library version is 7.1 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.1). The shared library soname (libdatareel.so.7) and the database file format version (gxDatabaseVersionNumber 4630) are unchanged, and find_package(DataReel 7) finds 7.1.</p>
 <h2 id="RemovedAndWhatToUseInstead">Removed, and what to use instead</h2>
-<pre> gxRDBMS relational tables        SQLite for relational needs
+<pre> gxRDBMS relational tables        An embedded SQL database
  (gxrdbms.h, gxrdbhdr.h,
  gxrdbdef.h), db_rdbms example</pre>
 <ul>
@@ -36,7 +36,7 @@
 <li>CDate stays as a portable 4-byte date type.</li>
 </ul>
 <h2 id="FileFormats">File formats</h2>
-<p>Database, index and InfoHog files are unchanged and are byte-for-byte identical to the files 7.0 and 6.2 write. gxRDBMS table files can no longer be opened; read them with 6.2 or 7.0 and move the data to SQLite.</p>
+<p>Database, index and InfoHog files are unchanged and are byte-for-byte identical to the files 7.0 and 6.2 write. gxRDBMS table files can no longer be opened; read them with 6.2 or 7.0 and move the data to an embedded SQL database.</p>
 <h2 id="HowTheReleaseWasTested">How the release was tested</h2>
 <ul>
 <li>tests/run_tests.sh on RHEL 10.2: 40 checks (the 42 of 7.0 less the two gxRDBMS checks) passed in the default 32-bit native type build and in a 64-bit engine, portable type build, with no compiler warnings.</li>

@@ -13,8 +13,8 @@ does not cover:
    database-block (`gxStream`) protocols on top of them.
 
 For anything else (strings, containers, threads, files, time, JSON,
-SQL) use the C++ standard library or a dedicated library (SQLite for
-relational tables). DataReel 7
+SQL) use the C++ standard library or a dedicated library (an embedded SQL
+database for relational tables). DataReel 7
 removed its old string, list, thread and file classes.
 
 The task guides are in `docs/ai/`; `llms-full.txt` has all of them in

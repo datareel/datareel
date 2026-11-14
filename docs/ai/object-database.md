@@ -1,8 +1,8 @@
 # The DataReel 7 object database
 
 DataReel's database is an embedded library: your program opens files
-directly, there is no server and no SQL (use SQLite when you need
-relational tables). It suits programs that store
+directly, there is no server and no SQL (use an embedded SQL database when
+you need relational tables). It suits programs that store
 their own records locally and need them to survive crashes and
 upgrades: configuration and state stores, message and event logs,
 catalogs, caches, and data exchanged between programs as files. File

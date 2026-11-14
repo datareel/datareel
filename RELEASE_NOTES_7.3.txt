@@ -45,9 +45,10 @@ SPEED
 -----
 1,000,000 records, 16-byte keys, 100-byte values, batches of 1000,
 64 MB of cache, RHEL 10.2, SATA SSD, XFS. Ops/s, median of 3 runs,
-DataReel with the journal against SQLite 3.46 in WAL mode:
+DataReel with the journal against a typical embedded SQL database in
+WAL mode ("SQL DB"):
 
-                          7.2        7.3     SQLite
+                          7.2        7.3     SQL DB
  insert in key order    663,541    621,995    625,131
  insert in random order 171,869    167,241     79,408
  random read            268,542    424,557    235,514
@@ -61,8 +62,8 @@ DataReel with the journal against SQLite 3.46 in WAL mode:
      a separate data file, which the scan reads in record order
  (2) records inserted in key order
 
-A scan of records inserted in random order stays behind SQLite,
-which stores rows inside its B-tree. Closing that gap needs a
+A scan of records inserted in random order stays behind the SQL
+database, which stores rows inside its B-tree. Closing that gap needs a
 clustered index (records stored in the index leaves), which would be
 a new file type; it is not part of 7.3.
 
