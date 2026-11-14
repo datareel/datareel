@@ -2116,14 +2116,12 @@ def _kill_storm(staged):
             env.start_client()
             time.sleep(rng.uniform(0.05, 1.5))
             env.kill("client")
-            if staged:
-                # 11/13/2026: the server may still be swapping in a stage the killed client finished: the verdict
-                # and promote-check are read under a shared lock on apply.jnl (judge_copy, as a locked reader does),
-                # never one before and one after that swap
-                v, tr = judge_copy(env, aws, gl)
-            else:
-                v = copy_verdict(aws, gen_log_map(gl))
-                tr = torn(env)
+            # 11/13/2026: the server may still be swapping in a stage the killed client finished: the verdict
+            # and promote-check are read under a shared lock on apply.jnl (judge_copy, as a locked reader does),
+            # never one before and one after that swap. 11/14/2026: in place too: promote-check now waits for an
+            # apply in flight (its shared lock), so an unlocked verdict read before the killed client's last
+            # request (a MarkGen making the unit odd) and a promote-check after it disagreed ("whole" refused)
+            v, tr = judge_copy(env, aws, gl)
             if v in ("torn", "odd"):
                 if tr.returncode == 1:
                     stats["caught"] += 1
@@ -2133,6 +2131,7 @@ def _kill_storm(staged):
                 stats["whole"] += 1
                 if tr.returncode != 0:
                     stats["refused_whole"] += 1
+                    print(f"      kill {i}: a whole copy refused: {tr.stdout.strip()[:300]!r}", flush=True)
             else:
                 stats["unknown"] += 1
         w.kill(); w.wait()
@@ -2476,6 +2475,106 @@ def test_seal_and_position_never_split():
         print(f"    {checks} promote-checks under a commit every 30 ms: {split} split (seal vs position or commit block), "
               f"{other} other", flush=True)
         assert split == 0, split
+    finally:
+        env.stop()
+
+
+def _seal_and_position(aws):
+    """The root unit's "log G L stream" seal record L and its stream's applied position, or None."""
+    try:
+        s = open(os.path.join(aws, ".gxrepl", "units", "_root")).read().split()
+        if len(s) < 4 or s[0] != "log":
+            return None
+        p = open(os.path.join(aws, ".gxrepl", "state", s[3] + ".state")).read().split()
+        return int(s[2]), int(p[1])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def test_promote_check_reads_under_the_apply_lock():
+    """11/14/2026 (promote-check rc 1 "sealed at ship log record 77, the copy applied up to 76" under heavy load):
+    promote-check read the seal and the applied position unlocked, re-reading a split pair for 10 s; an apply whose
+    position write lagged past that was reported TORN. Now each unit is read under a shared flock on apply.jnl (an
+    apply holds it exclusively): (a) an apply held between its seal and its position (GXREPL_TEST_POSITION_DELAY_MS,
+    4 s, with GXREPL_TORN_RECHECK_SEC=1) is waited for, rc 0; (b) a real split (no apply running) is still TORN,
+    at once; (c) a lock held past GXREPL_TORN_LOCK_WAIT: the check still answers, unlocked, with a WARNING."""
+    import fcntl
+    env = Env("torn_lock", {"db": dict(CB_OPTS)})
+    ws, aws = env.roots["db"]
+    gx = os.path.join(BIN, "gxrepl")
+    assert writer(ws, "--commits", 3, "--commit-block").returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 60)
+        assert writer(ws, "--commits", 2, "--commit-block", "--seed", 41).returncode == 0
+        wait_same(env, "db", 60)
+        env.stop()
+        sp = _seal_and_position(aws)
+        assert sp and sp[0] == sp[1], f"no ship log seal in step: {sp}"
+        t = torn(env)
+        assert t.returncode == 0 and "0 torn" in t.stdout, t.stdout
+        # (a) an apply inside its lock, the seal written, the position 4 s late
+        env.start_server(extra_env={"GXREPL_TEST_POSITION_DELAY_MS": "4000"})
+        env.start_client()
+        assert writer(ws, "--commits", 1, "--commit-block", "--seed", 43).returncode == 0
+        split = None
+        end = time.time() + 60
+        while time.time() < end and not split:
+            sp = _seal_and_position(aws)
+            if sp and sp[0] > sp[1]:
+                split = sp
+            else:
+                time.sleep(0.02)
+        assert split, "the delayed apply was never seen between its seal and its position\n" + env.logs()
+        t0 = time.time()
+        t = run([gx, "torn", "--config", env.srv_conf],
+                env=dict(os.environ, GXREPL_TORN_RECHECK_SEC="1", GXREPL_TORN_LOCK_STATS="1"))
+        el = time.time() - t0
+        print(f"    (a) seal at record {split[0]}, position {split[1]}: torn exit {t.returncode} in {el:.1f} s: "
+              f"{t.stdout.strip()[:300]!r}", flush=True)
+        assert t.returncode == 0 and "0 torn" in t.stdout, t.stdout
+        assert "without the apply lock" not in t.stdout, t.stdout
+        assert "torn lock stats" in t.stdout, t.stdout
+        wait_same(env, "db", 60)
+        env.stop()
+        # (b) a real split, nothing applying: TORN under the lock, no 10 s of re-reads
+        sp = _seal_and_position(aws)
+        assert sp and sp[0] == sp[1], sp
+        stream = open(os.path.join(aws, ".gxrepl", "units", "_root")).read().split()[3]
+        stp = os.path.join(aws, ".gxrepl", "state", stream + ".state")
+        keep = open(stp).read()
+        f = keep.split()
+        with open(stp, "w") as fh:
+            fh.write(" ".join([f[0], str(int(f[1]) - 1)] + f[2:]) + "\n")
+        try:
+            t0 = time.time()
+            t = torn(env)
+            el = time.time() - t0
+            print(f"    (b) a real split: torn exit {t.returncode} in {el:.1f} s", flush=True)
+            assert t.returncode == 1 and "records past the seal" in t.stdout, t.stdout
+            assert el < 5, f"{el:.1f} s: re-read under the lock"
+        finally:
+            with open(stp, "w") as fh:
+                fh.write(keep)
+        # (c) the lock held (as a long derived rebuild does) past GXREPL_TORN_LOCK_WAIT=1: unlocked, said
+        fd = os.open(os.path.join(aws, ".gxrepl", "apply.jnl"), os.O_RDWR)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            t0 = time.time()
+            t = run([gx, "torn", "--config", env.srv_conf],
+                    env=dict(os.environ, GXREPL_TORN_LOCK_WAIT="1", GXREPL_TORN_RECHECK_SEC="1",
+                             GXREPL_TORN_LOCK_STATS="1"), timeout=60)
+            el = time.time() - t0
+        finally:
+            os.close(fd)
+        print(f"    (c) lock held: torn exit {t.returncode} in {el:.1f} s: {t.stdout.strip()[:400]!r}", flush=True)
+        assert t.returncode == 0 and "0 torn" in t.stdout, t.stdout
+        assert "WARNING the check ran without the apply lock" in t.stdout, t.stdout
+        assert "(fell back)" in t.stdout, t.stdout
+        assert 0.9 <= el < 10, el
+        t = torn(env)
+        assert t.returncode == 0 and "without the apply lock" not in t.stdout, t.stdout
     finally:
         env.stop()
 

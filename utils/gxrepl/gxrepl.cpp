@@ -48,6 +48,7 @@ extern const char *gxrepl_build_time();
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include <chrono>
 #include <string>
 #include <vector>
 #include <openssl/pem.h>
@@ -291,7 +292,15 @@ int main(int argc, char **argv)
       if(s.commit_block.empty()) continue;
       any = 1;
       std::vector<std::string> torn, warn, own;
-      int n = datareel::gxReplTornCopies(s, torn, warn);
+      datareel::gxReplTornLockStats ls;
+      auto t0 = std::chrono::steady_clock::now();
+      int n = datareel::gxReplTornCopies(s, torn, warn, ls);
+      // 11/14/2026: GXREPL_TORN_LOCK_STATS=1: how long the apply lock was held, to stderr (the output is unchanged)
+      if(const char *e = getenv("GXREPL_TORN_LOCK_STATS")) if(*e && strcmp(e, "0") != 0)
+	fprintf(stderr, "gxrepl: torn lock stats: set %s: %ld lock(s), longest hold %.3f ms, total hold %.3f ms, "
+		"waited %.3f ms, %ld unit(s) unlocked%s, check %.1f ms\n", s.name.c_str(), ls.acquisitions,
+		ls.max_hold_ms, ls.total_hold_ms, ls.waited_ms, ls.unlocked_units, ls.fell_back ? " (fell back)" : "",
+		std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
       // 11/11/2026: --copied-only (after a failback pull): judge only folders gxrepl copied (they have a seal);
       // a folder this node made itself and gxrepl never touched is its own data, not a copy
       if(copied_only) {
@@ -308,7 +317,8 @@ int main(int argc, char **argv)
       }
       printf("set %s: %d folder(s) checked, %zu torn\n", s.name.c_str(), n, torn.size());
       for(auto &x : torn) printf("  TORN %s\n", x.c_str());
-      for(auto &x : warn) printf("  %s %s\n", x.find("is staged since") != std::string::npos ? "STAGED" : "INDEXES", x.c_str());   // 11/11/2026: a warning, not torn (11/12: STAGED, F7)
+      for(auto &x : warn) printf("  %s %s\n", x.find("is staged since") != std::string::npos ? "STAGED" :
+				 x.find("without the apply lock") != std::string::npos ? "WARNING" : "INDEXES", x.c_str());   // 11/14: WARNING   // 11/11/2026: a warning, not torn (11/12: STAGED, F7)
       for(auto &x : own) printf("  OWN %s (never copied by gxrepl: this node's own data)\n", x.c_str());
       if(!torn.empty()) bad = 1;
     }

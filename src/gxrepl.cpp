@@ -137,6 +137,16 @@ static long long sweep_every()
   return e && *e ? std::max(1LL, atoll(e)) : 60;
 }
 
+// 11/14/2026: test builds (-DGXREPL_TEST_HOOKS): GXREPL_TEST_POSITION_DELAY_MS=N sleeps between an apply's
+// transaction (its seals written) and its streams' applied position write (a position write that lags under load)
+static void test_position_delay()
+{
+#ifdef GXREPL_TEST_HOOKS
+  if(const char *d = getenv("GXREPL_TEST_POSITION_DELAY_MS"))
+    std::this_thread::sleep_for(std::chrono::milliseconds(atol(d)));
+#endif
+}
+
 static int lock_apply_bounded(int fd)
 {
   double wait = 5;
@@ -1315,8 +1325,24 @@ static std::map<std::string, std::string> stages_of(const std::string &root)
 }
 
 // "": sealed and the same; else why not
-static std::string unit_seal_check(const gxReplSetConfig &sc, const std::string &rel, uint64_t gen)
+// 11/14/2026: the hashing half of a "gen G" seal's check: the unit's files against the seal text "have"
+static std::string unit_seal_hash_check(const gxReplSetConfig &sc, const std::string &rel, uint64_t gen,
+					const std::string &have)
 {
+  bool ok = true;
+  std::string now = unit_manifest(sc, sc.root, rel, gen, ok);
+  if(!ok) return "a file cannot be read";
+  if(now != have) return "its files differ from the seal of generation " + std::to_string((unsigned long long)gen);
+  return "";
+}
+
+// "defer" (11/14/2026, promote-check under the apply lock): a "gen G" seal at the right generation is not hashed
+// here: its text goes in *defer (cleared otherwise) and "" is returned; the caller runs unit_seal_hash_check once
+// it let go of the lock
+static std::string unit_seal_check(const gxReplSetConfig &sc, const std::string &rel, uint64_t gen,
+				   std::string *defer = 0)
+{
+  if(defer) defer->clear();
   std::string path = sc.root + "/.gxrepl/units/" + unit_key(rel), have;
   FILE *f = fopen(path.c_str(), "rb");
   if(!f) return "never sealed (no whole copy since the seal was added)";
@@ -1348,11 +1374,8 @@ static std::string unit_seal_check(const gxReplSetConfig &sc, const std::string 
   }
   if(sscanf(have.c_str(), "gen %llu", &sg) != 1) return "a damaged seal";
   if(sg != gen) return "sealed at generation " + std::to_string(sg) + ", the commit block says " + std::to_string((unsigned long long)gen);
-  bool ok = true;
-  std::string now = unit_manifest(sc, sc.root, rel, gen, ok);
-  if(!ok) return "a file cannot be read";
-  if(now != have) return "its files differ from the seal of generation " + std::to_string(sg);
-  return "";
+  if(defer) { *defer = have; return ""; }
+  return unit_seal_hash_check(sc, rel, gen, have);
 }
 
 
@@ -2395,7 +2418,8 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
   // seal, not after it is let go: a reader holding the lock never sees a seal at record L with the position at L-1
   gxReplStreamState st = it->second;
   st.lsn = last;
-  if(apply_batch(s, batch, err, [&](std::string &e) { return write_state(s, st, e); }) != 0) return -1;
+  if(apply_batch(s, batch, err, [&](std::string &e) { test_position_delay(); return write_state(s, st, e); }) != 0)
+    return -1;
   applied_records += count;
   lsn = last;
   return 0;
@@ -2602,23 +2626,29 @@ int gxReplLocal::ApplyFiles(const std::string &set,
     }
     return 0;
   };
-  int arc = finish.empty() ? apply_batch(s, batch, err, nullptr, check) : apply_batch(s, batch, err, [&](std::string &e) {
+  // 11/14/2026: the streams' applied positions are written in the apply lock too, after the batch (its "log G L"
+  // seals): they were written after the lock was let go, so a reader holding the lock (promote-check) could see a
+  // seal at record L with the position at L-1 (the record path does this since 11/12)
+  auto positions = [&](std::string &e) -> int {
+    test_position_delay();
+    for(auto &c : changed) if(write_state(s, c.second, e) != 0) return -1;
+    return 0;
+  };
+  if(batch.empty()) return positions(err);             // (apply_batch does nothing then, not even its in_lock)
+  int arc = finish.empty() ? apply_batch(s, batch, err, positions, check) : apply_batch(s, batch, err, [&](std::string &e) {
       for(size_t i = 0; i < v.size(); i++)
 	if(results[i] == 0 && v[i].last && finish.count(dir_of(v[i].path))) times(i);
 #ifdef GXREPL_TEST_HOOKS
       if(getenv("GXREPL_TEST_CRASH_BEFORE_SWAP")) _exit(9);   // test builds: a stage complete, its swap not begun
 #endif
       for(auto &u : finish) { if(stage_swap(s->sc, s->root, u, e) != 0) return -1; s->staged.erase(u); }
-      return 0;
+      return positions(e);
     }, check);
   if(arc != 0) return -1;
   for(size_t i = 0; i < v.size(); i++) {
     if(results[i] != 0 || !v[i].last) continue;
     if(finish.count(dir_of(v[i].path))) continue;       // set before its swap
     times(i);
-  }
-  for(auto &e : changed) {
-    if(write_state(s, e.second, err) != 0) return -1;
   }
   return 0;
 }
@@ -4595,9 +4625,85 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
   return rebuilt;
 }
 
+// 11/14/2026: the timed re-reads of an unlocked promote-check (GXREPL_TORN_RECHECK_SEC, 10 s)
+static double torn_recheck_sec()
+{
+  double wait = 10;
+  if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
+  return wait;
+}
+
+// 11/14/2026: promote-check's shared lock on a set's apply.jnl, taken per unit. 11/14 (a promote-check rc 1 under
+// load): a unit's commit block, its seal, its stream's applied position and its derived state are separate files;
+// read unlocked in the middle of an apply they disagree ("sealed at ship log record 77, the copy applied up to 76")
+// and the timed re-reads (10 s) did not always outlast an apply's position write under heavy load. Every apply,
+// staged swap, derived rebuild and dead folder sweep holds the lock exclusively, so under the shared lock nothing
+// is half applied and no re-read is needed. It is taken for one unit's small reads only and let go before the next
+// unit (and before any file is hashed): an apply waits (its F4 bounded wait, 5 s) for one unit's reads at most. The
+// waits share one budget per set, GXREPL_TORN_LOCK_WAIT (60 s): a derived rebuild holding the lock for minutes
+// stops the locking for the rest of the set, which is then read unlocked with the timed re-reads, and said.
+// No apply.jnl (or no .gxrepl): nothing was ever applied there; read unlocked (with the re-reads), nothing made.
+struct TornLock {
+  int fd = -1;
+  bool held = false;
+  std::string jname;
+  gxReplTornLockStats *ls = 0;
+  double budget_ms = 60000;                // the waits' budget (the walk's own time does not count)
+  std::chrono::steady_clock::time_point t0;
+
+  TornLock(const std::string &root, gxReplTornLockStats &st) : ls(&st) {
+    jname = root + "/.gxrepl/apply.jnl";
+    if(!st.use_lock) return;
+    double wait = 60;
+    if(const char *e = getenv("GXREPL_TORN_LOCK_WAIT")) { double v = atof(e); if(v >= 0) wait = v; }
+    budget_ms = wait * 1000;
+    fd = open(jname.c_str(), O_RDONLY | O_CLOEXEC);
+    if(fd < 0 && errno != ENOENT && errno != ENOTDIR) st.fell_back = true;   // there and not readable: said
+  }
+  ~TornLock() { release(); if(fd >= 0) close(fd); }
+  // true: held (no re-reads needed); false: read unlocked, with the timed re-reads
+  bool acquire() {
+    if(fd < 0) { if(ls->fell_back) ls->unlocked_units++; return false; }
+    if(ls->fell_back) { ls->unlocked_units++; return false; }
+    auto w0 = std::chrono::steady_clock::now();
+    auto end = w0 + std::chrono::microseconds((long long)(std::max(0.0, budget_ms - ls->waited_ms) * 1000));
+    while(flock(fd, LOCK_SH | LOCK_NB) != 0) {
+      auto now = std::chrono::steady_clock::now();
+      if((errno != EWOULDBLOCK && errno != EINTR) || now >= end) {
+	ls->waited_ms += std::chrono::duration<double, std::milli>(now - w0).count();
+	ls->fell_back = true;
+	ls->unlocked_units++;
+	return false;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    t0 = std::chrono::steady_clock::now();
+    ls->waited_ms += std::chrono::duration<double, std::milli>(t0 - w0).count();
+    ls->acquisitions++;
+    held = true;
+    return true;
+  }
+  void release() {
+    if(!held) return;
+    flock(fd, LOCK_UN);
+    held = false;
+    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    ls->total_hold_ms += ms;
+    if(ms > ls->max_hold_ms) ls->max_hold_ms = ms;
+  }
+};
+
+static bool read_cb_gen(const gxReplSetConfig &sc, const std::string &dir, uint64_t &g)
+{
+  int fd = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY | O_CLOEXEC);
+  ssize_t n = fd >= 0 ? pread(fd, &g, sizeof(g), (off_t)sc.commit_gen_offset) : -1;
+  if(fd >= 0) close(fd);
+  return n == (ssize_t)sizeof(g);
+}
+
 // 11/10/2026: see gxrepl.h
 static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const std::string &rel,
-		      int &checked, std::vector<std::string> &torn, std::vector<std::string> &warn)
+		      int &checked, std::vector<std::string> &torn, std::vector<std::string> &warn, TornLock &tl)
 {
   std::string dir = rel.empty() ? root : root + "/" + rel;
   DIR *d = opendir(dir.c_str());
@@ -4625,105 +4731,116 @@ static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const 
     if(!has_cb) torn.push_back(where + ": UNSEALED: database files and no " + sc.commit_block +
 			       " (a copy that never got one, or a ship log whose records do not carry it)");
     else {
+      // 11/14/2026: this unit's small reads under the shared apply lock (no re-reads then: nothing is in flight)
+      bool locked = tl.acquire();
+      struct Rel { TornLock &t; ~Rel() { t.release(); } } rel_guard{tl};
+      const double recheck = locked ? 0 : torn_recheck_sec();
       uint64_t g = 0;
-      int fd = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
-      ssize_t n = fd >= 0 ? pread(fd, &g, sizeof(g), (off_t)sc.commit_gen_offset) : -1;
-      if(fd >= 0) close(fd);
+      bool got = read_cb_gen(sc, dir, g);
       // 11/12/2026 (F7): a staged swap marks the live commit block odd for its renames (milliseconds, in the apply
       // lock): an odd unit whose stage has its .swap list is read again for up to GXREPL_TORN_RECHECK_SEC (10) s;
-      // a swap that stopped stays odd and is reported torn
-      if(n == (ssize_t)sizeof(g) && (g & 1)) {
+      // a swap that stopped stays odd and is reported torn (11/14: under the lock a .swap is always a stopped one)
+      if(got && (g & 1)) {
 	struct stat sst;
 	if(stat((stage_dir(root, rel) + "/.swap").c_str(), &sst) == 0) {
-	  double wait = 10;
-	  if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
-	  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
+	  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(recheck * 1000));
 	  while((g & 1) && std::chrono::steady_clock::now() < end) {
 	    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-	    int fd2 = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
 	    uint64_t g2 = g;
-	    if(fd2 >= 0) { if(pread(fd2, &g2, sizeof(g2), (off_t)sc.commit_gen_offset) == (ssize_t)sizeof(g2)) g = g2; close(fd2); }
+	    if(read_cb_gen(sc, dir, g2)) g = g2;
 	  }
 	}
       }
-      if(n != (ssize_t)sizeof(g)) torn.push_back(where + ": " + sc.commit_block + " is short");
+      if(!got) torn.push_back(where + ": " + sc.commit_block + " is short");
       else if(g & 1) torn.push_back(where + ": generation " + std::to_string((unsigned long long)g) +
 				    " is odd (a copy in progress, or one that stopped half way)");
       else {
-	// 11/10/2026: an even generation is not enough: the files must be the sealed ones
-	std::string why = unit_seal_check(sc, rel, g);
+	// 11/10/2026: an even generation is not enough: the files must be the sealed ones. 11/14: a "gen G" seal's
+	// hashes are left for after the lock ("deferred")
+	std::string deferred;
+	std::string why = unit_seal_check(sc, rel, g, &deferred);
 	// 11/12/2026: the commit block, the seal and its stream's applied position are three files: read in the middle
 	// of an apply they can disagree by one record or generation ("sealed at ship log record L, the copy applied up
 	// to L-1", "sealed by ship log record L at generation G, the commit block says G-n"). That is an apply in
 	// flight, not a torn copy: read them all again for up to GXREPL_TORN_RECHECK_SEC (10) s; a real mismatch stays
-	// and is reported.
+	// and is reported. (11/14: unlocked only; under the lock what is read is what is there)
 	auto in_flight = [](const std::string &w) { return w.compare(0, 7, "sealed ") == 0; };
 	if(in_flight(why)) {
-	  double wait = 10;
-	  if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
-	  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
+	  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(recheck * 1000));
 	  while(in_flight(why) && std::chrono::steady_clock::now() < end) {
 	    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	    uint64_t g2 = 0;
-	    int fd2 = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
-	    ssize_t n2 = fd2 >= 0 ? pread(fd2, &g2, sizeof(g2), (off_t)sc.commit_gen_offset) : -1;
-	    if(fd2 >= 0) close(fd2);
-	    if(n2 != (ssize_t)sizeof(g2) || (g2 & 1)) continue;
+	    if(!read_cb_gen(sc, dir, g2) || (g2 & 1)) continue;
 	    g = g2;
-	    why = unit_seal_check(sc, rel, g);
+	    why = unit_seal_check(sc, rel, g, &deferred);
 	  }
 	}
 	// 11/13/2026 (F7 review round 3, 6): files that do not match the seal while the generation moved during the
 	// check (a swap or an apply in between, no lock taken): read again for up to GXREPL_TORN_RECHECK_SEC; only a
-	// mismatch at an unchanged generation is reported
-	if(!why.empty()) {
-	  double wait = 10;
-	  if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
+	// mismatch at an unchanged generation is reported. 11/14: the hashing is never under the lock, so a deferred
+	// hash check that fails is read again this way (unlocked) too.
+	auto moved_recheck = [&](double wait) {
 	  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
 	  while(!why.empty() && std::chrono::steady_clock::now() < end) {
 	    uint64_t g3 = 0;
-	    int fd3 = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
-	    ssize_t n3 = fd3 >= 0 ? pread(fd3, &g3, sizeof(g3), (off_t)sc.commit_gen_offset) : -1;
-	    if(fd3 >= 0) close(fd3);
-	    if(n3 == (ssize_t)sizeof(g3) && g3 == g) break;            // the same generation: a real mismatch
+	    bool ok3 = read_cb_gen(sc, dir, g3);
+	    if(ok3 && g3 == g) break;                                  // the same generation: a real mismatch
 	    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-	    if(n3 != (ssize_t)sizeof(g3) || (g3 & 1)) continue;
+	    if(!ok3 || (g3 & 1)) continue;
 	    g = g3;
 	    why = unit_seal_check(sc, rel, g);
 	  }
+	};
+	if(!why.empty()) moved_recheck(recheck);
+	// the derived state (small files) while still locked, for this generation
+	int ds = 0;
+	std::string dwhy;
+	if(why.empty() && !sc.derived.empty()) ds = derived_status(sc, rel, g, dwhy);
+	tl.release();                                                  // nothing slow under the lock
+	if(!deferred.empty() && why.empty()) {
+	  uint64_t g0 = g;
+	  why = unit_seal_hash_check(sc, rel, g, deferred);
+	  if(!why.empty()) moved_recheck(torn_recheck_sec());
+	  if(why.empty() && g != g0 && !sc.derived.empty()) ds = derived_status(sc, rel, g, dwhy);
 	}
 	if(!why.empty()) torn.push_back(where + ": " + why);
 	// and its derived indexes: a bad rebuild is torn (a take over's would
 	// fail too); indexes behind a busy day are a warning: the take over
 	// rebuilds them (11/11/2026, r4e)
 	else if(!sc.derived.empty()) {
-	  int ds = derived_status(sc, rel, g, why);
-	  if(ds == 2) torn.push_back(where + ": derived indexes " + why);
-	  else if(ds == 1) warn.push_back(where + ": derived indexes " + why + " (rebuilt by the take over's writer open)");
+	  if(ds == 2) torn.push_back(where + ": derived indexes " + dwhy);
+	  else if(ds == 1) warn.push_back(where + ": derived indexes " + dwhy + " (rebuilt by the take over's writer open)");
 	}
       }
     }
   }
-  for(auto &s : subs) torn_walk(sc, root, s, checked, torn, warn);
+  for(auto &s : subs) torn_walk(sc, root, s, checked, torn, warn, tl);
 }
 
-int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn, std::vector<std::string> &warn)
+int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn, std::vector<std::string> &warn,
+		     gxReplTornLockStats &ls)
 {
   torn.clear();
   warn.clear();
+  ls.acquisitions = ls.unlocked_units = 0;
+  ls.max_hold_ms = ls.total_hold_ms = ls.waited_ms = 0;
+  ls.fell_back = false;
   int checked = 0;
   if(sc.commit_block.empty()) return 0;
-  torn_walk(sc, sc.root, "", checked, torn, warn);
+  TornLock tl(sc.root, ls);
+  torn_walk(sc, sc.root, "", checked, torn, warn, tl);
   // 11/12/2026 (F7): the stages. A stage leaves its unit whole at its sealed commit (checked above): a newer copy
   // in progress or stopped is a warning (gxrepl promote discards it). A swap that began and did not finish leaves
   // the unit half old, half new: torn until it is finished (the next gxrepl start, or gxrepl promote).
   for(auto &st : stages_of(sc.root)) {
     std::string where = st.first.empty() ? "." : st.first;
+    // 11/14/2026: under the shared lock (a swap runs in the apply lock: a .swap seen then is a stopped one)
+    bool locked = tl.acquire();
+    struct Rel { TornLock &t; ~Rel() { t.release(); } } rel_guard{tl};
     struct stat sb;
     if(stat((st.second + "/.swap").c_str(), &sb) == 0) {
       // a swap in flight (the server's apply lock, milliseconds) ends with the stage removed: wait for it as above
-      double wait = 10;
-      if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
+      double wait = locked ? 0 : torn_recheck_sec();
       auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
       while(stat((st.second + "/.swap").c_str(), &sb) == 0 && std::chrono::steady_clock::now() < end)
 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -4741,7 +4858,17 @@ int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn, 
 		     "link); the copy is whole at its sealed commit; gxrepl promote discards the stage");
     }
   }
+  if(ls.fell_back)
+    warn.push_back(std::string("the check ran without the apply lock: ") + tl.jname + " could not be opened, or "
+		   "stayed locked past GXREPL_TORN_LOCK_WAIT (a derived index rebuild?); " + std::to_string(ls.unlocked_units) +
+		   " unit(s) were read unlocked, with the timed re-reads (GXREPL_TORN_RECHECK_SEC)");
   return checked;
+}
+
+int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn, std::vector<std::string> &warn)
+{
+  gxReplTornLockStats ls;
+  return gxReplTornCopies(sc, torn, warn, ls);
 }
 
 bool gxReplTestHooks()
