@@ -2857,11 +2857,14 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
     if(bad) { need(why); continue; }
     // derived.stamp now: the object count goes on from it
     unsigned long long dg = 0, dl = 0, dn = 0, dk = 0;
+    std::string dtail;   // 11/14/2026: the rebuild's own fields after "keys K" (e.g. OSA's keys_version): kept
     {
       FILE *f = fopen((dir + "/derived.stamp").c_str(), "r");
       int got = f ? fscanf(f, "gen %llu lsn %llu records %llu keys %llu", &dg, &dl, &dn, &dk) : 0;
+      if(f && got == 4) { char b[256] = {0}; if(fgets(b, sizeof(b), f)) dtail = b; }
       if(f) fclose(f);
       if(got != 4) { need("no derived.stamp to count from"); continue; }
+      while(!dtail.empty() && (dtail.back() == '\n' || dtail.back() == '\r')) dtail.pop_back();
     }
     // The generation the batch's commit block gives the folder
     uint64_t gen = 0;
@@ -2989,9 +2992,9 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
     }
     // derived.stamp and the derived state for the new generation, as a rebuild would leave them
     unsigned long long n_now = src_rel.empty() ? dn : (unsigned long long)((long long)dn + adds - removes);
-    char line[256];
-    snprintf(line, sizeof(line), "gen %llu lsn %llu records %llu keys %llu\n", (unsigned long long)gen, last, n_now,
-	     (unsigned long long)count);
+    char line[512];
+    snprintf(line, sizeof(line), "gen %llu lsn %llu records %llu keys %llu%s\n", (unsigned long long)gen, last, n_now,
+	     (unsigned long long)count, dtail.c_str());
     auto put_text = [&](const std::string &path, const std::string &body) {
       texts.push_back(body);
       texts.back().resize(gxdPageSize, '\0');

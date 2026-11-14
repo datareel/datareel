@@ -394,8 +394,10 @@ static int reindex(const std::string &root)
   uint64_t g = 0; memcpy(&g, blk + 8, 8);
   FILE *sf = fopen((root + "/.derived.stamp.tmp").c_str(), "w");
   if(!sf) { printf("reindex: cannot stamp\n"); return 1; }
-  fprintf(sf, "gen %llu lsn %llu records %llu keys %llu\n", (unsigned long long)g, stamp_lsn,
-	  (unsigned long long)io.count, (unsigned long long)io.count);
+  // 11/14/2026: GXREPL_TEST_STAMP_TAIL: the rebuild's own fields after "keys K" (OSA writes keys_version N)
+  const char *tail = getenv("GXREPL_TEST_STAMP_TAIL");
+  fprintf(sf, "gen %llu lsn %llu records %llu keys %llu%s\n", (unsigned long long)g, stamp_lsn,
+	  (unsigned long long)io.count, (unsigned long long)io.count, tail ? tail : "");
   fflush(sf); fsync(fileno(sf)); fclose(sf);
   if(rename((root + "/.derived.stamp.tmp").c_str(), (root + "/derived.stamp").c_str()) != 0) return 1;
   return 0;

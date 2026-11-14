@@ -3868,6 +3868,33 @@ def test_incremental_needs_derived_count():
         env.stop()
 
 
+def test_incremental_keeps_the_rebuilds_stamp_fields():
+    """11/14/2026: derived.stamp fields after "keys K" are the rebuild's own (OSA: keys_version N, the key rules the
+    indexes were made with): an object-by-object apply rewrites the counts and keeps them"""
+    env = Env("incr_tail", {"db": _incr_opts("gxrepl_test", ["derived_delay = 0", "derived_busy_rebuild = 2"])})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d1"))
+    w = _objects_writer_bg(os.path.join(ws, "d1"), "--commits", 40, "--per", 6, "--sleep", 250, "--commit-block",
+                           "--ship-root", ws)
+    time.sleep(1.5)
+    env.start_server(extra_env={"GXREPL_TEST_STAMP_TAIL": " keys_version 7"})
+    env.start_client()
+    try:
+        _wait_stamped(env, aws, "d1")
+        st = os.path.join(aws, ".gxrepl", "derived", "_d1")
+        end = time.time() + 60
+        while time.time() < end and "incremental" not in (open(st).read() if os.path.exists(st) else ""):
+            time.sleep(0.3)
+        assert "incremental" in open(st).read(), open(st).read() + env.logs()
+        body = open(os.path.join(aws, "d1", "derived.stamp")).read()
+        assert body.strip().endswith("keys_version 7"), body
+        _finish(env, ws, aws, w)
+        assert open(os.path.join(aws, "d1", "derived.stamp")).read().strip().endswith("keys_version 7")
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
 def test_incremental_orphan_means_rebuild():
     """11/14/2026: an objects record without its commit (a writer crash between them, here the record lost and a gap
     after it) is never applied object by object: rebuild needed, and the index checks after the rebuild"""
