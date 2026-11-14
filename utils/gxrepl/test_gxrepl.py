@@ -3479,8 +3479,8 @@ def _wait_rebuilt(env, aws, unit, secs=60):
 
 def _incr_opts(extractor="gxrepl_test", extra_server=()):
     """11/14/2026: a set whose copy keeps index.gxd object by object (derived_apply = incremental)"""
-    o = _derived_opts(["derived_apply = incremental", f"derived_extractor = {extractor}", "derived_source = data.gxd"]
-                      + list(extra_server))
+    o = _derived_opts(["derived_apply = incremental", f"derived_extractor = {extractor}", "derived_source = data.gxd",
+                       "derived_count = index.gxd"] + list(extra_server))
     return o
 
 
@@ -3842,6 +3842,27 @@ def test_incremental_status_shows_derived_state():
             time.sleep(0.5)
         assert not derived().get("warn"), derived()
         _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_needs_derived_count():
+    """11/14/2026 (re-review B): derived_apply = incremental without derived_count (the index with one entry per
+    record) never applies object by object: the set stays on rebuild and says why; its indexes stay good"""
+    env = Env("incr_nocount", {"db": _derived_opts(["derived_apply = incremental", "derived_extractor = gxrepl_test",
+                                                    "derived_source = data.gxd", "derived_delay = 0",
+                                                    "derived_busy_rebuild = 2"])})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d1"))
+    w = _objects_writer_bg(os.path.join(ws, "d1"), "--commits", 30, "--per", 6, "--sleep", 250, "--commit-block",
+                           "--ship-root", ws)
+    env.start_server()
+    env.start_client()
+    try:
+        _wait_log(env, "incremental needs derived_count")
+        _finish(env, ws, aws, w)
+        assert "ok incremental" not in open(os.path.join(aws, ".gxrepl", "derived", "_d1")).read()
     finally:
         if w.poll() is None: w.kill(); w.wait()
         env.stop()
@@ -4412,6 +4433,10 @@ def test_derived_seal_per_folder():
               f"{_rebuilds_of(env, 'd2')}", flush=True)
         assert _rebuilds_of(env, "d2") == m2, env.logs()
         assert _rebuilds_of(env, "d1") == n1 + 1, env.logs()       # the verify re-sent d1 as sealed: kept
+        # re-review A: the restart's verify fill drops no derived.stamp (it never wrote the indexes' source)
+        assert os.path.exists(os.path.join(aws, "d1", "derived.stamp")) and \
+            os.path.exists(os.path.join(aws, "d2", "derived.stamp"))
+        assert "rebuild needed" not in open(os.path.join(env.dir, "server.log")).read(), env.logs()
         # A verify that repairs d1's data (a damaged copy, same generation): that is a change, rebuilt
         dp = os.path.join(aws, "d1", "data.gxd")
         with open(dp, "r+b") as f:

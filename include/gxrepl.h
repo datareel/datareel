@@ -172,12 +172,14 @@ struct GXDLCODE_API gxReplSetConfig {
   // take (seconds): past it, checked between extractor calls, the rest of
   // the batch's folders are rebuilt instead. A call that never returns:
   // at 4 times it (at least 60 s more) gxrepl stops with an ALERT (exit
-  // 8); its restart counts the crash for the breaker.
+  // 8; that stops every set of the server, not only this one: the
+  // supervisor, e.g. gxrepl.sh ensure, starts it again); its restart
+  // counts the crash for the breaker.
   unsigned long long derived_apply_max_s = 30;
   // 11/14/2026 (review 2): the index (a name pattern, e.g. "by_time.btx")
   // whose entry count is derived.stamp's "keys": one entry per record of
   // the folder. Each index's own <index>.stamp holds its own count. Empty:
-  // the folder's first index (by name).
+  // incremental refuses the set (it stays on rebuild, re-review B).
   std::string derived_count;
 };
 

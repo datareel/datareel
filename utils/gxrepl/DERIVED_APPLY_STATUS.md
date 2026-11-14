@@ -59,31 +59,37 @@ back for 10 minutes. This is review item 8, and it is needed for correctness, no
 The harness's gated writer should also wait until the rebuild count has been stable for a few seconds
 before releasing the load.
 
-## Left (the independent review of 19b261b: NO-GO for incremental until fixed)
+## Review fixes (11/14/2026, branch gxrepl-derived-apply-732, on gxrepl-seal-per-folder)
 
-1. Seal against stamp per folder: started on aws `gxrepl-seal-per-folder` (024654b, from 7.3.2-beta, WIP,
-   no tests yet). The seal gains a 4th field: the last record that changed THIS folder.
-   `derived_stamp_ok` and `{lsn}` use that field. Still to do: multi-folder tests in both modes (a
-   testwriter that writes two folders through one journal: today plus late lines into a past day),
-   OSA's `derived_problem` (the same compare), incremental_apply comparing against it, and then rebasing
-   this branch on top of it.
-2. Count each index for its own stamp, with a set option naming the index that is counted (OSA: by_time).
-3. gxdstage: the Rollback between indexes sets done=1, so an index closed with changes is no longer caught.
-4. Breaker: count crashes per set over a time window (3 in 1 h), with an ALERT.
-5. A watchdog on the extractor step; the max_mb cap applies per batch.
-6. ApplyPages order: data files, then indexes, then stamps. Batches over 1000 files must split at commit
-   boundaries, or the limit is documented and tested.
-7. Staged writes are allowed only to this folder's index and stamp paths; anything else is rebuild needed
-   plus an ALERT.
-8. A fill by files, in both modes, removes every `<index>.stamp`, derived.stamp and the derived state.
-9. Remove the committed `utils/gxrepl/__pycache__` and add it to .gitignore (this commit removes them).
-10. status.json shows the derived state per set, and a WARN when incremental is on with notes off.
+The independent review of 19b261b found 10 fixes; its re-review of ff0ad0c found all of 2-8 and 10 FIXED
+(GO to merge with derived_apply = rebuild the default) and asked for A-G, done here:
 
-Then:
-- The OSA realtime extractor, on open_stock branch `osa-realtime-extractor`. It is built into
-  cpp/gxrepl_build and registered as "osa_realtime", covers the 5 by_*.btx indexes with by_time counted,
-  and is checked against derived_rebuild on read-only copies of real days.
-- The full stress profiles, with multi-folder streams and the replayed real day.
+1. Seal per folder: its own branch `gxrepl-seal-per-folder` (from 7.3.2-beta, for rel-7.3.2 alone). The seal
+   is "log G L S C", C the last record that changed the folder; stamps, `{lsn}`, incremental_apply, `gxrepl
+   derived status` and OSA's derived_problem use C. A verify that re-sends a folder as sealed keeps C (a writer
+   restart costs no rebuild), one that repairs its data moves C. In OSA each day is its own stream, so the
+   restarts' verifies were what rebuilt idle days.
+2. Each `<index>.stamp` holds its own count; `derived_count` names the index whose count is derived.stamp's
+   keys. Re-review B: incremental refuses a set without derived_count (stays on rebuild, says why).
+3. gxdStagedScope: Rollback() no longer ends the scope; a closed file's changes are captured; a file opened
+   again after closing with changes fails the capture; the extractor is closed before the capture.
+4. Breaker: also 3 index step crashes in an hour, any batches (`incremental.crashes`).
+5. The MB cap is per batch; `derived_apply_max_s` (checked between calls, after Flush and between indexes,
+   re-review E) and a hard watchdog (exit 8: it stops the whole server, every set; the supervisor restarts it).
+6. ApplyPages order data, indexes, stamps, commit blocks, seals; a batch over 1000 files carries no index pages.
+7. Staged writes only to the current index and its stamp; anything else: rebuild needed + ALERT.
+8. A fill by files that wrote derived_source drops every stamp, derived.stamp and the derived state.
+   Re-review A: only derived_source (a journal piece or the re-sent commit block drops nothing; a rebuild set
+   without derived_source drops nothing).
+9. `__pycache__` removed and ignored (2fb698c).
+10. status.json "derived" per incremental set (cached 30 s, re-review C), WARN when object notes look off.
+    Nothing reads the server's status.json exactly (gxrepl_stall_check.py reads the client's, by key).
+G. A failed extractor Open while stamping after a rebuild is logged (records 0).
+
+Then: the OSA realtime extractor (open_stock `osa-realtime-extractor`): key for key equal to
+`osa_ingest --rebuild-index` on copies of 10-30, 11-01, 11-06, 11-08, 11-09; the replayed 11-08 day
+(osa_ingest --once per 100 lines, 92 writer restarts): the copy equal to the primary and a rebuild at
+every check, 1 rebuild (per-object) against 5 (rebuild mode). The stress results: see results below.
 
 Known costs, accepted: each writer restart (an open record leading to a verify fill) and each server death in
 the middle of an apply cost one rebuild of the folder. Count both in the stress runs.

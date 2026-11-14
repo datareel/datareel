@@ -2588,7 +2588,7 @@ static std::vector<std::string> folder_indexes(const gxReplSetConfig &sc, const 
 // 11/14/2026 (review 2): the index whose count is derived.stamp's keys (derived_count, else the first by name)
 static bool counted_index(const gxReplSetConfig &sc, const std::vector<std::string> &ixs, size_t k)
 {
-  if(sc.derived_count.empty()) return k == 0;
+  if(sc.derived_count.empty()) return false;          // re-review B: incremental refuses a set without it
   return fnmatch(sc.derived_count.c_str(), ixs[k].c_str(), 0) == 0;
 }
 
@@ -2654,6 +2654,8 @@ static int stamp_after_rebuild(const gxReplSetConfig &sc, const std::string &rel
       char e[512] = {0};
       void *h = ops->Open((dir + "/" + ix).c_str(), src_full.c_str(), sc.derived_extractor_config.c_str(), e, sizeof(e));
       if(h) { d.records = ops->Count(h); ops->Close(h); }
+      else glog("set %s: %s: %s: stamped with no count (0): the extractor did not open it: %s", sc.name.c_str(),   // re-review G
+		rel.empty() ? "." : rel.c_str(), ix.c_str(), e);
     }
     if(gxdDerivedStamp::WriteFresh(gxdDerivedStamp::PathFor(dir + "/" + ix), d) != 0) { why = "cannot stamp " + ix; return -1; }
   }
@@ -2795,6 +2797,7 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
   const gxrExtractorOps *ops = 0;
   if(sc.commit_block.empty()) mode_why = "incremental needs commit_block";
   else if(sc.derived_source.empty()) mode_why = "no derived_source";
+  else if(sc.derived_count.empty()) mode_why = "incremental needs derived_count (the index with one entry per record)";   // re-review B
   else if(breaker_on(sc, &mode_why)) mode_why = "the breaker is on (" + mode_why + "; gxrepl derived rebuild clears it)";
   else ops = load_extractor(sc.derived_extractor, mode_why);
   for(auto &u : units) {
@@ -2894,6 +2897,7 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
       char e[512] = {0};
       std::vector<unsigned char> b;
       for(size_t k = 0; k < ixs.size() && !bad; k++) {
+	if(over_time()) { bad = true; why = "the index step passed derived_apply_max_s"; break; }   // re-review E
 	std::string ip = dir + "/" + ixs[k];
 	void *h = ops->Open(ip.c_str(), src_full.c_str(), sc.derived_extractor_config.c_str(), e, sizeof(e));
 	if(!h) { bad = true; why = ixs[k] + ": extractor open: " + e; break; }
@@ -2916,6 +2920,7 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
 	  if(over_time()) { bad = true; why = "the index step passed derived_apply_max_s"; break; }
 	}
 	if(!bad && ops->Flush(h, last, e, sizeof(e)) != 0) { bad = true; why = ixs[k] + ": extractor flush: " + e; }
+	if(!bad && over_time()) { bad = true; why = "the index step passed derived_apply_max_s"; }   // re-review E
 	if(!bad) {   // the pages Flush() wrote count too
 	  double mb = (batch_bytes + scope.StagedBytes()) / 1048576.0;
 	  if(peak_mb && mb > *peak_mb) *peak_mb = mb;
@@ -3268,12 +3273,16 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   auto check = [&](std::string &e) -> int {
     // 11/14/2026: a copy by files (a first fill, a resync, a unit copy) is not object by object: the folder's
     // derived index stamps go (rebuild needed)
-    // 11/14/2026 (review 8): in both modes, and derived.stamp and the derived state go too
-    if(!s->sc.derived.empty()) {
+    // 11/14/2026 (review 8): in both modes, and derived.stamp and the derived state go too. Re-review A: only when
+    // the fill wrote the file the indexes are made from (derived_source, e.g. events.gxd): a piece of any other
+    // file (a journal, the commit block a verify re-sends) changes no index, and dropping the stamp would force a
+    // full rebuild under the apply lock for nothing. Without derived_source (a rebuild set) a fill drops nothing:
+    // the stamp's generation and the seal's last change say when the indexes are behind.
+    if(!s->sc.derived.empty() && !s->sc.derived_source.empty()) {
       std::set<std::string> filled;
       for(size_t i = 0; i < v.size(); i++)
-	if(results[i] == 0 && !v[i].pieces.empty() && !is_derived(s->sc, v[i].path) &&
-	   base_of(v[i].path) != s->sc.commit_block)   // the commit block is re-sent by every verify: not a change
+	if(results[i] == 0 && !v[i].pieces.empty() &&
+	   fnmatch(s->sc.derived_source.c_str(), base_of(v[i].path).c_str(), 0) == 0)
 	  filled.insert(dir_of(v[i].path));
       for(auto &u : filled) drop_stamps(s->sc, u, "copied by files, not by the ship log", true, true);
     }
@@ -4196,9 +4205,22 @@ bool gxReplServer::Claims(const gxBlockHeader &gx, const std::vector<unsigned ch
 
 // 11/14/2026 (review 10): a set's derived index state for status.json: ", \"derived\": {...}" ("" without derived)
 static void derived_folders(const gxReplSetConfig &sc, const std::string &rel, std::vector<std::string> &out);
+static std::string derived_status_json_uncached(const gxReplSetConfig &sc);
+// re-review C: only incremental sets (a rebuild set's state is promote-check's), and walked at most every 30 s
 static std::string derived_status_json(const gxReplSetConfig &sc)
 {
-  if(sc.derived.empty()) return "";
+  if(sc.derived.empty() || sc.derived_apply != "incremental") return "";
+  static std::mutex m;
+  static std::map<std::string, std::pair<long long, std::string> > cache;
+  std::lock_guard<std::mutex> g(m);
+  long long now = (long long)time(0);
+  auto &c = cache[sc.name];
+  if(c.second.empty() || now - c.first >= 30) { c.second = derived_status_json_uncached(sc); c.first = now; }
+  return c.second;
+}
+
+static std::string derived_status_json_uncached(const gxReplSetConfig &sc)
+{
   std::vector<std::string> folders;
   derived_folders(sc, "", folders);
   int failed = 0, behind = 0, unstamped = 0;
