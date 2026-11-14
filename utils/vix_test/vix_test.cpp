@@ -1568,6 +1568,37 @@ static void test_members(const ElemType &et)
     px.Close();
     remove(pf.c_str()); remove(pv.c_str());
   }
+  // 11/14/2026 (phase D item 5): the InfoHog records as InfoHog writes them (its count and lengths are
+  // sizeof(gxUINT32) wide, 8 bytes on a 64-bit native build): a rebuild from their members finds every node
+  // the index holds, with the same vector
+  {
+    gxVectorIndex src;
+    CHECK(src.Open(vf.c_str(), gxDBASE_READONLY) == gxv_NO_ERROR, "%s: reopen for the rebuild", lab);
+    std::string rb = tagged(et, "items_rebuilt.vix"), why;
+    unsigned long long recs = 0;
+    CHECK(gxvRebuildFromMembers(data, rb, src, "member=infohog:" + std::to_string((int)IT_VEC), recs, why) == 0,
+	  "%s: rebuild from the InfoHog members: %s", lab, why.c_str());
+    CHECK(recs == src.Count() && recs > 0, "%s: rebuild found %llu records with members, the index holds %llu", lab,
+	  recs, (unsigned long long)src.Count());
+    gxVectorIndex out;
+    CHECK(out.Open(rb.c_str(), gxDBASE_READONLY) == gxv_NO_ERROR, "%s: open the rebuild", lab);
+    gxDatabase d;
+    int same = 1, checked = 0;
+    if(d.Open(data.c_str(), gxDBASE_READONLY) == gxDBASE_NO_ERROR) {
+      std::vector<float> va(MEM_DIM), vb(MEM_DIM);
+      for(FAU_t a = d.FindFirstObject(); a != (FAU_t)0; a = d.FindNextObject(a)) {
+	if(!src.Contains((long long)a)) continue;
+	checked++;
+	if(!out.Contains((long long)a) || src.Get((long long)a, va.data()) != gxv_NO_ERROR ||
+	   out.Get((long long)a, vb.data()) != gxv_NO_ERROR || memcmp(va.data(), vb.data(), 4 * MEM_DIM) != 0) same = 0;
+      }
+      d.Close();
+    }
+    CHECK(same && checked == (int)src.Count(), "%s: every node rebuilt from its InfoHog record (%d)", lab, checked);
+    out.Close();
+    src.Close();
+    remove(rb.c_str());
+  }
   remove(data.c_str()); remove(index.c_str()); remove(vf.c_str()); remove(jf.c_str());
 }
 

@@ -86,20 +86,25 @@ int gxvMemberSpec::Parse(const std::string &config, std::string &why)
   return 0;
 }
 
-// An InfoHog record: its object header, a u32 count, then per member a u32 length and the bytes
+// An InfoHog record as InfoHog<TYPE>::Write() lays it out: its object header, the member count, then per
+// member its length and the bytes. The count and lengths are gxUINT32 values, sizeof(gxUINT32) bytes wide
+// (8 on a 64-bit native build, where gxUINT32 is unsigned long), read whole and from zero.
+static const size_t ih_word = sizeof(gxUINT32);
 static int infohog_member(const unsigned char *rec, unsigned len, unsigned n, const unsigned char *&p, unsigned &plen)
 {
   size_t off = sizeof(gxObjectHeader);
-  if(len < off + 4) return 0;
-  uint32_t num;              // (the 4 bytes as stored; gxUINT32 may be a class in some builds)
-  memcpy(&num, rec + off, 4);
-  off += 4;
-  if(n >= num) return 0;
+  if(len < off + ih_word) return 0;
+  gxUINT32 num = 0;
+  memcpy(&num, rec + off, ih_word);
+  off += ih_word;
+  if((unsigned long long)n >= (unsigned long long)num) return 0;
   for(unsigned i = 0; i <= n; i++) {
-    if(len - off < 4) return 0;
-    uint32_t l;
-    memcpy(&l, rec + off, 4);
-    off += 4;
+    if(len - off < ih_word) return 0;
+    gxUINT32 lw = 0;
+    memcpy(&lw, rec + off, ih_word);
+    if((unsigned long long)lw > 0xFFFFFFFFULL) return 0;
+    unsigned l = (unsigned)lw;
+    off += ih_word;
     if(l > len - off) return 0;
     if(i == n) { p = rec + off; plen = l; return 1; }
     off += l;

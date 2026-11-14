@@ -647,12 +647,14 @@ static int vwrite(int argc, char **argv)
   auto record = [&](FAU_t addr, unsigned day, const std::vector<unsigned char> &mem, std::vector<unsigned char> &rec) {
     datareel::gxObjectHeader oh; memset(&oh, 0, sizeof(oh)); oh.ClassID = 7; oh.ObjectID = addr;
     rec.assign((const unsigned char *)&oh, (const unsigned char *)&oh + sizeof(oh));
-    p32v(rec, 3);
-    p32v(rec, 20); for(int i = 0; i < 20; i++) rec.push_back((unsigned char)('a' + (day + i) % 26));
-    p32v(rec, (uint32_t)mem.size()); rec.insert(rec.end(), mem.begin(), mem.end());
-    p32v(rec, 4); p32v(rec, day);
+    // the count and lengths as InfoHog writes them: gxUINT32, sizeof(gxUINT32) bytes wide
+    auto pw = [&](unsigned long v) { gxUINT32 w = (gxUINT32)v; rec.insert(rec.end(), (unsigned char *)&w, (unsigned char *)&w + sizeof(w)); };
+    pw(3);
+    pw(20); for(int i = 0; i < 20; i++) rec.push_back((unsigned char)('a' + (day + i) % 26));
+    pw(mem.size()); rec.insert(rec.end(), mem.begin(), mem.end());
+    pw(4); p32v(rec, day);
   };
-  const size_t rec_size = sizeof(datareel::gxObjectHeader) + 4 + 4 + 20 + 4 + vix.MemberSize() + 4 + 4;
+  const size_t rec_size = sizeof(datareel::gxObjectHeader) + 4 * sizeof(gxUINT32) + 20 + vix.MemberSize() + 4;
   std::vector<float> v(16);
   std::vector<unsigned char> mem, rec;
   for(long c = 0; c < commits; c++) {
