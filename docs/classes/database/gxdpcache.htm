@@ -1,0 +1,82 @@
+<!doctype html>
+<!-- ******************************* -->
+<!-- ******** Start of Page ******** -->
+<!-- ******************************* -->
+<!-- *********************************************************** -->
+<!-- HTML Page -->
+<!-- Designed For: FireFox, Chrome, Safari -->
+<!-- Published By: DataReel Software Development -->
+<!-- Content Last Modified: 01/15/2024 -->
+<!-- File Creation Date: 01/15/2024 20:45:35 EST -->
+<!-- *** -->
+<!-- Package version: 12.3.10 -->
+<!-- *** -->
+<!-- Copyright (c) 1999-2026 DataReel Software Development -->
+<!-- *********************************************************** -->
+<!-- *********** HTML Page Description and Details ************* -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- START OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- This HTML page and its derivatives are copyright (c) 1999-2024, by -->
+<!-- DataReel Software Development. This HTML page and any derivative Web -->
+<!-- objects are published on the Internet for public viewing only. -->
+<!-- Reproduction of any HTML page and/or Web objects published on -->
+<!-- this Website is prohibited unless authorized in writing by -->
+<!-- DataReel Software Development or authorized reseller. Reproduction of any -->
+<!-- third party code used to produce pages on this Website is subject to -->
+<!-- the third party licensing and distribution agreement. -->
+<!-- *** -->
+<!-- THIS SOFTWARE IS PROVIDED AS IS WITHOUT WARRANTY OF ANY KIND. THE -->
+<!-- ENTIRE RISK OF THE QUALITY AND PERFORMANCE OF THIS SOFTWARE IS WITH -->
+<!-- YOU. SHOULD ANY ELEMENT OF THIS SOFTWARE PROVE DEFECTIVE, YOU WILL -->
+<!-- ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR, OR CORRECTION. -->
+<!-- *** -->
+<!-- *********************************************************** -->
+<!-- *************** THIRD PARTY ACKNOWLEDGMENT **************** -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- NONE -->
+<!-- *** -->
+<!-- END OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- HTML Internet page -->
+<!-- *********************************************************** -->
+<!-- PAGE CONTENT STARTS BELOW -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>Page Cache (gxdPageCache)</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<link rel="icon" href="../../images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="../../images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="../../images/datareel_icon_apple_touch.png">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img class="dr-logo-light" src="../../images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="../../images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm" aria-current="page">Library</a><a href="../../examples/examples.htm">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../drcm.html">Cluster Manager</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<H1>Page Cache (gxdPageCache)</H1>
+<h2 id="Overview">Overview</h2>
+<P>gxdPageCache (gxdpcache.h, new in 6.3) caches 4 KB file pages for a gxDatabase (gxDatabase::EnablePageCache()) and holds the pages of open journal transactions. With use_map = 1 pages not in the cache are read from a read-only memory map of the file (off by default in 6.3, on by default in DataReel 7.3). Most programs use it through gxDatabase and gxdJournal.</P>
+<h2 id="Functions">Functions</h2>
+<div class="dr-fn"><code class="dr-sig">gxdPageCache::gxdPageCache(gxdFPTR *f, FAU_t size, size_t max_bytes, int use_map = 0)</code><p class="dr-desc">A cache of at most max_bytes for an open file of size bytes.</p></div>
+<div class="dr-fn"><code class="dr-sig">__ULWORD__ gxdPageCache::Read(void *buf, __ULWORD__ bytes, FAU_t address) / __ULWORD__ gxdPageCache::Write(const void *buf, __ULWORD__ bytes, FAU_t address)</code><p class="dr-desc">Read or write through the cache. Returns the number of bytes moved.</p></div>
+<div class="dr-fn"><code class="dr-sig">void gxdPageCache::BeginTxn() / CommitTxn() / RollbackTxn() / int InTxn() const</code><p class="dr-desc">Transaction support for gxdJournal: dirty pages become logged pages at commit; a rollback drops them.</p></div>
+<div class="dr-fn"><code class="dr-sig">int gxdPageCache::WriteLoggedPages() / void gxdPageCache::Clear()</code><p class="dr-desc">Checkpoint: write the logged pages to the file; drop every page.</p></div>
+<div class="dr-fn"><code class="dr-sig">FAU_t FileSize() const / size_t MaxBytes() const / size_t CachedPages() const / size_t DirtyPages() const / size_t LoggedPages() const / int Mapped() const</code><p class="dr-desc">Cache state.</p></div>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3 release notes</A> and examples_database/journal.</P>
+</main>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
+</html>
+<!-- PAGE CONTENT ENDS ABOVE -->
+<!-- *********************************************************** -->
+<!-- ******************************* -->
+<!-- ********* End of Page ********* -->
+<!-- ******************************* -->

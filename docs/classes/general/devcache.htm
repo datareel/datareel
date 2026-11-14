@@ -71,7 +71,8 @@
 <A HREF="#Enumerations">Enumerations</A><BR>
 <A HREF="#DeviceCacheFunctions">Device Cache Functions</A> <BR>
 <A HREF="#DeviceBucketCacheFunctions">Device Bucket Cache Functions</A> <BR>
-<A HREF="#DeviceCachePointerFunctions">Device Cache Pointer Functions</A> </P>
+<A HREF="#DeviceCachePointerFunctions">Device Cache Pointer Functions</A> <BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The Device Cache consist of series of cooperating classes used to buffer raw data as it moved to and from input and output devices, such as disk files, stream sockets, datagram sockets, serial ports, etc. It was specifically designed to handle large data transfers in the form of continuous streams or controlled bursts. The Device Cache works through multiple inheritance with three primary classes comprising the user interface: the gxDeviceCache class, the gxDeviceBucketCache class, and the gxDeviceCachePtr class. </P>
@@ -192,8 +193,11 @@ public:
 <div class="dr-fn" id="SetOutputDevice"><code class="dr-sig">void gxDeviceCachePtr::SetOutputDevice(gxDeviceTypes dev)</code><p class="dr-desc">Public member function used to set the output device. The "dev" variable is used to set the output device and must correspond to one of the integer constants defined in the <A HREF="#gxDeviceTypesEnumeration">gxDeviceTypes</A> enumeration.</p></div>
 <div class="dr-fn" id="IndirectionOperator"><code class="dr-sig">gxDeviceBucket &amp; gxDeviceCachePtr::operator*()</code><p class="dr-desc">Overloaded indirection operator that allows device cache pointers to dereference the bucket this object is currently referencing.</p></div>
 <div class="dr-fn" id="ArrowOperator"><code class="dr-sig">gxDeviceBucket *gxDeviceCachePtr::operator-&gt;()</code><p class="dr-desc">Overloaded arrow operator used to reference a device cache pointer to the bucket it is currently referencing.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3: ConstructCache(0) uses one bucket.</P>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

@@ -66,7 +66,8 @@
 
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
-<A HREF="#Functions">Functions</A></P>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The MemoryBuffer is a general-purpose class is used to create and manipulate resizable memory buffers. The MemoryBuffer class guarantees that each object is unique by storing a unique copy of each buffer with each object. This ensures that MemoryBuffer objects can be safely copy constructed, assigned, resized, and deleted by multiple threads. <B>NOTE</B>: Multiple threads accessing shared memory segments must be handled by the application.</P>
@@ -133,8 +134,11 @@
 <div class="dr-fn"><code class="dr-sig">friend int operator&gt;=(const MemoryBuffer &amp;a, const MemoryBuffer &amp;b)</code><p class="dr-desc">Overloaded operator that returns true if its operand "a" is greater then or equal to "b."</p></div>
 <div class="dr-fn"><code class="dr-sig">friend int operator&lt;(const MemoryBuffer &amp;a, const MemoryBuffer &amp;b)</code><p class="dr-desc">Overloaded operator that returns true if its operand "a" is less then "b."</p></div>
 <div class="dr-fn"><code class="dr-sig">friend int operator&lt;=(const MemoryBuffer &amp;a, const MemoryBuffer &amp;b)</code><p class="dr-desc">Overloaded operator that returns true if its operand "a" is less then or equal to "b."</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3: copies from null pointers are refused, searches, inserts and deletes stay inside the buffer, and sizes that wrap are refused.</P>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

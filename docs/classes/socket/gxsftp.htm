@@ -67,7 +67,8 @@
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
 <A HREF="#DataMemebers">Data Members</A><BR>
-<A HREF="#Functions">Functions</A></P>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The embedded FTP (File Transfer Protocol) client is a cross platform FTP implementation used with applications that require FTP client/server functions. The gxsFTPClient class is derived from the <A HREF="gxsocket.htm">gxSocket</A> class and conforms to RFC 959: <A HREF="http://www.faqs.org/rfcs/rfc959.html">http://www.faqs.org/rfcs/rfc959.html</A></P>
@@ -132,8 +133,12 @@
 <div class="dr-fn" id="SetTimeOut"><code class="dr-sig">void gxsFTPClient::SetTimeOut(int seconds, int useconds)</code><p class="dr-desc">Public member function used to set the FTP timeout values.</p></div>
 <div class="dr-fn" id="WaitForReply"><code class="dr-sig">int gxsFTPClient::WaitForReply(gxsSocket_t s)</code><p class="dr-desc">Public member function that returns false if a reply time is longer then the timeout values.</p></div>
 <div class="dr-fn" id="WriteDataPort"><code class="dr-sig">int gxsFTPClient::WriteDataPort(void *buf, unsigned bytes)</code><p class="dr-desc">Public member function used to write a specified number of bytes to data port using a block write. Returns the total number of bytes transmitted or -1 if any errors occur.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3.1: the data connection goes to the control connection's address, not the address in the PASV reply; commands and transfer buffers are bounded; multi-line and preliminary replies are read correctly. 6.x FTP is plaintext (no FTPS).</P>
+<div class="dr-fn"><code class="dr-sig">static int gxsFTPClient::ParsePASVPort(const char *reply)</code><p class="dr-desc">The data port from a 227 PASV reply (six numbers, each 0-255), or -1.</p></div>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

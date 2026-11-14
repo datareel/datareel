@@ -66,7 +66,8 @@
 
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
-<A HREF="#Functions">Functions</A></P>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The gxSerialCommServer class is derived from the <A HREF="gxscomm.htm">gxSerialComm</A> class and is used to establish a client or server connection that can transmit and receive database blocks over a serial port.</P>
@@ -105,8 +106,11 @@
 <div class="dr-fn" id="WriteBlock"><code class="dr-sig">int gxSerialCommServer::WriteBlock(const void *buf, int bytes)</code><p class="dr-desc">Public member function used to write a block of raw data to the socket. Returns zero if no errors occur or a non-zero value to indicate a failure.</p></div>
 <div class="dr-fn" id="WriteBlock_overload_1"><code class="dr-sig">int gxSerialCommServer::WriteBlock(const void *buf, gxBlockHeader &amp;gx)</code><p class="dr-desc">Public member function used to write a block. The <A HREF="../database/gxheader.htm#BlockHeader">block header</A> must account for the total length of the data pointed to by the "buf" variable. Returns zero if no errors occur or a non-zero value to indicate a failure.</p></div>
 <div class="dr-fn" id="WriteHeader"><code class="dr-sig">int gxSerialCommServer::WriteHeader(gxBlockHeader &amp;gx)</code><p class="dr-desc">Public member function used to write a header. Returns zero if no errors occur or a non-zero value to indicate a failure.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<div class="dr-fn"><code class="dr-sig">int gxSerialCommServer::ReadBlock(void *buf, __ULWORD__ buf_size, gxBlockHeader &amp;gx)</code><p class="dr-desc">6.3: read a block only if it fits in buf_size bytes (blocks over 64 KB included).</p></div>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

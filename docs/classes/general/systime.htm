@@ -70,7 +70,8 @@
 <A HREF="#Enumerations">Enumerations</A><BR>
 <A HREF="#Structs">Data Structures</A><BR>
 <A HREF="#Functions">Functions</A><BR>
-<A HREF="#StandaloneFunctions">Standalone Timer Functions</A></P>
+<A HREF="#StandaloneFunctions">Standalone Timer Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The SysTime class is used to convert the system time to various character string and integer formats.</P>
@@ -173,8 +174,11 @@ struct SysTimeUnit {
 <div class="dr-fn"><code class="dr-sig">clock_t systimeStop()</code><p class="dr-desc">Mark the stop time for a routine.</p></div>
 <div class="dr-fn"><code class="dr-sig">clock_t systimeElapsedSeconds(clock_t begin, clock_t end)</code><p class="dr-desc">Calculate the elapsed time in seconds.</p></div>
 <div class="dr-fn"><code class="dr-sig">double systimeElapsedTime(clock_t begin, clock_t end)</code><p class="dr-desc">Calculate the elapsed time in milliseconds.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3.1: the SysTimeUnit c_str_*() strings no longer write past their buffer; a time that localtime() or gmtime() cannot convert gives a zeroed time instead of a crash; in the thread-safe build one struct tm is allocated per object instead of one per call.</P>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

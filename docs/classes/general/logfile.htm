@@ -66,7 +66,8 @@
 
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
-<A HREF="#Functions">Functions</A></P>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The LogFile class is used to log program events to a disk file. The LogFile class is derived from the <A HREF="ostrbase.htm">OutputStreamB</A> class enabling LogFile objects to output filtered text to an output stream. The OutputStreamB base class includes several overloads that give LogFile objects the same functionality as C++ ostream objects and allows standard C++ I/O manipulators to be used with LogFile objects.</P>
@@ -88,8 +89,11 @@
 <div class="dr-fn" id="OverWrite"><code class="dr-sig">int LogFile::OverWrite(char *fname)</code><p class="dr-desc">Public member function use to open an existing logfile and overwrite it. Returns zero to indicate success or a non-zero value to indicate a failure.</p></div>
 <div class="dr-fn" id="OverWrite_overload_1"><code class="dr-sig">int LogFile::OverWrite(const char *fname)</code><p class="dr-desc">Public member function use to open an existing logfile and overwrite it. Returns zero to indicate success or a non-zero value to indicate a failure.</p></div>
 <div class="dr-fn" id="WriteSysTime"><code class="dr-sig">void LogFile::WriteSysTime()</code><p class="dr-desc">Public member function used to write the current system time and date to an open logfile.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3: new log files are owner-only (mode 0600), and a symbolic link, FIFO or socket at the log file name is refused (UNIX, O_NOFOLLOW).</P>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

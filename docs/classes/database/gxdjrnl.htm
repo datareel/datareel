@@ -1,0 +1,92 @@
+<!doctype html>
+<!-- ******************************* -->
+<!-- ******** Start of Page ******** -->
+<!-- ******************************* -->
+<!-- *********************************************************** -->
+<!-- HTML Page -->
+<!-- Designed For: FireFox, Chrome, Safari -->
+<!-- Published By: DataReel Software Development -->
+<!-- Content Last Modified: 01/15/2024 -->
+<!-- File Creation Date: 01/15/2024 20:45:35 EST -->
+<!-- *** -->
+<!-- Package version: 12.3.10 -->
+<!-- *** -->
+<!-- Copyright (c) 1999-2026 DataReel Software Development -->
+<!-- *********************************************************** -->
+<!-- *********** HTML Page Description and Details ************* -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- START OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- This HTML page and its derivatives are copyright (c) 1999-2024, by -->
+<!-- DataReel Software Development. This HTML page and any derivative Web -->
+<!-- objects are published on the Internet for public viewing only. -->
+<!-- Reproduction of any HTML page and/or Web objects published on -->
+<!-- this Website is prohibited unless authorized in writing by -->
+<!-- DataReel Software Development or authorized reseller. Reproduction of any -->
+<!-- third party code used to produce pages on this Website is subject to -->
+<!-- the third party licensing and distribution agreement. -->
+<!-- *** -->
+<!-- THIS SOFTWARE IS PROVIDED AS IS WITHOUT WARRANTY OF ANY KIND. THE -->
+<!-- ENTIRE RISK OF THE QUALITY AND PERFORMANCE OF THIS SOFTWARE IS WITH -->
+<!-- YOU. SHOULD ANY ELEMENT OF THIS SOFTWARE PROVE DEFECTIVE, YOU WILL -->
+<!-- ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR, OR CORRECTION. -->
+<!-- *** -->
+<!-- *********************************************************** -->
+<!-- *************** THIRD PARTY ACKNOWLEDGMENT **************** -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- NONE -->
+<!-- *** -->
+<!-- END OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- HTML Internet page -->
+<!-- *********************************************************** -->
+<!-- PAGE CONTENT STARTS BELOW -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>Write-Ahead Journal (gxdJournal)</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<link rel="icon" href="../../images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="../../images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="../../images/datareel_icon_apple_touch.png">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img class="dr-logo-light" src="../../images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="../../images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm" aria-current="page">Library</a><a href="../../examples/examples.htm">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../drcm.html">Cluster Manager</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<H1>Write-Ahead Journal (gxdJournal)</H1>
+<h2 id="Overview">Overview</h2>
+<P>gxdJournal (gxdjrnl.h, new in 6.3) makes changes to one or more gxDatabase and gxBtree files (and BtreeCache) atomic and durable: changes between Begin() and Commit() reach the files all or none, after a program crash or a power loss. Open the journal before the files; Open() replays committed transactions left in it. The journal file is created owner-only (mode 0600, or a protected DACL on Windows), an existing journal is made owner-only before use, and a clean Close() removes it. Keep journals in a folder only the database owner can write: a journal names the files it repairs. Programs that compile the library sources must add gxdjrnl.cpp and gxdpcache.cpp.<PRE>gxdJournal j;
+j.Open("orders.jnl");   // Replays committed transactions
+db.Open("orders.gxd");  // Open the files after the journal
+btx.Open("orders.btx");
+j.Attach(&amp;db); j.Attach(&amp;btx);
+j.Begin();
+// ... changes to db and btx ...
+j.Commit();             // Durable when it returns
+j.Close();              // Checkpoint, before closing the files
+btx.Close(); db.Close();</PRE></P>
+<h2 id="Functions">Functions</h2>
+<div class="dr-fn"><code class="dr-sig">gxDatabaseError gxdJournal::Open(const char *jname) / gxDatabaseError gxdJournal::Close()</code><p class="dr-desc">Recover and open the journal; roll back or checkpoint and close it.</p></div>
+<div class="dr-fn"><code class="dr-sig">gxDatabaseError gxdJournal::Attach(gxDatabase *f, size_t cache_bytes = gxdDefaultPageCacheSize) / Attach(gxBtree *btx, size_t cache_bytes = gxdDefaultPageCacheSize) / Attach(BtreeCache *cache) / gxDatabaseError gxdJournal::Detach()</code><p class="dr-desc">Add a file (or a B-tree cache) to the journal; Detach() checkpoints and removes every file.</p></div>
+<div class="dr-fn"><code class="dr-sig">gxDatabaseError gxdJournal::Begin() / Commit(int durable = 1) / Rollback() / Checkpoint()</code><p class="dr-desc">Start, commit (durable: synced to disk before it returns) or roll back a transaction, and write committed pages to the files.</p></div>
+<div class="dr-fn"><code class="dr-sig">void gxdJournal::SetWriteMode(gxdJournalWriteMode mode) / SetSyncLevel(gxdJournalSyncLevel level) / SetCheckpointSize(size_t bytes) / SetWriteLock(int lock)</code><p class="dr-desc">gxdJOURNAL_WRITE_THROUGH (at each commit, the default) or gxdJOURNAL_WRITE_BACK (at each checkpoint), gxdJOURNAL_SYNC_NORMAL (checkpoints also sync, the default) or gxdJOURNAL_SYNC_OFF, how often to sync, the journal size that triggers a checkpoint, and an exclusive lock for the writer.</p></div>
+<div class="dr-fn"><code class="dr-sig">int gxdJournal::InTransaction() const / unsigned long gxdJournal::Recovered() const / gxDatabaseError gxdJournal::GetJournalError() const</code><p class="dr-desc">Whether a transaction is open, the number of transactions Open() replayed, and the last journal error.</p></div>
+<div class="dr-fn"><code class="dr-sig">gxdJournalReadLock::Lock(const char *jname) / void gxdJournalReadLock::Unlock()</code><p class="dr-desc">Readers in other processes take this lock so a checkpoint does not change the files under them.</p></div>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3 release notes</A> and examples_database/journal.</P>
+</main>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
+</html>
+<!-- PAGE CONTENT ENDS ABOVE -->
+<!-- *********************************************************** -->
+<!-- ******************************* -->
+<!-- ********* End of Page ********* -->
+<!-- ******************************* -->

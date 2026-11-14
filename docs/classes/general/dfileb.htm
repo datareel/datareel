@@ -70,7 +70,8 @@
 <A HREF="#Constants">Constants</A><BR>
 <A HREF="#TypeDefinitions">Type Definitions</A><BR>
 <A HREF="#Enumerations">Enumerations</A><BR>
-<A HREF="#Functions">Functions</A></P>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The disk file class is a general-purpose base class used to perform various file and directory functions.</P>
@@ -253,8 +254,12 @@ const df_StreamPos <B>df_CurrPosition</B> = -1;  // Indicates current file posit
 <div class="dr-fn" id="df_rmdir"><code class="dr-sig">int DiskFileB::df_rmdir(const char *dir_name)</code><p class="dr-desc">Public member function used to remove the specified directory. Returns zero if successful or a non-zero value to indicate a failure. <B>NOTE</B>: The directory must be empty and not be the current working directory or the root directory.</p></div>
 <div class="dr-fn" id="operator!"><code class="dr-sig">int DiskFileB::operator!() const</code><p class="dr-desc">Public member function that returns true if the file is not open or the last file operation failed.</p></div>
 <div class="dr-fn" id="operator_"><code class="dr-sig">DiskFileB&amp; DiskFileB::operator=(const DiskFileB &amp;ob)</code><p class="dr-desc">Public member function used to assign another DiskFileB object to this object by calling df_Copy().</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3: df_Read() returns df_EOF_ERROR with df_gcount() 0 when a read at the end of the file gets no bytes (it returned df_NO_ERROR and the full count); reads that return data are unchanged. df_GetLine() refuses a zero-length buffer, and text output of large numbers stays in its buffer.</P>
+<div class="dr-fn"><code class="dr-sig">void DiskFileB::df_WriteFloat(double val)</code><p class="dr-desc">Text output of a floating point value.</p></div>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

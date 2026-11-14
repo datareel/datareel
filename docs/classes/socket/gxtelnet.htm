@@ -68,7 +68,8 @@
 <P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
 <A HREF="#Constants">Constants</A><BR>
 <A HREF="#Enumerations">Enumerations</A><BR>
-<A HREF="#Functions">Functions</A></P>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The embedded Telnet client is a cross platform Telnet implementation used with applications that require use of the Telnet protocol as a keyboard and screen interface to the TCP stack. The gxsTelnet Client class is derived from the <A HREF="gxsocket.htm">gxSocket</A> class and supports NVT (Network Virtual Terminal) terminal negotiation. The character set is restricted to 7 bits sent as a byte value with the most significant bit cleared. All terminal emulations other then NVT are handled by terminal type set in the environment by the TERM variable. This implementation works well in a UNIX to UNIX environment. However, in a Windows to UNIX environment your application must provide the API to perform specific terminal emulations. </P>
@@ -186,8 +187,12 @@ enum <A NAME="gxsTelnetState">gxsTelnetState</A> { // Telnet transition state en
 <div class="dr-fn" id="SetTermType_overload_1"><code class="dr-sig">void gxsTelnetClient::SetTermType(const char *s)</code><p class="dr-desc">Public member function used to set a custom terminal type for this client session.</p></div>
 <div class="dr-fn" id="SetTimeOut"><code class="dr-sig">void gxsTelnetClient::SetTimeOut(int seconds, int useconds)</code><p class="dr-desc">Public member function used to set telnet timeout values for this client session.</p></div>
 <div class="dr-fn" id="WaitForReply"><code class="dr-sig">int gxsTelnetClient::WaitForReply()</code><p class="dr-desc">Public member function that returns false if a reply time is longer then the timeout values.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3.1: RecvString() stores at most bytes-1 characters (it could overflow), sub-negotiation and option negotiation no longer loop, and TERMINAL-TYPE replies stay in their buffer. gxsTelnetClient has new members: recompile derived classes.</P>
+<div class="dr-fn"><code class="dr-sig">void gxsTelnetClient::SetMaxTotalTime(int seconds) / int GetMaxTotalTime() const</code><p class="dr-desc">Optional overall time limit for a receive.</p></div>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

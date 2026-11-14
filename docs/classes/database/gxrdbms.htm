@@ -90,7 +90,8 @@
 <A HREF="#gxrdDatabaseKeyFunctions">gxrdDatabaseKey Functions</A><BR>
 <A HREF="#StandaloneFunctions">Standalone Functions</A><BR>
 <A HREF="#DefFileFunctions">Definition File Functions</A><BR>
-<A HREF="#SQL">SQL Functions</A></P>
+<A HREF="#SQL">SQL Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The gxRDBMS class is a small relational database manager. It stores the records of one table in a data file and keeps one or more index files used to find records quickly. The data file is created by the <A HREF="gxdbase.htm">32/64-bit database engine</A>. The index files are <A HREF="gxbtree.htm">B-tree</A> files. Both kinds of file are opened and managed through a <A HREF="pod.htm">POD</A> (Persistent Object Database) manager that the gxRDBMS object owns.</P>
@@ -984,8 +985,11 @@ protected:
 
 <h2 id="SQL">SQL Functions</h2>
 <P>The "gxrdbsql.h" header and "gxrdbsql.cpp" source are reserved as the future home of SQL functions for the relational database manager. They include "gxrdbhdr.h" and "gxrdbms.h" but declare and define nothing.</P>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3.1: records, block lengths and array lengths read from damaged or crafted files are checked (a record shorter than its header, negative array lengths). The file format is unchanged.</P>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

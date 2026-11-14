@@ -72,7 +72,8 @@
 <A HREF="gxheader.htm#TypeDefinitions">Type Definitions</A><BR>
 <A HREF="gxheader.htm#Enumerations">Enumerations</A><BR>
 <A HREF="#DataMembers">Data Members</A><BR>
-<A HREF="#Functions">Functions</A></P>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The gxDatabase engine is a low-level file handler used to manipulate contiguous blocks of binary data. It is composed of an external file system API, platform interoperable integers, and several block manipulation functions. The external file system API defines the basic file system functionality required by the gxDatabase engine and calls the correct native file API function for each supported platform/compiler. Platform interoperable integers are used to achieve database and network interoperability in heterogeneous computing environments. The gxDatabase engine itself defines several low-level block manipulation functions used to build complex database models and navigation functions. The low-level methods are extremely flexible allowing the database engine to support <A HREF="dbmodels.htm#OODBM">object-oriented</A> database models and <A HREF="dbmodels.htm#RDBMS">relational</A> database models.</P>
@@ -253,8 +254,17 @@
 <div class="dr-fn" id="WriteFileLockHdr"><code class="dr-sig">gxDatabaseError gxDatabase::WriteFileLockHdr(const gxFileLockHeader &amp;hdr)</code><p class="dr-desc">Public member function used to write the lock header to the file. Returns a non-zero value to indicate an error condition or zero if successful.</p></div>
 <div class="dr-fn" id="WriteObjectChecksum"><code class="dr-sig">gxUINT32 gxDatabase::WriteObjectChecksum(FAU object_address)</code><p class="dr-desc">Used by an application to write a 32-bit checksum for the object at the end of a block. The Address variable must be set to the file address of the block data, not the block header. This function assumes that the data has already been written to the block. Returns the 32-bit CRC checksum value for the object stored in the block.</p></div>
 <div class="dr-fn" id="WriteRecordLockHdr"><code class="dr-sig">gxDatabaseError gxDatabase::WriteRecordLockHdr(const gxRecordLockHeader &amp;hdr, FAU block_address = gxCurrAddress)</code><p class="dr-desc">Public member function used to write the block's record lock header. Returns a non-zero value to indicate an error condition or zero if successful.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3 adds file syncing, an optional page cache and the write-ahead journal (<A HREF="gxdjrnl.htm">gxdJournal</A>). Files written without these calls are byte-identical to 6.2. Damaged or crafted files are rejected instead of looping: block lengths shorter than a header or past the end of the file are bad blocks, block walks only move forward, and the checksum functions are bounded by the real file size. A file that fails the Open() checks is closed without a header being written into it.</P>
+<div class="dr-fn"><code class="dr-sig">gxDatabaseError gxDatabase::Sync(int full = 0)</code><p class="dr-desc">Flush the database file to disk (fdatasync(), or fsync() when full is non-zero; FlushFileBuffers() on Windows). Returns zero if no errors occur.</p></div>
+<div class="dr-fn"><code class="dr-sig">void gxDatabase::SetSyncOnFlush(int sync) / int SyncOnFlush() const</code><p class="dr-desc">When set, Flush() also calls Sync().</p></div>
+<div class="dr-fn"><code class="dr-sig">unsigned long gxDatabase::WriteCount() const</code><p class="dr-desc">Number of writes to the file since it was opened, used by readers and the journal to see that the file changed.</p></div>
+<div class="dr-fn"><code class="dr-sig">gxDatabaseError gxDatabase::EnablePageCache(size_t bytes = gxdDefaultPageCacheSize, int use_map = 0)</code><p class="dr-desc">Cache file pages in memory (<A HREF="gxdpcache.htm">gxdPageCache</A>). With use_map = 1 pages not in the cache are read from a read-only memory map of the file. Off by default.</p></div>
+<div class="dr-fn"><code class="dr-sig">void gxDatabase::DisablePageCache() / gxdPageCache *gxDatabase::PageCache()</code><p class="dr-desc">Turn the page cache off, or get the cache in use (a null pointer when off).</p></div>
+<div class="dr-fn"><code class="dr-sig">void gxDatabase::AbandonOpen()</code><p class="dr-desc">Close a file that Open() cannot use without writing a database header into it.</p></div>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

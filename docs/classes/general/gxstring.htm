@@ -68,7 +68,8 @@
 <P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
 <A HREF="#ConditionalDirectives">Conditional Directives</A><BR>
 <A HREF="#TypeDefinitions">Type Definitions</A><BR>
-<A HREF="#Functions">Functions</A></P>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The gxString class is a user-defined string class used to create and manipulate null-terminated resizable character strings. By design you can use another string class in place of the user-defined string class simply by modifying the gxString type definition. This implementation allows you to use other existing string classes as required by your application.</P>
@@ -191,8 +192,11 @@
 <div class="dr-fn"><code class="dr-sig">int CaseICmp(const UString &amp;s1, const UString &amp;s2)</code><p class="dr-desc">Compare two UString objects without regard to the case of the letters. Returns -1 if a &lt; b, 0 if a == b, and 1 if a &gt; b</p></div>
 <div class="dr-fn"><code class="dr-sig">int CaseICmp(const UString &amp;s1, const char *s)</code><p class="dr-desc">Compare a UString object to a null terminated string without regard to the case of the letters. Returns -1 if a &lt; b, 0 if a == b, and 1 if a &gt; b</p></div>
 <div class="dr-fn"><code class="dr-sig">int CaseICmp(const char *s, const UString &amp;s2)</code><p class="dr-desc">Compare a null terminated string to a UString object without regard to the case of the letters. Returns -1 if a &lt; b, 0 if a == b, and 1 if a &gt; b</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3: FindLast() with an empty pattern, substrings (Mid/Left/Right), InsertAt() (past the end it appends), DeleteAt(), SetLength(), ReplaceChar(), ConvertEscapeSeq() and operator&lt;&lt;(double) stay inside their buffers.</P>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

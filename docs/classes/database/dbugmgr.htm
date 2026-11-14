@@ -69,7 +69,8 @@
 <A HREF="#ConditionalDirectives">Conditional Directives</A><BR>
 <A HREF="#DataMembers">Public Data Members</A><BR>
 <A HREF="#Functions">Functions</A><BR>
-<A HREF="#StatsFunctions">Database Statistics Functions</A></P>
+<A HREF="#StatsFunctions">Database Statistics Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The gxDatabaseDebugManager class is used by applications to troubleshoot and repair damaged or corrupt <A HREF="gxdbase.htm">gxDatabase</A> files. It is derived from the gxDatabase class, so all of the database engine functions are also available. The debug manager adds functions used to open a file without checking its type, analyze the file header, search for valid blocks, and rebuild a damaged file into a new file. The db_debug and <A HREF="../../utils/ix_debug.htm">ix_debug</A> utility programs are built on this class.</P>
@@ -131,8 +132,11 @@ public:
 <div class="dr-fn" id="DatabaseStats"><code class="dr-sig">void DatabaseStats(gxDatabase *f)</code><p class="dr-desc">Standalone function used to print detailed statistics for the open file "f". The static section shows the file name, signature, revision letter ("Zero" for a null or space revision), version, file header size, block header size, static area size, and file size on disk. The dynamic section shows the open and read/write status, free space, end of file, heap start, highest block, total blocks, normal blocks, and the deleted and removed block counts. For revision d and e files the normal block count is read with NormalBlocks(); for other revisions it is the total blocks minus the deleted and removed blocks. For revision b, c, d, and e files the file lock header values are also printed. The signature string returned by gxDatabase::GetSignature() is freed with delete[] (changed on 10/14/2026; it was freed with a scalar delete). "f" must not be null.</p></div>
 <div class="dr-fn" id="EchoDatabaseVersion"><code class="dr-sig">void EchoDatabaseVersion()</code><p class="dr-desc">Standalone function used to print the default database library version (gxDatabaseVersion) and revision letter (gxDatabaseRevisionLetter). A null or space revision is printed as "Zero". The version is printed in fixed point with 3 digits of precision, and the previous console stream format is restored. <B>NOTE</B>: 10/14/2026: Fixed the fixed point format and precision being left set on the console stream.</p></div>
 <div class="dr-fn" id="EchoDatabaseVersion_overload_1"><code class="dr-sig">void EchoDatabaseVersion(gxDatabase *f)</code><p class="dr-desc">Standalone function used to print the version and revision letter of the open file "f" with the labels "Database File Version:" and "Database File Revision:". A null or space revision is printed as "Zero". The console stream format is not changed. "f" must not be null. <B>NOTE</B>: 10/14/2026: Fixed the labels. The file values were printed with the "Default Database Library" labels used for the library defaults, and the stream format was changed and not restored.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3: BlockSearch() reads the file in buffered chunks, damaged block lengths are compared unsigned against the room left in the file, and Rebuild() refuses to write onto its own input file. db_debug no longer loops on damaged block lengths.</P>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

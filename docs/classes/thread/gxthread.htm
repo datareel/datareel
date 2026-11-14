@@ -71,7 +71,8 @@
 <A HREF="#Derived">Derived Class Interface</A><BR>
 <A HREF="#Functions">Thread Functions</A><BR>
 <A HREF="#Pool">Pool Functions</A><BR>
-<A HREF="#Timer">Timer Functions</A></P>
+<A HREF="#Timer">Timer Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The gxThread class is an abstract base class used to create platform independent multi-threaded applications. Its object-oriented design utilizes the multiple inheritance features of C++ to allow new or existing classes to directly integrate threading without sacrificing functionality. A derived class must define its own entry function for the operation that will run concurrently. Optionally a derived class can define an exit routine and a cleanup handler to perform any additional operations needed to free thread resources following an exit or cancel call. Refer to the <A HREF="tdiagram.htm">gxThread Model</A> block diagram for an illustration of the base/derived class relationship. </P>
@@ -242,8 +243,11 @@ enum <A NAME="gxProcessType"><B>gxProcessType</A></B> {   // Process type enumer
 </TR>
 </TABLE></div>
 </CENTER></P>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3: a thread that could not be created (state NEW with gxTHREAD_CREATE_ERROR) is no longer joined or cancelled; JoinThread() and CancelThread() return an error for it.</P>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

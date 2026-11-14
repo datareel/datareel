@@ -78,7 +78,7 @@ source gnu_env.sh
 cd ../examples_database/simple
 make
 ./testprog</PRE>
-<P>On Windows use <B>nmake -f msvc.mak</B> in the same folder. The SSL examples (https_client, ssl_server and ssl_verify_cert) need the library built with OpenSSL (on Windows only an OpenSSL 3.5.x LTS release); see <A HREF="../index.html#UNIXLIB" TARGET="_top">Linux Builds</A>. Most test programs pause between steps and wait for Enter. string_class can be built with <B>-D__AUTORUN_TESTPROG__</B> to run without prompts. All of these programs were run under AddressSanitizer and UndefinedBehaviorSanitizer for the 10/14/2026 code review.</P>
+<P>On Windows use <B>nmake -f msvc.mak</B> in the same folder. The SSL examples (https_client, ssl_server and ssl_verify_cert) need a library built with SSL: OpenSSL on Linux; on Windows the default native Schannel build (USESSL=0) or an OpenSSL 3.5.x LTS build (USESSL=1); see <A HREF="../index.html#UNIXLIB" TARGET="_top">Linux Builds</A>. Most test programs pause between steps and wait for Enter. string_class can be built with <B>-D__AUTORUN_TESTPROG__</B> to run without prompts. All of these programs were run under AddressSanitizer and UndefinedBehaviorSanitizer for the 10/14/2026 code review.</P>
 
 <h2 id="examples_database">Database Examples</h2>
 <P>Folder: <B>examples_database</B></P>
@@ -129,8 +129,8 @@ make
 <TR><TD><B>pop3_client</B></TD><TD>testprog.cpp</TD><TD>Tests the embedded POP3 client class.</TD><TD><A HREF="../classes/classes.htm#/socket/gxspop3.htm" TARGET="_top">gxspop3</A></TD></TR>
 <TR><TD><B>simple</B></TD><TD>client.cpp, server.cpp</TD><TD>Simple TCP stream client and server.</TD><TD><A HREF="../classes/classes.htm#/socket/gxsocket.htm" TARGET="_top">gxsocket</A></TD></TR>
 <TR><TD><B>smtp_client</B></TD><TD>testprog.cpp</TD><TD>Tests the embedded SMTP client class.</TD><TD><A HREF="../classes/classes.htm#/socket/gxsmtp.htm" TARGET="_top">gxsmtp</A></TD></TR>
-<TR><TD><B>socket_cache</B></TD><TD>client.cpp, gxsfile.cpp, gxsfile.h, server.cpp</TD><TD>Device cache client and server that move cached data over a socket.</TD><TD><A HREF="../classes/classes.htm#/general/devcache.htm" TARGET="_top">devcache</A></TD></TR>
-<TR><TD><B>ssl_server</B></TD><TD>m_thread.cpp, m_thread.h, server.cpp</TD><TD>Multi-threaded HTTPS server using gxSSL. Includes a sample key, certificate and 2048-bit DH parameters. Requires an SSL build.</TD><TD><A HREF="../classes/classes.htm#/socket/gxssl.htm" TARGET="_top">gxssl</A></TD></TR>
+<TR><TD><B>socket_cache</B></TD><TD>client.cpp, gxsfile.cpp, gxsfile.h, server.cpp</TD><TD>Device cache client and server that move cached data over a stream, datagram or serial connection. 6.3.1: the stream server needs client certificates: <B>server --cert server.pem --key server.key --client-ca ca.pem --allow-fingerprint SHA256</B> (or <B>--allow-cn NAME</B>), or <B>--open</B> for a server without client authentication; a client shutdown request is obeyed only with <B>--allow-remote-shutdown</B>. The client takes <B>--ca ca.pem</B>, <B>--insecure</B> and <B>--cert client.pem --key client.key</B>.</TD><TD><A HREF="../classes/classes.htm#/socket/gxstream.htm" TARGET="_top">gxstream</A></TD></TR>
+<TR><TD><B>ssl_server</B></TD><TD>m_thread.cpp, m_thread.h, server.cpp</TD><TD>Multi-threaded HTTPS server using gxSSL. With OpenSSL it makes server_private_key.pem, server_cert.pem and dhparms.pem on the first run. A Schannel build (the Windows default) cannot make keys or certificates and needs no DH file: put a key and certificate made with openssl in server_private_key.pem and server_cert.pem (6.3.1). Requires an SSL build.</TD><TD><A HREF="../classes/classes.htm#/socket/gxssl.htm" TARGET="_top">gxssl</A></TD></TR>
 <TR><TD><B>ssl_verify_cert</B></TD><TD>testprog.cpp</TD><TD>Client side SSL certificate verification. Requires an SSL build.</TD><TD><A HREF="../classes/classes.htm#/socket/gxssl.htm" TARGET="_top">gxssl</A></TD></TR>
 <TR><TD><B>tcp_send_file</B></TD><TD>tcp_send_file.cpp</TD><TD>Sends a file over a TCP stream socket.</TD><TD><A HREF="../classes/classes.htm#/socket/gxsocket.htm" TARGET="_top">gxsocket</A></TD></TR>
 <TR><TD><B>telnet_client</B></TD><TD>testprog.cpp</TD><TD>Tests the embedded telnet client class.</TD><TD><A HREF="../classes/classes.htm#/socket/gxtelnet.htm" TARGET="_top">gxtelnet</A></TD></TR>
@@ -160,7 +160,26 @@ make
 <TR><TD><B>thread_pool</B></TD><TD>testprog.cpp</TD><TD>Basic operation of the thread pool.</TD><TD><A HREF="../classes/classes.htm#/thread/thrpool.htm" TARGET="_top">thrpool</A></TD></TR>
 <TR><TD><B>timed</B></TD><TD>testprog.cpp</TD><TD>Synchronizes threads with timing delays.</TD><TD><A HREF="../classes/classes.htm#/thread/gxthread.htm" TARGET="_top">gxthread</A></TD></TR>
 </TABLE></div>
+<h2 id="SecurityTests">Security and Regression Tests (6.3 and 6.3.1)</h2>
+<P>examples_database/run_db_tests.sh (Linux) builds and runs the database examples and every test below that runs on the platform; run_db_tests.bat does the same on Windows (the socket, SSL, stream and protocol tests use fork() and run on UNIX only). Pass 1 for the 64-bit database engine or 0 for the 32-bit engine to the .bat file.</P>
+<TABLE class="dr-table">
+<TR><TH>Folder</TH><TH>Program</TH><TH>What it checks</TH></TR>
+<TR><TD>examples_database</TD><TD><B>damaged</B></TD><TD>Damaged and crafted database files: bad block lengths, checksums, failed opens (6.3).</TD></TR>
+<TR><TD>examples_database</TD><TD><B>infohog</B></TD><TD>InfoHog/POD example and reopen check (6.3).</TD></TR>
+<TR><TD>examples_database</TD><TD><B>journal</B></TD><TD>gxdJournal tests: commit, rollback, crash copies, torn journals and checkpoints, readers, the private journal file; crash_test.sh kills a writer with kill -9 (6.3).</TD></TR>
+<TR><TD>examples_database</TD><TD><B>fuzz</B></TD><TD>libFuzzer targets for .gxd, .btx and journal files (clang; build_fuzz.sh).</TD></TR>
+<TR><TD>examples_general</TD><TD><B>security_sweep</B></TD><TD>6.x sweep checks: Base64, gxString, MemoryBuffer, strutil, DiskFileB, futils, parsers, gxRDBMS (6.3, 6.3.1).</TD></TR>
+<TR><TD>examples_general</TD><TD><B>support_security</B></TD><TD>gxConfig, LogFile, the debug manager, threads, thread messages, SysTime (6.3, 6.3.1).</TD></TR>
+<TR><TD>examples_general</TD><TD><B>print_security</B></TD><TD>PostScript and HTML print drivers (6.3.1).</TD></TR>
+<TR><TD>examples_general</TD><TD><B>fuzz</B></TD><TD>libFuzzer targets: config, strings, Base64, HTML, XML, RSS, RDBMS, DiskFileB, MemoryBuffer and other parsers.</TD></TR>
+<TR><TD>examples_socket</TD><TD><B>comm_security</B></TD><TD>Serial port (pseudo terminal loopback), telnet and ping reply checks (6.3).</TD></TR>
+<TR><TD>examples_socket</TD><TD><B>socket_security</B></TD><TD>gxSocket: double close, descriptors past FD_SETSIZE, SIGPIPE, I/O timeouts, host addresses (UNIX, 6.3.1).</TD></TR>
+<TR><TD>examples_socket</TD><TD><B>ssl_security</B></TD><TD>gxSSL: handshake timeout, close, buffered reads, host name check (UNIX, OpenSSL, 6.3.1).</TD></TR>
+<TR><TD>examples_socket</TD><TD><B>stream_security</B></TD><TD>gxStream and gxDatagram block lengths, 64-bit results, mutual TLS (allow list, refused clients, --open) (UNIX, 6.3.1).</TD></TR>
+<TR><TD>examples_socket</TD><TD><B>proto_security</B></TD><TD>HTTP, URL, SMTP, POP3, FTP and service file parsers against fake servers (UNIX, 6.3.1).</TD></TR>
+<TR><TD>examples_socket</TD><TD><B>fuzz, stream_fuzz</B></TD><TD>libFuzzer targets for the protocol parsers and the gxStream peer data (6.3.1).</TD></TR>
+</TABLE>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>

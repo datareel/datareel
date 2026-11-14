@@ -69,7 +69,8 @@
 <A HREF="#ConditionalDirectives">Conditional Directives</A><BR>
 <A HREF="#LargeFileSupport">64-Bit Support</A> <BR>
 <A HREF="#Structs">Data Structures</A> <BR>
-<A HREF="#Functions">Functions</A></P>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The database file system API is a collection of data structures and standalone functions used to define the underlying file system used by the gxDatabase class. By separating the file system API calls from the database engine you can change the underlying file system without modifying the gxDatabase class. This is design allows you to support multiple files systems using a single interface and is usually utilized to support large files and proprietary file systems.</P>
@@ -109,8 +110,16 @@
 <div class="dr-fn"><code class="dr-sig">FAU_t gxdFPTRTell(gxdFPTR *stream)</code><p class="dr-desc">Returns the current file position or -1 if an error occurs.</p></div>
 <div class="dr-fn"><code class="dr-sig">int gxdFPTRExists(const char *fname)</code><p class="dr-desc">Returns true if the specified file exists.</p></div>
 <div class="dr-fn"><code class="dr-sig">FAU_t gxdFPTRFileSize(const char *fname)</code><p class="dr-desc">Returns the length of the specified file or -1 to indicate an error condition.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3 adds positional I/O (pread()/pwrite(), and ReadFile()/WriteFile() with an offset on Windows), so a seek costs no system call, and these functions. The 32-bit engine uses the 64-bit file pointer type on Linux and with MSVC. Each has a gxdFPTR64 form with the same arguments.</P>
+<div class="dr-fn"><code class="dr-sig">int gxdFPTRSync(gxdFPTR *stream, int full = 1)</code><p class="dr-desc">Flush the file to disk. Returns zero if successful.</p></div>
+<div class="dr-fn"><code class="dr-sig">int gxdFPTRTruncate(gxdFPTR *stream, FAU_t size) / int gxdFPTRAllocate(gxdFPTR *stream, FAU_t size)</code><p class="dr-desc">Set the file size, or extend it with zeros (Allocate writes zeros on Linux rather than calling posix_fallocate()).</p></div>
+<div class="dr-fn"><code class="dr-sig">int gxdFPTRLock(gxdFPTR *stream, int exclusive) / int gxdFPTRUnlock(gxdFPTR *stream)</code><p class="dr-desc">Whole-file advisory lock (flock() on UNIX, LockFileEx() on Windows).</p></div>
+<div class="dr-fn"><code class="dr-sig">void *gxdFPTRMap(gxdFPTR *stream, FAU_t len, void **map_handle) / void gxdFPTRUnmap(void *addr, FAU_t len, void *map_handle)</code><p class="dr-desc">Map the first len bytes of the file read-only (mmap() or MapViewOfFile()), and unmap them.</p></div>
+<div class="dr-fn"><code class="dr-sig">gxdFPTR *gxdFPTRCreatePrivate(const char *fname) / int gxdFPTRMakePrivate(const char *fname)</code><p class="dr-desc">Create a file only the current user can read and write (mode 0600, or a protected DACL for the current user on Windows), or make an existing file so. Used for the journal file.</p></div>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

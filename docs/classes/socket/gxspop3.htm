@@ -67,7 +67,8 @@
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
 <A HREF="#DataMemebers">Data Members</A><BR>
-<A HREF="#Functions">Functions</A></P>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The embedded POP3 (Post Office Protocol 3) client is a cross platform POP3 implementation used with applications that require POP3 client/server functions. The gxsPOP3Client class is derived from the <A HREF="gxsocket.htm">gxSocket</A> class and conforms to RFC 1725: <A HREF="http://www.faqs.org/rfcs/rfc1725.html">http://www.faqs.org/rfcs/rfc1725.html</A></P>
@@ -107,8 +108,12 @@
 <div class="dr-fn" id="SendCommand"><code class="dr-sig">gxSocketError gxsPOP3Client::SendCommand(const char *command, const char *response, const char *args = 0)</code><p class="dr-desc">Public member function used to send a command to a POP3 server and read the server's response. Returns zero if no errors occur.</p></div>
 <div class="dr-fn" id="SetTimeOut"><code class="dr-sig">void gxsPOP3Client::SetTimeOut(int seconds, int useconds)</code><p class="dr-desc">Public member function used to set the POP3 timeout values.</p></div>
 <div class="dr-fn" id="WaitForReply"><code class="dr-sig">int gxsPOP3Client::WaitForReply()</code><p class="dr-desc">Public member function that returns false if a reply time is longer then the timeout values.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3.1: the status line must start with "+OK" (a reply holding "+OK" later was taken as success), commands are bounded and refuse CR or LF, and replies stay in their buffers.</P>
+<div class="dr-fn"><code class="dr-sig">static int gxsPOP3Client::CheckReply(const char *buf, int len, const char *response)</code><p class="dr-desc">Check a reply's status line and find the end of a multi-line reply.</p></div>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

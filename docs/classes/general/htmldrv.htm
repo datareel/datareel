@@ -70,7 +70,8 @@
 <A HREF="#Enumerations">Enumerations</A><BR>
 <A HREF="#ostreamFunctions">C++ ostream Functions</A><BR>
 <A HREF="#HyperTextBase">Hypertext Base Class</A> <BR>
-<A HREF="#HyperTextClass">Hypertext Class</A></P>
+<A HREF="#HyperTextClass">Hypertext Class</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The hypertext driver classes are used to generate HTML documents from within a C++ program. The hypertext driver class is a base class that uses the C++ ostream library to write HTML tags and text to a specified stream. The hypertext class is used to write HTML document templates to a specified stream.</P>
@@ -249,8 +250,11 @@ htm &lt;&lt; "First Amount = " &lt;&lt; 1.28 &lt;&lt; endl;</PRE>
 <div class="dr-fn"><code class="dr-sig">void HyperText::EndTable()</code><p class="dr-desc">Used to end the table.</p></div>
 <B><U><P><A NAME="HyperTextReportingFunctions">Reporting functions</A>:</B></U> </P>
 <div class="dr-fn"><code class="dr-sig">void HyperText::GetSystemTime(char *s, int full_month_name = 1)</code><p class="dr-desc">This function is used to generate a time and date stamp passed back in the "s" variable. By default a full month name will be used. If the "full_month_name" variable is false an abbreviated month name will be used.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3.1: color values outside the color table use the first color, and GetSystemTime() with a null pointer does nothing (it allocated a buffer it never returned).</P>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

@@ -71,7 +71,8 @@
 <A HREF="#Macros">Macros</A><BR>
 <A HREF="#CoordsClass">Coords Class</A><BR>
 <A HREF="#TerminalClass">Terminal Class</A><BR>
-<A HREF="#MSDOSWIN32Port">MSDOS/WIN32</A> </P>
+<A HREF="#MSDOSWIN32Port">MSDOS/WIN32</A> <BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The Terminal class is a terminal interface designed to be portable between DOS and UNIX systems. On UNIX systems the curses library is used to create independent terminal type code. On MSDOS and early Windows systems the ANSI.SYS driver was used to simulate some of the basic functions in the curses library. The DOS/WIN32 port is legacy code and is not supported on current Windows releases (Windows 11 and Windows Server 2022/2025). </P>
@@ -228,8 +229,13 @@ private:
 <div class="dr-fn"><code class="dr-sig">void BoldText()</code><p class="dr-desc">Standalone function used to highlight text displayed on the screen in bold letters.</p></div>
 <div class="dr-fn"><code class="dr-sig">void ReverseVideo()</code><p class="dr-desc">Standalone function used to highlight text displayed on the screen in reverse video.</p></div>
 <div class="dr-fn"><code class="dr-sig">void NormalText()</code><p class="dr-desc">Standalone function used to reset the text mode to normal after a bold, underline, or reverse video operation.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3.1: GetString() and GetPassword() stop at the end of input, and the number readers GetInt(), GetLong() and GetFloat() use the bounded form. Write() of a double or float cannot overflow its buffer, and Write() of a long keeps the whole value.</P>
+<div class="dr-fn"><code class="dr-sig">void Terminal::GetStringN(char *string, unsigned size, int x = -1, int y = -1)</code><p class="dr-desc">Read one line into a buffer of size bytes (at most size-1 characters and a null). Use it instead of GetString(), which has no limit.</p></div>
+<div class="dr-fn"><code class="dr-sig">void Terminal::GetPasswordN(char *string, unsigned size, int x = -1, int y = -1)</code><p class="dr-desc">GetPassword() into a buffer of size bytes.</p></div>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

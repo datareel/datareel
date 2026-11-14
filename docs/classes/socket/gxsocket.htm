@@ -70,7 +70,8 @@
 <A HREF="#Constants">Constants</A><BR>
 <A HREF="#TypeDefinitions">Type Definitions</A><BR>
 <A HREF="#Enumerations">Enumerations</A> <BR>
-<A HREF="#Functions">Functions</A></P>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The gxSocket class is an object-oriented Winsock/BSD wrapper used to create TCP/IP sockets on WIN32 and UNIX platforms. The gxSocket class supports stream sockets and datagram sockets and includes several low-level functions needed by derived classes to establish communication end-points and transfer data. Raw sockets are supported under UNIX and Windows 2000 with limited raw socket support for Windows 95/98/ME/NT.</P>
@@ -373,8 +374,12 @@ const int <B>gxsDATA_PORT</B> = 2073;</PRE>
 <div class="dr-fn" id="ShutDownSocket"><code class="dr-sig">void gxSocket::ShutDownSocket(int how = 0)</code><p class="dr-desc">Public member function used to close a full-duplex server side socket. The "how" variable must equal one of the following values: 0 = user is no longer interested in reading data, 1 = no more data will be sent, or 2 = no data is to be sent or received.</p></div>
 <div class="dr-fn" id="Socket"><code class="dr-sig">gxsSocket_t gxSocket::Socket()</code><p class="dr-desc">Public member function used to create a socket. Returns a valid socket descriptor or -1 if the socket cannot be initialized.</p></div>
 <div class="dr-fn" id="SocketExceptionMessage"><code class="dr-sig">const char *gxSocket::SocketExceptionMessage()</code><p class="dr-desc">Public member function that returns a null-terminated string that can be use to log or print a socket exception.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3.1: Close() resets the descriptors it closed, so a second Close() or the destructor cannot close a file the program opened since. UNIX builds wait with poll() (select() wrote past the fd_set for descriptors at or above FD_SETSIZE). Send() and SendTo() no longer loop on 0-byte sends, and a send to a closed peer returns -1 (EPIPE) instead of killing the program with SIGPIPE (Linux). Host address lookups copy exactly 4 bytes, and a null or unknown host name gives gxSOCKET_HOSTNAME_ERROR.</P>
+<div class="dr-fn"><code class="dr-sig">int gxSocket::SetIOTimeout(int seconds) / int gxSocket::SetIOTimeout(gxsSocket_t s, int seconds)</code><p class="dr-desc">Set SO_RCVTIMEO and SO_SNDTIMEO so blocking sends and receives (including those inside a TLS library) cannot wait for ever on a silent peer. The first form sets the bound and the remote socket.</p></div>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

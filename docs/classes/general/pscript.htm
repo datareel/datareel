@@ -69,7 +69,8 @@
 <A HREF="#Constants">Constants</A> <BR>
 <A HREF="#Fonts">Postscript Fonts </A><BR>
 <A HREF="#Paper">PostScript Paper Sizes</A><BR>
-<A HREF="#Functions">Functions</A></P>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>PostScript is a device-independent programming language for describing the appearance of text and graphics on a printed page. PostScript is an interpreted language, which means that when a printer or other interpreter looks at the file it executes the instructions one by one. There is no compilation step. </P>
@@ -263,8 +264,11 @@ const int <B>BUFOUT</B> = (BUFIN * 5);</PRE>
 <div class="dr-fn" id="drawLine"><code class="dr-sig">void PostScriptDrv::drawLine(ostream &amp;stream, int points, int xpos, int ypos)</code><p class="dr-desc">Public member function used to draw a line to the specified stream starting at the specified "x" and "y" positions. The number of PostScript points determines the length of the line.</p></div>
 <div class="dr-fn" id="drawThickLine"><code class="dr-sig">void PostScriptDrv::drawThickLine(ostream &amp;stream, int points, int xpos, int ypos)</code><p class="dr-desc">&nbsp;Public member function used to draw a thick line to the specified stream starting at the specified "x" and "y" positions. The number of PostScript points determines the length of the line.</p></div>
 <div class="dr-fn" id="GetSystemTime"><code class="dr-sig">void GetSystemTime(char *s, int full_month_name = 1)</code><p class="dr-desc">- Standalone function used to create a custom time string for PostScript page headers. If the "full_month_name" variable is false an abbreviated month name will be used instead of a full name, which is selected by default.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3.1: the constructor sets the Letter page size (it used to leave the page size unset, so the columns and lines per page were random until SetPaperSize() was called). A cut or wrapped line is terminated correctly, the nroff filter stays inside the line, and ConvertTextFile() refuses less than one line per page and stops on a read error instead of looping.</P>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

@@ -66,7 +66,8 @@
 
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
-<A HREF="#Functions">Functions</A></P>
+<A HREF="#Functions">Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The gxStream class is derived from the <A HREF="gxsocket.htm">gxSocket</A> class and is used to send and receive database blocks over a TCP connection.</P>
@@ -142,8 +143,24 @@ gxSocket library extensions the same block header written to a disked-based data
 <div class="dr-fn" id="WriteHeader"><code class="dr-sig">int gxStream::WriteHeader(gxsSocket_t s, gxBlockHeader &amp;gx)</code><p class="dr-desc">Public member function used to write a block header to the specified socket descriptor. Returns zero if no errors occur or a non-zero value to indicate a failure.</p></div>
 <div class="dr-fn" id="WriteRemoteAckBlock"><code class="dr-sig">int gxStream::WriteRemoteAckBlock()</code><p class="dr-desc">Public member function used to write an acknowledgment block to the remote end. Returns zero if no errors occur or a non-zero value to indicate a failure.</p></div>
 <div class="dr-fn" id="WriteRemoteBlock"><code class="dr-sig">int gxStream::WriteRemoteBlock(void *buf, int bytes)</code><p class="dr-desc">Public member function used to write a block of raw data to the remote end. Returns zero if no errors occur or a non-zero value to indicate a failure.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P><B>Behaviour change in 6.3.1:</B> the networked object database protocol had no authentication. A gxStream server now needs TLS with client certificates: StreamServer(), Accept() and AcceptClient() return gxSOCKET_SSL_ERROR unless the server has a server certificate, a client CA file and at least one allow list entry, or the program calls AllowAnonymousClients(true) (an open server: plain TCP as in 6.2, or TLS without client certificates). Clients are unchanged unless they call UseTLS(). In TLS mode a failed handshake or certificate check closes the socket, and the block functions refuse a socket without a TLS connection, so nothing is sent in cleartext. Block lengths sent by the peer are checked before memory is allocated or data is read, and negative or over-INT_MAX writes are refused. See the socket_cache example (--cert/--key, --client-ca, --allow-fingerprint, --allow-cn, --open, --allow-remote-shutdown; client --ca, --insecure, --cert/--key).</P>
+<div class="dr-fn"><code class="dr-sig">int gxStream::SetServerCert(const char *cert_file, const char *key_file, const char *passphrase = 0)</code><p class="dr-desc">Server certificate and private key (PEM; with Schannel also a .pfx/.p12 file with an empty key file name).</p></div>
+<div class="dr-fn"><code class="dr-sig">void gxStream::SetClientCAFile(const char *fname)</code><p class="dr-desc">PEM file of the CAs that issue client certificates. Every client must send a certificate that chains to one of them.</p></div>
+<div class="dr-fn"><code class="dr-sig">int gxStream::AllowClientFingerprint(const char *fp) / int gxStream::AllowClientCN(const char *cn) / void gxStream::ClearClientAllowList()</code><p class="dr-desc">Allow list: a client is accepted if its certificate SHA-256 fingerprint (32 hex bytes, colons optional, the openssl -fingerprint -sha256 output works) or its subject CN (exact) is listed.</p></div>
+<div class="dr-fn"><code class="dr-sig">void gxStream::AllowAnonymousClients(bool allow = true) / int gxStream::AnonymousClientsAllowed()</code><p class="dr-desc">The explicit opt-out: accept clients without certificates. A CA file or allow list that is set is still enforced.</p></div>
+<div class="dr-fn"><code class="dr-sig">gxsSocket_t gxStream::Accept() / int gxStream::AcceptClient(gxStream &amp;client)</code><p class="dr-desc">Accept a client, run the TLS handshake and the client checks; AcceptClient() gives each client its own gxStream (one per thread).</p></div>
+<div class="dr-fn"><code class="dr-sig">const char *gxStream::PeerCN() / const char *gxStream::PeerFingerprint() / int gxStream::ClientAuthenticated() / const char *gxStream::TLSError()</code><p class="dr-desc">The accepted client's certificate CN and fingerprint, whether it was authenticated, and why the last TLS or client check failed.</p></div>
+<div class="dr-fn"><code class="dr-sig">void gxStream::UseTLS(int on = 1) / int gxStream::SetClientCert(const char *cert_file, const char *key_file, const char *passphrase = 0)</code><p class="dr-desc">Client side: use TLS, and send a client certificate.</p></div>
+<div class="dr-fn"><code class="dr-sig">void gxStream::SetServerCAFile(const char *fname) / void gxStream::SetServerName(const char *name) / void gxStream::SetVerifyServer(int on = 1)</code><p class="dr-desc">Client side: CA for the server certificate (the system store without it), the expected host name, and turning the server check off (testing only).</p></div>
+<div class="dr-fn"><code class="dr-sig">int gxStream::IsTLS() / int gxStream::IsSecure() / int gxStream::IsRemoteSecure() / void gxStream::SetHandshakeTimeout(int seconds)</code><p class="dr-desc">TLS mode set, this connection or the accepted client on TLS, and the handshake time limit.</p></div>
+<div class="dr-fn"><code class="dr-sig">void gxStream::SetMaxBlockSize(gxUINT32 bytes) / gxUINT32 gxStream::MaxBlockSize()</code><p class="dr-desc">Largest block length accepted from the peer (gxSTREAM_DEF_MAX_BLOCK, 64 MB, by default; at most INT_MAX).</p></div>
+<div class="dr-fn"><code class="dr-sig">int gxStream::ReadBlock(gxsSocket_t s, void *buf, int buf_size, gxBlockHeader &amp;gx, int seconds, int useconds) / int gxStream::ReadRemoteBlock(void *buf, int buf_size, gxBlockHeader &amp;gx)</code><p class="dr-desc">Read a block only if it fits in buf_size bytes; otherwise nothing is read and gxSOCKET_BLOCKSIZE_ERROR is returned. Use these instead of the forms without a size.</p></div>
+<div class="dr-fn"><code class="dr-sig">int gxStream::WriteResultBlock64(FAU_t result_code) / int gxStream::ReadResultBlock64(FAU_t &amp;result_code)</code><p class="dr-desc">Result blocks that keep a 64-bit file address (the int forms truncate). Remote forms: WriteRemoteResultBlock64(), ReadRemoteResultBlock64().</p></div>
+<div class="dr-fn"><code class="dr-sig">void gxStream::Close() / void gxStream::CloseRemoteSocket()</code><p class="dr-desc">Send close_notify, half-close and drain briefly before closing (TLS).</p></div>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->

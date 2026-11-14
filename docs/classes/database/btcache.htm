@@ -72,7 +72,8 @@
 <A HREF="#DataMembers">Public Data Members</A><BR>
 <A HREF="#BtreeBucketFunctions">B-tree Bucket Functions</A><BR>
 <A HREF="#BtreeCacheFunctions">B-tree Cache Functions</A><BR>
-<A HREF="#BtreeCacheNodeFunctions">B-tree Cache Node Functions</A></P>
+<A HREF="#BtreeCacheNodeFunctions">B-tree Cache Node Functions</A><BR>
+<A HREF="#Changes631">Changes in 6.3 and 6.3.1</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>The B-tree cache classes are a special adaptation of the <A HREF="../general/devcache.htm">Device Cache</A> classes. They use the <A HREF="btnode.htm">BtreeNode</A> class as the bucket type and are tuned for B-tree operations. The cache links disk-based B-tree nodes to memory-based cache buckets. This lets the <A HREF="gxbtree.htm">gxBtree</A> class work with cache buckets in place of disk-based nodes. The goal is to reduce disk reads and writes during insert, find, and delete operations.</P>
@@ -243,8 +244,12 @@ public: // Cache statistics
 <div class="dr-fn" id="BtreeCacheNode_BtreeCacheNode_overload_1"><code class="dr-sig">BtreeCacheNode::BtreeCacheNode(BtreeCache *btree_cache, FAU_t address = (FAU_t)0)</code><p class="dr-desc">Class constructor used to connect this cache node to a cache, given a pointer, and set its node address.</p></div>
 <div class="dr-fn" id="BtreeCacheNode_BtreeCacheNode_overload_2"><code class="dr-sig">BtreeCacheNode::BtreeCacheNode(const BtreeCacheNode &amp;ob)</code><p class="dr-desc">Copy constructor. Copies the bucket and cache pointers from "ob" and sets the node address to zero. The node address is not copied on purpose: the cached gxBtree search functions copy the current node to get a node on the same cache and test for a zero address to see if a parent node has been set.</p></div>
 <div class="dr-fn" id="BtreeCacheNode_Destructor"><code class="dr-sig">BtreeCacheNode::~BtreeCacheNode()</code><p class="dr-desc">Class destructor. Does nothing. The bucket remains in the cache.</p></div>
+<h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
+<P>6.3: cached nodes are found through a hash table instead of a linear search, and Flush() writes the dirty nodes but keeps them in the cache.</P>
+<div class="dr-fn"><code class="dr-sig">void BtreeCache::Discard()</code><p class="dr-desc">Drop every bucket without writing it (used by the journal after a rollback).</p></div>
+<P>See the <A HREF="../../release_notes_6_3.html">6.3</A> and <A HREF="../../release_notes_6_3_1.html">6.3.1</A> release notes.</P>
 </main>
-<footer class="dr-footer">DataReel 6.3 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
 </body>
 </html>
 <!-- PAGE CONTENT ENDS ABOVE -->
