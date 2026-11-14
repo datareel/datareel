@@ -719,8 +719,33 @@ struct gxReplLocal::SetState_ {
   std::string root;
   std::mutex m;
   std::map<std::string, std::unique_ptr<gxdShipLogReader> > readers;
+  // 11/14/2026 (review): the log.id file each cached reader was opened on (inode, mtime): a stream's log made again
+  // (its folder removed and a writer opening a new log) gets a new reader, not the old log's ghost
+  std::map<std::string, std::pair<unsigned long long, long long> > reader_id;
+  gxdShipLogReader *reader(const std::string &stream, std::string &err);
   std::set<std::string> staged;   // 11/13/2026 (F7 review 3): units this process began a staged copy of (MarkGen)
 };
+
+// 11/14/2026 (review): the stream's cached reader, made again when the log's log.id changed or is gone (s->m held)
+gxdShipLogReader *gxReplLocal::SetState_::reader(const std::string &stream, std::string &err)
+{
+  SetState_ *s = this;
+  const std::string dir = s->root + "/.gxrepl/log/" + stream;
+  struct stat lst;
+  std::pair<unsigned long long, long long> id(0, 0);
+  if(stat((dir + "/log.id").c_str(), &lst) == 0)
+    id = std::make_pair((unsigned long long)lst.st_ino, (long long)lst.st_mtim.tv_sec * 1000000000LL + lst.st_mtim.tv_nsec);
+  auto &rd = s->readers[stream];
+  if(rd && s->reader_id[stream] != id) rd.reset();
+  if(!rd) {
+    rd.reset(new gxdShipLogReader);
+    if(rd->Open(dir) != 0) {
+      err = rd->Error(); rd.reset(); s->readers.erase(stream); s->reader_id.erase(stream); return 0;
+    }
+    s->reader_id[stream] = id;
+  }
+  return rd.get();
+}
 
 static const char *default_excludes[] = {
   "*.jnl", "*.lock", "*.gxrtmp", "*.tmp", "*~", ".nfs*", 0
@@ -1603,11 +1628,9 @@ int gxReplLocal::Streams(const std::string &set, std::vector<gxReplStream> &v,
   closedir(d);
   std::sort(names.begin(), names.end());
   for(auto &n : names) {
-    auto &rd = s->readers[n];
-    if(!rd) {
-      rd.reset(new gxdShipLogReader);
-      if(rd->Open(logdir + "/" + n) != 0) { rd.reset(); s->readers.erase(n); continue; }
-    }
+    std::string re;
+    gxdShipLogReader *rd = s->reader(n, re);
+    if(!rd) continue;
     gxdShipLogReader::Info info;
     if(rd->GetInfo(info) != 0) continue;
     gxReplStream st;
@@ -1633,13 +1656,8 @@ int gxReplLocal::ReadLog(const std::string &set, const std::string &stream,
   SetState_ *s = set_state(set, err);
   if(!s) return -1;
   std::lock_guard<std::mutex> g(s->m);
-  auto &rd = s->readers[stream];
-  if(!rd) {
-    rd.reset(new gxdShipLogReader);
-    if(rd->Open(s->root + "/.gxrepl/log/" + stream) != 0) {
-      err = rd->Error(); rd.reset(); s->readers.erase(stream); return -1;
-    }
-  }
+  gxdShipLogReader *rd = s->reader(stream, err);
+  if(!rd) return -1;
   unsigned long count = 0;
   int rc = rd->Read(from, max_bytes, out, next, count);
   if(rc < 0) { err = rd->Error(); return -1; }
@@ -1703,13 +1721,8 @@ int gxReplLocal::Diff(const std::string &set, const gxReplDiffRequest &rq,
     }
     // The log position the files match while the lock is held
     std::lock_guard<std::mutex> g(s->m);
-    auto &rd = s->readers[cover->name];
-    if(!rd) {
-      rd.reset(new gxdShipLogReader);
-      if(rd->Open(s->root + "/.gxrepl/log/" + cover->name) != 0) {
-	err = rd->Error(); rd.reset(); return -1;
-      }
-    }
+    gxdShipLogReader *rd = s->reader(cover->name, err);
+    if(!rd) return -1;
     gxdShipLogReader::Info info;
     if(rd->GetInfo(info) != 0) { err = rd->Error(); return -1; }
     u.stream = cover->name;
@@ -4185,6 +4198,11 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
       // 11/14/2026: the update carried the log records from the copy's position to the pieces' (Diff()); an open or
       // gap record among them asks for a verify, as in drain() (a writer's open after a journal recovery: the
       // recovered pages have no record, only the verify brings them)
+      // 11/14/2026 (review): the log made again during the stream's own verify (a new log id in this update): files
+      // compared earlier in the verify belong to the old log; verify again
+      if(cover && verifying[set] == cover->name && !verify_log_id[set].empty() && !res.update.log_id.empty() &&
+	 res.update.log_id != verify_log_id[set])
+	note_verify(set, cover->name, "the stream's log was made again during its verify", 0, res.update.log_id);
       if(cover && !res.update.records.empty() && !test_off("GXREPL_TEST_NO_CALLER_VERIFY")) {
 	std::vector<gxdShipRecordView> rv;
 	if(gxdParseShipRecords(res.update.records.data(), res.update.records.size(), rv) == 0) {

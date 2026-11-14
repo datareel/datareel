@@ -4369,6 +4369,44 @@ def test_drain_verify_log_remade_during_its_own_verify():
     assert same, "the copy differs after the log was made again during its verify\n" + log[-3000:]
 
 
+def test_log_remade_by_a_nightly_reopen():
+    """11/14/2026 (review gap 2, osa_ingest's 20:30 late pass): a day folder archived (moved out of the set), its
+    stream's log purged, the folder reopened under the same stream name (a new log, lsns from 1), late lines
+    written, archived and purged again, with gxrepl and the writers running, two nights in a row: after each
+    night's late lines the copy's data.gxd is byte for byte the source's"""
+    env = Env("nightly_reopen", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    d1 = os.path.join(ws, "d1")
+    arch = os.path.join(env.dir, "archive")
+    os.makedirs(d1)
+    os.makedirs(arch)
+    ld = os.path.join(ws, ".gxrepl", "log", "d1_writer.jnl")
+    def g(p):                                           # the copy's folder may be gone for a moment (dead copy)
+        return gen_of(p) if os.path.exists(p) else -1
+    try:
+        assert writer(d1, "--commits", 8, "--commit-block", "--ship-root", ws).returncode == 0
+        env.start_server()
+        env.start_client()
+        _wait_units(env, ws, aws, ["d1"])
+        for night, gap in enumerate((0, 0.5, 2, 0)):     # 0: reopened before the copy saw the folder go
+            shutil.move(d1, os.path.join(arch, "d1"))     # archived: out of the set
+            shutil.rmtree(ld, ignore_errors=True)         # its stream's log purged
+            time.sleep(gap)
+            shutil.move(os.path.join(arch, "d1"), d1)     # reopened for the late lines: the same stream name
+            assert writer(d1, "--commits", 4, "--per", 6, "--commit-block", "--ship-root", ws,
+                          "--seed", 60 + night).returncode == 0
+            want = gen_of(os.path.join(d1, "commit.bin"))
+            end = time.time() + 60
+            while time.time() < end and not (g(os.path.join(aws, "d1", "commit.bin")) == want and
+                                             _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd"))):
+                time.sleep(0.3)
+            time.sleep(2)
+            assert _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd")), \
+                f"night {night + 1}: the copy's data.gxd differs from the source's\n" + env.logs()
+    finally:
+        env.stop()
+
+
 def test_drain_verify_once_per_stream():
     """note_verify() is idempotent: one "needs a verify" line and one verify for the stream, whichever drains
     (the drain's own, then the caller's) saw the open records of two writers"""
