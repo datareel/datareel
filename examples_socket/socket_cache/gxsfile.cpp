@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/31/2026
+// Date Last Modified: 11/14/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -76,14 +76,19 @@ void gxsFile::Read(void *buf, unsigned Bytes, gxDeviceTypes dev)
     case gxDEVICE_DATAGRAM_SOCKET:
       if(!datagram_sock) { ready_for_reading = 0; return; }
       else { ready_for_reading = 1; }
-      if(datagram_sock->ReadRemoteBlock((char *)buf, curr_datagram_hdr) != 0)
+      // 11/14/2026: Read only as many bytes as the buffer holds; the
+      // length in the header comes from the client
+      if(datagram_sock->ReadRemoteBlock((char *)buf, (int)Bytes,
+					curr_datagram_hdr) != 0)
 	DeviceErrorHandler(datagram_sock->SocketExceptionMessage());
       break;
       
     case gxDEVICE_SERIAL_PORT:
       if(!serial_port) {  ready_for_reading = 0; return; }
       else { ready_for_reading = 1; }
-      if(serial_port->ReadBlock((char *)buf, curr_serial_hdr) != 0)
+      // 11/14/2026: Sized read, the length comes from the peer
+      if(serial_port->ReadBlock((char *)buf, (__ULWORD__)Bytes,
+				curr_serial_hdr) != 0)
 	DeviceErrorHandler(serial_port->SerialCommExceptionMessage());
       break;
 

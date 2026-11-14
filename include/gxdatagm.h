@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 11/14/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -29,6 +29,12 @@ USA
 
 The gxDatagram class is derived from the gxSocket class and is 
 used to send and receive database blocks over a UDP connection.
+
+11/14/2026: Block lengths from the network are checked against
+SetMaxBlockSize() (64 MB by default) before RequestBlock() allocates
+memory or ReadBlock() reads. New ReadBlock()/ReadRemoteBlock() overloads
+take the size of the caller's buffer. NOTE: UDP has no peer
+authentication; any host that can reach the port can send blocks.
 */
 // ----------------------------------------------------------- //   
 #ifndef __GX_DATABASE_DATAGRAM_HPP__
@@ -39,11 +45,22 @@ used to send and receive database blocks over a UDP connection.
 #include "gxsocket.h"
 #include "gxheader.h"
 
+// 11/14/2026: Largest block length accepted from the network by
+// default. See gxDatagram::SetMaxBlockSize().
+const gxUINT32 gxDATAGRAM_DEF_MAX_BLOCK = 64*1024*1024;
+
 class GXDLCODE_API gxDatagram : public gxSocket
 {
 public:
-  gxDatagram() { }
+  gxDatagram() { max_block = gxDATAGRAM_DEF_MAX_BLOCK; }
   ~gxDatagram() { }
+
+public: // 11/14/2026: Limits
+  // Largest block length accepted from the peer, checked before any
+  // memory is allocated (RequestBlock()) or data is read (ReadBlock()).
+  // At most INT_MAX is used.
+  void SetMaxBlockSize(gxUINT32 bytes) { max_block = bytes; }
+  gxUINT32 MaxBlockSize() { return max_block; }
 
 public: // Client/Server configuration
   int DatagramServer(int port);
@@ -59,6 +76,8 @@ public: // High-level database block functions
   int CloseConnection();
   int ReadClientHeader(gxBlockHeader &gxs);
   int ReadRemoteBlock(void *buf, gxBlockHeader &gx);
+  // 11/14/2026: Reads the block only if it fits in buf_size bytes
+  int ReadRemoteBlock(void *buf, int buf_size, gxBlockHeader &gx);
   int WriteRemoteBlock(void *buf, int bytes);
   void *RequestBlock(const void *request, gxBlockHeader &request_header, 
 		      gxBlockHeader &requested_block_header);
@@ -81,6 +100,9 @@ public: // Low-level database block functions
   int WriteHeader(gxsSocket_t s, gxsSocketAddress *sa, gxBlockHeader &gx);
   int ReadBlock(gxsSocket_t s, gxsSocketAddress *sa,
 		void *buf, gxBlockHeader &gx);
+  // 11/14/2026: Nothing is read if the block does not fit in buf_size
+  int ReadBlock(gxsSocket_t s, gxsSocketAddress *sa,
+		void *buf, int buf_size, gxBlockHeader &gx);
   int ReadHeader(gxsSocket_t s, gxsSocketAddress *sa, gxBlockHeader &gx);
   void *RequestBlock(gxsSocket_t s, gxsSocketAddress *sa, const void *request,
 		     gxBlockHeader &request_header, 
@@ -97,6 +119,10 @@ public: // Low-level database block functions
   int ReadAckBlock(gxsSocket_t s, gxsSocketAddress *sa);
   int TerminateConnection(gxsSocket_t s, gxsSocketAddress *sa);
   int CloseConnection(gxsSocket_t s, gxsSocketAddress *sa);
+
+protected:
+  gxUINT32 max_block; // 11/14/2026: See SetMaxBlockSize()
+  int check_block_length(const gxBlockHeader &gx, int buf_size = -1);
 };
 
 #endif // __GX_DATABASE_DATAGRAM_HPP__

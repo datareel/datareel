@@ -42,6 +42,14 @@ Data path:
               sent a header with a huge length).
   result64    WriteResultBlock64()/ReadResultBlock64() keep a 64-bit
               file address.
+  dgram_request  gxDatagram::RequestBlock() refuses a huge block length
+              from the peer before allocating (11/14/2026).
+  dgram_sized gxDatagram ReadBlock()/ReadRemoteBlock() with a buffer
+              size read nothing if the block does not fit.
+  dgram_maxblock The old gxDatagram ReadBlock() refuses lengths over
+              MaxBlockSize().
+  dgram_negative gxDatagram WriteBlock() with a negative length or a
+              null buffer sends nothing.
   plain       Plain TCP data path between StreamClient() and
               StreamServer() when the server opts out with
               AllowAnonymousClients(true).
@@ -74,6 +82,7 @@ Returns 0 if every check passes.
 #include <stdio.h>
 #include <string.h>
 #include "gxstream.h"
+#include "gxdatagm.h"
 
 #if defined (__UNIX__)
 #include <unistd.h>
@@ -82,6 +91,8 @@ Returns 0 if every check passes.
 #include <time.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include "testcerts.h"
 
 static int failures = 0;
@@ -218,6 +229,119 @@ static int test_negative()
   gxBlockHeader gx;
   make_header(st, gx, gxSendBlock, 10);
   if(st.WriteBlock(sv[0], 0, gx) == 0) return 1;
+  return 0;
+}
+
+// 11/14/2026: gxDatagram checks over two UDP sockets on 127.0.0.1
+static int udp_socket(gxsSocketAddress &sa)
+{
+  int s = socket(AF_INET, SOCK_DGRAM, 0);
+  if(s < 0) return -1;
+  memset(&sa, 0, sizeof(sa));
+  sa.sin_family = AF_INET;
+  sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  sa.sin_port = 0;
+  if(bind(s, (struct sockaddr *)&sa, sizeof(sa)) != 0) { close(s); return -1; }
+  socklen_t len = sizeof(sa);
+  if(getsockname(s, (struct sockaddr *)&sa, &len) != 0) { close(s); return -1; }
+  return s;
+}
+
+static int test_dgram_request()
+{
+  gxsSocketAddress a, b;
+  int sa = udp_socket(a), sb = udp_socket(b);
+  if(sa < 0 || sb < 0) return 2;
+  gxDatagram peer, client;
+  // The peer's reply header claims a huge block, queued before the request
+  gxBlockHeader reply;
+  __ULWORD__ huge = (__ULWORD__)0x7ffffff0;
+  if(sizeof(__ULWORD__) >= 8) huge = (__ULWORD__)(((__ULWORD__)1) << 46);
+  peer.SetBlockStatus(reply, gxSendBlock);
+  reply.block_length = huge;
+  if(peer.WriteHeader(sb, &a, reply) != 0) return 2;
+  gxBlockHeader req, got;
+  memset(&req, 0, sizeof(req));
+  req.block_length = 1;
+  gxsSocketAddress to = b;
+  void *p = client.RequestBlock(sa, &to, "k", req, got);
+  if(p) {
+    delete[] (char *)p;
+    return 1;
+  }
+  if(client.GetSocketError() != gxSOCKET_BLOCKSIZE_ERROR) {
+    printf("  error %d: %s\n", (int)client.GetSocketError(),
+	   client.SocketExceptionMessage());
+    return 1;
+  }
+  return 0;
+}
+
+static int test_dgram_sized()
+{
+  gxsSocketAddress a, b;
+  int sa = udp_socket(a), sb = udp_socket(b);
+  if(sa < 0 || sb < 0) return 2;
+  gxDatagram peer, server;
+  char data[100];
+  memset(data, 'A', sizeof(data));
+  if(peer.WriteBlock(sb, &a, data, (int)sizeof(data)) != 0) return 2;
+  gxsSocketAddress from;
+  gxBlockHeader gx;
+  if(server.ReadHeader(sa, &from, gx) != 0) return 2;
+  char buf[20];
+  memset(buf, 'z', sizeof(buf));
+  if(server.ReadBlock(sa, &from, buf, 10, gx) != gxSOCKET_BLOCKSIZE_ERROR) {
+    return 1;
+  }
+  for(int i = 0; i < (int)sizeof(buf); i++) if(buf[i] != 'z') return 1;
+  // A block that fits is read (the data datagram is still queued)
+  char big[100];
+  if(server.ReadBlock(sa, &from, big, (int)sizeof(big), gx) != 0) return 1;
+  if(memcmp(big, data, sizeof(big)) != 0) return 1;
+  return 0;
+}
+
+static int test_dgram_maxblock()
+{
+  gxsSocketAddress a, b;
+  int sa = udp_socket(a), sb = udp_socket(b);
+  if(sa < 0 || sb < 0) return 2;
+  gxDatagram peer, server;
+  if(server.MaxBlockSize() != gxDATAGRAM_DEF_MAX_BLOCK) return 1;
+  server.SetMaxBlockSize(16);
+  char data[100];
+  memset(data, 'A', sizeof(data));
+  if(peer.WriteBlock(sb, &a, data, (int)sizeof(data)) != 0) return 2;
+  gxsSocketAddress from;
+  gxBlockHeader gx;
+  if(server.ReadHeader(sa, &from, gx) != 0) return 2;
+  char buf[100];
+  if(server.ReadBlock(sa, &from, buf, gx) != gxSOCKET_BLOCKSIZE_ERROR) {
+    return 1;
+  }
+  return 0;
+}
+
+static int test_dgram_negative()
+{
+  gxsSocketAddress a, b;
+  int sa = udp_socket(a), sb = udp_socket(b);
+  if(sa < 0 || sb < 0) return 2;
+  gxDatagram st;
+  char data[16];
+  memset(data, 0, sizeof(data));
+  if(st.WriteBlock(sb, &a, data, -1) == 0) return 1;
+  gxBlockHeader gx;
+  st.SetBlockStatus(gx, gxSendBlock);
+  gx.block_length = 10;
+  if(st.WriteBlock(sb, &a, 0, gx) == 0) return 1;
+  struct pollfd pfd;
+  pfd.fd = sa; pfd.events = POLLIN; pfd.revents = 0;
+  if(poll(&pfd, 1, 200) != 0) {
+    printf("  a refused WriteBlock() sent data\n");
+    return 1;
+  }
   return 0;
 }
 
@@ -574,6 +698,14 @@ int main(int argc, char **argv)
       test_maxblock);
   run("negative: WriteBlock() with a negative length", test_negative);
   run("result64: 64-bit result blocks", test_result64);
+  run("dgram_request: gxDatagram RequestBlock() refuses a huge block length",
+      test_dgram_request);
+  run("dgram_sized: gxDatagram ReadBlock() with a buffer size",
+      test_dgram_sized);
+  run("dgram_maxblock: gxDatagram ReadBlock() refuses lengths over "
+      "MaxBlockSize()", test_dgram_maxblock);
+  run("dgram_negative: gxDatagram WriteBlock() with a negative length",
+      test_dgram_negative);
   run("plain: TCP data path (AllowAnonymousClients(true))", test_plain);
 #if defined (__USE_GX_SSL_EXTENSIONS__)
   if(MakeTestCerts() != 0) {

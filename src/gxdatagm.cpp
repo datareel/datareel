@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 11/14/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -29,11 +29,22 @@ USA
 
 The gxDatagram class is derived from the gxSocket class and is 
 used to send and receive database blocks over a UDP connection.
+
+11/14/2026: The gxStream fixes of 10/31/2026 applied to datagrams.
+RequestBlock() allocated whatever block length the peer's reply header
+gave (64 bits on 64-bit UNIX) and ReadBlock() wrote gx.block_length
+bytes, a length sent by the peer, into a buffer whose size it did not
+know. Lengths are now checked against SetMaxBlockSize() and INT_MAX,
+and new ReadBlock()/ReadRemoteBlock() overloads take the buffer size.
+WriteBlock() rejects negative lengths, lengths over INT_MAX and a null
+buffer.
 */
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
 
 #include <string.h>
+#include <limits.h>
+#include <new> // 11/14/2026: std::nothrow
 #include "gxdatagm.h"
 
 #ifdef __BCC32__
@@ -92,6 +103,21 @@ void gxDatagram::SetBlockStatus(gxBlockHeader &gx, __SBYTE__ net_status,
   gx.block_nd_fptr = (FAU)0;
 }
 
+int gxDatagram::check_block_length(const gxBlockHeader &gx, int buf_size)
+// 11/14/2026: Internal function used to check a block length read from
+// the network before memory is allocated or data is read. buf_size is
+// the size of the caller's buffer, or -1 if not known. Returns zero if
+// the length can be read.
+{
+  __ULWORD__ len = (__ULWORD__)gx.block_length;
+  if(len > (__ULWORD__)max_block) return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
+  if(len > (__ULWORD__)INT_MAX) return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
+  if(buf_size >= 0 && len > (__ULWORD__)buf_size) {
+    return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
+  }
+  return gxSOCKET_NO_ERROR;
+}
+
 int gxDatagram::WriteBlock(gxsSocket_t s, gxsSocketAddress *sa, 
 			   const void *buf, int bytes)
 // Write a block of raw data to the socket. NOTE: All block read and write
@@ -99,6 +125,9 @@ int gxDatagram::WriteBlock(gxsSocket_t s, gxsSocketAddress *sa,
 // between the transmitter and receiver. Returns zero if no errors
 // occur.
 {
+  // 11/14/2026: A negative count became a huge block length in the
+  // header followed by no data
+  if(bytes < 0) return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
   gxBlockHeader gx;
   SetBlockStatus(gx, gxSendBlock);
   gx.block_length = bytes;
@@ -116,11 +145,20 @@ int gxDatagram::WriteBlock(gxsSocket_t s, gxsSocketAddress *sa,
 // errors occur. NOTE: This function assumes that the block header has
 // already been initialized.
 {
+  // 11/14/2026: Check before anything is sent. SendTo() takes an int,
+  // so a longer block was cut short after a header with the full length.
+  if((__ULWORD__)gx.block_length > (__ULWORD__)INT_MAX) {
+    return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
+  }
+  if(gx.block_length > 0 && !buf) {
+    return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
+  }
+
   // Write the block header
   if(WriteHeader(s, sa, gx) != gxSOCKET_NO_ERROR) return socket_error;
 
   // Write the block
-  if(SendTo(s, sa, (char *)buf, gx.block_length) < 0)
+  if(SendTo(s, sa, (char *)buf, (int)gx.block_length) < 0)
     return socket_error;
   
   if((gxUINT32)bytes_moved != gx.block_length) 
@@ -149,9 +187,13 @@ int gxDatagram::WriteHeader(gxsSocket_t s, gxsSocketAddress *sa,
 int gxDatagram::ReadBlock(gxsSocket_t s, gxsSocketAddress *sa, void *buf, 
 			  gxBlockHeader &gx)
 // Read database block from the specified socket. Returns zero
-// if no errors occur.
+// if no errors occur. NOTE: buf must hold gx.block_length bytes, a
+// length sent by the peer. Use the overload with the buffer size.
 {
-  if(RecvFrom(s, sa, buf, gx.block_length) < 0)
+  // 11/14/2026: The length comes from the peer
+  if(check_block_length(gx) != gxSOCKET_NO_ERROR) return socket_error;
+  if(gx.block_length > 0 && !buf) return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
+  if(RecvFrom(s, sa, buf, (int)gx.block_length) < 0)
     return socket_error;
 
   // If the bytes read do not equal the bytes received then
@@ -160,6 +202,17 @@ int gxDatagram::ReadBlock(gxsSocket_t s, gxsSocketAddress *sa, void *buf,
     return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
 
   return socket_error = gxSOCKET_NO_ERROR;
+}
+
+int gxDatagram::ReadBlock(gxsSocket_t s, gxsSocketAddress *sa, void *buf, 
+			  int buf_size, gxBlockHeader &gx)
+// 11/14/2026: Read a database block into a buffer of buf_size bytes.
+// Nothing is read if the block does not fit (gxSOCKET_BLOCKSIZE_ERROR).
+// Returns zero if no errors occur.
+{
+  if(buf_size < 0) return socket_error = gxSOCKET_BLOCKSIZE_ERROR;
+  if(check_block_length(gx, buf_size) != gxSOCKET_NO_ERROR) return socket_error;
+  return ReadBlock(s, sa, buf, gx);
 }
 
 int gxDatagram::ReadHeader(gxsSocket_t s, gxsSocketAddress *sa, 
@@ -200,11 +253,21 @@ void *gxDatagram::RequestBlock(gxsSocket_t s, gxsSocketAddress *sa,
   if(ReadHeader(s, sa, requested_block_header) != gxSOCKET_NO_ERROR) 
     return 0;
 
+  // 11/14/2026: Check the length sent by the peer before allocating
+  // memory for it
+  if(check_block_length(requested_block_header) != gxSOCKET_NO_ERROR) {
+    return 0;
+  }
+
   // Read the returned requested block
-  char *buf = new char[(__ULWORD__)requested_block_header.block_length];
-  if(!buf) return 0;
+  char *buf = new (std::nothrow) 
+    char[(__ULWORD__)requested_block_header.block_length];
+  if(!buf) {
+    socket_error = gxSOCKET_BUFOVER_ERROR; // 11/14/2026
+    return 0;
+  }
   
-  if(RecvFrom(s, sa, buf, requested_block_header.block_length) < 0) {
+  if(RecvFrom(s, sa, buf, (int)requested_block_header.block_length) < 0) {
     // PC-lint 09/08/2005: Memory leak if buf is not freeed before returning
     // on error condition.
     delete[] buf;
@@ -380,6 +443,12 @@ int gxDatagram::CloseConnection()
 int gxDatagram::ReadRemoteBlock(void *buf, gxBlockHeader &gx)
 {
   return ReadBlock(gxsocket, &remote_sin, buf, gx);
+}
+
+int gxDatagram::ReadRemoteBlock(void *buf, int buf_size, gxBlockHeader &gx)
+// 11/14/2026: Reads the block only if it fits in buf_size bytes
+{
+  return ReadBlock(gxsocket, &remote_sin, buf, buf_size, gx);
 }
 
 int gxDatagram::ReadClientHeader(gxBlockHeader &gx)

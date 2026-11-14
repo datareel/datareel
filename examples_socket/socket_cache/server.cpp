@@ -304,6 +304,13 @@ int CopyDatagramSocketToFile(gxsFile *dev)
     switch(status) { 
       // Process each block of data
       case gxSendBlock :
+	// 11/14/2026: The length comes from the client. Check it before
+	// the cache allocates a buffer for it.
+	if((__ULWORD__)gx.block_length > (__ULWORD__)server.MaxBlockSize()) {
+	  cout << "Block of " << gx.block_length << " bytes is too large" 
+	       << "\n" << flush;
+	  return 0;
+	}
 	cout << "Reading " << gx.block_length << " bytes from " << client_name 
 	     << " remote port " << r_port << "\n" << flush;
 	
@@ -413,6 +420,13 @@ void CopySerialPortToFile(gxsFile *dev)
     switch(status) { 
       // Process each block of data
       case gxSendBlock :
+	// 11/14/2026: The length comes from the client. Check it before
+	// the cache allocates a buffer for it.
+	if((__ULWORD__)gx.block_length > (__ULWORD__)gxDATAGRAM_DEF_MAX_BLOCK) {
+	  cout << "Block of " << gx.block_length << " bytes is too large" 
+	       << "\n" << flush;
+	  return 0;
+	}
 	cout << "Reading database block " << gx.block_length
 	     << " bytes in length" << "\n" << flush;
 	if(!dev->CopySerialPortToFile(&server, gx)) {
