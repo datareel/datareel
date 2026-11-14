@@ -254,6 +254,17 @@ DOCUMENTATION
 All documentation is included in the docs sub directory in an HTML
 format, viewable in any Web browser. 
 
+VERSION 6.3.1 (BETA)
+--------------------
+DataReel 6.3.1, 11/14/2026, finishes the 6.x security sweep: the
+networking part of the DataReel 7.3.1 sweep (sockets, TLS, gxStream,
+HTTP, URL, SMTP, POP3, FTP) and the rest of the 6.x-only modules
+(gxDatagram, gxRDBMS, the HTML/XML/RSS parsers, the print drivers,
+SysTime, Terminal). gxStream servers now need client certificates, or
+an explicit AllowAnonymousClients(true). The file formats are
+unchanged. The shared library is built as libdatareel.so.6.3.1;
+recompile and relink. See RELEASE_NOTES_6.3.1.txt.
+
 VERSION 6.3
 -----------
 DataReel 6.3, 10/31/2026, brings the object database speed and crash

@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_db_tests.sh [WORKDIR] - 6.3: build and run every database example,
+# run_db_tests.sh [WORKDIR] - 6.3.1: build and run every database example,
 # the journal tests (memory-mapped reads off and on) and the kill -9
 # crash test. Build the library first: source env/gnu_env.sh; cd build;
 # make; make install (export LARGEFILES=1 for the 64-bit engine).
@@ -30,7 +30,14 @@ d="$W/security_sweep"; mkdir -p "$d"
 (cd "$HERE/../examples_general/security_sweep" && make >/dev/null 2>&1)
 (cd "$d" && "$HERE/../examples_general/security_sweep/testprog" > sweep.log 2>&1); result $? "security sweep (config writer, log file, RSA key file)"
 # 10/31/2026: support code and serial/telnet/ping (7.3.1 security sweep)
-for t in examples_general/support_security examples_socket/comm_security; do
+# 11/14/2026: 6.3.1: the networking sweep (sockets, TLS, gxStream
+# mutual TLS, gxDatagram, HTTP/URL/SMTP/POP3/FTP) and the print drivers.
+# The TLS checks make throwaway certificates with the openssl program and
+# use 127.0.0.1.
+for t in examples_general/support_security examples_socket/comm_security \
+	 examples_general/print_security examples_socket/socket_security \
+	 examples_socket/ssl_security examples_socket/stream_security \
+	 examples_socket/proto_security; do
   n=$(basename $t); d="$W/$n"; mkdir -p "$d"
   (cd "$HERE/../$t" && make >/dev/null 2>&1)
   (cd "$d" && "$HERE/../$t/testprog" > $n.log 2>&1); result $? "$n"

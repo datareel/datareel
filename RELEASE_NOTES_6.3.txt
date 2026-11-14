@@ -151,7 +151,7 @@ examples_general/support_security or examples_socket/comm_security.
 - Threads: a thread that could not be created is not joined or
   cancelled. Device cache of 0 buckets, null error messages.
 
-NOT IN THIS BUILD: the networking part of the 7.3.1 sweep (sockets,
+6.3.1 (RELEASE_NOTES_6.3.1.txt) adds this work. NOT IN THE 6.3 BUILD: the networking part of the 7.3.1 sweep (sockets,
 TLS, gxStream with client certificates required by default, HTTP,
 URL, SMTP, POP3, FTP) and the rest of the 6.x-only module sweep
 (gxRDBMS, HTML/XML/RSS parsers, gxDatagram, printing). That work is

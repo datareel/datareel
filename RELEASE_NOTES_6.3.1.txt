@@ -1,0 +1,132 @@
+DataReel 6.3.1 Release Notes, 11/14/2026 (beta)
+DataReel version 6.3.1 (was 6.3)
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 6.3.1 finishes the 6.x security sweep. 6.3 had the database
+fixes and the support code; 6.3.1 adds the networking part of the
+DataReel 7.3.1 sweep (sockets, TLS, the gxStream object database
+protocol with client certificates required by default, HTTP, URL,
+SMTP, POP3, FTP) and the rest of the 6.x-only modules DataReel 7
+removed (gxDatagram, gxRDBMS, the HTML, XML and RSS parsers, gxIP32,
+gxMAC48, CDate, the print drivers, SysTime, Terminal, the thread
+messages). Everything in RELEASE_NOTES_6.3.txt is included.
+
+The database and index file formats are unchanged: 6.3.1 writes the
+same bytes as 6.2 and 6.3 for the same operations. The library version
+in version.txt is 6.3.1 and SHAREDLIB_VERSION is 6.3.1
+(libdatareel.so.6.3.1). The public interface only gains functions, but
+gxSocket, gxSSL, gxStream, gxDatagram and the protocol client classes
+have new members, so recompile and relink. Fixes are marked in the
+source with "10/31/2026", "11/01/2026" or "11/14/2026" comments.
+
+BEHAVIOUR CHANGE: gxStream SERVERS NEED CLIENT CERTIFICATES
+----------------------------------------------------------
+This is the one change that can stop an existing program from working.
+The networked object database protocol (gxStream) had no
+authentication: any program that could reach the port could add, read
+and delete blocks, and stop the server. As in DataReel 7.3.1:
+- gxStream::StreamServer(), Accept() and AcceptClient() now return
+  gxSOCKET_SSL_ERROR unless the server has a server certificate
+  (SetServerCert()), a client CA file (SetClientCAFile()) and at least
+  one allow list entry (AllowClientFingerprint() with a SHA-256
+  fingerprint, or AllowClientCN()). Clients send a certificate with
+  SetClientCert().
+- The explicit opt-out is AllowAnonymousClients(true): plain TCP as in
+  6.2, or TLS without client certificates when a server certificate is
+  set. Call it to keep an existing 6.x gxStream server running
+  unchanged; only do that on a trusted network.
+- Clients are unchanged unless they call UseTLS(); a TLS client checks
+  the server certificate and host name (SetServerCAFile(),
+  SetServerName(), SetVerifyServer()).
+- Fail closed: a failed handshake or certificate check closes the
+  socket, and in TLS mode the block functions refuse a socket without
+  a TLS connection, so nothing is sent in cleartext.
+- The socket_cache example server takes the 7.3.1 option names:
+  --cert/--key, --client-ca, --allow-fingerprint, --allow-cn and --open
+  (the opt-out), and obeys a client's shutdown request only with
+  --allow-remote-shutdown. Its client takes --ca, --insecure,
+  --cert/--key.
+This default may still change before the final release.
+
+NETWORKING (FROM THE DATAREEL 7.3.1 SWEEP AND THE 6.x SWEEP)
+-----------------------------------------------------------
+- gxSocket: Close() kept the closed descriptor numbers (a second
+  Close() closed another file); select() on descriptors at or above
+  FD_SETSIZE wrote past the fd_set (UNIX now uses poll()); Send() and
+  SendTo() looped on 0-byte sends; SIGPIPE killed the program on a
+  closed peer (MSG_NOSIGNAL); new SetIOTimeout(). Host address reads
+  of 8 bytes from a 4-byte address, InitSIN() in the thread safe build,
+  SetRemoteIPAddress() of an unknown host, name buffers.
+- gxSSL: handshake timeout (SetHandshakeTimeout(), 60 s), close_notify
+  sent once (a silent peer hung CloseSSLSocket() and the destructor),
+  buffered TLS bytes seen by timed reads, SIGPIPE, VerifyCert() checks
+  the alternative names and IP addresses (X509_check_host()),
+  MakeCertReq() file leaks and day overflow.
+- gxStream: block lengths from the peer are checked against
+  SetMaxBlockSize() (64 MB) before RequestBlock() allocates and before
+  ReadBlock() reads; new sized ReadBlock()/ReadRemoteBlock(); negative
+  and over-INT_MAX writes refused; new WriteResultBlock64()/
+  ReadResultBlock64().
+- gxDatagram (UDP): the same block length checks, sized reads and write
+  checks as gxStream (SetMaxBlockSize(), gxDATAGRAM_DEF_MAX_BLOCK).
+  UDP has no peer authentication.
+- Schannel (Windows): receive buffers capped at 256 KB; mutual TLS
+  ported from 7.3.1. NOT COMPILED OR TESTED in this beta.
+- gxsHTTPClient: no fixed stack buffers in the header parser, fields
+  matched at the start of a line, strict status line and
+  Content-Length, control characters refused, header (256 KB) and body
+  (1 GB, SetMaxBodySize()) limits, the body offset of a header that
+  spans packets, no CR LF from a URL into the request.
+- gxsURL: table bounds, ports 1-65535, control characters refused,
+  safe % decoding, new HasControlChars() and DecodeStrict().
+- gxsSMTPClient: command buffer overflow, CR LF in commands refused,
+  addresses normalized to <user@host> (parameter injection), multi-line
+  replies, dot-stuffing and CR LF line ends in the body (SMTP
+  smuggling), header injection in To/From/Subject.
+- gxsPOP3Client: "+OK" must start the status line (a "-ERR ... +OK"
+  reply was a login), command overflow, buffer bounds.
+- gxsFTPClient: PASV parser, the data connection goes to the control
+  connection's address (not the address the server names), command and
+  buffer overflows, multi-line replies.
+- ParseServiceFileEntry() stack overflow, InChecksum16() overflow;
+  socket example overflows and endless loops.
+- Checked and not applicable to 6.x: the 7.3.1 redirect fix (the 6.x
+  HTTP client reports Location but never follows a redirect, and has
+  no custom header API), the FTPS data channel check (6.x FTP has no
+  TLS: it is plaintext), the https_server path mapping (the 6.x
+  http_server example serves a fixed page).
+
+6.x-ONLY MODULES
+----------------
+- gxIP32, gxMAC48, CDate and gxsHTML parsers stay in their buffers.
+- gxRDBMS: damaged disk records, block lengths and negative array
+  lengths (the format is unchanged).
+- PostScriptDrv: a cut or wrapped line lost its terminator, so the
+  printer output read past the buffer; the nroff filter read past the
+  end of a line. HyperText: color values out of range, a buffer leaked
+  by GetSystemTime(0). (Both drivers are compiled only with
+  __USE_POSTSCRIPT_PRINTING__ / __USE_HTM_PRINTING__.)
+- SysTimeUnit::c_str_*() wrote one byte past its buffer; SysTime
+  crashed on times localtime()/gmtime() cannot convert and, in the
+  thread safe build, leaked a struct tm on every format call.
+- Terminal: GetString()/GetPassword() have no length limit (new
+  GetStringN()/GetPasswordN(); GetInt()/GetLong()/GetFloat() use them)
+  and stop at end of input; Write(double) could overflow its buffer.
+- gxThread_t: operator!= was inverted on POSIX; message lookups one past
+  their tables. Database error messages for negative codes.
+- Reviewed, no change: the thread pool, gxThread, the thread API
+  wrapper, the database file cache, the binary search tree iterator,
+  ASPrint, gxsXML and gxsRSS (fuzzed).
+
+TESTS
+-----
+examples_database/run_db_tests.sh now also builds and runs
+examples_general/print_security (new), examples_socket/socket_security,
+ssl_security, stream_security (with the gxDatagram checks) and
+proto_security. The TLS checks make throwaway certificates with the
+openssl program and use 127.0.0.1. libFuzzer targets (clang):
+examples_general/fuzz (cfg, str, b64, html, xml, rss, rdbdef, rdbrec,
+dfile, membuf, misc), examples_socket/fuzz (fuzz_proto),
+examples_socket/stream_fuzz and examples_database/fuzz.
+
+DataReel Copyright (c) 2001-2026 DataReel Software Development
