@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>DataReel 7.3.1 Beta Readme</title>
+<title>DataReel 7.3.2 Beta Readme</title>
 <link rel="stylesheet" href="css/datareel.css">
 <link rel="icon" href="images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
@@ -18,7 +18,7 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html" aria-current="page">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>DataReel 7.3.1 Beta Readme</h1>
+<h1>DataReel 7.3.2 Beta Readme</h1>
 <div class="dr-toc-title">Contents</div>
 <p class="dr-toc"><a href="#Overview">Overview</a><br>
 <a href="#WhatDatareelIsGoodFor">What DataReel is good for</a><br>
@@ -41,7 +41,7 @@
 <li>Stable, portable file formats: files written by DataReel releases going back to 2001 still open, byte for byte.</li>
 </ul>
 <p>The library has no dependencies except the system TLS library (OpenSSL on Linux, Schannel or OpenSSL on Windows).</p>
-<p>DataReel 7.3.1 is a beta release. DataReel 6.2 remains the stable release for production use until DataReel 7 is final.</p>
+<p>DataReel 7.3.2 is a beta release. DataReel 6.2 remains the stable release for production use until DataReel 7 is final.</p>
 <p>The DataReel development package was produced by independent work and contract work released to the public through non-exclusive license agreements. The initial work began independently in 1997 and was augmented from 1999 to 2004 by code produced under contract to support various applications. Bug fixes, enhancements and additions are welcome through the DataReel website:</p>
 <p><a href="https://datareel.com/downloads/datareel/">https://datareel.com/downloads/datareel/</a> <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a></p>
 <h2 id="WhatDatareelIsGoodFor">What DataReel is good for</h2>
@@ -81,7 +81,7 @@
  gxs_b64.h, gxcrc32.h   Base 64 and CRC-32</pre>
 <p>For general purpose work (strings, containers, threads, files, time) use the C++ standard library; DataReel 7 itself does.</p>
 <h2 id="WhatChangedInDatareel7">What changed in DataReel 7</h2>
-<p>See <a href="release_notes_7_0.html">RELEASE_NOTES_7.0.txt</a> for the full list and for porting notes, <a href="release_notes_7_1.html">RELEASE_NOTES_7.1.txt</a>, <a href="release_notes_7_2.html">RELEASE_NOTES_7.2.txt</a>, <a href="release_notes_7_3.html">RELEASE_NOTES_7.3.txt</a> and <a href="release_notes_7_3_1.html">RELEASE_NOTES_7.3.1.txt</a> for the changes in 7.1 to 7.3.1. In short:</p>
+<p>See <a href="release_notes_7_0.html">RELEASE_NOTES_7.0.txt</a> for the full list and for porting notes, <a href="release_notes_7_1.html">RELEASE_NOTES_7.1.txt</a>, <a href="release_notes_7_2.html">RELEASE_NOTES_7.2.txt</a>, <a href="release_notes_7_3.html">RELEASE_NOTES_7.3.txt</a>, <a href="release_notes_7_3_1.html">RELEASE_NOTES_7.3.1.txt</a> and <a href="release_notes_7_3_2.html">RELEASE_NOTES_7.3.2.txt</a> for the changes in 7.1 to 7.3.2. In short:</p>
 <ul>
 <li>C++17 is required. Strings, lists, trees, threads, mutexes, files and time now come from the standard library. The UString/gxString, MemoryBuffer, gxList, gxBStree, DiskFileB, futils, SysTime, gxThread, gxMutex, gxCondition, gxSemaphore and thrPool classes, the HTML/XML/ RSS parsers, the report writers, the terminal and device cache classes, gxIP32, gxMAC48, FString and gxDatagram were removed.</li>
 <li>All networking uses TLS 1.2 or later and checks certificates by default. Sockets support IPv6. http://, plain SMTP, plain POP3 and plain FTP are no longer supported.</li>
@@ -91,7 +91,8 @@
 <li>7.1 removed the gxRDBMS relational tables; use SQLite for relational needs.</li>
 <li>7.2 adds gxdJournal (atomic, crash and power loss safe transactions over a data file and its indexes), an optional page cache, faster file I/O and a faster B-tree cache. File formats are unchanged.</li>
 <li>7.3 reads records through a memory map and makes key-order scans and random reads faster.</li>
-<li>7.3.1 fixes the problems a full security sweep found (damaged files and journals, TLS, the database stream protocol, HTTP, mail, FTPS, telnet, RS-232, ping and the support code), and gxStream database servers use mutual TLS: gxStreamServer requires client certificates from a client CA plus an allow list of fingerprints or names, and will not start without them unless the program explicitly opts out (AllowAnonymousClients(true), stream_server --open). Other TLS servers are unchanged.</li>
+<li>7.3.1 fixes the problems a full security sweep found (damaged files and journals, TLS, the database stream protocol, HTTP, mail, FTPS, telnet, RS-232, ping and the support code), and gxStream database servers use mutual TLS: gxStreamServer requires client certificates from a client CA plus an allow list of fingerprints or names, and will not start without them unless the program explicitly opts out (AllowAnonymousClients(true), stream_server --open). Other TLS servers are unchanged. 7.3.1 also adds database replication (gxrepl, utils/gxrepl) and the database object server.</li>
+<li>7.3.2 fixes database replication problems found in production: channels resync after a timeout, the seal and the applied position are never read split, unit copies are staged and swapped in whole (&quot;gxrepl promote&quot;), and a copy&#x27;s folder goes when its source folder goes.</li>
 </ul>
 <h2 id="License">License</h2>
 <p>The DataReel open source library is copyrighted by DataReel Software Development, Copyright (c) 2001-2026, all rights reserved. DataReel open source is available to non-profit, commercial, individual, and academic developers. The open-source archive is distributed under the GNU Lesser General Public License (LGPL) with provisions for use in commercial and non-commercial applications under the terms of the LGPL. See the LICENSE file.</p>
@@ -168,7 +169,9 @@
 <h2 id="Documentation">Documentation</h2>
 <p>Open <a href="index.html">docs/index.html</a> in a browser. The class library pages are under docs/classes, the examples under docs/examples and the utilities under docs/utils. The guides in <a href="ai/README.md">docs/ai</a> (also collected in <a href="../llms-full.txt">llms-full.txt</a>) are short task-oriented descriptions of the API with working code, written for AI coding assistants but useful to anyone.</p>
 <h2 id="ReleaseHistory">Release history</h2>
-<pre> 7.3.1 11/01/2026 Beta. Security scan fixes (RELEASE_NOTES_7.3.1.txt)
+<pre> 7.3.2 11/14/2026 Beta. Database replication fixes
+                  (RELEASE_NOTES_7.3.2.txt)
+ 7.3.1 11/01/2026 Beta. Security scan fixes (RELEASE_NOTES_7.3.1.txt)
  7.3  10/31/2026  Beta. Memory-mapped reads, faster scans
                   (RELEASE_NOTES_7.3.txt)
  7.2  10/31/2026  Beta. Journal, page cache, positional I/O, hashed
@@ -183,6 +186,6 @@
                   CODE_REVIEW_FIXES.txt)</pre>
 <p>Release notes for the earlier versions are in <a href="release_notes_6_2.html">docs/release_notes_6_2.html</a>, <a href="release_notes_6_1.html">docs/release_notes_6_1.html</a> and <a href="release_notes_6_0.html">docs/release_notes_6_0.html</a>.</p>
 </main>
-<footer class="dr-footer">DataReel 7.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.3.2 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

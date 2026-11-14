@@ -13,7 +13,7 @@
 # lists the objects. CMakeLists.txt is the main build; use this file
 # for "cd build; make; make install" style builds.
 #
-#   make            Build libdatareel.a and libdatareel.so.7.3.1
+#   make            Build libdatareel.a and libdatareel.so.7.3.2
 #   make install    Copy the libraries to ../lib
 #   make LARGEFILES=1 FINAL=1    64-bit database engine, release build
 # --------------------------------------------------------------- 

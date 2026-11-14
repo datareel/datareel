@@ -84,6 +84,8 @@ def main():
         index.append('- [%s](docs/ai/%s): %s' % (title, f, desc))
     index += ['', '## Reference', '',
               '- [Readme](README.txt): What the library is for, building, file formats',
+              '- [Release notes 7.3.2](RELEASE_NOTES_7.3.2.txt): Database '
+              'replication fixes (channel resync, staged copies, promote)',
               '- [Release notes 7.3.1](RELEASE_NOTES_7.3.1.txt): Security scan '
               'fixes for damaged files and journals',
               '- [Release notes 7.3](RELEASE_NOTES_7.3.txt): Memory-mapped reads, '

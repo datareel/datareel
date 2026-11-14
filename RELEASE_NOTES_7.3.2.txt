@@ -1,0 +1,99 @@
+DataReel 7.3.2 Beta Release Notes, 11/14/2026
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.3.2 is a beta bug fix release of 7.3.1. DataReel 6.2
+remains the stable release for production use until DataReel 7 is
+final; please report problems through https://datareel.com/contact.php.
+
+7.3.2 fixes database replication (gxrepl, utils/gxrepl) problems found
+while it ran in production between two nodes. Database file formats
+are unchanged, replication protocol 3 is unchanged (a 7.3.1 node and a
+7.3.2 node talk to each other, but run the same version on both), and
+the API changes are additions. Rebuild programs against 7.3.2.
+
+The library version is 7.3.2 (version.txt, DATAREEL_VERSION_STRING in
+gxdlcode.h, libdatareel.so.7.3.2); the soname stays libdatareel.so.7.
+
+REPLICATION FIXES
+-----------------
+1. Channels resync after a timeout. A channel whose request had no
+   reply in time, or whose reply did not parse, is now closed and
+   marked broken (gxReplRemote::ChannelBroken), and the set's thread
+   opens a fresh channel. Before, after a network outage every set
+   read the previous request's late reply ("bad reply") until the
+   client was restarted.
+
+2. The apply lock is bounded. An apply takes apply.jnl with a bounded
+   wait (GXREPL_APPLY_LOCK_WAIT, default 5 s) and answers "busy"
+   instead of blocking behind a long derived index rebuild, so a slow
+   rebuild never stalls the other sets.
+
+3. Derived index rebuild and ssh tunnel children start with only
+   stdin, stdout and stderr open (no inherited sockets or locks).
+
+4. The seal, the commit block and the applied position are never read
+   split. ApplyLog writes a stream's applied position inside the same
+   apply.jnl transaction as the records' pages and the unit seal, and
+   "gxrepl torn" (promote-check) re-reads a seal that does not match
+   the applied position for up to GXREPL_TORN_RECHECK_SEC (10 s), so
+   an apply in flight is not reported as torn. Before, a promote-check
+   run during steady commits could report "sealed at record N, the
+   copy applied up to N-1".
+
+5. Staged unit copies. A unit (a folder with a commit block) that must
+   be copied whole is now written into a reflinked stage
+   (<set root>/.gxrepl/stage/<unit>/) and swapped in when its commit
+   block arrives: the commit block is marked odd, the data files are
+   renamed in, then the commit block lands. A lost link part way
+   through a copy leaves the copy whole at its last sealed commit
+   instead of torn. A stage is used only by the copy that began it, is
+   reused for the same generation, and is skipped (the copy is made in
+   place, as in 7.3.1) for ship-log sets, a unit with no copy yet, an
+   unsealed unit, a unit over stage_max_bytes (16 GiB), a file system
+   without reflinks (FICLONE), or when the stages of all sets would
+   leave too little free space.
+
+6. gxrepl promote [--apply]. Run on a copy before it takes over as the
+   writer: it recovers apply.jnl, finishes a swap that was begun,
+   discards the other stages and says what each discard loses. Exit 0
+   = whole, 1 = torn, 3 = promote incomplete (try again), 2 = config.
+   gxReplPromote() is the library call. "gxrepl torn" stays read-only
+   and lists open stages as STAGED warnings. "gxrepl serve
+   --accept-both" runs promote --apply before it starts serving.
+   GXREPL_PROMOTE_LOCK_WAIT (default 480 s) bounds its wait for a
+   running apply.
+
+7. Dead copy folders. When the source removes a unit folder (for
+   example a day folder archived at night), the copy used to delete
+   only the files gxrepl copies; derived indexes, derived.stamp and
+   other files gxrepl does not copy stayed behind, and promote-check
+   refused the copy (UNSEALED) until the folder was removed by hand.
+   Now a sealed unit whose last copied file goes is removed whole: its
+   stage, the files gxrepl does not copy, the folder, its derived
+   state and then its seal, under the apply lock after journal
+   recovery. A server sweep (every GXREPL_SWEEP_SEC, 60 s) and the
+   start-up recovery remove dead folders left by an older gxrepl or a
+   stop part way (gxReplSweepDeadCopies()).
+   It never removes an unsealed folder, a "copying" seal, a folder
+   with a commit block, a copied file, a sub-folder, a configured
+   writer lock, or any file that is not derived, default-excluded or
+   derived.stamp; never while the set's writer holds its locks; and
+   only on a node that is purely the set's copy (accept = target, or
+   a pulling client). The sweeps leave a folder changed in the last
+   GXREPL_DEAD_QUIET_SEC (600 s).
+
+BUILD
+-----
+- CMake option GXREPL_TEST_HOOKS (OFF): test-only crash and failure
+  hooks in gxdJournal and gxrepl for the test suite. Never build a
+  production gxrepl with it; "gxrepl version" then ends with
+  ", test hooks".
+
+TESTS
+-----
+- utils/gxrepl/test_gxrepl.py: new tests for each fix
+  (test_late_reply_never_desyncs_a_channel,
+  test_slow_rebuild_never_stalls_the_other_sets,
+  test_seal_and_position_never_split, the test_staged_fill_* tests
+  with a GXREPL_TEST_HOOKS build, and the test_dead_copy_folder_*
+  tests).
