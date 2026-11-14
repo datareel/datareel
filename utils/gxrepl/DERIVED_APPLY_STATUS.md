@@ -89,7 +89,46 @@ G. A failed extractor Open while stamping after a rebuild is logged (records 0).
 Then: the OSA realtime extractor (open_stock `osa-realtime-extractor`): key for key equal to
 `osa_ingest --rebuild-index` on copies of 10-30, 11-01, 11-06, 11-08, 11-09; the replayed 11-08 day
 (osa_ingest --once per 100 lines, 92 writer restarts): the copy equal to the primary and a rebuild at
-every check, 1 rebuild (per-object) against 5 (rebuild mode). The stress results: see results below.
+every check, 1 rebuild (per-object) against 5 (rebuild mode). The stress results: below.
 
 Known costs, accepted: each writer restart (an open record leading to a verify fill) and each server death in
 the middle of an apply cost one rebuild of the folder. Count both in the stress runs.
+
+## Stress results (11/14/2026, workstation, nice 19 / ionice idle, shared with other sessions' builds and suites)
+
+Harness: stress_derived.py, multi-folder (today's d1 takes the load, past days p1 and p2 take late lines on their own
+streams), the gated writer waits for a stable rebuild count, every folder checked against a full rebuild at the end.
+Full profiles (--speed 10). "Own" = the time the method itself holds the apply lock: the rebuild lock (rebuild mode)
+or the incremental step (per-object). Apply lock = everything under the lock, including the pages' fsync.
+
+Every run, both methods: each folder's copy index equal to a full rebuild (digest), 0 wrong lookups, final check OK.
+
+| profile | rebuild: own ms / rebuilds | per-object: own ms / rebuilds |
+|---|---|---|
+| steady mean | 17,003 / 121 | 392 / 0 |
+| steady peak | 7,688 / 133 | 419 / 0 |
+| steady 5x peak | 3,516 / 135 | 1,761 / 0 |
+| steady 10x peak | 20,333 / 108 | 3,592 / 2 |
+| burst 968 | 1,231 / 133 | 70 / 0 |
+| burst 9,680 | 1,567 / 133 | 189 / 0 |
+| late 2,013 | 1,578 / 133 | 77 / 0 |
+| late 20,130 | 12,399 / 122 | 405 / 0 |
+| day 1 GB | 7,838 / 125 | 286 / 0 |
+| day 2 GB | 1,282 / 135 | 209 / 0 |
+| day 4 GB | 2,066 / 87 | 271 / 0 |
+| faults: writer restart | 1,158 / 134 | 138 / 1 |
+| faults: kill -9 of the copy | 1,649 / 134 | 148 / 1 |
+| faults: link cut | 1,621 / 134 | 168 / 1 |
+| faults: ship log gap | 1,881 / 134 | 404 / 1 |
+| faults: extractor crash (breaker) | - | 6,151 / 125 (the breaker puts the set on rebuild) |
+| endurance (20 min at 10x peak) | 16,113 / 175 | 4,434 / 0 |
+
+Per-object's own lock time is lower at every full-run level, and it rebuilds only after a fault (one folder). The
+incremental step never took more than 45 ms. The quick pass (--quick, small folders) had one level where it was
+higher (steady 10x peak: 948 ms against 722 ms).
+
+Not settled: the whole apply lock (the pages' fsync, the same work in both methods) is dominated by the shared
+machine's I/O under ionice idle: the day 2 GB per-object run had an apply lock p99 of 21.9 s (max 39 s) while the
+step itself was 3.9 ms at most, and the ship log gap fault 889 ms against 45 ms. Those runs overlapped other jobs.
+A rerun of steady + day, both methods, on a quiet machine (night) decides whether per-object also wins on the whole
+apply lock. Until then it stays an option (derived_apply = rebuild is the default).
