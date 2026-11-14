@@ -49,7 +49,10 @@ static const char gxv_magic[8] = { 'G', 'X', 'V', 'I', 'X', '7', '4', 0 };
 enum {
   hMAGIC = 0, hVERSION = 8, hDIM = 12, hELEM = 16, hMETRIC = 20, hM = 24,
   hM0 = 28, hEFC = 32, hNTAGS = 36, hNODE_SIZE = 40, hTOP_LEVEL = 44,
-  hENTRY = 48, hNODES = 56, hDELETED = 64, hSPEC = 72, hGRAPH = 136
+  hENTRY = 48, hNODES = 56, hDELETED = 64, hSPEC = 72, hGRAPH = 136,
+  // 11/14/2026 (phase D)
+  hFEAT_REQ = 140, hFEAT_OPT = 144, hCODEC = 148, hLAYOUT = 152, hPART_ID = 156, hPART_N = 160,
+  hTAG_MIN = 168, hTAG_MAX = 184, hRESERVED = 200
 };
 
 // Node offsets
@@ -218,7 +221,21 @@ void gxVectorIndex::Clear()
   graph_saved = 0;
   entry_node = -1;
   level_mult = 0;
+  features_required = features_optional = codec = graph_layout = 0;   // 11/14/2026 (phase D)
+  partition_id = partition_count = 0;
+  ResetRanges();
+  ranges_dirty = 0;
   InitArrays();
+}
+
+// 11/14/2026 (phase D): the tag ranges from the live nodes (Repair(), Merge())
+void gxVectorIndex::RecomputeRanges()
+{
+  features_optional |= gxvOptTagRanges;
+  ResetRanges();
+  for(size_t n = 0; n < ids.size(); n++)
+    if(*live.at(n)) WidenRanges(tags.at(n));
+  ranges_dirty = 1;
 }
 
 void gxVectorIndex::InitArrays()
@@ -252,6 +269,7 @@ const char *gxVectorIndex::ErrorMessage(gxvError err)
     case gxv_NOT_FINITE: return "The vector has a NaN or infinite value";
     case gxv_READ_ONLY: return "The vector index is open read only";
     case gxv_OUT_OF_RANGE: return "A vector value is too large for the element type";
+    case gxv_INDEX_FULL: return "The vector index holds the most nodes a file can (4,294,967,280)";
   }
   return "Unknown vector index error";
 }
@@ -308,6 +326,8 @@ gxvError gxVectorIndex::Create(const char *fname, unsigned d,
   node_size = nNEIGHBORS + 8 * m0 + vbytes;
   if(s) strcpy(spec, s);
   InitArrays();
+  features_optional = gxvOptTagRanges;   // 11/14/2026 (phase D): kept from the start (empty: min > max)
+  ResetRanges();
   graph_saved = 1; // An empty graph
   read_only = 0;
   is_open = 1;
@@ -399,7 +419,91 @@ gxvError gxVectorIndex::WriteHeader()
   put<unsigned long long>(h, hDELETED, deleted_count);
   memcpy(h + hSPEC, spec, gxvSpecSize);
   put<unsigned>(h, hGRAPH, graph_saved ? 1u : 0u);
+  put<unsigned>(h, hFEAT_REQ, features_required);
+  put<unsigned>(h, hFEAT_OPT, features_optional);
+  put<unsigned>(h, hCODEC, codec);
+  put<unsigned>(h, hLAYOUT, graph_layout);
+  put<unsigned>(h, hPART_ID, partition_id);
+  put<unsigned>(h, hPART_N, partition_count);
+  for(unsigned i = 0; i < gxvTagCount; i++) {
+    put<unsigned>(h, hTAG_MIN + 4 * i, tag_min[i]);
+    put<unsigned>(h, hTAG_MAX + 4 * i, tag_max[i]);
+  }
   if(db.Write(h, sizeof(h), static_area) != gxDBASE_NO_ERROR) return gxv_DB_ERROR;
+  ranges_dirty = 0;
+  return gxv_NO_ERROR;
+}
+
+// 11/14/2026 (phase D): tag ranges
+void gxVectorIndex::ResetRanges()
+{
+  for(unsigned i = 0; i < gxvTagCount; i++) { tag_min[i] = 0xFFFFFFFFu; tag_max[i] = 0; }
+}
+
+void gxVectorIndex::WidenRanges(const unsigned *t)
+{
+  if(!(features_optional & gxvOptTagRanges)) return;
+  for(unsigned i = 0; i < gxvTagCount; i++) {
+    unsigned v = t ? t[i] : 0;
+    if(v < tag_min[i]) { tag_min[i] = v; ranges_dirty = 1; }
+    if(v > tag_max[i]) { tag_max[i] = v; ranges_dirty = 1; }
+  }
+}
+
+gxvError gxVectorIndex::WriteRanges()
+{
+  if(!ranges_dirty) return gxv_NO_ERROR;
+  unsigned char r[8 * gxvTagCount];
+  for(unsigned i = 0; i < gxvTagCount; i++) {
+    put<unsigned>(r, 4 * i, tag_min[i]);
+    put<unsigned>(r, 16 + 4 * i, tag_max[i]);
+  }
+  if(db.Write(r, sizeof(r), static_area + hTAG_MIN) != gxDBASE_NO_ERROR) return gxv_DB_ERROR;
+  ranges_dirty = 0;
+  return gxv_NO_ERROR;
+}
+
+int gxVectorIndex::TagRange(unsigned i, unsigned &lo, unsigned &hi) const
+{
+  lo = 0; hi = 0xFFFFFFFFu;
+  if(i >= gxvTagCount || !(features_optional & gxvOptTagRanges)) return 0;
+  if(tag_min[i] > tag_max[i]) return 0;          // never held a node
+  lo = tag_min[i]; hi = tag_max[i];
+  return 1;
+}
+
+int gxVectorIndex::TagRangeExcludes(unsigned i, unsigned lo, unsigned hi) const
+{
+  if(i >= gxvTagCount || !(features_optional & gxvOptTagRanges)) return 0;
+  if(tag_min[i] > tag_max[i]) return 1;          // empty: nothing can match
+  return hi < tag_min[i] || lo > tag_max[i];
+}
+
+gxvError gxVectorIndex::SetPartition(unsigned id, unsigned count)
+{
+  std::lock_guard<std::mutex> w(wmu);
+  if(!is_open) return gxv_NOT_OPEN;
+  if(read_only) return gxv_READ_ONLY;
+  if((count == 0 && id != 0) || (count && id >= count)) return gxv_BAD_ARG;
+  partition_id = id; partition_count = count;
+  unsigned char p[8];
+  put<unsigned>(p, 0, id);
+  put<unsigned>(p, 4, count);
+  if(db.Write(p, sizeof(p), static_area + hPART_ID) != gxDBASE_NO_ERROR) return gxv_DB_ERROR;
+  change_count++;
+  return gxv_NO_ERROR;
+}
+
+gxvError gxVectorIndex::SetFromMembers(int on)
+{
+  std::lock_guard<std::mutex> w(wmu);
+  if(!is_open) return gxv_NOT_OPEN;
+  if(read_only) return gxv_READ_ONLY;
+  if(on) features_optional |= gxvOptFromMembers; else features_optional &= ~gxvOptFromMembers;
+  unsigned char p[4];
+  put<unsigned>(p, 0, features_optional);
+  if(db.Write(p, sizeof(p), static_area + hFEAT_OPT) != gxDBASE_NO_ERROR) return gxv_DB_ERROR;
+  change_count++;
   return gxv_NO_ERROR;
 }
 
@@ -447,6 +551,22 @@ gxvError gxVectorIndex::ReadHeader()
   memcpy(spec, h + hSPEC, gxvSpecSize);
   spec[gxvSpecSize - 1] = 0;
   graph_saved = get<unsigned>(h, hGRAPH) == 1;
+  // 11/14/2026 (phase D): zero in files of phases A-C (the defaults: no tag ranges)
+  features_required = get<unsigned>(h, hFEAT_REQ);
+  features_optional = get<unsigned>(h, hFEAT_OPT);
+  codec = get<unsigned>(h, hCODEC);
+  graph_layout = get<unsigned>(h, hLAYOUT);
+  partition_id = get<unsigned>(h, hPART_ID);
+  partition_count = get<unsigned>(h, hPART_N);
+  for(unsigned i = 0; i < gxvTagCount; i++) {
+    tag_min[i] = get<unsigned>(h, hTAG_MIN + 4 * i);
+    tag_max[i] = get<unsigned>(h, hTAG_MAX + 4 * i);
+  }
+  if(!(features_optional & gxvOptTagRanges)) ResetRanges();
+  ranges_dirty = 0;
+  if(features_required & ~gxvFeaturesKnown) return gxv_UNSUPPORTED;   // a later version's file
+  if(codec != gxvCodecPlain || graph_layout != gxvGraphHNSW) return gxv_UNSUPPORTED;
+  if(partition_count && partition_id >= partition_count) return gxv_BAD_FILE;
   if(dim == 0 || dim > gxvMaxDim || get<unsigned>(h, hNTAGS) != gxvTagCount ||
      m < 2 || m > 128 || m0 != 2 * m) {
     return gxv_BAD_FILE;
@@ -459,7 +579,7 @@ gxvError gxVectorIndex::ReadHeader()
   if(node_size != nNEIGHBORS + 8 * m0 + vbytes) return gxv_BAD_FILE;
   if(metric != gxvL2 && metric != gxvCOSINE && metric != gxvIP) return gxv_BAD_FILE;
   if(ef_construction == 0 || ef_construction > 100000) ef_construction = 200;
-  if(node_count > 0xFFFFFFF0ULL) return gxv_BAD_FILE;
+  if(node_count > gxvMaxNodes) return gxv_BAD_FILE;
   InitArrays();
   return gxv_NO_ERROR;
 }
@@ -494,7 +614,7 @@ gxvError gxVectorIndex::LoadNodes()
     }
     if(len < node_size) return gxv_BAD_FILE;
     if(db.Read(b.data(), node_size, addr) != gxDBASE_NO_ERROR) return gxv_BAD_FILE;
-    if(ids.size() >= 0xFFFFFFF0ULL) return gxv_BAD_FILE;
+    if(ids.size() >= gxvMaxNodes) return gxv_BAD_FILE;
     long long id = get<long long>(b.data(), nID);
     unsigned flags = get<unsigned>(b.data(), nFLAGS);
     if(flags & ~gxvNodeDeleted) return gxv_BAD_FILE;
@@ -952,7 +1072,7 @@ gxvError gxVectorIndex::InsertWith(long long id, const unsigned char *code,
   {
     gxvReadLock r(turn, mu);
     newn = ids.size();
-    if(newn >= 0xFFFFFFF0ULL) return gxv_BAD_ARG;
+    if(newn >= gxvMaxNodes) return gxv_INDEX_FULL;   // 11/14/2026
     PlanInsert(newn, q, LevelFor(id, m), plan);
   }
   const unsigned level = plan.level;
@@ -1017,6 +1137,9 @@ gxvError gxVectorIndex::InsertWith(long long id, const unsigned char *code,
   put<unsigned long long>(c, 0, node_count + 1);
   put<unsigned long long>(c, 8, deleted_count + (replace >= 0 ? 1 : 0));
   if(db.Write(c, sizeof(c), static_area + hNODES) != gxDBASE_NO_ERROR) return gxv_DB_ERROR;
+  // 11/14/2026 (phase D): the tag ranges with the counts, in the caller's transaction
+  WidenRanges(t);
+  if(WriteRanges() != gxv_NO_ERROR) return gxv_DB_ERROR;
   if(plan.new_entry) {
     unsigned char e[12];
     put<unsigned>(e, 0, level);
@@ -1096,6 +1219,8 @@ gxvError gxVectorIndex::Update(long long id, const float *vec,
   unsigned char tb[4 * gxvTagCount];
   for(unsigned i = 0; i < gxvTagCount; i++) put<unsigned>(tb, 4 * i, t[i]);
   if(db.Write(tb, sizeof(tb), *addresses.at(n) + nTAGS) != gxDBASE_NO_ERROR) return gxv_DB_ERROR;
+  WidenRanges(t);                                  // 11/14/2026 (phase D)
+  if(WriteRanges() != gxv_NO_ERROR) return gxv_DB_ERROR;
   gxvWriteLock x(turn, mu);
   memcpy(tags.at(n), t, sizeof(tb));
   change_count++;
@@ -1173,6 +1298,8 @@ gxvError gxVectorIndex::PutCode(long long id, const unsigned char *code, const u
   unsigned char tb[4 * gxvTagCount];
   for(unsigned i = 0; i < gxvTagCount; i++) put<unsigned>(tb, 4 * i, t[i]);
   if(db.Write(tb, sizeof(tb), *addresses.at(n) + nTAGS) != gxDBASE_NO_ERROR) return gxv_DB_ERROR;
+  WidenRanges(t);                                  // 11/14/2026 (phase D)
+  if(WriteRanges() != gxv_NO_ERROR) return gxv_DB_ERROR;
   gxvWriteLock x(turn, mu);
   memcpy(tags.at(n), t, sizeof(tb));
   change_count++;
@@ -1466,6 +1593,7 @@ gxvError gxVectorIndex::Repair()
     if(WriteNode(n) != gxv_NO_ERROR) return gxv_DB_ERROR;
   }
   graph_saved = 1;
+  RecomputeRanges();                       // 11/14/2026 (phase D)
   if(WriteHeader() != gxv_NO_ERROR) return gxv_DB_ERROR;
   change_count++;
   return gxv_NO_ERROR;
@@ -1563,6 +1691,7 @@ gxvError gxVectorIndex::Merge(const char *out_fname,
     out.live_count = count;
     out.deleted_count = 0;
     out.graph_saved = 1;
+    out.RecomputeRanges();                 // 11/14/2026 (phase D)
     if(out.WriteHeader() != gxv_NO_ERROR) return gxv_DB_ERROR;
     if(report) {
       snprintf(line, sizeof(line), "%s: %llu nodes, top level %u\n", out_fname,

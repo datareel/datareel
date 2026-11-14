@@ -102,7 +102,18 @@ File layout (native byte order, little endian on the supported nodes):
 static area (256 bytes): magic "GXVIX74", version, dim, element type,
 metric, M, M0 (2M), ef_construction, tag count, node size, top level,
 entry node (its block address), node count, deleted count, spec, graph
-state (offset 136: 0 = no graph saved, 1 = saved). Node block: id
+state (offset 136: 0 = no graph saved, 1 = saved), and (phase D, all
+zero in older files) features_required (140: a bit this library does
+not know makes the file gxv_UNSUPPORTED), features_optional (144: bit 0
+the tag ranges below are kept, bit 1 the index is derived from record
+members), codec (148: 0 plain codes; 1 is kept for product
+quantization), graph layout (152: 0 the in-memory HNSW), partition id
+and count (156, 160: 0 and 0 when the index is not a partition of a
+set), 4 zero bytes, tag_min[4] (168) and tag_max[4] (184): the smallest
+and largest value of each tag over every node ever inserted (an empty
+index: 0xFFFFFFFF and 0; Delete() never narrows them, Repair() and
+Merge() work them out again), and 56 reserved bytes (200: written as
+zero, ignored when read). Node block: id
 (int64), flags (1 = deleted), level, tags[4], upper-level block
 address (int64, 0 = none), level 0 neighbor count (and 4 zero bytes),
 M0 neighbor block addresses (int64), vector. The vector is stored in
@@ -119,6 +130,9 @@ Changes:
 as delete + insert, writers find neighbors under the shared lock.
 11/12/2026: Phase C: gxvFLOAT16 and gxvINT8 element types,
 gxv_OUT_OF_RANGE. gxvFLOAT32 files are unchanged.
+11/14/2026: Phase D: format fields for growth (features, codec, graph
+layout, partition, tag ranges), gxv_INDEX_FULL. Files of phases A-C
+open unchanged (no tag ranges).
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -162,7 +176,8 @@ enum gxvError {
   gxv_ID_NOT_FOUND,
   gxv_NOT_FINITE,     // NaN or infinity in a vector
   gxv_READ_ONLY,
-  gxv_OUT_OF_RANGE    // A value too large for the element type (float16: 65504)
+  gxv_OUT_OF_RANGE,   // A value too large for the element type (float16: 65504)
+  gxv_INDEX_FULL      // 11/14/2026: gxvMaxNodes nodes (node numbers are 32-bit)
 };
 
 const unsigned gxvMaxDim = 4096;
@@ -173,6 +188,13 @@ const unsigned gxvVersion = 1;
 const unsigned gxvMaxLevel = 31;
 const unsigned gxvExactLimit = 4096; // Search() is exact up to this many nodes
 const unsigned gxvMemberHead = 12;   // Bytes before the code in a vector member
+// 11/14/2026 (phase D): format fields (see the file layout above)
+const unsigned long long gxvMaxNodes = 4294967280ULL; // Nodes a file may hold (deleted ones too)
+const unsigned gxvFeaturesKnown = 0;         // features_required bits this library reads
+const unsigned gxvOptTagRanges = 1;          // features_optional: tag_min/tag_max are kept
+const unsigned gxvOptFromMembers = 2;        // features_optional: derived from record members
+const unsigned gxvCodecPlain = 0;
+const unsigned gxvGraphHNSW = 0;
 
 // Per-node arrays kept in fixed-size chunks, so growing an index never
 // copies what is already there (no stall while searches wait).
@@ -335,6 +357,23 @@ public:
   unsigned long long Deleted() const { return deleted_count; }
   // 1 + the number of writes since Open(): lets a reader see a change
   unsigned long long ChangeCount() const { return change_count; }
+  // 11/14/2026 (phase D): format fields
+  unsigned FeaturesRequired() const { return features_required; }
+  unsigned FeaturesOptional() const { return features_optional; }
+  unsigned Codec() const { return codec; }
+  unsigned GraphLayout() const { return graph_layout; }
+  unsigned PartitionId() const { return partition_id; }
+  unsigned PartitionCount() const { return partition_count; }
+  // The smallest and largest value tag "i" ever had (inserts, updates):
+  // 1, or 0 when the file does not keep them (phases A-C, until Repair())
+  // or the index never held a node
+  int TagRange(unsigned i, unsigned &lo, unsigned &hi) const;
+  // 1 when no node can have tag "i" in [lo, hi] (a set can skip the file)
+  int TagRangeExcludes(unsigned i, unsigned lo, unsigned hi) const;
+  // A partition of a set (gxVectorSet): id < count; 0, 0 = none
+  gxvError SetPartition(unsigned id, unsigned count);
+  // Marks the index derived from record members (features_optional bit 1)
+  gxvError SetFromMembers(int on);
 
   static const char *ErrorMessage(gxvError err);
   // The level a node with this id gets (a hash of the id)
@@ -431,6 +470,16 @@ private:
   gxvChunks<std::vector<unsigned> > upper; // Levels 1..L: count + M each
   gxvChunks<FAU_t> upper_addr;
   std::unordered_map<long long, size_t> by_id; // Live nodes only
+
+  // 11/14/2026 (phase D): format fields (last, so the members above keep their places)
+  unsigned features_required = 0, features_optional = 0, codec = 0, graph_layout = 0;
+  unsigned partition_id = 0, partition_count = 0;
+  unsigned tag_min[gxvTagCount], tag_max[gxvTagCount];
+  int ranges_dirty = 0;
+  void ResetRanges();
+  void WidenRanges(const unsigned *t);
+  void RecomputeRanges();
+  gxvError WriteRanges();
 };
 
 } // namespace datareel

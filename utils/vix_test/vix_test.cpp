@@ -53,6 +53,9 @@ Exit code 0 when every test passes.
 #include <math.h>
 #include <string>
 #include <vector>
+#include <map>
+#include <sstream>
+#include <fstream>
 #include <algorithm>
 #include <chrono>
 #include <random>
@@ -872,6 +875,172 @@ static void test_phase_a_files()
   remove(f.c_str());
 }
 
+// 11/14/2026 (phase D): the format fields, and files made by the phase A-C library
+#ifndef VIX_TEST_DATA
+#define VIX_TEST_DATA "utils/vix_test/data"
+#endif
+static std::string data_dir = VIX_TEST_DATA;
+
+static unsigned get32_at(const std::string &f, long off)
+{
+  gxDatabase db;
+  unsigned v = 0;
+  if(db.Open(f.c_str(), gxDBASE_READONLY) == gxDBASE_NO_ERROR) {
+    db.Read(&v, 4, (FAU_t)db.FileHeaderSize() + off);
+    db.Close();
+  }
+  return v;
+}
+
+static void put32_at(const std::string &f, long off, unsigned v)
+{
+  gxDatabase db;
+  if(db.Open(f.c_str()) == gxDBASE_NO_ERROR) {
+    db.Write(&v, 4, (FAU_t)db.FileHeaderSize() + off);
+    db.Close();
+  }
+}
+
+static void test_format_fields()
+{
+  const unsigned dim = 8;
+  std::string f = path("fields.vix");
+  remove(f.c_str());
+  std::vector<float> v(dim);
+  {
+    gxVectorIndex vix;
+    CHECK(vix.Create(f.c_str(), dim) == gxv_NO_ERROR, "create");
+    unsigned lo, hi;
+    CHECK(vix.FeaturesRequired() == 0 && (vix.FeaturesOptional() & gxvOptTagRanges) && vix.Codec() == 0 &&
+	  vix.GraphLayout() == 0 && vix.PartitionId() == 0 && vix.PartitionCount() == 0, "new file: defaults");
+    CHECK(!vix.TagRange(0, lo, hi) && vix.TagRangeExcludes(2, 0, 0xFFFFFFFFu), "empty index: no range, excludes all");
+    for(unsigned i = 0; i < 50; i++) {
+      for(unsigned d = 0; d < dim; d++) v[d] = (float)((i * 7 + d * 3) % 11);
+      unsigned t[4] = { i % 5, 1000 + i, 20261101 + i % 9, 7 };
+      CHECK(vix.Insert(i, v.data(), t) == gxv_NO_ERROR, "insert %u", i);
+    }
+    CHECK(vix.TagRange(1, lo, hi) && lo == 1000 && hi == 1049, "tag 1 range %u..%u", lo, hi);
+    CHECK(vix.TagRange(2, lo, hi) && lo == 20261101 && hi == 20261109, "tag 2 range");
+    CHECK(vix.TagRangeExcludes(2, 20261110, 20261130) && !vix.TagRangeExcludes(2, 20261105, 20261130),
+	  "range test");
+    // Delete never narrows; an in-place tag rewrite widens
+    CHECK(vix.Delete(49) == gxv_NO_ERROR && vix.TagRange(1, lo, hi) && hi == 1049, "delete keeps the range");
+    for(unsigned d = 0; d < dim; d++) v[d] = (float)((3 * 7 + d * 3) % 11);
+    unsigned t2[4] = { 3, 5000, 20261103, 7 };
+    CHECK(vix.Update(3, v.data(), t2) == gxv_NO_ERROR && vix.TagRange(1, lo, hi) && hi == 5000, "update widens");
+    CHECK(vix.SetPartition(2, 4) == gxv_NO_ERROR && vix.SetFromMembers(1) == gxv_NO_ERROR, "partition, members");
+    CHECK(vix.SetPartition(4, 4) == gxv_BAD_ARG && vix.SetPartition(1, 0) == gxv_BAD_ARG, "bad partitions");
+    vix.Close();
+  }
+  {
+    gxVectorIndex vix;
+    unsigned lo, hi;
+    CHECK(vix.Open(f.c_str()) == gxv_NO_ERROR, "reopen");
+    CHECK(vix.PartitionId() == 2 && vix.PartitionCount() == 4 && (vix.FeaturesOptional() & gxvOptFromMembers),
+	  "fields kept");
+    CHECK(vix.TagRange(1, lo, hi) && lo == 1000 && hi == 5000, "ranges kept (%u..%u)", lo, hi);
+    CHECK(vix.Repair() == gxv_NO_ERROR && vix.TagRange(1, lo, hi) && hi == 5000 && lo == 1000, "repair: live nodes");
+    CHECK(vix.Delete(3) == gxv_NO_ERROR && vix.Repair() == gxv_NO_ERROR && vix.TagRange(1, lo, hi) && hi == 1048,
+	  "repair narrows to the live nodes (%u)", hi);
+    vix.Close();
+  }
+  // A later version's required feature, codec or layout: refused, the file unchanged
+  for(long off : { 140L, 148L, 152L }) {
+    unsigned keep = get32_at(f, off);
+    put32_at(f, off, off == 140 ? 0x80u : 1u);
+    gxVectorIndex vix;
+    CHECK(vix.Open(f.c_str()) == gxv_UNSUPPORTED, "unknown field at %ld: unsupported", off);
+    put32_at(f, off, keep);
+  }
+  {
+    // reserved bytes are ignored; an optional bit this library does not know is kept as it is
+    put32_at(f, 220, 0x12345678u);
+    unsigned opt = get32_at(f, 144);
+    put32_at(f, 144, opt | 0x100u);
+    gxVectorIndex vix;
+    CHECK(vix.Open(f.c_str()) == gxv_NO_ERROR && (vix.FeaturesOptional() & 0x100u), "reserved and optional bits");
+    vix.Close();
+  }
+  CHECK(std::string(gxVectorIndex::ErrorMessage(gxv_INDEX_FULL)).find("4,294,967,280") != std::string::npos,
+	"index full message");
+  CHECK(gxvMaxNodes == 4294967280ULL, "node cap");
+  remove(f.c_str());
+}
+
+static void test_phase_c_files()
+{
+  // Files made by the phase A-C library (utils/vix_test/data/make_phase_c_files.cpp): they open, search the
+  // same as there, and have no tag ranges until Repair()
+  // file addresses are 32 or 64 bits by the build (DATAREEL_64BIT_DATABASE): a set of files for each
+  // (the set whose file header is this build's: the index header starts right after it)
+  size_t fhs = 0;
+  {
+    gxDatabase probe;
+    std::string pf = path("fhs_probe.gxd");
+    if(probe.Create(pf.c_str()) == gxDBASE_NO_ERROR) { fhs = probe.FileHeaderSize(); probe.Close(); }
+    remove(pf.c_str());
+  }
+  std::string dd = data_dir + "/fau32";
+  {
+    std::ifstream t(data_dir + "/fau64/phase_c_f32_l2.vix", std::ios::binary);
+    std::vector<char> b(fhs + 8, 0);
+    if(t.read(b.data(), (std::streamsize)b.size()) && memcmp(b.data() + fhs, "GXVIX74", 7) == 0) dd = data_dir + "/fau64";
+  }
+  std::ifstream ex(dd + "/phase_c_expected.txt");
+  CHECK(ex.good(), "no %s/phase_c_expected.txt", dd.c_str());
+  if(!ex.good()) return;
+  std::map<std::string, std::vector<std::string> > want;
+  std::map<std::string, std::string> counts;
+  std::string line;
+  while(std::getline(ex, line)) {
+    std::istringstream is(line);
+    std::string name, q;
+    is >> name >> q;
+    if(q == "count") counts[name] = line;
+    else want[name].push_back(line);
+  }
+  CHECK(want.size() == 4, "4 files expected");
+  for(auto &w : want) {
+    std::string src = dd + "/" + w.first, f = path(("old_" + w.first).c_str());
+    std::ifstream in(src, std::ios::binary);
+    std::ofstream out(f, std::ios::binary | std::ios::trunc);
+    out << in.rdbuf();
+    out.close();
+    gxVectorIndex vix;
+    gxvError oe = vix.Open(f.c_str());
+    CHECK(oe == gxv_NO_ERROR, "%s opens (%s, copied from %s)", w.first.c_str(), gxVectorIndex::ErrorMessage(oe), src.c_str());
+    unsigned lo, hi;
+    CHECK(vix.FeaturesRequired() == 0 && vix.FeaturesOptional() == 0 && !vix.TagRange(1, lo, hi) &&
+	  !vix.TagRangeExcludes(2, 0, 1), "%s: no tag ranges", w.first.c_str());
+    for(size_t qi = 0; qi < w.second.size(); qi++) {
+      std::vector<float> q(8);
+      for(int d = 0; d < 8; d++) q[d] = (float)cos(qi * 0.91 + d * 0.7);
+      std::vector<gxvResult> r;
+      vix.Search(q.data(), 10, r, 64);
+      char b[64];
+      std::string got = w.first + " q" + std::to_string(qi);
+      for(auto &h : r) { snprintf(b, sizeof(b), " %lld:%.9g", h.id, h.distance); got += b; }
+      CHECK(got == w.second[qi], "%s: the same results as the phase C library (query %zu)", w.first.c_str(), qi);
+    }
+    char cl[256];
+    snprintf(cl, sizeof(cl), "%s count %llu deleted %llu", w.first.c_str(), (unsigned long long)vix.Count(),
+	     (unsigned long long)vix.Deleted());
+    CHECK(counts[w.first] == cl, "%s: counts", w.first.c_str());
+    // written to by this library: still no ranges (inserts do not invent them), then Repair() adds them
+    std::vector<float> v(8, 0.5f);
+    unsigned t[4] = { 1, 2, 3, 4 };
+    CHECK(vix.Insert(999999, v.data(), t) == gxv_NO_ERROR && !vix.TagRange(1, lo, hi), "%s: insert", w.first.c_str());
+    CHECK(vix.Repair() == gxv_NO_ERROR && vix.TagRange(1, lo, hi) && lo == 2 && hi >= 399, "%s: repair adds ranges (%u..%u)",
+	  w.first.c_str(), lo, hi);
+    std::string rep;
+    CHECK(vix.Verify(0, 0, 0, &rep) == 0, "%s verify: %.200s", w.first.c_str(), rep.c_str());
+    vix.Close();
+    CHECK(vix.Open(f.c_str()) == gxv_NO_ERROR && vix.TagRange(1, lo, hi), "%s: ranges kept", w.first.c_str());
+    vix.Close();
+    remove(f.c_str());
+  }
+}
+
 static void test_merge(const ElemType &et)
 {
   const unsigned dim = 32, per = 3000;
@@ -1571,6 +1740,7 @@ int main(int argc, char **argv)
     else if(!strcmp(argv[i], "--efc") && i + 1 < argc) efc = (unsigned)atoi(argv[++i]);
     else if(!strcmp(argv[i], "--live") && i + 1 < argc) live_sec = atoi(argv[++i]);
     else if(!strcmp(argv[i], "--uniform")) uniform = 1;
+    else if(!strcmp(argv[i], "--data") && i + 1 < argc) data_dir = argv[++i];   // 11/14/2026
     else if(!strcmp(argv[i], "--metric") && i + 1 < argc) {
       const char *m = argv[++i];
       if(!strcmp(m, "l2")) gate_metric = gxvL2;
@@ -1601,6 +1771,8 @@ int main(int argc, char **argv)
   test_journal();
   for(const ElemType &et : TYPES) test_graph(et);
   test_phase_a_files();
+  test_format_fields();    // 11/14/2026 (phase D)
+  test_phase_c_files();
   for(const ElemType &et : TYPES) test_merge(et);
   test_concurrent();
   for(const ElemType &et : TYPES) test_members(et);

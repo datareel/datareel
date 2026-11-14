@@ -24,6 +24,8 @@ if(NOT WIN32)
   # 11/12/2026: tests of the vector index (gxvindex.h), DataReel 7.4
   add_executable(vix_test vix_test/vix_test.cpp)
   target_link_libraries(vix_test PRIVATE DataReel::datareel)
+  # 11/14/2026 (phase D): files made by the phase A-C library, for the compatibility test
+  target_compile_definitions(vix_test PRIVATE VIX_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/vix_test/data")
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(vix_test PRIVATE -ffp-contract=off)
   endif()
