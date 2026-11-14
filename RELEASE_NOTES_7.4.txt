@@ -11,8 +11,9 @@ reading each unit under a shared apply lock, GXREPL_TORN_LOCK_WAIT 15
 s), and the gxrepl per-object derived apply (derived_apply =
 incremental, with object notes and index stamps; off by default:
 rebuild stays the default and the ship log is unchanged while object
-notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md). The file
-formats of 7.3 are unchanged, and the vector index is a new file type
+notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md).
+derived_apply = incremental is not yet for production use; fixes land
+in the next 7.4 build. The file formats of 7.3 are unchanged, and the vector index is a new file type
 built on them.
 
 PHASE A (11/12/2026): VECTOR INDEX FILE, EXACT SEARCH
