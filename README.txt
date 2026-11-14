@@ -103,8 +103,8 @@ WHAT CHANGED IN DATAREEL 7
 --------------------------
 See RELEASE_NOTES_7.0.txt for the full list and for porting notes,
 RELEASE_NOTES_7.1.txt, RELEASE_NOTES_7.2.txt, RELEASE_NOTES_7.3.txt,
-RELEASE_NOTES_7.3.1.txt and RELEASE_NOTES_7.4.txt for the changes in 7.1
-to 7.4. In short:
+RELEASE_NOTES_7.3.1.txt, RELEASE_NOTES_7.3.2.txt and RELEASE_NOTES_7.4.txt
+for the changes in 7.1 to 7.4. In short:
 
 - C++17 is required. Strings, lists, trees, threads, mutexes, files
   and time now come from the standard library. The UString/gxString,
@@ -135,7 +135,13 @@ to 7.4. In short:
   certificates from a client CA plus an allow list of fingerprints or
   names, and will not start without them unless the program
   explicitly opts out (AllowAnonymousClients(true), stream_server
-  --open). Other TLS servers are unchanged.
+  --open). Other TLS servers are unchanged. 7.3.1 also adds database
+  replication (gxrepl, utils/gxrepl) and the database object server.
+- 7.3.2 fixes database replication problems found in production:
+  channels resync after a timeout, the seal and the applied position
+  are never read split, unit copies are staged and swapped in whole
+  ("gxrepl promote"), and a copy's folder goes when its source folder
+  goes. 7.4 has all of them.
 - 7.4 adds vector extensions to the object database: gxVectorIndex
   keeps vectors in a ".vix" file (an ordinary gxDatabase file) with
   exact search and an HNSW graph for fast approximate nearest-neighbor
@@ -296,6 +302,8 @@ RELEASE HISTORY
 ---------------
  7.4   11/12/2026 Beta. Vector extensions: vector index, exact and HNSW
                   search (RELEASE_NOTES_7.4.txt)
+ 7.3.2 11/14/2026 Beta. Database replication fixes
+                  (RELEASE_NOTES_7.3.2.txt)
  7.3.1 11/01/2026 Beta. Security scan fixes (RELEASE_NOTES_7.3.1.txt)
  7.3  10/31/2026  Beta. Memory-mapped reads, faster scans
                   (RELEASE_NOTES_7.3.txt)

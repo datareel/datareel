@@ -122,6 +122,20 @@ static int run_quiet(const std::string &cmd)
 // the multiplexed connection had no free worker left: all 11 sets stopped. Now an apply that cannot get the lock in
 // GXREPL_APPLY_LOCK_WAIT seconds (5) answers "busy" and lets go of everything; the client tries again next pass, and
 // only that set waits for the rebuild. 0 = locked, else errno-like (EWOULDBLOCK = busy).
+// 11/13/2026: a dead copy folder's files must be quiet this long (GXREPL_DEAD_QUIET_SEC, default 600 s)
+static long long dead_quiet_sec()
+{
+  const char *e = getenv("GXREPL_DEAD_QUIET_SEC");
+  return e && *e ? std::max(0LL, atoll(e)) : 600;
+}
+
+// 11/13/2026: the dead copy folder sweep's period (GXREPL_SWEEP_SEC, default 60 s)
+static long long sweep_every()
+{
+  const char *e = getenv("GXREPL_SWEEP_SEC");
+  return e && *e ? std::max(1LL, atoll(e)) : 60;
+}
+
 static int lock_apply_bounded(int fd)
 {
   double wait = 5;
@@ -2536,6 +2550,153 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   return 0;
 }
 
+// 11/13/2026 (dead copy folders): a folder of a commit_block set that the source no longer has (osa_ingest archives
+// a day every night): gxrepl deleted the files it copies (the data files, the commit block), but the files it never
+// copies stayed (derived indexes by_*.btx, derived.stamp, the writer's journal), and promote-check saw the folder
+// UNSEALED (database files and no commit block), refusing every take over until it was moved by hand (11/12, 11/13).
+static std::string derived_state_path(const gxReplSetConfig &sc, const std::string &rel);
+
+// A file of a dead copy folder that may go (review): only what is rebuilt or safe to lose, i.e. a derived index (the set's
+// derived patterns), gxrepl's default excludes (journals, locks, temp files) and the derived rebuild's stamp, never a
+// configured writer lock. Anything else (a node's own excluded database file, a user's file) keeps the folder.
+static bool dead_removable(const gxReplSetConfig &sc, const std::string &rel, const std::string &name, bool quiet)
+{
+  // review: for the sweeps (quiet), a file changed in the last 10 minutes (a writer at work, e.g. after a take over)
+  // keeps the folder; a Delete (the source just dropped the folder, its writer locks held) needs no wait
+  struct stat fst;
+  if(quiet && stat((sc.root + "/" + rel).c_str(), &fst) == 0 && time(0) - fst.st_mtime < dead_quiet_sec()) return false;
+  for(auto &w : sc.writer_locks) if(w == rel) return false;
+  if(is_derived(sc, rel) || name == "derived.stamp") return true;
+  for(int i = 0; default_excludes[i]; i++) if(fnmatch(default_excludes[i], name.c_str(), 0) == 0) return true;
+  return false;
+}
+
+// A dead copy folder goes whole: its stage, the files gxrepl does not copy, the folder, then its seal and its derived
+// state (a stop in between leaves the seal: the next sweep finishes). Only a folder with no commit block, no file
+// gxrepl copies and no sub-folder, never the set's root; any_seal false (the sweeps): only a folder sealed whole once
+// (not "copying"). The caller holds the set's apply lock and its writer locks and recovered the journal.
+// 1 = removed, 0 = left alone, -1 = error.
+static int sweep_dead_unit(const gxReplSetConfig &sc, const std::string &root, const std::string &rel, bool any_seal,
+			   std::string &what)
+{
+  if(rel.empty() || sc.commit_block.empty()) return 0;
+  std::string dir = root + "/" + rel, seal_path = root + "/.gxrepl/units/" + unit_key(rel);
+  std::string seal = read_small(seal_path);
+  struct stat st;
+  bool exists = lstat(dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+  if(seal.empty()) return 0;                                             // never a folder gxrepl did not seal (review)
+  if(!any_seal && seal.compare(0, 8, "copying\n") == 0) return 0;        // a copy in progress ("copying-log": not)
+  std::vector<std::string> files;
+  if(exists) {
+    DIR *d = opendir(dir.c_str());
+    if(!d) return 0;
+    struct dirent *e;
+    bool keep = false;
+    while((e = readdir(d)) != 0) {
+      std::string n = e->d_name;
+      if(n == "." || n == "..") continue;
+      std::string rp = rel + "/" + n;
+      if(lstat((dir + "/" + n).c_str(), &st) != 0) continue;
+      if(S_ISDIR(st.st_mode)) { keep = true; break; }                    // sub-folders: not this sweep's
+      if(n == sc.commit_block || (is_db_file(sc, rp) && !excluded(sc, rp))) { keep = true; break; }   // still a copy
+      if(!dead_removable(sc, rp, n, !any_seal)) { keep = true; break; }  // a file that is not ours to remove
+      files.push_back(n);
+    }
+    closedir(d);
+    if(keep) return 0;
+  }
+  if(discard_stage(root, rel) != 0) { what = "cannot remove the stage of " + rel; return -1; }
+  for(auto &n : files)
+    if(unlink((dir + "/" + n).c_str()) != 0 && errno != ENOENT) { what = "cannot remove " + rel + "/" + n; return -1; }
+  if(exists) {
+    if(rmdir(dir.c_str()) != 0 && errno != ENOENT) { what = "cannot remove the folder " + rel; return -1; }
+    std::string up = dir.substr(0, dir.find_last_of('/'));
+    while(up.size() > root.size() && rmdir(up.c_str()) == 0) up = up.substr(0, up.find_last_of('/'));
+    sync_dir(up.size() >= root.size() ? up : root);
+  }
+  unlink(derived_state_path(sc, rel).c_str());                          // before the seal (review): never a stale "ok"
+  if(unlink(seal_path.c_str()) != 0 && errno != ENOENT) { what = "cannot remove the seal of " + rel; return -1; }
+  sync_dir(root + "/.gxrepl/units");
+  if(exists) {
+    std::string names;
+    for(size_t i = 0; i < files.size() && i < 6; i++) names += (i ? ", " : "") + files[i];
+    if(files.size() > 6) names += ", ...";
+    what = "removed the copy's folder " + rel + ": gone from the source (" + std::to_string(files.size()) +
+           " file(s) gxrepl does not copy" + (names.empty() ? std::string("") : ": " + names) + ")";
+  } else what = "removed the seal of " + rel + ": the folder is gone";
+  return 1;
+}
+
+// A folder that would be swept (no locks taken: the sweep checks again under them)
+static bool dead_unit_candidate(const gxReplSetConfig &sc, const std::string &root, const std::string &rel,
+				bool quiet = true)
+{
+  if(rel.empty()) return false;
+  std::string dir = root + "/" + rel;
+  struct stat st;
+  if(lstat(dir.c_str(), &st) != 0) return true;                          // a seal of a folder that is gone
+  if(!S_ISDIR(st.st_mode)) return false;
+  DIR *d = opendir(dir.c_str());
+  if(!d) return false;
+  struct dirent *e;
+  bool dead = true;
+  while(dead && (e = readdir(d)) != 0) {
+    std::string n = e->d_name;
+    if(n == "." || n == "..") continue;
+    std::string rp = rel + "/" + n;
+    if(lstat((dir + "/" + n).c_str(), &st) != 0) continue;
+    if(S_ISDIR(st.st_mode) || n == sc.commit_block || (is_db_file(sc, rp) && !excluded(sc, rp)) ||
+       !dead_removable(sc, rp, n, quiet)) dead = false;
+  }
+  closedir(d);
+  return dead;
+}
+
+int gxReplSweepDeadCopies(const gxReplSetConfig &sc, std::vector<std::string> &log)
+{
+  if(sc.commit_block.empty()) return 0;
+  std::string root = sc.root, ub = root + "/.gxrepl/units";
+  std::vector<std::string> cand;
+  if(DIR *d = opendir(ub.c_str())) {
+    struct dirent *e;
+    while((e = readdir(d)) != 0) {
+      std::string n = e->d_name;
+      if(n.size() < 2 || n[0] != '_' || n == "_root") continue;
+      bool tmp = false;                                                   // review: a seal being written (.gxrtmp)
+      for(int i = 0; default_excludes[i]; i++) if(fnmatch(default_excludes[i], n.c_str(), 0) == 0) tmp = true;
+      if(tmp) continue;
+      std::string rel = n.substr(1);
+      // review: unit_key writes '/' as '#', so a folder with '#' in its name has the same key as a nested path;
+      // a seal whose literal name exists as a folder is never decoded (left alone)
+      struct stat lst;
+      if(rel.find('#') != std::string::npos && lstat((root + "/" + rel).c_str(), &lst) == 0) continue;
+      for(auto &c : rel) if(c == '#') c = '/';
+      std::string seal = read_small(ub + "/" + n);
+      if(seal.empty() || seal.compare(0, 8, "copying\n") == 0) continue;  // a copy in progress: never swept
+      if(dead_unit_candidate(sc, root, rel)) cand.push_back(rel);
+    }
+    closedir(d);
+  }
+  if(cand.empty()) return 0;
+  WriterHold wh;
+  std::string we;
+  if(hold_writer_locks(sc, wh, we)) return 0;                             // the folders' writer runs: its data
+  std::string jname = root + "/.gxrepl/apply.jnl";
+  int lk = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+  if(lk < 0) return 0;
+  struct LockGuard { int fd; ~LockGuard() { flock(fd, LOCK_UN); close(fd); } } lkg{lk};
+  if(lock_apply_bounded(lk) != 0) return 0;                               // busy: the next sweep
+  if(recover_journal_locked(root) != 0) return 0;                         // a batch pending: never under it
+  int n = 0;
+  for(auto &rel : cand) {
+    std::string what;
+    int rc = sweep_dead_unit(sc, root, rel, false, what);
+    if(rc == 1) { n++; log.push_back("set " + sc.name + ": " + what); }
+    else if(rc < 0) log.push_back("WARNING set " + sc.name + ": " + what);
+  }
+  return n;
+}
+
 int gxReplLocal::Delete(const std::string &set, const std::vector<std::string> &paths,
 			std::string &err)
 {
@@ -2589,6 +2750,28 @@ int gxReplLocal::Delete(const std::string &set, const std::vector<std::string> &
     dirs.insert(dir.size() >= s->root.size() ? dir : s->root);
   }
   for(auto &d : dirs) sync_dir(d);
+  // 11/13/2026: a unit whose last copied file went (its source folder is gone): the rest of its folder goes too
+  // (only on a node that is purely the set's copy: review)
+  bool pure_copy = cfg.role == "server" ? s->sc.accept == "target" : s->sc.direction == "pull";
+  if(!s->sc.commit_block.empty() && pure_copy) {
+    std::set<std::string> units;
+    for(auto &p : paths) if(!dir_of(p).empty() && dead_unit_candidate(s->sc, s->root, dir_of(p), false)) units.insert(dir_of(p));
+    if(!units.empty()) {
+      std::string jname = s->root + "/.gxrepl/apply.jnl";
+      int lk = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+      if(lk >= 0) {
+	struct LockGuard { int fd; ~LockGuard() { flock(fd, LOCK_UN); close(fd); } } lkg{lk};
+	if(lock_apply_bounded(lk) == 0 && recover_journal_locked(s->root) == 0) {
+	  for(auto &u : units) {
+	    std::string what;
+	    int rc = sweep_dead_unit(s->sc, s->root, u, true, what);
+	    if(rc == 1) { s->staged.erase(u); glog("set %s: %s", s->sc.name.c_str(), what.c_str()); }
+	    else if(rc < 0) glog("WARNING set %s: %s", s->sc.name.c_str(), what.c_str());
+	  }
+	}
+      }
+    }
+  }
   return 0;
 }
 
@@ -2670,6 +2853,15 @@ int gxReplLocal::RecoverAll(std::string &err)
 	glog("set %s: %s: finished the swap of a staged copy", sc.name.c_str(), un);
       }
     }
+  }
+  // 11/13/2026: dead copy folders (their source folder is gone), on a node that copies into the set
+  for(auto &sc : cfg.sets) {
+    // only a node that is purely the set's copy (review: never accept "both", which a source may also have)
+    bool target = cfg.role == "server" ? sc.accept == "target" : sc.direction == "pull";
+    if(!target) continue;
+    std::vector<std::string> lines;
+    gxReplSweepDeadCopies(sc, lines);
+    for(auto &l : lines) glog("%s", l.c_str());
   }
   return 0;
 }
@@ -3259,9 +3451,17 @@ int gxReplServer::Run(std::string &err)
   // 11/10/2026: the derived index rebuilds of the sets this server copies (their own thread: a rebuild can take long)
   std::thread derived_worker([&]() {
     std::map<std::string, std::map<std::string, std::pair<uint64_t, long long> > > seen;
+    std::map<std::string, long long> swept;   // 11/13/2026: the dead copy folder sweep, once a minute a set
     while(!stop) {
       for(auto &sc : cfg.sets) {
-	if(stop || sc.accept == "source" || sc.derived.empty()) continue;
+	if(stop || sc.accept == "source") continue;
+	if(!sc.commit_block.empty() && sc.accept == "target" && (long long)time(0) - swept[sc.name] >= sweep_every()) {
+	  swept[sc.name] = (long long)time(0);
+	  std::vector<std::string> lines;
+	  gxReplSweepDeadCopies(sc, lines);
+	  for(auto &l : lines) glog("%s", l.c_str());
+	}
+	if(sc.derived.empty()) continue;
 	std::vector<std::string> lines;
 	gxReplDerivedRefresh(sc, seen[sc.name], lines);
 	for(auto &l : lines) glog("%s", l.c_str());

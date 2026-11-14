@@ -1,6 +1,9 @@
 DataReel 7.3.1 Beta Release Notes, 11/01/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
+DataReel 7.3.2 fixes database replication (gxrepl) problems found in
+production; see RELEASE_NOTES_7.3.2.txt.
+
 DataReel 7.3.1 is a beta bug fix release of 7.3. DataReel 6.2 remains
 the stable release for production use until DataReel 7 is final;
 please report problems through https://datareel.com/contact.php.
@@ -335,57 +338,3 @@ Ship-log volume and whole copies (11/10, gxrepl-var-r4 / r4d):
   rebuild that failed stays torn. "derived_busy_rebuild" (default 900 s)
   rebuilds a folder that is never quiet for derived_delay anyway, under
   the apply lock.
-
-Power-loss tests and fixes (11/09/2026, phase 2 step 5):
-- utils/gxrepl/powerloss_shim.c: a test-only LD_PRELOAD library that
-  keeps what a disk would still have after a power cut (a file's bytes
-  when it is fsynced, a folder's entries when the folder is fsynced).
-  test_gxrepl.py cuts the writer's node, the server's node or both at
-  random moments, rebuilds the folders from that image only, and checks
-  the copies, the retention floor and the object service.
-- gxdFPTRCreate() now syncs the folder after it creates a file (POSIX).
-  Before, a new database or journal could be lost in a power cut with
-  every commit made to it, since commits synced only the file.
-- The ship-log purge skips acked/<copy>.gxrtmp, which a crash in the
-  middle of a floor write leaves; it was read as another copy's floor.
-- gxrepl deletes now sync the folders they removed files from.
-- The design document (docs/DATABASE_OBJECT_SERVER_DESIGN.md) section
-  11 specifies protocol 3: sessions, the multiplex frame, replication
-  and objects on channels, the retention floor, and the status files.
-
-Replication fixes from the 11/10 reviews (gxrepl-var-r3):
-- The ship-log reader keeps two cursors (the end scan and the last read)
-  and a sparse lsn -> offset index, so a Read() never rescans a segment.
-  A Diff request's 4 MB / 100 ms read-lock budget counts the log read.
-  Measured: the slowest writer commit during a full verify of a 256 MB
-  live file was 204 ms at load 31 (2078 ms with the old whole-file lock).
-- A ship-log record bigger than max_message (an osa_ingest rebuild writes
-  one of 500 MB) is never sent or even read: READLOG status 2, the copy's
-  position is reset and the stream's files are resynced in pieces.
-- commit_block copies: the copy's commit block is marked odd (protocol op
-  15, MARKGEN) before a unit's files change and stays odd until a whole
-  commit is in; "gxrepl torn" / "gxrepl.sh promote-check" lists torn copies
-  (exit 1) so a fail over does not promote them. A heartbeat write to the
-  commit block is not a change. Measured: an unlocked 8 MB writer at 5
-  commits/s and a 434 MB folder with a commit every 2 s both keep copying
-  whole commits.
-- Stream purge: an acked/<copy> file that cannot be read keeps the stream
-  even when another copy ACKed it; a stream whose one segment every copy
-  applied starts a new segment when its writer opens, so retention can
-  trim it. ship_log_max_total is in bytes.
-- "gxrepl version" names the git head of the DataReel sources (+dirty)
-  and the build time (gxrepl_version.cmake), or "unknown".
-
-Ship-log volume (11/10, gxrepl-var-r4):
-- Commit records are zlib-compressed (type 4, gxdShipCommitZ) when that is
-  smaller; readers take both types (gxdParseShipCommitRecord), so older
-  logs still read. GXDSHIP_COMPRESS=0 turns it off. Measured on OSA's
-  realtime day: 1.48 MB -> 179 KB per commit, no measurable CPU.
-- Derived indexes: per set "derived = GLOB" (never sent, never deleted on
-  the copy, their pages skipped in log records), "derived_rebuild = CMD
-  {dir}" and "derived_delay" on the copy: the server rebuilds a folder's
-  indexes once its generation is quiet, under the apply lock, and keeps a
-  state file; "gxrepl torn" refuses missing, stale or failed ones.
-  gxdShipLog::SetExclude() leaves such files out of the records at the
-  writer (OSA: osa_ingest --ship-log-derived). With both: 8.9 KB per
-  commit (167x less).
