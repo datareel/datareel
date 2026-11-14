@@ -1680,6 +1680,31 @@ int gxReplLocal::Streams(const std::string &set, std::vector<gxReplStream> &v,
   return 0;
 }
 
+int gxReplLocal::ReadLogOf(const std::string &set, const std::string &stream, const std::string &log_id,
+			   unsigned long long from, size_t max_bytes, std::vector<unsigned char> &out,
+			   unsigned long long &next, int &status, std::string &err)
+{
+  out.clear();
+  status = 0;
+  next = from;
+  SetState_ *s = set_state(set, err);
+  if(!s) return -1;
+  std::lock_guard<std::mutex> g(s->m);              // the check and the read on one reader, under one lock
+  gxdShipLogReader *rd = s->reader(stream, err);
+  if(!rd) return -1;
+  if(!log_id.empty()) {
+    gxdShipLogReader::Info info;
+    if(rd->GetInfo(info) != 0) { err = rd->Error(); return -1; }
+    if(info.log_id != log_id) { status = 1; return 0; }   // another log now: the position is gone
+  }
+  unsigned long count = 0;
+  int rc = rd->Read(from, max_bytes, out, next, count);
+  if(rc < 0) { err = rd->Error(); return -1; }
+  if(rc == 1) status = 1;
+  if(rc == 2) status = 2;
+  return 0;
+}
+
 int gxReplLocal::ReadLog(const std::string &set, const std::string &stream,
 			 unsigned long long from, size_t max_bytes,
 			 std::vector<unsigned char> &out, unsigned long long &next,
@@ -4800,7 +4825,13 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
     std::vector<unsigned char> out;
     unsigned long long next = 0;
     int status = 0;
-    if(src.ReadLog(set, s.name, ts.lsn + 1, cfg.max_message, out, next, status, err) != 0)
+    // 11/14/2026 (review F1): a local source reads only the log the copy's position is on (ts.log_id): a log made
+    // again (the reader reopens on it) answers "position gone", never its records as if they continued the old one.
+    // A remote source (pull) checks its own log id on the server side as before.
+    int rrc = static_cast<gxReplSource *>(&local) == &src ?
+      local.ReadLogOf(set, s.name, ts.log_id, ts.lsn + 1, cfg.max_message, out, next, status, err) :
+      src.ReadLog(set, s.name, ts.lsn + 1, cfg.max_message, out, next, status, err);
+    if(rrc != 0)
       return -1;
     if(status == 1) {
       verify = true;

@@ -5353,7 +5353,7 @@ def test_drain_verify_restart_burst_one_verify():
         env.stop()
 
 
-def _during_own_verify(name, action):
+def _during_own_verify(name, action, client_env=None):
     """a reconnect verifies the stream (a writer's open while the client was down); its file sync of index.gxd is
     held; action(env, ws, d1) runs during the hold; returns (data.gxd the same at the end, client log)"""
     env = Env(name, {"db": CB_OPTS})
@@ -5371,7 +5371,9 @@ def _during_own_verify(name, action):
         env.kill("client")
         assert writer(d1, "--commits", 1, "--commit-block", "--ship-root", ws, "--seed", 40, "--segment", 65536).returncode == 0
         hold = os.path.join(env.dir, "sync_hold")
-        env.start_client({"GXREPL_TEST_SYNC_FILE_HOLD": hold, "GXREPL_TEST_SYNC_FILE_HOLD_ON": "index.gxd"})
+        ce = {"GXREPL_TEST_SYNC_FILE_HOLD": hold, "GXREPL_TEST_SYNC_FILE_HOLD_ON": "index.gxd"}
+        ce.update(client_env or {})
+        env.start_client(ce)
         end = time.time() + 60
         while time.time() < end and not os.path.exists(hold + ".held"):
             time.sleep(0.1)
@@ -5454,6 +5456,18 @@ def test_log_remade_by_a_nightly_reopen():
                 f"night {night + 1}: the copy's data.gxd differs from the source's\n" + env.logs()
     finally:
         env.stop()
+
+
+def test_drain_never_reads_a_new_log_as_the_old_one():
+    """11/14/2026 (review F1): the stream's log made again (new log id, more records than the copy's old position)
+    while its verify is held, and the reconnect's file sync told "apply the log first" (GXREPL_TEST_DIFF_STATUS2):
+    the drain reads only the log the copy's position is on, so the new log's records never continue the old
+    position (position gone: resync); the copy ends byte for byte the source's"""
+    def act(env, ws, d1):
+        shutil.rmtree(os.path.join(ws, ".gxrepl", "log", "d1_writer.jnl"))
+        assert writer(d1, "--commits", 30, "--per", 8, "--commit-block", "--ship-root", ws, "--seed", 47).returncode == 0
+    same, log = _during_own_verify("dv_newlog_drain", act, {"GXREPL_TEST_DIFF_STATUS2": "1"})
+    assert same, "the copy differs after a drain across a log made again\n" + log[-3000:]
 
 
 def test_drain_verify_once_per_stream():
