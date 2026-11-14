@@ -734,6 +734,14 @@ private:
 // 11/14/2026 (7.4): a built-in derived index extractor (gxrextract.h), linked into the program, for
 // "derived_extractor = <name>" (found before any .so path). Call it before the sets are opened. 0, or -1.
 GXDLCODE_API int gxrRegisterExtractor(const char *name, const gxrExtractorOps *ops);
+// 11/14/2026: derived index tools. A file's digest: "btree" (the keys in order, any node layout), "bytes" (every
+// byte; vector indexes are bit-for-bit), "objects" (the live objects as a multiset); empty: btree for .btx, else
+// bytes. Status: one line per set, folder and index (stamps, the seal, the breaker). Reset: the breaker, and the
+// folder's (empty: every folder's) stamps and derived state go: the derived pass rebuilds them.
+GXDLCODE_API int gxReplDigest(const std::string &path, const std::string &kind, uint64_t &hash, uint64_t &count,
+			      std::string &err);
+GXDLCODE_API int gxReplDerivedStatus(const gxReplSetConfig &sc, std::vector<std::string> &lines);
+GXDLCODE_API int gxReplDerivedReset(const gxReplSetConfig &sc, const std::string &folder, std::string &err);
 
 } // namespace datareel
 

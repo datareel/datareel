@@ -3568,6 +3568,163 @@ def _incremental_round(extractor, name):
         env.stop()
 
 
+def _stamped(name, extra_server=(), writer_args=(), commits=400):
+    """an incremental set whose folder d1 is stamped while a writer keeps committing"""
+    env = Env(name, {"db": _incr_opts("gxrepl_test", ["derived_delay = 0", "derived_busy_rebuild = 2"] + list(extra_server))})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d1"))
+    w = _objects_writer_bg(os.path.join(ws, "d1"), "--commits", commits, "--per", 6, "--sleep", 250, "--commit-block",
+                           "--ship-root", ws, *writer_args)
+    time.sleep(1.5)
+    env.start_server()
+    env.start_client()
+    _wait_stamped(env, aws, "d1")
+    return env, ws, aws, w
+
+
+def _restart_server(env, extra_env=None):
+    if env.server and env.server.poll() is None:
+        env.server.terminate()
+        env.server.wait(10)
+    env.start_server(extra_env=extra_env)
+
+
+def _wait_log(env, text, secs=40, after=0):
+    end = time.time() + secs
+    while time.time() < end:
+        log = open(os.path.join(env.dir, "server.log")).read()
+        if text in log[after:]:
+            return log
+        time.sleep(0.3)
+    raise AssertionError("never logged: " + text + "\n" + open(os.path.join(env.dir, "server.log")).read()[-3000:])
+
+
+def _finish(env, ws, aws, w):
+    """the writer stops; the copy reaches it; its indexes are good (rebuilt or kept) and check"""
+    if w.poll() is None:
+        w.terminate()
+    w.wait(30)
+    time.sleep(0.5)
+    # a writer stopped in a batch leaves an odd commit block: one more commit makes it even
+    assert _objects_writer(os.path.join(ws, "d1"), "--commits", 1, "--commit-block", "--ship-root", ws,
+                           "--seed", 77).returncode == 0
+    _wait_gen(ws, aws, "d1", 90)
+    end = time.time() + 60
+    while time.time() < end and "INDEXES" in torn(env).stdout:
+        time.sleep(0.5)
+    t = torn(env)
+    assert t.returncode == 0 and "INDEXES" not in t.stdout, t.stdout + env.logs()
+    check_db(os.path.join(aws, "d1"))
+
+
+def test_incremental_extractor_error_means_rebuild():
+    """11/14/2026: an extractor error is "rebuild needed": the stamps go, the folder is rebuilt, the index checks"""
+    env, ws, aws, w = _stamped("incr_err")
+    try:
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        _restart_server(env, {"GXREPL_TEST_EXTRACTOR_FAIL": "insert"})
+        _wait_log(env, "rebuild needed: index.gxd: extractor insert: test: insert fails", after=n)
+        _restart_server(env)
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_direct_write_is_caught():
+    """11/14/2026: an extractor that writes its index outside the staged scope is caught (ALERT), rebuild needed"""
+    env, ws, aws, w = _stamped("incr_direct")
+    try:
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        _restart_server(env, {"GXREPL_TEST_EXTRACTOR_DIRECT": "1"})
+        log = _wait_log(env, "outside the staged scope", after=n)
+        assert "ALERT" in log[n:], log[n:]
+        _restart_server(env)
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_kill_in_scratch_phase():
+    """11/14/2026 (review): gxrepl killed (-9) while a batch's index pages are staged in memory: nothing of the
+    batch is on disk (the copy's index matches its data at its generation, its stamp at the seal). After the
+    restart the source verifies the copy (a server lost in an apply: gxrepl's own rule), which is a copy by
+    files: the folder is rebuilt once, then applies object by object again."""
+    env, ws, aws, w = _stamped("incr_scratch")
+    try:
+        _restart_server(env, {"GXREPL_TEST_CRASH_IN_SCRATCH": "1"})
+        end = time.time() + 40
+        while time.time() < end and env.server.poll() is None:
+            time.sleep(0.2)
+        assert env.server.poll() == 9, "the scratch-phase hook never ran"
+        c = run([os.path.join(BIN, "gxrepl_testwriter"), "check", os.path.join(aws, "d1")])
+        assert c.returncode == 0, "the copy's index is not its pre-batch state: " + c.stdout
+        st = run([os.path.join(BIN, "gxrepl"), "derived", "status", "--config", env.srv_conf])
+        assert "behind the seal" not in st.stdout and "stamped at record" in st.stdout, st.stdout
+        n0 = len(open(os.path.join(env.dir, "server.log")).read())
+        env.start_server()
+        _wait_log(env, "derived indexes rebuilt", after=n0)
+        _wait_stamped(env, aws, "d1")
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        r1 = _rebuilds(env)
+        time.sleep(4)                                   # object by object again
+        log = open(os.path.join(env.dir, "server.log")).read()[n:]
+        assert _rebuilds(env) == r1 and "rebuild needed" not in log, log[-2000:]
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_breaker_after_two_crashes():
+    """11/14/2026: the extractor crashing gxrepl twice on one batch trips the breaker: the next start puts the set
+    back on rebuild with an ALERT (and rebuilds); gxrepl derived rebuild clears it"""
+    env, ws, aws, w = _stamped("incr_breaker")
+    try:
+        for i in range(2):
+            _restart_server(env, {"GXREPL_TEST_EXTRACTOR_CRASH": "1"})
+            end = time.time() + 40
+            while time.time() < end and env.server.poll() is None:
+                time.sleep(0.2)
+            assert env.server.poll() == 7, f"crash {i + 1} never happened"
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        env.start_server()
+        log = _wait_log(env, "derived_apply back on rebuild", after=n)
+        assert "ALERT" in log[n:]
+        assert os.path.exists(os.path.join(aws, ".gxrepl", "derived", "incremental.breaker"))
+        _finish(env, ws, aws, w)
+        r = run([os.path.join(BIN, "gxrepl"), "derived", "rebuild", "--config", env.srv_conf, "--set", "db"])
+        assert r.returncode == 0, r.stdout
+        assert not os.path.exists(os.path.join(aws, ".gxrepl", "derived", "incremental.breaker"))
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_staged_cap():
+    """11/14/2026: more staged index pages than derived_apply_max_mb: the batch's indexes are rebuilt instead"""
+    env, ws, aws, w = _stamped("incr_cap", ["derived_apply_max_mb = 0"])
+    try:
+        _wait_log(env, "passed derived_apply_max_mb")
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_orphan_means_rebuild():
+    """11/14/2026: an objects record without its commit (a writer crash between them, here the record lost and a gap
+    after it) is never applied object by object: rebuild needed, and the index checks after the rebuild"""
+    env, ws, aws, w = _stamped("incr_orphan", writer_args=("--split-pair-at", "70"), commits=120)
+    try:
+        log = _wait_log(env, "rebuild needed", secs=90)
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
 def test_incremental_derived_apply_builtin():
     """11/14/2026 (7.4): derived_apply = incremental with the built-in test extractor: the first fill (by files)
     drops the stamps, the derived pass rebuilds and stamps the folder, then every ship log batch updates index.gxd

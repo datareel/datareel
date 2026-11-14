@@ -80,6 +80,8 @@ static int usage()
 	  "       gxrepl promote --config FILE [--set NAME] [--apply]   (before a take over)\n"
 	  "       gxrepl serve --accept-both ... / once --pull-all ...   (failback: automate/gxrepl.sh failback)\n"
 	  "       gxrepl fingerprint CERT.pem\n"
+	  "       gxrepl digest FILE [--kind btree|bytes|objects]\n"
+	  "       gxrepl derived status|rebuild --config FILE [--set NAME] [--folder REL]\n"
 	  "       gxrepl shiplog STREAM_DIR [--from LSN]\n"
 	  "       gxrepl version\n");
   return 64;
@@ -230,6 +232,47 @@ int main(int argc, char **argv)
     return 0;
   }
   if(cmd == "fingerprint") return argc == 3 ? fingerprint(argv[2]) : usage();
+  // 11/14/2026: gxrepl digest FILE [--kind btree|bytes|objects]
+  if(cmd == "digest") {
+    if(argc != 3 && !(argc == 5 && std::string(argv[3]) == "--kind")) return usage();
+    uint64_t h = 0, n = 0;
+    std::string err;
+    if(datareel::gxReplDigest(argv[2], argc == 5 ? argv[4] : "", h, n, err) != 0) { fprintf(stderr, "gxrepl: %s\n", err.c_str()); return 2; }
+    printf("%016llx %llu %s\n", (unsigned long long)h, (unsigned long long)n, argv[2]);
+    return 0;
+  }
+  // 11/14/2026: gxrepl derived status|rebuild --config FILE [--set NAME] [--folder REL]
+  if(cmd == "derived") {
+    if(argc < 3) return usage();
+    std::string sub = argv[2], conf, set, folder;
+    for(int i = 3; i < argc; i++) {
+      std::string a = argv[i];
+      if(a == "--config" && i + 1 < argc) conf = argv[++i];
+      else if(a == "--set" && i + 1 < argc) set = argv[++i];
+      else if(a == "--folder" && i + 1 < argc) folder = argv[++i];
+      else return usage();
+    }
+    if(conf.empty() || (sub != "status" && sub != "rebuild")) return usage();
+    datareel::gxReplConfig cfg;
+    std::string err;
+    if(cfg.Load(conf, err) != 0) { fprintf(stderr, "gxrepl: %s\n", err.c_str()); return 2; }
+    if(sub == "rebuild" && set.empty()) { fprintf(stderr, "gxrepl: derived rebuild needs --set\n"); return 2; }
+    int rc = 0, found = 0;
+    for(auto &sc : cfg.sets) {
+      if(!set.empty() && sc.name != set) continue;
+      found = 1;
+      if(sub == "status") {
+	std::vector<std::string> lines;
+	datareel::gxReplDerivedStatus(sc, lines);
+	for(auto &l : lines) printf("%s\n", l.c_str());
+      }
+      else if(datareel::gxReplDerivedReset(sc, folder, err) != 0) { fprintf(stderr, "gxrepl: %s\n", err.c_str()); rc = 1; }
+      else printf("set %s: %s: the breaker, stamps and derived state cleared: the derived pass rebuilds\n", sc.name.c_str(),
+		  folder.empty() ? "every folder" : folder.c_str());
+    }
+    if(!found) { fprintf(stderr, "gxrepl: no set %s in %s\n", set.c_str(), conf.c_str()); return 2; }
+    return rc;
+  }
   if(cmd == "shiplog") {
     if(argc < 3) return usage();
     unsigned long long from = 0;

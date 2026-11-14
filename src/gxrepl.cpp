@@ -68,6 +68,7 @@ Database replication over gxStream. See gxrepl.h. POSIX only.
 #include <linux/fs.h>
 #include "gxdpcache.h"
 #include "gxdstamp.h"
+#include "gxbtree.h"
 #include "gxdstage.h"
 #include "gxrextract.h"
 
@@ -2764,6 +2765,11 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
 	  if(mb > mb_cap) { bad = true; why = "the staged index pages passed derived_apply_max_mb"; break; }
 	}
 	if(!bad && ops->Flush(h, last, e, sizeof(e)) != 0) { bad = true; why = ixs[k] + ": extractor flush: " + e; }
+	if(!bad) {   // the pages Flush() wrote count too
+	  double mb = scope.StagedBytes() / 1048576.0;
+	  if(peak_mb && mb > *peak_mb) *peak_mb = mb;
+	  if(mb > mb_cap) { bad = true; why = "the staged index pages passed derived_apply_max_mb"; }
+	}
 	if(!bad && k == 0) count = ops->Count(h);
 	// the stamp, in the same scope (its pages go with the index's)
 	if(!bad) {
@@ -5322,6 +5328,130 @@ static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const 
     }
   }
   for(auto &s : subs) torn_walk(sc, root, s, checked, torn, warn, tl);
+}
+
+// ---------------- Derived index tools (11/14/2026, 7.4) ----------------
+
+namespace {
+struct DigestKey_ : public DatabaseKeyB {   // any B-tree's keys as raw bytes (gxrepl digest)
+  std::vector<char> b;
+  DigestKey_(size_t n) : DatabaseKeyB(0), b(n ? n : 1, 0) { db_key = b.data(); }
+  size_t KeySize() { return b.size(); }
+  int CompareKey(const DatabaseKeyB &o) const { return memcmp(b.data(), o.db_key, b.size()); }
+  int operator==(const DatabaseKeyB &o) const { return CompareKey(o) == 0; }
+  int operator>(const DatabaseKeyB &o) const { return CompareKey(o) > 0; }
+};
+}
+
+int gxReplDigest(const std::string &path, const std::string &kind_in, uint64_t &hash, uint64_t &count, std::string &err)
+{
+  hash = 0; count = 0;
+  std::string kind = kind_in;
+  if(kind.empty()) kind = path.size() > 4 && path.compare(path.size() - 4, 4, ".btx") == 0 ? "btree" : "bytes";
+  if(kind == "bytes") {
+    int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    if(fd < 0) { err = "cannot open " + path; return -1; }
+    std::vector<unsigned char> b(1 << 20);
+    ssize_t n;
+    uint64_t h = 0;
+    while((n = read(fd, b.data(), b.size())) > 0) { h = gxdReplHash(b.data(), (size_t)n, h); count += (uint64_t)n; }
+    close(fd);
+    hash = h;
+    return n < 0 ? -1 : 0;
+  }
+  if(kind == "objects") {                    // the live objects, in any order (a multiset of their bytes)
+    gxDatabase db;
+    if(db.Open(path.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { err = "cannot open " + path; return -1; }
+    std::vector<uint64_t> hs;
+    std::vector<unsigned char> b;
+    for(FAU_t a = db.FindFirstObject(); a != (FAU_t)0; a = db.FindNextObject(a)) {
+      __ULWORD__ n = db.ObjectLength(a);
+      b.resize(n);
+      if(n && db.Read(b.data(), n, a) != gxDBASE_NO_ERROR) { err = "cannot read an object"; return -1; }
+      hs.push_back(gxdReplHash(b.data(), b.size(), 0));
+    }
+    std::sort(hs.begin(), hs.end());
+    uint64_t h = 0;
+    for(auto x : hs) h = gxdReplHash(&x, sizeof(x), h);
+    hash = h; count = hs.size();
+    return 0;
+  }
+  if(kind == "btree") {                      // the keys in order: the same for any node layout
+    gxBtreeHeader bh;
+    {
+      gxDatabase probe;
+      if(probe.Open(path.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { err = "cannot open " + path; return -1; }
+      if(probe.Read(&bh, sizeof(bh), (FAU_t)probe.FileHeaderSize()) != gxDBASE_NO_ERROR) { err = "no B-tree header"; return -1; }
+    }
+    if(bh.key_size == 0 || bh.key_size > 65536 || bh.node_order < 2) { err = "not a B-tree index"; return -1; }
+    DigestKey_ k((size_t)bh.key_size), c((size_t)bh.key_size);
+    gxBtree bt(k, bh.node_order);
+    if(bt.Open(path.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { err = "cannot open the B-tree " + path; return -1; }
+    uint64_t h = 0;
+    for(int ok = bt.FindFirst(k); ok; ok = bt.FindNext(k, c)) { h = gxdReplHash(k.b.data(), k.b.size(), h); count++; }
+    bt.Close();
+    hash = h;
+    return 0;
+  }
+  err = "unknown digest kind " + kind + " (btree, bytes or objects)";
+  return -1;
+}
+
+int gxReplDerivedStatus(const gxReplSetConfig &sc, std::vector<std::string> &lines)
+{
+  lines.clear();
+  lines.push_back("set " + sc.name + ": derived_apply " + sc.derived_apply +
+		  (sc.derived_apply == "incremental" ? ", extractor " + (sc.derived_extractor.empty() ? std::string("(none)") : sc.derived_extractor) +
+		   ", source " + (sc.derived_source.empty() ? std::string("(none)") : sc.derived_source) +
+		   ", max " + std::to_string(sc.derived_apply_max_mb) + " MB" : std::string("")));
+  std::string why;
+  if(breaker_on(sc, &why)) lines.push_back("  BREAKER on: " + why);
+  if(FILE *f = fopen(try_path(sc).c_str(), "r")) { char b[128] = {0}; if(fgets(b, sizeof(b), f)) {} fclose(f);
+    std::string t(b); while(!t.empty() && t.back() == '\n') t.pop_back(); lines.push_back("  index step in progress or stopped: " + t); }
+  if(sc.derived.empty()) return 0;
+  std::vector<std::string> folders;
+  derived_folders(sc, "", folders);
+  for(auto &rel : folders) {
+    std::string where = rel.empty() ? "." : rel, dir = rel.empty() ? sc.root : sc.root + "/" + rel;
+    unsigned long long g = 0, l = unit_log_lsn(sc, rel, &g);
+    std::string state;
+    if(FILE *f = fopen(derived_state_path(sc, rel).c_str(), "r")) { char b[256] = {0}; if(fgets(b, sizeof(b), f)) {} fclose(f); state = b; }
+    while(!state.empty() && state.back() == '\n') state.pop_back();
+    lines.push_back("  " + where + ": sealed at record " + std::to_string(l) + " generation " + std::to_string(g) +
+		    ", state " + (state.empty() ? std::string("(none)") : state));
+    for(auto &ix : folder_indexes(sc, rel)) {
+      gxdStampData d;
+      int rc = gxdDerivedStamp::ReadFile(gxdDerivedStamp::PathFor(dir + "/" + ix), d);
+      std::string st = rc == 1 ? "no stamp (rebuild mode)" : rc != 0 ? "a damaged stamp (rebuild mode)" :
+	"stamped at record " + std::to_string(d.lsn) + " of log " + d.log_id + ", " + std::to_string(d.records) + " entries" +
+	(d.lsn == l ? "" : " (behind the seal: rebuild needed)");
+      lines.push_back("    " + ix + ": " + st);
+    }
+  }
+  return 0;
+}
+
+int gxReplDerivedReset(const gxReplSetConfig &sc, const std::string &folder, std::string &err)
+// The breaker and the step marker go; the folder's (or every folder's) stamps and derived state go, under the
+// apply lock: the derived pass rebuilds them and, on an incremental set, stamps them again
+{
+  std::string jname = sc.root + "/.gxrepl/apply.jnl";
+  mkdirs(sc.root + "/.gxrepl");
+  int lk = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+  if(lk < 0) { err = "cannot open " + jname; return -1; }
+  if(lock_apply_bounded(lk) != 0) { close(lk); err = "busy: " + jname + " is held; try again"; return -1; }
+  unlink(breaker_path(sc).c_str());
+  unlink(try_path(sc).c_str());
+  std::vector<std::string> folders;
+  if(folder.empty()) derived_folders(sc, "", folders);
+  else folders.push_back(folder == "." ? std::string() : folder);
+  for(auto &rel : folders) {
+    drop_stamps(sc, rel, "", false);
+    unlink(derived_state_path(sc, rel).c_str());
+  }
+  flock(lk, LOCK_UN);
+  close(lk);
+  return 0;
 }
 
 int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn, std::vector<std::string> &warn,
