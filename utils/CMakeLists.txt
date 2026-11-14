@@ -32,16 +32,21 @@ if(NOT WIN32)
   target_link_libraries(object_server PRIVATE DataReel::datareel)
   add_executable(object_client dbserver/object_client.cpp)
   target_link_libraries(object_client PRIVATE DataReel::datareel)
-  # 11/12/2026: tests of the vector index (gxvindex.h), DataReel 7.4
-  add_executable(vix_test vix_test/vix_test.cpp)
-  target_link_libraries(vix_test PRIVATE DataReel::datareel)
-  # 11/14/2026 (phase D): files made by the phase A-C library, for the compatibility test
-  target_compile_definitions(vix_test PRIVATE VIX_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/vix_test/data")
-  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(vix_test PRIVATE -ffp-contract=off)
-  endif()
-  set(_dr_repl_tools gxrepl gxrepl_testwriter gxdbmux_test object_server object_client vix_test)
+  set(_dr_repl_tools gxrepl gxrepl_testwriter gxdbmux_test object_server object_client)
 endif()
+
+# 11/12/2026: tests of the vector index (gxvindex.h), DataReel 7.4 (11/14/2026: on Windows too; its crash
+# rounds are POSIX only)
+add_executable(vix_test vix_test/vix_test.cpp)
+target_link_libraries(vix_test PRIVATE DataReel::datareel)
+# 11/14/2026 (phase D): files made by the phase A-C library, for the compatibility test
+target_compile_definitions(vix_test PRIVATE VIX_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/vix_test/data")
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(vix_test PRIVATE -ffp-contract=off)
+elseif(MSVC)
+  target_compile_options(vix_test PRIVATE /fp:precise)
+endif()
+list(APPEND _dr_repl_tools vix_test)
 
 set_target_properties(db_debug ix_debug vix_rebuild ${_dr_repl_tools} PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/utils")

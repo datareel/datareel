@@ -33,8 +33,15 @@ Staged writes (gxdstage.h).
 
 #include <string.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <sys/stat.h>
+#if !defined (__WIN32__)
+#include <unistd.h>
+#else
+// 11/14/2026 (Windows): the CRT's file calls for the one place that reads a file back (Forget()). A staged scope
+// is only made by gxrepl's incremental derived apply, which is POSIX only, so on Windows this is never used in
+// practice; it is kept correct, not fast.
+#include <io.h>
+#endif
 #include <algorithm>
 #include "gxdstage.h"
 #include "gxdbase.h"
@@ -107,6 +114,7 @@ void gxdStagedScope::Forget(gxDatabase *f)
       gxdStagedFile sf;
       snapshot(f, sf);
       // pages a close rewrote as they are in the file (a header written again at Close) are no change
+#if !defined (__WIN32__)
       int fd = open(sf.path.c_str(), O_RDONLY | O_CLOEXEC);
       if(fd >= 0) {
 	struct stat st;
@@ -124,6 +132,26 @@ void gxdStagedScope::Forget(gxDatabase *f)
 	  kept.data.insert(kept.data.end(), pg, pg + gxdPageSize);
 	}
 	close(fd);
+#else
+      int fd = _open(sf.path.c_str(), _O_RDONLY | _O_BINARY);
+      if(fd >= 0) {
+	struct _stat64 st;
+	bool same_size = _fstat64(fd, &st) == 0 && (unsigned long long)st.st_size == sf.size;
+	std::vector<unsigned char> disk(gxdPageSize);
+	gxdStagedFile kept;
+	kept.path = sf.path; kept.size = sf.size;
+	for(size_t i = 0; i < sf.page_no.size(); i++) {
+	  const unsigned char *pg = sf.data.data() + i * gxdPageSize;
+	  long long want = (long long)std::min<unsigned long long>(gxdPageSize, sf.size > sf.page_no[i] * gxdPageSize ?
+							       sf.size - sf.page_no[i] * gxdPageSize : 0);
+	  long long got = want > 0 && _lseeki64(fd, (long long)(sf.page_no[i] * gxdPageSize), SEEK_SET) >= 0 ?
+	    (long long)_read(fd, disk.data(), (unsigned)want) : 0;
+	  if(same_size && want > 0 && got == want && memcmp(disk.data(), pg, (size_t)want) == 0) continue;
+	  kept.page_no.push_back(sf.page_no[i]);
+	  kept.data.insert(kept.data.end(), pg, pg + gxdPageSize);
+	}
+	_close(fd);
+#endif
 	if(kept.page_no.empty() && same_size) { s->files.erase(it); continue; }
 	sf = std::move(kept);
       }

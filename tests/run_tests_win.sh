@@ -69,6 +69,9 @@ check ai_record_store "$E/ai_record_store"
 check ai_indexed_records sh -c "'$E/ai_indexed_records' | tr -d '\r\n' | grep -q 'Found Acme Tools'"
 mkdir -p "$WORK/run_damaged" && cd "$WORK/run_damaged" && check damaged_files "$T/damaged_files" 300 7
 mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" && check journal_test "$T/journal_test" 20 7
+# 11/14/2026 (7.4): the vector index tests (the crash rounds are POSIX only and left out of the Windows build)
+U="$BUILD/utils/$CFG"; [ -d "$U" ] || U="$BUILD/utils"
+mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" && check vix_test "$U/vix_test"
 for t in stream_security_test proto_security_test support_security_test; do
   mkdir -p "$WORK/run_$t" && cd "$WORK/run_$t" && check $t "$T/$t"
 done

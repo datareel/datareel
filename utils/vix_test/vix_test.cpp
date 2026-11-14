@@ -57,6 +57,7 @@ Exit code 0 when every test passes.
 #include <set>
 #include <sstream>
 #include <fstream>
+#include <filesystem>
 #include <algorithm>
 #include <chrono>
 #include <random>
@@ -1049,8 +1050,11 @@ static void test_vector_set()
 {
   const unsigned dim = 16, days = 5, per_day = 600;
   std::string sdir = path("set1");
-  std::string mk = "rm -rf '" + sdir + "' && mkdir -p '" + sdir + "/by day'";
-  if(system(mk.c_str()) != 0) { }
+  {                                                   // (std::filesystem: the same on Linux and Windows)
+    std::error_code ec;
+    std::filesystem::remove_all(sdir, ec);
+    std::filesystem::create_directories(sdir + "/by day", ec);
+  }
   Clusters cl(dim, 12, 41);
   std::vector<std::vector<float> > all;
   std::vector<std::pair<long long, unsigned> > meta;   // id, day
@@ -1205,7 +1209,10 @@ static void test_vector_set()
   bad_manifest(head.substr(0, head.find("dim")), gxv_BAD_FILE, "not whole");
   bad_manifest("set x\nversion 1\nspec set-test\ndim 16\nelement f8\nmetric l2\n", gxv_UNSUPPORTED, "an unknown element");
   bad_manifest(head + "file with space/a b.vix nodes=1 deleted=0 tag2=3..4 crc=0\n", gxv_NO_ERROR, "a path with spaces");
-  system(("rm -rf '" + sdir + "'").c_str());
+  {
+    std::error_code ec;
+    std::filesystem::remove_all(sdir, ec);
+  }
 }
 
 // 11/14/2026 (phase D item 5): the gxvmember extractor and the rebuild from members
