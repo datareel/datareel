@@ -281,7 +281,9 @@ static void test_elements()
     for(float x : a) mx = fabsf(x) > mx ? fabsf(x) : mx;
     if(s != mx / 127.0f) over++;
     for(unsigned i = 0; i < dim; i++) {
-      if(fabsf(d[i] - a[i]) > 0.5f * s * (1.0f + 1e-5f)) over++;
+      // half a step, plus the float rounding of q * s at |q| up to 127 (about 127 * 2^-24 of s; MSVC
+      // rounds one value in the 1e-5 band that gcc does not)
+      if(fabsf(d[i] - a[i]) > 0.5f * s * (1.0f + 1e-4f)) over++;
       if(fabsf(a[i]) == mx && (q[i] == 127 || q[i] == -127)) ends++;
     }
   }
@@ -2041,10 +2043,10 @@ int main(int argc, char **argv)
     }
     else dir = argv[i];
   }
-#ifndef _WIN32
-  std::string mk = "mkdir -p '" + dir + "'";
-  if(system(mk.c_str()) != 0) { }
-#endif
+  {                                                   // the work folder (std::filesystem: Linux and Windows)
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+  }
   if(gate_n > 0) {
     gate((size_t)gate_n, gate_dim, uniform, efc, live_sec, *gate_type, gate_metric);
     return 0;
