@@ -100,25 +100,30 @@ events written".
 
 Replication (examples/oodb/replication.cpp)
 -------------------------------------------
-This example builds replication by hand from gxDatabase and
-gxStream, in two processes over localhost, to show how it works. For
-real use, the library has replication built in since 7.3.1: the
-gxrepl tool (utils/gxrepl/README.md) and its classes (gxdrepl.h,
-gxrepl.h). The primary
-makes each change (insert, update, delete) to its own database file
-and ships it over gxStream; the replica applies it to its file in the
-same order, so records land at the same addresses. At the end the
-primary compares record counts and CRCs, and the two files are byte
-for byte the same.
+Database replication with gxrepl (utils/gxrepl/README.md and
+docs/replication_admin_guide.md), object by object (DataReel 7.4).
+A primary writes records and keeps two indexes made from them, a
+B-tree of names and a vector index (replication_records.h). gxrepl
+copies the committed pages of the records to a copy and never sends
+the indexes: the copy keeps its own, updated object by object from the
+records each commit changed (derived_apply = incremental), with the
+example's extractor "example_records" built into the copy's gxrepl
+(replication_gxrepl, from replication_gxrepl.cpp and gxrepl's own
+source). When the copy cannot be sure of an index (a damaged stamp, a
+gap in the ship log, an extractor error) it rebuilds that folder's
+indexes in full on its own (replication rebuild), says so in its log,
+and goes back to object by object. A full rebuild on every change is
+still a set's own choice: derived_apply = rebuild.
 
-  replication demo cert.pem key.pem --ca cert.pem      (POSIX: forks the replica)
+  examples/oodb/replication_walkthrough.sh BUILD/examples
 
-or in two terminals (any system):
+The walkthrough (POSIX, the openssl command for throwaway
+certificates) runs a primary and a copy on throwaway folders over
+127.0.0.1: writes, then the derived status, a simulated fault (the
+copy's vector index stamp damaged), the log lines of the rebuild, the
+way back to object by object, and the two indexes' digests, the same
+on both nodes. It exits 0 when every check passes.
 
-  replication replica 0 cert.pem key.pem     (prints the port it got)
-  replication primary PORT --ca cert.pem
-
-Output: the replica's port, the primary's steps (20 inserts, 5
-updates, 4 deletes, 3 inserts that reuse deleted blocks at the same
-address on both sides), the two checksums and "The replica matches
-the primary". primary.gxd and replica.gxd compare equal with cmp.
+  replication write DIR [--commits N] [--per N] [--sleep MS] [--seed N]
+  replication rebuild DIR [LSN]
+  replication digest DIR

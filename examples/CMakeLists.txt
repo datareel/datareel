@@ -22,9 +22,16 @@ datareel_example(db_infohog        database/infohog/infohog.cpp)
 # fork() and kill(), so it is built on POSIX systems only.
 datareel_example(typed_objects     oodb/typed_objects.cpp)
 datareel_example(day_events        oodb/day_events.cpp)
-datareel_example(replication       oodb/replication.cpp)
 if(NOT WIN32)
   datareel_example(journal_recovery oodb/journal_recovery.cpp)
+  # 11/14/2026 (7.4): replication with gxrepl, object by object: the writer / rebuild / digest program, and the
+  # example's own gxrepl with its extractor built in (POSIX only, like gxrepl)
+  datareel_example(replication     oodb/replication.cpp)
+  add_executable(replication_gxrepl ${CMAKE_CURRENT_SOURCE_DIR}/../utils/gxrepl/gxrepl.cpp oodb/replication_gxrepl.cpp)
+  target_include_directories(replication_gxrepl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/oodb)
+  target_compile_definitions(replication_gxrepl PRIVATE GXREPL_EXTRA_EXTRACTORS=1)
+  target_link_libraries(replication_gxrepl PRIVATE DataReel::datareel)
+  set_target_properties(replication_gxrepl PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/examples")
 endif()
 
 # TLS networking
