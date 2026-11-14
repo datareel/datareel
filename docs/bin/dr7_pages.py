@@ -638,7 +638,7 @@ EXAMPLES = [
   ('oodb/typed_objects.cpp', 'typed_objects', 'A typed class sent over gxStream, stored in a gxDatabase, exported to plain text and imported back.'),
   ('oodb/journal_recovery.cpp', 'journal_recovery', 'gxdJournal transactions: a writer killed mid-transaction, Recover(), a consistency check and Rollback(). POSIX only.'),
   ('oodb/day_events.cpp', 'day_events', 'One database file per YYYY/MM/DD folder and a time-range query across days.'),
-  ('oodb/replication.cpp', 'replication', 'A primary ships its changes over gxStream to a replica process; both files end up the same.'),
+  ('oodb/replication.cpp', 'replication', 'gxrepl, object by object: a copy keeps its own B-tree and vector index, rebuilds a folder by itself after a fault, and matches the primary.'),
  ]),
  ('TLS networking', [
   ('tls/tls_echo_server.cpp', 'tls_echo_server', 'TLS server using gxsTLSServer and a ThreadPool. Usage: tls_echo_server port cert.pem key.pem'),
@@ -761,37 +761,40 @@ The query matches the events written
 """)),
  ]),
  'replication': ('oodb/replication.cpp', 'Replication Example',
-  'A primary ships its inserts, updates and deletes over gxStream to a replica in a second process; both database files end up the same.', [
-  ('Shows', 'What It Shows', """
-<P>This example builds replication by hand from gxDatabase and gxStream, in two processes over localhost, to show how it works. For real use, the library has replication built in since 7.3.1: the gxrepl tool (utils/gxrepl) and its classes (gxdrepl.h, gxrepl.h).</P>
-<UL>
-<LI>The primary is the only writer. For each change to its own <A HREF="../classes/database/gxdbase.htm">gxDatabase</A> file it sends one operation (insert, update or delete, the file address and the record bytes) over <A HREF="../classes/socket/gxstream.htm">gxStream</A>, and waits for the replica's answer before the next one.</LI>
-<LI>The replica applies the operations in the same order. gxDatabase gives out addresses deterministically, so the records land at the primary's addresses; the replica answers each insert with its address and the primary checks it.</LI>
-<LI>At the end the primary compares the record count and a CRC-32 of every live record and its address with the replica's. The two files are byte for byte the same.</LI>
-</UL>
-<P>A production system also needs a log the replica can catch up from after it was down, transactions, several readers, reconnects and promotion of the replica. That is what gxrepl provides.</P>
-"""),
-  ('Running', 'Running It', CERT_NOTE + code("""
-replication demo cert.pem key.pem --ca cert.pem     # POSIX: forks the replica
-
-replication replica 0 cert.pem key.pem              # any system, terminal 1: prints its port
-replication primary PORT --ca cert.pem              # terminal 2
-""") + """<P>The primary writes primary.gxd and the replica replica.gxd; the program exits with 0 when they match.</P>
-"""),
-  ('Output', 'Sample Output', code("""
-replica: listening on 127.0.0.1:41039
-primary: inserted 20 accounts
-primary: updated 5 accounts
-primary: deleted 4 accounts
-primary: account 21 went to address 1952 on both sides
-primary: account 22 went to address 1568 on both sides
-primary: account 23 went to address 992 on both sides
-primary: shipped 32 operations, 0 not applied the same way
-primary: 19 records, CRC 3F7571E6
-replica: 19 records, CRC 3F7571E6
-The replica matches the primary
-replica: applied 32 operations to replica.gxd
-""")),
+  'gxrepl copies a primary\'s records to a copy, which keeps its own B-tree and vector index object by object, rebuilds a folder on its own after a fault, and goes on.', [
+  ('Shows', 'What It Shows', '''
+<P>Database replication with gxrepl (<A HREF="../replication_admin_guide.html">the administrator's guide</A>), object by object:</P>
+<OL>
+<LI>The primary writes records (a name, a day and a vector member) and keeps two indexes made from them in the same <A HREF="../classes/database/gxdjrnl.htm">gxdJournal</A> transaction: a <A HREF="../classes/database/gxbtree.htm">B-tree</A> of names and a vector index. Its journal's ship log carries each commit's pages and, with the object notes on, which records the commit added, changed and removed. The two indexes are left out of the ship log.</LI>
+<LI>gxrepl sends the commits to the copy over gxStream (mutual TLS). The copy never receives the indexes: it keeps its own, updated object by object from the records each commit changed (<CODE>derived_apply = incremental</CODE>), with the example's extractor <CODE>example_records</CODE> (replication_records.h). The extractor turns a record into its B-tree key and its vector. It is built into the copy's gxrepl (replication_gxrepl), the way an application builds its own.</LI>
+<LI>When the copy cannot be sure of an index (a damaged stamp, a gap in the log, an extractor error), gxrepl says "rebuild needed", rebuilds that one folder in full on its own (<CODE>replication rebuild</CODE>, the set's <CODE>derived_rebuild</CODE>), and goes back to object by object. A full rebuild on every change is still a set's own choice: <CODE>derived_apply = rebuild</CODE>.</LI>
+<LI><CODE>replication digest</CODE> prints what each index holds, whatever its layout: the B-tree's keys in order and the vector index's live nodes. The primary and the copy print the same.</LI>
+</OL>
+'''),
+  ('Running', 'Running It', '<P>The walkthrough runs it all on throwaway folders of this machine (127.0.0.1), with throwaway certificates made by the openssl command (POSIX only):</P>\n' + code('''
+examples/oodb/replication_walkthrough.sh BUILD/examples
+''') + '''<P>It starts the copy (<CODE>replication_gxrepl serve</CODE>), the primary's replicator (<CODE>replication_gxrepl run</CODE>) and the writer (<CODE>replication write</CODE>), then: (1) waits for the copy to follow object by object; (2) damages the copy's vector index stamp, and shows gxrepl's "rebuild needed" line, the folder rebuild and the way back to object by object; (3) compares the digests on both nodes. It exits with 0 when every check passes. KEEP=1 keeps its work folder, with both configs and both logs.</P>
+'''),
+  ('Output', 'Sample Output', code('''
+== 1. The copy follows object by object
+derived state: 66 ok incremental lsn 34
+  set records: derived_apply incremental, extractor example_records, source data.gxd ...
+== 2. A simulated fault: the copy's vectors.vix.stamp damaged
+  log: ... set records: .: derived indexes: rebuild needed: vectors.vix has a damaged stamp
+  log: ... set records: .: derived indexes rebuilt for generation 142 (busy: never quiet)
+derived state: 158 ok incremental lsn 80
+== 3. The writer finishes; both nodes hold the same indexes
+primary:
+  by_name.btx btree 3f0c... 2314 keys
+  vectors.vix logical 9a51... 2314 nodes
+copy:
+  by_name.btx btree 3f0c... 2314 keys
+  vectors.vix logical 9a51... 2314 nodes
+OK: object by object, one automatic folder rebuild after the fault, and the same indexes on both nodes
+''') + '<P>(The numbers differ from run to run; the two digests always agree.)</P>\n'),
+  ('Files', 'Files', '''
+<P>examples/oodb/replication.cpp (the writer, the rebuild and the digest), replication_records.h (the record, the key and the extractor), replication_gxrepl.cpp (the example's gxrepl: gxrepl's own source built with GXREPL_EXTRA_EXTRACTORS, plus this file registering the extractor) and replication_walkthrough.sh, built by examples/CMakeLists.txt and run by tests/run_tests.sh. Back to the <A HREF="examples.htm">example programs</A>.</P>
+'''),
  ]),
  'trading_sessions': ('general/trading_sessions.cpp', 'Trading Sessions Example',
   'CDate and the systime.h functions applied to US stock market sessions, holidays and trading days.', [

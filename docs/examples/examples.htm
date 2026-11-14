@@ -57,7 +57,7 @@ cmake-build\examples\Release\db_infohog  # Windows</PRE>
 <div class="dr-fn"><code class="dr-sig">examples/oodb/typed_objects.cpp</code><p class="dr-desc"><B><A HREF="typed_objects.htm">typed_objects</A></B>: A typed class sent over gxStream, stored in a gxDatabase, exported to plain text and imported back.</p></div>
 <div class="dr-fn"><code class="dr-sig">examples/oodb/journal_recovery.cpp</code><p class="dr-desc"><B><A HREF="journal_recovery.htm">journal_recovery</A></B>: gxdJournal transactions: a writer killed mid-transaction, Recover(), a consistency check and Rollback(). POSIX only.</p></div>
 <div class="dr-fn"><code class="dr-sig">examples/oodb/day_events.cpp</code><p class="dr-desc"><B><A HREF="day_events.htm">day_events</A></B>: One database file per YYYY/MM/DD folder and a time-range query across days.</p></div>
-<div class="dr-fn"><code class="dr-sig">examples/oodb/replication.cpp</code><p class="dr-desc"><B><A HREF="replication.htm">replication</A></B>: A primary ships its changes over gxStream to a replica process; both files end up the same.</p></div>
+<div class="dr-fn"><code class="dr-sig">examples/oodb/replication.cpp</code><p class="dr-desc"><B><A HREF="replication.htm">replication</A></B>: gxrepl, object by object: a copy keeps its own B-tree and vector index, rebuilds a folder by itself after a fault, and matches the primary.</p></div>
 
 <h2 id="TLSnetworking">TLS networking</h2>
 <div class="dr-fn"><code class="dr-sig">examples/tls/tls_echo_server.cpp</code><p class="dr-desc"><B>tls_echo_server</B>: TLS server using gxsTLSServer and a ThreadPool. Usage: tls_echo_server port cert.pem key.pem</p></div>

@@ -88,9 +88,9 @@ for p in trading_sessions string_utils day_events; do
 done
 mkdir -p "$WORK/run_typed_objects" && cd "$WORK/run_typed_objects" &&
   check typed_objects $E/typed_objects "$WORK/server.pem" "$WORK/server.key" --ca "$WORK/ca.pem"
+# 11/14/2026 (7.4): replication with gxrepl, object by object, a simulated fault and the automatic folder rebuild
 mkdir -p "$WORK/run_replication" && cd "$WORK/run_replication" &&
-  check replication $E/replication demo "$WORK/server.pem" "$WORK/server.key" --ca "$WORK/ca.pem"
-check replication_files_same cmp "$WORK/run_replication/primary.gxd" "$WORK/run_replication/replica.gxd"
+  check replication_walkthrough "$SRC/examples/oodb/replication_walkthrough.sh" "$E" "$WORK/run_replication/w"
 mkdir -p "$WORK/run_journal_recovery" && cd "$WORK/run_journal_recovery" &&
   check journal_recovery $E/journal_recovery 5
 # Sample programs from the AI guides (docs/ai/samples); run twice to
