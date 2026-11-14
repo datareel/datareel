@@ -338,7 +338,7 @@ GXDLCODE_API int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::st
 // 11/14/2026: each unit's commit block, seal, applied position and derived state are read under a SHARED flock
 // on <root>/.gxrepl/apply.jnl (every apply, swap and derived rebuild holds it exclusively), taken per unit and let
 // go before the next one; never held while files are hashed. The waits for it share one budget per set
-// (GXREPL_TORN_LOCK_WAIT, 60 s); past it the rest of the set is read unlocked with the timed re-reads
+// (GXREPL_TORN_LOCK_WAIT, 15 s); past it the rest of the set is read unlocked with the timed re-reads
 // (GXREPL_TORN_RECHECK_SEC) and "warn" says the check ran without the apply lock. "ls" (optional) says how.
 struct gxReplTornLockStats {
   bool use_lock = true;            // in: false = never lock (a caller that already holds the apply lock)

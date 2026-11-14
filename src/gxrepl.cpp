@@ -4640,7 +4640,7 @@ static double torn_recheck_sec()
 // staged swap, derived rebuild and dead folder sweep holds the lock exclusively, so under the shared lock nothing
 // is half applied and no re-read is needed. It is taken for one unit's small reads only and let go before the next
 // unit (and before any file is hashed): an apply waits (its F4 bounded wait, 5 s) for one unit's reads at most. The
-// waits share one budget per set, GXREPL_TORN_LOCK_WAIT (60 s): a derived rebuild holding the lock for minutes
+// waits share one budget per set, GXREPL_TORN_LOCK_WAIT (15 s): a derived rebuild holding the lock for minutes
 // stops the locking for the rest of the set, which is then read unlocked with the timed re-reads, and said.
 // No apply.jnl (or no .gxrepl): nothing was ever applied there; read unlocked (with the re-reads), nothing made.
 struct TornLock {
@@ -4654,7 +4654,7 @@ struct TornLock {
   TornLock(const std::string &root, gxReplTornLockStats &st) : ls(&st) {
     jname = root + "/.gxrepl/apply.jnl";
     if(!st.use_lock) return;
-    double wait = 60;
+    double wait = 15;   // 11/14/2026: 15 s, so promote (480 s) + this stays well inside the DRCM gate's 600 s
     if(const char *e = getenv("GXREPL_TORN_LOCK_WAIT")) { double v = atof(e); if(v >= 0) wait = v; }
     budget_ms = wait * 1000;
     fd = open(jname.c_str(), O_RDONLY | O_CLOEXEC);
