@@ -1,0 +1,217 @@
+<!doctype html>
+<!-- Generated from replication_admin_guide.md by docs/bin/md2html.py -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel Replication Administrator&#x27;s Guide</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>DataReel Replication Administrator's Guide (gxrepl)</h1>
+<p>This guide is for the person who runs database replication on two nodes: setting it up, watching it, taking over when the primary fails, and getting back. It covers gxrepl as shipped in DataReel 7.4 beta 2. The design and every config key are in <code>utils/gxrepl/README.md</code>, <code>include/gxrepl.h</code> and <code>RELEASE_NOTES_7.4.txt</code>.</p>
+<p>Every example uses throwaway folders under <code>/tmp/repl_demo</code>, two node names (<code>primary</code> and <code>copy</code>) and the loopback address. Never try the commands here for the first time on production nodes: run them on a local throwaway setup first. <strong>Test status:</strong> each command block is marked <strong>(tested)</strong> or <strong>(test pending)</strong>. A pending block has not yet been run on a throwaway setup for this guide. Treat it as a description until it is.</p>
+<h2 id="1WhatGxreplReplicates">1. What gxrepl replicates</h2>
+<ul>
+<li><strong>Committed database pages.</strong> A program writing through a <code>gxdJournal</code> with the ship log on (<code>EnableShipLog(set_root)</code>) appends each commit's pages to <code>&lt;root&gt;/.gxrepl/log/&lt;stream&gt;/</code>. gxrepl sends those records to the copy over a mutual-TLS gxStream connection (TCP 2073), and the copy applies them through its own journal (<code>&lt;root&gt;/.gxrepl/apply.jnl</code>). The copy is always one whole commit, even after a crash in the middle of an apply.</li>
+<li><strong>Database files without a ship log</strong> (published databases, writers without the log) go by a scan: changed files are compared in 64 KB pieces and only the pieces that differ are sent. Live writers' files are read under <code>gxdJournalReadLock</code>.</li>
+<li><strong>Database files only.</strong> <code>.gxd</code>, <code>.btx</code> and the files a set names with <code>include</code> (a commit block, a manifest). Flat files (logs, CSV, reports) are not gxrepl's job; copy them with your usual file sync.</li>
+<li><strong>Derived indexes are never sent.</strong> An index the copy can make from the data (<code>derived = by_*.btx, vectors.vix</code>) is left out of the ship log and the file sync, and the copy keeps it itself. Each set chooses how:</li>
+<li><code>derived_apply = rebuild</code> (the default): the copy runs <code>derived_rebuild</code> for a folder once its data is quiet (<code>derived_delay</code>), or after <code>derived_busy_rebuild</code> seconds on a folder that never goes quiet.</li>
+<li><code>derived_apply = incremental</code> (7.4): the copy updates each index object by object, in the same atomic batch as the data, from the "objects" records the writer adds to the ship log (object notes, below). A gap, an error or a crash it cannot be sure of puts that folder back on a full rebuild ("rebuild needed").</li>
+<li><strong>Commit blocks.</strong> A folder whose writer keeps a commit block (<code>commit_block = commit.bin@8</code>, a generation that is odd while a batch writes) is copied as one unit and sealed at a whole commit. <code>gxrepl torn</code> (promote-check) says whether every copy is whole.</li>
+</ul>
+<h2 id="2SettingUpAPrimaryAndACopy">2. Setting up a primary and a copy</h2>
+<h3 id="21Certificates">2.1 Certificates</h3>
+<p>Both nodes authenticate with certificates from a private CA. The server lets in only the client names in <code>allow_cn</code> (or fingerprints in <code>allow_fingerprint</code>), and the client checks that the server's certificate names <code>server_name</code>.</p>
+<p>(test pending)</p>
+<pre>mkdir -p /tmp/repl_demo/pki &amp;&amp; cd /tmp/repl_demo/pki
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+    -keyout ca.key -out ca.pem -days 30 -subj /CN=demo-ca
+# the server: the copy, which listens
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout copy.key -out copy.csr -subj /CN=copy
+printf &#x27;subjectAltName=DNS:copy,IP:127.0.0.1\nextendedKeyUsage=serverAuth\n&#x27; &gt; copy.ext
+openssl x509 -req -in copy.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out copy.pem -days 30 -extfile copy.ext
+# the client: the primary, which dials
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout primary.key -out primary.csr -subj /CN=primary
+printf &#x27;extendedKeyUsage=clientAuth\n&#x27; &gt; primary.ext
+openssl x509 -req -in primary.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out primary.pem -days 30 -extfile primary.ext
+chmod 600 *.key
+gxrepl fingerprint primary.pem          # for allow_fingerprint, if you pin it</pre>
+<p>Keep the CA key off both nodes. On a real node, give gxrepl its key on a descriptor (<code>key = fd:3</code> or <code>--key-fd 3</code>) or from the environment (<code>env:VAR</code>) instead of a file. gxrepl then keeps it only in an anonymous memory file.</p>
+<h3 id="22Configs">2.2 Configs</h3>
+<p>Usually the node that cannot take inbound connections is the client (<code>gxrepl run</code>) and the other is the server (<code>gxrepl serve</code>). Direction is per set: <code>push</code> copies the client's folder to the server, <code>pull</code> the reverse. In this demo the primary pushes to the copy.</p>
+<p><code>/tmp/repl_demo/primary.conf</code> (the client):</p>
+<pre>node = primary
+role = client
+connect = 127.0.0.1:12073
+server_name = copy
+cert = /tmp/repl_demo/pki/primary.pem
+key = /tmp/repl_demo/pki/primary.key
+ca = /tmp/repl_demo/pki/ca.pem
+status_file = /tmp/repl_demo/primary.status.json
+
+[set db]
+root = /tmp/repl_demo/primary/db
+direction = push
+commit_block = commit.bin@8
+include = commit.bin
+derived = by_*.btx
+deletes = yes</pre>
+<p><code>/tmp/repl_demo/copy.conf</code> (the server):</p>
+<pre>node = copy
+role = server
+listen = 127.0.0.1:12073
+allow_cn = primary
+cert = /tmp/repl_demo/pki/copy.pem
+key = /tmp/repl_demo/pki/copy.key
+ca = /tmp/repl_demo/pki/ca.pem
+status_file = /tmp/repl_demo/copy.status.json
+
+[set db]
+root = /tmp/repl_demo/copy/db
+accept = target
+commit_block = commit.bin@8
+include = commit.bin
+derived = by_*.btx
+derived_rebuild = /path/to/your_rebuild_tool {dir} {lsn}
+derived_delay = 30</pre>
+<p>The patterns:</p>
+<ul>
+<li><code>include</code>: extra files carried with the databases (only database files go by default).</li>
+<li><code>exclude</code>: files and folders never sent. <code>/x/</code> matches only x under the root; <code>name/</code> matches a folder of that name anywhere.</li>
+<li><code>derived</code>: the indexes the copy rebuilds. Name the same patterns on both nodes. <code>&lt;index&gt;.stamp</code> files belong to their index and are never sent.</li>
+<li><code>writer_lock</code>: lock files a node's own writer holds while it is the active node. While one is held, gxrepl refuses to change that node's copy (the split-brain guard).</li>
+</ul>
+<p><code>derived_rebuild</code> runs on the copy under the apply lock, with <code>{dir}</code> (the folder) and <code>{lsn}</code> (the ship log record the folder was last changed at). It must rebuild the folder's derived indexes and write <code>&lt;folder&gt;/derived.stamp</code> (<code>gen G lsn L records N keys K</code>). For vector indexes made from record members, <code>utils/vix_rebuild</code> is such a tool:</p>
+<pre>derived = vectors.vix
+derived_rebuild = vix_rebuild --data {dir}/data.gxd --index {dir}/vectors.vix --member infohog:1 \
+    --dim 96 --spec news/v1 --stamp-dir {dir} --lsn {lsn}</pre>
+<h3 id="23CheckAndStart">2.3 Check and start</h3>
+<p>(test pending)</p>
+<pre>gxrepl check --config /tmp/repl_demo/copy.conf          # certificates, sets, folders
+gxrepl check --config /tmp/repl_demo/primary.conf
+gxrepl serve --config /tmp/repl_demo/copy.conf &amp;        # the copy listens
+gxrepl once  --config /tmp/repl_demo/primary.conf       # one pass with a full verify; 0 = every set the same
+gxrepl run   --config /tmp/repl_demo/primary.conf &amp;     # replicate until stopped</pre>
+<p><code>once</code> exits 0 when every set is the same, 1 when a set is not in step, 2 on an error. <code>TERM</code> stops either side after the current message. <code>HUP</code> on the client forces a full verify at its next pass.</p>
+<h3 id="24PerObjectDerivedApplyIncremental">2.4 Per-object derived apply (incremental)</h3>
+<p>Turn it on per set, on the copy, only when both nodes run DataReel 7.4 beta 2 or later (section 6):</p>
+<pre>derived_apply = incremental
+derived_extractor = &lt;a built-in name, or /path/to/extractor.so&gt;
+derived_extractor_config = &lt;the extractor&#x27;s settings&gt;
+derived_source = data.gxd          # the folder&#x27;s data file the indexes come from
+derived_count = by_time.btx        # the index whose entry count is derived.stamp&#x27;s &quot;keys&quot;
+derived_apply_max_mb = 256         # most staged index pages a batch may hold
+derived_apply_max_s = 30           # longest index step of a batch</pre>
+<p>and on the writer, turn the object notes on (<code>gxdJournal::EnableObjectNotes(1)</code>, or <code>GXDSHIP_OBJECTS=1</code> in its environment before it calls <code>EnableShipLog</code>). Without the notes, an incremental set stays on rebuild.</p>
+<p>An extractor turns one record into its index entries (<code>include/gxrextract.h</code>). The built-in <code>gxvmember</code> keeps a vector index made from the records' vector members. An application builds its own into its gxrepl and registers it with <code>gxrRegisterExtractor()</code> (build gxrepl with <code>GXREPL_EXTRA_EXTRACTORS</code>). The replication example (<code>examples/oodb/replication.cpp</code>, <code>replication_walkthrough.sh</code>) shows one end to end.</p>
+<p>Rules worth knowing:</p>
+<ul>
+<li>The first incremental batch of a folder needs a stamped index, so the folder is rebuilt once first.</li>
+<li>A writer restart (its open record makes the copy verify), a copy by files, a ship log gap, an extractor error, or a staged batch over the cap each cost one rebuild of the folders it touched.</li>
+<li>Two crashes of the index step on one batch, or three in an hour on one set, trip the breaker: the set goes back to rebuild with an ALERT in the log. <code>gxrepl derived rebuild --config FILE --set NAME</code> clears it.</li>
+<li>Rolling back is one line: <code>derived_apply = rebuild</code>, then restart the server.</li>
+</ul>
+<h2 id="3WatchingIt">3. Watching it</h2>
+<p>(test pending)</p>
+<pre>gxrepl status --config /tmp/repl_demo/primary.conf      # the status JSON; exit 1 if older than 30 s
+gxrepl derived status --config /tmp/repl_demo/copy.conf # derived mode, stamps, breaker, per folder
+gxrepl torn --config /tmp/repl_demo/copy.conf           # promote-check: is every copy whole?
+gxrepl shiplog /tmp/repl_demo/primary/db/.gxrepl/log/&lt;stream&gt;   # the records of one stream
+gxrepl digest /tmp/repl_demo/copy/db/by_time.btx --kind btree   # compare an index with the other node
+vix_rebuild --digest /tmp/repl_demo/copy/db/vectors.vix         # a vector index&#x27;s logical digest</pre>
+<p>What to look at:</p>
+<ul>
+<li><strong>status.json</strong> (<code>status_file</code>, rewritten every few seconds): per set <code>ok</code>, <code>last_ok</code>, <code>last_error</code>, <code>warn</code>, bytes and records sent, and per stream <code>source</code>, <code>copy</code> and <code>lag</code> (records the copy is behind). With derived indexes there is a <code>derived</code> block: the mode, folders whose stamps are behind, an index step in progress, the breaker and the last ALERT.</li>
+<li><strong>The stall check.</strong> <code>lag</code> should come back to 0 within seconds of a quiet writer. A lag that stays above 0 while the writer is quiet, or a <code>last_ok</code> that stops moving while <code>ok</code> is false, means the set is stuck: read <code>last_error</code> and the server log. <code>gxrepl status</code> itself exits 1 when the status file is older than 30 seconds (gxrepl is not running).</li>
+<li><strong>Digests.</strong> <code>gxrepl digest</code> compares what an index holds, not its bytes: <code>btree</code> hashes the keys in order, the same for any node layout; <code>objects</code> hashes a data file's live objects; <code>bytes</code> hashes the file. <code>vix_rebuild --digest</code> gives a vector index's logical digest (live nodes in id order). A primary's index and a copy's index made by incremental apply or by a rebuild agree on the logical digests. Two rebuilds of the same data also agree on the bytes.</li>
+<li><strong>Log lines.</strong> <code>derived indexes rebuilt</code>, <code>rebuild needed: &lt;why&gt;</code> and <code>ALERT</code> are the ones to alert on.</li>
+</ul>
+<h2 id="4FailoverAndFailback">4. Failover and failback</h2>
+<h3 id="41BeforeANodeTakesOver">4.1 Before a node takes over</h3>
+<p>(test pending)</p>
+<pre>gxrepl promote --config /tmp/repl_demo/copy.conf            # dry run: what promote would do
+gxrepl promote --config /tmp/repl_demo/copy.conf --apply    # finish stages, recover, then the torn check</pre>
+<p><code>promote --apply</code> recovers the apply journal and finishes or discards staged unit copies. It then runs the same check as <code>gxrepl torn</code>. Exit codes: 0 every copy is whole (go); 1 a copy is torn (do not take over); 3 promote could not finish its own work, such as a swap while the writer runs or an I/O error (do not take over until it has; the lines say why); 2 usage.</p>
+<p><code>gxrepl torn</code> lists each folder:</p>
+<ul>
+<li><code>TORN</code>: not one whole commit (a copy stopped half way). Never promote it.</li>
+<li><code>INDEXES</code>: the derived indexes are behind or missing ("rebuild"). That is a warning, not torn: the data is whole, and the new writer's open (or the copy's derived pass) rebuilds them. Missing <code>&lt;index&gt;.stamp</code> files on an incremental set read the same way.</li>
+<li><code>STAGED</code>: a staged unit copy is waiting for its swap.</li>
+<li><code>OWN</code>: files this node has that gxrepl never copies (its own data).</li>
+<li><code>WARNING</code>: the check could not take the apply lock in time (<code>GXREPL_TORN_LOCK_WAIT</code>, 15 s) and read without it.</li>
+</ul>
+<p>Then start the writer on the node taking over, holding its <code>writer_lock</code>, so gxrepl will not overwrite it.</p>
+<h3 id="42Failback">4.2 Failback</h3>
+<p>When the old primary is back, copy the new primary's changes to it before it writes again. On the node that serves, for that run only:</p>
+<p>(test pending)</p>
+<pre>gxrepl serve --config FILE --accept-both                 # its copies may also be read as sources
+gxrepl once  --config FILE --pull-all                    # on the client: pull every set once, no deletes
+gxrepl torn  --config FILE --copied-only                 # only the folders gxrepl copied</pre>
+<p>Then stop the writer on the interim primary, swap the roles back, and start the normal configs.</p>
+<h2 id="5ArchivedFolders">5. Archived folders</h2>
+<p>A writer that archives a folder (a finished day moved away) deletes it on the primary. On the copy, gxrepl removes the copied files, then the folder whole, with its stage, derived indexes, <code>derived.stamp</code>, stamps and its seal, under the apply lock. A minute sweep (<code>GXREPL_SWEEP_SEC</code>) catches folders left by a stop part way.</p>
+<p>A folder is never swept when it:</p>
+<ul>
+<li>is unsealed, or sealed "copying";</li>
+<li>has a commit block, a copied file, a sub-folder or a writer lock held;</li>
+<li>holds a file gxrepl neither copies nor owns;</li>
+<li>changed in the last 10 minutes (<code>GXREPL_DEAD_QUIET_SEC</code>).</li>
+</ul>
+<p>It is also never swept on a node that is the set's source. Archive your folders on the primary only.</p>
+<p>Readers of vector index sets (<code>.vixset</code>) skip a listed day that is missing and count it, so an archived day never breaks a search.</p>
+<h2 id="6Upgrades">6. Upgrades</h2>
+<ul>
+<li><strong>Mixed versions are safe.</strong> A copy on older code skips the 7.4 "objects" records and applies every commit's pages. A source on older code works with a new copy. Protocol 3 is unchanged.</li>
+<li><strong>With the notes off (the default), the ship log is byte for byte what 7.3.2 writes.</strong> Turn the object notes and <code>derived_apply = incremental</code> on only once both nodes run 7.4 beta 2 or later.</li>
+<li>Upgrade the copy first, then the primary. Keep the old binary (for example <code>gxrepl.prev</code>) for a rollback, and never copy a new binary over a running one (build to <code>gxrepl.new</code>, then rename).</li>
+<li>After the upgrade, run <code>gxrepl once</code> (exit 0) and <code>gxrepl torn</code> (0) before calling it done.</li>
+</ul>
+<h2 id="7Troubleshooting">7. Troubleshooting</h2>
+<table>
+<thead><tr><th>Symptom</th><th>Likely cause</th><th>What to do</th></tr></thead>
+<tbody>
+<tr><td><code>refused ... SSL exception</code> in the server log</td><td>a client without the right certificate, or a port scanner</td><td>check <code>allow_cn</code> / <code>allow_fingerprint</code> and the client's <code>cert</code>, <code>ca</code>, <code>server_name</code></td></tr>
+<tr><td><code>lag</code> stays above 0, <code>last_error</code> "busy"</td><td>a reader or a derived rebuild holds the apply lock</td><td>wait; if it lasts, look for a stuck reader of the copy</td></tr>
+<tr><td><code>needs a verify (open, gap or old position)</code></td><td>a writer restarted, a gap, or a copy behind its log</td><td>normal; the verify copies only the pieces that differ</td></tr>
+<tr><td><code>record N is bigger than max_message</code></td><td>one commit larger than a message</td><td>raise <code>max_message</code> on both nodes (16 MB is common); the copy resyncs the file meanwhile</td></tr>
+<tr><td><code>torn</code> says INDEXES for a long time</td><td><code>derived_rebuild</code> failing, or a busy folder never quiet</td><td>check the rebuild command by hand on a scratch copy; set <code>derived_busy_rebuild</code></td></tr>
+<tr><td><code>rebuild needed:</code> lines on an incremental set</td><td>a gap, an extractor error, or the cap</td><td>expected after faults; frequent ones mean look at the extractor or raise <code>derived_apply_max_mb</code></td></tr>
+<tr><td><code>ALERT ... derived_apply back on rebuild</code></td><td>the breaker tripped</td><td>find the crash in the log, fix the extractor, then <code>gxrepl derived rebuild --set NAME</code></td></tr>
+<tr><td><code>ALERT ... outside the staged scope</code></td><td>an extractor wrote its index directly</td><td>the extractor must write only through DataReel in its own gxrepl build</td></tr>
+<tr><td>a TORN folder after a cut link</td><td>a copy stopped half way</td><td>let the next pass finish it; <code>promote --apply</code> before any take over</td></tr>
+</tbody>
+</table>
+<h2 id="8WhenAPlainFileCopyIsEnough">8. When a plain file copy is enough</h2>
+<p>You do not always need gxrepl. A plain copy of the database folder is enough when all of these hold:</p>
+<ul>
+<li>the database is written rarely (a few times a day, or by a nightly job), so a copy minutes old is fine;</li>
+<li>you can stop or quiesce the writer while the copy runs: no transaction open, the journal checkpointed (<code>gxdJournal::Checkpoint()</code>, or closing the writer), so the files hold every commit and nothing else;</li>
+<li>nothing reads the copy while it is being written, or readers can wait for it to finish.</li>
+</ul>
+<p>Then copy the folder with your file sync tool while the writer is stopped, and verify after.</p>
+<p>(test pending)</p>
+<pre># on the primary, with the writer stopped (or between its jobs)
+rsync -a --delete -n /tmp/repl_demo/primary/db/ copy-host:/tmp/repl_demo/copy/db/   # dry run first
+rsync -a --delete    /tmp/repl_demo/primary/db/ copy-host:/tmp/repl_demo/copy/db/
+# verify: the same digests on both sides
+gxrepl digest /tmp/repl_demo/primary/db/data.gxd --kind objects
+ssh copy-host gxrepl digest /tmp/repl_demo/copy/db/data.gxd --kind objects</pre>
+<p>Exclude the journal (<code>*.jnl</code>) and lock files if the writer may have left them, and copy the indexes with the data or rebuild them on the copy. If the writer cannot stop, if the database changes all day, or if the copy must be seconds behind and always one whole commit, use gxrepl.</p>
+<h2 id="9TestStatusOfThisGuide">9. Test status of this guide</h2>
+<p>The commands above were written against DataReel 7.4 beta 2 (gxrepl 4f8a1b7) and match its usage text and the gxrepl test suite. They are still to be run, in order, on a throwaway local setup (two folders on one machine, the loopback address), with each block marked tested and any correction made. Until then, every block marked "(test pending)" is a description, not a recipe.</p>
+</main>
+<footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+</body>
+</html>
