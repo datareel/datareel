@@ -4102,7 +4102,7 @@ def _same_file(a, b):
         return False
 
 
-def _drain_verify_round(name, client_env=None, recovery=True):
+def _drain_verify_round(name, client_env=None, recovery=True, pre_open=False):
     """returns (data.gxd the same at the source's generation, client log)"""
     env = Env(name, {"db": CB_OPTS})
     ws, aws = env.roots["db"]
@@ -4117,6 +4117,8 @@ def _drain_verify_round(name, client_env=None, recovery=True):
         while time.time() < end and "verified (" not in open(os.path.join(env.dir, "client.log")).read():
             time.sleep(0.2)
         env.kill("client")
+        if pre_open:   # a writer opens and commits while the client is down: the reconnect verifies the stream first
+            assert writer(d1, "--commits", 1, "--commit-block", "--ship-root", ws, "--seed", 40).returncode == 0
         hold = os.path.join(env.dir, "sync_hold")
         # held in the sync of index.gxd, after data.gxd was compared (as the 11/14 failure: the drain then
         # applies the records, and nothing compares data.gxd again unless the verify runs)
@@ -4254,6 +4256,14 @@ def test_position_gone_from_the_same_log_verifies():
         assert "gave up on" not in log, log
     finally:
         env.stop()
+
+
+def test_drain_verify_open_during_its_own_verify():
+    """the open record of a recovering writer arrives while that same stream is being verified (the file sync of
+    the stream's verify, held): the stream is verified once more in the next pass, and the copy matches"""
+    same, log = _drain_verify_round("dv_again", pre_open=True)
+    assert same, "the copy's data.gxd differs after a verify that saw an open record\n" + log[-3000:]
+    assert "needs a verify again after this one" in log, log[-3000:]
 
 
 def test_drain_verify_once_per_stream():
