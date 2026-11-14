@@ -43,9 +43,10 @@ written yet), then, inside a staged scope (gxdstage.h: no write of the
 extractor can reach a file), calls Open(), Remove(old bytes) for every
 removed and updated object, Insert(new bytes) for every added and
 updated object (each in ascending address), Flush() with the batch's
-last lsn and Count(). The index pages the extractor changed, its
-<index>.stamp, the data pages and the copy's position are then written
-as one atomic batch, and Close() is called. Any error, an incomplete or
+last lsn and Count(), then Close() (11/14/2026: before the capture, so
+what Close() writes is in the batch too). The index pages the extractor
+changed, its <index>.stamp, the data pages and the copy's position are
+then written as one atomic batch. Any error, an incomplete or
 missing objects record, or more staged pages than derived_apply_max_mb
 puts the index back on a full rebuild ("rebuild needed").
 
@@ -53,8 +54,9 @@ Rules for an extractor:
   - deterministic: the same objects in the same order give the same
     index bytes (or, for a B-tree, the same keys);
   - no I/O but the index (and its own open), no threads, no globals;
-  - keep the index open from Open() to Close() and write every header
-    (gxBtree::WriteBtreeHeader(), the file header) in Flush();
+  - keep the index open from Open() to Close() (never close and open it
+    again in between) and write every header (gxBtree::WriteBtreeHeader(),
+    the file header) in Flush();
   - Remove() of an entry that is not there is not an error (0);
   - return 0 for success, non-zero for an error, with a message of at
     most "err_len" bytes in "err".
@@ -62,6 +64,8 @@ Rules for an extractor:
 Changes:
 ==============================================================
 11/14/2026: New in DataReel 7.4.
+==============================================================
+11/14/2026: Review 3: Close() comes before the capture.
 ==============================================================
 */
 #ifndef __GX_REPL_EXTRACTOR_H__

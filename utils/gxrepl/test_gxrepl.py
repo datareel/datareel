@@ -3661,7 +3661,7 @@ def test_incremental_kill_in_scratch_phase():
         c = run([os.path.join(BIN, "gxrepl_testwriter"), "check", os.path.join(aws, "d1")])
         assert c.returncode == 0, "the copy's index is not its pre-batch state: " + c.stdout
         st = run([os.path.join(BIN, "gxrepl"), "derived", "status", "--config", env.srv_conf])
-        assert "behind the seal" not in st.stdout and "stamped at record" in st.stdout, st.stdout
+        assert "rebuild needed" not in st.stdout and "stamped at record" in st.stdout, st.stdout
         n0 = len(open(os.path.join(env.dir, "server.log")).read())
         env.start_server()
         _wait_log(env, "derived indexes rebuilt", after=n0)
@@ -3702,11 +3702,145 @@ def test_incremental_breaker_after_two_crashes():
         env.stop()
 
 
+def test_incremental_breaker_crashes_in_an_hour():
+    """11/14/2026 (review 4): crashes of the index step on different batches count too: 3 in an hour (any batches)
+    trip the breaker with an ALERT; a crash older than an hour does not count; gxrepl derived rebuild clears them"""
+    env, ws, aws, w = _stamped("incr_window")
+    crashes = os.path.join(aws, ".gxrepl", "derived", "incremental.crashes")
+    try:
+        now = int(time.time())
+        with open(crashes, "w") as f:                    # two earlier crashes (other batches) and one too old
+            f.write(f"{now - 7300}\n{now - 1800}\n{now - 600}\n")
+        _restart_server(env, {"GXREPL_TEST_EXTRACTOR_CRASH": "1"})
+        end = time.time() + 40
+        while time.time() < end and env.server.poll() is None:
+            time.sleep(0.2)
+        assert env.server.poll() == 7, "the crash never happened"
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        env.start_server()
+        log = _wait_log(env, "derived_apply back on rebuild", after=n)
+        assert "ALERT" in log[n:] and "3 times in the last hour" in log[n:], log[n:]
+        assert len(open(crashes).read().split()) == 3, open(crashes).read()   # the old one dropped
+        st = run([os.path.join(BIN, "gxrepl"), "derived", "status", "--config", env.srv_conf, "--set", "db"])
+        assert "BREAKER on" in st.stdout and "crashes in the last hour: 3" in st.stdout, st.stdout
+        _finish(env, ws, aws, w)
+        r = run([os.path.join(BIN, "gxrepl"), "derived", "rebuild", "--config", env.srv_conf, "--set", "db"])
+        assert r.returncode == 0, r.stdout
+        assert not os.path.exists(crashes)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
 def test_incremental_staged_cap():
     """11/14/2026: more staged index pages than derived_apply_max_mb: the batch's indexes are rebuilt instead"""
     env, ws, aws, w = _stamped("incr_cap", ["derived_apply_max_mb = 0"])
     try:
         _wait_log(env, "passed derived_apply_max_mb")
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_step_time_limit():
+    """11/14/2026 (review 5): an index step slower than derived_apply_max_s (checked between extractor calls) stops
+    and the batch's folders are rebuilt instead; an extractor call that never returns trips the hard watchdog:
+    gxrepl stops with an ALERT (exit 8), and the crash is counted for the breaker"""
+    env, ws, aws, w = _stamped("incr_time", ["derived_apply_max_s = 1"])
+    try:
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        _restart_server(env, {"GXREPL_TEST_EXTRACTOR_SLOW": "400"})
+        _wait_log(env, "passed derived_apply_max_s", after=n)
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        _restart_server(env, {"GXREPL_TEST_EXTRACTOR_HANG": "1", "GXREPL_TEST_WATCHDOG_S": "3"})
+        end = time.time() + 60
+        while time.time() < end and env.server.poll() is None:
+            time.sleep(0.2)
+        assert env.server.poll() == 8, "the watchdog never stopped gxrepl"
+        log = open(os.path.join(env.dir, "server.log")).read()[n:]
+        assert "ALERT" in log and "never returns" in log, log
+        assert os.path.exists(os.path.join(aws, ".gxrepl", "derived", "incremental.try"))
+        env.start_server()
+        crashes = os.path.join(aws, ".gxrepl", "derived", "incremental.crashes")
+        end = time.time() + 30
+        while time.time() < end and not os.path.exists(crashes):
+            time.sleep(0.2)
+        assert len(open(crashes).read().split()) == 1
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_stray_write_is_refused():
+    """11/14/2026 (review 7): an extractor that writes any file but its index and stamp inside the staged scope (here
+    the data file's header): that write is never applied, the folder goes to rebuild needed with an ALERT, and the
+    copy's data file stays the source's"""
+    env, ws, aws, w = _stamped("incr_stray")
+    try:
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        _restart_server(env, {"GXREPL_TEST_EXTRACTOR_STRAY": "1"})
+        log = _wait_log(env, "not applied (rebuild needed)", after=n)
+        assert "ALERT" in log[n:], log[n:]
+        _restart_server(env)
+        _finish(env, ws, aws, w)
+        a = open(os.path.join(ws, "d1", "data.gxd"), "rb").read()
+        assert open(os.path.join(aws, "d1", "data.gxd"), "rb").read() == a, "the copy's data file differs"
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_big_batch_has_no_index_pages():
+    """11/14/2026 (review 6): a batch with more files than one transaction holds is applied in parts, which are not
+    one transaction, so it carries no index pages: they, the stamps, derived.stamp and the derived state are
+    dropped and the derived pass rebuilds them (the limit is 1000 files; 3 here, GXREPL_TEST_APPLY_PART_FILES)"""
+    env, ws, aws, w = _stamped("incr_parts")
+    try:
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        _restart_server(env, {"GXREPL_TEST_APPLY_PART_FILES": "3"})
+        _wait_log(env, "applied in parts: no index pages in it", after=n)
+        _restart_server(env)
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_status_shows_derived_state():
+    """11/14/2026 (review 10): the server's status.json shows each derived set's state (mode, folders, failed, not
+    built, rebuild needed, breaker, crashes in the last hour) and a WARN when incremental is on while the source's
+    object notes are off (commits without objects records: every batch is rebuilt); it clears once the folder is
+    applied object by object again"""
+    env, ws, aws, w = _stamped("incr_status")
+    try:
+        def derived():
+            try:
+                return json.load(open(env.srv_status))["sets"]["db"]["derived"]
+            except Exception:
+                return {}
+        end = time.time() + 30
+        while time.time() < end and derived().get("folders") != 1:
+            time.sleep(0.5)
+        d = derived()
+        assert d.get("mode") == "incremental" and d["folders"] == 1 and d["breaker"] is False and not d["warn"], d
+        w.terminate(); w.wait(30)
+        # the same folder written with notes off
+        assert writer(os.path.join(ws, "d1"), "--commits", 3, "--commit-block", "--ship-root", ws,
+                      "--seed", 81).returncode == 0
+        _wait_gen(ws, aws, "d1", 90)
+        end = time.time() + 30
+        while time.time() < end and "object notes are off" not in derived().get("warn", ""):
+            time.sleep(0.5)
+        assert "object notes are off" in derived().get("warn", ""), derived()
+        # notes on again: object by object, the WARN goes
+        w = _objects_writer_bg(os.path.join(ws, "d1"), "--commits", 40, "--per", 6, "--sleep", 250, "--commit-block",
+                               "--ship-root", ws)
+        end = time.time() + 60
+        while time.time() < end and derived().get("warn"):
+            time.sleep(0.5)
+        assert not derived().get("warn"), derived()
         _finish(env, ws, aws, w)
     finally:
         if w.poll() is None: w.kill(); w.wait()
@@ -4138,7 +4272,8 @@ def test_derived_index_rebuilt_on_copy():
         assert writer(ws, "--commits", 3, "--no-ship", "--commit-block", "--seed", 31).returncode == 0
         assert env.once().returncode == 0
         t = torn(env)
-        assert t.returncode == 0 and "stale" in t.stdout and "INDEXES" in t.stdout, t.stdout
+        # 11/14/2026 (review 8): a copy by files drops derived.stamp, so the indexes read as missing, not stale
+        assert t.returncode == 0 and ("stale" in t.stdout or "missing" in t.stdout) and "INDEXES" in t.stdout, t.stdout
         end = time.time() + 30
         while time.time() < end and "INDEXES" in torn(env).stdout:
             time.sleep(0.5)

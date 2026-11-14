@@ -37,13 +37,17 @@ then drops them with Rollback(). A kill at any time leaves every file
 as it was.
 
 Rules for code that runs inside a scope (a derived index extractor,
-gxrextract.h): keep the files open from the first write to Capture(),
-and write every header the file needs before Capture() (gxBtree's
-header, the file header).
+gxrextract.h): a file may be closed before Capture() (its changes are
+kept by the scope, 11/14/2026), but never opened again in the same
+scope after it was closed with changes (Capture() then fails: its reads
+would miss them). Write every header the file needs before Capture().
 
 Changes:
 ==============================================================
 11/14/2026: New in DataReel 7.4.
+==============================================================
+11/14/2026: Review 3: Rollback() no longer ends the scope; a file closed
+with changes is kept for Capture(); one opened again after that is lost.
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -84,16 +88,22 @@ public:
   // The changed pages of every file still open in the scope. Returns 0,
   // or -1 if a file of the scope was closed with changes (they are lost:
   // the caller must not use the capture).
+  // 11/14/2026 (review 3): a file closed with changes is included (the
+  // scope keeps its pages), unless it was opened again in the scope (-1).
   int Capture(std::vector<gxdStagedFile> &out);
-  void Rollback();      // Drop every change; the caches stay staged
+  // Drop every change, also of closed files; the caches stay staged and
+  // the scope goes on (a later close is caught again)
+  void Rollback();
   int Lost() const { return lost; }
 
 public: // Used by gxDatabase
   void Add(gxDatabase *f);
   static void Forget(gxDatabase *f);
+  static void NoteOpen(const char *path);   // 11/14/2026: gxDatabase::Open()
 
 private:
   std::vector<gxDatabase *> files;
+  std::vector<gxdStagedFile> closed;   // 11/14/2026: closed with changes
   gxdStagedScope *prev;
   int lost;
   int done;

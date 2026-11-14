@@ -288,6 +288,8 @@ gxDatabaseError gxDatabase::Open(const char *fname,
 {
   // Close any open files
   if(Close() != gxDBASE_NO_ERROR) return gxd_error;
+  // 11/14/2026: a file closed with changes in this staged scope, opened again: its reads would miss them
+  if(fname && gxdStagedScope::Current()) gxdStagedScope::NoteOpen(fname);
 
   // 10/14/2026: Reject a null or too long name before opening the file.
   // The name is copied into the fixed size file_name buffer, which a long

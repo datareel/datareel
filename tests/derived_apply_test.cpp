@@ -57,6 +57,7 @@ Usage: derived_apply_test (in an empty folder)
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -67,6 +68,7 @@ Usage: derived_apply_test (in an empty folder)
 #include "gxdrepl.h"
 #include "gxdpcache.h"
 #include "gxdstamp.h"
+#include "gxdstage.h"
 
 using namespace datareel;
 namespace fs = std::filesystem;
@@ -626,12 +628,79 @@ static void stamps()
   CHECK(gxdDerivedStamp::ReadFile(gxdDerivedStamp::PathFor(d + "/by_x.btx"), rd) == 0 && rd.lsn == 100, "on disk: 100");
 }
 
+// 11/14/2026 (review 3): a staged scope used for several indexes, Rollback() between them: a file closed with
+// changes after a Rollback() is still captured (before, Rollback() ended the scope and its changes went without a
+// word); a file opened again after it was closed with changes fails the capture; nothing reaches the files
+static bool file_bytes(const std::string &p, std::string &out)
+{
+  std::ifstream f(p, std::ios::binary);
+  if(!f) return false;
+  out.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+  return true;
+}
+
+static void staged_scope()
+{
+  std::string d = fresh_dir("da_scope");
+  std::string pa = d + "/a.btx", pb = d + "/b.btx";
+  FAU_t aa = 0, ab = 0;
+  char rec[64];
+  memset(rec, 'x', sizeof(rec));
+  for(auto *p : { &pa, &pb }) {
+    gxDatabase f;
+    CHECK(f.Create(p->c_str()) == gxDBASE_NO_ERROR, "create " << *p);
+    FAU_t a = f.Alloc(sizeof(rec));
+    CHECK(a && f.Write(rec, sizeof(rec), a) == gxDBASE_NO_ERROR, "write " << *p);
+    (p == &pa ? aa : ab) = a;
+    f.Close();
+  }
+  std::string a0, b0, now;
+  CHECK(file_bytes(pa, a0) && file_bytes(pb, b0), "read the files");
+  memset(rec, 'y', sizeof(rec));
+  {
+    gxdStagedScope scope;
+    std::vector<gxdStagedFile> cap;
+    // index 1: open, change, capture while open, roll back
+    {
+      gxDatabase f;
+      CHECK(f.Open(pa.c_str()) == gxDBASE_NO_ERROR, "open a");
+      CHECK(f.Write(rec, sizeof(rec), aa) == gxDBASE_NO_ERROR, "change a");
+      CHECK(scope.Capture(cap) == 0 && cap.size() == 1 && cap[0].path == pa, "a captured while open");
+      scope.Rollback();
+      f.Close();
+    }
+    CHECK(scope.Capture(cap) == 0 && cap.empty(), "nothing after the rollback (a closed with no changes)");
+    // index 2, after a Rollback(): changed and closed before the capture: still captured
+    {
+      gxDatabase f;
+      CHECK(f.Open(pb.c_str()) == gxDBASE_NO_ERROR, "open b");
+      CHECK(f.Write(rec, sizeof(rec), ab) == gxDBASE_NO_ERROR, "change b");
+      f.Close();
+    }
+    CHECK(scope.Capture(cap) == 0 && cap.size() == 1 && cap[0].path == pb && !cap[0].page_no.empty(),
+	  "b closed with changes after a rollback is captured (" << cap.size() << ")");
+    // b opened again in the scope after it was closed with changes: its reads would miss them
+    {
+      gxDatabase f;
+      CHECK(f.Open(pb.c_str()) == gxDBASE_NO_ERROR, "open b again");
+      char back[64];
+      CHECK(f.Read(back, sizeof(back), ab) == gxDBASE_NO_ERROR, "read b");
+      CHECK(scope.Capture(cap) == -1, "opened again after a close with changes: the capture fails");
+      f.Close();
+    }
+    scope.Rollback();
+    CHECK(scope.Capture(cap) == 0 && cap.empty(), "the next index starts clean");
+  }
+  CHECK(file_bytes(pa, now) && now == a0, "a on disk unchanged");
+  CHECK(file_bytes(pb, now) && now == b0, "b on disk unchanged");
+}
+
 int main()
 {
   struct T { const char *name; void (*fn)(); } tests[] = {
     { "notes_rules", notes_rules }, { "journal_notes", journal_notes }, { "write_position", write_position }, { "rotation", rotation },
     { "reader_budget", reader_budget }, { "orphan", orphan }, { "mixed_version", mixed_version },
-    { "damage", damage }, { "stamps", stamps },
+    { "damage", damage }, { "stamps", stamps }, { "staged_scope", staged_scope },
   };
   for(auto &t : tests) {
     int before = failures;

@@ -61,6 +61,7 @@ Database replication over gxStream. See gxrepl.h. POSIX only.
 #include <functional>
 #include <set>
 #include <thread>
+#include <condition_variable>
 #include "gxdjrnl.h"
 #include <sys/syscall.h>
 #include <sys/ioctl.h>
@@ -615,6 +616,8 @@ int gxReplConfig::Load(const std::string &fname, std::string &err)
       else if(k == "derived_extractor_config") cur->derived_extractor_config = v;
       else if(k == "derived_source") cur->derived_source = v;
       else if(k == "derived_apply_max_mb") cur->derived_apply_max_mb = strtoull(v.c_str(), 0, 10);
+      else if(k == "derived_count") cur->derived_count = v;   // 11/14/2026 (review 2)
+      else if(k == "derived_apply_max_s") cur->derived_apply_max_s = strtoull(v.c_str(), 0, 10);   // review 5
       else if(k == "staged_fill") cur->staged_fill = (v == "yes" || v == "true" || v == "1");   // 11/12/2026 F7
       else if(k == "stage_max_bytes") cur->stage_max_bytes = strtoull(v.c_str(), 0, 10);
       else known = false;
@@ -2181,6 +2184,9 @@ static double ms_since(const struct timespec &t0)
   return (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
 }
 
+static void drop_stamps(const gxReplSetConfig &sc, const std::string &rel, const std::string &why, bool log_it = true,
+			bool all = false);   // 11/14/2026 (review 6)
+
 int gxReplLocal::apply_batch(SetState_ *s,
   std::map<std::string, std::pair<unsigned long long,
   std::map<unsigned long long, const unsigned char *> > > &pages,
@@ -2213,13 +2219,44 @@ int gxReplLocal::apply_batch(SetState_ *s,
   // 11/14/2026: the file list is made after pre_lock, which may add pages (the incremental derived apply)
   // 11/10/2026: commit blocks after the files they describe, the unit seals
   // last (one transaction; the order is the order the pages reach the files)
+  // 11/14/2026 (review 6): data files, then the derived indexes, then their stamps (<index>.stamp, derived.stamp,
+  // the derived state), then the commit blocks, then the seals
+  const std::string units_dir = s->root + "/.gxrepl/units/", dstate_dir = s->root + "/.gxrepl/derived/";
+  auto kind_of = [&](const std::string &path) -> int {
+    if(path.compare(0, units_dir.size(), units_dir) == 0) return 4;
+    if(path.compare(0, dstate_dir.size(), dstate_dir) == 0) return 2;
+    std::string rel = path.compare(0, s->root.size() + 1, s->root + "/") == 0 ? path.substr(s->root.size() + 1) : path;
+    if(!s->sc.commit_block.empty() && base_of(rel) == s->sc.commit_block) return 3;
+    if(gxdDerivedStamp::IsStamp(base_of(rel)) || base_of(rel) == "derived.stamp") return 2;
+    if(is_derived(s->sc, rel)) return 1;
+    return 0;
+  };
+  // 11/14/2026 (review 6): one transaction holds at most part_files files (the journal's limit is 1024). A batch
+  // past it is applied in parts, which are not one transaction: a crash between them may leave data pages without
+  // the index pages made from them. So such a batch carries no index pages: they are dropped, with the folders'
+  // stamps, derived.stamp and derived state (removed before any page is written), and the derived pass rebuilds them.
+  size_t part_files = 1000;
+#ifdef GXREPL_TEST_HOOKS
+  if(const char *pf = getenv("GXREPL_TEST_APPLY_PART_FILES")) part_files = (size_t)strtoull(pf, 0, 10);   // tests only
+#endif
+  if(pages.size() > part_files) {
+    std::set<std::string> folders;
+    for(auto it = pages.begin(); it != pages.end(); ) {
+      int k = kind_of(it->first);
+      if(k == 1 || k == 2) {
+	std::string rel = it->first.compare(0, s->root.size() + 1, s->root + "/") == 0 ? it->first.substr(s->root.size() + 1) : it->first;
+	if(it->first.compare(0, dstate_dir.size(), dstate_dir) != 0) folders.insert(dir_of(rel));
+	it = pages.erase(it);
+      }
+      else ++it;
+    }
+    for(auto &u : folders) drop_stamps(s->sc, u, "the batch has more than " + std::to_string(part_files) +
+				       " files (applied in parts: no index pages in it)", true, true);
+  }
   std::vector<gxdApplyFile> af;
-  for(int pass = 0; pass < 3; pass++) {
+  for(int pass = 0; pass < 5; pass++) {
     for(auto &e : pages) {
-      int kind = 0;
-      if(e.first.compare(0, s->root.size() + 15, s->root + "/.gxrepl/units/") == 0) kind = 2;
-      else if(!s->sc.commit_block.empty() && base_of(e.first) == s->sc.commit_block) kind = 1;
-      if(kind != pass) continue;
+      if(kind_of(e.first) != pass) continue;
       std::string dir = e.first.substr(0, e.first.find_last_of('/'));
       if(mkdirs(dir) != 0) { err = "cannot make " + dir; return -1; }
       gxdApplyFile f;
@@ -2231,8 +2268,8 @@ int gxReplLocal::apply_batch(SetState_ *s,
   }
   for(auto &f : af) held_pages += f.pages.size();
   // At most 1024 files a transaction
-  for(size_t i = 0; i < af.size(); i += 1000) {
-    std::vector<gxdApplyFile> part(af.begin() + i, af.begin() + std::min(af.size(), i + 1000));
+  for(size_t i = 0; i < af.size(); i += part_files) {
+    std::vector<gxdApplyFile> part(af.begin() + i, af.begin() + std::min(af.size(), i + part_files));
     unsigned long long n = 0;
     gxDatabaseError rc = gxdJournal::ApplyPages(jname.c_str(), part, &n);
     if(rc != gxDBASE_NO_ERROR) {
@@ -2453,6 +2490,7 @@ static int add_unit_seals(const gxReplSetConfig &sc, const std::string &root, Pa
 // apply. Anything the copy cannot do exactly is "rebuild needed": the index stamps go, the derived pass rebuilds the
 // folder (derived_rebuild) and writes fresh stamps.
 static unsigned long long unit_log_lsn(const gxReplSetConfig &sc, const std::string &rel, unsigned long long *gen);
+static unsigned long long unit_changed_lsn(const gxReplSetConfig &sc, const std::string &rel);   // 11/14/2026
 static bool is_derived_index(const gxReplSetConfig &sc, const std::string &rel);
 static std::string derived_state_path(const gxReplSetConfig &sc, const std::string &rel);
 
@@ -2512,6 +2550,12 @@ static const gxrExtractorOps *load_extractor(const std::string &spec, std::strin
 static std::string derived_dir(const gxReplSetConfig &sc) { return sc.root + "/.gxrepl/derived"; }
 static std::string breaker_path(const gxReplSetConfig &sc) { return derived_dir(sc) + "/incremental.breaker"; }
 static std::string try_path(const gxReplSetConfig &sc) { return derived_dir(sc) + "/incremental.try"; }
+// 11/14/2026 (review 4): the times (unix seconds) the index step stopped gxrepl, any batch, the last hour's kept
+static std::string crashes_path(const gxReplSetConfig &sc) { return derived_dir(sc) + "/incremental.crashes"; }
+static const int breaker_window_s = 3600, breaker_crashes = 3;
+// 11/14/2026 (review 10): written when a batch's commits came without objects records (the source's object notes
+// off: every batch is rebuilt), removed when a folder is applied object by object again
+static std::string notes_off_path(const gxReplSetConfig &sc) { return derived_dir(sc) + "/notes_off"; }
 
 static bool breaker_on(const gxReplSetConfig &sc, std::string *why = 0)
 {
@@ -2541,14 +2585,29 @@ static std::vector<std::string> folder_indexes(const gxReplSetConfig &sc, const 
   return out;
 }
 
+// 11/14/2026 (review 2): the index whose count is derived.stamp's keys (derived_count, else the first by name)
+static bool counted_index(const gxReplSetConfig &sc, const std::vector<std::string> &ixs, size_t k)
+{
+  if(sc.derived_count.empty()) return k == 0;
+  return fnmatch(sc.derived_count.c_str(), ixs[k].c_str(), 0) == 0;
+}
+
 // Rebuild needed: the stamps of a folder's indexes go (under the apply lock), so nothing applies to them
 // object by object until the derived pass rebuilt them and stamped them again
-static void drop_stamps(const gxReplSetConfig &sc, const std::string &rel, const std::string &why, bool log_it = true)
+// 11/14/2026 (review 8): all = a fill by files (either mode): derived.stamp and the folder's derived state go too, so
+// the derived pass sees the indexes as missing and rebuilds them (before, a verify fill left derived.stamp and the
+// state "ok": no rebuild ever came and no stamps came back, the 9,680-commit burst hung 10 minutes)
+static void drop_stamps(const gxReplSetConfig &sc, const std::string &rel, const std::string &why, bool log_it,
+			bool all)
 {
   std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
   int n = 0;
   for(auto &ix : folder_indexes(sc, rel))
     if(unlink(gxdDerivedStamp::PathFor(dir + "/" + ix).c_str()) == 0) n++;
+  if(all) {
+    if(unlink((dir + "/derived.stamp").c_str()) == 0) n++;
+    if(unlink(derived_state_path(sc, rel).c_str()) == 0) n++;
+  }
   if(n && log_it) glog("set %s: %s: derived indexes: rebuild needed: %s", sc.name.c_str(),
 		       rel.empty() ? "." : rel.c_str(), why.c_str());
 }
@@ -2562,9 +2621,11 @@ static int stamp_after_rebuild(const gxReplSetConfig &sc, const std::string &rel
     FILE *f = fopen((sc.root + "/.gxrepl/units/" + unit_key(rel)).c_str(), "rb");
     if(f) { char b[512]; size_t n = fread(b, 1, sizeof(b), f); seal.assign(b, n); fclose(f); }
   }
-  unsigned long long g = 0, l = 0;
+  unsigned long long g = 0, l = 0, c = 0;
   char sname[256] = {0};
-  if(sscanf(seal.c_str(), "log %llu %llu %255s", &g, &l, sname) != 3) { why = "not sealed by a ship log record"; return 1; }
+  int sgot = sscanf(seal.c_str(), "log %llu %llu %255s %llu", &g, &l, sname, &c);
+  if(sgot < 3) { why = "not sealed by a ship log record"; return 1; }
+  if(sgot < 4) c = l;     // 11/14/2026 (seal per folder): stamped at the folder's last change, not the stream's position
   FILE *sf = fopen((sc.root + "/.gxrepl/state/" + sname + ".state").c_str(), "r");
   if(!sf) { why = std::string("no position for stream ") + sname; return 1; }
   char id[64] = {0}; unsigned long long al = 0;
@@ -2572,10 +2633,28 @@ static int stamp_after_rebuild(const gxReplSetConfig &sc, const std::string &rel
   fclose(sf);
   if(got != 2) { why = "a damaged stream position"; return 1; }
   std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
+  // 11/14/2026 (review 2): each index's own count, read by the extractor in a throwaway staged scope (nothing it
+  // does reaches a file); without the extractor the count stays 0 (unknown)
+  std::string lerr;
+  const gxrExtractorOps *ops = sc.derived_extractor.empty() ? 0 : load_extractor(sc.derived_extractor, lerr);
+  std::string src_full;
+  if(ops && !sc.derived_source.empty()) {
+    DIR *dd = opendir(dir.c_str());
+    struct dirent *de;
+    while(dd && (de = readdir(dd)) != 0)
+      if(de->d_name[0] != '.' && fnmatch(sc.derived_source.c_str(), de->d_name, 0) == 0) { src_full = dir + "/" + de->d_name; break; }
+    if(dd) closedir(dd);
+  }
   for(auto &ix : folder_indexes(sc, rel)) {
     gxdStampData d;
-    d.log_id = id; d.lsn = l; d.time_us = (unsigned long long)time(0) * 1000000ULL;
+    d.log_id = id; d.lsn = c; d.time_us = (unsigned long long)time(0) * 1000000ULL;
     d.digest_kind = ix.size() > 4 && ix.compare(ix.size() - 4, 4, ".btx") == 0 ? gxdStampDigestBtree : gxdStampDigestBytes;
+    if(ops && !src_full.empty()) {
+      gxdStagedScope scope;
+      char e[512] = {0};
+      void *h = ops->Open((dir + "/" + ix).c_str(), src_full.c_str(), sc.derived_extractor_config.c_str(), e, sizeof(e));
+      if(h) { d.records = ops->Count(h); ops->Close(h); }
+    }
     if(gxdDerivedStamp::WriteFresh(gxdDerivedStamp::PathFor(dir + "/" + ix), d) != 0) { why = "cannot stamp " + ix; return -1; }
   }
   return 0;
@@ -2652,6 +2731,33 @@ static std::string file_id(const std::string &path)
     std::to_string((long long)st.st_mtim.tv_nsec);
 }
 
+// 11/14/2026 (review 5): the hard watchdog of one batch's index step: a call into the extractor that never returns
+// holds the apply lock for good, so past the limit gxrepl stops (ALERT, exit 8; the try file left behind counts the
+// crash for the breaker) and its restart applies the batch again, by rebuild once the breaker trips
+struct StepWatchdog_ {
+  std::mutex m;
+  std::condition_variable cv;
+  bool done = false;
+  std::thread t;
+  StepWatchdog_(const std::string &set, unsigned long long limit_s) {
+    if(!limit_s) return;
+    t = std::thread([this, set, limit_s] {
+      std::unique_lock<std::mutex> l(m);
+      if(!cv.wait_for(l, std::chrono::seconds(limit_s), [this] { return done; })) {
+	glog("ALERT set %s: the derived index step has run %llu s (an extractor call that never returns): gxrepl stops",
+	     set.c_str(), limit_s);
+	_exit(8);
+      }
+    });
+  }
+  ~StepWatchdog_() {
+    if(!t.joinable()) return;
+    { std::lock_guard<std::mutex> l(m); done = true; }
+    cv.notify_all();
+    t.join();
+  }
+};
+
 // The incremental step of one batch, under the apply lock, before a page is written. Adds the index pages and
 // stamps to "batch" (their bytes in "store"). Never fails the batch: a folder it cannot do is "rebuild needed".
 // peak_mb: the most staged MB seen (stress tests).
@@ -2664,6 +2770,15 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
   tried = false;
   if(recs.empty()) return;
   unsigned long long first = recs.front().lsn;
+  // 11/14/2026 (review 5): the cap is for the whole batch (every folder and index), and the step has a time limit
+  unsigned long long batch_bytes = 0;
+  struct timespec step_t0; clock_gettime(CLOCK_MONOTONIC, &step_t0);
+  auto over_time = [&]() { return sc.derived_apply_max_s && ms_since(step_t0) > (double)sc.derived_apply_max_s * 1000.0; };
+  unsigned long long hard = sc.derived_apply_max_s ? std::max(sc.derived_apply_max_s * 4, sc.derived_apply_max_s + 60) : 0;
+#ifdef GXREPL_TEST_HOOKS
+  if(const char *hw = getenv("GXREPL_TEST_WATCHDOG_S")) hard = strtoull(hw, 0, 10);   // test builds only
+#endif
+  StepWatchdog_ dog(sc.name, hard);
   // The folders this batch changes (their non-derived files)
   std::set<std::string> units;
   bool orphan = false;
@@ -2688,11 +2803,13 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
     if(ixs.empty()) continue;                         // the derived pass makes them
     auto need = [&](const std::string &why) { drop_stamps(sc, u, why); };
     if(!ops) { need(mode_why); continue; }
+    if(over_time()) { need("the index step passed derived_apply_max_s"); continue; }   // 11/14/2026 (review 5)
     if(orphan) { need("an objects record without its commit (a writer crash between them)"); continue; }
     auto cb = unit_cb.find(u);
     if(cb == unit_cb.end() || !cb->second) { need("the batch changed the folder without its commit block"); continue; }
-    // Every index stamped at the folder's seal, of this stream's log
-    unsigned long long seal_lsn = unit_log_lsn(sc, u, 0);
+    // Every index stamped at the folder's last change (the seal's 4th field, 11/14/2026 seal per folder: not the
+    // stream's position, which records of the stream's other folders move on), of this stream's log
+    unsigned long long seal_lsn = unit_changed_lsn(sc, u);
     bool skip = false, bad = false;
     std::string why;
     for(auto &ix : ixs) {
@@ -2726,7 +2843,9 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
       gxdShipObjectsRecord o;
       int orc = gxdShipObjectsFor(recs, i, o);
       if(orc != 1) { bad = true; why = orc < 0 ? "a damaged objects record" : "a commit without its objects record (lsn " +
-		     std::to_string(r.lsn) + ")"; break; }
+		     std::to_string(r.lsn) + ")";
+	if(orc == 0) write_atomic(notes_off_path(sc), std::to_string((long long)time(0)) + " " + why + "\n");   // review 10
+	break; }
       const gxdShipObjectFile *of = 0;
       for(auto &f : o.files) if(f.name == here) of = &f;
       if(!of || !of->complete) { bad = true; why = "the objects of " + here + " are not all known (lsn " + std::to_string(r.lsn) + ")"; break; }
@@ -2767,6 +2886,7 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
     for(auto &ix : ixs) ids.push_back(std::make_pair(dir + "/" + ix, file_id(dir + "/" + ix)));
     std::vector<gxdStagedFile> staged;
     unsigned long long count = 0;
+    bool counted = false;
     double mb_cap = (double)sc.derived_apply_max_mb;
     {
       gxdStagedScope scope;
@@ -2781,56 +2901,75 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
 	  if(c.second.op == gxdObjectAdd) continue;
 	  if(!bytes_before(fd, c.first, c.second.old_len, b)) { bad = true; why = "cannot read an old object"; break; }
 	  if(ops->Remove(h, c.first, b.data(), c.second.old_len, e, sizeof(e)) != 0) { bad = true; why = ixs[k] + ": extractor remove: " + e; break; }
-	  double mb = scope.StagedBytes() / 1048576.0;
+	  double mb = (batch_bytes + scope.StagedBytes()) / 1048576.0;
 	  if(peak_mb && mb > *peak_mb) *peak_mb = mb;
-	  if(mb > mb_cap) { bad = true; why = "the staged index pages passed derived_apply_max_mb"; break; }
+	  if(mb > mb_cap) { bad = true; why = "the batch's staged index pages passed derived_apply_max_mb"; break; }
+	  if(over_time()) { bad = true; why = "the index step passed derived_apply_max_s"; break; }
 	}
 	for(auto it = changes.begin(); !bad && it != changes.end(); ++it) {
 	  if(it->second.op == gxdObjectRemove) continue;
 	  if(!bytes_after(fd, src_pages, it->first, it->second.new_len, b)) { bad = true; why = "cannot read a new object"; break; }
 	  if(ops->Insert(h, it->first, b.data(), it->second.new_len, e, sizeof(e)) != 0) { bad = true; why = ixs[k] + ": extractor insert: " + e; break; }
-	  double mb = scope.StagedBytes() / 1048576.0;
+	  double mb = (batch_bytes + scope.StagedBytes()) / 1048576.0;
 	  if(peak_mb && mb > *peak_mb) *peak_mb = mb;
-	  if(mb > mb_cap) { bad = true; why = "the staged index pages passed derived_apply_max_mb"; break; }
+	  if(mb > mb_cap) { bad = true; why = "the batch's staged index pages passed derived_apply_max_mb"; break; }
+	  if(over_time()) { bad = true; why = "the index step passed derived_apply_max_s"; break; }
 	}
 	if(!bad && ops->Flush(h, last, e, sizeof(e)) != 0) { bad = true; why = ixs[k] + ": extractor flush: " + e; }
 	if(!bad) {   // the pages Flush() wrote count too
-	  double mb = scope.StagedBytes() / 1048576.0;
+	  double mb = (batch_bytes + scope.StagedBytes()) / 1048576.0;
 	  if(peak_mb && mb > *peak_mb) *peak_mb = mb;
-	  if(mb > mb_cap) { bad = true; why = "the staged index pages passed derived_apply_max_mb"; }
+	  if(mb > mb_cap) { bad = true; why = "the batch's staged index pages passed derived_apply_max_mb"; }
 	}
-	if(!bad && k == 0) count = ops->Count(h);
+	// 11/14/2026 (review 2): each index is stamped with its own count; the counted index gives derived.stamp's keys
+	unsigned long long ix_count = 0;
+	if(!bad) ix_count = ops->Count(h);
+	if(!bad && counted_index(sc, ixs, k)) { count = ix_count; counted = true; }
 	// the stamp, in the same scope (its pages go with the index's)
 	if(!bad) {
 	  gxdDerivedStamp st;
 	  gxdStampData sd;
 	  if(st.Open(gxdDerivedStamp::PathFor(ip).c_str(), 0) != gxDBASE_NO_ERROR || st.Read(sd) != 0) { bad = true; why = ixs[k] + ": cannot open its stamp"; }
 	  else {
-	    sd.lsn = last; sd.records = count; sd.time_us = (unsigned long long)time(0) * 1000000ULL;
+	    sd.lsn = last; sd.records = ix_count; sd.time_us = (unsigned long long)time(0) * 1000000ULL;
 	    if(st.Write(sd) != gxDBASE_NO_ERROR) { bad = true; why = ixs[k] + ": cannot stamp"; }
 	  }
-	  if(!bad && scope.Capture(staged) != 0) { bad = true; why = ixs[k] + ": the extractor closed the index with changes"; }
-	  if(!bad) {
-#ifdef GXREPL_TEST_HOOKS
-	    if(getenv("GXREPL_TEST_CRASH_IN_SCRATCH")) _exit(9);   // test builds: killed with the index pages in memory
-#endif
-	    for(auto &f : staged) {
-	      store.emplace_back(std::move(f.data));
-	      auto &ent = batch[f.path];
-	      if(f.size > ent.first) ent.first = f.size;
-	      for(size_t p = 0; p < f.page_no.size(); p++) ent.second[f.page_no[p]] = store.back().data() + p * gxdPageSize;
-	    }
-	  }
-	  scope.Rollback();
 	  st.Close();
 	}
+	// 11/14/2026 (review 3): the index is closed before the capture (what its close writes, a header, is
+	// captured too: the scope keeps a closed file's pages), and each index starts from a clean scope
 	ops->Close(h);
-	if(bad) break;
-	// the next index starts from a clean scope
+	if(!bad && scope.Capture(staged) != 0) { bad = true; why = ixs[k] + ": the extractor opened the index again after closing it with changes"; }
+	// 11/14/2026 (review 7): the scope may hold only this index and its stamp; any other file the extractor wrote
+	// (another index, the data file, anything) is never applied: rebuild needed, with an ALERT
+	if(!bad) {
+	  const std::string sp = gxdDerivedStamp::PathFor(ip);
+	  for(auto &f : staged)
+	    if(f.path != ip && f.path != sp) {
+	      glog("ALERT set %s: %s: the extractor %s wrote %s while it made %s: not applied (rebuild needed)",
+		   sc.name.c_str(), u.empty() ? "." : u.c_str(), sc.derived_extractor.c_str(), f.path.c_str(), ixs[k].c_str());
+	      bad = true; why = "the extractor wrote " + f.path + ", not only " + ixs[k] + " and its stamp";
+	      break;
+	    }
+	}
+	if(!bad) {
+#ifdef GXREPL_TEST_HOOKS
+	  if(getenv("GXREPL_TEST_CRASH_IN_SCRATCH")) _exit(9);   // test builds: killed with the index pages in memory
+#endif
+	  for(auto &f : staged) {
+	    batch_bytes += f.data.size();                // 11/14/2026 (review 5): the batch's total
+	    store.emplace_back(std::move(f.data));
+	    auto &ent = batch[f.path];
+	    if(f.size > ent.first) ent.first = f.size;
+	    for(size_t p = 0; p < f.page_no.size(); p++) ent.second[f.page_no[p]] = store.back().data() + p * gxdPageSize;
+	  }
+	}
 	scope.Rollback();
+	if(bad) break;
       }
     }
     if(fd >= 0) close(fd);
+    if(!bad && !counted) { bad = true; why = "no index of the folder matches derived_count " + sc.derived_count; }
     for(auto &id : ids)
       if(file_id(id.first) != id.second) {
 	glog("ALERT set %s: %s: the extractor %s changed %s outside the staged scope", sc.name.c_str(),
@@ -2856,6 +2995,7 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
       ent.second.clear();
       ent.second[0] = (const unsigned char *)texts.back().data();
     };
+    unlink(notes_off_path(sc).c_str());                // 11/14/2026 (review 10): object by object again
     put_text(dir + "/derived.stamp", line);
     put_text(derived_state_path(sc, u), std::to_string((unsigned long long)gen) + " ok incremental lsn " + std::to_string(last) + "\n");
   }
@@ -2905,14 +3045,33 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
     pre = [&](std::string &) -> int {
       const gxReplSetConfig &sc = s->sc;
       mkdirs(derived_dir(sc));
-      // the breaker: a batch whose index step crashed gxrepl twice puts the set back on rebuild
+      // the breaker: a batch whose index step crashed gxrepl twice, or 3 crashes of the index step in an hour (any
+      // batches, 11/14/2026 review 4: a different batch each time never tripped it), puts the set back on rebuild
       unsigned long long tf = 0, tn = 0;
-      if(FILE *tfp = fopen(try_path(sc).c_str(), "r")) { if(fscanf(tfp, "%llu %llu", &tf, &tn) != 2) tn = 0; fclose(tfp); }
-      if(tf == recs.front().lsn && tn >= 2 && !breaker_on(sc)) {
-	std::string why = "the index step of ship log record " + std::to_string(tf) + " stopped gxrepl " + std::to_string(tn) + " times";
-	write_atomic(breaker_path(sc), why + "\n");
-	glog("ALERT set %s: derived_apply back on rebuild: %s (gxrepl derived rebuild --set %s clears it)",
-	     sc.name.c_str(), why.c_str(), sc.name.c_str());
+      bool left = false;
+      if(FILE *tfp = fopen(try_path(sc).c_str(), "r")) { left = true; if(fscanf(tfp, "%llu %llu", &tf, &tn) != 2) tn = 0; fclose(tfp); }
+      std::vector<long long> when;
+      {
+	long long now = (long long)time(0), t = 0;
+	if(FILE *cf = fopen(crashes_path(sc).c_str(), "r")) { while(fscanf(cf, "%lld", &t) == 1) if(t > now - breaker_window_s && t <= now) when.push_back(t); fclose(cf); }
+	if(left) {                                     // the last index step never finished: gxrepl stopped in it
+	  when.push_back(now);
+	  std::string body;
+	  for(auto x : when) body += std::to_string(x) + "\n";
+	  write_atomic(crashes_path(sc), body);
+	}
+      }
+      if(!breaker_on(sc)) {
+	std::string why;
+	if(tf == recs.front().lsn && tn >= 2)
+	  why = "the index step of ship log record " + std::to_string(tf) + " stopped gxrepl " + std::to_string(tn) + " times";
+	else if((int)when.size() >= breaker_crashes)
+	  why = "the index step stopped gxrepl " + std::to_string(when.size()) + " times in the last hour";
+	if(!why.empty()) {
+	  write_atomic(breaker_path(sc), why + "\n");
+	  glog("ALERT set %s: derived_apply back on rebuild: %s (gxrepl derived rebuild --set %s clears it)",
+	       sc.name.c_str(), why.c_str(), sc.name.c_str());
+	}
       }
       write_atomic(try_path(sc), std::to_string(recs.front().lsn) + " " + std::to_string(tf == recs.front().lsn ? tn + 1 : 1) + "\n");
       bool tried = false;
@@ -3109,11 +3268,14 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   auto check = [&](std::string &e) -> int {
     // 11/14/2026: a copy by files (a first fill, a resync, a unit copy) is not object by object: the folder's
     // derived index stamps go (rebuild needed)
-    if(s->sc.derived_apply == "incremental" && !s->sc.derived.empty()) {
+    // 11/14/2026 (review 8): in both modes, and derived.stamp and the derived state go too
+    if(!s->sc.derived.empty()) {
       std::set<std::string> filled;
       for(size_t i = 0; i < v.size(); i++)
-	if(results[i] == 0 && !v[i].pieces.empty() && !is_derived(s->sc, v[i].path)) filled.insert(dir_of(v[i].path));
-      for(auto &u : filled) drop_stamps(s->sc, u, "copied by files, not by the ship log");
+	if(results[i] == 0 && !v[i].pieces.empty() && !is_derived(s->sc, v[i].path) &&
+	   base_of(v[i].path) != s->sc.commit_block)   // the commit block is re-sent by every verify: not a change
+	  filled.insert(dir_of(v[i].path));
+      for(auto &u : filled) drop_stamps(s->sc, u, "copied by files, not by the ship log", true, true);
     }
     if(!stale_units.empty()) {
       if(recover_journal_locked(s->root) != 0) {
@@ -4032,6 +4194,46 @@ bool gxReplServer::Claims(const gxBlockHeader &gx, const std::vector<unsigned ch
     f.kind == gxdMUX_HELLO;
 }
 
+// 11/14/2026 (review 10): a set's derived index state for status.json: ", \"derived\": {...}" ("" without derived)
+static void derived_folders(const gxReplSetConfig &sc, const std::string &rel, std::vector<std::string> &out);
+static std::string derived_status_json(const gxReplSetConfig &sc)
+{
+  if(sc.derived.empty()) return "";
+  std::vector<std::string> folders;
+  derived_folders(sc, "", folders);
+  int failed = 0, behind = 0, unstamped = 0;
+  for(auto &rel : folders) {
+    std::string st;
+    if(FILE *f = fopen(derived_state_path(sc, rel).c_str(), "r")) { char b[256] = {0}; if(fgets(b, sizeof(b), f)) {} fclose(f); st = b; }
+    if(st.find(" failed") != std::string::npos) failed++;
+    else if(st.empty()) behind++;
+    if(sc.derived_apply == "incremental") {
+      std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
+      for(auto &ix : folder_indexes(sc, rel)) {
+	gxdStampData d;
+	if(gxdDerivedStamp::ReadFile(gxdDerivedStamp::PathFor(dir + "/" + ix), d) != 0) { unstamped++; break; }
+      }
+    }
+  }
+  std::string why, warn;
+  bool brk = breaker_on(sc, &why);
+  int crashes = 0;
+  { long long now = (long long)time(0), t = 0;
+    if(FILE *cf = fopen(crashes_path(sc).c_str(), "r")) { while(fscanf(cf, "%lld", &t) == 1) if(t > now - breaker_window_s && t <= now) crashes++; fclose(cf); } }
+  if(sc.derived_apply == "incremental") {
+    std::string no;
+    if(FILE *f = fopen(notes_off_path(sc).c_str(), "r")) { char b[512] = {0}; if(fgets(b, sizeof(b), f)) {} fclose(f); no = b; }
+    while(!no.empty() && no.back() == '\n') no.pop_back();
+    if(!no.empty()) warn = "derived_apply = incremental, but the source's object notes are off (commits without objects "
+		      "records: every batch is rebuilt; turn them on in the writer): " + no;
+    else if(brk) warn = "the breaker is on: " + why;
+  }
+  return std::string(", \"derived\": {\"mode\": ") + json_str(sc.derived_apply) + ", \"folders\": " +
+    std::to_string(folders.size()) + ", \"failed\": " + std::to_string(failed) + ", \"not_built\": " +
+    std::to_string(behind) + ", \"rebuild_needed\": " + std::to_string(unstamped) + ", \"breaker\": " +
+    (brk ? "true" : "false") + ", \"crashes_1h\": " + std::to_string(crashes) + ", \"warn\": " + json_str(warn) + "}";
+}
+
 void gxReplServer::write_status()
 {
   if(cfg.status_file.empty()) return;
@@ -4049,7 +4251,8 @@ void gxReplServer::write_status()
   first = true;
   for(auto &sc : cfg.sets) {
     j += (first ? "" : ", ") + json_str(sc.name) + ": {\"accept\": " + json_str(sc.accept) +
-      ", \"root\": " + json_str(sc.root) + ", \"last\": " + json_str(set_last[sc.name]) + "}";
+      ", \"root\": " + json_str(sc.root) + ", \"last\": " + json_str(set_last[sc.name]) +
+      derived_status_json(sc) + "}";
     first = false;
   }
   // 11/08/2026: Each multiplex channel: its set and its queue (frames and
@@ -5440,6 +5643,17 @@ int gxReplDerivedStatus(const gxReplSetConfig &sc, std::vector<std::string> &lin
 		   ", max " + std::to_string(sc.derived_apply_max_mb) + " MB" : std::string("")));
   std::string why;
   if(breaker_on(sc, &why)) lines.push_back("  BREAKER on: " + why);
+  if(FILE *nf = fopen(notes_off_path(sc).c_str(), "r")) {   // 11/14/2026 (review 10)
+    char b[512] = {0}; if(fgets(b, sizeof(b), nf)) {} fclose(nf);
+    std::string t(b); while(!t.empty() && t.back() == '\n') t.pop_back();
+    lines.push_back("  WARN: the source's object notes look off (every batch is rebuilt): " + t);
+  }
+  {                                                  // 11/14/2026 (review 4)
+    long long now = (long long)time(0), t = 0; int n = 0;
+    if(FILE *cf = fopen(crashes_path(sc).c_str(), "r")) { while(fscanf(cf, "%lld", &t) == 1) if(t > now - breaker_window_s && t <= now) n++; fclose(cf); }
+    if(n) lines.push_back("  index step crashes in the last hour: " + std::to_string(n) + " (the breaker trips at " +
+			  std::to_string(breaker_crashes) + ")");
+  }
   if(FILE *f = fopen(try_path(sc).c_str(), "r")) { char b[128] = {0}; if(fgets(b, sizeof(b), f)) {} fclose(f);
     std::string t(b); while(!t.empty() && t.back() == '\n') t.pop_back(); lines.push_back("  index step in progress or stopped: " + t); }
   if(sc.derived.empty()) return 0;
@@ -5447,18 +5661,19 @@ int gxReplDerivedStatus(const gxReplSetConfig &sc, std::vector<std::string> &lin
   derived_folders(sc, "", folders);
   for(auto &rel : folders) {
     std::string where = rel.empty() ? "." : rel, dir = rel.empty() ? sc.root : sc.root + "/" + rel;
-    unsigned long long g = 0, l = unit_log_lsn(sc, rel, &g);
+    unsigned long long g = 0, l = unit_log_lsn(sc, rel, &g), c = unit_changed_lsn(sc, rel);   // 11/14/2026
     std::string state;
     if(FILE *f = fopen(derived_state_path(sc, rel).c_str(), "r")) { char b[256] = {0}; if(fgets(b, sizeof(b), f)) {} fclose(f); state = b; }
     while(!state.empty() && state.back() == '\n') state.pop_back();
     lines.push_back("  " + where + ": sealed at record " + std::to_string(l) + " generation " + std::to_string(g) +
+		    (c != l ? ", last changed at record " + std::to_string(c) : std::string("")) +
 		    ", state " + (state.empty() ? std::string("(none)") : state));
     for(auto &ix : folder_indexes(sc, rel)) {
       gxdStampData d;
       int rc = gxdDerivedStamp::ReadFile(gxdDerivedStamp::PathFor(dir + "/" + ix), d);
       std::string st = rc == 1 ? "no stamp (rebuild mode)" : rc != 0 ? "a damaged stamp (rebuild mode)" :
 	"stamped at record " + std::to_string(d.lsn) + " of log " + d.log_id + ", " + std::to_string(d.records) + " entries" +
-	(d.lsn == l ? "" : " (behind the seal: rebuild needed)");
+	(d.lsn == c ? "" : " (behind the folder's last change: rebuild needed)");
       lines.push_back("    " + ix + ": " + st);
     }
   }
@@ -5476,6 +5691,7 @@ int gxReplDerivedReset(const gxReplSetConfig &sc, const std::string &folder, std
   if(lock_apply_bounded(lk) != 0) { close(lk); err = "busy: " + jname + " is held; try again"; return -1; }
   unlink(breaker_path(sc).c_str());
   unlink(try_path(sc).c_str());
+  unlink(crashes_path(sc).c_str());   // 11/14/2026 (review 4)
   std::vector<std::string> folders;
   if(folder.empty()) derived_folders(sc, "", folders);
   else folders.push_back(folder == "." ? std::string() : folder);

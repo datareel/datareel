@@ -20,6 +20,10 @@ exports it, so its writes go through gxrepl's staged scope).
 
 GXREPL_TEST_EXTRACTOR_FAIL=insert|remove|flush makes that call fail;
 GXREPL_TEST_EXTRACTOR_CRASH=1 kills the process in Insert();
+GXREPL_TEST_EXTRACTOR_SLOW=MS sleeps MS ms in each Insert() (11/14/2026);
+GXREPL_TEST_EXTRACTOR_HANG=1 never returns from Insert() (11/14/2026);
+GXREPL_TEST_EXTRACTOR_STRAY=1 also changes the data file's first object in Flush()
+(inside the scope: gxrepl must refuse it, 11/14/2026);
 GXREPL_TEST_EXTRACTOR_DIRECT=1 writes index.gxd with its own file
 handle (outside any staged scope: gxrepl must notice).
 */
@@ -55,7 +59,7 @@ struct H {
   gxDatabase ix;
   FAU_t addr = 0;
   IndexObj io;
-  std::string path, cb;
+  std::string path, cb, data;
 };
 
 gxUINT32 obj_check(const ObjHdr &h, const unsigned char *p)
@@ -94,6 +98,7 @@ void *t_open(const char *index_path, const char *data_path, const char *, char *
   h->path = index_path;
   std::string d = data_path ? data_path : "";
   h->cb = d.substr(0, d.find_last_of('/') + 1) + "commit.bin";
+  h->data = d;
   if(h->ix.Open(index_path) != gxDBASE_NO_ERROR) { say(err, n, std::string("cannot open ") + index_path); delete h; return 0; }
   h->addr = h->ix.FindFirstObject();
   if(!h->addr || h->ix.Read(&h->io, sizeof(h->io), h->addr) != gxDBASE_NO_ERROR) {
@@ -118,6 +123,8 @@ int t_insert(void *hv, uint64_t, const unsigned char *b, uint32_t len, char *err
   H *h = (H *)hv;
   if(fail("insert")) { say(err, n, "test: insert fails"); return -1; }
   if(getenv("GXREPL_TEST_EXTRACTOR_CRASH")) _exit(7);
+  if(const char *sl = getenv("GXREPL_TEST_EXTRACTOR_SLOW")) usleep((useconds_t)atoi(sl) * 1000);   // 11/14/2026
+  if(getenv("GXREPL_TEST_EXTRACTOR_HANG")) for(;;) sleep(60);                                     // 11/14/2026
   ObjHdr o;
   if(parse(b, len, o, err, n) != 0) return -1;
   h->io.count++;
@@ -138,6 +145,15 @@ int t_flush(void *hv, uint64_t, char *err, size_t n)
   if(getenv("GXREPL_TEST_EXTRACTOR_DIRECT")) {
     int fd = open(h->path.c_str(), O_WRONLY);
     if(fd >= 0) { if(pwrite(fd, &h->io, sizeof(h->io), (off_t)h->addr) < 0) { } close(fd); }
+  }
+  if(getenv("GXREPL_TEST_EXTRACTOR_STRAY") && !h->data.empty()) {   // 11/14/2026: a write to another file (staged)
+    gxDatabase df;
+    if(df.Open(h->data.c_str()) == gxDBASE_NO_ERROR) {
+      FAU_t a = df.FindFirstObject();
+      unsigned char junk[8] = {0xde, 0xad, 0xbe, 0xef, 0xde, 0xad, 0xbe, 0xef};
+      if(a) df.Write(junk, sizeof(junk), a);           // a real change: gxrepl must never apply it
+      df.Close();
+    }
   }
   if(h->ix.Write(&h->io, sizeof(h->io), h->addr) != gxDBASE_NO_ERROR || h->ix.WriteFileHdr() != gxDBASE_NO_ERROR) {
     say(err, n, "cannot write index.gxd"); return -1;

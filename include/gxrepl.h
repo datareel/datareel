@@ -165,8 +165,20 @@ struct GXDLCODE_API gxReplSetConfig {
   // pattern, e.g. "data.gxd"); incremental needs it and commit_block
   std::string derived_source;
   // 11/14/2026: most changed index pages one batch may hold in memory
-  // (MB); past it the batch's indexes are rebuilt instead
+  // (MB, all its folders and indexes together, review 5); past it the
+  // batch's indexes are rebuilt instead
   unsigned long long derived_apply_max_mb = 256;
+  // 11/14/2026 (review 5): the longest the index step of one batch may
+  // take (seconds): past it, checked between extractor calls, the rest of
+  // the batch's folders are rebuilt instead. A call that never returns:
+  // at 4 times it (at least 60 s more) gxrepl stops with an ALERT (exit
+  // 8); its restart counts the crash for the breaker.
+  unsigned long long derived_apply_max_s = 30;
+  // 11/14/2026 (review 2): the index (a name pattern, e.g. "by_time.btx")
+  // whose entry count is derived.stamp's "keys": one entry per record of
+  // the folder. Each index's own <index>.stamp holds its own count. Empty:
+  // the folder's first index (by name).
+  std::string derived_count;
 };
 
 struct GXDLCODE_API gxReplConfig {
