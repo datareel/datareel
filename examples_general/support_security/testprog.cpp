@@ -40,6 +40,13 @@ arguments for every test, or name the tests to run:
               onto its own input.
   thread      gxThread: joining a thread pool whose threads could not be
               created (UNIX: forced with RLIMIT_NPROC in a child process).
+  threadmsg   gxThread_t: operator!= on POSIX (it was inverted), type
+              and priority class messages for values at the end of their
+              tables (read one past the table) (11/14/2026).
+  systime     SysTimeUnit::c_str_*() (the terminator was written past
+              the buffer), MakeFileModTime()/MakeGMTDateTime() of a time
+              localtime()/gmtime() cannot convert (null pointer), and a
+              SysTime used many times (11/14/2026).
 
 Returns 0 if every check passes; failed checks print FAIL lines.
 */
@@ -54,6 +61,8 @@ Returns 0 if every check passes; failed checks print FAIL lines.
 #include "logfile.h"
 #include "dbugmgr.h"
 #include "gxthread.h"
+#include "gthreadt.h"
+#include "systime.h"
 #include <time.h>
 
 #if defined (__UNIX__)
@@ -479,14 +488,65 @@ static void test_thread()
 #endif
 }
 
+static void test_threadmsg()
+// 11/14/2026
+{
+#if defined (__POSIX__)
+  {
+    SupportSecThread t;
+    gxThread_t *th = t.CreateThread();
+    int ok = th && th->GetThreadState() != gxTHREAD_STATE_NEW;
+    if(th) t.JoinThread(th);
+    check(ok && (*th == *th) && !(*th != *th),
+	  "threadmsg: operator!= of the same thread ID is false");
+    if(th) t.DestroyThread(th);
+  }
+#endif
+  gxThread_t a, b;
+  a.SetThreadType((gxThreadType)2);
+  a.SetThreadPriorityClass((gxThreadPriorityClass)4);
+  b.SetThreadPriorityClass(gxTHREAD_PRIORITY_CLASS_INVALID);
+  const char *m2 = a.ThreadTypeMessage();
+  const char *m4 = a.ThreadPriorityClassMessage();
+  check(m2 && strcmp(m2, "Thread type: JOINABLE") == 0 &&
+	m4 && strcmp(m4, b.ThreadPriorityClassMessage()) == 0,
+	"threadmsg: values one past the message tables give the default message");
+}
+
+static void test_systime()
+// 11/14/2026
+{
+  SysTimeUnit u;
+  u.hours = 4294967295U; u.minutes = 7; u.seconds = 0; u.milliseconds = 999;
+  char *h = u.c_str_Hours(), *m = u.c_str_Minutes();
+  char *sec = u.c_str_Seconds(), *ms = u.c_str_Milliseconds();
+  check(strcmp(h, "4294967295") == 0 && strcmp(m, "7") == 0 &&
+	strcmp(sec, "0") == 0 && strcmp(ms, "999") == 0,
+	"systime: c_str_*() strings (run under ASan for the overflow)");
+  delete[] h; delete[] m; delete[] sec; delete[] ms;
+
+  SysTime t;
+  time_t bad = (time_t)0x7fffffffffffffffLL;
+  if(sizeof(time_t) < 8) bad = (time_t)-1;
+  const char *f = t.MakeFileModTime(bad);
+  const char *g = t.MakeGMTDateTime(bad);
+  check(f != 0 && g != 0, "systime: a time localtime()/gmtime() cannot convert does not crash");
+  const char *ok = t.MakeGMTDateTime((time_t)0);
+  check(ok && strstr(ok, "1970") != 0, "systime: MakeGMTDateTime(0) as before");
+  for(int i = 0; i < 1000; i++) t.GetStrTime(0);
+  check(1, "systime: GetStrTime() 1000 times (no buffer per call, check under ASan/LSan)");
+}
+
 int main(int argc, char **argv)
 {
 #if defined (__UNIX__)
   umask(022);
 #endif
   int all = (argc < 2);
-  const char *names[] = { "config", "logfile", "dbug", "thread", 0 };
-  void (*tests[])() = { test_config, test_logfile, test_dbug, test_thread };
+  const char *names[] = { "config", "logfile", "dbug", "thread", "threadmsg",
+			  "systime", 0 };
+  void (*tests[])() = { test_config, test_logfile, test_dbug, test_thread,
+			test_threadmsg, test_systime };
   for(int i = 1; i < argc; i++) {
     int known = 0;
     for(int t = 0; names[t]; t++) if(strcmp(argv[i], names[t]) == 0) known = 1;

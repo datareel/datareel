@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 02/14/1996  
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 11/14/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -179,7 +179,8 @@ GXDLCODE_API const char *gxDatabaseExceptionMessage(gxDatabaseError err)
 // be use to log or print a database exception message.
 {
   int error = (int)err;
-  if(error > (gxdMaxExceptionMessages-1)) error = gxDBASE_INVALID_CODE;
+  // 11/14/2026: Negative codes read before the start of the array
+  if(error < 0 || error > (gxdMaxExceptionMessages-1)) error = gxDBASE_INVALID_CODE;
 
   // Find the corresponding message in the exception array
   return gxdExceptionMessages[error];
@@ -190,7 +191,7 @@ GXDLCODE_API const char *gxDatabaseStatusMessage(gxDatabaseStatus status)
 // be use to log or print a database status message.
 {
   int s = (int)status;
-  if(s > (gxdMaxStatusMessages-1)) s = gxDBASE_INVALID_STATUS;
+  if(s < 0 || s > (gxdMaxStatusMessages-1)) s = gxDBASE_INVALID_STATUS; // 11/14/2026
 
   // Find the corresponding message in the exception array
   return gxdStatusMessages[s];

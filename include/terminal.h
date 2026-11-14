@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/21/1997 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 11/14/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ---------- Include File Description and Details  ---------- // 
@@ -178,6 +178,10 @@ public: // Input functions
   unsigned char GetChar();
   void GetString(char *string, int x = -1, int y = -1);
   void GetPassword(char *string, int x = -1, int y = -1);
+  // 11/14/2026: Read at most size-1 characters into string
+  void GetStringN(char *string, unsigned size, int x = -1, int y = -1);
+  void GetPasswordN(char *string, unsigned size, int x = -1, int y = -1);
+  void GetInput(char *string, unsigned size, int x, int y, int echo_char);
   void PutBack(char c);
   int GetInt(int x = -1, int y = -1);
   long GetLong(int x = -1, int y = -1);

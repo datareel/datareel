@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 12/11/1996 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 11/14/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -105,15 +105,30 @@ that initialize the internal time buffers.
 #pragma warn -8080
 #endif
 
+static struct tm *systime_tm(struct tm *t)
+// 11/14/2026: localtime() and gmtime() return a null pointer for a time
+// they cannot convert (a file time out of range, for example) and the
+// strftime() calls that followed crashed. A zeroed time is used then.
+{
+  static struct tm zero_tm;
+  if(t) return t;
+  memset(&zero_tm, 0, sizeof(zero_tm));
+  zero_tm.tm_mday = 1;
+  zero_tm.tm_year = 70;
+  return &zero_tm;
+}
+
 char *SysTimeUnit::c_str_Hours()
 {
   const int MaxStrLen = 25;
   char str[MaxStrLen];
   sprintf(str, "%u", hours);
   int len = strlen(str);
-  char *buf = new char[len];
-  buf[len] = '\0';
+  // 11/14/2026: One byte for the terminator, which was written past
+  // the end of the buffer
+  char *buf = new char[len+1];
   memmove(buf, str, len);
+  buf[len] = '\0';
   return buf;
 }
 
@@ -123,9 +138,11 @@ char *SysTimeUnit::c_str_Minutes()
   char str[MaxStrLen];
   sprintf(str, "%u", minutes);
   int len = strlen(str);
-  char *buf = new char[len];
-  buf[len] = '\0';
+  // 11/14/2026: One byte for the terminator, which was written past
+  // the end of the buffer
+  char *buf = new char[len+1];
   memmove(buf, str, len);
+  buf[len] = '\0';
   return buf;
 }
 
@@ -135,9 +152,11 @@ char *SysTimeUnit::c_str_Seconds()
   char str[MaxStrLen];
   sprintf(str, "%u", seconds);
   int len = strlen(str);
-  char *buf = new char[len];
-  buf[len] = '\0';
+  // 11/14/2026: One byte for the terminator, which was written past
+  // the end of the buffer
+  char *buf = new char[len+1];
   memmove(buf, str, len);
+  buf[len] = '\0';
   return buf;
 }
 
@@ -147,14 +166,17 @@ char *SysTimeUnit::c_str_Milliseconds()
   char str[MaxStrLen];
   sprintf(str, "%u", milliseconds);
   int len = strlen(str);
-  char *buf = new char[len];
-  buf[len] = '\0';
+  // 11/14/2026: One byte for the terminator, which was written past
+  // the end of the buffer
+  char *buf = new char[len+1];
   memmove(buf, str, len);
+  buf[len] = '\0';
   return buf;
 }
 
 SysTime::SysTime()
 {
+  TimeBuffer = 0; // 11/14/2026: InitTimeBuffers() tests it
   InitTimeBuffers();
 }
 
@@ -174,14 +196,16 @@ void SysTime::InitTimeBuffers()
 {
   time(&STime); // PC-lint 09/15/2005: time() function is considered dangerous
 #if defined (__WIN32__)
-  TimeBuffer = localtime(&STime);
+  TimeBuffer = systime_tm(localtime(&STime));
 #elif defined (__UNIX__) && defined (__REENTRANT__)
   // Using the UNIX localtime_r() function instead of localtime()
-  TimeBuffer = new tm;
+  // 11/14/2026: Allocated once. A new buffer was allocated on every
+  // call (FormatTime() calls this), and the old one was lost.
+  if(!TimeBuffer) TimeBuffer = new tm;
   memset(TimeBuffer, 0, sizeof(struct tm));
   localtime_r(&STime, TimeBuffer);
 #else // Use localtime() by default
-  TimeBuffer = localtime(&STime);
+  TimeBuffer = systime_tm(localtime(&STime));
 #endif
 }
 
@@ -320,12 +344,12 @@ char *SysTime::GetSystemDateTime(int full_month_name)
   time(&STime);
 
 #if defined (__WIN32__)
-  TimeBuffer = localtime(&STime);
+  TimeBuffer = systime_tm(localtime(&STime));
 #elif defined (__UNIX__) && defined (__REENTRANT__)
   // Using the UNIX localtime_r() function instead of localtime()
   localtime_r(&STime, TimeBuffer);
 #else // Use localtime() by default
-  TimeBuffer = localtime(&STime);
+  TimeBuffer = systime_tm(localtime(&STime));
 #endif
 
   if(full_month_name)
@@ -354,12 +378,12 @@ char *SysTime::GetSystemTime()
   time(&STime);
 
 #if defined (__WIN32__)
-  TimeBuffer = localtime(&STime);
+  TimeBuffer = systime_tm(localtime(&STime));
 #elif defined (__UNIX__) && defined (__REENTRANT__)
   // Using the UNIX localtime_r() function instead of localtime()
   localtime_r(&STime, TimeBuffer);
 #else // Use localtime() by default
-  TimeBuffer = localtime(&STime);
+  TimeBuffer = systime_tm(localtime(&STime));
 #endif
 
   strftime(hour, 25, "%H", TimeBuffer);
@@ -382,12 +406,12 @@ char *SysTime::GetSystemDate(int full_month_name)
   time(&STime);
 
 #if defined (__WIN32__)
-  TimeBuffer = localtime(&STime);
+  TimeBuffer = systime_tm(localtime(&STime));
 #elif defined (__UNIX__) && defined (__REENTRANT__)
   // Using the UNIX localtime_r() function instead of localtime()
   localtime_r(&STime, TimeBuffer);
 #else // Use localtime() by default
-  TimeBuffer = localtime(&STime);
+  TimeBuffer = systime_tm(localtime(&STime));
 #endif
 
   if(full_month_name)
@@ -417,12 +441,12 @@ int SysTime::DateSpan(char *s, unsigned days, int full_month_name)
   time(&now);
 
 #if defined (__WIN32__)
-  when = *localtime(&now);
+  when = *systime_tm(localtime(&now));
 #elif defined (__UNIX__) && defined (__REENTRANT__)
   // Using the UNIX localtime_r() function instead of localtime()
   localtime_r(&now, &when);
 #else // Use localtime() by default
-  when = *localtime(&now);
+  when = *systime_tm(localtime(&now));
 #endif
 
   when.tm_mday = when.tm_mday + days;
@@ -483,7 +507,7 @@ int SysTime::DaysOld(int jday, int year)
 
 #if defined (__WIN32__)
   struct tm *time_now;
-  time_now = localtime(&system_time);
+  time_now = systime_tm(localtime(&system_time));
   strftime(julian_day_cur, 80, "%j", time_now );
   strftime(julian_year_cur, 80, "%Y", time_now );
 #elif defined (__UNIX__) && defined (__REENTRANT__)
@@ -494,7 +518,7 @@ int SysTime::DaysOld(int jday, int year)
   strftime(julian_year_cur, 80, "%Y", &time_now );
 #else // Use localtime() by default
   struct tm *time_now;
-  time_now = localtime(&system_time);
+  time_now = systime_tm(localtime(&system_time));
   strftime(julian_day_cur, 80, "%j", time_now );
   strftime(julian_year_cur, 80, "%Y", time_now );
 #endif
@@ -524,12 +548,12 @@ char *SysTime::GetSyslogTime()
   time(&STime);
 
 #if defined (__WIN32__)
-  TimeBuffer = localtime(&STime);
+  TimeBuffer = systime_tm(localtime(&STime));
 #elif defined (__UNIX__) && defined (__REENTRANT__)
   // Using the UNIX localtime_r() function instead of localtime()
   localtime_r(&STime, TimeBuffer);
 #else // Use localtime() by default
-  TimeBuffer = localtime(&STime);
+  TimeBuffer = systime_tm(localtime(&STime));
 #endif
 
   strftime(month, 25, "%b", TimeBuffer);
@@ -555,12 +579,12 @@ char *SysTime::GetSMTPTime()
   time(&STime);
 
 #if defined (__WIN32__)
-  TimeBuffer = localtime(&STime);
+  TimeBuffer = systime_tm(localtime(&STime));
 #elif defined (__UNIX__) && defined (__REENTRANT__)
   // Using the UNIX localtime_r() function instead of localtime()
   localtime_r(&STime, TimeBuffer);
 #else // Use localtime() by default
-  TimeBuffer = localtime(&STime);
+  TimeBuffer = systime_tm(localtime(&STime));
 #endif
 
   strftime(weekday, 25, "%a", TimeBuffer);
@@ -592,12 +616,12 @@ char *SysTime::GetGMTDateTime()
   time(&STime);
 
 #if defined (__WIN32__)
-  TimeBuffer = gmtime(&STime);
+  TimeBuffer = systime_tm(gmtime(&STime));
 #elif defined (__UNIX__) && defined (__REENTRANT__)
   // Using the UNIX gmtime_r() function instead of gmtime()
   gmtime_r(&STime, TimeBuffer);
 #else // Use gmtime() by default
-  TimeBuffer = gmtime(&STime);
+  TimeBuffer = systime_tm(gmtime(&STime));
 #endif
 
   strftime(month, 25, "%b", TimeBuffer);
@@ -627,12 +651,12 @@ char *SysTime::MakeFileModTime(time_t mod_time)
   char ampm[25];
 
 #if defined (__WIN32__)
-  TimeBuffer = localtime(&mod_time);
+  TimeBuffer = systime_tm(localtime(&mod_time));
 #elif defined (__UNIX__) && defined (__REENTRANT__)
   // Using the UNIX localtime_r() function instead of localtime()
   localtime_r(&mod_time, TimeBuffer);
 #else // Use localtime() by default
-  TimeBuffer = localtime(&mod_time);
+  TimeBuffer = systime_tm(localtime(&mod_time));
 #endif
 
   strftime(month, 25, "%m", TimeBuffer);
@@ -659,12 +683,12 @@ char *SysTime::MakeGMTDateTime(time_t mod_time)
   char hour[25]; char minutes[25]; char seconds[25];
 
 #if defined (__WIN32__)
-  TimeBuffer = gmtime(&mod_time);
+  TimeBuffer = systime_tm(gmtime(&mod_time));
 #elif defined (__UNIX__) && defined (__REENTRANT__)
   // Using the UNIX gmtime_r() function instead of gmtime()
   gmtime_r(&mod_time, TimeBuffer);
 #else // Use gmtime() by default
-  TimeBuffer = gmtime(&mod_time);
+  TimeBuffer = systime_tm(gmtime(&mod_time));
 #endif
 
   strftime(month, 25, "%b", TimeBuffer);

@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/21/1997 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 11/14/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -69,21 +69,22 @@ macro is defined during the library build.
 GXDLCODE_API Terminal I_TERM;              // Independent Terminal type object
 GXDLCODE_API Terminal *terminal = &I_TERM; // Global terminal pointer
 
-void Terminal::GetString (char *string, int x, int y)
-// This function allows the user to enter a single string.
-// It was added to echo each character without having to
-// to turn the echo on. This will allow the user to edit
-// the entry using the backspace or other defined keys.
+void Terminal::GetInput(char *string, unsigned size, int x, int y,
+			int echo_char)
+// 11/14/2026: Shared by GetString() and GetPassword(). Reads one line
+// into string, at most size-1 characters plus a null (size 0 means no
+// limit, the old behaviour). Characters past the limit are ignored.
+// End of input (getch() ERR) ends the line; it used to loop and keep
+// storing characters past the buffer. echo_char 0 echoes the input.
 {
-  char ch;
-  int charcount = 0;
-  
+  int ch;
+  unsigned charcount = 0;
+  if(!string) return;
   if (x != -1) move (y, x);
 
   while (1) {
-    // Ignore BCC32 conversion warning
     ch = getch();
-    if (ch == '\n' || ch == '\r' || ch == CONTROL('c')) {
+    if (ch == ERR || ch == '\n' || ch == '\r' || ch == CONTROL('c')) {
       *string = 0;
       return;
     }
@@ -97,55 +98,54 @@ void Terminal::GetString (char *string, int x, int y)
 	Write('\b');
       }
     }
-    else {
-      *string++ = ch;
+    else if(size == 0 || charcount < size - 1) {
+      *string++ = (char)ch;
       charcount++;
-      Write(ch);
+      if(echo_char) Write((char)echo_char); else Write((char)ch);
     }
     refresh();
   }
 }
 
+void Terminal::GetString (char *string, int x, int y)
+// This function allows the user to enter a single string.
+// It was added to echo each character without having to
+// to turn the echo on. This will allow the user to edit
+// the entry using the backspace or other defined keys.
+// NOTE: The line is not limited; use GetStringN() with the size of
+// the buffer.
+{
+  GetInput(string, 0, x, y, 0);
+}
+
+void Terminal::GetStringN(char *string, unsigned size, int x, int y)
+// 11/14/2026: GetString() into a buffer of size bytes.
+{
+  if(!string || size == 0) return;
+  GetInput(string, size, x, y, 0);
+}
+
 void Terminal::GetPassword (char *string, int x, int y)
 // This function allows the user to enter a password
 // and echo an asterisk for each character typed.
+// NOTE: The line is not limited; use GetPasswordN() with the size of
+// the buffer.
 {
-  char ch;
-  int charcount = 0;
-  
-  if (x != -1) move (y, x);
+  GetInput(string, 0, x, y, '*');
+}
 
-  while (1) {
-    // Ignore BCC32 conversion warning
-    ch = getch();
-    if (ch == '\n' || ch == '\r' || ch == CONTROL('c')) {
-      *string = 0;
-      return;
-    }
-
-    if (ch == '\b' || ch == CONTROL('d')) { // Delete keys 
-      if (charcount > 0) {
-	string--;
-	charcount--;
-	Write('\b');
-	Write(' ');
-	Write('\b');
-      }
-    }
-    else {
-      *string++ = ch;
-      charcount++;
-      Write('*');
-    }
-    refresh();
-  }
+void Terminal::GetPasswordN(char *string, unsigned size, int x, int y)
+// 11/14/2026: GetPassword() into a buffer of size bytes.
+{
+  if(!string || size == 0) return;
+  GetInput(string, size, x, y, '*');
 }
 
 int Terminal::GetInt(int x, int y)
 // Get a signed int value.
 {
   char buf[100];
-  GetString(buf, x, y);
+  GetStringN(buf, sizeof(buf), x, y); // 11/14/2026: Was unbounded
   // PC-lint 09/14/2005: Function is considered dangerous
   return atoi(buf);
 }
@@ -154,7 +154,7 @@ long Terminal::GetLong(int x, int y)
 // Get a signed long value.
 {
   char buf[100];
-  GetString(buf, x, y);
+  GetStringN(buf, sizeof(buf), x, y); // 11/14/2026: Was unbounded
   // PC-lint 09/14/2005: Function is considered dangerous
   return atol(buf);
 }
@@ -163,7 +163,7 @@ double Terminal::GetFloat(int x, int y)
 // Get a floating point value
 {
   char buf[100];
-  GetString(buf, x, y);
+  GetStringN(buf, sizeof(buf), x, y); // 11/14/2026: Was unbounded
   // PC-lint 09/14/2005: Function is considered dangerous
   return atof(buf);
 }
@@ -453,7 +453,7 @@ void Terminal::Write(const long val, int x, int y) const
   // 05/30/2002: Using type cast to int type to eliminate
   // warning: int format, long int arg (arg 3) when compiled
   // under Linux gcc.
-  sprintf(buf, "%d", (int)val);
+  snprintf(buf, sizeof(buf), "%ld", (long)val); // 11/14/2026: Was cut to int
   Write((const char*)buf, x, y);
 }
 
@@ -465,7 +465,7 @@ void Terminal::Write(long val, int x, int y)
   // 05/30/2002: Using type cast to int type to eliminate
   // warning: int format, long int arg (arg 3) when compiled
   // under Linux gcc.
-  sprintf(buf, "%d", (int)val);
+  snprintf(buf, sizeof(buf), "%ld", (long)val); // 11/14/2026: Was cut to int
   Write(buf, x, y);
 }
 
@@ -473,7 +473,7 @@ void Terminal::Write(const int val, int x, int y) const
 // Write a signed int to the screen.
 {
   char buf[100];
-  sprintf(buf, "%d", val);
+  snprintf(buf, sizeof(buf), "%d", val); // 11/14/2026: Bounded
   Write((const char*)buf, x, y);
 }
 
@@ -481,7 +481,7 @@ void Terminal::Write(int val, int x, int y)
 // Write a signed int to the screen.
 {
   char buf[100];
-  sprintf(buf, "%d", val);
+  snprintf(buf, sizeof(buf), "%d", val); // 11/14/2026: Bounded
   Write(buf, x, y);
 }
 
@@ -489,7 +489,7 @@ void Terminal::Write(const double val, int x, int y) const
 // Write a floating point value to the screen.
 {
   char buf[100];
-  sprintf(buf, "%.2f", val);
+  snprintf(buf, sizeof(buf), "%.2f", val); // 11/14/2026: Large values (1e300) overflowed buf
   Write((const char*)buf, x, y);
 }
 
@@ -497,7 +497,7 @@ void Terminal::Write(double val, int x, int y)
 // Write a floating point value to the screen.
 {
   char buf[100];
-  sprintf(buf, "%.2f", val);
+  snprintf(buf, sizeof(buf), "%.2f", val); // 11/14/2026: Large values (1e300) overflowed buf
   Write(buf, x, y);
 }
 
@@ -505,7 +505,7 @@ void Terminal::Write(const float val, int x, int y) const
 // Write a floating point value to the screen.
 {
   char buf[100];
-  sprintf(buf, "%.2f", val);
+  snprintf(buf, sizeof(buf), "%.2f", val); // 11/14/2026: Large values (1e300) overflowed buf
   Write((const char*)buf, x, y);
 }
 
@@ -513,7 +513,7 @@ void Terminal::Write(float val, int x, int y)
 // Write a floating point value to the screen.
 {
   char buf[100];
-  sprintf(buf, "%.2f", val);
+  snprintf(buf, sizeof(buf), "%.2f", val); // 11/14/2026: Large values (1e300) overflowed buf
   Write(buf, x, y);
 }
 

@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 11/14/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -163,7 +163,8 @@ const char *gxThread_t::ThreadExceptionMessage()
 // be used to log or print a thread exception.
 {
   int error = (int)thread_error;
-  if(error > gxMaxThreadExceptionMessages) error = gxTHREAD_INVALID_CODE;
+  // 11/14/2026: >= and < 0, the old test let the index one past the table
+  if(error < 0 || error >= gxMaxThreadExceptionMessages) error = gxTHREAD_INVALID_CODE;
   // Find the corresponding message in the exception array
   return gxThreadExceptionMessages[error];
 }
@@ -173,7 +174,7 @@ const char *gxThread_t::ThreadTypeMessage()
 // be used to log or print the thread type.
 {
   int type = (int)thread_type;
-  if(type > gxMaxThreadTypeMessages) type = gxTHREAD_TYPE_JOINABLE;
+  if(type < 0 || type >= gxMaxThreadTypeMessages) type = gxTHREAD_TYPE_JOINABLE; // 11/14/2026
   return gxThreadTypeMessages[type];
 }
 
@@ -201,7 +202,7 @@ const char *gxThread_t::ThreadPriorityClassMessage()
 // be used to log or print the thread's priority class.
 {
   int type = (int)thread_priority_class;
-  if(type > gxMaxThreadPriorityClassMessages)
+  if(type < 0 || type >= gxMaxThreadPriorityClassMessages) // 11/14/2026
     type = gxTHREAD_PRIORITY_CLASS_INVALID;
   return gxThreadPriorityClassMessages[type];
 }
@@ -211,7 +212,7 @@ const char *gxThread_t::ThreadStateMessage()
 // be used to log or print the thread's state.
 {
   int state = (int)thread_state;
-  if(state > gxMaxThreadStateMessages) state = gxTHREAD_STATE_INVALID;
+  if(state < 0 || state >= gxMaxThreadStateMessages) state = gxTHREAD_STATE_INVALID; // 11/14/2026
   return gxThreadStateMessages[state];
 }
 
@@ -244,8 +245,10 @@ GXDLCODE_API int operator!=(const gxThread_t &a, const gxThread_t &b)
 #elif defined (__POSIX__)
   // NOTE: Undefined behavior will result If both gxThread_t
   // objects do not contain valid thread IDs.
-  if(pthread_equal(a.thread_id, b.thread_id) != 0) return 1;
-  return 0; // The thread IDs not equal
+  // 11/14/2026: pthread_equal() returns non-zero for EQUAL IDs, so this
+  // returned "not equal" for the same thread and "equal" for others
+  if(pthread_equal(a.thread_id, b.thread_id) == 0) return 1;
+  return 0; // The thread IDs are equal
 #else 
 #error You must define a native API: __WIN32__ or __UNIX__
 #endif

@@ -394,6 +394,8 @@ void HyperText::StartBody(const char *parameters)
 
 void HyperText::StartBody(htmCOLORS color)
 {
+  // 11/14/2026: Values out of the table range read past it
+  if((int)color < 0 || (int)color >= NumHTMLColors) color = (htmCOLORS)0;
   *(stream) << lt << "BODY BGCOLOR=" << htmColors[color] << gt << "\n";
   *(stream) << "\n";
 }
@@ -435,6 +437,10 @@ void HyperText::DocTrailer()
 void HyperText::GenTable(int cell_spacing, int cell_padding, int width,
 			 int border, htmCOLORS bordercolor)
 {
+  // 11/14/2026: Values out of the table range read past it
+  if((int)bordercolor < 0 || (int)bordercolor >= NumHTMLColors) {
+    bordercolor = (htmCOLORS)0;
+  }
   *(stream) << otable << "BORDER=" << border <<  ' ' << "CELLSPACING=";
   *(stream) << cell_spacing << ' ' << "BORDERCOLOR=" << htmColors[bordercolor];
   *(stream) << ' ' << "CELLPADDING=" << cell_padding << ' ';
@@ -467,10 +473,9 @@ void HyperText::GetSystemTime(char *s, int full_month_name)
 // been allocated for the "s" buffer. If "s" is a null pointer
 // heap memory will be allocated for the string.
 {
-  if(!s) { // This is a null pointer
-    s = new char[255]; // Allocate memory for the string buffer
-    if(!s) return;
-  } 
+  // 11/14/2026: A null pointer allocated a buffer that was never
+  // returned (a leak on every call). Nothing is done now.
+  if(!s) return;
   SysTime date;
   strcpy(s, date.GetSystemDateTime(full_month_name));
 }

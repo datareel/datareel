@@ -439,6 +439,7 @@ int PostScriptDrv::ProcessText(char *in, GXSTD::ostream &stream, int cut,
 // if successful.
 {
   int len = strlen(in);
+  if(columns < 1) return 0; // 11/14/2026: No room for any text
 
   // Truncate the line if it exceeds the maximum number of columns
   if(len >= columns && filter == 1) { 
@@ -452,7 +453,10 @@ int PostScriptDrv::ProcessText(char *in, GXSTD::ostream &stream, int cut,
       // Filter bold sequences produced by nroff
       // nroff is used to format man pages under most variants of UNIX
       char c = in[pos++];
-      if(c == in[pos+1] && in[pos] == in[pos+2] &&
+      // 11/14/2026: The sequence is 6 characters past pos; the test
+      // read up to 4 bytes past the end of the string
+      if(pos + 5 < len &&
+	 c == in[pos+1] && in[pos] == in[pos+2] &&
 	 c == in[pos+3] &&  in[pos] == in[pos+4] &&
 	 c == in[pos+5]) {
 	int bold_offset = (word_count * 7) - word_count;
@@ -468,10 +472,11 @@ int PostScriptDrv::ProcessText(char *in, GXSTD::ostream &stream, int cut,
 
   // Truncate if necessary after filtering line 
   if(len >= columns && cut == 1) { 
-    char *buf = new char[columns];
-    // PC-lint 04/26/2005: Possible access of out-of-bounds pointer
-    buf[columns-1] = '\0';
+    // 11/14/2026: The terminator was written before the copy, which
+    // overwrote it, so PrintLine() read past the end of the buffer
+    char *buf = new char[columns+1];
     memmove(buf, in, columns);
+    buf[columns] = '\0';
     stream << start_x << " "  << row << " " << MOVETO << "\n";
     int rv = PrintLine(buf, stream);
     delete[] buf;
@@ -763,6 +768,7 @@ int PostScriptDrv::ConvertTextFile(DiskFileB &infile,
 // to match the number of columns.
 {
   if(!infile) return 0; 
+  if(columns < 1) return 0; // 11/14/2026: No room for any text
   char bufin[BUFIN];
 
   // Read in text file line by line until EOF
@@ -781,9 +787,11 @@ int PostScriptDrv::ConvertTextFile(DiskFileB &infile,
 	
 	if(wrap == 1 && len >= columns) { // Wrap text lines 
 	  int i = 0, j = 0, x = 0;
-	  char *temp_buf = new char[columns];
-	  // PC-lint 04/26/2005: Possible access of out-of-bounds pointer
-	  temp_buf[columns-1] = '\0';
+	  // 11/14/2026: One more byte for the terminator. The loop below
+	  // fills all columns, which overwrote the old terminator, so
+	  // PrintLine() read past the end of the buffer.
+	  char *temp_buf = new char[columns+1];
+	  memset(temp_buf, 0, columns+1);
     
 	  while(len >= columns) { // Loop until length is less then columns
 	    len = len - columns;
@@ -908,10 +916,10 @@ int PostScriptDrv::PrintLine(char *s, unsigned max_len,
   if(s == 0 || max_len <= 0) return 0;
   
   if(strlen(s) > max_len) {
-    char *buf = new char[max_len];
-    // PC-lint 04/26/2005: Possible access of out-of-bounds pointer
-    buf[max_len-1] = '\0';
+    // 11/14/2026: The terminator was overwritten by the copy
+    char *buf = new char[max_len+1];
     memmove(buf, s, max_len);
+    buf[max_len] = '\0';
     int rv = PrintLine(buf, stream);
     delete [] buf;
     return rv;
