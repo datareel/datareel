@@ -40,6 +40,16 @@ pushd "%W%\comm_security"
 "%~dp0..\examples_socket\comm_security\testprog.exe" > comm_security.log 2>&1
 if errorlevel 1 (echo FAIL comm_security & set /a FAIL+=1) else (echo PASS comm_security & set /a PASS+=1)
 popd
+:: 11/14/2026: 6.3.1 print drivers (the socket, SSL, stream and protocol
+:: security tests use fork() and run on UNIX only)
+pushd "%~dp0..\examples_general\print_security"
+nmake -nologo -f msvc.mak FINAL=1 64BITCFG=%CFG% USESSL=0 > build.log 2>&1
+popd
+if not exist "%W%\print_security" mkdir "%W%\print_security"
+pushd "%W%\print_security"
+"%~dp0..\examples_general\print_security\testprog.exe" > print_security.log 2>&1
+if errorlevel 1 (echo FAIL print_security & set /a FAIL+=1) else (echo PASS print_security & set /a PASS+=1)
+popd
 call :journal 0
 call :journal 1
 echo %PASS% passed, %FAIL% failed (logs in %W%)

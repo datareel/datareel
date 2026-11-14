@@ -226,7 +226,7 @@ int main()
     MemoryBuffer e(8);
     check(e.MemSet('z', 4, 0xFFFFFFFE) == 0 && e.MemSet('z', 4, 4) == 1, "membuf: MemSet() with a size that wraps is refused");
     MemoryBuffer g("ab", 2);
-    check(g[100] == 0 && g[1] == 'b', "membuf: operator[] past the end of a full buffer");
+    check(g[(__MEMBUF_INT__)100] == 0 && g[(__MEMBUF_INT__)1] == 'b', "membuf: operator[] past the end of a full buffer");
   }
 
   // gxstring

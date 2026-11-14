@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 11/14/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -123,6 +123,18 @@ int main(int argc, char **argv)
   const char *cert_req_fname = "server_cert.pem";
   const char *dh_fname = "dhparms.pem";
 
+#if defined (__USE_GX_SCHANNEL__)
+  // 11/14/2026: Schannel picks its own key exchange groups (no DH
+  // parameter file) and cannot make keys or certificates: the example
+  // stopped here on every Schannel build. Make the files with openssl.
+  if(!futils_exists(private_key_fname) || !futils_exists(cert_req_fname)) {
+    cout << "Schannel build: put a server key and certificate in "
+	 << private_key_fname << " and " << cert_req_fname 
+	 << " (for example with openssl req -x509 -newkey rsa:2048 -nodes)"
+	 << "\n" << flush;
+    return 1;
+  }
+#else
   if(!futils_exists(dh_fname)) {
     cout << "Generating Diffie-Hellman parameters file" << "\n" << flush;
     if(ssl->InitPRNG() != gxSSL_NO_ERROR) {
@@ -181,6 +193,8 @@ int main(int argc, char **argv)
       return 1;
     }
   }
+
+#endif // __USE_GX_SCHANNEL__
 
   cout << "Initializing HTTPS server..." << "\n" << flush;
   int rv = server.InitServer(servercfg->port);
