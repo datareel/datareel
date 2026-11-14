@@ -3589,6 +3589,44 @@ def test_dead_copy_folder_swept_after_a_stop():
         env.stop()
 
 
+def test_dead_copy_folder_stamps_swept():
+    """11/14/2026 (7.4 per-object derived apply): a dead copy folder holding <index>.stamp sidecars (index.gxd.stamp
+    of the derived index.gxd) is swept whole; a stamp of a file that is not derived (other.btx.stamp) is not gxrepl's
+    to remove and keeps its folder."""
+    env = Env("dead_stamps", {"db": _derived_opts()})
+    ws, aws = env.roots["db"]
+    tw = os.path.join(BIN, "gxrepl_testwriter")
+    os.makedirs(os.path.join(ws, "d2"))
+    assert writer(os.path.join(ws, "d2"), "--commits", 3, "--no-ship", "--commit-block", "--seed", 4).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        _wait_units(env, ws, aws, ["d2"])
+        env.stop()
+        units = os.path.join(aws, ".gxrepl", "units")
+        for name, files in (("dead_s", ["index.gxd", "derived.stamp", "news.jnl"]), ("keep_s", ["index.gxd"])):
+            d = os.path.join(aws, name)
+            os.makedirs(d, exist_ok=True)
+            for f in files:
+                open(os.path.join(d, f), "wb").write(b"x" * 1024)
+            open(os.path.join(units, "_" + name), "w").write("gen 6\n")
+        assert run([tw, "stamp", os.path.join(aws, "dead_s", "index.gxd.stamp"), "cccccccccccccccc", "7"]).returncode == 0
+        assert run([tw, "stamp", os.path.join(aws, "keep_s", "other.btx.stamp"), "cccccccccccccccc", "7"]).returncode == 0
+        env.start_server(extra_env={"GXREPL_SWEEP_SEC": "1", "GXREPL_DEAD_QUIET_SEC": "0"})
+        end = time.time() + 30
+        while time.time() < end and os.path.exists(os.path.join(aws, "dead_s")):
+            time.sleep(0.3)
+        log = open(os.path.join(env.dir, "server.log")).read()
+        assert not os.path.exists(os.path.join(aws, "dead_s")), ("the folder with a stamp stayed",
+                                                               os.listdir(os.path.join(aws, "dead_s")), log[-1500:])
+        assert not os.path.exists(os.path.join(units, "_dead_s")), "its seal stayed"
+        time.sleep(3)                                                   # a few more sweeps
+        assert os.path.exists(os.path.join(aws, "keep_s", "other.btx.stamp")), "a stamp of a non-derived file was removed"
+        assert os.path.isdir(os.path.join(aws, "d2")) and os.path.exists(os.path.join(aws, "d2", "commit.bin"))
+    finally:
+        env.stop()
+
+
 def test_dead_copy_folder_sweep_guards():
     """11/13/2026 (dead copy folders, review): never swept while the set's writer holds its lock (swept once it lets
     go); a live unit whose folder name has '#' (its seal key looks like a nested path) keeps its seal; a server whose
