@@ -5120,6 +5120,9 @@ def _drain_verify_round(name, client_env=None, recovery=True):
         env.start_server()
         env.start_client()
         _wait_units(env, ws, aws, ["d1"])
+        end = time.time() + 60                          # the first connect's own verify done before the restart
+        while time.time() < end and "verified (" not in open(os.path.join(env.dir, "client.log")).read():
+            time.sleep(0.2)
         env.kill("client")
         hold = os.path.join(env.dir, "sync_hold")
         # held in the sync of index.gxd, after data.gxd was compared (as the 11/14 failure: the drain then
@@ -5172,6 +5175,60 @@ def test_drain_verify_both_parts_off_loses_the_pages():
     reaches the bug)"""
     same, log = _drain_verify_round("dv_none", {"GXREPL_TEST_NO_CALLER_VERIFY": "1", "GXREPL_TEST_NO_DRAIN_VERIFY": "1"})
     assert not same, "the copy matched with both parts off: the test does not reach the bug\n" + log[-3000:]
+
+
+def test_drain_verify_drain_part_alone():
+    """sync_file()'s part off (GXREPL_TEST_NO_CALLER_VERIFY) and the source answering the reconnect's file sync
+    "apply the log first" (GXREPL_TEST_DIFF_STATUS2): the records come through the drain inside sync_file(), and
+    drain()'s own part of the fix keeps the verify"""
+    same, log = _drain_verify_round("dv_drain", {"GXREPL_TEST_NO_CALLER_VERIFY": "1", "GXREPL_TEST_DIFF_STATUS2": "1"})
+    assert same, "drain()'s part alone did not keep the verify\n" + log[-3000:]
+    assert "needs a verify (a writer's open record)" in log, log[-3000:]
+
+
+def test_drain_verify_drain_path_both_parts_off_loses_the_pages():
+    """the same drain path with both parts off loses the pages (proves the drain test reaches the bug)"""
+    same, log = _drain_verify_round("dv_drain_none", {"GXREPL_TEST_NO_CALLER_VERIFY": "1", "GXREPL_TEST_NO_DRAIN_VERIFY": "1",
+                                                      "GXREPL_TEST_DIFF_STATUS2": "1"})
+    assert not same, "the copy matched with both parts off on the drain path\n" + log[-3000:]
+
+
+def test_diff_pieces_against_a_racing_commit():
+    """11/14/2026 (hypothesis a): the source holds a file update after it read the position and the records (the
+    journal read lock held, GXREPL_TEST_DIFF_HOLD) while a writer commits pages of that file: the commit waits for
+    the lock, the pieces match the position, and the copy's data.gxd ends byte for byte the source's"""
+    env = Env("diff_race", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    d1 = os.path.join(ws, "d1")
+    os.makedirs(d1)
+    w = None
+    try:
+        assert writer(d1, "--commits", 5, "--commit-block", "--ship-root", ws).returncode == 0
+        env.start_server()
+        env.start_client()
+        _wait_units(env, ws, aws, ["d1"])
+        env.kill("client")
+        hold = os.path.join(env.dir, "diff_hold")
+        env.start_client({"GXREPL_TEST_DIFF_HOLD": hold})
+        end = time.time() + 60
+        while time.time() < end and not os.path.exists(hold + ".held"):
+            time.sleep(0.1)
+        assert os.path.exists(hold + ".held"), "the file update never started\n" + env.logs()
+        w = writer_bg(d1, "--commits", 6, "--per", 20, "--commit-block", "--ship-root", ws, "--seed", 43)
+        time.sleep(2)
+        assert w.poll() is None, "the writer committed while the source held the journal read lock: " + w.stdout.read()
+        put(hold, b"go\n")
+        assert w.wait(60) == 0, w.stdout.read()
+        want = gen_of(os.path.join(d1, "commit.bin"))
+        end = time.time() + 60
+        while time.time() < end and not (gen_of(os.path.join(aws, "d1", "commit.bin")) == want and
+                                         _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd"))):
+            time.sleep(0.3)
+        assert gen_of(os.path.join(aws, "d1", "commit.bin")) == want and \
+            _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd")), env.logs()
+    finally:
+        if w and w.poll() is None: w.kill(); w.wait()
+        env.stop()
 
 
 def test_drain_verify_once_per_stream():

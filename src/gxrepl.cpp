@@ -1741,6 +1741,24 @@ int gxReplLocal::Diff(const std::string &set, const gxReplDiffRequest &rq,
 	return 0;
       }
     }
+#ifdef GXREPL_TEST_HOOKS
+    // 11/14/2026: test builds (the drain-verify tests):
+    // GXREPL_TEST_DIFF_STATUS2=1: the first behind-the-log request answers "apply the log first" (status 2), so the
+    // client's sync_file() drains the records (drain()'s own part of the fix, alone);
+    // GXREPL_TEST_DIFF_HOLD=F: the first request of a covered data file, after the position and records were read
+    // (the journal read lock held), writes F.held and waits (20 s at most) for F (pieces against a racing commit)
+    if(cs.name == u.stream && cs.log_id == u.log_id && cs.lsn < u.lsn && getenv("GXREPL_TEST_DIFF_STATUS2")) {
+      static std::atomic<int> once(0);
+      if(once.exchange(1) == 0) { u.records.clear(); res.status = 2; return 0; }
+    }
+    if(const char *hold = getenv("GXREPL_TEST_DIFF_HOLD")) {
+      static std::atomic<int> once_h(0);
+      if(base_of(rq.path) == "data.gxd" && once_h.exchange(1) == 0) {
+	write_atomic(std::string(hold) + ".held", "held\n");
+	for(int w = 0; w < 200 && access(hold, F_OK) != 0; w++) usleep(100000);
+      }
+    }
+#endif
     // 11/10/2026: a commit block the ship log keeps is never read from its
     // file (the writer changes it outside the journal lock): it is the one
     // the latest record carried, at or before this position. None left in
@@ -6087,6 +6105,8 @@ int gxReplClient::Run(bool once, const std::string &only_set, std::string &err)
       status[sc.name].direction = sc.direction;
       verify_seen[sc.name] = verify_gen;
       verify_streams[sc.name];   // Each set's thread then only looks its own entry up
+      verifying[sc.name];        // 11/14/2026 (review F1): likewise, so no thread inserts a key while others look
+      verify_again[sc.name];
     }
   }
   int backoff = 1;

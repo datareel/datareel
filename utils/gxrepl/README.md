@@ -125,6 +125,11 @@ never sees a half-applied commit. `legacy_db = NAME` lets 6.x style clients (an 
 
 Signals: `TERM` / `INT` stop after the current message, and `HUP` on the client forces a full
 verify at the next pass. Exit codes: 0 ok, 1 a set is not in step (`once`), 2 error, 64 usage.
+In `once`, a verify that the pass itself queued (a writer's open or gap record it applied, 11/14/2026) runs only
+in a later pass, so that `once` returns 1 ("not in step"); run it again until it returns 0.
+
+11/14/2026 (drain-verify fix): `gxReplClient` has new members, so install the library and the gxrepl binary
+together (a gxrepl built against the old headers must not load the new library).
 
 The private key is `key = fd:N` (read from a descriptor, such as a pipe), `env:VAR` (read, then
 removed from the environment) or a file path. `--key-fd N` overrides the config. A key read from
