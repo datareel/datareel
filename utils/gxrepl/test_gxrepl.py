@@ -3343,6 +3343,251 @@ def test_derived_no_rebuild_while_writer_active():
         env.stop()
 
 
+def _derived_opts(extra_server=()):
+    rebuild = f"{os.path.join(BIN, 'gxrepl_testwriter')} reindex {{dir}} {{lsn}}"
+    return {"client": CB_OPTS["client"] + ["derived = index.gxd"],
+            "server": CB_OPTS["server"] + ["derived = index.gxd", f"derived_rebuild = {rebuild}", "derived_delay = 1"]
+            + list(extra_server)}
+
+
+def _wait_units(env, ws, aws, units, secs=120):
+    """Each unit's copy at the source's commit (the commit block's generation and data.gxd the same)."""
+    def done():
+        for u in units:
+            a, b = os.path.join(ws, u), os.path.join(aws, u)
+            try:
+                if gen_of(os.path.join(a, "commit.bin")) != gen_of(os.path.join(b, "commit.bin")):
+                    return False
+                if open(os.path.join(a, "data.gxd"), "rb").read() != open(os.path.join(b, "data.gxd"), "rb").read():
+                    return False
+            except OSError:
+                return False
+        return True
+    end = time.time() + secs
+    while time.time() < end and not done():
+        time.sleep(0.3)
+    assert done(), f"units {units} not copied after {secs}s\n{env.logs()}"
+
+
+def _wait_rebuilt(env, aws, unit, secs=60):
+    end = time.time() + secs
+    while time.time() < end and not os.path.exists(os.path.join(aws, unit, "index.gxd")):
+        time.sleep(0.3)
+    assert os.path.exists(os.path.join(aws, unit, "index.gxd")), "the derived index was never rebuilt"
+
+
+def test_dead_copy_folder_goes_with_its_source():
+    """11/13/2026 (dead copy folders): the source drops a unit folder (osa_ingest archives a day at 20:30). The copy
+    deletes what gxrepl copied AND the files it never copies (the rebuilt derived index, a writer's journal), then
+    the folder, its seal and derived state (before: they stayed, promote-check said UNSEALED and refused every take
+    over). The other unit is untouched; the folder coming back on the source is copied whole again."""
+    env = Env("dead_folder", {"db": _derived_opts()})
+    ws, aws = env.roots["db"]
+    for u, seed in (("d1", 3), ("d2", 4)):
+        os.makedirs(os.path.join(ws, u))
+        assert writer(os.path.join(ws, u), "--commits", 4, "--no-ship", "--commit-block", "--seed", seed).returncode == 0
+    env.start_server(extra_env={"GXREPL_SWEEP_SEC": "3600"})      # the Delete path alone (no minute sweep)
+    env.start_client()
+    try:
+        _wait_units(env, ws, aws, ["d1", "d2"])
+        _wait_rebuilt(env, aws, "d1")
+        open(os.path.join(aws, "d1", "news.jnl"), "wb").write(b"\0" * 4096)        # a journal gxrepl never copies
+        assert os.path.exists(os.path.join(aws, ".gxrepl", "units", "_d1"))
+        shutil.rmtree(os.path.join(ws, "d1"))                                     # the source archives d1
+        end = time.time() + 20
+        while time.time() < end and os.path.exists(os.path.join(aws, "d1")):
+            time.sleep(0.3)
+        log = open(os.path.join(env.dir, "server.log")).read()
+        assert not os.path.exists(os.path.join(aws, "d1")), "the dead copy folder stayed: " + str(os.listdir(os.path.join(aws, "d1")))
+        assert not os.path.exists(os.path.join(aws, ".gxrepl", "units", "_d1")), "its seal stayed"
+        assert "removed the copy's folder d1: gone from the source" in log, log[-1500:]
+        t = torn(env)
+        assert t.returncode == 0 and "UNSEALED" not in t.stdout, t.stdout
+        check_db(os.path.join(aws, "d2"))
+        # the source makes d1 again: a whole new copy
+        os.makedirs(os.path.join(ws, "d1"))
+        assert writer(os.path.join(ws, "d1"), "--commits", 3, "--no-ship", "--commit-block", "--seed", 9).returncode == 0
+        _wait_units(env, ws, aws, ["d1"])
+        _wait_rebuilt(env, aws, "d1")
+        assert torn(env).returncode == 0
+        check_db(os.path.join(aws, "d1"))
+    finally:
+        env.stop()
+
+
+def test_dead_copy_folder_swept_after_a_stop():
+    """11/13/2026 (dead copy folders): a dead copy folder left by a stop in the middle of its removal, or by a gxrepl
+    from before this change (the 11/12-11/13 leftovers: only by_*.btx, derived.stamp, news.jnl), is swept at the
+    next start and by the server's minute sweep (GXREPL_SWEEP_SEC, a folder made while it runs, its stage and
+    derived state too). Never swept: a folder still holding a file gxrepl copies (a first copy in progress), a folder
+    sealed "copying", a folder with a sub-folder, a folder with a file gxrepl does not copy and does not own (a node's
+    own excluded database file), the set's root."""
+    env = Env("dead_sweep", {"db": _derived_opts()})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d2"))
+    assert writer(os.path.join(ws, "d2"), "--commits", 3, "--no-ship", "--commit-block", "--seed", 4).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        _wait_units(env, ws, aws, ["d2"])
+        env.stop()
+        units = os.path.join(aws, ".gxrepl", "units")
+        def leftover(name, files, seal, sub=False):
+            d = os.path.join(aws, name)
+            os.makedirs(d, exist_ok=True)
+            for f in files:
+                open(os.path.join(d, f), "wb").write(b"x" * 1024)
+            if sub:
+                os.makedirs(os.path.join(d, "inner"), exist_ok=True)
+            if seal is not None:
+                open(os.path.join(units, "_" + name), "w").write(seal)
+        leftover("dead_a", ["index.gxd", "derived.stamp", "news.jnl"], "gen 6\n")   # the 11/13 case
+        os.makedirs(os.path.join(aws, ".gxrepl", "derived"), exist_ok=True)
+        open(os.path.join(aws, ".gxrepl", "derived", "_dead_a"), "w").write("6 ok\n")   # its derived state
+        leftover("own_f", ["index.gxd", "x_databento.gxd"], "gen 3\n")            # a node's own excluded db file
+        leftover("dead_h", ["index.gxd"], "copying-log\n")                        # a dead ship-log unit (no copied file)
+        open(os.path.join(units, "_d2.gxrtmp"), "w").write("gen 1\n")             # a seal being written: never touched
+        leftover("dead_b", [], "log 8 3 writer.jnl\n")                             # an empty leftover
+        open(os.path.join(units, "_gone"), "w").write("gen 2\n")                   # a seal whose folder is gone
+        leftover("live_c", ["data.gxd", "index.gxd"], "gen 4\n")                   # holds a file gxrepl copies
+        leftover("copy_d", ["index.gxd"], "copying\n")                             # a copy in progress
+        leftover("sub_e", ["index.gxd"], "gen 2\n", sub=True)                       # a folder with a sub-folder
+        t = torn(env)
+        assert t.returncode == 1 and "dead_a: UNSEALED" in t.stdout, t.stdout      # the refusal before the sweep
+        env.start_server(extra_env={"GXREPL_SWEEP_SEC": "1", "GXREPL_DEAD_QUIET_SEC": "0"})
+        end = time.time() + 30
+        while time.time() < end and (os.path.exists(os.path.join(aws, "dead_a")) or os.path.exists(os.path.join(units, "_gone"))):
+            time.sleep(0.3)
+        log = open(os.path.join(env.dir, "server.log")).read()
+        for gone in ("dead_a", "dead_b"):
+            assert not os.path.exists(os.path.join(aws, gone)), (gone, log[-1500:])
+            assert not os.path.exists(os.path.join(units, "_" + gone)), gone
+        assert not os.path.exists(os.path.join(units, "_gone"))
+        assert not os.path.exists(os.path.join(aws, "dead_h")), "a dead copying-log unit stayed"
+        assert os.path.exists(os.path.join(units, "_d2.gxrtmp")), "a seal temp file was removed"
+        os.unlink(os.path.join(units, "_d2.gxrtmp"))
+        assert "removed the seal of gone: the folder is gone" in log, log[-1500:]
+        assert not os.path.exists(os.path.join(aws, ".gxrepl", "derived", "_dead_a")), "its derived state stayed"
+        for kept in ("live_c", "copy_d", "sub_e", "own_f"):
+            assert os.path.isdir(os.path.join(aws, kept)), (kept, "was swept")
+        # the minute sweep (GXREPL_SWEEP_SEC=1) with the server up: a dead folder made now, one with a stage
+        leftover("dead_g", ["index.gxd", "news.jnl"], "gen 9\n")
+        sg = os.path.join(aws, ".gxrepl", "stage", "_dead_g")
+        os.makedirs(sg, exist_ok=True)
+        open(os.path.join(sg, ".stage"), "w").write("unit dead_g\nsince 0\nfrom 8\n")
+        end = time.time() + 20
+        while time.time() < end and os.path.exists(os.path.join(aws, "dead_g")):
+            time.sleep(0.3)
+        assert not os.path.exists(os.path.join(aws, "dead_g")), "the minute sweep did not run"
+        assert not os.path.exists(sg), "its stage stayed"
+        assert os.path.isdir(os.path.join(aws, "d2")) and os.path.exists(os.path.join(aws, "d2", "commit.bin"))
+        for kept in ("live_c", "copy_d", "sub_e", "own_f"):
+            shutil.rmtree(os.path.join(aws, kept))
+            os.unlink(os.path.join(units, "_" + kept))
+        t = torn(env)
+        assert t.returncode == 0, t.stdout
+    finally:
+        env.stop()
+
+
+def test_dead_copy_folder_sweep_guards():
+    """11/13/2026 (dead copy folders, review): never swept while the set's writer holds its lock (swept once it lets
+    go); a live unit whose folder name has '#' (its seal key looks like a nested path) keeps its seal; a server whose
+    set is accept = both (a source too) never sweeps."""
+    import fcntl
+    opts = _derived_opts(extra_server=("writer_lock = w.lock",))
+    env = Env("dead_guards", {"db": opts})
+    ws, aws = env.roots["db"]
+    for u, seed in (("d2", 4), ("h#x", 5)):
+        os.makedirs(os.path.join(ws, u))
+        assert writer(os.path.join(ws, u), "--commits", 3, "--no-ship", "--commit-block", "--seed", seed).returncode == 0
+    env.start_server(extra_env={"GXREPL_SWEEP_SEC": "1", "GXREPL_DEAD_QUIET_SEC": "0"})
+    env.start_client()
+    units = os.path.join(aws, ".gxrepl", "units")
+    try:
+        _wait_units(env, ws, aws, ["d2", "h#x"])
+        assert os.path.exists(os.path.join(units, "_h#x"))
+        time.sleep(3)                                                            # several sweeps
+        assert os.path.exists(os.path.join(units, "_h#x")), "the '#' unit lost its seal"
+        assert torn(env).returncode == 0
+        fd = os.open(os.path.join(aws, "w.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)                                           # the writer runs
+        try:
+            d = os.path.join(aws, "dead_w")
+            os.makedirs(d)
+            open(os.path.join(d, "index.gxd"), "wb").write(b"x" * 1024)
+            open(os.path.join(units, "_dead_w"), "w").write("gen 2\n")
+            time.sleep(4)
+            assert os.path.isdir(d), "swept while the writer held its lock"
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+        end = time.time() + 20
+        while time.time() < end and os.path.isdir(d):
+            time.sleep(0.3)
+        assert not os.path.isdir(d), "not swept once the writer let go"
+    finally:
+        env.stop()
+    # the default quiet time (600 s): a dead folder whose files changed just now is kept by the sweep
+    env = Env("dead_quiet", {"db": _derived_opts()})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d2"))
+    assert writer(os.path.join(ws, "d2"), "--commits", 3, "--no-ship", "--commit-block", "--seed", 4).returncode == 0
+    env.start_server(extra_env={"GXREPL_SWEEP_SEC": "1"})
+    env.start_client()
+    try:
+        _wait_units(env, ws, aws, ["d2"])
+        d = os.path.join(aws, "dead_q")
+        os.makedirs(d)
+        open(os.path.join(d, "index.gxd"), "wb").write(b"x" * 1024)
+        open(os.path.join(aws, ".gxrepl", "units", "_dead_q"), "w").write("gen 2\n")
+        time.sleep(4)
+        assert os.path.isdir(d), "a folder changed just now was swept"
+    finally:
+        env.stop()
+    both = _derived_opts()
+    both["accept"] = "both"
+    env = Env("dead_both", {"db": both})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d2"))
+    assert writer(os.path.join(ws, "d2"), "--commits", 3, "--no-ship", "--commit-block", "--seed", 4).returncode == 0
+    env.start_server(extra_env={"GXREPL_SWEEP_SEC": "1", "GXREPL_DEAD_QUIET_SEC": "0"})
+    env.start_client()
+    try:
+        _wait_units(env, ws, aws, ["d2"])
+        d = os.path.join(aws, "dead_b")
+        os.makedirs(d)
+        open(os.path.join(d, "index.gxd"), "wb").write(b"x" * 1024)
+        units = os.path.join(aws, ".gxrepl", "units")
+        open(os.path.join(units, "_dead_b"), "w").write("gen 2\n")
+        time.sleep(4)
+        assert os.path.isdir(d), "a server with accept = both swept"
+    finally:
+        env.stop()
+
+
+def test_dead_copy_folder_never_swept_on_the_source():
+    """11/13/2026 (dead copy folders): a pushing client (the source) never sweeps: a folder there that looks dead
+    (a derived index, no commit block, a whole seal left by an old failback pull) stays."""
+    env = Env("dead_source", {"db": _derived_opts()})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d2"))
+    assert writer(os.path.join(ws, "d2"), "--commits", 3, "--no-ship", "--commit-block", "--seed", 4).returncode == 0
+    d9 = os.path.join(ws, "d9")
+    os.makedirs(d9)
+    open(os.path.join(d9, "index.gxd"), "wb").write(b"x" * 1024)
+    os.makedirs(os.path.join(ws, ".gxrepl", "units"), exist_ok=True)
+    open(os.path.join(ws, ".gxrepl", "units", "_d9"), "w").write("gen 2\n")
+    env.start_server()
+    env.start_client()
+    try:
+        _wait_units(env, ws, aws, ["d2"])
+        time.sleep(3)
+        assert os.path.isdir(d9) and os.path.exists(os.path.join(d9, "index.gxd")), "the source swept its own folder"
+    finally:
+        env.stop()
+
+
 def test_derived_index_rebuilt_on_copy():
     """11/10/2026: derived = index.gxd: the sender never ships it, the copy rebuilds it (derived_rebuild) once a
     folder's generation is quiet for derived_delay; "gxrepl torn" warns (INDEXES, exit 0) while the derived index is

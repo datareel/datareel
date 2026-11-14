@@ -348,6 +348,11 @@ GXDLCODE_API int gxReplPromote(const gxReplSetConfig &sc, bool apply, std::vecto
 // where its generation moved (see gxReplSetConfig::derived). "seen" keeps,
 // per folder, the generation and when it was first seen (the quiet time).
 // Returns the count of folders rebuilt; "log" gets one line each.
+// 11/13/2026: removes the copy's dead folders of a commit_block set (their source folder is gone: no commit block, no
+// file gxrepl copies, sealed whole once): the files gxrepl does not copy, the folder, its seal and derived state,
+// under the set's apply lock and never while its writer runs. Returns how many; log gets a line for each.
+GXDLCODE_API int gxReplSweepDeadCopies(const gxReplSetConfig &sc, std::vector<std::string> &log);
+
 GXDLCODE_API int gxReplDerivedRefresh(const gxReplSetConfig &sc,
 				      std::map<std::string, std::pair<uint64_t, long long> > &seen,
 				      std::vector<std::string> &log);
