@@ -3895,6 +3895,34 @@ def test_incremental_keeps_the_rebuilds_stamp_fields():
         env.stop()
 
 
+def test_incremental_writer_restarts_keep_the_stamps():
+    """11/14/2026 (the replay finding): a writer's restart (its open record: the copy verifies the stream) can bring
+    the next records inside the verify's file update; those go through the same index step as ApplyLog's, so the
+    folder's stamps stay current: no "stamped at L, the folder at L+n" over many restarts"""
+    env, ws, aws, w = _stamped("incr_restarts", commits=20)
+    try:
+        w.wait(120)
+        _finish(env, ws, aws, w)
+        _wait_stamped(env, aws, "d1")
+        n0 = _rebuilds(env)
+        for i in range(8):
+            r = _objects_writer(os.path.join(ws, "d1"), "--commits", 3, "--per", 6, "--commit-block", "--ship-root", ws,
+                                "--seed", 300 + i)
+            assert r.returncode == 0, r.stdout
+            _wait_gen(ws, aws, "d1", 90)
+        _wait_stamped(env, aws, "d1")
+        log = open(os.path.join(env.dir, "server.log")).read()
+        print(f"    8 writer restarts: {_rebuilds(env) - n0} rebuilds, {log.count('rebuild needed')} rebuild needed", flush=True)
+        assert "is stamped at" not in log, env.logs()                 # the records' index step ran
+        # the test writer's open can change data.gxd outside its journal (a verify fill: the accepted cost of one
+        # rebuild); osa_ingest's never does (the replayed real day: 1 rebuild in 92 restarts)
+        assert _rebuilds(env) - n0 <= 1, env.logs()
+        check_db(os.path.join(aws, "d1"))
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
 def test_incremental_orphan_means_rebuild():
     """11/14/2026: an objects record without its commit (a writer crash between them, here the record lost and a gap
     after it) is never applied object by object: rebuild needed, and the index checks after the rebuild"""

@@ -3118,6 +3118,11 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   std::vector<std::string> fulls(v.size());
   std::set<std::string> not_in_step;
   std::map<std::string, bool> unit_cb;      // 11/10/2026 (review): see add_records()
+  struct FileRecs_ { std::string log_id; const std::vector<unsigned char> *records; unsigned long long last;
+		     std::map<std::string, bool> unit_cb; };
+  std::vector<FileRecs_> file_recs;         // 11/14/2026: records applied here (see below)
+  std::deque<std::vector<unsigned char> > fr_store;
+  std::deque<std::string> fr_texts;
   std::map<std::string, bool> staged_now;   // 11/13/2026 (F7 review 3): unit -> written in its stage
   std::set<std::string> stale_units;        // round 3: a stage not mine: discarded before this apply
   for(size_t i = 0; i < v.size(); i++) {
@@ -3148,6 +3153,11 @@ int gxReplLocal::ApplyFiles(const std::string &set,
 	e = add_records(*this, s->sc, u.records, it->second.lsn + 1, batch, count, e2, keep, &unit_cb);
 	if(e != u.lsn) continue; // Stale
 	applied_records += count;
+	// 11/14/2026 (replay finding): records a verify brings (an in-step update after a writer's open) change the
+	// folders like ApplyLog's do: on an incremental set they go through the same index step, under the apply lock
+	// (below, in check), or their folders' stamps would look behind and be rebuilt
+	if(s->sc.derived_apply == "incremental" && !s->sc.derived.empty())
+	  file_recs.push_back(FileRecs_{u.log_id, &u.records, e, unit_cb});
       }
       gxReplStreamState ns;
       ns.name = u.stream; ns.log_id = u.log_id; ns.lsn = u.lsn;
@@ -3288,6 +3298,18 @@ int gxReplLocal::ApplyFiles(const std::string &set,
 	   fnmatch(s->sc.derived_source.c_str(), base_of(v[i].path).c_str(), 0) == 0)
 	  filled.insert(dir_of(v[i].path));
       for(auto &u : filled) drop_stamps(s->sc, u, "copied by files, not by the ship log", true, true);
+    }
+    // 11/14/2026: the index step for the records this update applies (an incremental set), as ApplyLog runs it
+    for(auto &fr : file_recs) {
+      std::vector<gxdShipRecordView> recs;
+      if(gxdParseShipRecords(fr.records->data(), fr.records->size(), recs) != 0 || recs.empty()) continue;
+      // a folder this update also fills by files has no stamps now: its index step finds that (rebuild needed)
+      bool tried = false;
+      double pk = 0;
+      struct timespec it0; clock_gettime(CLOCK_MONOTONIC, &it0);
+      incremental_apply(s->sc, s->root, fr.log_id, recs, batch, fr_store, fr_texts, fr.unit_cb, fr.last, tried, &pk);
+      if(pk > derived_peak_mb) derived_peak_mb = pk;
+      if(tried) stats_line("incremental", s->sc.name, ms_since(it0), std::to_string(pk) + " " + std::to_string(recs.size()));
     }
     if(!stale_units.empty()) {
       if(recover_journal_locked(s->root) != 0) {
