@@ -489,6 +489,22 @@ int main(int argc, char **argv)
     else printf("stamp %s\n", rc == 1 ? "none" : "damaged");
     return rc == 0 ? 0 : 1;
   }
+  // 11/14/2026: lookup DIR APPLY_JNL: a reader of a copy (the stress test's searches): under the copy's apply
+  // read lock, "<generation> <index count> <index sum>" (or "busy")
+  if(mode == "lookup" && argc == 4) {
+    gxdJournalReadLock rl;
+    if(rl.Lock(argv[3]) != gxDBASE_NO_ERROR) { printf("busy\n"); return 1; }
+    uint64_t g = ~0ULL;
+    int fd = open((root + "/commit.bin").c_str(), O_RDONLY);
+    if(fd >= 0) { if(pread(fd, &g, 8, 8) != 8) g = ~0ULL; close(fd); }
+    gxDatabase ix;
+    if(ix.Open((root + "/index.gxd").c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { printf("noindex\n"); return 1; }
+    FAU_t ia = ix.FindFirstObject();
+    IndexObj io;
+    if(ia == (FAU_t)0 || ix.Read(&io, sizeof(io), ia) != gxDBASE_NO_ERROR) { printf("noindex\n"); return 1; }
+    printf("%llu %llu %llu\n", (unsigned long long)g, (unsigned long long)io.count, (unsigned long long)io.sum);
+    return 0;
+  }
   if(mode == "check") return check(root);
   if(mode == "hashes") return hashes(root);
   if(mode == "reindex") { if(argc > 3) stamp_lsn = strtoull(argv[3], 0, 10); return reindex(root); }
@@ -510,6 +526,7 @@ int main(int argc, char **argv)
   bool old_ship_format = false;    // 11/10/2026: no commit block in the records
   std::string latency_out;
   std::string gen_log;            // 11/10/2026: after each commit "<generation> <data hash> <index hash>"
+  std::string answers_log;        // 11/14/2026: after each commit "<generation> <index count> <index sum>"
   long split_at = -1; int split_how = 0;   // 11/14/2026
   for(int i = 3; i < argc; i++) {
     std::string a = argv[i];
@@ -528,6 +545,7 @@ int main(int argc, char **argv)
     else if(a == "--big-zero" && i + 1 < argc) { big = strtoull(argv[++i], 0, 10); big_zero = true; }
     else if(a == "--latency-out" && i + 1 < argc) latency_out = argv[++i];
     else if(a == "--gen-log" && i + 1 < argc) gen_log = argv[++i];
+    else if(a == "--answers-log" && i + 1 < argc) answers_log = argv[++i];
     else if(a == "--segment" && i + 1 < argc) seg_bytes = strtoull(argv[++i], 0, 10);
     else if(a == "--keep-days" && i + 1 < argc) keep_days = atoi(argv[++i]);
     else if(a == "--max-bytes" && i + 1 < argc) max_bytes = strtoull(argv[++i], 0, 10);
@@ -679,6 +697,10 @@ int main(int argc, char **argv)
     if(c == split_at && j.ShipLog()) gxdShipLogTest::Split(j.ShipLog(), split_how);
     if(j.Commit() != gxDBASE_NO_ERROR) { fprintf(stderr, "commit failed\n"); return 1; }
     cb_write(++gen, true);                       // even: the files are this commit
+    if(!answers_log.empty()) {
+      FILE *al = fopen(answers_log.c_str(), "a");
+      if(al) { fprintf(al, "%llu %llu %llu\n", (unsigned long long)gen, (unsigned long long)io.count, (unsigned long long)io.sum); fclose(al); }
+    }
     if(!gen_log.empty()) {
       FILE *gl = fopen(gen_log.c_str(), "a");
       if(gl) {

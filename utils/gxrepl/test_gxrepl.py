@@ -4432,7 +4432,8 @@ def test_derived_stamps_are_derived():
     rebuild = f"{os.path.join(BIN, 'gxrepl_testwriter')} reindex {{dir}} {{lsn}}"
     opts = {"client": CB_OPTS["client"] + ["derived = index.gxd", "include = *.stamp", "deletes = yes"],
             "server": CB_OPTS["server"] + ["derived = index.gxd", f"derived_rebuild = {rebuild}", "derived_delay = 2",
-                                           "derived_apply = incremental", "include = *.stamp"]}
+                                           "include = *.stamp"]}
+    # (rebuild mode while the copy syncs: an incremental set's rebuild replaces the stamps itself, part 2)
     env = Env("derived_stamps", {"db": opts})
     ws, aws = env.roots["db"]
     tw = os.path.join(BIN, "gxrepl_testwriter")
@@ -4454,6 +4455,13 @@ def test_derived_stamps_are_derived():
             time.sleep(0.5)
         t = torn(env)
         assert t.returncode == 0 and "has no stamp" not in t.stdout, t.stdout + env.logs()
+        # the set goes incremental (torn reads the config)
+        with open(env.srv_conf) as f:
+            conf = f.read().replace("include = *.stamp", "include = *.stamp\nderived_apply = incremental", 1)
+        with open(env.srv_conf, "w") as f:
+            f.write(conf)
+        t = torn(env)
+        assert t.returncode == 0 and "has no stamp" not in t.stdout, t.stdout
         # No stamp (a copy on older code, or one never stamped): rebuild mode, a warning only
         os.remove(os.path.join(aws, "index.gxd.stamp"))
         t = torn(env)

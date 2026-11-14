@@ -2159,6 +2159,28 @@ int gxReplLocal::SealGen(const std::string &set, const std::string &folder, uint
   return 0;
 }
 
+// 11/14/2026: stress measurements: GXREPL_STATS_FILE gets one line per apply lock hold and per derived rebuild,
+// "<unix ms> <kind> <set> <held ms> <detail>" (off unless the variable is set)
+static void stats_line(const std::string &kind, const std::string &set, double ms, const std::string &detail)
+{
+  static const char *path = getenv("GXREPL_STATS_FILE");
+  if(!path || !*path) return;
+  static std::mutex m;
+  std::lock_guard<std::mutex> g(m);
+  FILE *f = fopen(path, "a");
+  if(!f) return;
+  struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
+  fprintf(f, "%lld %s %s %.3f %s\n", (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000, kind.c_str(), set.c_str(), ms,
+	  detail.c_str());
+  fclose(f);
+}
+
+static double ms_since(const struct timespec &t0)
+{
+  struct timespec t1; clock_gettime(CLOCK_MONOTONIC, &t1);
+  return (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+}
+
 int gxReplLocal::apply_batch(SetState_ *s,
   std::map<std::string, std::pair<unsigned long long,
   std::map<unsigned long long, const unsigned char *> > > &pages,
@@ -2181,6 +2203,12 @@ int gxReplLocal::apply_batch(SetState_ *s,
     return -1;
   }
   struct LockGuard { int fd; ~LockGuard() { flock(fd, LOCK_UN); close(fd); } } lkg{lkfd};
+  // 11/14/2026: stress measurements (GXREPL_STATS_FILE): the apply lock hold, written as the lock goes
+  struct timespec held_t0; clock_gettime(CLOCK_MONOTONIC, &held_t0);
+  size_t held_pages = 0;
+  struct HeldStats { const std::string &set; struct timespec &t0; size_t &pages; double &peak;
+    ~HeldStats() { stats_line("apply", set, ms_since(t0), std::to_string(pages) + " " + std::to_string(peak)); } }
+    hst{s->sc.name, held_t0, held_pages, derived_peak_mb};   // (peak: the most of any batch so far)
   if(pre_lock && pre_lock(err) != 0) return -1;   // 11/13/2026 (F7 review 3): checked under the lock
   // 11/14/2026: the file list is made after pre_lock, which may add pages (the incremental derived apply)
   // 11/10/2026: commit blocks after the files they describe, the unit seals
@@ -2201,6 +2229,7 @@ int gxReplLocal::apply_batch(SetState_ *s,
       af.push_back(f);
     }
   }
+  for(auto &f : af) held_pages += f.pages.size();
   // At most 1024 files a transaction
   for(size_t i = 0; i < af.size(); i += 1000) {
     std::vector<gxdApplyFile> part(af.begin() + i, af.begin() + std::min(af.size(), i + 1000));
@@ -2887,8 +2916,11 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
       }
       write_atomic(try_path(sc), std::to_string(recs.front().lsn) + " " + std::to_string(tf == recs.front().lsn ? tn + 1 : 1) + "\n");
       bool tried = false;
-      incremental_apply(sc, s->root, it->second.log_id, recs, batch, istore, itexts, unit_cb_records, last, tried,
-			&derived_peak_mb);
+      double pk = 0;
+      struct timespec it0; clock_gettime(CLOCK_MONOTONIC, &it0);
+      incremental_apply(sc, s->root, it->second.log_id, recs, batch, istore, itexts, unit_cb_records, last, tried, &pk);
+      if(pk > derived_peak_mb) derived_peak_mb = pk;
+      if(tried) stats_line("incremental", sc.name, ms_since(it0), std::to_string(pk) + " " + std::to_string(recs.size()));
       unlink(try_path(sc).c_str());
       return 0;
     };
@@ -5086,6 +5118,7 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
     mkdirs(sc.root + "/.gxrepl/derived");
     int lk = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
     if(lk < 0 || flock(lk, LOCK_EX) != 0) { if(lk >= 0) close(lk); continue; }
+    struct timespec rb_t0; clock_gettime(CLOCK_MONOTONIC, &rb_t0);   // 11/14/2026: GXREPL_STATS_FILE
     uint64_t g2 = 0;
     // (a busy rebuild takes the generation the folder holds now: no apply
     // can change it while the lock is held)
@@ -5106,6 +5139,7 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
       if(stamp_after_rebuild(sc, rel, sw) != 0)
 	log.push_back("set " + sc.name + ": " + (rel.empty() ? std::string(".") : rel) + ": rebuilt, not stamped: " + sw);
     }
+    stats_line("rebuild", sc.name, ms_since(rb_t0), rel.empty() ? std::string(".") : rel);
     flock(lk, LOCK_UN);
     close(lk);
     // 11/11/2026 (review): exit 3 = the folder moved during the rebuild (osa_ingest --rebuild-index): not a
