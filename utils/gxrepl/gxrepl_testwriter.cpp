@@ -478,6 +478,8 @@ int main(int argc, char **argv)
   bool ship = true;
   std::string ship_root = root;   // 11/10/2026: --ship-root SET: the day folder layout (ROOT inside SET)
   std::string stream_name;        // 11/14/2026: --stream NAME: one stream feeds several folders (seal per folder)
+  long wait_at = -1;               // 11/14/2026: --wait-at N --wait-file F: before commit N, wait until F exists
+  std::string wait_file;
   // 11/10/2026: --commit-block: keep ROOT/commit.bin, a seqlock commit block like OSA's (u32 magic, u32
   // version, u64 generation at 8: odd while a commit writes the files, u64 commits at 16), written in
   // place (pwrite). --big N: the first commit adds one object of N bytes. --latency-out FILE: the
@@ -497,6 +499,8 @@ int main(int argc, char **argv)
     else if(a == "--no-ship") ship = false;
     else if(a == "--ship-root" && i + 1 < argc) ship_root = argv[++i];
     else if(a == "--stream" && i + 1 < argc) stream_name = argv[++i];
+    else if(a == "--wait-at" && i + 1 < argc) wait_at = atol(argv[++i]);
+    else if(a == "--wait-file" && i + 1 < argc) wait_file = argv[++i];
     else if(a == "--commit-block") commit_block = true;
     else if(a == "--big" && i + 1 < argc) big = strtoull(argv[++i], 0, 10);
     else if(a == "--old-ship-format") old_ship_format = true;
@@ -568,6 +572,7 @@ int main(int argc, char **argv)
   long timed = 0;
   std::vector<unsigned char> buf;
   for(long c = 0; c < commits; c++) {
+    if(c == wait_at && !wait_file.empty()) while(access(wait_file.c_str(), F_OK) != 0) usleep(100000);
     struct timespec t0, t1;
     clock_gettime(CLOCK_MONOTONIC, &t0);
     cb_write(++gen, false);                      // odd: the files are changing

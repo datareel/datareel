@@ -3853,6 +3853,55 @@ def test_delete_reseals_before_unlink():
         env.stop()
 
 
+def test_verify_sees_files_named_during_its_pass():
+    """11/14/2026 (the verify race, 7.3.2): a new stream's first record names only one file (the writer's fresh
+    database init: no commit block yet); the copy's verify fills it out of step, so the unit is "copying"; the
+    writer's next records name the commit block. The client read the stream's file list once per pass, so the
+    commit block was never verified and the unit stayed "copying" until the next verify (records carrying the
+    commit block never clear a fill's mark). Now the list is read again after the verify, and a stream with new
+    files is verified again in the same pass. Deterministic: the writer waits after its first record, and the client
+    (GXREPL_TEST_VERIFY_HOLD, test builds) holds after its first verify until the writer's next records are in."""
+    assert _test_hooks(), "needs a test build (-DGXREPL_TEST_HOOKS=ON)"
+    env = Env("verify_new_files", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    gate, hold = os.path.join(env.dir, "writer.go"), os.path.join(env.dir, "verify.go")
+    w = writer_bg(ws, "--commits", 3, "--commit-block", "--wait-at", 0, "--wait-file", gate)
+    end = time.time() + 30
+    while time.time() < end and not streams_of(ws):
+        time.sleep(0.1)
+    time.sleep(1.0)                                    # the writer waits after its first record
+    lf = os.path.join(ws, ".gxrepl", "log", streams_of(ws)[0], "files")
+    first = open(lf).read().split()
+    assert "commit.bin" not in first, first
+    env.start_server()
+    env.start_client(extra_env={"GXREPL_TEST_VERIFY_HOLD": hold})
+    seal = os.path.join(aws, ".gxrepl", "units", "_root")
+    try:
+        end = time.time() + 30
+        while time.time() < end and not os.path.exists(hold + ".held"):
+            time.sleep(0.1)
+        held = os.path.exists(hold + ".held")
+        open(gate, "w").close()                         # the writer's next records name the commit block
+        assert w.wait(60) == 0
+        assert "commit.bin" in open(lf).read().split()
+        open(hold, "w").close()
+        end = time.time() + 30
+        while time.time() < end and not (os.path.exists(seal) and open(seal).read().startswith("log ")):
+            time.sleep(0.2)
+        s = open(seal).read() if os.path.exists(seal) else "(no seal)"
+        print(f"    first record named {first}; held after the first verify: {held}; seal now {s.strip()!r}", flush=True)
+        assert s.startswith("log "), "the unit stayed " + s.strip() + " (its commit block never verified)\n" + env.logs()
+        assert held, "the client never held after its verify (GXREPL_TEST_VERIFY_HOLD)"
+        assert "names new file(s) since the pass began" in open(os.path.join(env.dir, "client.log")).read(), env.logs()
+        wait_same(env, "db", 60)
+        t = torn(env)
+        assert t.returncode == 0, t.stdout
+        check_db(aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
 def test_missing_root_is_empty():
     """11/10/2026: a set whose root does not exist yet (db/news/oodb before its first nightly publish) is an
     empty set on both nodes, not an error; once the source makes the folder, its first publish replicates."""

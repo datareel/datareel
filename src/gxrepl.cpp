@@ -4175,6 +4175,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
   // 2. Verify streams that opened, had a gap or are new to the copy
   std::vector<gxReplFile> sm;
   bool have_sm = false;
+  std::map<std::string, int> reverified;      // 11/14/2026: verified again in this pass (new files)
   for(auto it = vlist.begin(); it != vlist.end() && !stop; ) {
     const gxReplStream *s = 0;
     for(auto &x : streams) if(x.name == *it) s = &x;
@@ -4218,6 +4219,39 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     }
     st.verifies++;
     glog("set %s: stream %s verified (%d file(s))", sc.name.c_str(), s->name.c_str(), synced);
+#ifdef GXREPL_TEST_HOOKS
+    // test builds: GXREPL_TEST_VERIFY_HOLD=F: after a stream's verify, write F.held and wait (60 s at most) for F
+    if(const char *hold = getenv("GXREPL_TEST_VERIFY_HOLD")) {
+      write_atomic(std::string(hold) + ".held", "held\n");
+      for(int w = 0; w < 600 && access(hold, F_OK) != 0 && !stop; w++) usleep(100000);
+    }
+#endif
+    // 11/14/2026 (the verify race): the stream's file list was read once at the start of the pass; a writer whose
+    // next record names a new file (its first record named only the data file, the next adds the commit block)
+    // leaves that file unverified, and its unit "copying" until the next verify (the records that carry the commit
+    // block never clear a fill's mark). So the list is read again: the same log with new files is verified again
+    // in this pass (3 times at most), else it waits for the next pass.
+    {
+      int &again = reverified[sc.name + "\n" + s->name];
+      std::vector<gxReplStream> now_streams;
+      std::string e2;
+      bool redo = false;
+      if(again < 3 && src.Streams(sc.name, now_streams, e2) == 0)
+	for(auto &x : now_streams)
+	  if(x.name == s->name && x.log_id == s->log_id)
+	    for(auto &f : x.files)
+	      if(std::find(s->files.begin(), s->files.end(), f) == s->files.end()) { redo = true; break; }
+      if(redo) {
+	for(auto &x : now_streams)
+	  if(x.name == s->name)
+	    for(auto &y : streams) if(y.name == x.name) y = x;
+	have_sm = false;                              // the source's manifest again too: the new file is in it
+	again++;
+	glog("set %s: stream %s names new file(s) since the pass began: verified again", sc.name.c_str(), s->name.c_str());
+	continue;
+      }
+      reverified.erase(sc.name + "\n" + s->name);
+    }
     it = vlist.erase(it);
   }
 
