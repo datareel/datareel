@@ -514,8 +514,6 @@ int main(int argc, char **argv)
   bool ship = true;
   std::string ship_root = root;   // 11/10/2026: --ship-root SET: the day folder layout (ROOT inside SET)
   std::string stream_name;        // 11/14/2026: --stream NAME: one stream feeds several folders (seal per folder)
-  long wait_at = -1;               // 11/14/2026: --wait-at N --wait-file F: before commit N, wait until F exists
-  std::string wait_file;
   // 11/10/2026: --commit-block: keep ROOT/commit.bin, a seqlock commit block like OSA's (u32 magic, u32
   // version, u64 generation at 8: odd while a commit writes the files, u64 commits at 16), written in
   // place (pwrite). --big N: the first commit adds one object of N bytes. --latency-out FILE: the
@@ -528,6 +526,12 @@ int main(int argc, char **argv)
   std::string gen_log;            // 11/10/2026: after each commit "<generation> <data hash> <index hash>"
   std::string answers_log;        // 11/14/2026: after each commit "<generation> <index count> <index sum>"
   long split_at = -1; int split_how = 0;   // 11/14/2026
+  unsigned long size_max = 12000;          // 11/14/2026: --size-max: a new object's payload is size_min .. + this bytes
+  unsigned long size_min = 20;             // 11/14/2026: --size-min
+  // 11/14/2026 (stress): --burst-at K --burst-per N [--burst-split M]: from commit K, N objects in commits of at
+  // most M (one commit when M is 0); --wait-at K --wait-file F: before commit K, wait until F exists
+  long burst_at = -1, burst_per = 0, burst_split = 0, wait_at = -1;
+  std::string wait_file;
   for(int i = 3; i < argc; i++) {
     std::string a = argv[i];
     if(a == "--commits" && i + 1 < argc) commits = atol(argv[++i]);
@@ -537,8 +541,6 @@ int main(int argc, char **argv)
     else if(a == "--no-ship") ship = false;
     else if(a == "--ship-root" && i + 1 < argc) ship_root = argv[++i];
     else if(a == "--stream" && i + 1 < argc) stream_name = argv[++i];
-    else if(a == "--wait-at" && i + 1 < argc) wait_at = atol(argv[++i]);
-    else if(a == "--wait-file" && i + 1 < argc) wait_file = argv[++i];
     else if(a == "--commit-block") commit_block = true;
     else if(a == "--big" && i + 1 < argc) big = strtoull(argv[++i], 0, 10);
     else if(a == "--old-ship-format") old_ship_format = true;
@@ -546,6 +548,13 @@ int main(int argc, char **argv)
     else if(a == "--latency-out" && i + 1 < argc) latency_out = argv[++i];
     else if(a == "--gen-log" && i + 1 < argc) gen_log = argv[++i];
     else if(a == "--answers-log" && i + 1 < argc) answers_log = argv[++i];
+    else if(a == "--size-max" && i + 1 < argc) { size_max = strtoul(argv[++i], 0, 10); if(size_max == 0) size_max = 1; }
+    else if(a == "--size-min" && i + 1 < argc) size_min = strtoul(argv[++i], 0, 10);
+    else if(a == "--burst-at" && i + 1 < argc) burst_at = atol(argv[++i]);
+    else if(a == "--burst-per" && i + 1 < argc) burst_per = atol(argv[++i]);
+    else if(a == "--burst-split" && i + 1 < argc) burst_split = atol(argv[++i]);
+    else if(a == "--wait-at" && i + 1 < argc) wait_at = atol(argv[++i]);
+    else if(a == "--wait-file" && i + 1 < argc) wait_file = argv[++i];
     else if(a == "--segment" && i + 1 < argc) seg_bytes = strtoull(argv[++i], 0, 10);
     else if(a == "--keep-days" && i + 1 < argc) keep_days = atoi(argv[++i]);
     else if(a == "--max-bytes" && i + 1 < argc) max_bytes = strtoull(argv[++i], 0, 10);
@@ -614,8 +623,14 @@ int main(int argc, char **argv)
   double worst_ms = 0;
   long timed = 0;
   std::vector<unsigned char> buf;
+  long burst_left = burst_per;
   for(long c = 0; c < commits; c++) {
     if(c == wait_at && !wait_file.empty()) while(access(wait_file.c_str(), F_OK) != 0) usleep(100000);
+    long per_now = per;
+    if(burst_at >= 0 && c >= burst_at && burst_left > 0) {
+      per_now = burst_split > 0 && burst_split < burst_left ? burst_split : burst_left;
+      burst_left -= per_now;
+    }
     struct timespec t0, t1;
     clock_gettime(CLOCK_MONOTONIC, &t0);
     cb_write(++gen, false);                      // odd: the files are changing
@@ -637,7 +652,7 @@ int main(int argc, char **argv)
       io.count++;
       io.sum += (unsigned long long)h.id * 1000003ULL + h.version;
     }
-    for(long k = 0; k < per; k++) {
+    for(long k = 0; k < per_now; k++) {
       ObjHdr h;
       memset(&h, 0, sizeof(h));
       unsigned long long r = rnd() % 10;
@@ -645,7 +660,7 @@ int main(int argc, char **argv)
 	// A new object, 20 bytes to 12 KB
 	h.id = io.next_id++;
 	h.version = 1;
-	h.len = (gxUINT32)(20 + rnd() % 12000);
+	h.len = (gxUINT32)(size_min + rnd() % size_max);
 	buf.resize(sizeof(h) + h.len);
 	for(gxUINT32 i = 0; i < h.len; i++) buf[sizeof(h) + i] = (unsigned char)rnd();
 	h.check = obj_check(h, buf.data() + sizeof(h));

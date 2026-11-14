@@ -34,6 +34,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import test_gxrepl as T                                      # noqa: E402
 
 NICE = ["nice", "-n", "19", "ionice", "-c3"]
+# object payloads of 1,500-3,500 bytes (mean ~2.5 KB: a realtime record, a 64-byte header and the raw source line)
+SIZE_MIN, SIZE_MAX = 1500, 2000
+SPLIT = 1400        # a burst over ~3.5 MB goes in commits of at most 1,400 objects (under the 4 MB max_message)
 
 
 def tw(*a):
@@ -162,18 +165,27 @@ def make_env(name, method, extra_server=()):
         opts = T._incr_opts("gxrepl_test", ["derived_delay = 0", "derived_busy_rebuild = 30"] + list(extra_server))
     else:
         opts = T._derived_opts(["derived_delay = 0", "derived_busy_rebuild = 30"] + list(extra_server))
-    return T.Env(name, {"db": opts})
+    env = T.Env(name, {"db": opts})
+    # the production message size (4 MB), not the suite's small one
+    for conf in (env.srv_conf, env.cli_conf):
+        with open(conf) as f:
+            c = f.read().replace("max_message = 262144", "max_message = 4194304")
+        with open(conf, "w") as f:
+            f.write(c)
+    return env
 
 
 def writer_bg(root, ws, answers, *args):
     e = dict(os.environ, GXDSHIP_OBJECTS="1")
-    return subprocess.Popen(NICE + tw("write", root, "--commit-block", "--ship-root", ws, "--answers-log", answers, *args),
+    return subprocess.Popen(NICE + tw("write", root, "--commit-block", "--ship-root", ws, "--answers-log", answers,
+                                      "--size-min", SIZE_MIN, "--size-max", SIZE_MAX, *args),
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=e)
 
 
 def writer_fg(root, ws, answers, *args):
     e = dict(os.environ, GXDSHIP_OBJECTS="1")
-    return subprocess.run(NICE + tw("write", root, "--commit-block", "--ship-root", ws, "--answers-log", answers, *args),
+    return subprocess.run(NICE + tw("write", root, "--commit-block", "--ship-root", ws, "--answers-log", answers,
+                                    "--size-min", SIZE_MIN, "--size-max", SIZE_MAX, *args),
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=e)
 
 
@@ -200,6 +212,32 @@ class Run:
         self.wait_index()
         self.sampler = Sampler(self.env, self.ws, self.aws, self.unit, self.answers)
         self.sampler.start()
+        self.base_answers = len([l for l in open(self.answers).read().split("\n") if l]) if os.path.exists(self.answers) else 0
+
+    def gated_writer(self, warmup, *args):
+        """a writer that makes "warmup" small commits, then waits until release(): its restart (an open record: a
+        verify, a rebuild on an incremental set) is over before what is measured"""
+        self.gate = os.path.join(self.env.dir, f"gate.{time.time()}")
+        self.w = writer_bg(os.path.join(self.ws, self.unit), self.ws, self.answers, "--wait-at", warmup,
+                           "--wait-file", self.gate, *args)
+        end = time.time() + 600
+        want = None
+        while time.time() < end:
+            lines = open(self.answers).read().split("\n") if os.path.exists(self.answers) else []
+            if self.w.poll() is not None:
+                raise AssertionError("the writer ended early: " + self.w.stdout.read())
+            if len([l for l in lines if l]) >= self.base_answers + warmup:
+                break
+            time.sleep(0.2)
+        self.caught_up()
+        time.sleep(2)
+        self.wait_index()
+
+    def release(self):
+        open(self.gate, "w").close()
+        self.w.wait()
+        assert self.w.returncode == 0, self.w.stdout.read()
+        self.base_answers = len([l for l in open(self.answers).read().split("\n") if l])
 
     def wait_index(self, secs=600):
         end = time.time() + secs
@@ -264,10 +302,10 @@ def steady(method, speed, quick):
             n = max(5, int(rate * secs))
             sleep_ms = max(1, int(1000.0 / rate))
 
+            run.gated_writer(3, "--commits", n + 3, "--per", 20, "--sleep", sleep_ms, "--seed", len(label) * 7)
+
             def load():
-                w = writer_bg(os.path.join(run.ws, run.unit), run.ws, run.answers, "--commits", n, "--per", 20,
-                              "--sleep", sleep_ms, "--seed", hash(label) % 1000)
-                w.wait()
+                run.release()
                 return {"commits": n, "rate_per_s": round(rate, 2), "caught_up_s": run.caught_up()}
             out[label] = run.measure(load)
             print(f"  steady {method} {label}: {json.dumps(out[label])}", flush=True)
@@ -285,11 +323,13 @@ def burst(method, quick):
             if quick and per > 10000:
                 continue
 
+            nc = (per + SPLIT - 1) // SPLIT
+            run.gated_writer(3, "--commits", 3 + nc, "--per", 20, "--burst-at", 3, "--burst-per", per,
+                             "--burst-split", SPLIT, "--seed", per % 997)
+
             def load():
-                w = writer_fg(os.path.join(run.ws, run.unit), run.ws, run.answers, "--commits", 1, "--per", per,
-                              "--seed", per)
-                assert w.returncode == 0, w.stdout
-                return {"objects": per, "caught_up_s": run.caught_up()}
+                run.release()
+                return {"objects": per, "commits": nc, "split": nc > 1, "caught_up_s": run.caught_up()}
             out[label] = run.measure(load)
             print(f"  burst {method} {label}: {json.dumps(out[label])}", flush=True)
     finally:
@@ -308,10 +348,10 @@ def day(method, speed, quick):
             rate = 890 * speed / 3600.0
             n = max(5, int(rate * (30 if quick else 90)))
 
+            run.gated_writer(3, "--commits", n + 3, "--per", 20, "--sleep", int(1000 / rate), "--seed", 6)
+
             def load():
-                w = writer_bg(os.path.join(run.ws, run.unit), run.ws, run.answers, "--commits", n, "--per", 20,
-                              "--sleep", int(1000 / rate), "--seed", 6)
-                w.wait()
+                run.release()
                 return {"gb": gb, "commits": n, "caught_up_s": run.caught_up(1800)}
             out[f"{gb}GB"] = run.measure(load)
             print(f"  day {method} {gb}GB: {json.dumps(out[f'{gb}GB'])}", flush=True)
@@ -331,14 +371,25 @@ def faults(method, speed, quick):
             return writer_bg(os.path.join(run.ws, run.unit), run.ws, run.answers, "--commits", n, "--per", 20,
                              "--sleep", int(1000 / rate), "--seed", int(time.time()) % 1000)
 
-        def fault(label, act, wait_after=True):
+        def fault(label, act, gated=True):
+            n = int(rate * 40)
+            if gated:      # the writer's own restart is over before the fault (it is measured on its own)
+                run.gated_writer(3, "--commits", n + 3, "--per", 20, "--sleep", int(1000 / rate),
+                                 "--seed", len(label) * 13)
+
             def load():
-                w = background(int(rate * 40))
+                if gated:
+                    open(run.gate, "w").close()
+                    w = run.w
+                else:
+                    w = background(n)
                 time.sleep(8)
                 t0 = time.time()
                 act()
                 w.wait()
-                return {"recovered_s": round(run.caught_up(900) + (time.time() - t0) * 0, 2)}
+                if gated:
+                    run.base_answers = len([l for l in open(run.answers).read().split("\n") if l])
+                return {"recovered_s": round(time.time() - t0 + run.caught_up(900), 2)}
             r = run.measure(load)
             ok, why = run.check()
             r["check_after"] = ok
@@ -372,7 +423,7 @@ def faults(method, speed, quick):
         def writer_restart():
             pass                                   # the background writer is a new process: an open record
 
-        fault("writer_restart", writer_restart)
+        fault("writer_restart", writer_restart, gated=False)
         fault("kill9_copy", kill_copy)
         fault("cut_link", cut_link)
         if method == "incremental":
@@ -397,13 +448,15 @@ def endurance(method, speed, quick):
     secs = 120 if quick else 1200
     rss = []
     try:
+        run.gated_writer(3, "--commits", int(rate * secs) + 3, "--per", 20, "--sleep", max(1, int(1000 / rate)), "--seed", 9)
+
         def load():
-            w = writer_bg(os.path.join(run.ws, run.unit), run.ws, run.answers, "--commits", int(rate * secs), "--per", 20,
-                          "--sleep", max(1, int(1000 / rate)), "--seed", 9)
-            while w.poll() is None:
+            open(run.gate, "w").close()
+            while run.w.poll() is None:
                 rss.append(run.sampler.rss_peak)
                 time.sleep(5)
-            return {"commits": int(rate * secs), "caught_up_s": run.caught_up()}
+            run.release()
+            return {"commits": int(rate * secs), "caught_up_s": run.caught_up(), "rss_samples_mb": [round(x / 1048576.0, 1) for x in rss[::max(1, len(rss) // 20)]]}
         out = run.measure(load)
         lag = run.sampler.lag
         q = max(1, len(lag) // 4)

@@ -53,3 +53,4 @@ utils/*/txfilter
 
 # Makefile build dependency files
 *.d
+__pycache__/
