@@ -21,7 +21,9 @@ and networking engine:
 - **Object database:** gxDatabase file storage with block reuse, B-tree indexes, typed
   persistent objects, and gxdJournal transactions (begin, commit, rollback, crash recovery).
 - **Vector index (7.4):** gxVectorIndex `.vix` files bound to database objects (a vector's
-  id is the object's address), so a similarity lookup returns the records themselves.
+  id is the object's address), so a similarity lookup returns the records themselves. Sets of
+  day or partition files are searched as one (gxVectorSet), the object server answers vector
+  searches, and a replicated copy rebuilds its vector indexes from the records.
 - **Database sockets:** gxStream client/server sockets with TLS, including mutual
   (client certificate) TLS since 7.3.1, and an object server.
 - **Replication (7.3.1):** gxrepl ships database changes from a primary to replicas.

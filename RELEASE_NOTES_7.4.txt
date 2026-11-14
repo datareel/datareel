@@ -209,6 +209,113 @@ the same bits) is a possible later step. int8 is as fast as float32
 and the smallest; use float32 or float16 where recall must stay above
 0.98.
 
+PHASE D (11/14/2026): SPEED, GROWTH, SETS, VECTOR SEARCH SERVICE, VECTORS UNDER GXREPL
+-------------------------------------------------------------------------------------
+1. float16 speed: a 65,536-entry table decodes a half (proved against
+   the scalar conversion for every one of the 65,536 bit patterns), and
+   gxv_l2sq_f16() / gxv_dot_f16() decode 8 values at a time into the
+   same 8-lane sums as the float32 kernels, so the distances are the
+   same bits as decode-then-kernel (checked for dimensions 1 to 96 and
+   4096). At 200,000 x 96 a float16 search now takes about as long as a
+   float32 one (p50 0.146 ms against 0.137 ms; before: about twice as
+   long). Files and results are unchanged.
+2. int8 cosine: the decoded vector is normalized again, so cosine
+   distances use unit vectors. Known limit, stated plainly: at
+   1,000,000 x 96 the int8 cosine recall against float32 exact is
+   0.9505 at ef 64 (0.972 at ef 200), just over the 0.95 bar. For
+   cosine at that scale use float16 (0.986) or search with ef 128 or
+   more.
+3. Format fields for growth (static area offsets 140-255, zero in the
+   files of phases A-C, which open unchanged and search the same: the
+   test opens files made by the phase C library, 32-bit and 64-bit):
+   features_required (a bit this library does not know makes the file
+   gxv_UNSUPPORTED), features_optional (bit 0 tag ranges kept, bit 1
+   derived from record members), codec (0; 1 is kept for product
+   quantization), graph layout (0), partition id and count, tag_min[4]
+   and tag_max[4] (the range of each tag over every node inserted:
+   written with the counts in the caller's transaction, never narrowed
+   by Delete(), worked out again by Repair() and Merge(); an empty index
+   holds 0xFFFFFFFF..0), and 56 reserved bytes (written as zero, ignored
+   when read). TagRange(), TagRangeExcludes(), SetPartition(),
+   SetFromMembers(). New error gxv_INDEX_FULL at 4,294,967,280 nodes.
+4. gxVectorSet (gxvset.h): many .vix files searched as one: day files,
+   partitions, or both, listed in a plain-text manifest
+   "<name>.vixset" (set, version, spec, dim, element, metric, codec,
+   and per file its relative path, node counts, the range of tag 2 (the
+   day, yyyymmdd) and a CRC-32 of the header fields that never change).
+   Unknown lines are errors, paths are relative with no "..", writes go
+   to a temporary file and are renamed. Files open lazily (read-only, an
+   LRU of max_open), a search with a day range skips the files outside
+   it unopened, searches run on several threads, and the results are
+   sorted by distance, then file, then id: the same for any number of
+   threads, and the order of a per-day merge that keeps the earlier day
+   on a tie. The live day: a file that changed since it was read is read
+   again (a file replaced by a rename is opened again), or a writer puts
+   its own open index in the set with AttachOpen(). A listed file that
+   is missing (an archived day) is skipped and counted, unless strict.
+   gxVectorSet::OpenFile() treats one .vix as a set of one.
+5. The object server answers vector searches (gxdbobject.h): a [db NAME]
+   with "vectors = <.vixset or .vix>" takes op 7 VECTOR_SEARCH (k up to
+   1000, ef up to 4096, a tag filter, a day range, strict) and op 8
+   VECTOR_INFO on its channels, read-only. The reply starts with the
+   request version, and names the result files by their paths relative
+   to the manifest. vector_threads (2) and vector_max_concurrent (4: one
+   more waits up to 5 s, then is answered "busy"). Vectors inside a set
+   the server copies are searched under the set's apply lock.
+   object_client --vinfo and --vsearch K show the use.
+6. Vectors under gxrepl: a vector index can be derived from the vector
+   members of its data file's records (gxvmember.h), so a replicated
+   copy never needs the .vix bytes. The set names it "derived"; the
+   writer leaves it out of its ship log (gxdShipLog::SetExclude), the
+   file sync never sends it, and the copy rebuilds it with
+   utils/vix_rebuild as its derived_rebuild:
+
+     derived = vectors.vix
+     derived_rebuild = vix_rebuild --data {dir}/data.gxd
+         --index {dir}/vectors.vix --member infohog:1 --tags -,-,infohog:2,-
+         --dim 96 --spec news/v1 --stamp-dir {dir} --lsn {lsn}
+
+   The node id is the record's address; a record without a valid
+   member is not in the index; the rebuild goes in ascending address
+   order, so two rebuilds of the same data are the same file byte for
+   byte, and it marks the file derived from members. While the copy's
+   index is behind, "gxrepl torn" warns (INDEXES), never TORN.
+   vix_rebuild --digest prints a logical digest (the live nodes in id
+   order: id, stored code, tags; equal for a primary's index built in
+   commit order and a copy's rebuild) or, with --digest-kind bytes, a
+   file digest (equal for two rebuilds). The "gxvmember" extractor
+   (gxrextract.h) does the same object by object for the per-object
+   derived apply, which comes with that work.
+
+Growth and its limits (facts, for planning):
+- Every node's id, tags, stored vector and graph links stay in memory
+  while the index is open: about 0.5 to 0.8 GB per million vectors at
+  dimension 96 (0.51 GB int8, 0.58 GB float16, 0.78 GB float32), so a
+  node needs a few hundred bytes of RAM whatever the disk holds.
+- Node numbers are 32-bit in memory: one file holds at most
+  4,294,967,280 nodes, deleted ones included (gxv_INDEX_FULL; Repair()
+  or Merge() into a new file drops the deleted ones).
+- One writer per index file at a time (searches run beside it).
+- gxVectorSet is the way past one file and one machine's memory per
+  file: day files or partitions, opened as needed and skipped by their
+  day range, with at most max_open in memory at once.
+- The codec field (product quantization) and the partition fields are
+  in the format now, so later releases can add them without a new file
+  version.
+
+Tests: vix_test (32-bit and 64-bit engines, crash rounds on) adds the
+format fields, the phase C files, gxVectorSet (recall over 5 day files
+against brute force, LRU 2 of 5, 1, 3 and 4 threads equal, the live
+file read-only and attached, missing and replaced files, bad manifests,
+paths with spaces), the gxvmember extractor and the rebuild from POD
+and real InfoHog records (logical equal to the index, two rebuilds the
+same bytes). The gxrepl suite adds the vector search service (remote
+answers equal local ones, bad requests refused, missing files, the busy
+cap, a copy searched under its apply lock) and a derived vector index
+(no .vix in the ship log, torn never TORN, the copy's rebuild logical
+equal to the primary's index after adds, updates and deletes with reused
+blocks, and byte equal to a rebuild of the primary's data).
+
 GXREPL FIXES FROM THE 11/12 STALL (11/13/2026)
 ----------------------------------------------
 - A request with no reply in time (or a reply that does not parse)
@@ -261,8 +368,8 @@ https://www.gnu.org/licenses/ instead of the old FSF postal address.
 
 NEXT
 ----
-Phase D: gxrepl and the object
-server's VECTOR_SEARCH. Phase E: the 6.x version with the legacy
+The per-object derived apply for gxrepl (its own branch and tests;
+rebuild stays the default). Phase E: the 6.x version with the legacy
 classes.
 DataReel 7.5 alpha: the Python module as a pip package (datareel), built
 from this repo.

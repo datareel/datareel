@@ -145,9 +145,12 @@ for the changes in 7.1 to 7.4. In short:
 - 7.4 adds vector extensions to the object database: gxVectorIndex
   keeps vectors in a ".vix" file (an ordinary gxDatabase file) with
   exact search and an HNSW graph for fast approximate nearest-neighbor
-  search, filters, Merge() of day files and Repair()
-  (RELEASE_NOTES_7.4.txt; more phases follow). Existing file formats
-  are unchanged.
+  search, filters, Merge() of day files and Repair(), float16 and
+  int8 vectors, vectors kept in records, sets of many index files
+  searched as one (gxVectorSet), vector searches through the database
+  object server, and vector indexes that a replicated copy rebuilds
+  from its records (RELEASE_NOTES_7.4.txt). Existing file formats are
+  unchanged.
 
 LICENSE
 -------
