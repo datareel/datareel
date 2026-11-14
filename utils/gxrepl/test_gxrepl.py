@@ -4164,9 +4164,13 @@ def test_incremental_status_shows_derived_state():
         d = derived()
         assert d.get("mode") == "incremental" and d["folders"] == 1 and d["breaker"] is False and not d["warn"], d
         w.terminate(); w.wait(30)
-        # the same folder written with notes off
-        assert writer(os.path.join(ws, "d1"), "--commits", 3, "--commit-block", "--ship-root", ws,
-                      "--seed", 81).returncode == 0
+        # the same folder written with notes off (GXDSHIP_OBJECTS taken out of the environment: the suite's objects
+        # mode sets it for every writer)
+        e = {k: v for k, v in os.environ.items() if k != "GXDSHIP_OBJECTS"}
+        r = subprocess.run([os.path.join(BIN, "gxrepl_testwriter"), "write", os.path.join(ws, "d1"), "--commits", "3",
+                            "--commit-block", "--ship-root", ws, "--seed", "81"], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True, env=e)
+        assert r.returncode == 0, r.stdout
         _wait_gen(ws, aws, "d1", 90)
         end = time.time() + 30
         while time.time() < end and "object notes are off" not in derived().get("warn", ""):
