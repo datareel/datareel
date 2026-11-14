@@ -179,6 +179,44 @@ static void test_elements()
   CHECK(f16(65504.0f) == 0x7BFF && f16(65519.0f) == 0x7BFF && f16(65520.0f) == 0x7C00 &&
 	f16(-65504.0f) == 0xFBFF, "f16 limits");
 
+  // The table decode gives the same bits as the scalar decoder for all
+  // 65536 patterns (infinities and NaNs included)
+  {
+    std::vector<unsigned short> all(65536);
+    std::vector<float> tab(65536);
+    for(unsigned h = 0; h < 65536; h++) all[h] = (unsigned short)h;
+    gxv_f16_decode(all.data(), tab.data(), 65536);
+    int diff = 0;
+    for(unsigned h = 0; h < 65536; h++) {
+      float one = gxv_float_from_f16((unsigned short)h);
+      if(memcmp(&one, &tab[h], 4) != 0) diff++;
+    }
+    CHECK(diff == 0, "f16 table decode differs from the scalar one for %d patterns", diff);
+  }
+  // Fused float16 distances = decode, then the float kernel, bit for bit
+  {
+    std::mt19937 fg(29);
+    int diff = 0, tried = 0;
+    std::vector<unsigned> dims;
+    for(unsigned d = 1; d <= 96; d++) dims.push_back(d);
+    dims.push_back(4096);
+    for(unsigned d : dims) {
+      for(int rep = 0; rep < 4; rep++) {
+	std::vector<float> a(d), b(d), bd(d);
+	std::vector<unsigned short> h(d);
+	rand_vec(fg, a.data(), d);
+	rand_vec(fg, b.data(), d);
+	for(unsigned i = 0; i < d; i++) h[i] = gxv_f16_from_float(b[i] * 8.0f);
+	gxv_f16_decode(h.data(), bd.data(), d);
+	float l1 = gxv_l2sq(a.data(), bd.data(), d), l2 = gxv_l2sq_f16(a.data(), h.data(), d);
+	float d1 = gxv_dot(a.data(), bd.data(), d), d2 = gxv_dot_f16(a.data(), h.data(), d);
+	if(memcmp(&l1, &l2, 4) != 0 || memcmp(&d1, &d2, 4) != 0) diff++;
+	tried++;
+      }
+    }
+    CHECK(diff == 0, "fused f16 distances differ in %d of %d vectors", diff, tried);
+  }
+
   // The index refuses values above 65504 with gxv_OUT_OF_RANGE
   std::string f = path("elem_f16.vix");
   {

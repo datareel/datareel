@@ -663,11 +663,7 @@ void gxVectorIndex::Decode(const unsigned char *code, float *out) const
 {
   switch(elem_type) {
     case gxvFLOAT16:
-      for(unsigned i = 0; i < dim; i++) {
-	unsigned short h;
-	memcpy(&h, code + 2 * (size_t)i, 2);
-	out[i] = gxv_float_from_f16(h);
-      }
+      gxv_f16_decode((const unsigned short *)code, out, dim); // Reads with memcpy: any alignment
       break;
     case gxvINT8: {
       float s;
@@ -683,6 +679,15 @@ void gxVectorIndex::Decode(const unsigned char *code, float *out) const
 
 float gxVectorIndex::DistTo(const float *q, size_t n) const
 {
+  if(elem_type == gxvFLOAT16) {
+    // Decoded on the fly: the same bits as Distance(q, decoded vector)
+    const unsigned short *h = (const unsigned short *)Code(n);
+    switch(metric) {
+      case gxvCOSINE: return 1.0f - gxv_dot_f16(q, h, dim);
+      case gxvIP: return -gxv_dot_f16(q, h, dim);
+      default: return gxv_l2sq_f16(q, h, dim);
+    }
+  }
   return Distance(q, Vec(n, gxv_buf_q));
 }
 

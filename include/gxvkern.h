@@ -40,6 +40,7 @@ Changes:
 ==============================================================
 11/12/2026: New in DataReel 7.4 (vector extensions, phase A).
 11/12/2026: Phase C: float16 and int8 element conversions.
+11/14/2026: Phase D: float16 table decode and fused float16 distances.
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -68,6 +69,16 @@ GXDLCODE_API int gxv_finite(const float *v, unsigned dim);
 // (gxVectorIndex refuses them first with gxv_OUT_OF_RANGE).
 GXDLCODE_API unsigned short gxv_f16_from_float(float f);
 GXDLCODE_API float gxv_float_from_f16(unsigned short h);
+
+// Decode dim float16 values with a 65536-entry table (built once): the
+// same floats as gxv_float_from_f16(), every bit pattern included
+GXDLCODE_API void gxv_f16_decode(const unsigned short *h, float *out, unsigned dim);
+
+// Distances between a float vector a and a float16 vector h, decoded on
+// the fly: the same bits as decoding h first and calling gxv_l2sq(a, ...)
+// or gxv_dot(a, ...) (the same fixed summation order), without a buffer
+GXDLCODE_API float gxv_l2sq_f16(const float *a, const unsigned short *h, unsigned dim);
+GXDLCODE_API float gxv_dot_f16(const float *a, const unsigned short *h, unsigned dim);
 
 // int8, symmetric per vector: s = max|v| / 127 (0 for a zero vector),
 // q[i] = clamp(lrintf(v[i] / s), -127, 127). Returns s. Decoding gives

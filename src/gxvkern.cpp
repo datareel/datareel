@@ -222,6 +222,101 @@ float gxv_i8_encode(const float *v, signed char *q, unsigned dim)
   return s;
 }
 
+// The table: every one of the 65536 bit patterns decoded once by
+// gxv_float_from_f16(), so table lookups are exact by construction. A
+// function-local static, so it is built once, safely, on first use.
+namespace {
+struct gxvF16Table {
+  gxvF16Table() {
+    for(unsigned i = 0; i < 65536; i++) v[i] = gxv_float_from_f16((unsigned short)i);
+  }
+  float v[65536];
+};
+}
+
+static inline const float *gxv_f16_tab()
+{
+  static const gxvF16Table t;
+  return t.v;
+}
+
+// One half from any address (memcpy: no alignment or aliasing
+// assumptions; compilers turn it into a plain 2-byte load)
+static inline unsigned gxv_h(const unsigned short *h, unsigned i)
+{
+  unsigned short v;
+  memcpy(&v, (const unsigned char *)h + 2 * (size_t)i, 2);
+  return v;
+}
+
+void gxv_f16_decode(const unsigned short *h, float *out, unsigned dim)
+{
+  const float *t = gxv_f16_tab();
+  for(unsigned i = 0; i < dim; i++) out[i] = t[gxv_h(h, i)];
+}
+
+// Each block of 8 is decoded into b[] and then summed exactly as
+// gxv_l2sq() / gxv_dot() sum a block, so the result is the same bits.
+float gxv_l2sq_f16(const float *a, const unsigned short *h, unsigned dim)
+{
+  const float *t = gxv_f16_tab();
+  float s[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+  float b[8];
+  unsigned i = 0, n8 = dim & ~7u;
+#ifdef GXV_SSE2
+  __m128 lo = _mm_setzero_ps(), hi = _mm_setzero_ps();
+  for(; i < n8; i += 8) {
+    for(unsigned j = 0; j < 8; j++) b[j] = t[gxv_h(h, i + j)];
+    __m128 d0 = _mm_sub_ps(_mm_loadu_ps(a + i), _mm_loadu_ps(b));
+    __m128 d1 = _mm_sub_ps(_mm_loadu_ps(a + i + 4), _mm_loadu_ps(b + 4));
+    lo = _mm_add_ps(lo, _mm_mul_ps(d0, d0));
+    hi = _mm_add_ps(hi, _mm_mul_ps(d1, d1));
+  }
+  gxv_store8(lo, hi, s);
+#else
+  for(; i < n8; i += 8) {
+    for(unsigned j = 0; j < 8; j++) {
+      b[j] = t[gxv_h(h, i + j)];
+      float d = a[i + j] - b[j];
+      s[j] += d * d;
+    }
+  }
+#endif
+  float r = gxv_combine(s);
+  for(; i < dim; i++) {
+    float d = a[i] - t[gxv_h(h, i)];
+    r += d * d;
+  }
+  return r;
+}
+
+float gxv_dot_f16(const float *a, const unsigned short *h, unsigned dim)
+{
+  const float *t = gxv_f16_tab();
+  float s[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+  float b[8];
+  unsigned i = 0, n8 = dim & ~7u;
+#ifdef GXV_SSE2
+  __m128 lo = _mm_setzero_ps(), hi = _mm_setzero_ps();
+  for(; i < n8; i += 8) {
+    for(unsigned j = 0; j < 8; j++) b[j] = t[gxv_h(h, i + j)];
+    lo = _mm_add_ps(lo, _mm_mul_ps(_mm_loadu_ps(a + i), _mm_loadu_ps(b)));
+    hi = _mm_add_ps(hi, _mm_mul_ps(_mm_loadu_ps(a + i + 4), _mm_loadu_ps(b + 4)));
+  }
+  gxv_store8(lo, hi, s);
+#else
+  for(; i < n8; i += 8) {
+    for(unsigned j = 0; j < 8; j++) {
+      b[j] = t[gxv_h(h, i + j)];
+      s[j] += a[i + j] * b[j];
+    }
+  }
+#endif
+  float r = gxv_combine(s);
+  for(; i < dim; i++) r += a[i] * t[gxv_h(h, i)];
+  return r;
+}
+
 void gxv_i8_decode(const signed char *q, float scale, float *out, unsigned dim)
 {
   for(unsigned i = 0; i < dim; i++) out[i] = (float)q[i] * scale;
