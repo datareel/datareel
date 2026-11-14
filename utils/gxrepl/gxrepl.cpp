@@ -181,13 +181,26 @@ static int shiplog(const std::string &dir, unsigned long long from)
       struct tm tmv; localtime_r(&t, &tmv);
       char tb[32]; strftime(tb, sizeof(tb), "%Y-%m-%d %H:%M:%S", &tmv);
       const char *ty = r.type == gxdShipCommit ? "commit" : r.type == gxdShipCommitZ ? "commit(z)" :
-	r.type == gxdShipOpen ? "open" : r.type == gxdShipGap ? "gap" : "?";
+	r.type == gxdShipOpen ? "open" : r.type == gxdShipGap ? "gap" : r.type == gxdShipObjects ? "objects" : "?";
       printf("%llu %s.%06llu %s %u bytes", r.lsn, tb, r.time_us % 1000000, ty, r.len);
       if(r.type == gxdShipCommit || r.type == gxdShipCommitZ) {
 	std::vector<gxdShipCommitFile> files;
 	std::vector<unsigned char> storage;
 	if(gxdParseShipCommitRecord(r, storage, files) == 0) {
 	  for(auto &f : files) printf("  %s %zu page(s) size %llu", f.name.c_str(), f.pages.size(), f.size);
+	}
+	else printf("  (damaged)");
+      }
+      if(r.type == gxdShipObjects) {     // 11/14/2026
+	gxdShipObjectsRecord o;
+	if(gxdParseShipObjectsRecord(r, o) == 0) {
+	  printf("%s", o.complete ? "" : "  (incomplete)");
+	  for(auto &f : o.files) {
+	    unsigned a = 0, u = 0, d = 0;
+	    for(auto &ob : f.objects) { if(ob.op == gxdObjectAdd) a++; else if(ob.op == gxdObjectUpdate) u++; else d++; }
+	    if(f.complete) printf("  %s %u add %u update %u remove", f.name.c_str(), a, u, d);
+	    else printf("  %s incomplete", f.name.c_str());
+	  }
 	}
 	else printf("  (damaged)");
       }

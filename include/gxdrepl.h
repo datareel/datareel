@@ -235,8 +235,11 @@ private:
   std::vector<std::string> files_list;
   std::vector<unsigned char> buf;
   std::vector<unsigned char> obuf, ozbuf; // 11/14/2026: objects record
-public: // 11/14/2026: tests only: write the objects record and stop
-  int test_split_pair = 0;  // 1: write only the objects record of the next commit
+  // 11/14/2026: tests only (gxdShipLogTest, a test program's own struct):
+  // 1 writes only the objects record of the next commit (a crash between),
+  // 2 the same and the process ends there (_exit(9))
+  int test_split_pair = 0;
+  friend struct gxdShipLogTest;
 };
 
 // A record inside a buffer of whole records (see gxdShipLogReader)

@@ -99,11 +99,13 @@ class Env:
             f.write("\n".join(c) + "\n")
         self.server = None
         self.client = None
+        self.server_bin = os.path.join(BIN, "gxrepl")   # 11/14/2026: another build's gxrepl (mixed versions)
+        self.client_bin = os.path.join(BIN, "gxrepl")
 
     def start_server(self, extra_env=None, args=()):
         self.srv_log = open(os.path.join(self.dir, "server.log"), "a")
         e = dict(os.environ, **extra_env) if extra_env else None
-        self.server = subprocess.Popen([os.path.join(BIN, "gxrepl"), "serve", "--config", self.srv_conf, *args],
+        self.server = subprocess.Popen([self.server_bin, "serve", "--config", self.srv_conf, *args],
                                        stdout=self.srv_log, stderr=subprocess.STDOUT, env=e)
         for _ in range(100):
             try:
@@ -116,7 +118,7 @@ class Env:
     def start_client(self, extra_env=None):
         self.cli_log = open(os.path.join(self.dir, "client.log"), "a")
         e = dict(os.environ, **extra_env) if extra_env else None
-        self.client = subprocess.Popen([os.path.join(BIN, "gxrepl"), "run", "--config", self.cli_conf],
+        self.client = subprocess.Popen([self.client_bin, "run", "--config", self.cli_conf],
                                        stdout=self.cli_log, stderr=subprocess.STDOUT, env=e)
 
     def once(self, conf=None, timeout=120):
@@ -3576,6 +3578,129 @@ def test_incremental_derived_apply_builtin():
 def test_incremental_derived_apply_so():
     """11/14/2026 (7.4): the same with the extractor loaded from gxrepl_testextractor.so"""
     _incremental_round(_so(), "incr_so")
+
+
+OLD_REV = "44e2936"   # 11/14/2026: the replication before objects records (F7), for the mixed-version tests
+
+
+def old_bin():
+    """gxrepl and gxrepl_testwriter built from OLD_REV (git archive of this repository), once, next to the build
+    under test. A failure to build fails the test (never a skip)."""
+    cache = os.path.join(os.path.dirname(os.path.abspath(BIN)), "old_" + OLD_REV)
+    out = os.path.join(cache, "build", "utils")
+    if all(os.path.exists(os.path.join(out, t)) for t in ("gxrepl", "gxrepl_testwriter")):
+        return out
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    src = os.path.join(cache, "src")
+    shutil.rmtree(cache, ignore_errors=True)
+    os.makedirs(src)
+    arch = subprocess.run(f"git -C '{repo}' archive {OLD_REV} | tar -x -C '{src}'", shell=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert arch.returncode == 0, "cannot unpack " + OLD_REV + ": " + arch.stdout
+    nice = ["nice", "-n", "19", "ionice", "-c3"]
+    c = subprocess.run(nice + ["cmake", "-S", src, "-B", os.path.join(cache, "build"), "-DDATAREEL_64BIT_DATABASE=ON",
+                               "-DCMAKE_BUILD_TYPE=Release"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert c.returncode == 0, c.stdout[-2000:]
+    b = subprocess.run(nice + ["cmake", "--build", os.path.join(cache, "build"), "-j2", "--target", "gxrepl",
+                               "gxrepl_testwriter"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert b.returncode == 0, b.stdout[-2000:]
+    return out
+
+
+def _log_records(root):
+    """every ship log record under root: (stream, type, lsn, payload), without the times and log ids"""
+    import struct
+    out = []
+    logdir = os.path.join(root, ".gxrepl", "log")
+    for stream in sorted(os.listdir(logdir)):
+        for seg in sorted(f for f in os.listdir(os.path.join(logdir, stream)) if f.endswith(".gxl")):
+            b = open(os.path.join(logdir, stream, seg), "rb").read()
+            o = 32
+            while o + 32 <= len(b):
+                _m, t, lsn, _ts, n, _ck = struct.unpack_from("<IIQQII", b, o)
+                out.append((stream, t, lsn, b[o + 32:o + 32 + n]))
+                o += 32 + n
+    return out
+
+
+def test_notes_off_output_is_unchanged():
+    """11/14/2026 (review): with object notes off (the default), the writer's files and ship log records are byte
+    for byte what the writer before objects records (OLD_REV) makes (times and log ids aside)."""
+    ob = old_bin()
+    base = os.path.join(TMP, "golden")
+    shutil.rmtree(base, ignore_errors=True)
+    outs = {}
+    e = {k: v for k, v in os.environ.items() if k != "GXDSHIP_OBJECTS"}
+    for name, b in (("old", ob), ("new", BIN)):
+        d = os.path.join(base, name)
+        os.makedirs(d)
+        w = subprocess.run([os.path.join(b, "gxrepl_testwriter"), "write", d, "--commits", "12", "--per", "6",
+                            "--seed", "5", "--commit-block"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           text=True, env=e)
+        assert w.returncode == 0, w.stdout
+        outs[name] = d
+    for f in ("data.gxd", "index.gxd", "commit.bin"):
+        a = open(os.path.join(outs["old"], f), "rb").read()
+        n = open(os.path.join(outs["new"], f), "rb").read()
+        assert a == n, f + " differs from the old writer's"
+    ro, rn = _log_records(outs["old"]), _log_records(outs["new"])
+    assert len(ro) == len(rn) and len(ro) > 12, (len(ro), len(rn))
+    for x, y in zip(ro, rn):
+        assert x == y, f"record {x[2]} differs (type {x[1]} / {y[1]})"
+    assert not any(r[1] == 5 for r in rn), "an objects record with notes off"
+
+
+def _mixed(old_side):
+    env = Env("mixed_" + old_side, {"db": {}})
+    ob = old_bin()
+    setattr(env, old_side + "_bin", os.path.join(ob, "gxrepl"))
+    ws, aws = env.roots["db"]
+    assert _objects_writer(ws, "--commits", 6).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 60)
+        w = _objects_writer_bg(ws, "--commits", 30, "--per", 5, "--sleep", 100, "--seed", 9)
+        assert w.wait(timeout=120) == 0
+        wait_same(env, "db", 60)
+        check_db(aws)
+        assert any(r[1] == 5 for r in _log_records(ws)), "the writer wrote no objects records"
+    finally:
+        env.stop()
+
+
+def test_mixed_version_old_copy_skips_objects_records():
+    """11/14/2026 (review): a copy running the gxrepl before objects records (OLD_REV), fed by a new source whose
+    writer writes them: the copy skips them and matches the source."""
+    _mixed("server")
+
+
+def test_mixed_version_old_source_sends_objects_records():
+    """11/14/2026 (review): a source running OLD_REV's gxrepl (its reader may end a batch on an objects record)
+    and a new copy: the copy applies everything and matches."""
+    _mixed("client")
+
+
+def test_trailing_orphan_objects_record_does_not_stall():
+    """11/14/2026 (review: the stall): a writer that dies right after an objects record leaves it as the log's last
+    record; it is held back only while its commit may still come (10 s), then let go: the copy gets in step with
+    no record of lag instead of retrying the stream for ever."""
+    env = Env("orphan_stall", {"db": {}})
+    ws, aws = env.roots["db"]
+    w = _objects_writer(ws, "--commits", 6, "--split-crash-at", 5)
+    assert w.returncode == 9, w.stdout
+    recs = _log_records(ws)
+    assert recs[-1][1] == 5, "the log does not end on an objects record"
+    env.start_server()
+    env.start_client()
+    try:
+        wait_status(env, lambda s: s["sets"]["db"]["ok"] and not s["sets"]["db"].get("last_error")
+                    and s["sets"]["db"].get("streams")
+                    and all(x.get("lag", 1) == 0 for x in s["sets"]["db"]["streams"].values()), 45)
+        wait_same(env, "db", 30)
+        check_db(aws)
+    finally:
+        env.stop()
 
 
 def test_dead_copy_folder_goes_with_its_source():

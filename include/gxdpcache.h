@@ -146,7 +146,6 @@ private:
   size_t logged_count;
   size_t pinned_count; // Dirty or logged pages, kept out of the LRU list
   int in_txn;
-  int staged = 0; // 11/14/2026
   // 10/31/2026: Read-only map of the file. Clean data that is not in a
   // page is copied straight from the map: no system call and no page.
   int use_map;
@@ -159,6 +158,7 @@ private:
   std::vector<gxdPage *> logged_list; // Logged pages, some may be dirty
   gxdPage *head; // Most recently used clean page
   gxdPage *tail; // Least recently used clean page
+  int staged = 0; // 11/14/2026 (last)
 };
 
 } // namespace datareel

@@ -60,6 +60,7 @@ Usage: derived_apply_test (in an empty folder)
 #include <iostream>
 #include <string>
 #include <vector>
+#include <unistd.h>
 #include "gxdbase.h"
 #include "gxbtree.h"
 #include "gxdjrnl.h"
@@ -71,6 +72,12 @@ using namespace datareel;
 namespace fs = std::filesystem;
 
 static int failures = 0, checks = 0;
+
+namespace datareel {
+struct gxdShipLogTest {   // gxdShipLog's friend: the crash between an objects record and its commit
+  static void Split(gxdShipLog *l) { l->test_split_pair = 1; }
+};
+}
 
 #define CHECK(cond, what) do { checks++; if(!(cond)) { \
   std::cerr << "FAIL " << what << " (line " << __LINE__ << ")\n"; \
@@ -391,7 +398,7 @@ static void orphan()
       CHECK(s.j.Begin() == gxDBASE_NO_ERROR, "begin");
       FAU_t at = s.db.Alloc(sizeof(rec));
       CHECK(at && s.db.Write(rec, sizeof(rec), at) == gxDBASE_NO_ERROR, "add");
-      if(c == 1) s.j.ShipLog()->test_split_pair = 1;   // The commit record after it is never written
+      if(c == 1) gxdShipLogTest::Split(s.j.ShipLog());   // The commit record after it is never written
       CHECK(s.j.Commit() == gxDBASE_NO_ERROR, "commit (a failed append never fails the commit)");
     }
   }
@@ -433,7 +440,7 @@ static void orphan()
     CHECK(s.j.Begin() == gxDBASE_NO_ERROR, "begin");
     FAU_t at = s.db.Alloc(sizeof(rec));
     CHECK(at && s.db.Write(rec, sizeof(rec), at) == gxDBASE_NO_ERROR, "add");
-    s.j.ShipLog()->test_split_pair = 1;
+    gxdShipLogTest::Split(s.j.ShipLog());
     CHECK(s.j.Commit() == gxDBASE_NO_ERROR, "commit");
     gxdShipLogReader rd;
     CHECK(rd.Open(r2 + "/.gxrepl/log/s1") == 0, "reader");
@@ -443,6 +450,16 @@ static void orphan()
     CHECK(rd.Read(1, 1 << 20, out, next, count) == 0 && count == 1 && next == 2, "only the open record");
     CHECK(rd.Read(2, 1 << 20, out, next, count) == 0 && count == 0 && next == 2,
 	  "a trailing objects record is held back");
+    gxdShipLogReader::Info info;
+    CHECK(rd.GetInfo(info) == 0 && info.next_lsn == 2, "GetInfo agrees with Read (next " << info.next_lsn << ")");
+    // 11/14/2026 (review: the stall): once it is 10 s old, its commit never comes: it is let go as an orphan
+    std::cout << "     (orphan_tail: waiting 11 s for the hold to end)\n";
+    sleep(11);
+    CHECK(rd.GetInfo(info) == 0 && info.next_lsn == 3, "GetInfo counts the old orphan (next " << info.next_lsn << ")");
+    CHECK(rd.Read(2, 1 << 20, out, next, count) == 0 && count == 1 && next == 3, "the old orphan is read");
+    std::vector<gxdShipRecordView> rv;
+    CHECK(gxdParseShipRecords(out.data(), out.size(), rv) == 0 && rv.size() == 1 && rv[0].type == gxdShipObjects,
+	  "it is the objects record");
   }
 }
 

@@ -282,6 +282,12 @@ static int raw(const std::string &mode, const char *conf, const char *set, const
 
 using namespace datareel;
 
+namespace datareel {
+struct gxdShipLogTest {   // 11/14/2026: gxdShipLog's friend (gxdrepl.h): a writer crash between a pair
+  static void Split(gxdShipLog *l, int how) { l->test_split_pair = how; }
+};
+}
+
 struct ObjHdr {
   gxUINT64 id;
   gxUINT64 version;
@@ -504,6 +510,7 @@ int main(int argc, char **argv)
   bool old_ship_format = false;    // 11/10/2026: no commit block in the records
   std::string latency_out;
   std::string gen_log;            // 11/10/2026: after each commit "<generation> <data hash> <index hash>"
+  long split_at = -1; int split_how = 0;   // 11/14/2026
   for(int i = 3; i < argc; i++) {
     std::string a = argv[i];
     if(a == "--commits" && i + 1 < argc) commits = atol(argv[++i]);
@@ -524,6 +531,10 @@ int main(int argc, char **argv)
     else if(a == "--segment" && i + 1 < argc) seg_bytes = strtoull(argv[++i], 0, 10);
     else if(a == "--keep-days" && i + 1 < argc) keep_days = atoi(argv[++i]);
     else if(a == "--max-bytes" && i + 1 < argc) max_bytes = strtoull(argv[++i], 0, 10);
+    // 11/14/2026: commit K (from 0) writes only its objects record: --split-pair-at goes on (a gap follows),
+    // --split-crash-at ends the writer there (its pages never reach the files)
+    else if(a == "--split-pair-at" && i + 1 < argc) { split_at = atol(argv[++i]); split_how = 1; }
+    else if(a == "--split-crash-at" && i + 1 < argc) { split_at = atol(argv[++i]); split_how = 2; }
     else { fprintf(stderr, "unknown option %s\n", a.c_str()); return 64; }
   }
   std::string dn = root + "/data.gxd", in = root + "/index.gxd", jn = root + "/writer.jnl";
@@ -665,6 +676,7 @@ int main(int argc, char **argv)
       memcpy(nb + 8, &g2, 8); memcpy(nb + 16, &c2, 8);
       j.ShipLog()->SetCommitBlock(root + "/commit.bin", nb, sizeof(nb));
     }
+    if(c == split_at && j.ShipLog()) gxdShipLogTest::Split(j.ShipLog(), split_how);
     if(j.Commit() != gxDBASE_NO_ERROR) { fprintf(stderr, "commit failed\n"); return 1; }
     cb_write(++gen, true);                       // even: the files are this commit
     if(!gen_log.empty()) {

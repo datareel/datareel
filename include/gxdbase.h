@@ -274,17 +274,6 @@ public: // 11/14/2026: Object notes (gxdonote.h), set by gxdJournal
   void ObjectNotesResume() { if(onote_pause > 0) onote_pause--; }
 
 protected:
-  gxUINT32 object_capacity(const gxBlockHeader &blk) const;
-  void note_write(FAU_t address, unsigned long long bytes);
-  struct NoteGuard { // Internal writes are not notes
-    gxDatabase *d;
-    NoteGuard(gxDatabase *db) : d(db) { d->onote_pause++; }
-    ~NoteGuard() { d->onote_pause--; }
-  };
-  gxdObjectNotes *onotes; // 11/14/2026
-  int onote_pause;
-
-protected:
   void (*write_hook)(void *); // 10/25/2026: See SetWriteHook()
   void *write_hook_data;
   char file_name[gxMaxNameLength];    // Open database file name
@@ -324,6 +313,17 @@ public: // Rev 'D' and higher file stat functions
 
 public: // Synchronization functions
   void Release();
+
+protected: // 11/14/2026: object notes (last, so the earlier members keep their places)
+  gxUINT32 object_capacity(const gxBlockHeader &blk) const;
+  void note_write(FAU_t address, unsigned long long bytes);
+  struct NoteGuard { // Internal writes are not notes
+    gxDatabase *d;
+    NoteGuard(gxDatabase *db) : d(db) { d->onote_pause++; }
+    ~NoteGuard() { d->onote_pause--; }
+  };
+  gxdObjectNotes *onotes; // 11/14/2026
+  int onote_pause;
 };
 
 } // namespace datareel

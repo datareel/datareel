@@ -763,6 +763,7 @@ int gxdShipLog::append2(uint32_t t1, const unsigned char *p1, size_t l1,
     else off += (size_t)n;
   }
   if(ok && sync && fdatasync(fd) != 0) ok = 0;
+  if(ok && test_split_pair == 2) _exit(9);   // Tests: the writer dies between the two (gxdShipLogTest)
   if(ok && test_split_pair) {
     test_split_pair = 0;
     seg_end += total;
@@ -876,12 +877,14 @@ int gxdShipLog::AppendCommit(const std::vector<gxdShipFile> &files)
     }
     std::string base = rel.substr(rel.find_last_of('/') == std::string::npos ? 0 : rel.find_last_of('/') + 1);
     bool skip = false;
-    // 11/14/2026: "<excluded>.stamp" (a derived index stamp, gxdstamp.h) too
-    std::string sbase = base, srel = rel;
-    if(gxdDerivedStamp::IsStamp(base)) { sbase.resize(sbase.size() - 6); srel.resize(srel.size() - 6); }
     for(auto &p : exclude)
-      if(fnmatch(p.c_str(), base.c_str(), 0) == 0 || fnmatch(p.c_str(), rel.c_str(), 0) == 0 ||
-	 fnmatch(p.c_str(), sbase.c_str(), 0) == 0 || fnmatch(p.c_str(), srel.c_str(), 0) == 0) { skip = true; break; }
+      if(fnmatch(p.c_str(), base.c_str(), 0) == 0 || fnmatch(p.c_str(), rel.c_str(), 0) == 0) { skip = true; break; }
+    // 11/14/2026: "<excluded>.stamp" (a derived index stamp, gxdstamp.h) too (copies only for a stamp)
+    if(!skip && !exclude.empty() && gxdDerivedStamp::IsStamp(base)) {
+      std::string sbase = base.substr(0, base.size() - 6), srel = rel.substr(0, rel.size() - 6);
+      for(auto &p : exclude)
+	if(fnmatch(p.c_str(), sbase.c_str(), 0) == 0 || fnmatch(p.c_str(), srel.c_str(), 0) == 0) { skip = true; break; }
+    }
     if(!skip) keep.push_back(i);
   }
   // 11/10/2026: the commit block (SetCommitBlock) goes as the last file
@@ -1069,6 +1072,17 @@ static int walk_segment(int f, const std::string &log_id,
   return 0;
 }
 
+// 11/14/2026 (review): a trailing objects record is held back while its commit may still come: the writer
+// writes both in one pwrite, so one older than 10 s (its own time) is an orphan (the writer died between
+// them) and is let go; the copy skips it (or, incremental, rebuilds). GetInfo() and Read() use the same rule.
+static bool hold_trailing_objects(const unsigned char *rec)
+{
+  if(sget32(rec + 4) != gxdShipObjects) return false;
+  long long t = (long long)sget64(rec + 16), now = (long long)now_us();
+  long long age = now - t;
+  return age >= 0 && age < 10LL * 1000000LL;
+}
+
 int gxdShipLogReader::scan_end(const std::vector<Seg> &segs,
 			       unsigned long long &next)
 {
@@ -1082,11 +1096,13 @@ int gxdShipLogReader::scan_end(const std::vector<Seg> &segs,
     off = end_off; lsn = end_lsn;
   }
   unsigned long long at = off;
+  bool held = false;
   int rc = walk_segment(f, log_id, off, lsn,
 			[&](const std::vector<unsigned char> &rec, unsigned long long l) {
 			  if(at < gxdShipSegmentHeaderSize) at = gxdShipSegmentHeaderSize;
 			  index_add(last.path, l, at);
 			  at += rec.size();
+			  held = hold_trailing_objects(rec.data());
 			  return true; });
   close(f);
   if(rc != 0) {
@@ -1098,6 +1114,9 @@ int gxdShipLogReader::scan_end(const std::vector<Seg> &segs,
   end_off = off;
   end_lsn = lsn;
   next = lsn;
+  // 11/14/2026: an objects record Read() holds back is not readable yet (the cursor stays after it: a later
+  // scan from there sees its commit, or nothing, and releases it once it is old)
+  if(held && next > last.first) { next--; end_off = 0; end_lsn = 0; end_path.clear(); }
   return 0;
 }
 
@@ -1152,8 +1171,10 @@ int gxdShipLogReader::Read(unsigned long long from, size_t max_bytes,
   // if need be, and an objects record with nothing after it yet is held back
   size_t last_start = 0;
   uint32_t last_type = 0;
-  auto hold_back = [&]() {
-    if(count > 0 && last_type == gxdShipObjects) {
+  // force: the batch stopped before the commit that follows (budget, a big record): always held back; at the
+  // log's end: only while its commit may still come (hold_trailing_objects)
+  auto hold_back = [&](bool force) {
+    if(count > 0 && last_type == gxdShipObjects && (force || hold_trailing_objects(out.data() + last_start))) {
       out.resize(last_start);
       count--;
       next--;
@@ -1205,20 +1226,20 @@ int gxdShipLogReader::Read(unsigned long long from, size_t max_bytes,
 	return true;
       }, from, max_bytes, &big);   // a big commit after an objects record: both held back (resync)
     close(f);
-    if(big) hold_back();
+    if(big) hold_back(true);
     if(big && count == 0) { next = from; return 2; }   // 11/10/2026: the record at "from" is bigger than max_bytes
     if(big) return 0;                                  // a big one after some: send these first
     if(rc != 0) {
-      hold_back();
+      hold_back(true);
       if(count == 0) return 1; // A segment of another log id
       return 0;
     }
     rd_path = segs[i].path;
     rd_off = off;
     rd_lsn = lsn;
-    if(full) { hold_back(); return 0; }
+    if(full) { hold_back(true); return 0; }
   }
-  hold_back();
+  hold_back(false);
   if(count == 0 && next < from) next = from;
   return 0;
 }

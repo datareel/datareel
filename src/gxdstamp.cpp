@@ -84,12 +84,16 @@ static int decode(const unsigned char *b, gxdStampData &d)
 
 int gxdDerivedStamp::IsStamp(const std::string &name)
 {
-  const std::string ext = ".stamp";
+  // "<index>.stamp": something before the suffix (not gxrepl's derived.stamp); no copies (11/14/2026 review:
+  // called for every file of every commit)
+  static const char ext[] = ".stamp";
+  const size_t el = sizeof(ext) - 1;
   size_t k = name.find_last_of('/');
-  std::string base = k == std::string::npos ? name : name.substr(k + 1);
-  // "<index>.stamp": something before the suffix (not gxrepl's derived.stamp)
-  if(base.size() <= ext.size() || base == "derived.stamp") return 0;
-  return base.compare(base.size() - ext.size(), ext.size(), ext) == 0;
+  size_t b = k == std::string::npos ? 0 : k + 1, bl = name.size() - b;
+  if(bl <= el) return 0;
+  if(name.compare(name.size() - el, el, ext) != 0) return 0;
+  if(bl == 13 && name.compare(b, 13, "derived.stamp") == 0) return 0;
+  return 1;
 }
 
 gxDatabaseError gxdDerivedStamp::Open(const char *path, int create)

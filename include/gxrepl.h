@@ -143,10 +143,18 @@ struct GXDLCODE_API gxReplSetConfig {
   // Missing or stale indexes are a warning in "gxrepl torn", not torn: a
   // take over's writer open rebuilds them; a failed rebuild stays torn.
   int derived_busy_rebuild = 900;
+  // 11/12/2026 (F7, staged unit copies): the copy of a commit_block unit by its files goes into a copy-on-write
+  // stage (<root>/.gxrepl/stage/<unit>/, reflinked from the unit) and is swapped in at its commit block, so the
+  // live unit stays whole at its last sealed generation until the new one is whole: a link lost in the middle of
+  // a unit copy leaves an older, whole, promotable copy instead of a torn one. A unit over stage_max_bytes, a disk
+  // short of room, or a set fed by a ship log is copied in place as before (a WARNING says why).
+  bool staged_fill = true;
+  unsigned long long stage_max_bytes = 16ULL * 1024 * 1024 * 1024;
   // 11/14/2026 (7.4): how the copy keeps its derived indexes: "rebuild"
   // (derived_rebuild, above) or "incremental": object by object from the
   // objects records (gxdShipObjects) with the extractor (gxrextract.h:
-  // a .so path, or "gxvmember"), each index stamped in <index>.stamp
+  // a built-in name, gxrRegisterExtractor(), or a path ending in .so),
+  // each index stamped in <index>.stamp
   // (gxdstamp.h). An index without a good stamp, an incomplete objects
   // record or an extractor error goes back to rebuild. Missing stamps are
   // a warning in "gxrepl torn", never torn.
@@ -159,13 +167,6 @@ struct GXDLCODE_API gxReplSetConfig {
   // 11/14/2026: most changed index pages one batch may hold in memory
   // (MB); past it the batch's indexes are rebuilt instead
   unsigned long long derived_apply_max_mb = 256;
-  // 11/12/2026 (F7, staged unit copies): the copy of a commit_block unit by its files goes into a copy-on-write
-  // stage (<root>/.gxrepl/stage/<unit>/, reflinked from the unit) and is swapped in at its commit block, so the
-  // live unit stays whole at its last sealed generation until the new one is whole: a link lost in the middle of
-  // a unit copy leaves an older, whole, promotable copy instead of a torn one. A unit over stage_max_bytes, a disk
-  // short of room, or a set fed by a ship log is copied in place as before (a WARNING says why).
-  bool staged_fill = true;
-  unsigned long long stage_max_bytes = 16ULL * 1024 * 1024 * 1024;
 };
 
 struct GXDLCODE_API gxReplConfig {
@@ -465,10 +466,9 @@ private:
 private:
   gxReplConfig cfg;
   std::map<std::string, SetState_ *> sets;
-public:
-  double derived_peak_mb = 0;   // 11/14/2026: most staged index MB of one batch (incremental derived apply)
-private:
   std::mutex lock;
+public:
+  double derived_peak_mb = 0;   // 11/14/2026 (last): most staged index MB of one batch (incremental derived apply)
 };
 
 // A connection to the other node: a gxReplSource, and through
