@@ -1,4 +1,4 @@
-DataReel 6.3.1 Release Notes, 11/14/2026 (beta)
+DataReel 6.3.1 Release Notes, 11/14/2026
 DataReel version 6.3.1 (was 6.3)
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
@@ -46,7 +46,8 @@ and delete blocks, and stop the server. As in DataReel 7.3.1:
   (the opt-out), and obeys a client's shutdown request only with
   --allow-remote-shutdown. Its client takes --ca, --insecure,
   --cert/--key.
-This default may still change before the final release.
+Existing 6.x gxStream servers must add the certificate settings, or
+call AllowAnonymousClients(true), when they are rebuilt with 6.3.1.
 
 NETWORKING (FROM THE DATAREEL 7.3.1 SWEEP AND THE 6.x SWEEP)
 -----------------------------------------------------------
@@ -71,7 +72,7 @@ NETWORKING (FROM THE DATAREEL 7.3.1 SWEEP AND THE 6.x SWEEP)
   checks as gxStream (SetMaxBlockSize(), gxDATAGRAM_DEF_MAX_BLOCK).
   UDP has no peer authentication.
 - Schannel (Windows): receive buffers capped at 256 KB; mutual TLS
-  ported from 7.3.1. NOT COMPILED OR TESTED in this beta.
+  ported from 7.3.1. NOT COMPILED OR TESTED (see TESTED PLATFORMS).
 - gxsHTTPClient: no fixed stack buffers in the header parser, fields
   matched at the start of a line, strict status line and
   Content-Length, control characters refused, header (256 KB) and body
@@ -121,6 +122,22 @@ NETWORKING (FROM THE DATAREEL 7.3.1 SWEEP AND THE 6.x SWEEP)
 - Reviewed, no change: the thread pool, gxThread, the thread API
   wrapper, the database file cache, the binary search tree iterator,
   ASPrint, gxsXML and gxsRSS (fuzzed).
+
+TESTED PLATFORMS
+----------------
+DataReel 6.3.1 was tested on Linux only: RHEL 10.2 (gcc 14, OpenSSL
+3.x), 32-bit and 64-bit database engines. The Windows build, including
+the Schannel TLS code and the gxStream mutual TLS on Schannel, has NOT
+been compiled or tested for 6.3.1 (the 6.3 database code passed its
+Windows tests on 11/06/2026). Build and test on Windows before using
+6.3.1 there.
+
+Results on RHEL 10.2: the library builds with no warnings;
+examples_database/run_db_tests.sh passes 33 of 33 on each engine; the
+eight database examples write files byte-identical to 6.2, and files
+created by 6.2 and reopened by 6.3.1 stay identical; 16 libFuzzer
+targets ran 5 minutes each with no errors; gcc -fanalyzer is clean on
+the changed files.
 
 TESTS
 -----
