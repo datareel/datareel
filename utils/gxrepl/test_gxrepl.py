@@ -2834,10 +2834,22 @@ def test_promote_check_reads_under_the_apply_lock():
         assert sp and sp[0] == sp[1], f"no ship log seal in step: {sp}"
         t = torn(env)
         assert t.returncode == 0 and "0 torn" in t.stdout, t.stdout
-        # (a) an apply inside its lock, the seal written, the position 4 s late
+        # (a) an apply inside its lock, the seal written, the position 4 s late. 11/14/2026 (7.3.4): every writer
+        # run starts with an open record, which now always gets its stream verified (drain-verify), and the hook
+        # delays the verify's file updates too: so the writer first opens and commits once, the open record's
+        # verify ends, and only then does its second commit (records only) make the one delayed apply that the
+        # check must wait for (a back-to-back run of delayed applies would rightly outlast GXREPL_TORN_LOCK_WAIT)
         env.start_server(extra_env={"GXREPL_TEST_POSITION_DELAY_MS": "4000"})
+        n_log = len(open(os.path.join(env.dir, "client.log")).read()) if os.path.exists(os.path.join(env.dir, "client.log")) else 0
         env.start_client()
-        assert writer(ws, "--commits", 1, "--commit-block", "--seed", 43).returncode == 0
+        go = os.path.join(env.dir, "torn_lock_go")
+        w = writer_bg(ws, "--commits", 2, "--commit-block", "--seed", 43, "--wait-at", 1, "--wait-file", go)
+        end = time.time() + 120
+        while time.time() < end and "verified (" not in open(os.path.join(env.dir, "client.log")).read()[n_log:]:
+            time.sleep(0.2)
+        assert "verified (" in open(os.path.join(env.dir, "client.log")).read()[n_log:], "the open record was never verified\n" + env.logs()
+        wait_same(env, "db", 120)                     # the first commit and the verify are in, nothing applying
+        put(go, b"go\n")                              # the second commit: one delayed apply
         split = None
         end = time.time() + 60
         while time.time() < end and not split:
@@ -2856,6 +2868,7 @@ def test_promote_check_reads_under_the_apply_lock():
         assert t.returncode == 0 and "0 torn" in t.stdout, t.stdout
         assert "without the apply lock" not in t.stdout, t.stdout
         assert "torn lock stats" in t.stdout, t.stdout
+        assert w.wait(60) == 0, w.stdout.read()
         wait_same(env, "db", 60)
         env.stop()
         # (b) a real split, nothing applying: TORN under the lock, no 10 s of re-reads
