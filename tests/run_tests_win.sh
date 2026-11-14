@@ -72,6 +72,11 @@ mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" && check journal_test "$T
 # 11/14/2026 (7.4): the vector index tests (the crash rounds are POSIX only and left out of the Windows build)
 U="$BUILD/utils/$CFG"; [ -d "$U" ] || U="$BUILD/utils"
 mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" && check vix_test "$U/vix_test"
+# 11/14/2026 (7.4): the Windows replication example: a folder copy with robocopy, digests, the index rebuild
+SRC=$(cd "$(dirname "$0")/.." && pwd)
+mkdir -p "$WORK/run_replication_copy" && cd "$WORK/run_replication_copy" &&
+  check replication_copy cmd //c "$(cygpath -w "$SRC/examples/oodb/replication_copy_walkthrough.cmd")" \
+    "$(cygpath -w "$E")" "$(cygpath -w "$U")" "$(cygpath -w "$WORK/run_replication_copy/w")"
 for t in stream_security_test proto_security_test support_security_test; do
   mkdir -p "$WORK/run_$t" && cd "$WORK/run_$t" && check $t "$T/$t"
 done

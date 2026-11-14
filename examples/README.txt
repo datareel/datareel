@@ -127,3 +127,35 @@ on both nodes. It exits 0 when every check passes.
   replication write DIR [--commits N] [--per N] [--sleep MS] [--seed N]
   replication rebuild DIR [LSN]
   replication digest DIR
+
+gxrepl, and so replication.cpp and its walkthrough, run on Linux and
+other POSIX systems only. On Windows see the folder copy example below.
+
+
+Folder copy (examples/oodb/replication_copy.cpp, Windows and Linux)
+--------------------------------------------------------------------
+The Windows replication example (DataReel 7.4). Live replication with
+gxrepl is POSIX only; on Windows, and anywhere a copy minutes old is
+fine, a database folder is copied with a plain file copy while its
+writer is stopped, and checked with digests. The records and their two
+indexes are the replication example's (replication_records.h). The
+writer changes all three files in one gxdJournal transaction per commit
+and closes the journal (a checkpoint) when it stops, so the files hold
+every commit. The digest prints the records (address and bytes), the
+B-tree's keys in order (the example's own key walk) and the vector
+index's live nodes; it is equal on both folders. A copy that loses its
+indexes makes them again from its own records (rebuild).
+
+  examples\oodb\replication_copy_walkthrough.cmd BUILD\examples\Release BUILD\utils\Release
+
+The walkthrough writes, stops the writer, copies the folder with
+robocopy /MIR (the journal left out) and compares the digests; writes
+more, copies the changed files and compares again; then deletes the
+copy's two indexes, rebuilds them and compares again. vix_rebuild
+--digest checks both vector indexes as well. It exits 0 when every
+check passes; KEEP=1 keeps its work folder. tests/run_tests_win.sh runs
+it, and tests/run_tests.sh runs the same steps on Linux with cp.
+
+  replication_copy write DIR [--commits N] [--per N] [--seed N]
+  replication_copy digest DIR
+  replication_copy rebuild DIR

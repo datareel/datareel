@@ -3,7 +3,7 @@
 // ------------------------------- //
 // ----------------------------------------------------------- //
 // C++ Header File Name: replication_records.h
-// Compiler Used: GCC
+// Compiler Used: GCC, MSVC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/14/2026
 // Date Last Modified: 11/14/2026
@@ -27,7 +27,8 @@ License along with this library. If not, see
 <https://www.gnu.org/licenses/>.
 
 The replication example's records and their derived indexes
-(examples/oodb/replication.cpp): one record type, two indexes made from
+(examples/oodb/replication.cpp, and replication_copy.cpp, the folder
+copy example that also builds on Windows): one record type, two indexes made from
 it, and the "example_records" extractor that keeps both on a copy,
 object by object (gxrextract.h).
 
@@ -49,6 +50,8 @@ itself:
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include <filesystem>
+#include <system_error>
 #include "gxdbase.h"
 #include "gxbtree.h"
 #include "gxvindex.h"
@@ -187,6 +190,15 @@ inline const gxrExtractorOps *extractor()
   return &ops;
 }
 
+// A file renamed over another: rename() on POSIX; on Windows rename()
+// refuses an existing target, std::filesystem::rename replaces it
+inline bool replace_file(const std::string &from, const std::string &to)
+{
+  std::error_code ec;
+  std::filesystem::rename(from, to, ec);
+  return !ec;
+}
+
 // ---------------- The full rebuild (the fallback) ----------------
 // Both indexes made again from every record, in ascending address order,
 // written beside them and renamed over them. "records" and "keys" for
@@ -223,7 +235,7 @@ inline int rebuild(const std::string &dir, unsigned long long &records, unsigned
     vix.Close();
   }
   db.Close();
-  if(rename(tb.c_str(), (dir + "/by_name.btx").c_str()) != 0 || rename(tv.c_str(), (dir + "/vectors.vix").c_str()) != 0) {
+  if(!replace_file(tb, dir + "/by_name.btx") || !replace_file(tv, dir + "/vectors.vix")) {
     why = "cannot rename the rebuilt indexes"; return -1;
   }
   return 0;

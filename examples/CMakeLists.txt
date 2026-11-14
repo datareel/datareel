@@ -22,6 +22,9 @@ datareel_example(db_infohog        database/infohog/infohog.cpp)
 # fork() and kill(), so it is built on POSIX systems only.
 datareel_example(typed_objects     oodb/typed_objects.cpp)
 datareel_example(day_events        oodb/day_events.cpp)
+# 11/14/2026 (7.4): a database folder copied by a plain file copy and checked with digests, with the index
+# rebuild fallback: the replication example that also builds on Windows (gxrepl is POSIX only)
+datareel_example(replication_copy  oodb/replication_copy.cpp)
 if(NOT WIN32)
   datareel_example(journal_recovery oodb/journal_recovery.cpp)
   # 11/14/2026 (7.4): replication with gxrepl, object by object: the writer / rebuild / digest program, and the

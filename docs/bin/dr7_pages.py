@@ -638,7 +638,8 @@ EXAMPLES = [
   ('oodb/typed_objects.cpp', 'typed_objects', 'A typed class sent over gxStream, stored in a gxDatabase, exported to plain text and imported back.'),
   ('oodb/journal_recovery.cpp', 'journal_recovery', 'gxdJournal transactions: a writer killed mid-transaction, Recover(), a consistency check and Rollback(). POSIX only.'),
   ('oodb/day_events.cpp', 'day_events', 'One database file per YYYY/MM/DD folder and a time-range query across days.'),
-  ('oodb/replication.cpp', 'replication', 'gxrepl, object by object: a copy keeps its own B-tree and vector index, rebuilds a folder by itself after a fault, and matches the primary.'),
+  ('oodb/replication.cpp', 'replication', 'gxrepl, object by object: a copy keeps its own B-tree and vector index, rebuilds a folder by itself after a fault, and matches the primary. Linux and POSIX only.'),
+  ('oodb/replication_copy.cpp', 'replication_copy', 'The Windows replication example: a database folder copied with robocopy while its writer is stopped, checked with digests, and the copy\'s indexes rebuilt from its records after a fault. Windows and Linux.'),
  ]),
  ('TLS networking', [
   ('tls/tls_echo_server.cpp', 'tls_echo_server', 'TLS server using gxsTLSServer and a ThreadPool. Usage: tls_echo_server port cert.pem key.pem'),
@@ -770,6 +771,7 @@ The query matches the events written
 <LI>When the copy cannot be sure of an index (a damaged stamp, a gap in the log, an extractor error), gxrepl says "rebuild needed", rebuilds that one folder in full on its own (<CODE>replication rebuild</CODE>, the set's <CODE>derived_rebuild</CODE>), and goes back to object by object. A full rebuild on every change is still a set's own choice: <CODE>derived_apply = rebuild</CODE>.</LI>
 <LI><CODE>replication digest</CODE> prints what each index holds, whatever its layout: the B-tree's keys in order and the vector index's live nodes. The primary and the copy print the same.</LI>
 </OL>
+<P>gxrepl, and so this example, runs on Linux and other POSIX systems only. On Windows, a database folder is copied by a plain file copy while its writer is stopped: see the <A HREF="replication_copy.htm">folder copy example</A>.</P>
 '''),
   ('Running', 'Running It', '<P>The walkthrough runs it all on throwaway folders of this machine (127.0.0.1), with throwaway certificates made by the openssl command (POSIX only):</P>\n' + code('''
 examples/oodb/replication_walkthrough.sh BUILD/examples
@@ -794,6 +796,22 @@ OK: object by object, one automatic folder rebuild after the fault, and the same
 ''') + '<P>(The numbers differ from run to run; the two digests always agree.)</P>\n'),
   ('Files', 'Files', '''
 <P>examples/oodb/replication.cpp (the writer, the rebuild and the digest), replication_records.h (the record, the key and the extractor), replication_gxrepl.cpp (the example's gxrepl: gxrepl's own source built with GXREPL_EXTRA_EXTRACTORS, plus this file registering the extractor) and replication_walkthrough.sh, built by examples/CMakeLists.txt and run by tests/run_tests.sh. Back to the <A HREF="examples.htm">example programs</A>.</P>
+'''),
+ ]),
+ 'replication_copy': ('oodb/replication_copy.cpp', 'Folder Copy Example (Windows Replication)',
+  'A database folder copied by a plain file copy while its writer is stopped, checked with digests, with the index rebuild as the fallback. The replication example for Windows.', [
+  ('Shows', 'What It Shows', '''
+<P>Live replication with gxrepl (the <A HREF="replication.htm">replication example</A>) runs on Linux and other POSIX systems only. On Windows, and anywhere a copy minutes old is fine, a database folder is copied with the usual file copy tool while its writer is stopped (<A HREF="../replication_admin_guide.html">the administrator's guide</A>, "When a plain file copy is enough"):</P>
+<OL>
+<LI>The writer (<CODE>replication_copy write</CODE>) adds, changes and removes the replication example's records (replication_records.h) and keeps their two indexes, a <A HREF="../classes/database/gxbtree.htm">B-tree</A> of names and a vector index, in one <A HREF="../classes/database/gxdjrnl.htm">gxdJournal</A> transaction per commit. When it stops it closes the journal (a checkpoint), so the three files hold every commit.</LI>
+<LI>robocopy copies the folder, leaving the journal out.</LI>
+<LI><CODE>replication_copy digest</CODE> prints what the folder holds, whatever the files' layout: the records (address and bytes, in address order), the B-tree's keys in order (the example's own key walk) and the vector index's live nodes. The primary and the copy print the same. <CODE>vix_rebuild --digest</CODE> checks both vector indexes as well.</LI>
+<LI>A copy that loses or damages its indexes does not need them from the primary: <CODE>replication_copy rebuild</CODE> makes both again from the copy's own records, and the digests agree again.</LI>
+</OL>
+'''),
+  ('Running', 'Running It', '<P>On Windows, from the build folder of a Visual Studio build:</P>\n' + code('''
+examples\\oodb\\replication_copy_walkthrough.cmd BUILD\\examples\\Release BUILD\\utils\\Release
+''') + '''<P>It (1) writes, stops the writer, copies the folder and compares the digests; (2) writes more, copies the changed files and compares again; (3) deletes the copy's two indexes, shows that the digest of the copy now fails, rebuilds them and compares again. It exits with 0 when every check passes; KEEP=1 keeps its work folder. tests/run_tests_win.sh runs it, and tests/run_tests.sh runs the same steps on Linux with cp.</P>
 '''),
  ]),
  'trading_sessions': ('general/trading_sessions.cpp', 'Trading Sessions Example',

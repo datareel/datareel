@@ -41,6 +41,7 @@
 <LI>When the copy cannot be sure of an index (a damaged stamp, a gap in the log, an extractor error), gxrepl says "rebuild needed", rebuilds that one folder in full on its own (<CODE>replication rebuild</CODE>, the set's <CODE>derived_rebuild</CODE>), and goes back to object by object. A full rebuild on every change is still a set's own choice: <CODE>derived_apply = rebuild</CODE>.</LI>
 <LI><CODE>replication digest</CODE> prints what each index holds, whatever its layout: the B-tree's keys in order and the vector index's live nodes. The primary and the copy print the same.</LI>
 </OL>
+<P>gxrepl, and so this example, runs on Linux and other POSIX systems only. On Windows, a database folder is copied by a plain file copy while its writer is stopped: see the <A HREF="replication_copy.htm">folder copy example</A>.</P>
 
 <h2 id="Running">Running It</h2>
 <P>The walkthrough runs it all on throwaway folders of this machine (127.0.0.1), with throwaway certificates made by the openssl command (POSIX only):</P>

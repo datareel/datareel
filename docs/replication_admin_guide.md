@@ -9,6 +9,10 @@ loopback address. Never try the commands here for the first time on production n
 throwaway setup first. **Test status:** each command block is marked **(tested)** or **(test pending)**. A
 pending block has not yet been run on a throwaway setup for this guide. Treat it as a description until it is.
 
+**Platforms.** gxrepl, live replication, runs on Linux and other POSIX systems only; it is not built on Windows,
+and the Windows build of the library has no ship log. On Windows, copy a database folder the way section 8
+describes, with robocopy, as the Windows example `examples/oodb/replication_copy_walkthrough.cmd` does.
+
 ## 1. What gxrepl replicates
 
 - **Committed database pages.** A program writing through a `gxdJournal` with the ship log on
@@ -315,7 +319,30 @@ ssh copy-host gxrepl digest /tmp/repl_demo/copy/db/data.gxd --kind objects
 ```
 
 Exclude the journal (`*.jnl`) and lock files if the writer may have left them, and copy the indexes with the data
-or rebuild them on the copy. If the writer cannot stop, if the database changes all day, or if the copy must be
+or rebuild them on the copy.
+
+**On Windows** (no gxrepl there), the same with robocopy, and the digests of the example program
+`replication_copy` (its own records; your application needs its own digest, the way `replication_copy.cpp`
+makes one: the records in address order, the B-tree's keys in order, `gxVectorIndex::LogicalDigest()`):
+
+(test pending)
+
+```
+rem with the writer stopped
+robocopy C:\repl_demo\primary C:\repl_demo\copy /MIR /XF *.jnl /R:0 /L    &rem dry run first
+robocopy C:\repl_demo\primary C:\repl_demo\copy /MIR /XF *.jnl /R:0
+rem robocopy exit codes 0 to 7 are success, 8 and up a failure
+replication_copy digest C:\repl_demo\primary > primary.digest
+replication_copy digest C:\repl_demo\copy > copy.digest
+fc /b primary.digest copy.digest
+vix_rebuild --digest C:\repl_demo\copy\vectors.vix
+```
+
+robocopy cannot copy a file another program holds open, which is one more reason to stop the writer first. A
+copy that lost its indexes rebuilds them from its own data (`replication_copy rebuild`); the digests then agree
+again.
+
+If the writer cannot stop, if the database changes all day, or if the copy must be
 seconds behind and always one whole commit, use gxrepl.
 
 ## 9. Test status of this guide

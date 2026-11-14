@@ -1,0 +1,3 @@
+# Windows command scripts keep CRLF line endings (cmd.exe labels and goto need them)
+*.cmd text eol=crlf
+*.bat text eol=crlf

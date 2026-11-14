@@ -21,6 +21,7 @@
 <h1>DataReel Replication Administrator's Guide (gxrepl)</h1>
 <p>This guide is for the person who runs database replication on two nodes: setting it up, watching it, taking over when the primary fails, and getting back. It covers gxrepl as shipped in DataReel 7.4 beta 2. The design and every config key are in <code>utils/gxrepl/README.md</code>, <code>include/gxrepl.h</code> and <code>RELEASE_NOTES_7.4.txt</code>.</p>
 <p>Every example uses throwaway folders under <code>/tmp/repl_demo</code>, two node names (<code>primary</code> and <code>copy</code>) and the loopback address. Never try the commands here for the first time on production nodes: run them on a local throwaway setup first. <strong>Test status:</strong> each command block is marked <strong>(tested)</strong> or <strong>(test pending)</strong>. A pending block has not yet been run on a throwaway setup for this guide. Treat it as a description until it is.</p>
+<p><strong>Platforms.</strong> gxrepl, live replication, runs on Linux and other POSIX systems only; it is not built on Windows, and the Windows build of the library has no ship log. On Windows, copy a database folder the way section 8 describes, with robocopy, as the Windows example <code>examples/oodb/replication_copy_walkthrough.cmd</code> does.</p>
 <h2 id="1WhatGxreplReplicates">1. What gxrepl replicates</h2>
 <ul>
 <li><strong>Committed database pages.</strong> A program writing through a <code>gxdJournal</code> with the ship log on (<code>EnableShipLog(set_root)</code>) appends each commit's pages to <code>&lt;root&gt;/.gxrepl/log/&lt;stream&gt;/</code>. gxrepl sends those records to the copy over a mutual-TLS gxStream connection (TCP 2073), and the copy applies them through its own journal (<code>&lt;root&gt;/.gxrepl/apply.jnl</code>). The copy is always one whole commit, even after a crash in the middle of an apply.</li>
@@ -208,7 +209,19 @@ rsync -a --delete    /tmp/repl_demo/primary/db/ copy-host:/tmp/repl_demo/copy/db
 # verify: the same digests on both sides
 gxrepl digest /tmp/repl_demo/primary/db/data.gxd --kind objects
 ssh copy-host gxrepl digest /tmp/repl_demo/copy/db/data.gxd --kind objects</pre>
-<p>Exclude the journal (<code>*.jnl</code>) and lock files if the writer may have left them, and copy the indexes with the data or rebuild them on the copy. If the writer cannot stop, if the database changes all day, or if the copy must be seconds behind and always one whole commit, use gxrepl.</p>
+<p>Exclude the journal (<code>*.jnl</code>) and lock files if the writer may have left them, and copy the indexes with the data or rebuild them on the copy.</p>
+<p><strong>On Windows</strong> (no gxrepl there), the same with robocopy, and the digests of the example program <code>replication_copy</code> (its own records; your application needs its own digest, the way <code>replication_copy.cpp</code> makes one: the records in address order, the B-tree's keys in order, <code>gxVectorIndex::LogicalDigest()</code>):</p>
+<p>(test pending)</p>
+<pre>rem with the writer stopped
+robocopy C:\repl_demo\primary C:\repl_demo\copy /MIR /XF *.jnl /R:0 /L    &amp;rem dry run first
+robocopy C:\repl_demo\primary C:\repl_demo\copy /MIR /XF *.jnl /R:0
+rem robocopy exit codes 0 to 7 are success, 8 and up a failure
+replication_copy digest C:\repl_demo\primary &gt; primary.digest
+replication_copy digest C:\repl_demo\copy &gt; copy.digest
+fc /b primary.digest copy.digest
+vix_rebuild --digest C:\repl_demo\copy\vectors.vix</pre>
+<p>robocopy cannot copy a file another program holds open, which is one more reason to stop the writer first. A copy that lost its indexes rebuilds them from its own data (<code>replication_copy rebuild</code>); the digests then agree again.</p>
+<p>If the writer cannot stop, if the database changes all day, or if the copy must be seconds behind and always one whole commit, use gxrepl.</p>
 <h2 id="9TestStatusOfThisGuide">9. Test status of this guide</h2>
 <p>The commands above were written against DataReel 7.4 beta 2 (gxrepl 4f8a1b7) and match its usage text and the gxrepl test suite. They are still to be run, in order, on a throwaway local setup (two folders on one machine, the loopback address), with each block marked tested and any correction made. Until then, every block marked "(test pending)" is a description, not a recipe.</p>
 </main>

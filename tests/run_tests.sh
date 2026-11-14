@@ -91,6 +91,15 @@ mkdir -p "$WORK/run_typed_objects" && cd "$WORK/run_typed_objects" &&
 # 11/14/2026 (7.4): replication with gxrepl, object by object, a simulated fault and the automatic folder rebuild
 mkdir -p "$WORK/run_replication" && cd "$WORK/run_replication" &&
   check replication_walkthrough "$SRC/examples/oodb/replication_walkthrough.sh" "$E" "$WORK/run_replication/w"
+# 11/14/2026 (7.4): the folder copy example (replication_copy_walkthrough.cmd on Windows), the same steps with cp
+mkdir -p "$WORK/run_replication_copy" && cd "$WORK/run_replication_copy" &&
+  check replication_copy sh -c "set -e; mkdir -p p c; R='$E/replication_copy'
+    \$R write p --commits 200 --per 8 > /dev/null; cp -a p/data.gxd p/by_name.btx p/vectors.vix c/
+    \$R digest p > p.d; \$R digest c > c.d; cmp p.d c.d
+    \$R write p --commits 100 --per 8 --seed 7 > /dev/null; cp -a p/data.gxd p/by_name.btx p/vectors.vix c/
+    \$R digest p > p.d; \$R digest c > c.d; cmp p.d c.d
+    rm c/by_name.btx c/vectors.vix; if \$R digest c > /dev/null; then exit 1; fi; \$R rebuild c > /dev/null
+    \$R digest c > c.d; cmp p.d c.d"
 mkdir -p "$WORK/run_journal_recovery" && cd "$WORK/run_journal_recovery" &&
   check journal_recovery $E/journal_recovery 5
 # Sample programs from the AI guides (docs/ai/samples); run twice to
