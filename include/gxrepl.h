@@ -381,6 +381,11 @@ public:
 
   int Streams(const std::string &set, std::vector<gxReplStream> &v,
 	      std::string &err) override;
+  // 11/14/2026 (review F1): ReadLog() of the log "log_id" only: status 1 when the stream's log is now another one
+  // (made again: its records never continue a position on the old log)
+  int ReadLogOf(const std::string &set, const std::string &stream, const std::string &log_id,
+		unsigned long long from, size_t max_bytes, std::vector<unsigned char> &out,
+		unsigned long long &next, int &status, std::string &err);
   int ReadLog(const std::string &set, const std::string &stream,
 	      unsigned long long from, size_t max_bytes,
 	      std::vector<unsigned char> &out, unsigned long long &next,
