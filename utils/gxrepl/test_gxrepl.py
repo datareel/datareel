@@ -2566,7 +2566,7 @@ def test_version_names_the_build():
     import re as _re
     r = run([os.path.join(BIN, "gxrepl"), "version"])
     assert r.returncode == 0, r.stdout
-    m = _re.match(r"gxrepl \(DataReel [\d.]+\), protocol 3, default port 2073, zlib (yes|no), "
+    m = _re.match(r"gxrepl \(DataReel [\d.]+( (alpha|beta)\d*)?\), protocol 3, default port 2073, zlib (yes|no), "
                   r"git ([0-9a-f]{7,40}(\+dirty)?|unknown), built (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC|unknown)"
                   r"(, test hooks)?$",
                   r.stdout.strip())
