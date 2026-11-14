@@ -48,6 +48,7 @@ extern const char *gxrepl_build_time();
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include <chrono>
 #include <string>
 #include <vector>
 #include <openssl/pem.h>
@@ -79,6 +80,8 @@ static int usage()
 	  "       gxrepl promote --config FILE [--set NAME] [--apply]   (before a take over)\n"
 	  "       gxrepl serve --accept-both ... / once --pull-all ...   (failback: automate/gxrepl.sh failback)\n"
 	  "       gxrepl fingerprint CERT.pem\n"
+	  "       gxrepl digest FILE [--kind btree|bytes|objects]\n"
+	  "       gxrepl derived status|rebuild --config FILE [--set NAME] [--folder REL]\n"
 	  "       gxrepl shiplog STREAM_DIR [--from LSN]\n"
 	  "       gxrepl version\n");
   return 64;
@@ -180,13 +183,26 @@ static int shiplog(const std::string &dir, unsigned long long from)
       struct tm tmv; localtime_r(&t, &tmv);
       char tb[32]; strftime(tb, sizeof(tb), "%Y-%m-%d %H:%M:%S", &tmv);
       const char *ty = r.type == gxdShipCommit ? "commit" : r.type == gxdShipCommitZ ? "commit(z)" :
-	r.type == gxdShipOpen ? "open" : r.type == gxdShipGap ? "gap" : "?";
+	r.type == gxdShipOpen ? "open" : r.type == gxdShipGap ? "gap" : r.type == gxdShipObjects ? "objects" : "?";
       printf("%llu %s.%06llu %s %u bytes", r.lsn, tb, r.time_us % 1000000, ty, r.len);
       if(r.type == gxdShipCommit || r.type == gxdShipCommitZ) {
 	std::vector<gxdShipCommitFile> files;
 	std::vector<unsigned char> storage;
 	if(gxdParseShipCommitRecord(r, storage, files) == 0) {
 	  for(auto &f : files) printf("  %s %zu page(s) size %llu", f.name.c_str(), f.pages.size(), f.size);
+	}
+	else printf("  (damaged)");
+      }
+      if(r.type == gxdShipObjects) {     // 11/14/2026
+	gxdShipObjectsRecord o;
+	if(gxdParseShipObjectsRecord(r, o) == 0) {
+	  printf("%s", o.complete ? "" : "  (incomplete)");
+	  for(auto &f : o.files) {
+	    unsigned a = 0, u = 0, d = 0;
+	    for(auto &ob : f.objects) { if(ob.op == gxdObjectAdd) a++; else if(ob.op == gxdObjectUpdate) u++; else d++; }
+	    if(f.complete) printf("  %s %u add %u update %u remove", f.name.c_str(), a, u, d);
+	    else printf("  %s incomplete", f.name.c_str());
+	  }
 	}
 	else printf("  (damaged)");
       }
@@ -197,8 +213,15 @@ static int shiplog(const std::string &dir, unsigned long long from)
   return 0;
 }
 
+#if defined(GXREPL_TEST_EXTRACTOR)
+const gxrExtractorOps *gxrepl_test_extractor_ops();   // 11/14/2026: gxrepl_testextractor.cpp (test builds)
+#endif
+
 int main(int argc, char **argv)
 {
+#if defined(GXREPL_TEST_EXTRACTOR)
+  datareel::gxrRegisterExtractor("gxrepl_test", gxrepl_test_extractor_ops());
+#endif
   if(argc < 2) return usage();
   std::string cmd = argv[1];
   if(cmd == "version") {
@@ -209,6 +232,47 @@ int main(int argc, char **argv)
     return 0;
   }
   if(cmd == "fingerprint") return argc == 3 ? fingerprint(argv[2]) : usage();
+  // 11/14/2026: gxrepl digest FILE [--kind btree|bytes|objects]
+  if(cmd == "digest") {
+    if(argc != 3 && !(argc == 5 && std::string(argv[3]) == "--kind")) return usage();
+    uint64_t h = 0, n = 0;
+    std::string err;
+    if(datareel::gxReplDigest(argv[2], argc == 5 ? argv[4] : "", h, n, err) != 0) { fprintf(stderr, "gxrepl: %s\n", err.c_str()); return 2; }
+    printf("%016llx %llu %s\n", (unsigned long long)h, (unsigned long long)n, argv[2]);
+    return 0;
+  }
+  // 11/14/2026: gxrepl derived status|rebuild --config FILE [--set NAME] [--folder REL]
+  if(cmd == "derived") {
+    if(argc < 3) return usage();
+    std::string sub = argv[2], conf, set, folder;
+    for(int i = 3; i < argc; i++) {
+      std::string a = argv[i];
+      if(a == "--config" && i + 1 < argc) conf = argv[++i];
+      else if(a == "--set" && i + 1 < argc) set = argv[++i];
+      else if(a == "--folder" && i + 1 < argc) folder = argv[++i];
+      else return usage();
+    }
+    if(conf.empty() || (sub != "status" && sub != "rebuild")) return usage();
+    datareel::gxReplConfig cfg;
+    std::string err;
+    if(cfg.Load(conf, err) != 0) { fprintf(stderr, "gxrepl: %s\n", err.c_str()); return 2; }
+    if(sub == "rebuild" && set.empty()) { fprintf(stderr, "gxrepl: derived rebuild needs --set\n"); return 2; }
+    int rc = 0, found = 0;
+    for(auto &sc : cfg.sets) {
+      if(!set.empty() && sc.name != set) continue;
+      found = 1;
+      if(sub == "status") {
+	std::vector<std::string> lines;
+	datareel::gxReplDerivedStatus(sc, lines);
+	for(auto &l : lines) printf("%s\n", l.c_str());
+      }
+      else if(datareel::gxReplDerivedReset(sc, folder, err) != 0) { fprintf(stderr, "gxrepl: %s\n", err.c_str()); rc = 1; }
+      else printf("set %s: %s: the breaker, stamps and derived state cleared: the derived pass rebuilds\n", sc.name.c_str(),
+		  folder.empty() ? "every folder" : folder.c_str());
+    }
+    if(!found) { fprintf(stderr, "gxrepl: no set %s in %s\n", set.c_str(), conf.c_str()); return 2; }
+    return rc;
+  }
   if(cmd == "shiplog") {
     if(argc < 3) return usage();
     unsigned long long from = 0;
@@ -291,7 +355,15 @@ int main(int argc, char **argv)
       if(s.commit_block.empty()) continue;
       any = 1;
       std::vector<std::string> torn, warn, own;
-      int n = datareel::gxReplTornCopies(s, torn, warn);
+      datareel::gxReplTornLockStats ls;
+      auto t0 = std::chrono::steady_clock::now();
+      int n = datareel::gxReplTornCopies(s, torn, warn, ls);
+      // 11/14/2026: GXREPL_TORN_LOCK_STATS=1: how long the apply lock was held, to stderr (the output is unchanged)
+      if(const char *e = getenv("GXREPL_TORN_LOCK_STATS")) if(*e && strcmp(e, "0") != 0)
+	fprintf(stderr, "gxrepl: torn lock stats: set %s: %ld lock(s), longest hold %.3f ms, total hold %.3f ms, "
+		"waited %.3f ms, %ld unit(s) unlocked%s, check %.1f ms\n", s.name.c_str(), ls.acquisitions,
+		ls.max_hold_ms, ls.total_hold_ms, ls.waited_ms, ls.unlocked_units, ls.fell_back ? " (fell back)" : "",
+		std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
       // 11/11/2026: --copied-only (after a failback pull): judge only folders gxrepl copied (they have a seal);
       // a folder this node made itself and gxrepl never touched is its own data, not a copy
       if(copied_only) {
@@ -308,7 +380,8 @@ int main(int argc, char **argv)
       }
       printf("set %s: %d folder(s) checked, %zu torn\n", s.name.c_str(), n, torn.size());
       for(auto &x : torn) printf("  TORN %s\n", x.c_str());
-      for(auto &x : warn) printf("  %s %s\n", x.find("is staged since") != std::string::npos ? "STAGED" : "INDEXES", x.c_str());   // 11/11/2026: a warning, not torn (11/12: STAGED, F7)
+      for(auto &x : warn) printf("  %s %s\n", x.find("is staged since") != std::string::npos ? "STAGED" :
+				 x.find("without the apply lock") != std::string::npos ? "WARNING" : "INDEXES", x.c_str());   // 11/14: WARNING   // 11/11/2026: a warning, not torn (11/12: STAGED, F7)
       for(auto &x : own) printf("  OWN %s (never copied by gxrepl: this node's own data)\n", x.c_str());
       if(!torn.empty()) bad = 1;
     }

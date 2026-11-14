@@ -27,6 +27,7 @@
 #include "gxdjrnl.h"
 #include "gxuint64.h" // gxUINT64; the 32-bit database headers do not include it
 #include "gxrepl.h"   // 11/08/2026: the raw commands
+#include "gxdstamp.h" // 11/14/2026: stamp / readstamp
 
 // 11/08/2026: gxrepl_testwriter rawapply|rawdiff CONF SET PATH
 // Connects with the client config CONF and asks the server, as a client
@@ -286,6 +287,12 @@ static int raw(const std::string &mode, const char *conf, const char *set, const
 
 using namespace datareel;
 
+namespace datareel {
+struct gxdShipLogTest {   // 11/14/2026: gxdShipLog's friend (gxdrepl.h): a writer crash between a pair
+  static void Split(gxdShipLog *l, int how) { l->test_split_pair = how; }
+};
+}
+
 struct ObjHdr {
   gxUINT64 id;
   gxUINT64 version;
@@ -392,8 +399,10 @@ static int reindex(const std::string &root)
   uint64_t g = 0; memcpy(&g, blk + 8, 8);
   FILE *sf = fopen((root + "/.derived.stamp.tmp").c_str(), "w");
   if(!sf) { printf("reindex: cannot stamp\n"); return 1; }
-  fprintf(sf, "gen %llu lsn %llu records %llu keys %llu\n", (unsigned long long)g, stamp_lsn,
-	  (unsigned long long)io.count, (unsigned long long)io.count);
+  // 11/14/2026: GXREPL_TEST_STAMP_TAIL: the rebuild's own fields after "keys K" (OSA writes keys_version N)
+  const char *tail = getenv("GXREPL_TEST_STAMP_TAIL");
+  fprintf(sf, "gen %llu lsn %llu records %llu keys %llu%s\n", (unsigned long long)g, stamp_lsn,
+	  (unsigned long long)io.count, (unsigned long long)io.count, tail ? tail : "");
   fflush(sf); fsync(fileno(sf)); fclose(sf);
   if(rename((root + "/.derived.stamp.tmp").c_str(), (root + "/derived.stamp").c_str()) != 0) return 1;
   return 0;
@@ -739,6 +748,35 @@ int main(int argc, char **argv)
   if(mode == "vlocal" && argc >= 5) return vsearch(argc, argv, true);
   if(mode == "vinfo" && argc == 4) return vinfo_bad(argv[2], argv[3], false);
   if(mode == "vbad" && argc == 4) return vinfo_bad(argv[2], argv[3], true);
+  // 11/14/2026: stamp PATH LOGID LSN: a fresh <index>.stamp; readstamp PATH: print it
+  if(mode == "stamp" && argc == 5) {
+    datareel::gxdStampData d;
+    d.log_id = argv[3]; d.lsn = strtoull(argv[4], 0, 10); d.digest_kind = datareel::gxdStampDigestBytes;
+    return datareel::gxdDerivedStamp::WriteFresh(argv[2], d) == 0 ? 0 : 1;
+  }
+  if(mode == "readstamp" && argc == 3) {
+    datareel::gxdStampData d;
+    int rc = datareel::gxdDerivedStamp::ReadFile(argv[2], d);
+    if(rc == 0) printf("stamp log %s lsn %llu\n", d.log_id.c_str(), d.lsn);
+    else printf("stamp %s\n", rc == 1 ? "none" : "damaged");
+    return rc == 0 ? 0 : 1;
+  }
+  // 11/14/2026: lookup DIR APPLY_JNL: a reader of a copy (the stress test's searches): under the copy's apply
+  // read lock, "<generation> <index count> <index sum>" (or "busy")
+  if(mode == "lookup" && argc == 4) {
+    gxdJournalReadLock rl;
+    if(rl.Lock(argv[3]) != gxDBASE_NO_ERROR) { printf("busy\n"); return 1; }
+    uint64_t g = ~0ULL;
+    int fd = open((root + "/commit.bin").c_str(), O_RDONLY);
+    if(fd >= 0) { if(pread(fd, &g, 8, 8) != 8) g = ~0ULL; close(fd); }
+    gxDatabase ix;
+    if(ix.Open((root + "/index.gxd").c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { printf("noindex\n"); return 1; }
+    FAU_t ia = ix.FindFirstObject();
+    IndexObj io;
+    if(ia == (FAU_t)0 || ix.Read(&io, sizeof(io), ia) != gxDBASE_NO_ERROR) { printf("noindex\n"); return 1; }
+    printf("%llu %llu %llu\n", (unsigned long long)g, (unsigned long long)io.count, (unsigned long long)io.sum);
+    return 0;
+  }
   if(mode == "check") return check(root);
   if(mode == "hashes") return hashes(root);
   if(mode == "reindex") { if(argc > 3) stamp_lsn = strtoull(argv[3], 0, 10); return reindex(root); }
@@ -747,6 +785,7 @@ int main(int argc, char **argv)
   int keep_days = -1;
   bool ship = true;
   std::string ship_root = root;   // 11/10/2026: --ship-root SET: the day folder layout (ROOT inside SET)
+  std::string stream_name;        // 11/14/2026: --stream NAME: one stream feeds several folders (seal per folder)
   // 11/10/2026: --commit-block: keep ROOT/commit.bin, a seqlock commit block like OSA's (u32 magic, u32
   // version, u64 generation at 8: odd while a commit writes the files, u64 commits at 16), written in
   // place (pwrite). --big N: the first commit adds one object of N bytes. --latency-out FILE: the
@@ -757,6 +796,14 @@ int main(int argc, char **argv)
   bool old_ship_format = false;    // 11/10/2026: no commit block in the records
   std::string latency_out;
   std::string gen_log;            // 11/10/2026: after each commit "<generation> <data hash> <index hash>"
+  std::string answers_log;        // 11/14/2026: after each commit "<generation> <index count> <index sum>"
+  long split_at = -1; int split_how = 0;   // 11/14/2026
+  unsigned long size_max = 12000;          // 11/14/2026: --size-max: a new object's payload is size_min .. + this bytes
+  unsigned long size_min = 20;             // 11/14/2026: --size-min
+  // 11/14/2026 (stress): --burst-at K --burst-per N [--burst-split M]: from commit K, N objects in commits of at
+  // most M (one commit when M is 0); --wait-at K --wait-file F: before commit K, wait until F exists
+  long burst_at = -1, burst_per = 0, burst_split = 0, wait_at = -1;
+  std::string wait_file;
   for(int i = 3; i < argc; i++) {
     std::string a = argv[i];
     if(a == "--commits" && i + 1 < argc) commits = atol(argv[++i]);
@@ -765,15 +812,28 @@ int main(int argc, char **argv)
     else if(a == "--seed" && i + 1 < argc) rng_state ^= strtoull(argv[++i], 0, 10) * 2654435761ULL;
     else if(a == "--no-ship") ship = false;
     else if(a == "--ship-root" && i + 1 < argc) ship_root = argv[++i];
+    else if(a == "--stream" && i + 1 < argc) stream_name = argv[++i];
     else if(a == "--commit-block") commit_block = true;
     else if(a == "--big" && i + 1 < argc) big = strtoull(argv[++i], 0, 10);
     else if(a == "--old-ship-format") old_ship_format = true;
     else if(a == "--big-zero" && i + 1 < argc) { big = strtoull(argv[++i], 0, 10); big_zero = true; }
     else if(a == "--latency-out" && i + 1 < argc) latency_out = argv[++i];
     else if(a == "--gen-log" && i + 1 < argc) gen_log = argv[++i];
+    else if(a == "--answers-log" && i + 1 < argc) answers_log = argv[++i];
+    else if(a == "--size-max" && i + 1 < argc) { size_max = strtoul(argv[++i], 0, 10); if(size_max == 0) size_max = 1; }
+    else if(a == "--size-min" && i + 1 < argc) size_min = strtoul(argv[++i], 0, 10);
+    else if(a == "--burst-at" && i + 1 < argc) burst_at = atol(argv[++i]);
+    else if(a == "--burst-per" && i + 1 < argc) burst_per = atol(argv[++i]);
+    else if(a == "--burst-split" && i + 1 < argc) burst_split = atol(argv[++i]);
+    else if(a == "--wait-at" && i + 1 < argc) wait_at = atol(argv[++i]);
+    else if(a == "--wait-file" && i + 1 < argc) wait_file = argv[++i];
     else if(a == "--segment" && i + 1 < argc) seg_bytes = strtoull(argv[++i], 0, 10);
     else if(a == "--keep-days" && i + 1 < argc) keep_days = atoi(argv[++i]);
     else if(a == "--max-bytes" && i + 1 < argc) max_bytes = strtoull(argv[++i], 0, 10);
+    // 11/14/2026: commit K (from 0) writes only its objects record: --split-pair-at goes on (a gap follows),
+    // --split-crash-at ends the writer there (its pages never reach the files)
+    else if(a == "--split-pair-at" && i + 1 < argc) { split_at = atol(argv[++i]); split_how = 1; }
+    else if(a == "--split-crash-at" && i + 1 < argc) { split_at = atol(argv[++i]); split_how = 2; }
     else { fprintf(stderr, "unknown option %s\n", a.c_str()); return 64; }
   }
   std::string dn = root + "/data.gxd", in = root + "/index.gxd", jn = root + "/writer.jnl";
@@ -792,7 +852,7 @@ int main(int argc, char **argv)
   if(j.Attach(&db) != gxDBASE_NO_ERROR || j.Attach(&ix) != gxDBASE_NO_ERROR) {
     fprintf(stderr, "attach failed\n"); return 1;
   }
-  if(ship && j.EnableShipLog(ship_root.c_str()) != gxDBASE_NO_ERROR) {
+  if(ship && j.EnableShipLog(ship_root.c_str(), stream_name.empty() ? 0 : stream_name.c_str()) != gxDBASE_NO_ERROR) {
     fprintf(stderr, "EnableShipLog failed\n"); return 1;
   }
   if(ship && j.ShipLog()) {
@@ -835,7 +895,14 @@ int main(int argc, char **argv)
   double worst_ms = 0;
   long timed = 0;
   std::vector<unsigned char> buf;
+  long burst_left = burst_per;
   for(long c = 0; c < commits; c++) {
+    if(c == wait_at && !wait_file.empty()) while(access(wait_file.c_str(), F_OK) != 0) usleep(100000);
+    long per_now = per;
+    if(burst_at >= 0 && c >= burst_at && burst_left > 0) {
+      per_now = burst_split > 0 && burst_split < burst_left ? burst_split : burst_left;
+      burst_left -= per_now;
+    }
     struct timespec t0, t1;
     clock_gettime(CLOCK_MONOTONIC, &t0);
     cb_write(++gen, false);                      // odd: the files are changing
@@ -857,7 +924,7 @@ int main(int argc, char **argv)
       io.count++;
       io.sum += (unsigned long long)h.id * 1000003ULL + h.version;
     }
-    for(long k = 0; k < per; k++) {
+    for(long k = 0; k < per_now; k++) {
       ObjHdr h;
       memset(&h, 0, sizeof(h));
       unsigned long long r = rnd() % 10;
@@ -865,7 +932,7 @@ int main(int argc, char **argv)
 	// A new object, 20 bytes to 12 KB
 	h.id = io.next_id++;
 	h.version = 1;
-	h.len = (gxUINT32)(20 + rnd() % 12000);
+	h.len = (gxUINT32)(size_min + rnd() % size_max);
 	buf.resize(sizeof(h) + h.len);
 	for(gxUINT32 i = 0; i < h.len; i++) buf[sizeof(h) + i] = (unsigned char)rnd();
 	h.check = obj_check(h, buf.data() + sizeof(h));
@@ -914,8 +981,13 @@ int main(int argc, char **argv)
       memcpy(nb + 8, &g2, 8); memcpy(nb + 16, &c2, 8);
       j.ShipLog()->SetCommitBlock(root + "/commit.bin", nb, sizeof(nb));
     }
+    if(c == split_at && j.ShipLog()) gxdShipLogTest::Split(j.ShipLog(), split_how);
     if(j.Commit() != gxDBASE_NO_ERROR) { fprintf(stderr, "commit failed\n"); return 1; }
     cb_write(++gen, true);                       // even: the files are this commit
+    if(!answers_log.empty()) {
+      FILE *al = fopen(answers_log.c_str(), "a");
+      if(al) { fprintf(al, "%llu %llu %llu\n", (unsigned long long)gen, (unsigned long long)io.count, (unsigned long long)io.sum); fclose(al); }
+    }
     if(!gen_log.empty()) {
       FILE *gl = fopen(gen_log.c_str(), "a");
       if(gl) {

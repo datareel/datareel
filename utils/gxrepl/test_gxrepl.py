@@ -99,11 +99,13 @@ class Env:
             f.write("\n".join(c) + "\n")
         self.server = None
         self.client = None
+        self.server_bin = os.path.join(BIN, "gxrepl")   # 11/14/2026: another build's gxrepl (mixed versions)
+        self.client_bin = os.path.join(BIN, "gxrepl")
 
     def start_server(self, extra_env=None, args=()):
         self.srv_log = open(os.path.join(self.dir, "server.log"), "a")
         e = dict(os.environ, **extra_env) if extra_env else None
-        self.server = subprocess.Popen([os.path.join(BIN, "gxrepl"), "serve", "--config", self.srv_conf, *args],
+        self.server = subprocess.Popen([self.server_bin, "serve", "--config", self.srv_conf, *args],
                                        stdout=self.srv_log, stderr=subprocess.STDOUT, env=e)
         for _ in range(100):
             try:
@@ -116,7 +118,7 @@ class Env:
     def start_client(self, extra_env=None):
         self.cli_log = open(os.path.join(self.dir, "client.log"), "a")
         e = dict(os.environ, **extra_env) if extra_env else None
-        self.client = subprocess.Popen([os.path.join(BIN, "gxrepl"), "run", "--config", self.cli_conf],
+        self.client = subprocess.Popen([self.client_bin, "run", "--config", self.cli_conf],
                                        stdout=self.cli_log, stderr=subprocess.STDOUT, env=e)
 
     def once(self, conf=None, timeout=120):
@@ -879,6 +881,123 @@ def test_derived_vix_rebuilt_on_copy():
         assert _digest(os.path.join(aws, "vectors.vix"))[0] == _digest(os.path.join(ws, "vectors.vix"))[0], env.logs()
         assert torn(env).returncode == 0
     finally:
+        env.stop()
+
+
+def _vix_incr_opts(extra=()):
+    """11/14/2026 (7.4 merge): the derived vectors.vix kept object by object with the built-in gxvmember extractor"""
+    o = _vix_opts()
+    o["server"] = o["server"] + ["derived_apply = incremental", "derived_extractor = gxvmember",
+                                 "derived_extractor_config = member=infohog:1 tags=-,-,infohog:2,-",
+                                 "derived_source = data.gxd", "derived_count = vectors.vix",
+                                 "derived_delay = 0", "derived_busy_rebuild = 2"] + list(extra)
+    return o
+
+
+def _vwrite_bg(ws, *args):
+    e = dict(os.environ, GXDSHIP_OBJECTS="1")
+    return subprocess.Popen([os.path.join(BIN, "gxrepl_testwriter"), "vwrite", ws, *map(str, args)],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=e)
+
+
+def _vix_stamped(env, aws, secs=90):
+    st = os.path.join(aws, "vectors.vix.stamp")
+    end = time.time() + secs
+    while time.time() < end and (not os.path.exists(st) or "INDEXES" in torn(env).stdout):
+        time.sleep(0.3)
+    assert os.path.exists(st), "the rebuilt vectors.vix was never stamped\n" + env.logs()
+
+
+def _vix_settle(env, ws, aws, secs=120):
+    """the copy at the primary's generation and its vectors.vix holding the primary's live nodes"""
+    end = time.time() + secs
+    while time.time() < end:
+        if _gen_or_none(os.path.join(aws, "commit.bin")) == gen_of(os.path.join(ws, "commit.bin")) and \
+           os.path.exists(os.path.join(aws, "vectors.vix")) and "INDEXES" not in torn(env).stdout and \
+           _digest(os.path.join(aws, "vectors.vix"))[0] == _digest(os.path.join(ws, "vectors.vix"))[0]:
+            return
+        time.sleep(0.5)
+    raise AssertionError("the copy's vectors.vix never matched the primary's: " + str(_digest(os.path.join(aws, "vectors.vix"))) +
+                         " " + str(_digest(os.path.join(ws, "vectors.vix"))) + "\n" + env.logs())
+
+
+def test_derived_vix_incremental_gxvmember():
+    """11/14/2026 (7.4 merge): derived_apply = incremental with the built-in gxvmember extractor: after the first
+    rebuild stamps vectors.vix, the copy applies its records' vector members object by object (no more rebuilds)
+    and ends with the primary's live nodes (logical digest) and the same answers as a full rebuild of its own data"""
+    env = Env("vixincr", {"db": _vix_incr_opts()})
+    ws, aws = env.roots["db"]
+    w = _vwrite_bg(ws, "--commits", 150, "--per", 12, "--sleep", 200, "--seed", 5)
+    time.sleep(1.5)
+    env.start_server()
+    env.start_client()
+    try:
+        _vix_stamped(env, aws)
+        r0 = _rebuilds(env)
+        g0 = gen_of(os.path.join(aws, "commit.bin"))
+        assert w.poll() is None, "the writer ended before the index was stamped"
+        assert w.wait(timeout=180) == 0, w.stdout.read()
+        _vix_settle(env, ws, aws)
+        st = open(os.path.join(aws, ".gxrepl", "derived", "_root")).read()
+        assert "ok incremental" in st, st
+        assert gen_of(os.path.join(aws, "commit.bin")) > g0 + 20, "too few commits applied object by object"
+        assert _rebuilds(env) == r0, "a rebuild ran after the stamp: " + env.logs()
+        # the incremental index answers as a full rebuild of the copy's own data would
+        rb = os.path.join(env.dir, "copy_rebuild.vix")
+        r = run([os.path.join(BIN, "vix_rebuild"), "--data", os.path.join(aws, "data.gxd"), "--index", rb, "--member", "infohog:1",
+                 "--tags", "-,-,infohog:2,-", "--dim", "16", "--m", "8", "--efc", "100", "--spec", "vtest"])
+        assert r.returncode == 0, r.stdout
+        assert _digest(rb)[0] == _digest(os.path.join(aws, "vectors.vix"))[0]
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_derived_vix_incremental_kill_in_scratch_and_cap():
+    """11/14/2026 (7.4 merge): gxvmember under a kill -9 while a batch's .vix pages are staged (nothing of the batch
+    on disk: the copy's index equals a rebuild of its own data; after the restart it matches the primary), and the
+    staged cap (derived_apply_max_mb = 0: rebuild needed, then a rebuild matches the primary)"""
+    env = Env("vixscratch", {"db": _vix_incr_opts()})
+    ws, aws = env.roots["db"]
+    w = _vwrite_bg(ws, "--commits", 200, "--per", 12, "--sleep", 200, "--seed", 6)
+    time.sleep(1.5)
+    env.start_server()
+    env.start_client()
+    try:
+        _vix_stamped(env, aws)
+        env.server.terminate(); env.server.wait(10)
+        env.start_server(extra_env={"GXREPL_TEST_CRASH_IN_SCRATCH": "1"})
+        end = time.time() + 60
+        while time.time() < end and env.server.poll() is None:
+            time.sleep(0.2)
+        assert env.server.poll() == 9, "the scratch-phase hook never ran: " + env.logs()
+        rb = os.path.join(env.dir, "copy_rebuild.vix")
+        r = run([os.path.join(BIN, "vix_rebuild"), "--data", os.path.join(aws, "data.gxd"), "--index", rb, "--member", "infohog:1",
+                 "--tags", "-,-,infohog:2,-", "--dim", "16", "--m", "8", "--efc", "100", "--spec", "vtest"])
+        assert r.returncode == 0, r.stdout
+        assert _digest(rb)[0] == _digest(os.path.join(aws, "vectors.vix"))[0], "the batch reached the copy's index"
+        env.start_server()
+        assert w.wait(timeout=240) == 0, w.stdout.read()
+        _vix_settle(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+    # the staged cap
+    env = Env("vixcap", {"db": _vix_incr_opts(["derived_apply_max_mb = 0"])})
+    ws, aws = env.roots["db"]
+    w = _vwrite_bg(ws, "--commits", 80, "--per", 12, "--sleep", 200, "--seed", 7)
+    time.sleep(1.5)
+    env.start_server()
+    env.start_client()
+    try:
+        end = time.time() + 90
+        while time.time() < end and "passed derived_apply_max_mb" not in open(os.path.join(env.dir, "server.log")).read():
+            time.sleep(0.5)
+        assert "passed derived_apply_max_mb" in open(os.path.join(env.dir, "server.log")).read(), env.logs()
+        assert w.wait(timeout=180) == 0, w.stdout.read()
+        _vix_settle(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
         env.stop()
 
 
@@ -2134,7 +2253,7 @@ def test_commit_block_records_without_block_are_torn():
         t = torn(env)
         assert t.returncode == 0, t.stdout
         s = open(seal).read().split()
-        assert s[0] == "log" and len(s) == 4, s
+        assert s[0] == "log" and len(s) == 5, s   # 11/14/2026: "log G L S C" (seal per folder)
         # records without the commit block (the old format)
         assert writer(ws, "--commits", 3, "--commit-block", "--old-ship-format", "--seed", 62).returncode == 0
         wait_status(env, lambda st: st["sets"]["db"]["streams"] and
@@ -2317,14 +2436,12 @@ def _kill_storm(staged):
             env.start_client()
             time.sleep(rng.uniform(0.05, 1.5))
             env.kill("client")
-            if staged:
-                # 11/13/2026: the server may still be swapping in a stage the killed client finished: the verdict
-                # and promote-check are read under a shared lock on apply.jnl (judge_copy, as a locked reader does),
-                # never one before and one after that swap
-                v, tr = judge_copy(env, aws, gl)
-            else:
-                v = copy_verdict(aws, gen_log_map(gl))
-                tr = torn(env)
+            # 11/13/2026: the server may still be swapping in a stage the killed client finished: the verdict
+            # and promote-check are read under a shared lock on apply.jnl (judge_copy, as a locked reader does),
+            # never one before and one after that swap. 11/14/2026: in place too: promote-check now waits for an
+            # apply in flight (its shared lock), so an unlocked verdict read before the killed client's last
+            # request (a MarkGen making the unit odd) and a promote-check after it disagreed ("whole" refused)
+            v, tr = judge_copy(env, aws, gl)
             if v in ("torn", "odd"):
                 if tr.returncode == 1:
                     stats["caught"] += 1
@@ -2334,6 +2451,7 @@ def _kill_storm(staged):
                 stats["whole"] += 1
                 if tr.returncode != 0:
                     stats["refused_whole"] += 1
+                    print(f"      kill {i}: a whole copy refused: {tr.stdout.strip()[:300]!r}", flush=True)
             else:
                 stats["unknown"] += 1
         w.kill(); w.wait()
@@ -2677,6 +2795,106 @@ def test_seal_and_position_never_split():
         print(f"    {checks} promote-checks under a commit every 30 ms: {split} split (seal vs position or commit block), "
               f"{other} other", flush=True)
         assert split == 0, split
+    finally:
+        env.stop()
+
+
+def _seal_and_position(aws):
+    """The root unit's "log G L stream" seal record L and its stream's applied position, or None."""
+    try:
+        s = open(os.path.join(aws, ".gxrepl", "units", "_root")).read().split()
+        if len(s) < 4 or s[0] != "log":
+            return None
+        p = open(os.path.join(aws, ".gxrepl", "state", s[3] + ".state")).read().split()
+        return int(s[2]), int(p[1])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def test_promote_check_reads_under_the_apply_lock():
+    """11/14/2026 (promote-check rc 1 "sealed at ship log record 77, the copy applied up to 76" under heavy load):
+    promote-check read the seal and the applied position unlocked, re-reading a split pair for 10 s; an apply whose
+    position write lagged past that was reported TORN. Now each unit is read under a shared flock on apply.jnl (an
+    apply holds it exclusively): (a) an apply held between its seal and its position (GXREPL_TEST_POSITION_DELAY_MS,
+    4 s, with GXREPL_TORN_RECHECK_SEC=1) is waited for, rc 0; (b) a real split (no apply running) is still TORN,
+    at once; (c) a lock held past GXREPL_TORN_LOCK_WAIT: the check still answers, unlocked, with a WARNING."""
+    import fcntl
+    env = Env("torn_lock", {"db": dict(CB_OPTS)})
+    ws, aws = env.roots["db"]
+    gx = os.path.join(BIN, "gxrepl")
+    assert writer(ws, "--commits", 3, "--commit-block").returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 60)
+        assert writer(ws, "--commits", 2, "--commit-block", "--seed", 41).returncode == 0
+        wait_same(env, "db", 60)
+        env.stop()
+        sp = _seal_and_position(aws)
+        assert sp and sp[0] == sp[1], f"no ship log seal in step: {sp}"
+        t = torn(env)
+        assert t.returncode == 0 and "0 torn" in t.stdout, t.stdout
+        # (a) an apply inside its lock, the seal written, the position 4 s late
+        env.start_server(extra_env={"GXREPL_TEST_POSITION_DELAY_MS": "4000"})
+        env.start_client()
+        assert writer(ws, "--commits", 1, "--commit-block", "--seed", 43).returncode == 0
+        split = None
+        end = time.time() + 60
+        while time.time() < end and not split:
+            sp = _seal_and_position(aws)
+            if sp and sp[0] > sp[1]:
+                split = sp
+            else:
+                time.sleep(0.02)
+        assert split, "the delayed apply was never seen between its seal and its position\n" + env.logs()
+        t0 = time.time()
+        t = run([gx, "torn", "--config", env.srv_conf],
+                env=dict(os.environ, GXREPL_TORN_RECHECK_SEC="1", GXREPL_TORN_LOCK_STATS="1"))
+        el = time.time() - t0
+        print(f"    (a) seal at record {split[0]}, position {split[1]}: torn exit {t.returncode} in {el:.1f} s: "
+              f"{t.stdout.strip()[:300]!r}", flush=True)
+        assert t.returncode == 0 and "0 torn" in t.stdout, t.stdout
+        assert "without the apply lock" not in t.stdout, t.stdout
+        assert "torn lock stats" in t.stdout, t.stdout
+        wait_same(env, "db", 60)
+        env.stop()
+        # (b) a real split, nothing applying: TORN under the lock, no 10 s of re-reads
+        sp = _seal_and_position(aws)
+        assert sp and sp[0] == sp[1], sp
+        stream = open(os.path.join(aws, ".gxrepl", "units", "_root")).read().split()[3]
+        stp = os.path.join(aws, ".gxrepl", "state", stream + ".state")
+        keep = open(stp).read()
+        f = keep.split()
+        with open(stp, "w") as fh:
+            fh.write(" ".join([f[0], str(int(f[1]) - 1)] + f[2:]) + "\n")
+        try:
+            t0 = time.time()
+            t = torn(env)
+            el = time.time() - t0
+            print(f"    (b) a real split: torn exit {t.returncode} in {el:.1f} s", flush=True)
+            assert t.returncode == 1 and "records past the seal" in t.stdout, t.stdout
+            assert el < 5, f"{el:.1f} s: re-read under the lock"
+        finally:
+            with open(stp, "w") as fh:
+                fh.write(keep)
+        # (c) the lock held (as a long derived rebuild does) past GXREPL_TORN_LOCK_WAIT=1: unlocked, said
+        fd = os.open(os.path.join(aws, ".gxrepl", "apply.jnl"), os.O_RDWR)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            t0 = time.time()
+            t = run([gx, "torn", "--config", env.srv_conf],
+                    env=dict(os.environ, GXREPL_TORN_LOCK_WAIT="1", GXREPL_TORN_RECHECK_SEC="1",
+                             GXREPL_TORN_LOCK_STATS="1"), timeout=60)
+            el = time.time() - t0
+        finally:
+            os.close(fd)
+        print(f"    (c) lock held: torn exit {t.returncode} in {el:.1f} s: {t.stdout.strip()[:400]!r}", flush=True)
+        assert t.returncode == 0 and "0 torn" in t.stdout, t.stdout
+        assert "WARNING the check ran without the apply lock" in t.stdout, t.stdout
+        assert "(fell back)" in t.stdout, t.stdout
+        assert 0.9 <= el < 10, el
+        t = torn(env)
+        assert t.returncode == 0 and "without the apply lock" not in t.stdout, t.stdout
     finally:
         env.stop()
 
@@ -3577,6 +3795,599 @@ def _wait_rebuilt(env, aws, unit, secs=60):
     assert os.path.exists(os.path.join(aws, unit, "index.gxd")), "the derived index was never rebuilt"
 
 
+def _incr_opts(extractor="gxrepl_test", extra_server=()):
+    """11/14/2026: a set whose copy keeps index.gxd object by object (derived_apply = incremental)"""
+    o = _derived_opts(["derived_apply = incremental", f"derived_extractor = {extractor}", "derived_source = data.gxd",
+                       "derived_count = index.gxd"] + list(extra_server))
+    return o
+
+
+def _so():
+    return os.path.join(BIN, "gxrepl_testextractor.so")
+
+
+def _objects_writer(root, *args, extra_env=None):
+    """the testwriter with object notes on (its ship log carries objects records)"""
+    e = dict(os.environ, GXDSHIP_OBJECTS="1", **(extra_env or {}))
+    return subprocess.run([os.path.join(BIN, "gxrepl_testwriter"), "write", root, *map(str, args)],
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=e)
+
+
+def _gen(path):
+    try:
+        with open(path, "rb") as f:
+            f.seek(8)
+            return int.from_bytes(f.read(8), "little")
+    except OSError:
+        return -1
+
+
+def _wait_gen(ws, aws, unit, secs=60):
+    end = time.time() + secs
+    want = _gen(os.path.join(ws, unit, "commit.bin"))
+    while time.time() < end and _gen(os.path.join(aws, unit, "commit.bin")) != want:
+        time.sleep(0.2)
+    assert _gen(os.path.join(aws, unit, "commit.bin")) == want, "the copy did not reach the source's generation"
+
+
+def _wait_stamped(env, aws, unit, secs=60):
+    st = os.path.join(aws, unit, "index.gxd.stamp")
+    end = time.time() + secs
+    while time.time() < end and (not os.path.exists(st) or "INDEXES" in torn(env).stdout):
+        time.sleep(0.3)
+    assert os.path.exists(st), "the rebuilt index was never stamped\n" + env.logs()
+    t = torn(env)
+    assert t.returncode == 0 and "INDEXES" not in t.stdout, t.stdout
+
+
+def _rebuilds(env):
+    try:
+        return open(os.path.join(env.dir, "server.log")).read().count("derived indexes rebuilt")
+    except OSError:
+        return 0
+
+
+def _objects_writer_bg(root, *args, extra_env=None):
+    e = dict(os.environ, GXDSHIP_OBJECTS="1", **(extra_env or {}))
+    return subprocess.Popen([os.path.join(BIN, "gxrepl_testwriter"), "write", root, *map(str, args)],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=e)
+
+
+def _incremental_round(extractor, name):
+    # one writer process the whole time (a new writer's open record makes the copy verify: a fill by files)
+    env = Env(name, {"db": _incr_opts(extractor, ["derived_delay = 0", "derived_busy_rebuild = 2"])})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d1"))
+    w = _objects_writer_bg(os.path.join(ws, "d1"), "--commits", 120, "--per", 6, "--sleep", 250, "--commit-block",
+                           "--ship-root", ws)
+    time.sleep(1.5)
+    env.start_server()
+    env.start_client()
+    try:
+        _wait_stamped(env, aws, "d1")
+        r0 = _rebuilds(env)
+        assert r0 >= 1
+        assert w.poll() is None, "the writer ended before the index was stamped: make it longer"
+        g0 = _gen(os.path.join(aws, "d1", "commit.bin"))
+        assert w.wait(timeout=180) == 0, w.stdout.read()
+        _wait_gen(ws, aws, "d1")
+        t = torn(env)                             # in step at once: no rebuild after the last commit
+        assert t.returncode == 0 and "INDEXES" not in t.stdout, t.stdout + env.logs()
+        check_db(os.path.join(aws, "d1"))         # the index agrees with the data and the commit block
+        st = open(os.path.join(aws, ".gxrepl", "derived", "_d1")).read()
+        assert "ok incremental" in st, st
+        assert _gen(os.path.join(aws, "d1", "commit.bin")) > g0 + 20, "too few commits applied object by object"
+        assert _rebuilds(env) == r0, "a rebuild ran after the stamps: " + env.logs()
+        log = open(os.path.join(env.dir, "server.log")).read()
+        assert "rebuild needed" not in log.split("derived indexes rebuilt")[-1], log[-2000:]
+    finally:
+        if w.poll() is None:
+            w.kill(); w.wait()
+        env.stop()
+
+
+def _stamped(name, extra_server=(), writer_args=(), commits=400):
+    """an incremental set whose folder d1 is stamped while a writer keeps committing"""
+    env = Env(name, {"db": _incr_opts("gxrepl_test", ["derived_delay = 0", "derived_busy_rebuild = 2"] + list(extra_server))})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d1"))
+    w = _objects_writer_bg(os.path.join(ws, "d1"), "--commits", commits, "--per", 6, "--sleep", 250, "--commit-block",
+                           "--ship-root", ws, *writer_args)
+    time.sleep(1.5)
+    env.start_server()
+    env.start_client()
+    _wait_stamped(env, aws, "d1")
+    return env, ws, aws, w
+
+
+def _restart_server(env, extra_env=None):
+    if env.server and env.server.poll() is None:
+        env.server.terminate()
+        env.server.wait(10)
+    env.start_server(extra_env=extra_env)
+
+
+def _wait_log(env, text, secs=40, after=0):
+    end = time.time() + secs
+    while time.time() < end:
+        log = open(os.path.join(env.dir, "server.log")).read()
+        if text in log[after:]:
+            return log
+        time.sleep(0.3)
+    raise AssertionError("never logged: " + text + "\n" + open(os.path.join(env.dir, "server.log")).read()[-3000:])
+
+
+def _finish(env, ws, aws, w):
+    """the writer stops; the copy reaches it; its indexes are good (rebuilt or kept) and check"""
+    if w.poll() is None:
+        w.terminate()
+    w.wait(30)
+    time.sleep(0.5)
+    # a writer stopped in a batch leaves an odd commit block: one more commit makes it even
+    assert _objects_writer(os.path.join(ws, "d1"), "--commits", 1, "--commit-block", "--ship-root", ws,
+                           "--seed", 77).returncode == 0
+    _wait_gen(ws, aws, "d1", 90)
+    end = time.time() + 60
+    while time.time() < end and "INDEXES" in torn(env).stdout:
+        time.sleep(0.5)
+    t = torn(env)
+    assert t.returncode == 0 and "INDEXES" not in t.stdout, t.stdout + env.logs()
+    check_db(os.path.join(aws, "d1"))
+
+
+def test_incremental_extractor_error_means_rebuild():
+    """11/14/2026: an extractor error is "rebuild needed": the stamps go, the folder is rebuilt, the index checks"""
+    env, ws, aws, w = _stamped("incr_err")
+    try:
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        _restart_server(env, {"GXREPL_TEST_EXTRACTOR_FAIL": "insert"})
+        _wait_log(env, "rebuild needed: index.gxd: extractor insert: test: insert fails", after=n)
+        _restart_server(env)
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_direct_write_is_caught():
+    """11/14/2026: an extractor that writes its index outside the staged scope is caught (ALERT), rebuild needed"""
+    env, ws, aws, w = _stamped("incr_direct")
+    try:
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        _restart_server(env, {"GXREPL_TEST_EXTRACTOR_DIRECT": "1"})
+        log = _wait_log(env, "outside the staged scope", after=n)
+        assert "ALERT" in log[n:], log[n:]
+        _restart_server(env)
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_kill_in_scratch_phase():
+    """11/14/2026 (review): gxrepl killed (-9) while a batch's index pages are staged in memory: nothing of the
+    batch is on disk (the copy's index matches its data at its generation, its stamp at the seal). After the
+    restart the source verifies the copy (a server lost in an apply: gxrepl's own rule), which is a copy by
+    files: the folder is rebuilt once, then applies object by object again."""
+    env, ws, aws, w = _stamped("incr_scratch")
+    try:
+        _restart_server(env, {"GXREPL_TEST_CRASH_IN_SCRATCH": "1"})
+        end = time.time() + 40
+        while time.time() < end and env.server.poll() is None:
+            time.sleep(0.2)
+        assert env.server.poll() == 9, "the scratch-phase hook never ran"
+        c = run([os.path.join(BIN, "gxrepl_testwriter"), "check", os.path.join(aws, "d1")])
+        assert c.returncode == 0, "the copy's index is not its pre-batch state: " + c.stdout
+        st = run([os.path.join(BIN, "gxrepl"), "derived", "status", "--config", env.srv_conf])
+        assert "rebuild needed" not in st.stdout and "stamped at record" in st.stdout, st.stdout
+        n0 = len(open(os.path.join(env.dir, "server.log")).read())
+        env.start_server()
+        _wait_log(env, "derived indexes rebuilt", after=n0)
+        _wait_stamped(env, aws, "d1")
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        r1 = _rebuilds(env)
+        time.sleep(4)                                   # object by object again
+        log = open(os.path.join(env.dir, "server.log")).read()[n:]
+        assert _rebuilds(env) == r1 and "rebuild needed" not in log, log[-2000:]
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_breaker_after_two_crashes():
+    """11/14/2026: the extractor crashing gxrepl twice on one batch trips the breaker: the next start puts the set
+    back on rebuild with an ALERT (and rebuilds); gxrepl derived rebuild clears it"""
+    env, ws, aws, w = _stamped("incr_breaker")
+    try:
+        for i in range(2):
+            _restart_server(env, {"GXREPL_TEST_EXTRACTOR_CRASH": "1"})
+            end = time.time() + 40
+            while time.time() < end and env.server.poll() is None:
+                time.sleep(0.2)
+            assert env.server.poll() == 7, f"crash {i + 1} never happened"
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        env.start_server()
+        log = _wait_log(env, "derived_apply back on rebuild", after=n)
+        assert "ALERT" in log[n:]
+        assert os.path.exists(os.path.join(aws, ".gxrepl", "derived", "incremental.breaker"))
+        _finish(env, ws, aws, w)
+        r = run([os.path.join(BIN, "gxrepl"), "derived", "rebuild", "--config", env.srv_conf, "--set", "db"])
+        assert r.returncode == 0, r.stdout
+        assert not os.path.exists(os.path.join(aws, ".gxrepl", "derived", "incremental.breaker"))
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_breaker_crashes_in_an_hour():
+    """11/14/2026 (review 4): crashes of the index step on different batches count too: 3 in an hour (any batches)
+    trip the breaker with an ALERT; a crash older than an hour does not count; gxrepl derived rebuild clears them"""
+    env, ws, aws, w = _stamped("incr_window")
+    crashes = os.path.join(aws, ".gxrepl", "derived", "incremental.crashes")
+    try:
+        now = int(time.time())
+        with open(crashes, "w") as f:                    # two earlier crashes (other batches) and one too old
+            f.write(f"{now - 7300}\n{now - 1800}\n{now - 600}\n")
+        _restart_server(env, {"GXREPL_TEST_EXTRACTOR_CRASH": "1"})
+        end = time.time() + 40
+        while time.time() < end and env.server.poll() is None:
+            time.sleep(0.2)
+        assert env.server.poll() == 7, "the crash never happened"
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        env.start_server()
+        log = _wait_log(env, "derived_apply back on rebuild", after=n)
+        assert "ALERT" in log[n:] and "3 times in the last hour" in log[n:], log[n:]
+        assert len(open(crashes).read().split()) == 3, open(crashes).read()   # the old one dropped
+        st = run([os.path.join(BIN, "gxrepl"), "derived", "status", "--config", env.srv_conf, "--set", "db"])
+        assert "BREAKER on" in st.stdout and "crashes in the last hour: 3" in st.stdout, st.stdout
+        _finish(env, ws, aws, w)
+        r = run([os.path.join(BIN, "gxrepl"), "derived", "rebuild", "--config", env.srv_conf, "--set", "db"])
+        assert r.returncode == 0, r.stdout
+        assert not os.path.exists(crashes)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_staged_cap():
+    """11/14/2026: more staged index pages than derived_apply_max_mb: the batch's indexes are rebuilt instead"""
+    env, ws, aws, w = _stamped("incr_cap", ["derived_apply_max_mb = 0"])
+    try:
+        _wait_log(env, "passed derived_apply_max_mb")
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_step_time_limit():
+    """11/14/2026 (review 5): an index step slower than derived_apply_max_s (checked between extractor calls) stops
+    and the batch's folders are rebuilt instead; an extractor call that never returns trips the hard watchdog:
+    gxrepl stops with an ALERT (exit 8), and the crash is counted for the breaker"""
+    env, ws, aws, w = _stamped("incr_time", ["derived_apply_max_s = 1"])
+    try:
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        _restart_server(env, {"GXREPL_TEST_EXTRACTOR_SLOW": "400"})
+        _wait_log(env, "passed derived_apply_max_s", after=n)
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        _restart_server(env, {"GXREPL_TEST_EXTRACTOR_HANG": "1", "GXREPL_TEST_WATCHDOG_S": "3"})
+        end = time.time() + 60
+        while time.time() < end and env.server.poll() is None:
+            time.sleep(0.2)
+        assert env.server.poll() == 8, "the watchdog never stopped gxrepl"
+        log = open(os.path.join(env.dir, "server.log")).read()[n:]
+        assert "ALERT" in log and "never returns" in log, log
+        assert os.path.exists(os.path.join(aws, ".gxrepl", "derived", "incremental.try"))
+        env.start_server()
+        crashes = os.path.join(aws, ".gxrepl", "derived", "incremental.crashes")
+        end = time.time() + 30
+        while time.time() < end and not os.path.exists(crashes):
+            time.sleep(0.2)
+        assert len(open(crashes).read().split()) == 1
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_stray_write_is_refused():
+    """11/14/2026 (review 7): an extractor that writes any file but its index and stamp inside the staged scope (here
+    the data file's header): that write is never applied, the folder goes to rebuild needed with an ALERT, and the
+    copy's data file stays the source's"""
+    env, ws, aws, w = _stamped("incr_stray")
+    try:
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        _restart_server(env, {"GXREPL_TEST_EXTRACTOR_STRAY": "1"})
+        log = _wait_log(env, "not applied (rebuild needed)", after=n)
+        assert "ALERT" in log[n:], log[n:]
+        _restart_server(env)
+        _finish(env, ws, aws, w)
+        a = open(os.path.join(ws, "d1", "data.gxd"), "rb").read()
+        assert open(os.path.join(aws, "d1", "data.gxd"), "rb").read() == a, "the copy's data file differs"
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_big_batch_has_no_index_pages():
+    """11/14/2026 (review 6): a batch with more files than one transaction holds is applied in parts, which are not
+    one transaction, so it carries no index pages: they, the stamps, derived.stamp and the derived state are
+    dropped and the derived pass rebuilds them (the limit is 1000 files; 3 here, GXREPL_TEST_APPLY_PART_FILES)"""
+    env, ws, aws, w = _stamped("incr_parts")
+    try:
+        n = len(open(os.path.join(env.dir, "server.log")).read())
+        _restart_server(env, {"GXREPL_TEST_APPLY_PART_FILES": "3"})
+        _wait_log(env, "applied in parts: no index pages in it", after=n)
+        _restart_server(env)
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_status_shows_derived_state():
+    """11/14/2026 (review 10): the server's status.json shows each derived set's state (mode, folders, failed, not
+    built, rebuild needed, breaker, crashes in the last hour) and a WARN when incremental is on while the source's
+    object notes are off (commits without objects records: every batch is rebuilt); it clears once the folder is
+    applied object by object again"""
+    env, ws, aws, w = _stamped("incr_status")
+    try:
+        def derived():
+            try:
+                return json.load(open(env.srv_status))["sets"]["db"]["derived"]
+            except Exception:
+                return {}
+        end = time.time() + 30
+        while time.time() < end and derived().get("folders") != 1:
+            time.sleep(0.5)
+        d = derived()
+        assert d.get("mode") == "incremental" and d["folders"] == 1 and d["breaker"] is False and not d["warn"], d
+        w.terminate(); w.wait(30)
+        # the same folder written with notes off
+        assert writer(os.path.join(ws, "d1"), "--commits", 3, "--commit-block", "--ship-root", ws,
+                      "--seed", 81).returncode == 0
+        _wait_gen(ws, aws, "d1", 90)
+        end = time.time() + 30
+        while time.time() < end and "object notes are off" not in derived().get("warn", ""):
+            time.sleep(0.5)
+        assert "object notes are off" in derived().get("warn", ""), derived()
+        # notes on again: object by object, the WARN goes
+        w = _objects_writer_bg(os.path.join(ws, "d1"), "--commits", 40, "--per", 6, "--sleep", 250, "--commit-block",
+                               "--ship-root", ws)
+        end = time.time() + 60
+        while time.time() < end and derived().get("warn"):
+            time.sleep(0.5)
+        assert not derived().get("warn"), derived()
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_needs_derived_count():
+    """11/14/2026 (re-review B): derived_apply = incremental without derived_count (the index with one entry per
+    record) never applies object by object: the set stays on rebuild and says why; its indexes stay good"""
+    env = Env("incr_nocount", {"db": _derived_opts(["derived_apply = incremental", "derived_extractor = gxrepl_test",
+                                                    "derived_source = data.gxd", "derived_delay = 0",
+                                                    "derived_busy_rebuild = 2"])})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d1"))
+    w = _objects_writer_bg(os.path.join(ws, "d1"), "--commits", 30, "--per", 6, "--sleep", 250, "--commit-block",
+                           "--ship-root", ws)
+    env.start_server()
+    env.start_client()
+    try:
+        _wait_log(env, "incremental needs derived_count")
+        _finish(env, ws, aws, w)
+        assert "ok incremental" not in open(os.path.join(aws, ".gxrepl", "derived", "_d1")).read()
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_keeps_the_rebuilds_stamp_fields():
+    """11/14/2026: derived.stamp fields after "keys K" are the rebuild's own (OSA: keys_version N, the key rules the
+    indexes were made with): an object-by-object apply rewrites the counts and keeps them"""
+    env = Env("incr_tail", {"db": _incr_opts("gxrepl_test", ["derived_delay = 0", "derived_busy_rebuild = 2"])})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d1"))
+    w = _objects_writer_bg(os.path.join(ws, "d1"), "--commits", 40, "--per", 6, "--sleep", 250, "--commit-block",
+                           "--ship-root", ws)
+    time.sleep(1.5)
+    env.start_server(extra_env={"GXREPL_TEST_STAMP_TAIL": " keys_version 7"})
+    env.start_client()
+    try:
+        _wait_stamped(env, aws, "d1")
+        st = os.path.join(aws, ".gxrepl", "derived", "_d1")
+        end = time.time() + 60
+        while time.time() < end and "incremental" not in (open(st).read() if os.path.exists(st) else ""):
+            time.sleep(0.3)
+        assert "incremental" in open(st).read(), open(st).read() + env.logs()
+        body = open(os.path.join(aws, "d1", "derived.stamp")).read()
+        assert body.strip().endswith("keys_version 7"), body
+        _finish(env, ws, aws, w)
+        assert open(os.path.join(aws, "d1", "derived.stamp")).read().strip().endswith("keys_version 7")
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_writer_restarts_keep_the_stamps():
+    """11/14/2026 (the replay finding): a writer's restart (its open record: the copy verifies the stream) can bring
+    the next records inside the verify's file update; those go through the same index step as ApplyLog's, so the
+    folder's stamps stay current: no "stamped at L, the folder at L+n" over many restarts"""
+    env, ws, aws, w = _stamped("incr_restarts", commits=20)
+    try:
+        w.wait(120)
+        _finish(env, ws, aws, w)
+        _wait_stamped(env, aws, "d1")
+        n0 = _rebuilds(env)
+        for i in range(8):
+            r = _objects_writer(os.path.join(ws, "d1"), "--commits", 3, "--per", 6, "--commit-block", "--ship-root", ws,
+                                "--seed", 300 + i)
+            assert r.returncode == 0, r.stdout
+            _wait_gen(ws, aws, "d1", 90)
+        _wait_stamped(env, aws, "d1")
+        log = open(os.path.join(env.dir, "server.log")).read()
+        print(f"    8 writer restarts: {_rebuilds(env) - n0} rebuilds, {log.count('rebuild needed')} rebuild needed", flush=True)
+        assert "is stamped at" not in log, env.logs()                 # the records' index step ran
+        # the test writer's open can change data.gxd outside its journal (a verify fill: the accepted cost of one
+        # rebuild); osa_ingest's never does (the replayed real day: 1 rebuild in 92 restarts)
+        assert _rebuilds(env) - n0 <= 1, env.logs()
+        check_db(os.path.join(aws, "d1"))
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_orphan_means_rebuild():
+    """11/14/2026: an objects record without its commit (a writer crash between them, here the record lost and a gap
+    after it) is never applied object by object: rebuild needed, and the index checks after the rebuild"""
+    env, ws, aws, w = _stamped("incr_orphan", writer_args=("--split-pair-at", "70"), commits=120)
+    try:
+        log = _wait_log(env, "rebuild needed", secs=90)
+        _finish(env, ws, aws, w)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_derived_apply_builtin():
+    """11/14/2026 (7.4): derived_apply = incremental with the built-in test extractor: the first fill (by files)
+    drops the stamps, the derived pass rebuilds and stamps the folder, then every ship log batch updates index.gxd
+    object by object in the apply's own transaction (no derived_delay, no rebuild), and the index checks."""
+    _incremental_round("gxrepl_test", "incr_builtin")
+
+
+def test_incremental_derived_apply_so():
+    """11/14/2026 (7.4): the same with the extractor loaded from gxrepl_testextractor.so"""
+    _incremental_round(_so(), "incr_so")
+
+
+OLD_REV = "44e2936"   # 11/14/2026: the replication before objects records (F7), for the mixed-version tests
+
+
+def old_bin():
+    """gxrepl and gxrepl_testwriter built from OLD_REV (git archive of this repository), once, next to the build
+    under test. A failure to build fails the test (never a skip)."""
+    cache = os.path.join(os.path.dirname(os.path.abspath(BIN)), "old_" + OLD_REV)
+    out = os.path.join(cache, "build", "utils")
+    if all(os.path.exists(os.path.join(out, t)) for t in ("gxrepl", "gxrepl_testwriter")):
+        return out
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    src = os.path.join(cache, "src")
+    shutil.rmtree(cache, ignore_errors=True)
+    os.makedirs(src)
+    arch = subprocess.run(f"git -C '{repo}' archive {OLD_REV} | tar -x -C '{src}'", shell=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert arch.returncode == 0, "cannot unpack " + OLD_REV + ": " + arch.stdout
+    nice = ["nice", "-n", "19", "ionice", "-c3"]
+    c = subprocess.run(nice + ["cmake", "-S", src, "-B", os.path.join(cache, "build"), "-DDATAREEL_64BIT_DATABASE=ON",
+                               "-DCMAKE_BUILD_TYPE=Release"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert c.returncode == 0, c.stdout[-2000:]
+    b = subprocess.run(nice + ["cmake", "--build", os.path.join(cache, "build"), "-j2", "--target", "gxrepl",
+                               "gxrepl_testwriter"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert b.returncode == 0, b.stdout[-2000:]
+    return out
+
+
+def _log_records(root):
+    """every ship log record under root: (stream, type, lsn, payload), without the times and log ids"""
+    import struct
+    out = []
+    logdir = os.path.join(root, ".gxrepl", "log")
+    for stream in sorted(os.listdir(logdir)):
+        for seg in sorted(f for f in os.listdir(os.path.join(logdir, stream)) if f.endswith(".gxl")):
+            b = open(os.path.join(logdir, stream, seg), "rb").read()
+            o = 32
+            while o + 32 <= len(b):
+                _m, t, lsn, _ts, n, _ck = struct.unpack_from("<IIQQII", b, o)
+                out.append((stream, t, lsn, b[o + 32:o + 32 + n]))
+                o += 32 + n
+    return out
+
+
+def test_notes_off_output_is_unchanged():
+    """11/14/2026 (review): with object notes off (the default), the writer's files and ship log records are byte
+    for byte what the writer before objects records (OLD_REV) makes (times and log ids aside)."""
+    ob = old_bin()
+    base = os.path.join(TMP, "golden")
+    shutil.rmtree(base, ignore_errors=True)
+    outs = {}
+    e = {k: v for k, v in os.environ.items() if k != "GXDSHIP_OBJECTS"}
+    for name, b in (("old", ob), ("new", BIN)):
+        d = os.path.join(base, name)
+        os.makedirs(d)
+        w = subprocess.run([os.path.join(b, "gxrepl_testwriter"), "write", d, "--commits", "12", "--per", "6",
+                            "--seed", "5", "--commit-block"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           text=True, env=e)
+        assert w.returncode == 0, w.stdout
+        outs[name] = d
+    for f in ("data.gxd", "index.gxd", "commit.bin"):
+        a = open(os.path.join(outs["old"], f), "rb").read()
+        n = open(os.path.join(outs["new"], f), "rb").read()
+        assert a == n, f + " differs from the old writer's"
+    ro, rn = _log_records(outs["old"]), _log_records(outs["new"])
+    assert len(ro) == len(rn) and len(ro) > 12, (len(ro), len(rn))
+    for x, y in zip(ro, rn):
+        assert x == y, f"record {x[2]} differs (type {x[1]} / {y[1]})"
+    assert not any(r[1] == 5 for r in rn), "an objects record with notes off"
+
+
+def _mixed(old_side):
+    env = Env("mixed_" + old_side, {"db": {}})
+    ob = old_bin()
+    setattr(env, old_side + "_bin", os.path.join(ob, "gxrepl"))
+    ws, aws = env.roots["db"]
+    assert _objects_writer(ws, "--commits", 6).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 60)
+        w = _objects_writer_bg(ws, "--commits", 30, "--per", 5, "--sleep", 100, "--seed", 9)
+        assert w.wait(timeout=120) == 0
+        wait_same(env, "db", 60)
+        check_db(aws)
+        assert any(r[1] == 5 for r in _log_records(ws)), "the writer wrote no objects records"
+    finally:
+        env.stop()
+
+
+def test_mixed_version_old_copy_skips_objects_records():
+    """11/14/2026 (review): a copy running the gxrepl before objects records (OLD_REV), fed by a new source whose
+    writer writes them: the copy skips them and matches the source."""
+    _mixed("server")
+
+
+def test_mixed_version_old_source_sends_objects_records():
+    """11/14/2026 (review): a source running OLD_REV's gxrepl (its reader may end a batch on an objects record)
+    and a new copy: the copy applies everything and matches."""
+    _mixed("client")
+
+
+def test_trailing_orphan_objects_record_does_not_stall():
+    """11/14/2026 (review: the stall): a writer that dies right after an objects record leaves it as the log's last
+    record; it is held back only while its commit may still come (10 s), then let go: the copy gets in step with
+    no record of lag instead of retrying the stream for ever."""
+    env = Env("orphan_stall", {"db": {}})
+    ws, aws = env.roots["db"]
+    w = _objects_writer(ws, "--commits", 6, "--split-crash-at", 5)
+    assert w.returncode == 9, w.stdout
+    recs = _log_records(ws)
+    assert recs[-1][1] == 5, "the log does not end on an objects record"
+    env.start_server()
+    env.start_client()
+    try:
+        wait_status(env, lambda s: s["sets"]["db"]["ok"] and not s["sets"]["db"].get("last_error")
+                    and s["sets"]["db"].get("streams")
+                    and all(x.get("lag", 1) == 0 for x in s["sets"]["db"]["streams"].values()), 45)
+        wait_same(env, "db", 30)
+        check_db(aws)
+    finally:
+        env.stop()
+
+
 def test_dead_copy_folder_goes_with_its_source():
     """11/13/2026 (dead copy folders): the source drops a unit folder (osa_ingest archives a day at 20:30). The copy
     deletes what gxrepl copied AND the files it never copies (the rebuilt derived index, a writer's journal), then
@@ -3687,6 +4498,44 @@ def test_dead_copy_folder_swept_after_a_stop():
             os.unlink(os.path.join(units, "_" + kept))
         t = torn(env)
         assert t.returncode == 0, t.stdout
+    finally:
+        env.stop()
+
+
+def test_dead_copy_folder_stamps_swept():
+    """11/14/2026 (7.4 per-object derived apply): a dead copy folder holding <index>.stamp sidecars (index.gxd.stamp
+    of the derived index.gxd) is swept whole; a stamp of a file that is not derived (other.btx.stamp) is not gxrepl's
+    to remove and keeps its folder."""
+    env = Env("dead_stamps", {"db": _derived_opts()})
+    ws, aws = env.roots["db"]
+    tw = os.path.join(BIN, "gxrepl_testwriter")
+    os.makedirs(os.path.join(ws, "d2"))
+    assert writer(os.path.join(ws, "d2"), "--commits", 3, "--no-ship", "--commit-block", "--seed", 4).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        _wait_units(env, ws, aws, ["d2"])
+        env.stop()
+        units = os.path.join(aws, ".gxrepl", "units")
+        for name, files in (("dead_s", ["index.gxd", "derived.stamp", "news.jnl"]), ("keep_s", ["index.gxd"])):
+            d = os.path.join(aws, name)
+            os.makedirs(d, exist_ok=True)
+            for f in files:
+                open(os.path.join(d, f), "wb").write(b"x" * 1024)
+            open(os.path.join(units, "_" + name), "w").write("gen 6\n")
+        assert run([tw, "stamp", os.path.join(aws, "dead_s", "index.gxd.stamp"), "cccccccccccccccc", "7"]).returncode == 0
+        assert run([tw, "stamp", os.path.join(aws, "keep_s", "other.btx.stamp"), "cccccccccccccccc", "7"]).returncode == 0
+        env.start_server(extra_env={"GXREPL_SWEEP_SEC": "1", "GXREPL_DEAD_QUIET_SEC": "0"})
+        end = time.time() + 30
+        while time.time() < end and os.path.exists(os.path.join(aws, "dead_s")):
+            time.sleep(0.3)
+        log = open(os.path.join(env.dir, "server.log")).read()
+        assert not os.path.exists(os.path.join(aws, "dead_s")), ("the folder with a stamp stayed",
+                                                               os.listdir(os.path.join(aws, "dead_s")), log[-1500:])
+        assert not os.path.exists(os.path.join(units, "_dead_s")), "its seal stayed"
+        time.sleep(3)                                                   # a few more sweeps
+        assert os.path.exists(os.path.join(aws, "keep_s", "other.btx.stamp")), "a stamp of a non-derived file was removed"
+        assert os.path.isdir(os.path.join(aws, "d2")) and os.path.exists(os.path.join(aws, "d2", "commit.bin"))
     finally:
         env.stop()
 
@@ -3817,7 +4666,8 @@ def test_derived_index_rebuilt_on_copy():
         assert writer(ws, "--commits", 3, "--no-ship", "--commit-block", "--seed", 31).returncode == 0
         assert env.once().returncode == 0
         t = torn(env)
-        assert t.returncode == 0 and "stale" in t.stdout and "INDEXES" in t.stdout, t.stdout
+        # 11/14/2026 (review 8): a copy by files drops derived.stamp, so the indexes read as missing, not stale
+        assert t.returncode == 0 and ("stale" in t.stdout or "missing" in t.stdout) and "INDEXES" in t.stdout, t.stdout
         end = time.time() + 30
         while time.time() < end and "INDEXES" in torn(env).stdout:
             time.sleep(0.5)
@@ -3841,6 +4691,319 @@ def test_derived_index_rebuilt_on_copy():
             time.sleep(0.5)
         t = torn(env)
         assert t.returncode == 1 and "failed" in t.stdout, t.stdout
+    finally:
+        env.stop()
+
+
+def _seal_fields(aws, unit):
+    with open(os.path.join(aws, ".gxrepl", "units", "_" + unit.replace("/", "#"))) as f:
+        return f.read().split()
+
+
+def _rebuilds_of(env, unit):
+    log = open(os.path.join(env.dir, "server.log")).read()
+    return log.count(f": {unit}: derived indexes rebuilt")
+
+
+def _wait_caught_up(env, timeout=60):
+    wait_status(env, lambda s: s["sets"]["db"]["streams"] and
+                all(x["lag"] == 0 for x in s["sets"]["db"]["streams"].values()), timeout)
+
+
+def _wait_indexes(env, timeout=60):
+    end = time.time() + timeout
+    while time.time() < end:
+        t = torn(env)
+        if t.returncode == 0 and "INDEXES" not in t.stdout:
+            return
+        time.sleep(0.5)
+    t = torn(env)
+    assert t.returncode == 0 and "INDEXES" not in t.stdout, f"rc {t.returncode}: " + t.stdout + env.logs()
+
+
+def test_derived_seal_per_folder():
+    """11/14/2026 (seal per folder, review finding 1 on the per-object apply): one ship log stream feeds two
+    folders (--stream). A record that changes only d2 moves the stream's position in d1's seal as well (promote-check
+    compares it with the applied position), but d1's own last change, the seal's 4th field, stays: d1's derived index,
+    stamped at that record, stays current, so the idle folder is never rebuilt (before: every write to any folder of
+    the stream rebuilt them all). A seal from before the 4th field reads as changed at its lsn: one rebuild, then stable
+    again. A writer's restart (its open record: a verify of the stream) that finds a folder as sealed keeps its
+    indexes; one that repairs a folder's data rebuilds only that folder.
+    "gxrepl torn" stays clean throughout."""
+    rebuild = f"{os.path.join(BIN, 'gxrepl_testwriter')} reindex {{dir}} {{lsn}}"
+    opts = {"client": CB_OPTS["client"] + ["derived = index.gxd"],
+            "server": CB_OPTS["server"] + ["derived = index.gxd", f"derived_rebuild = {rebuild}", "derived_delay = 1",
+                                           "derived_busy_rebuild = 2"]}
+    env = Env("seal_folder", {"db": opts})
+    ws, aws = env.roots["db"]
+    for d in ("d1", "d2"):
+        os.makedirs(os.path.join(ws, d), exist_ok=True)
+    w = lambda d, n, seed: writer(os.path.join(ws, d), "--commits", n, "--commit-block", "--ship-root", ws,
+                                  "--stream", "shared", "--seed", seed)
+    assert w("d1", 4, 1).returncode == 0
+    assert w("d2", 4, 2).returncode == 0
+    assert streams_of(ws) == ["shared"], streams_of(ws)
+    env.start_server()
+    env.start_client()
+    try:
+        _wait_caught_up(env)
+        _wait_indexes(env)
+        time.sleep(3)
+        stamp = open(os.path.join(aws, "d1", "derived.stamp")).read()
+        s1 = _seal_fields(aws, "d1")
+        assert s1[0] == "log" and len(s1) == 5 and s1[3] == "shared", s1
+        n1, n2 = _rebuilds_of(env, "d1"), _rebuilds_of(env, "d2")
+        assert n1 >= 1 and n2 >= 1, env.logs()
+        assert stamp.split()[3] == s1[4], (stamp, s1)          # stamped at d1's own last change
+        # Writes to d2 only: the stream's position moves on in d1's seal, its own last change stays
+        for i in range(3):
+            assert w("d2", 2, 10 + i).returncode == 0
+            _wait_caught_up(env)
+            _wait_indexes(env)
+        time.sleep(4)                                          # several derived_delay and busy periods
+        _wait_indexes(env)
+        s1b, s2b = _seal_fields(aws, "d1"), _seal_fields(aws, "d2")
+        print(f"    d1 seal {s1} -> {s1b}, d2 seal {s2b}; rebuilds d1 {n1} -> {_rebuilds_of(env, 'd1')}, "
+              f"d2 {n2} -> {_rebuilds_of(env, 'd2')}", flush=True)
+        assert int(s1b[2]) > int(s1[2]) and s1b[2] == s2b[2], (s1b, s2b)   # both at the stream's position
+        assert s1b[4] == s1[4], (s1, s1b)                                  # d1 unchanged since
+        assert int(s2b[4]) > int(s1[4]), s2b
+        assert _rebuilds_of(env, "d1") == n1, env.logs()                   # the idle folder: never rebuilt
+        assert _rebuilds_of(env, "d2") > n2
+        assert open(os.path.join(aws, "d1", "derived.stamp")).read() == stamp
+        check_db(os.path.join(aws, "d1"))
+        check_db(os.path.join(aws, "d2"))
+        # A seal from before the 4th field (an older gxrepl wrote it): changed at most at its lsn
+        sp = os.path.join(aws, ".gxrepl", "units", "_d1")
+        with open(sp, "w") as f:
+            f.write(" ".join(s1b[:4]) + "\n")
+        end = time.time() + 30
+        while time.time() < end and _rebuilds_of(env, "d1") == n1:
+            time.sleep(0.5)
+        assert _rebuilds_of(env, "d1") == n1 + 1, env.logs()
+        _wait_indexes(env)
+        assert open(os.path.join(aws, "d1", "derived.stamp")).read().split()[3] == s1b[2]
+        assert w("d2", 2, 30).returncode == 0
+        _wait_caught_up(env)
+        time.sleep(4)
+        _wait_indexes(env)
+        s1c = _seal_fields(aws, "d1")
+        assert len(s1c) == 5 and s1c[4] == s1b[2], s1c                    # carried as its lsn from then on
+        assert _rebuilds_of(env, "d1") == n1 + 1, env.logs()
+        # A writer's restart on d1 (an open record: the stream's verify) finds both folders as sealed: neither is
+        # rebuilt (review 4: the verify must have run)
+        m2 = _rebuilds_of(env, "d2")
+        v0 = open(os.path.join(env.dir, "client.log")).read().count("stream shared verified")
+        assert w("d1", 0, 40).returncode == 0
+        _wait_caught_up(env)
+        end = time.time() + 30
+        while time.time() < end and open(os.path.join(env.dir, "client.log")).read().count("stream shared verified") == v0:
+            time.sleep(0.2)
+        assert open(os.path.join(env.dir, "client.log")).read().count("stream shared verified") > v0, env.logs()
+        time.sleep(4)
+        _wait_indexes(env)
+        print(f"    writer restart on d1: d1 rebuilds {n1 + 1} -> {_rebuilds_of(env, 'd1')}, d2 {m2} -> "
+              f"{_rebuilds_of(env, 'd2')}", flush=True)
+        assert _rebuilds_of(env, "d2") == m2, env.logs()
+        assert _rebuilds_of(env, "d1") == n1 + 1, env.logs()       # the verify re-sent d1 as sealed: kept
+        # re-review A: the restart's verify fill drops no derived.stamp (it never wrote the indexes' source)
+        assert os.path.exists(os.path.join(aws, "d1", "derived.stamp")) and \
+            os.path.exists(os.path.join(aws, "d2", "derived.stamp"))
+        assert "rebuild needed" not in open(os.path.join(env.dir, "server.log")).read(), env.logs()
+        # A verify that repairs d1's data (a damaged copy, same generation): that is a change, rebuilt
+        dp = os.path.join(aws, "d1", "data.gxd")
+        with open(dp, "r+b") as f:
+            f.seek(os.path.getsize(dp) // 2)
+            b = f.read(1)
+            f.seek(-1, 1)
+            f.write(bytes([b[0] ^ 0xFF]))
+        assert w("d2", 0, 50).returncode == 0                      # a restart: the stream's verify
+        _wait_caught_up(env)
+        end = time.time() + 30
+        while time.time() < end and _rebuilds_of(env, "d1") == n1 + 1:
+            time.sleep(0.5)
+        _wait_indexes(env)
+        print(f"    repaired d1: d1 seal {_seal_fields(aws, 'd1')}, rebuilds d1 {_rebuilds_of(env, 'd1')}, "
+              f"d2 {_rebuilds_of(env, 'd2')}", flush=True)
+        assert _rebuilds_of(env, "d1") == n1 + 2, env.logs()
+        assert _rebuilds_of(env, "d2") == m2, env.logs()
+        assert open(os.path.join(ws, "d1", "data.gxd"), "rb").read() == open(dp, "rb").read()
+        # Review 1: a verify that only cuts d1's data file (the copy's is longer, the same generation): a change too
+        with open(dp, "ab") as f:
+            f.write(os.urandom(5000))
+        n_now = _rebuilds_of(env, "d1")
+        assert w("d2", 0, 60).returncode == 0
+        _wait_caught_up(env)
+        end = time.time() + 30
+        while time.time() < end and _rebuilds_of(env, "d1") == n_now:
+            time.sleep(0.5)
+        _wait_indexes(env)
+        assert _rebuilds_of(env, "d1") == n_now + 1, env.logs()
+        assert _rebuilds_of(env, "d2") == m2, env.logs()
+        assert open(os.path.join(ws, "d1", "data.gxd"), "rb").read() == open(dp, "rb").read()
+        check_db(os.path.join(aws, "d1"))
+        check_db(os.path.join(aws, "d2"))
+    finally:
+        env.stop()
+
+
+def test_delete_reseals_before_unlink():
+    """11/14/2026 (seal per folder, re-review): deletes = yes removes a database file of a log-sealed folder (the same
+    generation): its seal goes to C = L (its derived index rebuilt). The reseal is written under the apply lock BEFORE
+    the unlink: a copy killed between them (GXREPL_TEST_DELETE_CRASH, test builds) has C = L with the file still
+    there, never the old C with the file gone; after the restart the file goes and the index is rebuilt."""
+    assert _test_hooks(), "needs a test build (-DGXREPL_TEST_HOOKS=ON)"
+    rebuild = f"{os.path.join(BIN, 'gxrepl_testwriter')} reindex {{dir}} {{lsn}}"
+    opts = {"client": CB_OPTS["client"] + ["derived = index.gxd", "deletes = yes"],
+            "server": CB_OPTS["server"] + ["derived = index.gxd", f"derived_rebuild = {rebuild}", "derived_delay = 1",
+                                           "derived_busy_rebuild = 2"]}
+    env = Env("del_reseal", {"db": opts})
+    ws, aws = env.roots["db"]
+    for d in ("d1", "d2"):
+        os.makedirs(os.path.join(ws, d), exist_ok=True)
+    w = lambda d, n, seed: writer(os.path.join(ws, d), "--commits", n, "--commit-block", "--ship-root", ws,
+                                  "--stream", "shared", "--seed", seed)
+    assert w("d1", 4, 1).returncode == 0
+    assert w("d2", 4, 2).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        _wait_caught_up(env)
+        _wait_indexes(env)
+        l0 = int(_seal_fields(aws, "d1")[2])
+        assert w("d2", 2, 3).returncode == 0              # the stream moves on: d1's L past its C
+        end = time.time() + 30
+        while time.time() < end and int(_seal_fields(aws, "d1")[2]) <= l0:
+            time.sleep(0.2)
+        _wait_indexes(env)
+        s1 = _seal_fields(aws, "d1")
+        assert s1[2] != s1[4], s1
+        n1 = _rebuilds_of(env, "d1")
+        env.kill("client")
+        env.server.terminate(); env.server.wait(10)
+        put(os.path.join(aws, "d1", "old.gxd"), b"gone from the source")
+        env.start_server(extra_env={"GXREPL_TEST_DELETE_CRASH": "1"})
+        env.start_client()
+        end = time.time() + 60
+        while time.time() < end and env.server.poll() is None:
+            time.sleep(0.2)
+        assert env.server.poll() == 9, "the delete never reached the hook"
+        s2 = _seal_fields(aws, "d1")
+        print(f"    killed between the reseal and the unlink: seal {s1} -> {s2}, old.gxd there: "
+              f"{os.path.exists(os.path.join(aws, 'd1', 'old.gxd'))}", flush=True)
+        assert s2[4] == s2[2] == s1[2], (s1, s2)          # C = L, written first
+        assert os.path.exists(os.path.join(aws, "d1", "old.gxd"))
+        env.start_server()
+        end = time.time() + 60
+        while time.time() < end and os.path.exists(os.path.join(aws, "d1", "old.gxd")):
+            time.sleep(0.2)
+        assert not os.path.exists(os.path.join(aws, "d1", "old.gxd"))
+        end = time.time() + 30
+        while time.time() < end and _rebuilds_of(env, "d1") == n1:
+            time.sleep(0.5)
+        _wait_indexes(env)
+        assert _rebuilds_of(env, "d1") == n1 + 1, env.logs()
+        check_db(os.path.join(aws, "d1"))
+    finally:
+        env.stop()
+
+
+def test_verify_sees_files_named_during_its_pass():
+    """11/14/2026 (the verify race, 7.3.2): a new stream's first record names only one file (the writer's fresh
+    database init: no commit block yet); the copy's verify fills it out of step, so the unit is "copying"; the
+    writer's next records name the commit block. The client read the stream's file list once per pass, so the
+    commit block was never verified and the unit stayed "copying" until the next verify (records carrying the
+    commit block never clear a fill's mark). Now the list is read again after the verify, and a stream with new
+    files is verified again in the same pass. Deterministic: the writer waits after its first record, and the client
+    (GXREPL_TEST_VERIFY_HOLD, test builds) holds after its first verify until the writer's next records are in."""
+    assert _test_hooks(), "needs a test build (-DGXREPL_TEST_HOOKS=ON)"
+    env = Env("verify_new_files", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    gate, hold = os.path.join(env.dir, "writer.go"), os.path.join(env.dir, "verify.go")
+    w = writer_bg(ws, "--commits", 3, "--commit-block", "--wait-at", 0, "--wait-file", gate)
+    end = time.time() + 30
+    while time.time() < end and not streams_of(ws):
+        time.sleep(0.1)
+    time.sleep(1.0)                                    # the writer waits after its first record
+    lf = os.path.join(ws, ".gxrepl", "log", streams_of(ws)[0], "files")
+    first = open(lf).read().split()
+    assert "commit.bin" not in first, first
+    env.start_server()
+    env.start_client(extra_env={"GXREPL_TEST_VERIFY_HOLD": hold})
+    seal = os.path.join(aws, ".gxrepl", "units", "_root")
+    try:
+        end = time.time() + 30
+        while time.time() < end and not os.path.exists(hold + ".held"):
+            time.sleep(0.1)
+        held = os.path.exists(hold + ".held")
+        open(gate, "w").close()                         # the writer's next records name the commit block
+        assert w.wait(60) == 0
+        assert "commit.bin" in open(lf).read().split()
+        open(hold, "w").close()
+        end = time.time() + 30
+        while time.time() < end and not (os.path.exists(seal) and open(seal).read().startswith("log ")):
+            time.sleep(0.2)
+        s = open(seal).read() if os.path.exists(seal) else "(no seal)"
+        print(f"    first record named {first}; held after the first verify: {held}; seal now {s.strip()!r}", flush=True)
+        assert s.startswith("log "), "the unit stayed " + s.strip() + " (its commit block never verified)\n" + env.logs()
+        assert held, "the client never held after its verify (GXREPL_TEST_VERIFY_HOLD)"
+        assert "names new file(s) since the pass began" in open(os.path.join(env.dir, "client.log")).read(), env.logs()
+        wait_same(env, "db", 60)
+        t = torn(env)
+        assert t.returncode == 0, t.stdout
+        check_db(aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_derived_stamps_are_derived():
+    """11/14/2026 (7.4 per-object derived apply): <index>.stamp matches the set's derived pattern, so a stamp on
+    the source is never shipped (not even when an include pattern names it: never a data file), the copy's own
+    stamp is never replaced or deleted (deletes = yes), and on an incremental set an index without a stamp is a
+    warning in "gxrepl torn" (rebuild mode), never torn."""
+    rebuild = f"{os.path.join(BIN, 'gxrepl_testwriter')} reindex {{dir}} {{lsn}}"
+    opts = {"client": CB_OPTS["client"] + ["derived = index.gxd", "include = *.stamp", "deletes = yes"],
+            "server": CB_OPTS["server"] + ["derived = index.gxd", f"derived_rebuild = {rebuild}", "derived_delay = 2",
+                                           "include = *.stamp"]}
+    # (rebuild mode while the copy syncs: an incremental set's rebuild replaces the stamps itself, part 2)
+    env = Env("derived_stamps", {"db": opts})
+    ws, aws = env.roots["db"]
+    tw = os.path.join(BIN, "gxrepl_testwriter")
+    assert writer(ws, "--commits", 12, "--no-ship", "--commit-block").returncode == 0
+    assert run([tw, "stamp", os.path.join(ws, "index.gxd.stamp"), "aaaaaaaaaaaaaaaa", "999"]).returncode == 0
+    os.makedirs(aws, exist_ok=True)
+    assert run([tw, "stamp", os.path.join(aws, "index.gxd.stamp"), "bbbbbbbbbbbbbbbb", "5"]).returncode == 0
+    env.start_server()
+    try:
+        assert env.once().returncode == 0
+        r = run([tw, "readstamp", os.path.join(aws, "index.gxd.stamp")])
+        assert r.returncode == 0 and "bbbbbbbbbbbbbbbb lsn 5" in r.stdout, "the copy's stamp changed: " + r.stdout
+        assert writer(ws, "--commits", 3, "--no-ship", "--commit-block", "--seed", 41).returncode == 0
+        assert env.once().returncode == 0
+        r = run([tw, "readstamp", os.path.join(aws, "index.gxd.stamp")])
+        assert r.returncode == 0 and "bbbbbbbbbbbbbbbb lsn 5" in r.stdout, "the copy's stamp changed: " + r.stdout
+        end = time.time() + 30
+        while time.time() < end and "INDEXES" in torn(env).stdout:
+            time.sleep(0.5)
+        t = torn(env)
+        assert t.returncode == 0 and "has no stamp" not in t.stdout, t.stdout + env.logs()
+        # the set goes incremental (torn reads the config)
+        with open(env.srv_conf) as f:
+            conf = f.read().replace("include = *.stamp", "include = *.stamp\nderived_apply = incremental", 1)
+        with open(env.srv_conf, "w") as f:
+            f.write(conf)
+        t = torn(env)
+        assert t.returncode == 0 and "has no stamp" not in t.stdout, t.stdout
+        # No stamp (a copy on older code, or one never stamped): rebuild mode, a warning only
+        os.remove(os.path.join(aws, "index.gxd.stamp"))
+        t = torn(env)
+        assert t.returncode == 0 and "index.gxd has no stamp (rebuild mode)" in t.stdout, t.stdout
+        assert not os.path.exists(os.path.join(aws, "index.gxd.stamp")), "the source's stamp was shipped"
+        # A damaged stamp: the same warning kind
+        put(os.path.join(aws, "index.gxd.stamp"), os.urandom(200))
+        t = torn(env)
+        assert t.returncode == 0 and "index.gxd has a damaged stamp (rebuild mode)" in t.stdout, t.stdout
     finally:
         env.stop()
 

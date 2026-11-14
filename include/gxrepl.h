@@ -79,6 +79,8 @@ Changes:
 #include <set>
 #include <thread>
 
+#include "gxrextract.h"
+
 namespace datareel {
 
 // 2 (11/08/2026): databases only (a node refuses flat files), status 3 on a read that changed
@@ -147,6 +149,37 @@ struct GXDLCODE_API gxReplSetConfig {
   // short of room, or a set fed by a ship log is copied in place as before (a WARNING says why).
   bool staged_fill = true;
   unsigned long long stage_max_bytes = 16ULL * 1024 * 1024 * 1024;
+  // 11/14/2026 (7.4): how the copy keeps its derived indexes: "rebuild"
+  // (derived_rebuild, above) or "incremental": object by object from the
+  // objects records (gxdShipObjects) with the extractor (gxrextract.h:
+  // a built-in name, gxrRegisterExtractor(), or a path ending in .so),
+  // each index stamped in <index>.stamp
+  // (gxdstamp.h). An index without a good stamp, an incomplete objects
+  // record or an extractor error goes back to rebuild. Missing stamps are
+  // a warning in "gxrepl torn", never torn.
+  std::string derived_apply = "rebuild";
+  std::string derived_extractor;
+  std::string derived_extractor_config;
+  // 11/14/2026: the data file of a folder the indexes derive from (a name
+  // pattern, e.g. "data.gxd"); incremental needs it and commit_block
+  std::string derived_source;
+  // 11/14/2026: most changed index pages one batch may hold in memory
+  // (MB, all its folders and indexes together, review 5); past it the
+  // batch's indexes are rebuilt instead
+  unsigned long long derived_apply_max_mb = 256;
+  // 11/14/2026 (review 5): the longest the index step of one batch may
+  // take (seconds): past it, checked between extractor calls, the rest of
+  // the batch's folders are rebuilt instead. A call that never returns:
+  // at 4 times it (at least 60 s more) gxrepl stops with an ALERT (exit
+  // 8; that stops every set of the server, not only this one: the
+  // supervisor, e.g. gxrepl.sh ensure, starts it again); its restart
+  // counts the crash for the breaker.
+  unsigned long long derived_apply_max_s = 30;
+  // 11/14/2026 (review 2): the index (a name pattern, e.g. "by_time.btx")
+  // whose entry count is derived.stamp's "keys": one entry per record of
+  // the folder. Each index's own <index>.stamp holds its own count. Empty:
+  // incremental refuses the set (it stays on rebuild, re-review B).
+  std::string derived_count;
 };
 
 struct GXDLCODE_API gxReplConfig {
@@ -337,6 +370,22 @@ GXDLCODE_API int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::st
 // (missing or stale; the take over rebuilds them), not torn
 GXDLCODE_API int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn,
 				  std::vector<std::string> &warn);
+// 11/14/2026: each unit's commit block, seal, applied position and derived state are read under a SHARED flock
+// on <root>/.gxrepl/apply.jnl (every apply, swap and derived rebuild holds it exclusively), taken per unit and let
+// go before the next one; never held while files are hashed. The waits for it share one budget per set
+// (GXREPL_TORN_LOCK_WAIT, 15 s); past it the rest of the set is read unlocked with the timed re-reads
+// (GXREPL_TORN_RECHECK_SEC) and "warn" says the check ran without the apply lock. "ls" (optional) says how.
+struct gxReplTornLockStats {
+  bool use_lock = true;            // in: false = never lock (a caller that already holds the apply lock)
+  long acquisitions = 0;           // out: shared locks taken
+  long unlocked_units = 0;         // out: units read without the lock (budget spent)
+  double max_hold_ms = 0;          // out: the longest hold
+  double total_hold_ms = 0;        // out: all holds
+  double waited_ms = 0;            // out: time spent waiting for the lock
+  bool fell_back = false;          // out: the budget ran out
+};
+GXDLCODE_API int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn,
+				  std::vector<std::string> &warn, gxReplTornLockStats &ls);
 // 11/12/2026 (F7): make a copy set's units promotable before a take over: a stage whose swap had begun is
 // finished (it was whole); any other stage (a unit copy in progress or stopped by a lost link) is discarded,
 // the unit staying whole at its sealed generation. "lines" says what was done and what was lost. apply false:
@@ -434,6 +483,8 @@ private:
   gxReplConfig cfg;
   std::map<std::string, SetState_ *> sets;
   std::mutex lock;
+public:
+  double derived_peak_mb = 0;   // 11/14/2026 (last): most staged index MB of one batch (incremental derived apply)
 };
 
 // A connection to the other node: a gxReplSource, and through
@@ -695,6 +746,18 @@ private:
   long long connected_since = 0;
   std::string peer;
 };
+
+// 11/14/2026 (7.4): a built-in derived index extractor (gxrextract.h), linked into the program, for
+// "derived_extractor = <name>" (found before any .so path). Call it before the sets are opened. 0, or -1.
+GXDLCODE_API int gxrRegisterExtractor(const char *name, const gxrExtractorOps *ops);
+// 11/14/2026: derived index tools. A file's digest: "btree" (the keys in order, any node layout), "bytes" (every
+// byte; vector indexes are bit-for-bit), "objects" (the live objects as a multiset); empty: btree for .btx, else
+// bytes. Status: one line per set, folder and index (stamps, the seal, the breaker). Reset: the breaker, and the
+// folder's (empty: every folder's) stamps and derived state go: the derived pass rebuilds them.
+GXDLCODE_API int gxReplDigest(const std::string &path, const std::string &kind, uint64_t &hash, uint64_t &count,
+			      std::string &err);
+GXDLCODE_API int gxReplDerivedStatus(const gxReplSetConfig &sc, std::vector<std::string> &lines);
+GXDLCODE_API int gxReplDerivedReset(const gxReplSetConfig &sc, const std::string &folder, std::string &err);
 
 } // namespace datareel
 

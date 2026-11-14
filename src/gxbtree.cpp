@@ -306,9 +306,11 @@ gxDatabaseError gxBtree::WriteBtreeHeader()
   }
 
   if(f->ReadyForWriting()) {
-    if(f->Write(&btree_header, sizeof(gxBtreeHeader), btree_header_address) !=
-       gxDBASE_NO_ERROR)
-      return f->GetDatabaseError();
+    // 11/14/2026: The B-tree header is not an object note
+    f->ObjectNotesPause();
+    gxDatabaseError e = f->Write(&btree_header, sizeof(gxBtreeHeader), btree_header_address);
+    f->ObjectNotesResume();
+    if(e != gxDBASE_NO_ERROR) return f->GetDatabaseError();
     header_in_sync = 1;
   }
 

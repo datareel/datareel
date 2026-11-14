@@ -110,6 +110,10 @@ public: // Transaction functions used by gxdJournal
   void CommitTxn();   // Dirty pages become logged pages
   void RollbackTxn(); // Drop the open transaction's changes
   int InTxn() const { return in_txn; }
+  // 11/14/2026: staged (gxdstage.h): nothing reaches the file, ever: a
+  // write outside a transaction and WriteLoggedPages() fail
+  void SetStaged(int on) { staged = on; }
+  int Staged() const { return staged; }
   size_t DirtyPages() const { return dirty_count; }
   size_t LoggedPages() const { return logged_count; }
   void GetDirtyPages(std::vector<gxdPage *> &v);
@@ -153,6 +157,7 @@ private:
   std::vector<gxdPage *> logged_list; // Logged pages, some may be dirty
   gxdPage *head; // Most recently used clean page
   gxdPage *tail; // Least recently used clean page
+  int staged = 0; // 11/14/2026 (last)
 };
 
 } // namespace datareel

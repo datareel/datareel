@@ -38,6 +38,7 @@ the BSDs, macOS); on Windows Open() and the reader return errors.
 #include <time.h>
 #include <algorithm>
 #include "gxdrepl.h"
+#include "gxdstamp.h"
 #include "gxdpcache.h"
 #if defined (DATAREEL_HAVE_ZLIB)
 #include <zlib.h>     // 11/10/2026: compressed commit records
@@ -229,6 +230,92 @@ int gxdParseShipCommitRecord(const gxdShipRecordView &r, std::vector<unsigned ch
   (void)storage;
   return -1;
 #endif
+}
+
+// 11/14/2026: objects records (type 5)
+static int parse_objects_body(const unsigned char *p, size_t n, gxdShipObjectsRecord &out)
+{
+  if(n < 4) return -1;
+  uint32_t nf = sget32(p);
+  size_t off = 4;
+  if(nf > 4096) return -1;
+  int all = 1;
+  for(uint32_t i = 0; i < nf; i++) {
+    gxdShipObjectFile f;
+    if(n - off < 4) return -1;
+    uint32_t nl = sget32(p + off); off += 4;
+    if(nl == 0 || nl > 4096 || n - off < (size_t)nl + 8) return -1;
+    f.name.assign((const char *)p + off, nl); off += nl;
+    uint32_t fl = sget32(p + off); off += 4;
+    uint32_t no = sget32(p + off); off += 4;
+    if((unsigned long long)no * 17 > n - off) return -1;
+    f.complete = (fl & 1) ? 1 : 0;
+    if(!f.complete) all = 0;
+    f.objects.resize(no);
+    unsigned long long prev = 0;
+    for(uint32_t k = 0; k < no; k++) {
+      gxdShipObject &o = f.objects[k];
+      o.address = sget64(p + off); off += 8;
+      o.op = p[off]; off += 1;
+      o.old_len = sget32(p + off); off += 4;
+      o.new_len = sget32(p + off); off += 4;
+      if(o.op < gxdObjectAdd || o.op > gxdObjectRemove) return -1;
+      if(k > 0 && o.address <= prev) return -1;   // Ascending, no repeats
+      prev = o.address;
+    }
+    out.files.push_back(f);
+  }
+  if(off != n) return -1;
+  if(!all) out.complete = 0;
+  return 0;
+}
+
+int gxdParseShipObjectsRecord(const gxdShipRecordView &r, gxdShipObjectsRecord &out)
+{
+  out = gxdShipObjectsRecord();
+  out.lsn = r.lsn;
+  if(r.type != gxdShipObjects || !r.payload || r.len < 12) return -1;
+  uint32_t format = sget32(r.payload), flags = sget32(r.payload + 4);
+  if(format != gxdShipObjectsFormat) return -1;
+  out.complete = (flags & gxdShipObjectsComplete) ? 1 : 0;
+  const unsigned char *body = r.payload + 8;
+  size_t blen = r.len - 8;
+  if(!(flags & gxdShipObjectsZlib)) {
+    if(parse_objects_body(body, blen, out) != 0) { out.files.clear(); out.complete = 0; return -1; }
+    return 0;
+  }
+#if defined (DATAREEL_HAVE_ZLIB)
+  if(blen < 8) return -1;
+  uint32_t raw = sget32(body), want = sget32(body + 4);
+  if(raw == 0 || raw > gxdShipMaxPayload) return -1;
+  std::vector<unsigned char> st(raw);
+  uLongf got = raw;
+  if(uncompress(st.data(), &got, body + 8, (uLong)(blen - 8)) != Z_OK || got != raw) return -1;
+  if((uint32_t)crc32(crc32(0L, Z_NULL, 0), st.data(), (uInt)raw) != want) return -1;
+  if(parse_objects_body(st.data(), st.size(), out) != 0) { out.files.clear(); out.complete = 0; return -1; }
+  return 0;
+#else
+  return -1;
+#endif
+}
+
+int gxdShipObjectsFor(const std::vector<gxdShipRecordView> &recs, size_t i,
+		      gxdShipObjectsRecord &out)
+{
+  out = gxdShipObjectsRecord();
+  if(i == 0 || i >= recs.size()) return 0;
+  const gxdShipRecordView &c = recs[i], &o = recs[i - 1];
+  if(c.type != gxdShipCommit && c.type != gxdShipCommitZ) return 0;
+  if(o.type != gxdShipObjects || o.lsn + 1 != c.lsn) return 0;
+  return gxdParseShipObjectsRecord(o, out) == 0 ? 1 : -1;
+}
+
+int gxdShipObjectsOrphan(const std::vector<gxdShipRecordView> &recs, size_t i)
+{
+  if(i >= recs.size() || recs[i].type != gxdShipObjects) return 0;
+  if(i + 1 >= recs.size()) return 0;   // Its commit may be in the next batch
+  const gxdShipRecordView &c = recs[i + 1];
+  return (c.type == gxdShipCommit || c.type == gxdShipCommitZ) && c.lsn == recs[i].lsn + 1 ? 0 : 1;
 }
 
 #if !defined (__WIN32__)
@@ -633,6 +720,121 @@ int gxdShipLog::append(uint32_t type, const unsigned char *payload,
   return 0;
 }
 
+int gxdShipLog::append2(uint32_t t1, const unsigned char *p1, size_t l1,
+			uint32_t t2, const unsigned char *p2, size_t l2)
+// 11/14/2026: An objects record and its commit in one write: the segment
+// is changed (if it is full) before both, never between them, and a reader
+// sees both or neither once the write completes (a torn write is cut off
+// by the checksums; Read() never ends a batch on an objects record).
+{
+  if(lock_fd < 0) return fail("the ship log is not open");
+  if(l1 > gxdShipMaxPayload || l2 > gxdShipMaxPayload) return fail("record too large");
+  if(fd < 0 || seg_end >= seg_size) {
+    if(open_segment() != 0) return -1;
+  }
+  std::vector<unsigned char> &w = ozbuf;
+  w.clear();
+  uint64_t t = now_us();
+  const uint32_t types[2] = { t1, t2 };
+  const unsigned char *pays[2] = { p1, p2 };
+  const size_t lens[2] = { l1, l2 };
+  for(int k = 0; k < 2; k++) {
+    unsigned char h[gxdShipRecordHeaderSize];
+    uint32_t magic = gxdShipRecMagic, l32 = (uint32_t)lens[k], type = types[k];
+    uint64_t lsn = next_lsn + (uint64_t)k;
+    memcpy(h, &magic, 4);
+    memcpy(h + 4, &type, 4);
+    memcpy(h + 8, &lsn, 8);
+    memcpy(h + 16, &t, 8);
+    memcpy(h + 24, &l32, 4);
+    uint32_t check = rec_check(h, pays[k], lens[k]);
+    memcpy(h + 28, &check, 4);
+    w.insert(w.end(), h, h + sizeof(h));
+    if(lens[k]) w.insert(w.end(), pays[k], pays[k] + lens[k]);
+  }
+  size_t total = w.size();
+  if(test_split_pair) total = gxdShipRecordHeaderSize + l1;   // Tests: a crash between the two
+  int ok = 1;
+  size_t off = 0;
+  while(ok && off < total) {
+    ssize_t n = pwrite(fd, w.data() + off, total - off, (off_t)(seg_end + off));
+    if(n <= 0) ok = 0;
+    else off += (size_t)n;
+  }
+  if(ok && sync && fdatasync(fd) != 0) ok = 0;
+  if(ok && test_split_pair == 2) _exit(9);   // Tests: the writer dies between the two (gxdShipLogTest)
+  if(ok && test_split_pair) {
+    test_split_pair = 0;
+    seg_end += total;
+    next_lsn++;
+    return fail("test: the commit record after the objects record was not written");
+  }
+  if(!ok) {
+    if(ftruncate(fd, (off_t)seg_end) != 0) { close(fd); fd = -1; }
+    return fail("cannot write the ship log in " + dir);
+  }
+  seg_end += total;
+  next_lsn += 2;
+  if(w.capacity() > 8 * 1024 * 1024) std::vector<unsigned char>().swap(w);
+  return 0;
+}
+
+int gxdShipLog::build_objects(const std::vector<gxdShipFile> &files, const std::vector<size_t> &keep,
+			      const std::vector<std::string> &names)
+// 11/14/2026: The objects record payload in obuf; 0 when the commit has no
+// object notes (notes off)
+{
+  obuf.clear();
+  bool any = false;
+  for(size_t i : keep) if(files[i].notes) { any = true; break; }
+  if(!any) return 0;
+  std::vector<unsigned char> body;
+  int all = 1;
+  sput32(body, (uint32_t)keep.size());
+  for(size_t j = 0; j < keep.size(); j++) {
+    const gxdShipFile &f = files[keep[j]];
+    const std::string &rel = names[j];
+    sput32(body, (uint32_t)rel.size());
+    body.insert(body.end(), rel.begin(), rel.end());
+    int complete = f.notes && f.notes->complete;
+    if(!complete) all = 0;
+    sput32(body, complete ? 1 : 0);
+    if(!complete) { sput32(body, 0); continue; }
+    sput32(body, (uint32_t)f.notes->notes.size());
+    for(auto &e : f.notes->notes) {
+      sput64(body, (uint64_t)e.first);
+      body.push_back(e.second.op);
+      sput32(body, e.second.old_len);
+      sput32(body, e.second.new_len);
+    }
+  }
+  uint32_t flags = all ? gxdShipObjectsComplete : 0;
+#if defined (DATAREEL_HAVE_ZLIB)
+  if(compress < 0) {
+    const char *e = getenv("GXDSHIP_COMPRESS");
+    compress = e ? atoi(e) : 1;
+    if(compress < 0 || compress > 9) compress = 1;
+  }
+  if(compress > 0 && body.size() > 256) {
+    uLongf zn = compressBound((uLong)body.size());
+    std::vector<unsigned char> z(8 + zn);
+    uint32_t raw = (uint32_t)body.size();
+    uint32_t crc = (uint32_t)crc32(crc32(0L, Z_NULL, 0), body.data(), (uInt)body.size());
+    memcpy(z.data(), &raw, 4);
+    memcpy(z.data() + 4, &crc, 4);
+    if(compress2(z.data() + 8, &zn, body.data(), (uLong)body.size(), compress) == Z_OK && 8 + zn < body.size()) {
+      z.resize(8 + zn);
+      body.swap(z);
+      flags |= gxdShipObjectsZlib;
+    }
+  }
+#endif
+  sput32(obuf, gxdShipObjectsFormat);
+  sput32(obuf, flags);
+  obuf.insert(obuf.end(), body.begin(), body.end());
+  return 1;
+}
+
 int gxdShipLog::write_files_list(const std::vector<std::string> &names)
 {
   std::string s;
@@ -676,6 +878,12 @@ int gxdShipLog::AppendCommit(const std::vector<gxdShipFile> &files)
     bool skip = false;
     for(auto &p : exclude)
       if(fnmatch(p.c_str(), base.c_str(), 0) == 0 || fnmatch(p.c_str(), rel.c_str(), 0) == 0) { skip = true; break; }
+    // 11/14/2026: "<excluded>.stamp" (a derived index stamp, gxdstamp.h) too (copies only for a stamp)
+    if(!skip && !exclude.empty() && gxdDerivedStamp::IsStamp(base)) {
+      std::string sbase = base.substr(0, base.size() - 6), srel = rel.substr(0, rel.size() - 6);
+      for(auto &p : exclude)
+	if(fnmatch(p.c_str(), sbase.c_str(), 0) == 0 || fnmatch(p.c_str(), srel.c_str(), 0) == 0) { skip = true; break; }
+    }
     if(!skip) keep.push_back(i);
   }
   // 11/10/2026: the commit block (SetCommitBlock) goes as the last file
@@ -699,6 +907,8 @@ int gxdShipLog::AppendCommit(const std::vector<gxdShipFile> &files)
       buf.insert(buf.end(), pg->data, pg->data + gxdPageSize);
     }
   }
+  // 11/14/2026: the objects record names the same files (not the commit block)
+  int have_objects = build_objects(files, keep, names);
   if(cb_pending) {
     names.push_back(cb_rel);
     sput32(buf, (uint32_t)cb_rel.size());
@@ -753,7 +963,9 @@ int gxdShipLog::AppendCommit(const std::vector<gxdShipFile> &files)
   }
 #endif
   stored_bytes += plen;
-  if(append(type, pay, plen) != 0) {
+  int arc = have_objects ? append2(gxdShipObjects, obuf.data(), obuf.size(), type, pay, plen)
+                         : append(type, pay, plen);
+  if(arc != 0) {
     pending_gap = 1;
     failures++;
     return -1;
@@ -859,6 +1071,17 @@ static int walk_segment(int f, const std::string &log_id,
   return 0;
 }
 
+// 11/14/2026 (review): a trailing objects record is held back while its commit may still come: the writer
+// writes both in one pwrite, so one older than 10 s (its own time) is an orphan (the writer died between
+// them) and is let go; the copy skips it (or, incremental, rebuilds). GetInfo() and Read() use the same rule.
+static bool hold_trailing_objects(const unsigned char *rec)
+{
+  if(sget32(rec + 4) != gxdShipObjects) return false;
+  long long t = (long long)sget64(rec + 16), now = (long long)now_us();
+  long long age = now - t;
+  return age >= 0 && age < 10LL * 1000000LL;
+}
+
 int gxdShipLogReader::scan_end(const std::vector<Seg> &segs,
 			       unsigned long long &next)
 {
@@ -872,11 +1095,13 @@ int gxdShipLogReader::scan_end(const std::vector<Seg> &segs,
     off = end_off; lsn = end_lsn;
   }
   unsigned long long at = off;
+  bool held = false;
   int rc = walk_segment(f, log_id, off, lsn,
 			[&](const std::vector<unsigned char> &rec, unsigned long long l) {
 			  if(at < gxdShipSegmentHeaderSize) at = gxdShipSegmentHeaderSize;
 			  index_add(last.path, l, at);
 			  at += rec.size();
+			  held = hold_trailing_objects(rec.data());
 			  return true; });
   close(f);
   if(rc != 0) {
@@ -888,6 +1113,9 @@ int gxdShipLogReader::scan_end(const std::vector<Seg> &segs,
   end_off = off;
   end_lsn = lsn;
   next = lsn;
+  // 11/14/2026: an objects record Read() holds back is not readable yet (the cursor stays after it: a later
+  // scan from there sees its commit, or nothing, and releases it once it is old)
+  if(held && next > last.first) { next--; end_off = 0; end_lsn = 0; end_path.clear(); }
   return 0;
 }
 
@@ -937,6 +1165,21 @@ int gxdShipLogReader::Read(unsigned long long from, size_t max_bytes,
   if(list_segments(segs) != 0) return -1;
   if(segs.empty()) return from <= 1 ? 0 : 1;
   if(from < segs.front().first) return 1;
+  // 11/14/2026: a batch never ends on an objects record (type 5): its
+  // commit (the next lsn) always goes in the same batch, over the budget
+  // if need be, and an objects record with nothing after it yet is held back
+  size_t last_start = 0;
+  uint32_t last_type = 0;
+  // force: the batch stopped before the commit that follows (budget, a big record): always held back; at the
+  // log's end: only while its commit may still come (hold_trailing_objects)
+  auto hold_back = [&](bool force) {
+    if(count > 0 && last_type == gxdShipObjects && (force || hold_trailing_objects(out.data() + last_start))) {
+      out.resize(last_start);
+      count--;
+      next--;
+      last_type = 0;
+    }
+  };
   size_t cost = 0;     // 11/10/2026: the records' cost (record_cost) against max_bytes
   size_t i = 0;
   for(size_t k = 0; k < segs.size(); k++) if(segs[k].first <= from) i = k;
@@ -967,28 +1210,35 @@ int gxdShipLogReader::Read(unsigned long long from, size_t max_bytes,
 	at += rec.size();
 	if(l < from) return true;
 	size_t c = record_cost(sget32(rec.data() + 4), sget32(rec.data() + 24), rec.data() + gxdShipRecordHeaderSize);
-	if(count > 0 && cost + c > max_bytes) {
+	uint32_t ty = sget32(rec.data() + 4);
+	bool pair_end = last_type == gxdShipObjects && (ty == gxdShipCommit || ty == gxdShipCommitZ);
+	if(count > 0 && cost + c > max_bytes && !pair_end) {
 	  full = 1;
 	  return false;
 	}
+	last_start = out.size();
+	last_type = ty;
 	out.insert(out.end(), rec.begin(), rec.end());
 	cost += c;
 	count++;
 	next = l + 1;
 	return true;
-      }, from, max_bytes, &big);
+      }, from, max_bytes, &big);   // a big commit after an objects record: both held back (resync)
     close(f);
+    if(big) hold_back(true);
     if(big && count == 0) { next = from; return 2; }   // 11/10/2026: the record at "from" is bigger than max_bytes
     if(big) return 0;                                  // a big one after some: send these first
     if(rc != 0) {
+      hold_back(true);
       if(count == 0) return 1; // A segment of another log id
       return 0;
     }
     rd_path = segs[i].path;
     rd_off = off;
     rd_lsn = lsn;
-    if(full) return 0;
+    if(full) { hold_back(true); return 0; }
   }
+  hold_back(false);
   if(count == 0 && next < from) next = from;
   return 0;
 }

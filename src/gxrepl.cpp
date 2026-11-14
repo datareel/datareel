@@ -38,6 +38,7 @@ Database replication over gxStream. See gxrepl.h. POSIX only.
 #include <errno.h>
 #include <fcntl.h>
 #include <fnmatch.h>
+#include <dlfcn.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -59,12 +60,18 @@ Database replication over gxStream. See gxrepl.h. POSIX only.
 #include <functional>
 #include <set>
 #include <thread>
+#include <condition_variable>
 #include "gxdjrnl.h"
 #include <sys/syscall.h>
 #include <sys/ioctl.h>
 #include <sys/statvfs.h>
 #include <linux/fs.h>
 #include "gxdpcache.h"
+#include "gxdstamp.h"
+#include "gxbtree.h"
+#include "gxdstage.h"
+#include "gxrextract.h"
+#include "gxvmember.h"
 
 #if defined (DATAREEL_HAVE_ZLIB)
 #include <zlib.h>
@@ -134,6 +141,16 @@ static long long sweep_every()
 {
   const char *e = getenv("GXREPL_SWEEP_SEC");
   return e && *e ? std::max(1LL, atoll(e)) : 60;
+}
+
+// 11/14/2026: test builds (-DGXREPL_TEST_HOOKS): GXREPL_TEST_POSITION_DELAY_MS=N sleeps between an apply's
+// transaction (its seals written) and its streams' applied position write (a position write that lags under load)
+static void test_position_delay()
+{
+#ifdef GXREPL_TEST_HOOKS
+  if(const char *d = getenv("GXREPL_TEST_POSITION_DELAY_MS"))
+    std::this_thread::sleep_for(std::chrono::milliseconds(atol(d)));
+#endif
 }
 
 static int lock_apply_bounded(int fd)
@@ -589,6 +606,19 @@ int gxReplConfig::Load(const std::string &fname, std::string &err)
       else if(k == "derived_rebuild") cur->derived_rebuild = v;
       else if(k == "derived_delay") cur->derived_delay = atoi(v.c_str());
       else if(k == "derived_busy_rebuild") cur->derived_busy_rebuild = atoi(v.c_str());   // 11/11/2026
+      else if(k == "derived_apply") {        // 11/14/2026: rebuild | incremental
+	if(v != "rebuild" && v != "incremental") {
+	  fclose(f); err = fname + ":" + std::to_string(ln) + ": derived_apply must be rebuild or incremental";
+	  return -1;
+	}
+	cur->derived_apply = v;
+      }
+      else if(k == "derived_extractor") cur->derived_extractor = v;
+      else if(k == "derived_extractor_config") cur->derived_extractor_config = v;
+      else if(k == "derived_source") cur->derived_source = v;
+      else if(k == "derived_apply_max_mb") cur->derived_apply_max_mb = strtoull(v.c_str(), 0, 10);
+      else if(k == "derived_count") cur->derived_count = v;   // 11/14/2026 (review 2)
+      else if(k == "derived_apply_max_s") cur->derived_apply_max_s = strtoull(v.c_str(), 0, 10);   // review 5
       else if(k == "staged_fill") cur->staged_fill = (v == "yes" || v == "true" || v == "1");   // 11/12/2026 F7
       else if(k == "stage_max_bytes") cur->stage_max_bytes = strtoull(v.c_str(), 0, 10);
       else known = false;
@@ -720,7 +750,16 @@ static bool is_derived(const gxReplSetConfig &sc, const std::string &rel)
   std::string base = rel.substr(rel.find_last_of('/') == std::string::npos ? 0 : rel.find_last_of('/') + 1);
   for(auto &p : sc.derived)
     if(fnmatch(p.c_str(), base.c_str(), 0) == 0 || fnmatch(p.c_str(), rel.c_str(), 0) == 0) return true;
+  // 11/14/2026: "<derived>.stamp" (gxdstamp.h) is derived too: a copy's own,
+  // never sent, never deleted, and a primary's never shipped over it
+  if(gxdDerivedStamp::IsStamp(base)) return is_derived(sc, rel.substr(0, rel.size() - 6));
   return false;
+}
+
+// 11/14/2026: a derived index file itself (not its stamp)
+static bool is_derived_index(const gxReplSetConfig &sc, const std::string &rel)
+{
+  return !gxdDerivedStamp::IsStamp(rel) && is_derived(sc, rel);
 }
 
 static bool excluded(const gxReplSetConfig &sc, const std::string &rel)
@@ -759,6 +798,10 @@ static bool is_db_file(const gxReplSetConfig &sc, const std::string &rel)
 {
   size_t k = rel.find_last_of('/');
   std::string base = k == std::string::npos ? rel : rel.substr(k + 1);
+  // 11/14/2026: a derived index stamp (<index>.stamp) and the rebuild's
+  // derived.stamp are never data files, even when an "include" pattern
+  // matches them
+  if(gxdDerivedStamp::IsStamp(base) || base == "derived.stamp") return false;
   size_t dot = base.find_last_of('.');
   std::string ext = dot == std::string::npos ? "" : base.substr(dot);
   if(ext == ".gxd" || ext == ".btx") return true;
@@ -1317,8 +1360,24 @@ static std::map<std::string, std::string> stages_of(const std::string &root)
 }
 
 // "": sealed and the same; else why not
-static std::string unit_seal_check(const gxReplSetConfig &sc, const std::string &rel, uint64_t gen)
+// 11/14/2026: the hashing half of a "gen G" seal's check: the unit's files against the seal text "have"
+static std::string unit_seal_hash_check(const gxReplSetConfig &sc, const std::string &rel, uint64_t gen,
+					const std::string &have)
 {
+  bool ok = true;
+  std::string now = unit_manifest(sc, sc.root, rel, gen, ok);
+  if(!ok) return "a file cannot be read";
+  if(now != have) return "its files differ from the seal of generation " + std::to_string((unsigned long long)gen);
+  return "";
+}
+
+// "defer" (11/14/2026, promote-check under the apply lock): a "gen G" seal at the right generation is not hashed
+// here: its text goes in *defer (cleared otherwise) and "" is returned; the caller runs unit_seal_hash_check once
+// it let go of the lock
+static std::string unit_seal_check(const gxReplSetConfig &sc, const std::string &rel, uint64_t gen,
+				   std::string *defer = 0)
+{
+  if(defer) defer->clear();
   std::string path = sc.root + "/.gxrepl/units/" + unit_key(rel), have;
   FILE *f = fopen(path.c_str(), "rb");
   if(!f) return "never sealed (no whole copy since the seal was added)";
@@ -1350,11 +1409,8 @@ static std::string unit_seal_check(const gxReplSetConfig &sc, const std::string 
   }
   if(sscanf(have.c_str(), "gen %llu", &sg) != 1) return "a damaged seal";
   if(sg != gen) return "sealed at generation " + std::to_string(sg) + ", the commit block says " + std::to_string((unsigned long long)gen);
-  bool ok = true;
-  std::string now = unit_manifest(sc, sc.root, rel, gen, ok);
-  if(!ok) return "a file cannot be read";
-  if(now != have) return "its files differ from the seal of generation " + std::to_string(sg);
-  return "";
+  if(defer) { *defer = have; return ""; }
+  return unit_seal_hash_check(sc, rel, gen, have);
 }
 
 
@@ -2109,6 +2165,31 @@ int gxReplLocal::SealGen(const std::string &set, const std::string &folder, uint
   return 0;
 }
 
+// 11/14/2026: stress measurements: GXREPL_STATS_FILE gets one line per apply lock hold and per derived rebuild,
+// "<unix ms> <kind> <set> <held ms> <detail>" (off unless the variable is set)
+static void stats_line(const std::string &kind, const std::string &set, double ms, const std::string &detail)
+{
+  static const char *path = getenv("GXREPL_STATS_FILE");
+  if(!path || !*path) return;
+  static std::mutex m;
+  std::lock_guard<std::mutex> g(m);
+  FILE *f = fopen(path, "a");
+  if(!f) return;
+  struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
+  fprintf(f, "%lld %s %s %.3f %s\n", (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000, kind.c_str(), set.c_str(), ms,
+	  detail.c_str());
+  fclose(f);
+}
+
+static double ms_since(const struct timespec &t0)
+{
+  struct timespec t1; clock_gettime(CLOCK_MONOTONIC, &t1);
+  return (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+}
+
+static void drop_stamps(const gxReplSetConfig &sc, const std::string &rel, const std::string &why, bool log_it = true,
+			bool all = false);   // 11/14/2026 (review 6)
+
 int gxReplLocal::apply_batch(SetState_ *s,
   std::map<std::string, std::pair<unsigned long long,
   std::map<unsigned long long, const unsigned char *> > > &pages,
@@ -2116,24 +2197,6 @@ int gxReplLocal::apply_batch(SetState_ *s,
   const std::function<int(std::string &)> &pre_lock)
 {
   if(pages.empty()) return 0;
-  // 11/10/2026: commit blocks after the files they describe, the unit seals
-  // last (one transaction; the order is the order the pages reach the files)
-  std::vector<gxdApplyFile> af;
-  for(int pass = 0; pass < 3; pass++) {
-    for(auto &e : pages) {
-      int kind = 0;
-      if(e.first.compare(0, s->root.size() + 15, s->root + "/.gxrepl/units/") == 0) kind = 2;
-      else if(!s->sc.commit_block.empty() && base_of(e.first) == s->sc.commit_block) kind = 1;
-      if(kind != pass) continue;
-      std::string dir = e.first.substr(0, e.first.find_last_of('/'));
-      if(mkdirs(dir) != 0) { err = "cannot make " + dir; return -1; }
-      gxdApplyFile f;
-      f.path = e.first;
-      f.size = e.second.first;
-      f.pages = e.second.second;
-      af.push_back(f);
-    }
-  }
   std::string jdir = s->root + "/.gxrepl";
   if(mkdirs(jdir) != 0) { err = "cannot make " + jdir; return -1; }
   std::string jname = jdir + "/apply.jnl";
@@ -2149,10 +2212,67 @@ int gxReplLocal::apply_batch(SetState_ *s,
     return -1;
   }
   struct LockGuard { int fd; ~LockGuard() { flock(fd, LOCK_UN); close(fd); } } lkg{lkfd};
+  // 11/14/2026: stress measurements (GXREPL_STATS_FILE): the apply lock hold, written as the lock goes
+  struct timespec held_t0; clock_gettime(CLOCK_MONOTONIC, &held_t0);
+  size_t held_pages = 0;
+  struct HeldStats { const std::string &set; struct timespec &t0; size_t &pages; double &peak;
+    ~HeldStats() { stats_line("apply", set, ms_since(t0), std::to_string(pages) + " " + std::to_string(peak)); } }
+    hst{s->sc.name, held_t0, held_pages, derived_peak_mb};   // (peak: the most of any batch so far)
   if(pre_lock && pre_lock(err) != 0) return -1;   // 11/13/2026 (F7 review 3): checked under the lock
+  // 11/14/2026: the file list is made after pre_lock, which may add pages (the incremental derived apply)
+  // 11/10/2026: commit blocks after the files they describe, the unit seals
+  // last (one transaction; the order is the order the pages reach the files)
+  // 11/14/2026 (review 6): data files, then the derived indexes, then their stamps (<index>.stamp, derived.stamp,
+  // the derived state), then the commit blocks, then the seals
+  const std::string units_dir = s->root + "/.gxrepl/units/", dstate_dir = s->root + "/.gxrepl/derived/";
+  auto kind_of = [&](const std::string &path) -> int {
+    if(path.compare(0, units_dir.size(), units_dir) == 0) return 4;
+    if(path.compare(0, dstate_dir.size(), dstate_dir) == 0) return 2;
+    std::string rel = path.compare(0, s->root.size() + 1, s->root + "/") == 0 ? path.substr(s->root.size() + 1) : path;
+    if(!s->sc.commit_block.empty() && base_of(rel) == s->sc.commit_block) return 3;
+    if(gxdDerivedStamp::IsStamp(base_of(rel)) || base_of(rel) == "derived.stamp") return 2;
+    if(is_derived(s->sc, rel)) return 1;
+    return 0;
+  };
+  // 11/14/2026 (review 6): one transaction holds at most part_files files (the journal's limit is 1024). A batch
+  // past it is applied in parts, which are not one transaction: a crash between them may leave data pages without
+  // the index pages made from them. So such a batch carries no index pages: they are dropped, with the folders'
+  // stamps, derived.stamp and derived state (removed before any page is written), and the derived pass rebuilds them.
+  size_t part_files = 1000;
+#ifdef GXREPL_TEST_HOOKS
+  if(const char *pf = getenv("GXREPL_TEST_APPLY_PART_FILES")) part_files = (size_t)strtoull(pf, 0, 10);   // tests only
+#endif
+  if(pages.size() > part_files) {
+    std::set<std::string> folders;
+    for(auto it = pages.begin(); it != pages.end(); ) {
+      int k = kind_of(it->first);
+      if(k == 1 || k == 2) {
+	std::string rel = it->first.compare(0, s->root.size() + 1, s->root + "/") == 0 ? it->first.substr(s->root.size() + 1) : it->first;
+	if(it->first.compare(0, dstate_dir.size(), dstate_dir) != 0) folders.insert(dir_of(rel));
+	it = pages.erase(it);
+      }
+      else ++it;
+    }
+    for(auto &u : folders) drop_stamps(s->sc, u, "the batch has more than " + std::to_string(part_files) +
+				       " files (applied in parts: no index pages in it)", true, true);
+  }
+  std::vector<gxdApplyFile> af;
+  for(int pass = 0; pass < 5; pass++) {
+    for(auto &e : pages) {
+      if(kind_of(e.first) != pass) continue;
+      std::string dir = e.first.substr(0, e.first.find_last_of('/'));
+      if(mkdirs(dir) != 0) { err = "cannot make " + dir; return -1; }
+      gxdApplyFile f;
+      f.path = e.first;
+      f.size = e.second.first;
+      f.pages = e.second.second;
+      af.push_back(f);
+    }
+  }
+  for(auto &f : af) held_pages += f.pages.size();
   // At most 1024 files a transaction
-  for(size_t i = 0; i < af.size(); i += 1000) {
-    std::vector<gxdApplyFile> part(af.begin() + i, af.begin() + std::min(af.size(), i + 1000));
+  for(size_t i = 0; i < af.size(); i += part_files) {
+    std::vector<gxdApplyFile> part(af.begin() + i, af.begin() + std::min(af.size(), i + part_files));
     unsigned long long n = 0;
     gxDatabaseError rc = gxdJournal::ApplyPages(jname.c_str(), part, &n);
     if(rc != gxDBASE_NO_ERROR) {
@@ -2271,16 +2391,22 @@ static bool fill_copying(const std::string &seal)
 // 11/10/2026 (review): the seals of a ship log apply, in its transaction:
 // - a unit whose last changing record lacked its commit block: "copying-log"
 //   (its data is past its commit block; torn until a record carries it);
-// - a unit whose commit block came (allow()): "log G L S" (generation, lsn,
-//   stream);
-// - every other unit sealed "log G L S" by this stream: L moves to "lsn" (an
+// - a unit whose commit block came (allow()): "log G L S C" (generation, lsn,
+//   stream, and C, 11/14/2026: the last record that changed this unit, here L);
+// - every other unit sealed "log G L S C" by this stream: L moves to "lsn" (an
 //   open or gap record changes no data), so a seal's L always equals the
-//   stream's applied lsn and promote-check can compare them.
+//   stream's applied lsn and promote-check can compare them; C stays (11/14/2026,
+//   seal per folder: the unit's derived indexes, stamped at C, stay current
+//   while the stream's other folders change). Readers before C ignore it; a seal
+//   without C reads as C = L.
+// fresh (11/14/2026, seal per folder review 2): units not in step with the stream (a first fill, a new log id:
+// its lsn numbering starts again): their last change is this record, never one kept from an older numbering
 static int add_unit_seals(const gxReplSetConfig &sc, const std::string &root, PageBatch &batch,
 			  unsigned long long lsn, const std::string &stream,
 			  const std::map<std::string, bool> &unit_cb,
 			  std::deque<std::string> &seals, std::string &err,
-			  const std::function<bool(const std::string &)> &allow)
+			  const std::function<bool(const std::string &)> &allow,
+			  const std::set<std::string> *fresh = 0)
 {
   if(sc.commit_block.empty()) return 0;
   std::vector<std::pair<std::string, std::string> > add;
@@ -2300,8 +2426,32 @@ static int add_unit_seals(const gxReplSetConfig &sc, const std::string &root, Pa
     uint64_t g = 0;
     memcpy(&g, pg->second + sc.commit_gen_offset, 8);
     if(g & 1) continue;                              // a block inside a batch: never a seal
+    // 11/14/2026 (seal per folder): the 4th field is the last record that changed THIS folder (here: this batch),
+    // unless the batch only re-sent the folder as it was sealed (a verify after a writer's open or a gap: the same
+    // commit block generation, sealed by this stream, and no page of the folder's other files): then its last
+    // change stays, and so do its derived indexes
+    unsigned long long changed_at = lsn;
+    {
+      const std::string unit = dir_of(rel);
+      FILE *sf = fopen((root + "/.gxrepl/units/" + unit_key(unit)).c_str(), "rb");
+      char sname[256] = {0}; unsigned long long og = 0, ol = 0, oc = 0;
+      int got = sf ? fscanf(sf, "log %llu %llu %255s %llu", &og, &ol, sname, &oc) : 0;
+      if(sf) fclose(sf);
+      unsigned long long kept = got >= 4 ? oc : ol;
+      if(got >= 3 && og == (unsigned long long)g && stream == sname && ol <= lsn && kept <= lsn &&
+	 !(fresh && fresh->count(unit))) {
+	bool pages = false;
+	for(auto &o : batch) {
+	  if(o.first.compare(0, root.size() + 1, root + "/") != 0) continue;
+	  std::string orel = o.first.substr(root.size() + 1);
+	  if(dir_of(orel) != unit || base_of(orel) == sc.commit_block || is_derived(sc, orel)) continue;
+	  if(!o.second.second.empty()) { pages = true; break; }
+	}
+	if(!pages) changed_at = kept;
+      }
+    }
     add.push_back(std::make_pair(dir_of(rel), "log " + std::to_string((unsigned long long)g) + " " +
-				 std::to_string(lsn) + " " + stream + "\n"));
+				 std::to_string(lsn) + " " + stream + " " + std::to_string(changed_at) + "\n"));
     done.insert(dir_of(rel));
   }
   // carry forward: this stream's other "log" seals follow its lsn
@@ -2314,20 +2464,553 @@ static int add_unit_seals(const gxReplSetConfig &sc, const std::string &root, Pa
       if(n.empty() || n[0] != '_') continue;
       FILE *f = fopen((ud + "/" + n).c_str(), "rb");
       if(!f) continue;
-      char sname[256] = {0}; unsigned long long g = 0, l = 0;
-      int got = fscanf(f, "log %llu %llu %255s", &g, &l, sname);
+      char sname[256] = {0}; unsigned long long g = 0, l = 0, c = 0;
+      int got = fscanf(f, "log %llu %llu %255s %llu", &g, &l, sname, &c);
       fclose(f);
-      if(got != 3 || stream != sname || l == lsn) continue;
+      if(got < 3 || stream != sname || l == lsn) continue;
+      if(got < 4) c = l;          // 11/14/2026: a seal from before the 4th field: changed at most at its lsn
+      if(c > lsn) c = lsn;        // review 2: never past the stream's position (another numbering)
       std::string unit = n == "_root" ? std::string() : n.substr(1);
-      for(auto &c : unit) if(c == '#') c = '/';
+      for(auto &ch : unit) if(ch == '#') ch = '/';
       if(done.count(unit)) continue;
-      add.push_back(std::make_pair(unit, "log " + std::to_string(g) + " " + std::to_string(lsn) + " " + stream + "\n"));
+      // 11/14/2026 (seal per folder): the stream's position moves on, the folder's own last change stays
+      add.push_back(std::make_pair(unit, "log " + std::to_string(g) + " " + std::to_string(lsn) + " " + stream + " " +
+				   std::to_string(c) + "\n"));
     }
     if(d) closedir(d);
   }
   if(!add.empty() && mkdirs(root + "/.gxrepl/units") != 0) { err = "cannot make the seals folder"; return -1; }
   for(auto &a2 : add) put_seal(batch, root, a2.first, a2.second, seals);
   return 0;
+}
+
+// ---------------- Incremental derived apply (11/14/2026, 7.4) ----------------
+// A set with derived_apply = incremental keeps each derived index of a folder object by object: the objects records
+// (gxdShipObjects) of a batch say which objects of the folder's derived_source file were added, changed and removed;
+// the extractor (gxrextract.h) removes the old bytes and inserts the new ones inside a staged scope (gxdstage.h:
+// nothing it writes reaches a file), and its changed pages, each index's <index>.stamp, the folder's derived.stamp
+// and derived state go into the batch with the data pages, the seal and (right after, F6) the position: one atomic
+// apply. Anything the copy cannot do exactly is "rebuild needed": the index stamps go, the derived pass rebuilds the
+// folder (derived_rebuild) and writes fresh stamps.
+static unsigned long long unit_log_lsn(const gxReplSetConfig &sc, const std::string &rel, unsigned long long *gen);
+static unsigned long long unit_changed_lsn(const gxReplSetConfig &sc, const std::string &rel);   // 11/14/2026
+static bool is_derived_index(const gxReplSetConfig &sc, const std::string &rel);
+static std::string derived_state_path(const gxReplSetConfig &sc, const std::string &rel);
+
+struct gxrExtractor_ {
+  void *so = 0;
+  const gxrExtractorOps *ops = 0;
+  std::string err;
+};
+
+// 11/14/2026: built-in extractors, linked into the program (gxrRegisterExtractor()), found by name first; only a
+// path ending in ".so" is loaded with dlopen (the program must export DataReel's symbols to it: ENABLE_EXPORTS)
+static std::mutex &extractor_mutex() { static std::mutex m; return m; }
+static std::map<std::string, const gxrExtractorOps *> &extractor_registry()
+{
+  // 11/14/2026 (7.4 merge): the library's own extractor, "gxvmember" (gxvmember.h: vector indexes derived
+  // from the records' vector members), is always there
+  static std::map<std::string, const gxrExtractorOps *> r = { { "gxvmember", gxvMemberExtractor() } };
+  return r;
+}
+
+int gxrRegisterExtractor(const char *name, const gxrExtractorOps *ops)
+{
+  if(!name || !*name || !ops || ops->abi_version != GXR_EXTRACTOR_ABI) return -1;
+  std::lock_guard<std::mutex> g(extractor_mutex());
+  extractor_registry()[name] = ops;
+  return 0;
+}
+
+static const gxrExtractorOps *load_extractor(const std::string &spec, std::string &err)
+{
+  static std::map<std::string, gxrExtractor_> loaded;
+  std::lock_guard<std::mutex> g(extractor_mutex());
+  auto r = extractor_registry().find(spec);
+  if(r != extractor_registry().end()) { err.clear(); return r->second; }
+  auto it = loaded.find(spec);
+  if(it != loaded.end()) { err = it->second.err; return it->second.ops; }
+  gxrExtractor_ &x = loaded[spec];
+  bool so = spec.size() > 3 && spec.compare(spec.size() - 3, 3, ".so") == 0;
+  if(spec.empty()) x.err = "no derived_extractor";
+  else if(!so) x.err = "no built-in extractor named " + spec + " (a shared library path must end in .so)";
+  else {
+    x.so = dlopen(spec.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if(!x.so) x.err = std::string("cannot load ") + spec + ": " + dlerror();
+    else {
+      gxrExtractorEntry e = (gxrExtractorEntry)dlsym(x.so, "gxr_extractor");
+      const gxrExtractorOps *o = e ? e() : 0;
+      if(!o) x.err = spec + " has no gxr_extractor()";
+      else if(o->abi_version != GXR_EXTRACTOR_ABI) x.err = spec + ": extractor ABI " + std::to_string(o->abi_version) +
+						     ", gxrepl needs " + std::to_string(GXR_EXTRACTOR_ABI);
+      else if(!o->Open || !o->Remove || !o->Insert || !o->Flush || !o->Close || !o->Count) x.err = spec + ": missing calls";
+      else x.ops = o;
+    }
+  }
+  err = x.err;
+  return x.ops;
+}
+
+static std::string derived_dir(const gxReplSetConfig &sc) { return sc.root + "/.gxrepl/derived"; }
+static std::string breaker_path(const gxReplSetConfig &sc) { return derived_dir(sc) + "/incremental.breaker"; }
+static std::string try_path(const gxReplSetConfig &sc) { return derived_dir(sc) + "/incremental.try"; }
+// 11/14/2026 (review 4): the times (unix seconds) the index step stopped gxrepl, any batch, the last hour's kept
+static std::string crashes_path(const gxReplSetConfig &sc) { return derived_dir(sc) + "/incremental.crashes"; }
+static const int breaker_window_s = 3600, breaker_crashes = 3;
+// 11/14/2026 (review 10): written when a batch's commits came without objects records (the source's object notes
+// off: every batch is rebuilt), removed when a folder is applied object by object again
+static std::string notes_off_path(const gxReplSetConfig &sc) { return derived_dir(sc) + "/notes_off"; }
+
+static bool breaker_on(const gxReplSetConfig &sc, std::string *why = 0)
+{
+  FILE *f = fopen(breaker_path(sc).c_str(), "r");
+  if(!f) return false;
+  char b[512] = {0};
+  size_t n = fread(b, 1, sizeof(b) - 1, f);
+  fclose(f);
+  if(why) { *why = std::string(b, n); while(!why->empty() && why->back() == '\n') why->pop_back(); }
+  return true;
+}
+
+// The index files of a folder (derived, not stamps), sorted
+static std::vector<std::string> folder_indexes(const gxReplSetConfig &sc, const std::string &rel)
+{
+  std::vector<std::string> out;
+  std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
+  DIR *d = opendir(dir.c_str());
+  struct dirent *e;
+  while(d && (e = readdir(d)) != 0) {
+    std::string n = e->d_name;
+    if(n[0] == '.') continue;
+    if(is_derived_index(sc, rel.empty() ? n : rel + "/" + n)) out.push_back(n);
+  }
+  if(d) closedir(d);
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+// 11/14/2026 (review 2): the index whose count is derived.stamp's keys (derived_count, else the first by name)
+static bool counted_index(const gxReplSetConfig &sc, const std::vector<std::string> &ixs, size_t k)
+{
+  if(sc.derived_count.empty()) return false;          // re-review B: incremental refuses a set without it
+  return fnmatch(sc.derived_count.c_str(), ixs[k].c_str(), 0) == 0;
+}
+
+// Rebuild needed: the stamps of a folder's indexes go (under the apply lock), so nothing applies to them
+// object by object until the derived pass rebuilt them and stamped them again
+// 11/14/2026 (review 8): all = a fill by files (either mode): derived.stamp and the folder's derived state go too, so
+// the derived pass sees the indexes as missing and rebuilds them (before, a verify fill left derived.stamp and the
+// state "ok": no rebuild ever came and no stamps came back, the 9,680-commit burst hung 10 minutes)
+static void drop_stamps(const gxReplSetConfig &sc, const std::string &rel, const std::string &why, bool log_it,
+			bool all)
+{
+  std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
+  int n = 0;
+  for(auto &ix : folder_indexes(sc, rel))
+    if(unlink(gxdDerivedStamp::PathFor(dir + "/" + ix).c_str()) == 0) n++;
+  if(all) {
+    if(unlink((dir + "/derived.stamp").c_str()) == 0) n++;
+    if(unlink(derived_state_path(sc, rel).c_str()) == 0) n++;
+  }
+  if(n && log_it) glog("set %s: %s: derived indexes: rebuild needed: %s", sc.name.c_str(),
+		       rel.empty() ? "." : rel.c_str(), why.c_str());
+}
+
+// After a rebuild of an incremental set's folder (the derived pass, under the apply lock): fresh stamps at the
+// folder's seal (its stream's log id, the lsn it was sealed at)
+static int stamp_after_rebuild(const gxReplSetConfig &sc, const std::string &rel, std::string &why)
+{
+  std::string seal;
+  {
+    FILE *f = fopen((sc.root + "/.gxrepl/units/" + unit_key(rel)).c_str(), "rb");
+    if(f) { char b[512]; size_t n = fread(b, 1, sizeof(b), f); seal.assign(b, n); fclose(f); }
+  }
+  unsigned long long g = 0, l = 0, c = 0;
+  char sname[256] = {0};
+  int sgot = sscanf(seal.c_str(), "log %llu %llu %255s %llu", &g, &l, sname, &c);
+  if(sgot < 3) { why = "not sealed by a ship log record"; return 1; }
+  if(sgot < 4) c = l;     // 11/14/2026 (seal per folder): stamped at the folder's last change, not the stream's position
+  FILE *sf = fopen((sc.root + "/.gxrepl/state/" + sname + ".state").c_str(), "r");
+  if(!sf) { why = std::string("no position for stream ") + sname; return 1; }
+  char id[64] = {0}; unsigned long long al = 0;
+  int got = fscanf(sf, "%63s %llu", id, &al);
+  fclose(sf);
+  if(got != 2) { why = "a damaged stream position"; return 1; }
+  std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
+  // 11/14/2026 (review 2): each index's own count, read by the extractor in a throwaway staged scope (nothing it
+  // does reaches a file); without the extractor the count stays 0 (unknown)
+  std::string lerr;
+  const gxrExtractorOps *ops = sc.derived_extractor.empty() ? 0 : load_extractor(sc.derived_extractor, lerr);
+  std::string src_full;
+  if(ops && !sc.derived_source.empty()) {
+    DIR *dd = opendir(dir.c_str());
+    struct dirent *de;
+    while(dd && (de = readdir(dd)) != 0)
+      if(de->d_name[0] != '.' && fnmatch(sc.derived_source.c_str(), de->d_name, 0) == 0) { src_full = dir + "/" + de->d_name; break; }
+    if(dd) closedir(dd);
+  }
+  for(auto &ix : folder_indexes(sc, rel)) {
+    gxdStampData d;
+    d.log_id = id; d.lsn = c; d.time_us = (unsigned long long)time(0) * 1000000ULL;
+    d.digest_kind = ix.size() > 4 && ix.compare(ix.size() - 4, 4, ".btx") == 0 ? gxdStampDigestBtree : gxdStampDigestBytes;
+    if(ops && !src_full.empty()) {
+      gxdStagedScope scope;
+      char e[512] = {0};
+      void *h = ops->Open((dir + "/" + ix).c_str(), src_full.c_str(), sc.derived_extractor_config.c_str(), e, sizeof(e));
+      if(h) { d.records = ops->Count(h); ops->Close(h); }
+      else glog("set %s: %s: %s: stamped with no count (0): the extractor did not open it: %s", sc.name.c_str(),   // re-review G
+		rel.empty() ? "." : rel.c_str(), ix.c_str(), e);
+    }
+    if(gxdDerivedStamp::WriteFresh(gxdDerivedStamp::PathFor(dir + "/" + ix), d) != 0) { why = "cannot stamp " + ix; return -1; }
+  }
+  return 0;
+}
+
+// One object's change across a batch
+struct ObjChange_ { unsigned char op = 0; uint32_t old_len = 0, new_len = 0; };
+
+// Merge a later change of the same object into the batch's one (the gxdObjectNotes rules); false: cannot be exact
+static bool merge_change(std::map<unsigned long long, ObjChange_> &m, const gxdShipObject &o)
+{
+  auto it = m.find(o.address);
+  if(it == m.end()) { ObjChange_ c; c.op = o.op; c.old_len = o.old_len; c.new_len = o.new_len; m[o.address] = c; return true; }
+  ObjChange_ &c = it->second;
+  if(c.op == gxdObjectAdd && o.op == gxdObjectUpdate) { c.new_len = o.new_len; return true; }
+  if(c.op == gxdObjectAdd && o.op == gxdObjectRemove) { m.erase(it); return true; }
+  if(c.op == gxdObjectUpdate && o.op == gxdObjectUpdate) { c.new_len = o.new_len; return true; }
+  if(c.op == gxdObjectUpdate && o.op == gxdObjectRemove) { c.op = gxdObjectRemove; c.new_len = 0; return true; }
+  if(c.op == gxdObjectRemove && o.op == gxdObjectAdd) { c.op = gxdObjectUpdate; c.new_len = o.new_len; return true; }
+  return false;
+}
+
+// Bytes [addr, addr + len) of a file as it will be after the batch: the batch's pages over the file
+static bool bytes_after(int fd, const std::map<unsigned long long, const unsigned char *> *pages,
+			unsigned long long addr, uint32_t len, std::vector<unsigned char> &out)
+{
+  out.assign(len, 0);
+  unsigned long long done = 0;
+  while(done < len) {
+    unsigned long long a = addr + done, pg = a / gxdPageSize, in = a % gxdPageSize;
+    unsigned long long n = std::min<unsigned long long>(gxdPageSize - in, len - done);
+    const unsigned char *src = 0;
+    if(pages) { auto it = pages->find(pg); if(it != pages->end()) src = it->second; }
+    if(src) memcpy(out.data() + done, src + in, n);
+    else if(fd >= 0) {
+      ssize_t r = pread(fd, out.data() + done, n, (off_t)a);
+      if(r < 0) return false;          // short: past the end of the file, zeros (as the batch extends it)
+    }
+    done += n;
+  }
+  return true;
+}
+
+static bool bytes_before(int fd, unsigned long long addr, uint32_t len, std::vector<unsigned char> &out)
+{
+  out.assign(len, 0);
+  return fd >= 0 && pread(fd, out.data(), len, (off_t)addr) == (ssize_t)len;
+}
+
+// 11/14/2026: gxrReadAfterBatch() (gxrextract.h): the batch of this thread's extractor calls
+static thread_local const PageBatch *extract_batch = 0;
+
+extern "C" int gxrReadAfterBatch(const char *path, uint64_t offset, void *buf, uint32_t len)
+{
+  if(!extract_batch || !path || !buf) return -1;
+  const std::map<unsigned long long, const unsigned char *> *pages = 0;
+  auto e = extract_batch->find(path);
+  if(e != extract_batch->end()) pages = &e->second.second;
+  int fd = open(path, O_RDONLY | O_CLOEXEC);
+  std::vector<unsigned char> b;
+  bool ok = bytes_after(fd, pages, offset, len, b);
+  if(fd >= 0) close(fd);
+  if(!ok) return -1;
+  memcpy(buf, b.data(), len);
+  return (int)len;
+}
+
+// Index file identity, to catch an extractor that wrote outside the staged scope
+static std::string file_id(const std::string &path)
+{
+  struct stat st;
+  if(stat(path.c_str(), &st) != 0) return "none";
+  return std::to_string((unsigned long long)st.st_size) + ":" + std::to_string((long long)st.st_mtim.tv_sec) + "." +
+    std::to_string((long long)st.st_mtim.tv_nsec);
+}
+
+// 11/14/2026 (review 5): the hard watchdog of one batch's index step: a call into the extractor that never returns
+// holds the apply lock for good, so past the limit gxrepl stops (ALERT, exit 8; the try file left behind counts the
+// crash for the breaker) and its restart applies the batch again, by rebuild once the breaker trips
+struct StepWatchdog_ {
+  std::mutex m;
+  std::condition_variable cv;
+  bool done = false;
+  std::thread t;
+  StepWatchdog_(const std::string &set, unsigned long long limit_s) {
+    if(!limit_s) return;
+    t = std::thread([this, set, limit_s] {
+      std::unique_lock<std::mutex> l(m);
+      if(!cv.wait_for(l, std::chrono::seconds(limit_s), [this] { return done; })) {
+	glog("ALERT set %s: the derived index step has run %llu s (an extractor call that never returns): gxrepl stops",
+	     set.c_str(), limit_s);
+	_exit(8);
+      }
+    });
+  }
+  ~StepWatchdog_() {
+    if(!t.joinable()) return;
+    { std::lock_guard<std::mutex> l(m); done = true; }
+    cv.notify_all();
+    t.join();
+  }
+};
+
+// The incremental step of one batch, under the apply lock, before a page is written. Adds the index pages and
+// stamps to "batch" (their bytes in "store"). Never fails the batch: a folder it cannot do is "rebuild needed".
+// peak_mb: the most staged MB seen (stress tests).
+static void incremental_apply(const gxReplSetConfig &sc, const std::string &root, const std::string &stream_log_id,
+			      const std::vector<gxdShipRecordView> &recs, PageBatch &batch,
+			      std::deque<std::vector<unsigned char> > &store, std::deque<std::string> &texts,
+			      const std::map<std::string, bool> &unit_cb, unsigned long long last, bool &tried,
+			      double *peak_mb = 0)
+{
+  tried = false;
+  if(recs.empty()) return;
+  unsigned long long first = recs.front().lsn;
+  // 11/14/2026 (review 5): the cap is for the whole batch (every folder and index), and the step has a time limit
+  unsigned long long batch_bytes = 0;
+  struct timespec step_t0; clock_gettime(CLOCK_MONOTONIC, &step_t0);
+  auto over_time = [&]() { return sc.derived_apply_max_s && ms_since(step_t0) > (double)sc.derived_apply_max_s * 1000.0; };
+  unsigned long long hard = sc.derived_apply_max_s ? std::max(sc.derived_apply_max_s * 4, sc.derived_apply_max_s + 60) : 0;
+#ifdef GXREPL_TEST_HOOKS
+  if(const char *hw = getenv("GXREPL_TEST_WATCHDOG_S")) hard = strtoull(hw, 0, 10);   // test builds only
+#endif
+  StepWatchdog_ dog(sc.name, hard);
+  // The folders this batch changes (their non-derived files)
+  std::set<std::string> units;
+  bool orphan = false;
+  for(size_t i = 0; i < recs.size(); i++) {
+    if(gxdShipObjectsOrphan(recs, i)) orphan = true;
+    const gxdShipRecordView &r = recs[i];
+    if(r.type != gxdShipCommit && r.type != gxdShipCommitZ) continue;
+    std::vector<unsigned char> st;
+    std::vector<gxdShipCommitFile> fl;
+    if(gxdParseShipCommitRecord(r, st, fl) != 0) continue;
+    for(auto &f : fl) if(!is_derived(sc, f.name)) units.insert(dir_of(f.name));
+  }
+  std::string mode_why;
+  const gxrExtractorOps *ops = 0;
+  if(sc.commit_block.empty()) mode_why = "incremental needs commit_block";
+  else if(sc.derived_source.empty()) mode_why = "no derived_source";
+  else if(sc.derived_count.empty()) mode_why = "incremental needs derived_count (the index with one entry per record)";   // re-review B
+  else if(breaker_on(sc, &mode_why)) mode_why = "the breaker is on (" + mode_why + "; gxrepl derived rebuild clears it)";
+  else ops = load_extractor(sc.derived_extractor, mode_why);
+  for(auto &u : units) {
+    std::string dir = u.empty() ? root : root + "/" + u;
+    std::vector<std::string> ixs = folder_indexes(sc, u);
+    if(ixs.empty()) continue;                         // the derived pass makes them
+    auto need = [&](const std::string &why) { drop_stamps(sc, u, why); };
+    if(!ops) { need(mode_why); continue; }
+    if(over_time()) { need("the index step passed derived_apply_max_s"); continue; }   // 11/14/2026 (review 5)
+    if(orphan) { need("an objects record without its commit (a writer crash between them)"); continue; }
+    auto cb = unit_cb.find(u);
+    if(cb == unit_cb.end() || !cb->second) { need("the batch changed the folder without its commit block"); continue; }
+    // Every index stamped at the folder's last change (the seal's 4th field, 11/14/2026 seal per folder: not the
+    // stream's position, which records of the stream's other folders move on), of this stream's log
+    unsigned long long seal_lsn = unit_changed_lsn(sc, u);
+    bool skip = false, bad = false;
+    std::string why;
+    for(auto &ix : ixs) {
+      gxdStampData d;
+      int rc = gxdDerivedStamp::ReadFile(gxdDerivedStamp::PathFor(dir + "/" + ix), d);
+      if(rc == 1) { bad = true; why = ix + " has no stamp"; break; }
+      if(rc != 0) { bad = true; why = ix + " has a damaged stamp"; break; }
+      if(d.log_id != stream_log_id) { bad = true; why = ix + " is stamped for another ship log"; break; }
+      if(d.lsn >= last) { skip = true; continue; }      // a batch applied again after a crash: the index has it
+      if(d.lsn >= first) { bad = true; why = ix + " is stamped inside this batch"; break; }
+      if(d.lsn != seal_lsn) { bad = true; why = ix + " is stamped at " + std::to_string(d.lsn) + ", the folder at " +
+			      std::to_string(seal_lsn); break; }
+    }
+    if(bad) { need(why); continue; }
+    if(skip) continue;
+    // The folder's data file and its object changes, commit by commit
+    std::string src_rel;
+    std::map<unsigned long long, ObjChange_> changes;
+    for(size_t i = 0; i < recs.size() && !bad; i++) {
+      const gxdShipRecordView &r = recs[i];
+      if(r.type != gxdShipCommit && r.type != gxdShipCommitZ) continue;
+      std::vector<unsigned char> st;
+      std::vector<gxdShipCommitFile> fl;
+      if(gxdParseShipCommitRecord(r, st, fl) != 0) { bad = true; why = "a damaged commit record"; break; }
+      std::string here;
+      for(auto &f : fl)
+	if(dir_of(f.name) == u && fnmatch(sc.derived_source.c_str(), base_of(f.name).c_str(), 0) == 0) here = f.name;
+      if(here.empty()) continue;                      // this commit left the data file alone
+      if(!src_rel.empty() && src_rel != here) { bad = true; why = "two data files match derived_source"; break; }
+      src_rel = here;
+      gxdShipObjectsRecord o;
+      int orc = gxdShipObjectsFor(recs, i, o);
+      if(orc != 1) { bad = true; why = orc < 0 ? "a damaged objects record" : "a commit without its objects record (lsn " +
+		     std::to_string(r.lsn) + ")";
+	if(orc == 0) write_atomic(notes_off_path(sc), std::to_string((long long)time(0)) + " " + why + "\n");   // review 10
+	break; }
+      const gxdShipObjectFile *of = 0;
+      for(auto &f : o.files) if(f.name == here) of = &f;
+      if(!of || !of->complete) { bad = true; why = "the objects of " + here + " are not all known (lsn " + std::to_string(r.lsn) + ")"; break; }
+      for(auto &ob : of->objects) if(!merge_change(changes, ob)) { bad = true; why = "an object changed in a way that cannot be followed"; break; }
+    }
+    if(bad) { need(why); continue; }
+    // derived.stamp now: the object count goes on from it
+    unsigned long long dg = 0, dl = 0, dn = 0, dk = 0;
+    std::string dtail;   // 11/14/2026: the rebuild's own fields after "keys K" (e.g. OSA's keys_version): kept
+    {
+      FILE *f = fopen((dir + "/derived.stamp").c_str(), "r");
+      int got = f ? fscanf(f, "gen %llu lsn %llu records %llu keys %llu", &dg, &dl, &dn, &dk) : 0;
+      if(f && got == 4) { char b[256] = {0}; if(fgets(b, sizeof(b), f)) dtail = b; }
+      if(f) fclose(f);
+      if(got != 4) { need("no derived.stamp to count from"); continue; }
+      while(!dtail.empty() && (dtail.back() == '\n' || dtail.back() == '\r')) dtail.pop_back();
+    }
+    // The generation the batch's commit block gives the folder
+    uint64_t gen = 0;
+    {
+      std::string cbfull = dir + "/" + sc.commit_block;
+      auto e = batch.find(cbfull);
+      auto pg = e == batch.end() ? e->second.second.end() : e->second.second.find(0);
+      if(e == batch.end() || pg == e->second.second.end()) { need("the batch has no commit block page"); continue; }
+      memcpy(&gen, pg->second + sc.commit_gen_offset, 8);
+      if(gen & 1) { need("the commit block is odd"); continue; }
+    }
+    std::string src_full = root + "/" + src_rel;
+    const std::map<unsigned long long, const unsigned char *> *src_pages = 0;
+    {
+      auto e = batch.find(src_full);
+      if(e != batch.end()) src_pages = &e->second.second;
+    }
+    long long adds = 0, removes = 0;
+    for(auto &c : changes) { if(c.second.op == gxdObjectAdd) adds++; else if(c.second.op == gxdObjectRemove) removes++; }
+    if(!src_rel.empty() && (long long)dn + adds - removes < 0) { need("the object count would go below zero"); continue; }
+    // The extractor, in a staged scope, index by index
+    tried = true;
+    int fd = src_rel.empty() ? -1 : open(src_full.c_str(), O_RDONLY | O_CLOEXEC);
+    std::vector<std::pair<std::string, std::string> > ids;
+    for(auto &ix : ixs) ids.push_back(std::make_pair(dir + "/" + ix, file_id(dir + "/" + ix)));
+    std::vector<gxdStagedFile> staged;
+    unsigned long long count = 0;
+    bool counted = false;
+    double mb_cap = (double)sc.derived_apply_max_mb;
+    {
+      gxdStagedScope scope;
+      struct BatchSet { BatchSet(const PageBatch *b) { extract_batch = b; } ~BatchSet() { extract_batch = 0; } } bset(&batch);
+      char e[512] = {0};
+      std::vector<unsigned char> b;
+      for(size_t k = 0; k < ixs.size() && !bad; k++) {
+	if(over_time()) { bad = true; why = "the index step passed derived_apply_max_s"; break; }   // re-review E
+	std::string ip = dir + "/" + ixs[k];
+	void *h = ops->Open(ip.c_str(), src_full.c_str(), sc.derived_extractor_config.c_str(), e, sizeof(e));
+	if(!h) { bad = true; why = ixs[k] + ": extractor open: " + e; break; }
+	for(auto &c : changes) {
+	  if(c.second.op == gxdObjectAdd) continue;
+	  if(!bytes_before(fd, c.first, c.second.old_len, b)) { bad = true; why = "cannot read an old object"; break; }
+	  if(ops->Remove(h, c.first, b.data(), c.second.old_len, e, sizeof(e)) != 0) { bad = true; why = ixs[k] + ": extractor remove: " + e; break; }
+	  double mb = (batch_bytes + scope.StagedBytes()) / 1048576.0;
+	  if(peak_mb && mb > *peak_mb) *peak_mb = mb;
+	  if(mb > mb_cap) { bad = true; why = "the batch's staged index pages passed derived_apply_max_mb"; break; }
+	  if(over_time()) { bad = true; why = "the index step passed derived_apply_max_s"; break; }
+	}
+	for(auto it = changes.begin(); !bad && it != changes.end(); ++it) {
+	  if(it->second.op == gxdObjectRemove) continue;
+	  if(!bytes_after(fd, src_pages, it->first, it->second.new_len, b)) { bad = true; why = "cannot read a new object"; break; }
+	  if(ops->Insert(h, it->first, b.data(), it->second.new_len, e, sizeof(e)) != 0) { bad = true; why = ixs[k] + ": extractor insert: " + e; break; }
+	  double mb = (batch_bytes + scope.StagedBytes()) / 1048576.0;
+	  if(peak_mb && mb > *peak_mb) *peak_mb = mb;
+	  if(mb > mb_cap) { bad = true; why = "the batch's staged index pages passed derived_apply_max_mb"; break; }
+	  if(over_time()) { bad = true; why = "the index step passed derived_apply_max_s"; break; }
+	}
+	if(!bad && ops->Flush(h, last, e, sizeof(e)) != 0) { bad = true; why = ixs[k] + ": extractor flush: " + e; }
+	if(!bad && over_time()) { bad = true; why = "the index step passed derived_apply_max_s"; }   // re-review E
+	if(!bad) {   // the pages Flush() wrote count too
+	  double mb = (batch_bytes + scope.StagedBytes()) / 1048576.0;
+	  if(peak_mb && mb > *peak_mb) *peak_mb = mb;
+	  if(mb > mb_cap) { bad = true; why = "the batch's staged index pages passed derived_apply_max_mb"; }
+	}
+	// 11/14/2026 (review 2): each index is stamped with its own count; the counted index gives derived.stamp's keys
+	unsigned long long ix_count = 0;
+	if(!bad) ix_count = ops->Count(h);
+	if(!bad && counted_index(sc, ixs, k)) { count = ix_count; counted = true; }
+	// the stamp, in the same scope (its pages go with the index's)
+	if(!bad) {
+	  gxdDerivedStamp st;
+	  gxdStampData sd;
+	  if(st.Open(gxdDerivedStamp::PathFor(ip).c_str(), 0) != gxDBASE_NO_ERROR || st.Read(sd) != 0) { bad = true; why = ixs[k] + ": cannot open its stamp"; }
+	  else {
+	    sd.lsn = last; sd.records = ix_count; sd.time_us = (unsigned long long)time(0) * 1000000ULL;
+	    if(st.Write(sd) != gxDBASE_NO_ERROR) { bad = true; why = ixs[k] + ": cannot stamp"; }
+	  }
+	  st.Close();
+	}
+	// 11/14/2026 (review 3): the index is closed before the capture (what its close writes, a header, is
+	// captured too: the scope keeps a closed file's pages), and each index starts from a clean scope
+	ops->Close(h);
+	if(!bad && scope.Capture(staged) != 0) { bad = true; why = ixs[k] + ": the extractor opened the index again after closing it with changes"; }
+	// 11/14/2026 (review 7): the scope may hold only this index and its stamp; any other file the extractor wrote
+	// (another index, the data file, anything) is never applied: rebuild needed, with an ALERT
+	if(!bad) {
+	  const std::string sp = gxdDerivedStamp::PathFor(ip);
+	  for(auto &f : staged)
+	    if(f.path != ip && f.path != sp) {
+	      glog("ALERT set %s: %s: the extractor %s wrote %s while it made %s: not applied (rebuild needed)",
+		   sc.name.c_str(), u.empty() ? "." : u.c_str(), sc.derived_extractor.c_str(), f.path.c_str(), ixs[k].c_str());
+	      bad = true; why = "the extractor wrote " + f.path + ", not only " + ixs[k] + " and its stamp";
+	      break;
+	    }
+	}
+	if(!bad) {
+#ifdef GXREPL_TEST_HOOKS
+	  if(getenv("GXREPL_TEST_CRASH_IN_SCRATCH")) _exit(9);   // test builds: killed with the index pages in memory
+#endif
+	  for(auto &f : staged) {
+	    batch_bytes += f.data.size();                // 11/14/2026 (review 5): the batch's total
+	    store.emplace_back(std::move(f.data));
+	    auto &ent = batch[f.path];
+	    if(f.size > ent.first) ent.first = f.size;
+	    for(size_t p = 0; p < f.page_no.size(); p++) ent.second[f.page_no[p]] = store.back().data() + p * gxdPageSize;
+	  }
+	}
+	scope.Rollback();
+	if(bad) break;
+      }
+    }
+    if(fd >= 0) close(fd);
+    if(!bad && !counted) { bad = true; why = "no index of the folder matches derived_count " + sc.derived_count; }
+    for(auto &id : ids)
+      if(file_id(id.first) != id.second) {
+	glog("ALERT set %s: %s: the extractor %s changed %s outside the staged scope", sc.name.c_str(),
+	     u.empty() ? "." : u.c_str(), sc.derived_extractor.c_str(), id.first.c_str());
+	bad = true; why = "the extractor wrote " + id.first + " directly";
+      }
+    if(bad) {
+      // drop what this folder added to the batch (its index pages and stamps)
+      for(auto &ix : ixs) { batch.erase(dir + "/" + ix); batch.erase(gxdDerivedStamp::PathFor(dir + "/" + ix)); }
+      need(why);
+      continue;
+    }
+    // derived.stamp and the derived state for the new generation, as a rebuild would leave them
+    unsigned long long n_now = src_rel.empty() ? dn : (unsigned long long)((long long)dn + adds - removes);
+    char line[512];
+    snprintf(line, sizeof(line), "gen %llu lsn %llu records %llu keys %llu%s\n", (unsigned long long)gen, last, n_now,
+	     (unsigned long long)count, dtail.c_str());
+    auto put_text = [&](const std::string &path, const std::string &body) {
+      texts.push_back(body);
+      texts.back().resize(gxdPageSize, '\0');
+      auto &ent = batch[path];
+      ent.first = body.size();
+      ent.second.clear();
+      ent.second[0] = (const unsigned char *)texts.back().data();
+    };
+    unlink(notes_off_path(sc).c_str());                // 11/14/2026 (review 10): object by object again
+    put_text(dir + "/derived.stamp", line);
+    put_text(derived_state_path(sc, u), std::to_string((unsigned long long)gen) + " ok incremental lsn " + std::to_string(last) + "\n");
+  }
 }
 
 int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
@@ -2353,6 +3036,7 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
   unsigned long long last = add_records(*this, s->sc, records, it->second.lsn + 1,
 					batch, count, err, keep, &unit_cb);
   if(last == 0) return -1;
+  std::map<std::string, bool> unit_cb_records = unit_cb;   // 11/14/2026: for the incremental derived apply
   // 11/10/2026: the record's commit block (gxdShipLog::SetCommitBlock) makes
   // its unit whole at this record: its seal goes in the same transaction
   std::deque<std::string> seals;
@@ -2363,7 +3047,57 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
   // seal, not after it is let go: a reader holding the lock never sees a seal at record L with the position at L-1
   gxReplStreamState st = it->second;
   st.lsn = last;
-  if(apply_batch(s, batch, err, [&](std::string &e) { return write_state(s, st, e); }) != 0) return -1;
+  // 11/14/2026: incremental derived apply, under the apply lock before a page is written (see incremental_apply)
+  std::deque<std::vector<unsigned char> > istore;
+  std::deque<std::string> itexts;
+  std::function<int(std::string &)> pre = nullptr;
+  std::vector<gxdShipRecordView> recs;
+  if(s->sc.derived_apply == "incremental" && !s->sc.derived.empty() &&
+     gxdParseShipRecords(records.data(), records.size(), recs) == 0 && !recs.empty()) {
+    pre = [&](std::string &) -> int {
+      const gxReplSetConfig &sc = s->sc;
+      mkdirs(derived_dir(sc));
+      // the breaker: a batch whose index step crashed gxrepl twice, or 3 crashes of the index step in an hour (any
+      // batches, 11/14/2026 review 4: a different batch each time never tripped it), puts the set back on rebuild
+      unsigned long long tf = 0, tn = 0;
+      bool left = false;
+      if(FILE *tfp = fopen(try_path(sc).c_str(), "r")) { left = true; if(fscanf(tfp, "%llu %llu", &tf, &tn) != 2) tn = 0; fclose(tfp); }
+      std::vector<long long> when;
+      {
+	long long now = (long long)time(0), t = 0;
+	if(FILE *cf = fopen(crashes_path(sc).c_str(), "r")) { while(fscanf(cf, "%lld", &t) == 1) if(t > now - breaker_window_s && t <= now) when.push_back(t); fclose(cf); }
+	if(left) {                                     // the last index step never finished: gxrepl stopped in it
+	  when.push_back(now);
+	  std::string body;
+	  for(auto x : when) body += std::to_string(x) + "\n";
+	  write_atomic(crashes_path(sc), body);
+	}
+      }
+      if(!breaker_on(sc)) {
+	std::string why;
+	if(tf == recs.front().lsn && tn >= 2)
+	  why = "the index step of ship log record " + std::to_string(tf) + " stopped gxrepl " + std::to_string(tn) + " times";
+	else if((int)when.size() >= breaker_crashes)
+	  why = "the index step stopped gxrepl " + std::to_string(when.size()) + " times in the last hour";
+	if(!why.empty()) {
+	  write_atomic(breaker_path(sc), why + "\n");
+	  glog("ALERT set %s: derived_apply back on rebuild: %s (gxrepl derived rebuild --set %s clears it)",
+	       sc.name.c_str(), why.c_str(), sc.name.c_str());
+	}
+      }
+      write_atomic(try_path(sc), std::to_string(recs.front().lsn) + " " + std::to_string(tf == recs.front().lsn ? tn + 1 : 1) + "\n");
+      bool tried = false;
+      double pk = 0;
+      struct timespec it0; clock_gettime(CLOCK_MONOTONIC, &it0);
+      incremental_apply(sc, s->root, it->second.log_id, recs, batch, istore, itexts, unit_cb_records, last, tried, &pk);
+      if(pk > derived_peak_mb) derived_peak_mb = pk;
+      if(tried) stats_line("incremental", sc.name, ms_since(it0), std::to_string(pk) + " " + std::to_string(recs.size()));
+      unlink(try_path(sc).c_str());
+      return 0;
+    };
+  }
+  if(apply_batch(s, batch, err, [&](std::string &e) { test_position_delay(); return write_state(s, st, e); }, pre) != 0)
+    return -1;
   applied_records += count;
   lsn = last;
   return 0;
@@ -2388,6 +3122,11 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   std::vector<std::string> fulls(v.size());
   std::set<std::string> not_in_step;
   std::map<std::string, bool> unit_cb;      // 11/10/2026 (review): see add_records()
+  struct FileRecs_ { std::string log_id; const std::vector<unsigned char> *records; unsigned long long last;
+		     std::map<std::string, bool> unit_cb; };
+  std::vector<FileRecs_> file_recs;         // 11/14/2026: records applied here (see below)
+  std::deque<std::vector<unsigned char> > fr_store;
+  std::deque<std::string> fr_texts;
   std::map<std::string, bool> staged_now;   // 11/13/2026 (F7 review 3): unit -> written in its stage
   std::set<std::string> stale_units;        // round 3: a stage not mine: discarded before this apply
   for(size_t i = 0; i < v.size(); i++) {
@@ -2418,6 +3157,11 @@ int gxReplLocal::ApplyFiles(const std::string &set,
 	e = add_records(*this, s->sc, u.records, it->second.lsn + 1, batch, count, e2, keep, &unit_cb);
 	if(e != u.lsn) continue; // Stale
 	applied_records += count;
+	// 11/14/2026 (replay finding): records a verify brings (an in-step update after a writer's open) change the
+	// folders like ApplyLog's do: on an incremental set they go through the same index step, under the apply lock
+	// (below, in check), or their folders' stamps would look behind and be rebuilt
+	if(s->sc.derived_apply == "incremental" && !s->sc.derived.empty())
+	  file_recs.push_back(FileRecs_{u.log_id, &u.records, e, unit_cb});
       }
       gxReplStreamState ns;
       ns.name = u.stream; ns.log_id = u.log_id; ns.lsn = u.lsn;
@@ -2473,7 +3217,45 @@ int gxReplLocal::ApplyFiles(const std::string &set,
 	    if(filling.count(u)) return false;
 	    if(cb_units.count(u)) return true;
 	    return !fill_copying(read_seal(s->root, u));
-	  }) != 0) return -1;
+	  }, &not_in_step) != 0) return -1;
+    }
+    // 11/14/2026 (seal per folder): a verify that repairs an in-step unit's data (pieces of its other files, in
+    // step with its stream) changed the folder at the stream's position, even when its commit block (the same
+    // generation) comes in another apply: the seal's 4th field moves there, so its derived indexes are rebuilt
+    // review 1: a size change alone (the copy's file longer than the source's: cut) is a change too
+    // review 3: the position is of the update's stream; a unit the seal says another stream feeds (or two streams
+    // here) gets C = L, never an lsn of another numbering
+    struct Touch { unsigned long long lsn = 0; std::string stream; bool mixed = false; };
+    std::map<std::string, Touch> touched;
+    for(size_t i = 0; i < v.size(); i++) {
+      if(results[i] != 0 || v[i].stream.empty()) continue;
+      if(base_of(v[i].path) == s->sc.commit_block || is_derived(s->sc, v[i].path)) continue;
+      std::string u = dir_of(v[i].path);
+      if(filling.count(u) || cb_units.count(u) || staged_now[u]) continue;
+      bool change = !v[i].pieces.empty();
+      if(!change) {
+	struct stat fst;
+	change = stat(fulls[i].c_str(), &fst) == 0 && (unsigned long long)fst.st_size != v[i].size;
+      }
+      if(!change) continue;
+      Touch &t = touched[u];
+      if(!t.stream.empty() && t.stream != v[i].stream) t.mixed = true;
+      t.stream = v[i].stream;
+      if(v[i].lsn > t.lsn) t.lsn = v[i].lsn;
+    }
+    for(auto &tt : touched) {
+      auto &t = tt;
+      std::string key = s->root + "/.gxrepl/units/" + unit_key(t.first), body;
+      auto pend = batch.find(key);
+      if(pend != batch.end() && pend->second.second.count(0))
+	body.assign((const char *)pend->second.second.at(0), pend->second.first);
+      else body = read_small(key);
+      char sname[256] = {0}; unsigned long long g = 0, l = 0, c = 0;
+      if(sscanf(body.c_str(), "log %llu %llu %255s %llu", &g, &l, sname, &c) < 3) continue;   // not log sealed
+      unsigned long long at = t.second.lsn;
+      if(t.second.mixed || t.second.stream != sname || at > l) at = l;
+      put_seal(batch, s->root, t.first, "log " + std::to_string(g) + " " + std::to_string(l) + " " + sname + " " +
+	       std::to_string(at) + "\n", seals);
     }
   }
   // 11/12/2026 (F7): a staged unit whose commit block arrives here, even (one whole commit), is swapped in, in the
@@ -2506,6 +3288,33 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   // its paths were chosen, and a unit this process began staging still has its stage (gxrepl promote, a stale
   // stage: the batch is dropped, the copy starts again next pass; never in place under an even commit block)
   auto check = [&](std::string &e) -> int {
+    // 11/14/2026: a copy by files (a first fill, a resync, a unit copy) is not object by object: the folder's
+    // derived index stamps go (rebuild needed)
+    // 11/14/2026 (review 8): in both modes, and derived.stamp and the derived state go too. Re-review A: only when
+    // the fill wrote the file the indexes are made from (derived_source, e.g. events.gxd): a piece of any other
+    // file (a journal, the commit block a verify re-sends) changes no index, and dropping the stamp would force a
+    // full rebuild under the apply lock for nothing. Without derived_source (a rebuild set) a fill drops nothing:
+    // the stamp's generation and the seal's last change say when the indexes are behind.
+    if(!s->sc.derived.empty() && !s->sc.derived_source.empty()) {
+      std::set<std::string> filled;
+      for(size_t i = 0; i < v.size(); i++)
+	if(results[i] == 0 && !v[i].pieces.empty() &&
+	   fnmatch(s->sc.derived_source.c_str(), base_of(v[i].path).c_str(), 0) == 0)
+	  filled.insert(dir_of(v[i].path));
+      for(auto &u : filled) drop_stamps(s->sc, u, "copied by files, not by the ship log", true, true);
+    }
+    // 11/14/2026: the index step for the records this update applies (an incremental set), as ApplyLog runs it
+    for(auto &fr : file_recs) {
+      std::vector<gxdShipRecordView> recs;
+      if(gxdParseShipRecords(fr.records->data(), fr.records->size(), recs) != 0 || recs.empty()) continue;
+      // a folder this update also fills by files has no stamps now: its index step finds that (rebuild needed)
+      bool tried = false;
+      double pk = 0;
+      struct timespec it0; clock_gettime(CLOCK_MONOTONIC, &it0);
+      incremental_apply(s->sc, s->root, fr.log_id, recs, batch, fr_store, fr_texts, fr.unit_cb, fr.last, tried, &pk);
+      if(pk > derived_peak_mb) derived_peak_mb = pk;
+      if(tried) stats_line("incremental", s->sc.name, ms_since(it0), std::to_string(pk) + " " + std::to_string(recs.size()));
+    }
     if(!stale_units.empty()) {
       if(recover_journal_locked(s->root) != 0) {
 	e = "the apply journal holds a batch that cannot be applied yet: tried again next pass";
@@ -2532,23 +3341,29 @@ int gxReplLocal::ApplyFiles(const std::string &set,
     }
     return 0;
   };
-  int arc = finish.empty() ? apply_batch(s, batch, err, nullptr, check) : apply_batch(s, batch, err, [&](std::string &e) {
+  // 11/14/2026: the streams' applied positions are written in the apply lock too, after the batch (its "log G L"
+  // seals): they were written after the lock was let go, so a reader holding the lock (promote-check) could see a
+  // seal at record L with the position at L-1 (the record path does this since 11/12)
+  auto positions = [&](std::string &e) -> int {
+    test_position_delay();
+    for(auto &c : changed) if(write_state(s, c.second, e) != 0) return -1;
+    return 0;
+  };
+  if(batch.empty()) return positions(err);             // (apply_batch does nothing then, not even its in_lock)
+  int arc = finish.empty() ? apply_batch(s, batch, err, positions, check) : apply_batch(s, batch, err, [&](std::string &e) {
       for(size_t i = 0; i < v.size(); i++)
 	if(results[i] == 0 && v[i].last && finish.count(dir_of(v[i].path))) times(i);
 #ifdef GXREPL_TEST_HOOKS
       if(getenv("GXREPL_TEST_CRASH_BEFORE_SWAP")) _exit(9);   // test builds: a stage complete, its swap not begun
 #endif
       for(auto &u : finish) { if(stage_swap(s->sc, s->root, u, e) != 0) return -1; s->staged.erase(u); }
-      return 0;
+      return positions(e);
     }, check);
   if(arc != 0) return -1;
   for(size_t i = 0; i < v.size(); i++) {
     if(results[i] != 0 || !v[i].last) continue;
     if(finish.count(dir_of(v[i].path))) continue;       // set before its swap
     times(i);
-  }
-  for(auto &e : changed) {
-    if(write_state(s, e.second, err) != 0) return -1;
   }
   return 0;
 }
@@ -2738,6 +3553,40 @@ int gxReplLocal::Delete(const std::string &set, const std::vector<std::string> &
       }
     }
   }
+  // 11/14/2026 (seal per folder review 1, re-review): a file of a log-sealed folder deleted (the same generation):
+  // the folder changed at the stream's position, so C = L (its derived indexes are rebuilt). The reseal is written
+  // under the apply lock (after the journal's recovery) BEFORE any unlink, and the lock is held until the unlinks are
+  // done: a crash between them leaves C = L with the file still there (one rebuild for nothing, never a stale
+  // index accepted), and no reader sees the folder half way.
+  int del_lk = -1;
+  struct DelLock { int &fd; ~DelLock() { if(fd >= 0) { flock(fd, LOCK_UN); close(fd); } } } del_lock{del_lk};
+  if(!s->sc.commit_block.empty()) {
+    std::vector<std::pair<std::string, std::string> > reseal;      // seal file, new body
+    std::set<std::string> units;
+    for(auto &p : paths)
+      if(base_of(p) != s->sc.commit_block && !is_derived(s->sc, p) && !s->staged.count(dir_of(p))) units.insert(dir_of(p));
+    for(auto &u : units) {
+      std::string key = s->root + "/.gxrepl/units/" + unit_key(u), body = read_small(key);
+      char sname[256] = {0}; unsigned long long g = 0, l = 0, c = 0;
+      int got = sscanf(body.c_str(), "log %llu %llu %255s %llu", &g, &l, sname, &c);
+      if(got < 3 || (got >= 4 && c == l)) continue;
+      reseal.push_back(std::make_pair(key, "log " + std::to_string(g) + " " + std::to_string(l) + " " + sname + " " +
+				      std::to_string(l) + "\n"));
+    }
+    if(!reseal.empty()) {
+      std::string jname = s->root + "/.gxrepl/apply.jnl";
+      del_lk = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+      if(del_lk < 0) { err = "cannot lock " + jname; return -1; }
+      if(lock_apply_bounded(del_lk) != 0) { close(del_lk); del_lk = -1; err = "busy: " + jname + " is held; tried again next pass"; return -1; }
+      if(recover_journal_locked(s->root) != 0) { err = "the apply journal holds a batch that cannot be applied yet"; return -1; }
+      for(auto &r : reseal)
+	if(write_atomic(r.first, r.second) != 0) { err = "cannot write " + r.first; return -1; }
+      sync_dir(s->root + "/.gxrepl/units");
+#ifdef GXREPL_TEST_HOOKS
+      if(getenv("GXREPL_TEST_DELETE_CRASH")) _exit(9);   // test builds: killed after the reseal, before the unlinks
+#endif
+    }
+  }
   for(auto &p : paths) {
     std::string full;
     if(SafePath(s->sc, p, full, err) != 0) return -1;
@@ -2753,6 +3602,7 @@ int gxReplLocal::Delete(const std::string &set, const std::vector<std::string> &
     dirs.insert(dir.size() >= s->root.size() ? dir : s->root);
   }
   for(auto &d : dirs) sync_dir(d);
+  if(del_lk >= 0) { flock(del_lk, LOCK_UN); close(del_lk); del_lk = -1; }   // the unlinks are done and synced
   // 11/13/2026: a unit whose last copied file went (its source folder is gone): the rest of its folder goes too
   // (only on a node that is purely the set's copy: review)
   bool pure_copy = cfg.role == "server" ? s->sc.accept == "target" : s->sc.direction == "pull";
@@ -3383,6 +4233,59 @@ bool gxReplServer::Claims(const gxBlockHeader &gx, const std::vector<unsigned ch
     f.kind == gxdMUX_HELLO;
 }
 
+// 11/14/2026 (review 10): a set's derived index state for status.json: ", \"derived\": {...}" ("" without derived)
+static void derived_folders(const gxReplSetConfig &sc, const std::string &rel, std::vector<std::string> &out);
+static std::string derived_status_json_uncached(const gxReplSetConfig &sc);
+// re-review C: only incremental sets (a rebuild set's state is promote-check's), and walked at most every 30 s
+static std::string derived_status_json(const gxReplSetConfig &sc)
+{
+  if(sc.derived.empty() || sc.derived_apply != "incremental") return "";
+  static std::mutex m;
+  static std::map<std::string, std::pair<long long, std::string> > cache;
+  std::lock_guard<std::mutex> g(m);
+  long long now = (long long)time(0);
+  auto &c = cache[sc.name];
+  if(c.second.empty() || now - c.first >= 30) { c.second = derived_status_json_uncached(sc); c.first = now; }
+  return c.second;
+}
+
+static std::string derived_status_json_uncached(const gxReplSetConfig &sc)
+{
+  std::vector<std::string> folders;
+  derived_folders(sc, "", folders);
+  int failed = 0, behind = 0, unstamped = 0;
+  for(auto &rel : folders) {
+    std::string st;
+    if(FILE *f = fopen(derived_state_path(sc, rel).c_str(), "r")) { char b[256] = {0}; if(fgets(b, sizeof(b), f)) {} fclose(f); st = b; }
+    if(st.find(" failed") != std::string::npos) failed++;
+    else if(st.empty()) behind++;
+    if(sc.derived_apply == "incremental") {
+      std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
+      for(auto &ix : folder_indexes(sc, rel)) {
+	gxdStampData d;
+	if(gxdDerivedStamp::ReadFile(gxdDerivedStamp::PathFor(dir + "/" + ix), d) != 0) { unstamped++; break; }
+      }
+    }
+  }
+  std::string why, warn;
+  bool brk = breaker_on(sc, &why);
+  int crashes = 0;
+  { long long now = (long long)time(0), t = 0;
+    if(FILE *cf = fopen(crashes_path(sc).c_str(), "r")) { while(fscanf(cf, "%lld", &t) == 1) if(t > now - breaker_window_s && t <= now) crashes++; fclose(cf); } }
+  if(sc.derived_apply == "incremental") {
+    std::string no;
+    if(FILE *f = fopen(notes_off_path(sc).c_str(), "r")) { char b[512] = {0}; if(fgets(b, sizeof(b), f)) {} fclose(f); no = b; }
+    while(!no.empty() && no.back() == '\n') no.pop_back();
+    if(!no.empty()) warn = "derived_apply = incremental, but the source's object notes are off (commits without objects "
+		      "records: every batch is rebuilt; turn them on in the writer): " + no;
+    else if(brk) warn = "the breaker is on: " + why;
+  }
+  return std::string(", \"derived\": {\"mode\": ") + json_str(sc.derived_apply) + ", \"folders\": " +
+    std::to_string(folders.size()) + ", \"failed\": " + std::to_string(failed) + ", \"not_built\": " +
+    std::to_string(behind) + ", \"rebuild_needed\": " + std::to_string(unstamped) + ", \"breaker\": " +
+    (brk ? "true" : "false") + ", \"crashes_1h\": " + std::to_string(crashes) + ", \"warn\": " + json_str(warn) + "}";
+}
+
 void gxReplServer::write_status()
 {
   if(cfg.status_file.empty()) return;
@@ -3400,7 +4303,8 @@ void gxReplServer::write_status()
   first = true;
   for(auto &sc : cfg.sets) {
     j += (first ? "" : ", ") + json_str(sc.name) + ": {\"accept\": " + json_str(sc.accept) +
-      ", \"root\": " + json_str(sc.root) + ", \"last\": " + json_str(set_last[sc.name]) + "}";
+      ", \"root\": " + json_str(sc.root) + ", \"last\": " + json_str(set_last[sc.name]) +
+      derived_status_json(sc) + "}";
     first = false;
   }
   // 11/08/2026: Each multiplex channel: its set and its queue (frames and
@@ -4071,6 +4975,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
   // 2. Verify streams that opened, had a gap or are new to the copy
   std::vector<gxReplFile> sm;
   bool have_sm = false;
+  std::map<std::string, int> reverified;      // 11/14/2026: verified again in this pass (new files)
   for(auto it = vlist.begin(); it != vlist.end() && !stop; ) {
     const gxReplStream *s = 0;
     for(auto &x : streams) if(x.name == *it) s = &x;
@@ -4114,6 +5019,39 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     }
     st.verifies++;
     glog("set %s: stream %s verified (%d file(s))", sc.name.c_str(), s->name.c_str(), synced);
+#ifdef GXREPL_TEST_HOOKS
+    // test builds: GXREPL_TEST_VERIFY_HOLD=F: after a stream's verify, write F.held and wait (60 s at most) for F
+    if(const char *hold = getenv("GXREPL_TEST_VERIFY_HOLD")) {
+      write_atomic(std::string(hold) + ".held", "held\n");
+      for(int w = 0; w < 600 && access(hold, F_OK) != 0 && !stop; w++) usleep(100000);
+    }
+#endif
+    // 11/14/2026 (the verify race): the stream's file list was read once at the start of the pass; a writer whose
+    // next record names a new file (its first record named only the data file, the next adds the commit block)
+    // leaves that file unverified, and its unit "copying" until the next verify (the records that carry the commit
+    // block never clear a fill's mark). So the list is read again: the same log with new files is verified again
+    // in this pass (3 times at most), else it waits for the next pass.
+    {
+      int &again = reverified[sc.name + "\n" + s->name];
+      std::vector<gxReplStream> now_streams;
+      std::string e2;
+      bool redo = false;
+      if(again < 3 && src.Streams(sc.name, now_streams, e2) == 0)
+	for(auto &x : now_streams)
+	  if(x.name == s->name && x.log_id == s->log_id)
+	    for(auto &f : x.files)
+	      if(std::find(s->files.begin(), s->files.end(), f) == s->files.end()) { redo = true; break; }
+      if(redo) {
+	for(auto &x : now_streams)
+	  if(x.name == s->name)
+	    for(auto &y : streams) if(y.name == x.name) y = x;
+	have_sm = false;                              // the source's manifest again too: the new file is in it
+	again++;
+	glog("set %s: stream %s names new file(s) since the pass began: verified again", sc.name.c_str(), s->name.c_str());
+	continue;
+      }
+      reverified.erase(sc.name + "\n" + s->name);
+    }
     it = vlist.erase(it);
   }
 
@@ -4267,6 +5205,21 @@ static std::string derived_state_path(const gxReplSetConfig &sc, const std::stri
 }
 
 // 11/10/2026: the lsn of the ship log record that last sealed a unit ("log G L"), 0 if the ship log did not
+// 11/14/2026 (seal per folder): the last ship log record that changed the folder (the seal's 4th field; a seal
+// from before it: its lsn), 0 if the folder is not sealed by the log. Its derived indexes are current when they
+// were built at this record, whatever records of the stream's other folders came after.
+static unsigned long long unit_changed_lsn(const gxReplSetConfig &sc, const std::string &rel)
+{
+  FILE *f = fopen((sc.root + "/.gxrepl/units/" + unit_key(rel)).c_str(), "rb");
+  if(!f) return 0;
+  unsigned long long g = 0, l = 0, c = 0;
+  char sname[256] = {0};
+  int got = fscanf(f, "log %llu %llu %255s %llu", &g, &l, sname, &c);
+  fclose(f);
+  if(got < 2) return 0;
+  return got >= 4 ? c : l;
+}
+
 static unsigned long long unit_log_lsn(const gxReplSetConfig &sc, const std::string &rel, unsigned long long *gen = 0)
 {
   FILE *f = fopen((sc.root + "/.gxrepl/units/" + unit_key(rel)).c_str(), "rb");
@@ -4291,7 +5244,7 @@ static bool derived_stamp_ok(const gxReplSetConfig &sc, const std::string &rel, 
   if(got != 4) { why = "a damaged derived.stamp"; return false; }
   if(g != gen) { why = "stamped at generation " + std::to_string(g) + ", the copy is at " + std::to_string((unsigned long long)gen); return false; }
   if(n != k) { why = "stamped with " + std::to_string(k) + " keys for " + std::to_string(n) + " records"; return false; }
-  unsigned long long sl = unit_log_lsn(sc, rel);
+  unsigned long long sl = unit_changed_lsn(sc, rel);   // 11/14/2026 (seal per folder): not the stream's position
   if(sl && l != sl) { why = "stamped at ship log record " + std::to_string(l) + ", the copy applied " + std::to_string(sl); return false; }
   return true;
 }
@@ -4316,13 +5269,31 @@ static int derived_status(const gxReplSetConfig &sc, const std::string &rel, uin
   DIR *d = opendir(dir.c_str());
   int found = 0;
   struct dirent *e;
-  while(d && (e = readdir(d)) != 0) if(e->d_name[0] != '.' && is_derived(sc, rel.empty() ? std::string(e->d_name) : rel + "/" + e->d_name)) found++;
+  while(d && (e = readdir(d)) != 0) if(e->d_name[0] != '.' && is_derived_index(sc, rel.empty() ? std::string(e->d_name) : rel + "/" + e->d_name)) found++;
   if(d) closedir(d);
   if(!found) { why = "missing (no derived file in the folder)"; return 1; }
   if(derived_stamp_ok(sc, rel, gen, why)) return 0;
   // a stamp that does not say this generation / record is behind; one that is
   // damaged or holds the wrong key count is a bad rebuild
   return (why.compare(0, 10, "stamped at") == 0 || why.compare(0, 11, "not stamped") == 0) ? 1 : 2;
+}
+
+// 11/14/2026: the derived indexes of a folder whose <index>.stamp is missing or damaged
+static void derived_stamp_gaps(const gxReplSetConfig &sc, const std::string &rel, std::vector<std::string> &out)
+{
+  std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
+  DIR *d = opendir(dir.c_str());
+  struct dirent *e;
+  while(d && (e = readdir(d)) != 0) {
+    std::string n = e->d_name;
+    if(n[0] == '.' || !is_derived_index(sc, rel.empty() ? n : rel + "/" + n)) continue;
+    gxdStampData sd;
+    int rc = gxdDerivedStamp::ReadFile(gxdDerivedStamp::PathFor(dir + "/" + n), sd);
+    if(rc == 1) out.push_back(n + " has no stamp");
+    else if(rc != 0) out.push_back(n + " has a damaged stamp");
+  }
+  if(d) closedir(d);
+  std::sort(out.begin(), out.end());
 }
 
 static bool derived_ok(const gxReplSetConfig &sc, const std::string &rel, uint64_t gen, std::string &why)
@@ -4402,6 +5373,7 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
     mkdirs(sc.root + "/.gxrepl/derived");
     int lk = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
     if(lk < 0 || flock(lk, LOCK_EX) != 0) { if(lk >= 0) close(lk); continue; }
+    struct timespec rb_t0; clock_gettime(CLOCK_MONOTONIC, &rb_t0);   // 11/14/2026: GXREPL_STATS_FILE
     uint64_t g2 = 0;
     // (a busy rebuild takes the generation the folder holds now: no apply
     // can change it while the lock is held)
@@ -4412,9 +5384,17 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
     q += "'";
     for(size_t at; (at = cmd.find("{dir}")) != std::string::npos; ) cmd.replace(at, 5, q);
     // 11/10/2026: {lsn}: the ship log record the folder was sealed at (0 if none), for the stamp
-    std::string ls = std::to_string(unit_log_lsn(sc, rel));
+    std::string ls = std::to_string(unit_changed_lsn(sc, rel));   // 11/14/2026 (seal per folder)
     for(size_t at; (at = cmd.find("{lsn}")) != std::string::npos; ) cmd.replace(at, 5, ls);
     int rc = run_quiet(cmd);
+    // 11/14/2026: an incremental set's rebuilt folder gets fresh stamps, under the same lock
+    if(rc == 0 && sc.derived_apply == "incremental") {
+      std::string sw;
+      drop_stamps(sc, rel, "", false);
+      if(stamp_after_rebuild(sc, rel, sw) != 0)
+	log.push_back("set " + sc.name + ": " + (rel.empty() ? std::string(".") : rel) + ": rebuilt, not stamped: " + sw);
+    }
+    stats_line("rebuild", sc.name, ms_since(rb_t0), rel.empty() ? std::string(".") : rel);
     flock(lk, LOCK_UN);
     close(lk);
     // 11/11/2026 (review): exit 3 = the folder moved during the rebuild (osa_ingest --rebuild-index): not a
@@ -4442,9 +5422,85 @@ int gxReplDerivedRefresh(const gxReplSetConfig &sc,
   return rebuilt;
 }
 
+// 11/14/2026: the timed re-reads of an unlocked promote-check (GXREPL_TORN_RECHECK_SEC, 10 s)
+static double torn_recheck_sec()
+{
+  double wait = 10;
+  if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
+  return wait;
+}
+
+// 11/14/2026: promote-check's shared lock on a set's apply.jnl, taken per unit. 11/14 (a promote-check rc 1 under
+// load): a unit's commit block, its seal, its stream's applied position and its derived state are separate files;
+// read unlocked in the middle of an apply they disagree ("sealed at ship log record 77, the copy applied up to 76")
+// and the timed re-reads (10 s) did not always outlast an apply's position write under heavy load. Every apply,
+// staged swap, derived rebuild and dead folder sweep holds the lock exclusively, so under the shared lock nothing
+// is half applied and no re-read is needed. It is taken for one unit's small reads only and let go before the next
+// unit (and before any file is hashed): an apply waits (its F4 bounded wait, 5 s) for one unit's reads at most. The
+// waits share one budget per set, GXREPL_TORN_LOCK_WAIT (15 s): a derived rebuild holding the lock for minutes
+// stops the locking for the rest of the set, which is then read unlocked with the timed re-reads, and said.
+// No apply.jnl (or no .gxrepl): nothing was ever applied there; read unlocked (with the re-reads), nothing made.
+struct TornLock {
+  int fd = -1;
+  bool held = false;
+  std::string jname;
+  gxReplTornLockStats *ls = 0;
+  double budget_ms = 60000;                // the waits' budget (the walk's own time does not count)
+  std::chrono::steady_clock::time_point t0;
+
+  TornLock(const std::string &root, gxReplTornLockStats &st) : ls(&st) {
+    jname = root + "/.gxrepl/apply.jnl";
+    if(!st.use_lock) return;
+    double wait = 15;   // 11/14/2026: 15 s, so promote (480 s) + this stays well inside the DRCM gate's 600 s
+    if(const char *e = getenv("GXREPL_TORN_LOCK_WAIT")) { double v = atof(e); if(v >= 0) wait = v; }
+    budget_ms = wait * 1000;
+    fd = open(jname.c_str(), O_RDONLY | O_CLOEXEC);
+    if(fd < 0 && errno != ENOENT && errno != ENOTDIR) st.fell_back = true;   // there and not readable: said
+  }
+  ~TornLock() { release(); if(fd >= 0) close(fd); }
+  // true: held (no re-reads needed); false: read unlocked, with the timed re-reads
+  bool acquire() {
+    if(fd < 0) { if(ls->fell_back) ls->unlocked_units++; return false; }
+    if(ls->fell_back) { ls->unlocked_units++; return false; }
+    auto w0 = std::chrono::steady_clock::now();
+    auto end = w0 + std::chrono::microseconds((long long)(std::max(0.0, budget_ms - ls->waited_ms) * 1000));
+    while(flock(fd, LOCK_SH | LOCK_NB) != 0) {
+      auto now = std::chrono::steady_clock::now();
+      if((errno != EWOULDBLOCK && errno != EINTR) || now >= end) {
+	ls->waited_ms += std::chrono::duration<double, std::milli>(now - w0).count();
+	ls->fell_back = true;
+	ls->unlocked_units++;
+	return false;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    t0 = std::chrono::steady_clock::now();
+    ls->waited_ms += std::chrono::duration<double, std::milli>(t0 - w0).count();
+    ls->acquisitions++;
+    held = true;
+    return true;
+  }
+  void release() {
+    if(!held) return;
+    flock(fd, LOCK_UN);
+    held = false;
+    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    ls->total_hold_ms += ms;
+    if(ms > ls->max_hold_ms) ls->max_hold_ms = ms;
+  }
+};
+
+static bool read_cb_gen(const gxReplSetConfig &sc, const std::string &dir, uint64_t &g)
+{
+  int fd = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY | O_CLOEXEC);
+  ssize_t n = fd >= 0 ? pread(fd, &g, sizeof(g), (off_t)sc.commit_gen_offset) : -1;
+  if(fd >= 0) close(fd);
+  return n == (ssize_t)sizeof(g);
+}
+
 // 11/10/2026: see gxrepl.h
 static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const std::string &rel,
-		      int &checked, std::vector<std::string> &torn, std::vector<std::string> &warn)
+		      int &checked, std::vector<std::string> &torn, std::vector<std::string> &warn, TornLock &tl)
 {
   std::string dir = rel.empty() ? root : root + "/" + rel;
   DIR *d = opendir(dir.c_str());
@@ -4472,105 +5528,258 @@ static void torn_walk(const gxReplSetConfig &sc, const std::string &root, const 
     if(!has_cb) torn.push_back(where + ": UNSEALED: database files and no " + sc.commit_block +
 			       " (a copy that never got one, or a ship log whose records do not carry it)");
     else {
+      // 11/14/2026: this unit's small reads under the shared apply lock (no re-reads then: nothing is in flight)
+      bool locked = tl.acquire();
+      struct Rel { TornLock &t; ~Rel() { t.release(); } } rel_guard{tl};
+      const double recheck = locked ? 0 : torn_recheck_sec();
       uint64_t g = 0;
-      int fd = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
-      ssize_t n = fd >= 0 ? pread(fd, &g, sizeof(g), (off_t)sc.commit_gen_offset) : -1;
-      if(fd >= 0) close(fd);
+      bool got = read_cb_gen(sc, dir, g);
       // 11/12/2026 (F7): a staged swap marks the live commit block odd for its renames (milliseconds, in the apply
       // lock): an odd unit whose stage has its .swap list is read again for up to GXREPL_TORN_RECHECK_SEC (10) s;
-      // a swap that stopped stays odd and is reported torn
-      if(n == (ssize_t)sizeof(g) && (g & 1)) {
+      // a swap that stopped stays odd and is reported torn (11/14: under the lock a .swap is always a stopped one)
+      if(got && (g & 1)) {
 	struct stat sst;
 	if(stat((stage_dir(root, rel) + "/.swap").c_str(), &sst) == 0) {
-	  double wait = 10;
-	  if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
-	  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
+	  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(recheck * 1000));
 	  while((g & 1) && std::chrono::steady_clock::now() < end) {
 	    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-	    int fd2 = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
 	    uint64_t g2 = g;
-	    if(fd2 >= 0) { if(pread(fd2, &g2, sizeof(g2), (off_t)sc.commit_gen_offset) == (ssize_t)sizeof(g2)) g = g2; close(fd2); }
+	    if(read_cb_gen(sc, dir, g2)) g = g2;
 	  }
 	}
       }
-      if(n != (ssize_t)sizeof(g)) torn.push_back(where + ": " + sc.commit_block + " is short");
+      if(!got) torn.push_back(where + ": " + sc.commit_block + " is short");
       else if(g & 1) torn.push_back(where + ": generation " + std::to_string((unsigned long long)g) +
 				    " is odd (a copy in progress, or one that stopped half way)");
       else {
-	// 11/10/2026: an even generation is not enough: the files must be the sealed ones
-	std::string why = unit_seal_check(sc, rel, g);
+	// 11/10/2026: an even generation is not enough: the files must be the sealed ones. 11/14: a "gen G" seal's
+	// hashes are left for after the lock ("deferred")
+	std::string deferred;
+	std::string why = unit_seal_check(sc, rel, g, &deferred);
 	// 11/12/2026: the commit block, the seal and its stream's applied position are three files: read in the middle
 	// of an apply they can disagree by one record or generation ("sealed at ship log record L, the copy applied up
 	// to L-1", "sealed by ship log record L at generation G, the commit block says G-n"). That is an apply in
 	// flight, not a torn copy: read them all again for up to GXREPL_TORN_RECHECK_SEC (10) s; a real mismatch stays
-	// and is reported.
+	// and is reported. (11/14: unlocked only; under the lock what is read is what is there)
 	auto in_flight = [](const std::string &w) { return w.compare(0, 7, "sealed ") == 0; };
 	if(in_flight(why)) {
-	  double wait = 10;
-	  if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
-	  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
+	  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(recheck * 1000));
 	  while(in_flight(why) && std::chrono::steady_clock::now() < end) {
 	    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	    uint64_t g2 = 0;
-	    int fd2 = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
-	    ssize_t n2 = fd2 >= 0 ? pread(fd2, &g2, sizeof(g2), (off_t)sc.commit_gen_offset) : -1;
-	    if(fd2 >= 0) close(fd2);
-	    if(n2 != (ssize_t)sizeof(g2) || (g2 & 1)) continue;
+	    if(!read_cb_gen(sc, dir, g2) || (g2 & 1)) continue;
 	    g = g2;
-	    why = unit_seal_check(sc, rel, g);
+	    why = unit_seal_check(sc, rel, g, &deferred);
 	  }
 	}
 	// 11/13/2026 (F7 review round 3, 6): files that do not match the seal while the generation moved during the
 	// check (a swap or an apply in between, no lock taken): read again for up to GXREPL_TORN_RECHECK_SEC; only a
-	// mismatch at an unchanged generation is reported
-	if(!why.empty()) {
-	  double wait = 10;
-	  if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
+	// mismatch at an unchanged generation is reported. 11/14: the hashing is never under the lock, so a deferred
+	// hash check that fails is read again this way (unlocked) too.
+	auto moved_recheck = [&](double wait) {
 	  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
 	  while(!why.empty() && std::chrono::steady_clock::now() < end) {
 	    uint64_t g3 = 0;
-	    int fd3 = open((dir + "/" + sc.commit_block).c_str(), O_RDONLY);
-	    ssize_t n3 = fd3 >= 0 ? pread(fd3, &g3, sizeof(g3), (off_t)sc.commit_gen_offset) : -1;
-	    if(fd3 >= 0) close(fd3);
-	    if(n3 == (ssize_t)sizeof(g3) && g3 == g) break;            // the same generation: a real mismatch
+	    bool ok3 = read_cb_gen(sc, dir, g3);
+	    if(ok3 && g3 == g) break;                                  // the same generation: a real mismatch
 	    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-	    if(n3 != (ssize_t)sizeof(g3) || (g3 & 1)) continue;
+	    if(!ok3 || (g3 & 1)) continue;
 	    g = g3;
 	    why = unit_seal_check(sc, rel, g);
 	  }
+	};
+	if(!why.empty()) moved_recheck(recheck);
+	// the derived state (small files) while still locked, for this generation
+	int ds = 0;
+	std::string dwhy;
+	if(why.empty() && !sc.derived.empty()) ds = derived_status(sc, rel, g, dwhy);
+	std::vector<std::string> nostamp;                              // 11/14/2026: the stamps too, under the lock
+	if(why.empty() && sc.derived_apply == "incremental") derived_stamp_gaps(sc, rel, nostamp);
+	tl.release();                                                  // nothing slow under the lock
+	if(!deferred.empty() && why.empty()) {
+	  uint64_t g0 = g;
+	  why = unit_seal_hash_check(sc, rel, g, deferred);
+	  if(!why.empty()) moved_recheck(torn_recheck_sec());
+	  if(why.empty() && g != g0 && !sc.derived.empty()) ds = derived_status(sc, rel, g, dwhy);
 	}
 	if(!why.empty()) torn.push_back(where + ": " + why);
 	// and its derived indexes: a bad rebuild is torn (a take over's would
 	// fail too); indexes behind a busy day are a warning: the take over
 	// rebuilds them (11/11/2026, r4e)
 	else if(!sc.derived.empty()) {
-	  int ds = derived_status(sc, rel, g, why);
-	  if(ds == 2) torn.push_back(where + ": derived indexes " + why);
-	  else if(ds == 1) warn.push_back(where + ": derived indexes " + why + " (rebuilt by the take over's writer open)");
+	  if(ds == 2) torn.push_back(where + ": derived indexes " + dwhy);
+	  else if(ds == 1) warn.push_back(where + ": derived indexes " + dwhy + " (rebuilt by the take over's writer open)");
+	  // 11/14/2026: incremental sets: an index without a good stamp is in rebuild mode (a copy on older code has
+	  // none): a warning, never torn (the stamps were read under the unit's lock, with the derived state)
+	  for(auto &w : nostamp) warn.push_back(where + ": " + w + " (rebuild mode)");
 	}
       }
     }
   }
-  for(auto &s : subs) torn_walk(sc, root, s, checked, torn, warn);
+  for(auto &s : subs) torn_walk(sc, root, s, checked, torn, warn, tl);
 }
 
-int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn, std::vector<std::string> &warn)
+// ---------------- Derived index tools (11/14/2026, 7.4) ----------------
+
+namespace {
+struct DigestKey_ : public DatabaseKeyB {   // any B-tree's keys as raw bytes (gxrepl digest)
+  std::vector<char> b;
+  DigestKey_(size_t n) : DatabaseKeyB(0), b(n ? n : 1, 0) { db_key = b.data(); }
+  size_t KeySize() { return b.size(); }
+  int CompareKey(const DatabaseKeyB &o) const { return memcmp(b.data(), o.db_key, b.size()); }
+  int operator==(const DatabaseKeyB &o) const { return CompareKey(o) == 0; }
+  int operator>(const DatabaseKeyB &o) const { return CompareKey(o) > 0; }
+};
+}
+
+int gxReplDigest(const std::string &path, const std::string &kind_in, uint64_t &hash, uint64_t &count, std::string &err)
+{
+  hash = 0; count = 0;
+  std::string kind = kind_in;
+  if(kind.empty()) kind = path.size() > 4 && path.compare(path.size() - 4, 4, ".btx") == 0 ? "btree" : "bytes";
+  if(kind == "bytes") {
+    int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    if(fd < 0) { err = "cannot open " + path; return -1; }
+    std::vector<unsigned char> b(1 << 20);
+    ssize_t n;
+    uint64_t h = 0;
+    while((n = read(fd, b.data(), b.size())) > 0) { h = gxdReplHash(b.data(), (size_t)n, h); count += (uint64_t)n; }
+    close(fd);
+    hash = h;
+    return n < 0 ? -1 : 0;
+  }
+  if(kind == "objects") {                    // the live objects, in any order (a multiset of their bytes)
+    gxDatabase db;
+    if(db.Open(path.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { err = "cannot open " + path; return -1; }
+    std::vector<uint64_t> hs;
+    std::vector<unsigned char> b;
+    for(FAU_t a = db.FindFirstObject(); a != (FAU_t)0; a = db.FindNextObject(a)) {
+      __ULWORD__ n = db.ObjectLength(a);
+      b.resize(n);
+      if(n && db.Read(b.data(), n, a) != gxDBASE_NO_ERROR) { err = "cannot read an object"; return -1; }
+      hs.push_back(gxdReplHash(b.data(), b.size(), 0));
+    }
+    std::sort(hs.begin(), hs.end());
+    uint64_t h = 0;
+    for(auto x : hs) h = gxdReplHash(&x, sizeof(x), h);
+    hash = h; count = hs.size();
+    return 0;
+  }
+  if(kind == "btree") {                      // the keys in order: the same for any node layout
+    gxBtreeHeader bh;
+    {
+      gxDatabase probe;
+      if(probe.Open(path.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { err = "cannot open " + path; return -1; }
+      if(probe.Read(&bh, sizeof(bh), (FAU_t)probe.FileHeaderSize()) != gxDBASE_NO_ERROR) { err = "no B-tree header"; return -1; }
+    }
+    if(bh.key_size == 0 || bh.key_size > 65536 || bh.node_order < 2) { err = "not a B-tree index"; return -1; }
+    DigestKey_ k((size_t)bh.key_size), c((size_t)bh.key_size);
+    gxBtree bt(k, bh.node_order);
+    if(bt.Open(path.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { err = "cannot open the B-tree " + path; return -1; }
+    uint64_t h = 0;
+    for(int ok = bt.FindFirst(k); ok; ok = bt.FindNext(k, c)) { h = gxdReplHash(k.b.data(), k.b.size(), h); count++; }
+    bt.Close();
+    hash = h;
+    return 0;
+  }
+  err = "unknown digest kind " + kind + " (btree, bytes or objects)";
+  return -1;
+}
+
+int gxReplDerivedStatus(const gxReplSetConfig &sc, std::vector<std::string> &lines)
+{
+  lines.clear();
+  lines.push_back("set " + sc.name + ": derived_apply " + sc.derived_apply +
+		  (sc.derived_apply == "incremental" ? ", extractor " + (sc.derived_extractor.empty() ? std::string("(none)") : sc.derived_extractor) +
+		   ", source " + (sc.derived_source.empty() ? std::string("(none)") : sc.derived_source) +
+		   ", max " + std::to_string(sc.derived_apply_max_mb) + " MB" : std::string("")));
+  std::string why;
+  if(breaker_on(sc, &why)) lines.push_back("  BREAKER on: " + why);
+  if(FILE *nf = fopen(notes_off_path(sc).c_str(), "r")) {   // 11/14/2026 (review 10)
+    char b[512] = {0}; if(fgets(b, sizeof(b), nf)) {} fclose(nf);
+    std::string t(b); while(!t.empty() && t.back() == '\n') t.pop_back();
+    lines.push_back("  WARN: the source's object notes look off (every batch is rebuilt): " + t);
+  }
+  {                                                  // 11/14/2026 (review 4)
+    long long now = (long long)time(0), t = 0; int n = 0;
+    if(FILE *cf = fopen(crashes_path(sc).c_str(), "r")) { while(fscanf(cf, "%lld", &t) == 1) if(t > now - breaker_window_s && t <= now) n++; fclose(cf); }
+    if(n) lines.push_back("  index step crashes in the last hour: " + std::to_string(n) + " (the breaker trips at " +
+			  std::to_string(breaker_crashes) + ")");
+  }
+  if(FILE *f = fopen(try_path(sc).c_str(), "r")) { char b[128] = {0}; if(fgets(b, sizeof(b), f)) {} fclose(f);
+    std::string t(b); while(!t.empty() && t.back() == '\n') t.pop_back(); lines.push_back("  index step in progress or stopped: " + t); }
+  if(sc.derived.empty()) return 0;
+  std::vector<std::string> folders;
+  derived_folders(sc, "", folders);
+  for(auto &rel : folders) {
+    std::string where = rel.empty() ? "." : rel, dir = rel.empty() ? sc.root : sc.root + "/" + rel;
+    unsigned long long g = 0, l = unit_log_lsn(sc, rel, &g), c = unit_changed_lsn(sc, rel);   // 11/14/2026
+    std::string state;
+    if(FILE *f = fopen(derived_state_path(sc, rel).c_str(), "r")) { char b[256] = {0}; if(fgets(b, sizeof(b), f)) {} fclose(f); state = b; }
+    while(!state.empty() && state.back() == '\n') state.pop_back();
+    lines.push_back("  " + where + ": sealed at record " + std::to_string(l) + " generation " + std::to_string(g) +
+		    (c != l ? ", last changed at record " + std::to_string(c) : std::string("")) +
+		    ", state " + (state.empty() ? std::string("(none)") : state));
+    for(auto &ix : folder_indexes(sc, rel)) {
+      gxdStampData d;
+      int rc = gxdDerivedStamp::ReadFile(gxdDerivedStamp::PathFor(dir + "/" + ix), d);
+      std::string st = rc == 1 ? "no stamp (rebuild mode)" : rc != 0 ? "a damaged stamp (rebuild mode)" :
+	"stamped at record " + std::to_string(d.lsn) + " of log " + d.log_id + ", " + std::to_string(d.records) + " entries" +
+	(d.lsn == c ? "" : " (behind the folder's last change: rebuild needed)");
+      lines.push_back("    " + ix + ": " + st);
+    }
+  }
+  return 0;
+}
+
+int gxReplDerivedReset(const gxReplSetConfig &sc, const std::string &folder, std::string &err)
+// The breaker and the step marker go; the folder's (or every folder's) stamps and derived state go, under the
+// apply lock: the derived pass rebuilds them and, on an incremental set, stamps them again
+{
+  std::string jname = sc.root + "/.gxrepl/apply.jnl";
+  mkdirs(sc.root + "/.gxrepl");
+  int lk = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+  if(lk < 0) { err = "cannot open " + jname; return -1; }
+  if(lock_apply_bounded(lk) != 0) { close(lk); err = "busy: " + jname + " is held; try again"; return -1; }
+  unlink(breaker_path(sc).c_str());
+  unlink(try_path(sc).c_str());
+  unlink(crashes_path(sc).c_str());   // 11/14/2026 (review 4)
+  std::vector<std::string> folders;
+  if(folder.empty()) derived_folders(sc, "", folders);
+  else folders.push_back(folder == "." ? std::string() : folder);
+  for(auto &rel : folders) {
+    drop_stamps(sc, rel, "", false);
+    unlink(derived_state_path(sc, rel).c_str());
+  }
+  flock(lk, LOCK_UN);
+  close(lk);
+  return 0;
+}
+
+int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn, std::vector<std::string> &warn,
+		     gxReplTornLockStats &ls)
 {
   torn.clear();
   warn.clear();
+  ls.acquisitions = ls.unlocked_units = 0;
+  ls.max_hold_ms = ls.total_hold_ms = ls.waited_ms = 0;
+  ls.fell_back = false;
   int checked = 0;
   if(sc.commit_block.empty()) return 0;
-  torn_walk(sc, sc.root, "", checked, torn, warn);
+  TornLock tl(sc.root, ls);
+  torn_walk(sc, sc.root, "", checked, torn, warn, tl);
   // 11/12/2026 (F7): the stages. A stage leaves its unit whole at its sealed commit (checked above): a newer copy
   // in progress or stopped is a warning (gxrepl promote discards it). A swap that began and did not finish leaves
   // the unit half old, half new: torn until it is finished (the next gxrepl start, or gxrepl promote).
   for(auto &st : stages_of(sc.root)) {
     std::string where = st.first.empty() ? "." : st.first;
+    // 11/14/2026: under the shared lock (a swap runs in the apply lock: a .swap seen then is a stopped one)
+    bool locked = tl.acquire();
+    struct Rel { TornLock &t; ~Rel() { t.release(); } } rel_guard{tl};
     struct stat sb;
     if(stat((st.second + "/.swap").c_str(), &sb) == 0) {
       // a swap in flight (the server's apply lock, milliseconds) ends with the stage removed: wait for it as above
-      double wait = 10;
-      if(const char *e = getenv("GXREPL_TORN_RECHECK_SEC")) wait = atof(e);
+      double wait = locked ? 0 : torn_recheck_sec();
       auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds((long)(wait * 1000));
       while(stat((st.second + "/.swap").c_str(), &sb) == 0 && std::chrono::steady_clock::now() < end)
 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -4588,7 +5797,17 @@ int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn, 
 		     "link); the copy is whole at its sealed commit; gxrepl promote discards the stage");
     }
   }
+  if(ls.fell_back)
+    warn.push_back(std::string("the check ran without the apply lock: ") + tl.jname + " could not be opened, or "
+		   "stayed locked past GXREPL_TORN_LOCK_WAIT (a derived index rebuild?); " + std::to_string(ls.unlocked_units) +
+		   " unit(s) were read unlocked, with the timed re-reads (GXREPL_TORN_RECHECK_SEC)");
   return checked;
+}
+
+int gxReplTornCopies(const gxReplSetConfig &sc, std::vector<std::string> &torn, std::vector<std::string> &warn)
+{
+  gxReplTornLockStats ls;
+  return gxReplTornCopies(sc, torn, warn, ls);
 }
 
 bool gxReplTestHooks()

@@ -212,6 +212,14 @@ public: // 11/07/2026: Replication (DataReel 7.3, gxdrepl.h and gxrepl.h)
 				const char *stream = 0);
   void DisableShipLog();
   gxdShipLog *ShipLog() { return ship; }
+  // 11/14/2026: Object notes (gxdonote.h, DataReel 7.4): each commit
+  // record of the ship log is preceded by an objects record that lists
+  // the objects the transaction added, changed and removed per file, so
+  // a copy can update its derived indexes object by object. Off by
+  // default; EnableShipLog() turns it on when the environment has
+  // GXDSHIP_OBJECTS=1. Not inside a transaction.
+  gxDatabaseError EnableObjectNotes(int on = 1);
+  int ObjectNotesEnabled() const { return onotes_on; }
 
   // Write a batch of pages to their files as one transaction: the pages
   // and the final sizes go to the journal file "jname" (which must not
@@ -236,7 +244,11 @@ private:
     gxBtree *btx;
     std::string path;
     int written; // Pages written to the file since the last checkpoint
+    gxdObjectNotes *notes; // 11/14/2026: owned, 0 when notes are off
   };
+  void notes_attach(JFile &jf);
+  void notes_detach(JFile &jf);
+  void notes_clear();
   gxDatabaseError WriteHeader();
   size_t CheckpointSize() const;
   void ship_commit(const std::vector< std::vector<gxdPage *> > &v);
@@ -262,6 +274,7 @@ private:
   gxDatabaseError jerror;
   std::vector<unsigned char> out; // Commit record buffer, kept between commits
   gxdShipLog *ship; // 11/07/2026: Replication ship log, owned
+  int onotes_on;    // 11/14/2026: EnableObjectNotes()
 };
 
 class GXDLCODE_API gxdJournalReadLock

@@ -90,6 +90,7 @@ current stream pointer position in the open file.
 #include "gxdfptr.h"
 #include "gxdpcache.h"
 #include "gxderror.h"
+#include "gxdonote.h"
 
 namespace datareel {
 
@@ -263,6 +264,14 @@ public: // 10/25/2026: Write notification
     write_hook = hook; write_hook_data = data;
   }
 
+public: // 11/14/2026: Object notes (gxdonote.h), set by gxdJournal
+  void SetObjectNotes(gxdObjectNotes *n) { onotes = n; }
+  gxdObjectNotes *ObjectNotes() { return onotes; }
+  // Writes between a pause and its resume are not notes (a class that
+  // writes its own header outside any object, such as gxBtree)
+  void ObjectNotesPause() { onote_pause++; }
+  void ObjectNotesResume() { if(onote_pause > 0) onote_pause--; }
+
 protected:
   void (*write_hook)(void *); // 10/25/2026: See SetWriteHook()
   void *write_hook_data;
@@ -303,6 +312,17 @@ public: // Rev 'D' and higher file stat functions
 
 public: // Synchronization functions
   void Release();
+
+protected: // 11/14/2026: object notes (last, so the earlier members keep their places)
+  gxUINT32 object_capacity(const gxBlockHeader &blk) const;
+  void note_write(FAU_t address, unsigned long long bytes);
+  struct NoteGuard { // Internal writes are not notes
+    gxDatabase *d;
+    NoteGuard(gxDatabase *db) : d(db) { d->onote_pause++; }
+    ~NoteGuard() { d->onote_pause--; }
+  };
+  gxdObjectNotes *onotes; // 11/14/2026
+  int onote_pause;
 };
 
 } // namespace datareel
