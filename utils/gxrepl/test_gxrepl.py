@@ -4274,6 +4274,35 @@ def test_drain_verify_open_during_its_own_verify():
     assert "needs a verify again after this one" in log, log[-3000:]
 
 
+def test_drain_verify_restart_burst_one_verify():
+    """11/14/2026 (review: no verify cascade): a burst of 6 writer restarts while the client is down gives one
+    verify at the reconnect: the open records the verify catches up on never ask for it again"""
+    env = Env("dv_burst", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    d1 = os.path.join(ws, "d1")
+    os.makedirs(d1)
+    try:
+        assert writer(d1, "--commits", 5, "--commit-block", "--ship-root", ws).returncode == 0
+        env.start_server()
+        env.start_client()
+        _wait_units(env, ws, aws, ["d1"])
+        end = time.time() + 60
+        while time.time() < end and "verified (" not in open(os.path.join(env.dir, "client.log")).read():
+            time.sleep(0.2)
+        env.kill("client")
+        for i in range(6):                              # six writer restarts, each with its open record
+            assert writer(d1, "--commits", 2, "--commit-block", "--ship-root", ws, "--seed", 50 + i).returncode == 0
+        n = len(open(os.path.join(env.dir, "client.log")).read())
+        env.start_client()
+        _wait_units(env, ws, aws, ["d1"], 90)
+        time.sleep(4)                                   # later passes: nothing more
+        log = open(os.path.join(env.dir, "client.log")).read()[n:]
+        assert log.count("d1_writer.jnl verified (") == 1, log
+        assert "again after this one" not in log, log
+    finally:
+        env.stop()
+
+
 def test_drain_verify_once_per_stream():
     """note_verify() is idempotent: one "needs a verify" line and one verify for the stream, whichever drains
     (the drain's own, then the caller's) saw the open records of two writers"""

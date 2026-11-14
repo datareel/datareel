@@ -681,7 +681,9 @@ private:
   int sync_set(gxReplSource &src, gxReplTarget &tgt,
 	       const gxReplSetConfig &sc, bool once, std::string &err);
   // 11/14/2026: a stream that needs a verify (logged once)
-  void note_verify(const std::string &set, const std::string &stream, const char *why);
+  // lsn: the record that asks for it (0: not known). During the stream's own verify only a record past the
+  // position the verify started from asks for it again.
+  void note_verify(const std::string &set, const std::string &stream, const char *why, unsigned long long lsn = 0);
   int sync_file(gxReplSource &src, gxReplTarget &tgt, const std::string &set,
 		const std::string &path, const gxReplStream *cover,
 		gxReplSetStatus &st, std::string &err);
@@ -711,6 +713,8 @@ private:
   // 11/14/2026: the stream each set is verifying now, and streams to verify again (note_verify())
   std::map<std::string, std::string> verifying;
   std::map<std::string, std::set<std::string> > verify_again;
+  // 11/14/2026 (review: no verify cascade): the source position the stream being verified started from
+  std::map<std::string, unsigned long long> verify_from;
   long long connected_since = 0;
   std::string peer;
 };
