@@ -2808,6 +2808,40 @@ int gxReplLocal::Delete(const std::string &set, const std::vector<std::string> &
       }
     }
   }
+  // 11/14/2026 (seal per folder review 1, re-review): a file of a log-sealed folder deleted (the same generation):
+  // the folder changed at the stream's position, so C = L (its derived indexes are rebuilt). The reseal is written
+  // under the apply lock (after the journal's recovery) BEFORE any unlink, and the lock is held until the unlinks are
+  // done: a crash between them leaves C = L with the file still there (one rebuild for nothing, never a stale
+  // index accepted), and no reader sees the folder half way.
+  int del_lk = -1;
+  struct DelLock { int &fd; ~DelLock() { if(fd >= 0) { flock(fd, LOCK_UN); close(fd); } } } del_lock{del_lk};
+  if(!s->sc.commit_block.empty()) {
+    std::vector<std::pair<std::string, std::string> > reseal;      // seal file, new body
+    std::set<std::string> units;
+    for(auto &p : paths)
+      if(base_of(p) != s->sc.commit_block && !is_derived(s->sc, p) && !s->staged.count(dir_of(p))) units.insert(dir_of(p));
+    for(auto &u : units) {
+      std::string key = s->root + "/.gxrepl/units/" + unit_key(u), body = read_small(key);
+      char sname[256] = {0}; unsigned long long g = 0, l = 0, c = 0;
+      int got = sscanf(body.c_str(), "log %llu %llu %255s %llu", &g, &l, sname, &c);
+      if(got < 3 || (got >= 4 && c == l)) continue;
+      reseal.push_back(std::make_pair(key, "log " + std::to_string(g) + " " + std::to_string(l) + " " + sname + " " +
+				      std::to_string(l) + "\n"));
+    }
+    if(!reseal.empty()) {
+      std::string jname = s->root + "/.gxrepl/apply.jnl";
+      del_lk = open(jname.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+      if(del_lk < 0) { err = "cannot lock " + jname; return -1; }
+      if(lock_apply_bounded(del_lk) != 0) { close(del_lk); del_lk = -1; err = "busy: " + jname + " is held; tried again next pass"; return -1; }
+      if(recover_journal_locked(s->root) != 0) { err = "the apply journal holds a batch that cannot be applied yet"; return -1; }
+      for(auto &r : reseal)
+	if(write_atomic(r.first, r.second) != 0) { err = "cannot write " + r.first; return -1; }
+      sync_dir(s->root + "/.gxrepl/units");
+#ifdef GXREPL_TEST_HOOKS
+      if(getenv("GXREPL_TEST_DELETE_CRASH")) _exit(9);   // test builds: killed after the reseal, before the unlinks
+#endif
+    }
+  }
   for(auto &p : paths) {
     std::string full;
     if(SafePath(s->sc, p, full, err) != 0) return -1;
@@ -2823,21 +2857,7 @@ int gxReplLocal::Delete(const std::string &set, const std::vector<std::string> &
     dirs.insert(dir.size() >= s->root.size() ? dir : s->root);
   }
   for(auto &d : dirs) sync_dir(d);
-  // 11/14/2026 (seal per folder review 1): a file of a log-sealed folder deleted (the same generation): the folder
-  // changed at the stream's position, so C = L (its derived indexes are rebuilt)
-  if(!s->sc.commit_block.empty()) {
-    std::set<std::string> units;
-    for(auto &p : paths) if(base_of(p) != s->sc.commit_block && !is_derived(s->sc, p)) units.insert(dir_of(p));
-    for(auto &u : units) {
-      std::string key = s->root + "/.gxrepl/units/" + unit_key(u), body = read_small(key);
-      char sname[256] = {0}; unsigned long long g = 0, l = 0, c = 0;
-      int got = sscanf(body.c_str(), "log %llu %llu %255s %llu", &g, &l, sname, &c);
-      if(got < 3 || (got >= 4 && c == l)) continue;
-      if(write_atomic(key, "log " + std::to_string(g) + " " + std::to_string(l) + " " + sname + " " + std::to_string(l) + "\n") != 0) {
-	err = "cannot write the seal of " + u; return -1;
-      }
-    }
-  }
+  if(del_lk >= 0) { flock(del_lk, LOCK_UN); close(del_lk); del_lk = -1; }   // the unlinks are done and synced
   // 11/13/2026: a unit whose last copied file went (its source folder is gone): the rest of its folder goes too
   // (only on a node that is purely the set's copy: review)
   bool pure_copy = cfg.role == "server" ? s->sc.accept == "target" : s->sc.direction == "pull";

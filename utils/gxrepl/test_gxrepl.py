@@ -3661,10 +3661,13 @@ def _wait_caught_up(env, timeout=60):
 
 def _wait_indexes(env, timeout=60):
     end = time.time() + timeout
-    while time.time() < end and "INDEXES" in torn(env).stdout:
+    while time.time() < end:
+        t = torn(env)
+        if t.returncode == 0 and "INDEXES" not in t.stdout:
+            return
         time.sleep(0.5)
     t = torn(env)
-    assert t.returncode == 0 and "INDEXES" not in t.stdout, t.stdout + env.logs()
+    assert t.returncode == 0 and "INDEXES" not in t.stdout, f"rc {t.returncode}: " + t.stdout + env.logs()
 
 
 def test_derived_seal_per_folder():
@@ -3785,6 +3788,67 @@ def test_derived_seal_per_folder():
         assert open(os.path.join(ws, "d1", "data.gxd"), "rb").read() == open(dp, "rb").read()
         check_db(os.path.join(aws, "d1"))
         check_db(os.path.join(aws, "d2"))
+    finally:
+        env.stop()
+
+
+def test_delete_reseals_before_unlink():
+    """11/14/2026 (seal per folder, re-review): deletes = yes removes a database file of a log-sealed folder (the same
+    generation): its seal goes to C = L (its derived index rebuilt). The reseal is written under the apply lock BEFORE
+    the unlink: a copy killed between them (GXREPL_TEST_DELETE_CRASH, test builds) has C = L with the file still
+    there, never the old C with the file gone; after the restart the file goes and the index is rebuilt."""
+    assert _test_hooks(), "needs a test build (-DGXREPL_TEST_HOOKS=ON)"
+    rebuild = f"{os.path.join(BIN, 'gxrepl_testwriter')} reindex {{dir}} {{lsn}}"
+    opts = {"client": CB_OPTS["client"] + ["derived = index.gxd", "deletes = yes"],
+            "server": CB_OPTS["server"] + ["derived = index.gxd", f"derived_rebuild = {rebuild}", "derived_delay = 1",
+                                           "derived_busy_rebuild = 2"]}
+    env = Env("del_reseal", {"db": opts})
+    ws, aws = env.roots["db"]
+    for d in ("d1", "d2"):
+        os.makedirs(os.path.join(ws, d), exist_ok=True)
+    w = lambda d, n, seed: writer(os.path.join(ws, d), "--commits", n, "--commit-block", "--ship-root", ws,
+                                  "--stream", "shared", "--seed", seed)
+    assert w("d1", 4, 1).returncode == 0
+    assert w("d2", 4, 2).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        _wait_caught_up(env)
+        _wait_indexes(env)
+        l0 = int(_seal_fields(aws, "d1")[2])
+        assert w("d2", 2, 3).returncode == 0              # the stream moves on: d1's L past its C
+        end = time.time() + 30
+        while time.time() < end and int(_seal_fields(aws, "d1")[2]) <= l0:
+            time.sleep(0.2)
+        _wait_indexes(env)
+        s1 = _seal_fields(aws, "d1")
+        assert s1[2] != s1[4], s1
+        n1 = _rebuilds_of(env, "d1")
+        env.kill("client")
+        env.server.terminate(); env.server.wait(10)
+        put(os.path.join(aws, "d1", "old.gxd"), b"gone from the source")
+        env.start_server(extra_env={"GXREPL_TEST_DELETE_CRASH": "1"})
+        env.start_client()
+        end = time.time() + 60
+        while time.time() < end and env.server.poll() is None:
+            time.sleep(0.2)
+        assert env.server.poll() == 9, "the delete never reached the hook"
+        s2 = _seal_fields(aws, "d1")
+        print(f"    killed between the reseal and the unlink: seal {s1} -> {s2}, old.gxd there: "
+              f"{os.path.exists(os.path.join(aws, 'd1', 'old.gxd'))}", flush=True)
+        assert s2[4] == s2[2] == s1[2], (s1, s2)          # C = L, written first
+        assert os.path.exists(os.path.join(aws, "d1", "old.gxd"))
+        env.start_server()
+        end = time.time() + 60
+        while time.time() < end and os.path.exists(os.path.join(aws, "d1", "old.gxd")):
+            time.sleep(0.2)
+        assert not os.path.exists(os.path.join(aws, "d1", "old.gxd"))
+        end = time.time() + 30
+        while time.time() < end and _rebuilds_of(env, "d1") == n1:
+            time.sleep(0.5)
+        _wait_indexes(env)
+        assert _rebuilds_of(env, "d1") == n1 + 1, env.logs()
+        check_db(os.path.join(aws, "d1"))
     finally:
         env.stop()
 
