@@ -21,11 +21,11 @@ PORT=$(( 20000 + RANDOM % 20000 ))
 GX="$BIN/replication_gxrepl"
 APP="$BIN/replication"
 pids=()
-fail() { echo "FAILED: $*"; for p in "${pids[@]}"; do kill "$p" 2>/dev/null; done; echo "(work folder kept: $W)"; exit 1; }
+fail() { echo "FAILED: $*"; for p in "${pids[@]}"; do kill "$p" 2>/dev/null; done; KEEP=1; echo "(work folder kept: $W)"; exit 1; }
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null; done; wait 2>/dev/null; [ "${KEEP:-0}" = 1 ] || rm -rf "$W"; }
 trap cleanup EXIT
 step() { echo; echo "== $*"; }
-wait_for() {   # wait_for SECONDS DESCRIPTION COMMAND...
+wait_for() {   # wait_for SECONDS DESCRIPTION COMMAND... (run again on each try: put $(...) checks inside bash -c)
   local secs=$1 what=$2; shift 2
   local end=$(( $(date +%s) + secs ))
   while [ "$(date +%s)" -lt "$end" ]; do "$@" > /dev/null 2>&1 && return 0; sleep 0.5; done
@@ -113,7 +113,7 @@ step "2. A simulated fault: the copy's vectors.vix.stamp damaged"
 printf 'XXXXXXXXXXXXXXXX' | dd of="$W/copy/vectors.vix.stamp" bs=1 seek=$(( $(stat -c %s "$W/copy/vectors.vix.stamp") - 40 )) conv=notrunc 2>/dev/null
 wait_for 60 "gxrepl to see it (rebuild needed)" grep -q "rebuild needed" copy.log
 grep "rebuild needed" copy.log | tail -1 | sed 's/^/  log: /'
-wait_for 90 "the folder rebuilt" test "$(grep -c 'derived indexes rebuilt' copy.log)" -gt "$REBUILDS1"
+wait_for 90 "the folder rebuilt" bash -c '[ "$(grep -c "derived indexes rebuilt" copy.log)" -gt '"$REBUILDS1"' ]'
 grep "derived indexes rebuilt" copy.log | tail -1 | sed 's/^/  log: /'
 "$GX" derived status --config copy.conf | sed 's/^/  /'
 REBUILDS2=$(grep -c "derived indexes rebuilt" copy.log)
@@ -123,13 +123,16 @@ echo "derived state: $(cat "$W/copy/.gxrepl/derived/_root")"
 step "3. The writer finishes; both nodes hold the same indexes"
 wait "$WRITER" || fail "the writer failed: $(cat writer.log)"
 cat writer.log
-wait_for 120 "the copy at the primary's commit" test "$(gen "$W/copy/commit.bin")" = "$(gen "$W/primary/commit.bin")"
+wait_for 120 "the copy at the primary's commit" bash -c 'g() { od -An -t u8 -j 8 -N 8 "$1" 2>/dev/null | tr -d " "; }; [ "$(g "$1/copy/commit.bin")" = "$(g "$1/primary/commit.bin")" ]' _ "$W"
 wait_for 60 "the copy's indexes current" sh -c "! '$GX' torn --config '$W/copy.conf' | grep -q INDEXES"
 P=$("$APP" digest "$W/primary") || fail "primary digest: $P"
 C=$("$APP" digest "$W/copy") || fail "copy digest: $C"
 echo "primary:"; echo "$P" | sed 's/^/  /'
 echo "copy:";    echo "$C" | sed 's/^/  /'
 [ "$P" = "$C" ] || fail "the digests differ"
+LIVE=$(sed -n 's/.*, \([0-9]*\) live records$/\1/p' writer.log)
+KEYS=$(echo "$P" | sed -n 's/^by_name.btx btree [0-9a-f]* \([0-9]*\) keys$/\1/p')
+[ -n "$LIVE" ] && [ "$KEYS" = "$LIVE" ] || fail "the B-tree digest saw $KEYS keys for $LIVE live records"
 REBUILDS3=$(grep -c "derived indexes rebuilt" copy.log)
 [ "$REBUILDS3" = "$REBUILDS2" ] || fail "a rebuild ran after the fault was handled ($REBUILDS2 -> $REBUILDS3): $(tail -5 copy.log)"
 grep -o '"derived": {[^}]*}' copy.status.json | head -1 | sed 's/^/  status.json: /'

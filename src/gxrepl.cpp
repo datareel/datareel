@@ -5672,8 +5672,10 @@ int gxReplDigest(const std::string &path, const std::string &kind_in, uint64_t &
       if(probe.Open(path.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { err = "cannot open " + path; return -1; }
       if(probe.Read(&bh, sizeof(bh), (FAU_t)probe.FileHeaderSize()) != gxDBASE_NO_ERROR) { err = "no B-tree header"; return -1; }
     }
-    if(bh.key_size == 0 || bh.key_size > 65536 || bh.node_order < 2) { err = "not a B-tree index"; return -1; }
-    DigestKey_ k((size_t)bh.key_size), c((size_t)bh.key_size);
+    // The header's key size is SizeOfDatabaseKey(): the key and its right child pointer (an FAU)
+    if(bh.key_size <= sizeof(FAU) || bh.key_size > 65536 || bh.node_order < 2) { err = "not a B-tree index"; return -1; }
+    size_t ks = (size_t)bh.key_size - sizeof(FAU);
+    DigestKey_ k(ks), c(ks);
     gxBtree bt(k, bh.node_order);
     if(bt.Open(path.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { err = "cannot open the B-tree " + path; return -1; }
     uint64_t h = 0;
