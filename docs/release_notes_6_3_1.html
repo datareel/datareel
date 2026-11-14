@@ -51,7 +51,7 @@
 <ul>
 <li>gxIP32, gxMAC48, CDate and gxsHTML parsers stay in their buffers.</li>
 <li>gxRDBMS: damaged disk records, block lengths and negative array lengths (the format is unchanged).</li>
-<li>PostScriptDrv: a cut or wrapped line lost its terminator, so the printer output read past the buffer; the nroff filter read past the end of a line. HyperText: color values out of range, a buffer leaked by GetSystemTime(0). (Both drivers are built when __USE_POSTSCRIPT_PRINTING__ / __USE_HTM_PRINTING__ are defined, the default in env/linux.env and the CMake build.)</li>
+<li>PostScriptDrv: the constructor never set the page size (columns and lines per page came from uninitialised values, and ConvertTextFile() could loop for ever); it is Letter by default now. A cut or wrapped line lost its terminator, so the printer output read past the buffer; the nroff filter read past the end of a line. HyperText: color values out of range, a buffer leaked by GetSystemTime(0). (Both drivers are built when __USE_POSTSCRIPT_PRINTING__ / __USE_HTM_PRINTING__ are defined, the default in env/linux.env and the CMake build.)</li>
 <li>SysTimeUnit::c_str_*() wrote one byte past its buffer; SysTime crashed on times localtime()/gmtime() cannot convert and, in the thread safe build, leaked a struct tm on every format call.</li>
 <li>Terminal: GetString()/GetPassword() have no length limit (new GetStringN()/GetPasswordN(); GetInt()/GetLong()/GetFloat() use them) and stop at end of input; Write(double) could overflow its buffer.</li>
 <li>gxThread_t: operator!= was inverted on POSIX; message lookups one past their tables. Database error messages for negative codes.</li>

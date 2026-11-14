@@ -101,7 +101,10 @@ NETWORKING (FROM THE DATAREEL 7.3.1 SWEEP AND THE 6.x SWEEP)
 - gxIP32, gxMAC48, CDate and gxsHTML parsers stay in their buffers.
 - gxRDBMS: damaged disk records, block lengths and negative array
   lengths (the format is unchanged).
-- PostScriptDrv: a cut or wrapped line lost its terminator, so the
+- PostScriptDrv: the constructor never set the page size (columns and
+  lines per page came from uninitialised values, and ConvertTextFile()
+  could loop for ever); it is Letter by default now. A cut or wrapped
+  line lost its terminator, so the
   printer output read past the buffer; the nroff filter read past the
   end of a line. HyperText: color values out of range, a buffer leaked
   by GetSystemTime(0). (Both drivers are built when
