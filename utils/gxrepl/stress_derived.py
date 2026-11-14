@@ -297,8 +297,9 @@ class Run:
             for f in ("data.gxd", "commit.bin", "index.gxd"):
                 shutil.copy2(os.path.join(src, f), os.path.join(tmp, f))
             r = subprocess.run(NICE + tw("reindex", tmp), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            d = [subprocess.run([os.path.join(T.BIN, "gxrepl"), "digest", os.path.join(x, "index.gxd")],
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).stdout.strip()
+            # "digest count path": the digest and the count, not the path
+            d = [" ".join(subprocess.run([os.path.join(T.BIN, "gxrepl"), "digest", os.path.join(x, "index.gxd")],
+                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).stdout.split()[:2])
                  for x in (src, tmp)]
             out[u] = r.returncode == 0 and d[0] == d[1] and bool(d[0])
             shutil.rmtree(tmp, ignore_errors=True)
@@ -514,6 +515,7 @@ def faults(method, speed, quick):
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         def gap():
+            run.w.wait()                           # 11/14/2026: one writer of the folder at a time (its stream lock)
             w = writer_fg(os.path.join(run.ws, run.unit), run.ws, run.answers, "--commits", 3, "--per", 20,
                           "--split-pair-at", 1, "--seed", 99)
             assert w.returncode == 0, w.stdout
