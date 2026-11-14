@@ -437,6 +437,30 @@ gxvError gxVectorIndex::WriteHeader()
   return gxv_NO_ERROR;
 }
 
+unsigned long long gxVectorIndex::LogicalDigest(unsigned long long *nodes) const
+{
+  gxvReadLock r(turn, mu);
+  std::vector<std::pair<long long, size_t> > live_nodes;
+  for(size_t n = 0; n < ids.size(); n++) if(*live.at(n)) live_nodes.push_back(std::make_pair(*ids.at(n), n));
+  std::sort(live_nodes.begin(), live_nodes.end());
+  // FNV-1a over (id, code, tags), with the header's lasting fields first
+  unsigned long long h = 1469598103934665603ULL;
+  auto mix = [&](const void *p, size_t len) {
+    const unsigned char *b = (const unsigned char *)p;
+    for(size_t i = 0; i < len; i++) { h ^= b[i]; h *= 1099511628211ULL; }
+  };
+  unsigned head[4] = { dim, (unsigned)elem_type, (unsigned)metric, vbytes };
+  mix(head, sizeof(head));
+  mix(spec, strlen(spec));
+  for(auto &e : live_nodes) {
+    mix(&e.first, 8);
+    mix(Code(e.second), vbytes);
+    mix(tags.at(e.second), 4 * gxvTagCount);
+  }
+  if(nodes) *nodes = live_nodes.size();
+  return h;
+}
+
 // 11/14/2026 (phase D): tag ranges
 void gxVectorIndex::ResetRanges()
 {

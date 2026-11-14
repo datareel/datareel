@@ -23,6 +23,7 @@
 #include <limits>
 #include <math.h>
 #include "gxvset.h"
+#include "gpersist.h"
 #include "gxdjrnl.h"
 #include "gxuint64.h" // gxUINT64; the 32-bit database headers do not include it
 #include "gxrepl.h"   // 11/08/2026: the raw commands
@@ -603,6 +604,106 @@ static int vinfo_bad(const char *conf, const char *db, bool bad)
   return fails ? 1 : 0;
 }
 
+// 11/14/2026 (7.4): vwrite ROOT --ship-root SET [--commits N] [--per P] [--seed S] [--sleep MS]: InfoHog-layout
+// records (object header, 3 members: text, a vector member, the day as u32) in ROOT/data.gxd, the primary's own
+// derived index ROOT/vectors.vix in the same journal transaction (id = the record's address, tag 2 = the day),
+// commit block ROOT/commit.bin, ship log with *.vix left out. Adds, vector updates and deletes (blocks reused).
+static int vwrite(int argc, char **argv)
+{
+  std::string root = argv[2], ship_root = root;
+  long commits = 20, per = 10, sleep_ms = 0;
+  for(int i = 3; i < argc; i++) {
+    std::string a = argv[i];
+    if(a == "--ship-root" && i + 1 < argc) ship_root = argv[++i];
+    else if(a == "--commits" && i + 1 < argc) commits = atol(argv[++i]);
+    else if(a == "--per" && i + 1 < argc) per = atol(argv[++i]);
+    else if(a == "--seed" && i + 1 < argc) vrng ^= (unsigned)strtoul(argv[++i], 0, 10) * 2654435761u;
+    else if(a == "--sleep" && i + 1 < argc) sleep_ms = atol(argv[++i]);
+    else { fprintf(stderr, "unknown option %s\n", a.c_str()); return 64; }
+  }
+  std::string dn = root + "/data.gxd", vn = root + "/vectors.vix", jn = root + "/writer.jnl";
+  datareel::gxdJournal j;
+  if(j.Open(jn.c_str()) != gxDBASE_NO_ERROR) { fprintf(stderr, "journal\n"); return 1; }
+  gxDatabase db;
+  if(db.Open(dn.c_str()) != gxDBASE_NO_ERROR && db.Create(dn.c_str()) != gxDBASE_NO_ERROR) { fprintf(stderr, "data\n"); return 1; }
+  datareel::gxVectorIndex vix;
+  if(vix.Open(vn.c_str()) != datareel::gxv_NO_ERROR &&
+     vix.Create(vn.c_str(), 16, datareel::gxvFLOAT32, datareel::gxvL2, 8, "vtest", 100) != datareel::gxv_NO_ERROR) { fprintf(stderr, "vix\n"); return 1; }
+  if(j.Attach(&db) != gxDBASE_NO_ERROR || j.Attach(vix.Database()) != gxDBASE_NO_ERROR) { fprintf(stderr, "attach\n"); return 1; }
+  if(j.EnableShipLog(ship_root.c_str()) != gxDBASE_NO_ERROR) { fprintf(stderr, "ship log\n"); return 1; }
+  j.ShipLog()->SetExclude(std::vector<std::string>(1, "*.vix"));
+  int cbfd = open((root + "/commit.bin").c_str(), O_RDWR | O_CREAT, 0644);
+  unsigned char blk[4096];
+  memset(blk, 0, sizeof(blk));
+  if(pread(cbfd, blk, sizeof(blk), 0) != (ssize_t)sizeof(blk)) {
+    uint32_t magic = 0x42435756, ver = 1;     // "VWCB"
+    memcpy(blk, &magic, 4); memcpy(blk + 4, &ver, 4);
+    if(pwrite(cbfd, blk, sizeof(blk), 0) != (ssize_t)sizeof(blk)) return 1;
+  }
+  uint64_t gen = 0; memcpy(&gen, blk + 8, 8);
+  if(gen & 1) gen++;
+  std::vector<FAU_t> live;
+  for(FAU_t a = db.FindFirstObject(); a != (FAU_t)0; a = db.FindNextObject(a)) live.push_back(a);
+  auto record = [&](FAU_t addr, unsigned day, const std::vector<unsigned char> &mem, std::vector<unsigned char> &rec) {
+    datareel::gxObjectHeader oh; memset(&oh, 0, sizeof(oh)); oh.ClassID = 7; oh.ObjectID = addr;
+    rec.assign((const unsigned char *)&oh, (const unsigned char *)&oh + sizeof(oh));
+    p32v(rec, 3);
+    p32v(rec, 20); for(int i = 0; i < 20; i++) rec.push_back((unsigned char)('a' + (day + i) % 26));
+    p32v(rec, (uint32_t)mem.size()); rec.insert(rec.end(), mem.begin(), mem.end());
+    p32v(rec, 4); p32v(rec, day);
+  };
+  const size_t rec_size = sizeof(datareel::gxObjectHeader) + 4 + 4 + 20 + 4 + vix.MemberSize() + 4 + 4;
+  std::vector<float> v(16);
+  std::vector<unsigned char> mem, rec;
+  for(long c = 0; c < commits; c++) {
+    uint64_t g = ++gen; if(pwrite(cbfd, &g, 8, 8) != 8) { }
+    if(j.Begin() != gxDBASE_NO_ERROR) return 1;
+    for(long k = 0; k < per; k++) {
+      unsigned r = (vrng = vrng * 1103515245u + 12345u) >> 16;
+      unsigned day = 20261110u + (unsigned)(c % 5);
+      if(r % 10 < 7 || live.size() < 5) {             // add (a deleted block is reused when one fits)
+	FAU_t a = db.Alloc((__ULWORD__)rec_size);
+	for(auto &e : v) e = vrand();
+	vix.MakeMember(v.data(), mem);
+	record(a, day, mem, rec);
+	if(!a || db.Write(rec.data(), (__ULWORD__)rec.size(), a) != gxDBASE_NO_ERROR) return 1;
+	unsigned t[4] = { 0, 0, day, 0 };
+	if(vix.InsertMember((long long)a, mem.data(), (unsigned)mem.size(), t) != datareel::gxv_NO_ERROR) return 1;
+	live.push_back(a);
+      }
+      else if(r % 10 < 9) {                             // a new vector for a record
+	FAU_t a = live[r % live.size()];
+	for(auto &e : v) e = vrand();
+	vix.MakeMember(v.data(), mem);
+	record(a, day, mem, rec);
+	if(db.Write(rec.data(), (__ULWORD__)rec.size(), a) != gxDBASE_NO_ERROR) return 1;
+	unsigned t[4] = { 0, 0, day, 0 };
+	if(vix.UpdateMember((long long)a, mem.data(), (unsigned)mem.size(), t) != datareel::gxv_NO_ERROR) return 1;
+      }
+      else {                                            // delete
+	size_t i = r % live.size();
+	FAU_t a = live[i];
+	db.Delete(a);
+	vix.Delete((long long)a);
+	live.erase(live.begin() + (long)i);
+      }
+    }
+    unsigned char nb[4096];
+    if(pread(cbfd, nb, sizeof(nb), 0) != (ssize_t)sizeof(nb)) return 1;
+    uint64_t g2 = gen + 1; memcpy(nb + 8, &g2, 8);
+    j.ShipLog()->SetCommitBlock(root + "/commit.bin", nb, sizeof(nb));
+    if(j.Commit() != gxDBASE_NO_ERROR) { fprintf(stderr, "commit\n"); return 1; }
+    g = ++gen; if(pwrite(cbfd, &g, 8, 8) != 8) { }
+    if(sleep_ms) usleep((useconds_t)sleep_ms * 1000);
+  }
+  close(cbfd);
+  j.Close();
+  vix.Close();
+  db.Close();
+  printf("vwrite ok %zu live\n", live.size());
+  return 0;
+}
+
 int main(int argc, char **argv)
 {
   if(argc < 3) {
@@ -630,6 +731,7 @@ int main(int argc, char **argv)
   }
   if(mode == "objstream" && (argc == 4 || argc == 5)) return objstream(argv[2], argv[3], argc == 5 ? atoi(argv[4]) : 0);
   if(mode == "objverify" && argc == 5) return objverify(argv[2], argv[3], argv[4]);
+  if(mode == "vwrite" && argc >= 3) return vwrite(argc, argv);
   if(mode == "vmake" && argc == 5) return vmake(argv[2], atoi(argv[3]), atoi(argv[4]));   // 11/14/2026 (7.4)
   if(mode == "vsearch" && argc >= 6) return vsearch(argc, argv, false);
   if(mode == "vlocal" && argc >= 5) return vsearch(argc, argv, true);

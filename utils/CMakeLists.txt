@@ -1,6 +1,6 @@
 # DataReel 7 database utilities
 
-foreach(tool db_debug ix_debug)
+foreach(tool db_debug ix_debug vix_rebuild)
   add_executable(${tool} ${tool}/${tool}.cpp)
   target_link_libraries(${tool} PRIVATE DataReel::datareel)
 endforeach()
@@ -32,7 +32,7 @@ if(NOT WIN32)
   set(_dr_repl_tools gxrepl gxrepl_testwriter gxdbmux_test object_server object_client vix_test)
 endif()
 
-set_target_properties(db_debug ix_debug ${_dr_repl_tools} PROPERTIES
+set_target_properties(db_debug ix_debug vix_rebuild ${_dr_repl_tools} PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/utils")
-install(TARGETS db_debug ix_debug ${_dr_repl_tools}
+install(TARGETS db_debug ix_debug vix_rebuild ${_dr_repl_tools}
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

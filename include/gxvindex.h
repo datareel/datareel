@@ -357,6 +357,12 @@ public:
   unsigned long long Deleted() const { return deleted_count; }
   // 1 + the number of writes since Open(): lets a reader see a change
   unsigned long long ChangeCount() const { return change_count; }
+  // 11/14/2026 (phase D): what the index holds, whatever its file layout: a
+  // 64-bit hash of the live nodes in id order, each its id, stored code and
+  // tags (deleted nodes and the graph are left out). Two indexes with the
+  // same digest answer every search the same way up to the graph; "nodes"
+  // gets the live count. (A file compare is for rebuild against rebuild.)
+  unsigned long long LogicalDigest(unsigned long long *nodes = 0) const;
   // 11/14/2026 (phase D): format fields
   unsigned FeaturesRequired() const { return features_required; }
   unsigned FeaturesOptional() const { return features_optional; }

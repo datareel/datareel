@@ -800,6 +800,81 @@ def test_vector_search_copy_waits_for_apply_lock():
         env.stop()
 
 
+def _vix_opts():
+    """11/14/2026 (7.4): a set whose vectors.vix is derived from the records' vector members: rebuilt by the copy"""
+    rb = (f"{os.path.join(BIN, 'vix_rebuild')} --data {{dir}}/data.gxd --index {{dir}}/vectors.vix --member infohog:1 "
+          f"--tags -,-,infohog:2,- --dim 16 --m 8 --efc 100 --spec vtest --stamp-dir {{dir}} --lsn {{lsn}}")
+    return {"client": CB_OPTS["client"] + ["derived = vectors.vix"],
+            "server": CB_OPTS["server"] + ["derived = vectors.vix", f"derived_rebuild = {rb}", "derived_delay = 1"]}
+
+
+def _digest(path, kind="logical"):
+    r = run([os.path.join(BIN, "vix_rebuild"), "--digest", path, "--digest-kind", kind])
+    assert r.returncode == 0, r.stdout
+    return r.stdout.split()[1], int(r.stdout.split()[2])
+
+
+def test_derived_vix_rebuilt_on_copy():
+    """11/14/2026 (7.4, phase D item 5): a vector index derived from the records' vector members. The writer keeps
+    vectors.vix in its own journal transactions; no .vix bytes cross the wire (the ship log leaves the file out, the
+    file sync never sends it); the copy rebuilds it (derived_rebuild running vix_rebuild); "gxrepl torn" says the index
+    is behind (a warning), never TORN; the copy's rebuild holds the same live nodes as the primary's index after adds,
+    vector updates and deletes with reused blocks (logical digest), and is byte for byte a rebuild of the primary's
+    data; the rebuilt file is marked derived from members."""
+    env = Env("vixderived", {"db": _vix_opts()})
+    ws, aws = env.roots["db"]
+    w = run([os.path.join(BIN, "gxrepl_testwriter"), "vwrite", ws, "--commits", 30, "--per", 12, "--seed", 3])
+    assert w.returncode == 0 and "vwrite ok" in w.stdout, w.stdout
+    sl = run([os.path.join(BIN, "gxrepl"), "shiplog", os.path.join(ws, ".gxrepl", "log", os.listdir(os.path.join(ws, ".gxrepl", "log"))[0])])
+    assert sl.returncode == 0 and "data.gxd" in sl.stdout and "vectors.vix" not in sl.stdout, sl.stdout[-2000:]
+    env.start_server()
+    env.start_client()
+    try:
+        end = time.time() + 60
+        while time.time() < end and gen_of(os.path.join(aws, "commit.bin")) != gen_of(os.path.join(ws, "commit.bin")):
+            time.sleep(0.3)
+        assert gen_of(os.path.join(aws, "commit.bin")) == gen_of(os.path.join(ws, "commit.bin")), env.logs()
+        # behind until the copy rebuilds it: a warning, never torn
+        end = time.time() + 60
+        saw_warning = False
+        while time.time() < end:
+            t = torn(env)
+            assert t.returncode == 0 and "TORN" not in t.stdout, t.stdout
+            if "INDEXES" in t.stdout:
+                saw_warning = True
+            elif os.path.exists(os.path.join(aws, "vectors.vix")):
+                break
+            time.sleep(0.3)
+        assert os.path.exists(os.path.join(aws, "vectors.vix")), "never rebuilt: " + env.logs()
+        log = open(os.path.join(env.dir, "server.log")).read()
+        assert "derived indexes rebuilt" in log, log
+        # the same live nodes as the primary's own index (built in commit order, with tombstones and reused blocks)
+        lp, np_ = _digest(os.path.join(ws, "vectors.vix"))
+        lc, nc = _digest(os.path.join(aws, "vectors.vix"))
+        assert lp == lc and np_ == nc and nc > 100, (lp, np_, lc, nc)
+        # byte for byte a rebuild of the primary's data
+        tmpix = os.path.join(env.dir, "primary_rebuild.vix")
+        r = run([os.path.join(BIN, "vix_rebuild"), "--data", os.path.join(ws, "data.gxd"), "--index", tmpix,
+                 "--member", "infohog:1", "--tags", "-,-,infohog:2,-", "--dim", "16", "--m", "8", "--efc", "100", "--spec", "vtest"])
+        assert r.returncode == 0, r.stdout
+        assert _digest(tmpix, "bytes")[0] == _digest(os.path.join(aws, "vectors.vix"), "bytes")[0], "rebuilds differ"
+        assert _digest(tmpix)[0] == lp
+        r = run([os.path.join(BIN, "vix_rebuild"), "--digest", os.path.join(aws, "vectors.vix")])
+        assert " opt 3" in r.stdout, "the rebuilt index is not marked derived from members: " + r.stdout
+        # more commits: behind (a warning) until rebuilt again, then equal again
+        w = run([os.path.join(BIN, "gxrepl_testwriter"), "vwrite", ws, "--commits", 10, "--per", 12, "--seed", 9])
+        assert w.returncode == 0, w.stdout
+        end = time.time() + 60
+        while time.time() < end and (_digest(os.path.join(aws, "vectors.vix"))[0] != _digest(os.path.join(ws, "vectors.vix"))[0]):
+            t = torn(env)
+            assert "TORN" not in t.stdout, t.stdout
+            time.sleep(0.5)
+        assert _digest(os.path.join(aws, "vectors.vix"))[0] == _digest(os.path.join(ws, "vectors.vix"))[0], env.logs()
+        assert torn(env).returncode == 0
+    finally:
+        env.stop()
+
+
 def test_object_copy_is_read_only():
     """A database inside a set the server receives is a replicated copy: object clients may read it
     (under the apply lock) but never write it."""
