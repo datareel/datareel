@@ -3346,6 +3346,7 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   // L". A commit block carried by records seals a unit only if no file of it
   // is being filled (not "copying", no pieces here).
   std::deque<std::string> seals;
+  std::map<std::string, std::string> seal_before_touch;   // 11/15/2026 (review MEDIUM): see explained_fill's caller
   if(!s->sc.commit_block.empty()) {
     std::set<std::string> filling, cb_units;
     for(size_t i = 0; i < v.size(); i++) {
@@ -3407,6 +3408,7 @@ int gxReplLocal::ApplyFiles(const std::string &set,
       if(sscanf(body.c_str(), "log %llu %llu %255s %llu", &g, &l, sname, &c) < 3) continue;   // not log sealed
       unsigned long long at = t.second.lsn;
       if(t.second.mixed || t.second.stream != sname || at > l) at = l;
+      seal_before_touch[t.first] = body;
       put_seal(batch, s->root, t.first, "log " + std::to_string(g) + " " + std::to_string(l) + " " + sname + " " +
 	       std::to_string(at) + "\n", seals);
     }
@@ -3435,7 +3437,19 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   // records' or the copy's. Called in check(), under the apply lock, before a page is written.
   auto explained_fill = [&](const std::set<std::string> &filled) -> std::set<std::string> {
     std::set<std::string> ok;
-    for(auto &u : filled) if(!fill_unexplained.count(u)) ok.insert(u);
+    // review (HIGH): only an incremental set keeps stamps through a fill; in rebuild mode a fill of the derived
+    // source always drops them (and derived.stamp and the state), as before
+    if(s->sc.derived_apply != "incremental") return ok;
+    // review (HIGH): never across an open or a gap record (a batch the writer's journal recovered, records lost):
+    // the recovery-gap rule (incremental_apply) sends those folders to a rebuild
+    for(auto &fr : file_recs) {
+      std::vector<gxdShipRecordView> rv;
+      if(gxdParseShipRecords(fr.records->data(), fr.records->size(), rv) != 0) return ok;
+      for(auto &r : rv) if(r.type == gxdShipOpen || r.type == gxdShipGap) return ok;
+    }
+    std::set<std::string> noted;                 // folders whose derived source pieces were noted page by page
+    for(auto &fs : fill_sizes) noted.insert(dir_of(v[fs.i].path));
+    for(auto &u : filled) if(!fill_unexplained.count(u) && noted.count(u)) ok.insert(u);
     if(ok.empty()) return ok;
     auto bad = [&](size_t i) { ok.erase(dir_of(v[i].path)); };
     for(auto &fs : fill_sizes) {
@@ -3458,7 +3472,9 @@ int gxReplLocal::ApplyFiles(const std::string &set,
       auto pe = e->second.second.find(fp.pg);
       if(pe == e->second.second.end() || pe->second != fp.piece) continue;   // replaced by a later record
       unsigned long long off = fp.pg * (unsigned long long)gxdPageSize;
-      size_t c = v[i].size > off ? (size_t)std::min<unsigned long long>(fp.len, v[i].size - off) : 0;
+      // review (LOW): the whole page the batch writes (a short piece is padded with zeros to a page), up to the
+      // file's end, not only the piece's own bytes
+      size_t c = v[i].size > off ? (size_t)std::min<unsigned long long>(gxdPageSize, v[i].size - off) : 0;
       if(c == 0) continue;                                     // past the file's end: never read
       if(fp.rec) { if(memcmp(fp.rec, fp.piece, c) != 0) bad(i); continue; }
       auto fd = fds.find(i);
@@ -3502,6 +3518,12 @@ int gxReplLocal::ApplyFiles(const std::string &set,
       std::set<std::string> explained = explained_fill(filled);
       for(auto &u : filled)
 	if(!explained.count(u)) drop_stamps(s->sc, u, "copied by files, not by the ship log", true, true);
+      // review (MEDIUM): an explained fill changed nothing the records did not, so the folder's last change (the
+      // seal's 4th field) is the records' and not the update's position: the seal from before the touch goes back
+      for(auto &u : explained) {
+	auto sb = seal_before_touch.find(u);
+	if(sb != seal_before_touch.end() && !sb->second.empty()) put_seal(batch, s->root, u, sb->second, seals);
+      }
     }
     // 11/14/2026: the index step for the records this update applies (an incremental set), as ApplyLog runs it
     for(auto &fr : file_recs) {

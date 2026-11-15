@@ -4327,6 +4327,9 @@ def _recovered_round(name, second_args=()):
         _wait_stamped(env, aws, "d1", 180)
         ok, d = _index_equals_rebuild(env, os.path.join(aws, "d1"))
         assert ok, f"the copy's index is not its data's (copy, rebuild): {d}\n" + env.logs()
+        # 11/15/2026 (stamp-keeping fill review): the recovered open (or the gap) sent the folder to a rebuild
+        log = open(os.path.join(env.dir, "server.log")).read()
+        assert "rebuild needed: a writer's open record" in log or "rebuild needed: a gap record" in log, env.logs()
         check_db(os.path.join(aws, "d1"))
         check_db(d1)
     finally:
@@ -4395,11 +4398,95 @@ def test_incremental_fill_without_records_drops_the_stamps():
         _wait_gen(ws, aws, "d1", 90)
         _wait_stamped(env, aws, "d1", 120)
         log = open(os.path.join(env.dir, "server.log")).read()[log0:]
-        assert "copied by files" in log, "pages without records kept the stamps\n" + env.logs()
+        # 11/15/2026: the writer's open record now sends the folder to a rebuild first (the recovery gap rule);
+        # either way the pages without records must not keep the stamps
+        assert "copied by files" in log or "rebuild needed: a writer's open record" in log, \
+            "pages without records kept the stamps\n" + env.logs()
         assert _rebuilds(env) > r0, env.logs()
         check_db(os.path.join(aws, "d1"))
     finally:
         if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def _hup_verify_round(name, opts, rounds=12):
+    """11/15/2026 (stamp-keeping fill): full verifies (SIGHUP) while a writer commits every 0.4 s: commits land
+    while the verify compares the files, so the fills it sends are in step with the stream and carry the records
+    from the copy's position to the pieces'. Returns (log text since the start,
+    rebuilds during the rounds, env, ws, aws); the caller checks and stops env."""
+    env = Env(name, {"db": opts})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d1"))
+    # a commit every 0.4 s: the client drains the log between commits, so a verify runs while the writer commits
+    # (a writer that never pauses defers verifies until it does)
+    w = _objects_writer_bg(os.path.join(ws, "d1"), "--commits", 150, "--per", 6, "--sleep", 400, "--commit-block",
+                           "--ship-root", ws, "--adds-only", "--size-max", 64)
+    time.sleep(1.5)
+    env.start_server()
+    env.start_client()
+    if any("incremental" in o for o in opts["server"]):
+        _wait_stamped(env, aws, "d1", 120)
+    else:                                     # rebuild mode: a first rebuild (derived.stamp) for the fills to drop
+        _wait_units(env, ws, aws, ["d1"])
+        end = time.time() + 120
+        while time.time() < end and not os.path.exists(os.path.join(aws, "d1", "derived.stamp")):
+            time.sleep(0.3)
+        assert os.path.exists(os.path.join(aws, "d1", "derived.stamp")), "no first rebuild\n" + env.logs()
+    time.sleep(3)
+    log0 = len(open(os.path.join(env.dir, "server.log")).read())
+    def pieces():                 # the client's pieces sent (a HUP verify logs nothing on the client when in step)
+        try:
+            return json.load(open(env.cli_status))["sets"]["db"].get("pieces_sent", 0)
+        except (OSError, ValueError, KeyError):
+            return 0
+    p0 = pieces()
+    r0 = _rebuilds(env)
+    for _ in range(rounds):
+        if w.poll() is not None: break
+        env.client.send_signal(signal.SIGHUP)
+        time.sleep(3)
+    w.wait(300)
+    _wait_gen(ws, aws, "d1", 120)
+    time.sleep(3)
+    return (open(os.path.join(env.dir, "server.log")).read()[log0:], _rebuilds(env) - r0, env, ws, aws,
+            pieces() - p0)
+
+
+def test_incremental_explained_fill_keeps_the_stamps():
+    """11/15/2026 (stamp-keeping fill): on an incremental set, a verify's in-step fill whose pages are all its
+    records' or the copy's own keeps the folder's stamps: no "copied by files", no rebuild, the index equal to a
+    rebuild of the copy's data"""
+    log, reb, env, ws, aws, fills = _hup_verify_round("explained_keep", _incr_opts("gxrepl_test", ["derived_delay = 0",
+                                                                                           "derived_busy_rebuild = 2"]))
+    try:
+        _wait_stamped(env, aws, "d1", 180)
+        print(f"    {fills} pieces sent by verifies during the writer's commits, {log.count('copied by files')} copied by files, "
+              f"{reb} rebuilds", flush=True)
+        assert fills >= 3, "too few fills: the test proves nothing\n" + env.logs()
+        assert "copied by files" not in log and reb == 0, "an explained fill dropped the stamps:\n" + env.logs()
+        ok, d = _index_equals_rebuild(env, os.path.join(aws, "d1"))
+        assert ok, f"the copy's index is not its data's: {d}\n" + env.logs()
+        check_db(os.path.join(aws, "d1"))
+    finally:
+        env.stop()
+
+
+def test_rebuild_mode_fill_still_drops_the_stamps():
+    """11/15/2026 (review HIGH): derived_apply = rebuild with derived_source set: a fill of the derived source drops
+    the stamps (derived.stamp and the derived state) whatever its pages, and the copy's index ends equal to a rebuild"""
+    log, reb, env, ws, aws, fills = _hup_verify_round("rebuild_mode_fill", _derived_opts(["derived_source = data.gxd",
+                                                                                          "derived_busy_rebuild = 2"]))
+    try:
+        end = time.time() + 120
+        while time.time() < end and "INDEXES" in torn(env).stdout:
+            time.sleep(0.5)
+        print(f"    {fills} pieces sent, {log.count('copied by files')} copied by files, {reb} rebuilds",
+              flush=True)
+        assert fills >= 3, "too few fills: the test proves nothing\n" + env.logs()
+        assert log.count("copied by files") >= 1, "no fill dropped the stamps in rebuild mode:\n" + env.logs()
+        ok, d = _index_equals_rebuild(env, os.path.join(aws, "d1"))
+        assert ok, f"the copy's index is not its data's: {d}\n" + env.logs()
+    finally:
         env.stop()
 
 
