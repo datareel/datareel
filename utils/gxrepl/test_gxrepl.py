@@ -4172,14 +4172,15 @@ def test_incremental_status_shows_derived_state():
                            stderr=subprocess.STDOUT, text=True, env=e)
         assert r.returncode == 0, r.stdout
         _wait_gen(ws, aws, "d1", 90)
-        end = time.time() + 30
+        # 11/15/2026: the derived status is cached for 30 s: wait well past that (it failed once at load ~17)
+        end = time.time() + 75
         while time.time() < end and "object notes are off" not in derived().get("warn", ""):
             time.sleep(0.5)
         assert "object notes are off" in derived().get("warn", ""), derived()
         # notes on again: object by object, the WARN goes
         w = _objects_writer_bg(os.path.join(ws, "d1"), "--commits", 40, "--per", 6, "--sleep", 250, "--commit-block",
                                "--ship-root", ws)
-        end = time.time() + 60
+        end = time.time() + 90                       # the same 30 s cache before the WARN clears
         while time.time() < end and derived().get("warn"):
             time.sleep(0.5)
         assert not derived().get("warn"), derived()
