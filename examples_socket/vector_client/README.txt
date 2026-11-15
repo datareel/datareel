@@ -34,6 +34,10 @@ outside it). The server refuses k over 1000, a query of another
 dimension and a query that is not finite; the channel goes on
 answering.
 
+POSIX only: DataReel 7.4 builds its multiplex session (the object
+client) on POSIX systems only, so on Windows gxv7ObjectClient::Connect()
+returns -1 and the CMake build does not build this program.
+
 Build: the 6.x CMake build with DATAREEL7_FEATURES_DIR (it builds this
 program as vector_client and the 7.x gxrepl). Test (Linux; the 7.x
 object server runs in gxrepl, which is POSIX only):

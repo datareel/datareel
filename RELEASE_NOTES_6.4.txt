@@ -65,7 +65,9 @@ DataReel 7.x database object server (for example "gxrepl serve" with a
 [db NAME] section that names "vectors"). The connection uses mutual
 TLS: the client's certificate, the CA, and the server name checked.
 The client uses the 7.x client classes, so the messages are the 7.x
-ones. Example: examples_socket/vector_client.
+ones. POSIX only, as the DataReel 7.4 object client (its multiplex
+session is built on POSIX systems only): on Windows Connect() returns
+-1. Example: examples_socket/vector_client.
 
 REPLICATION OF 6.x DATABASES WITH THE 7.x gxrepl
 ------------------------------------------------

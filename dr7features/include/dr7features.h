@@ -211,7 +211,8 @@ struct GXDLCODE_API gxv7VectorInfo {
 // a [db NAME] section). The connection is mutual TLS: the client sends
 // its certificate (cert, key) and checks the server's against the CA
 // and server_name. The searches are read only. Return values: 0 if no
-// errors occur, -1 otherwise (Error() says why).
+// errors occur, -1 otherwise (Error() says why). POSIX only, as the
+// 7.4 object client: on Windows Connect() returns -1.
 class GXDLCODE_API gxv7ObjectClient
 {
 public:

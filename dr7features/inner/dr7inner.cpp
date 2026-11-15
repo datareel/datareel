@@ -44,9 +44,15 @@ this file. The 7.x names are used qualified (DATAREEL_NO_GLOBAL_NAMES).
 #include <stdint.h>
 #include "gxvindex.h"
 #include "gxvset.h"
+// The 7.x multiplex session (gxdbmux.cpp) and so the object client are
+// POSIX only in DataReel 7.4 (as gxrepl): on Windows the dr7c_ calls
+// below return an error.
+#if !defined(_WIN32)
+#define DR7_OBJECT_CLIENT 1
 #include "gxstream.h"
 #include "gxdbmux.h"
 #include "gxdbobject.h"
+#endif
 #include "dr7inner.h"
 
 namespace dr = datareel;
@@ -61,6 +67,7 @@ struct dr7s_set_s {
   std::string last_error;
 };
 
+#ifdef DR7_OBJECT_CLIENT
 struct dr7c_client_s {
   dr7c_client_s() : mux(0) { }
   dr::gxStream st;               // Must outlive mux (its transport)
@@ -68,6 +75,14 @@ struct dr7c_client_s {
   std::string err;
   std::vector<std::string> names; // File paths of the last search
 };
+#else
+struct dr7c_client_s {
+  std::string err;
+  std::vector<std::string> names;
+};
+static const char *dr7c_posix_only =
+  "the DataReel 7.x object client is POSIX only (DataReel 7.4 builds its multiplex session on POSIX systems only)";
+#endif
 
 static void make_filter(const dr7v_filter *in, dr::gxvFilter &out)
 {
@@ -310,6 +325,7 @@ const char *dr7s_error(const dr7s_set *h)
 }
 
 // The object server client
+#ifdef DR7_OBJECT_CLIENT
 dr7c_client *dr7c_new(void) { return new (std::nothrow) dr7c_client; }
 
 void dr7c_free(dr7c_client *h)
@@ -479,6 +495,35 @@ int dr7c_vector_search(dr7c_client *h, const float *query, unsigned dim,
   if(missing) *missing = mi;
   return 0;
 }
+
+#else // Windows: no 7.x object client
+dr7c_client *dr7c_new(void) { return new (std::nothrow) dr7c_client; }
+void dr7c_free(dr7c_client *h) { delete h; }
+int dr7c_connect(dr7c_client *h, const char *, int, const char *, const char *,
+		 const char *, const char *, const char *, int)
+{
+  if(h) h->err = dr7c_posix_only;
+  return -1;
+}
+void dr7c_close(dr7c_client *) { }
+int dr7c_is_connected(const dr7c_client *) { return 0; }
+int dr7c_vector_info(dr7c_client *h, dr7c_vinfo *, char *spec, unsigned spec_size)
+{
+  if(spec && spec_size) spec[0] = 0;
+  if(h) h->err = dr7c_posix_only;
+  return -1;
+}
+int dr7c_vector_search(dr7c_client *h, const float *, unsigned, unsigned, unsigned,
+		       const dr7v_filter *, int, unsigned, unsigned, int,
+		       dr7v_result *, unsigned *count, unsigned *skipped, unsigned *missing)
+{
+  if(count) *count = 0;
+  if(skipped) *skipped = 0;
+  if(missing) *missing = 0;
+  if(h) h->err = dr7c_posix_only;
+  return -1;
+}
+#endif // DR7_OBJECT_CLIENT
 
 unsigned dr7c_file_name(const dr7c_client *h, unsigned file, char *buf,
 			unsigned buf_size)
