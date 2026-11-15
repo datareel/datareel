@@ -41,6 +41,13 @@ if(NOT WIN32)
   target_compile_definitions(replication_gxrepl PRIVATE GXREPL_EXTRA_EXTRACTORS=1)
   target_link_libraries(replication_gxrepl PRIVATE DataReel::datareel)
   set_target_properties(replication_gxrepl PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/examples")
+  # 11/15/2026 (7.4): the same extractor as a shared library for an unchanged gxrepl (derived_extractor = .so):
+  # built without DataReel, which gxrepl exports to it
+  add_library(example_records MODULE oodb/replication_extractor_so.cpp)
+  target_include_directories(example_records PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/oodb
+    $<TARGET_PROPERTY:DataReel::datareel,INTERFACE_INCLUDE_DIRECTORIES>)
+  target_compile_definitions(example_records PRIVATE $<TARGET_PROPERTY:DataReel::datareel,INTERFACE_COMPILE_DEFINITIONS>)
+  set_target_properties(example_records PROPERTIES PREFIX "" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/examples")
 endif()
 
 # TLS networking

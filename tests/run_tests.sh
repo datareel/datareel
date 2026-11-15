@@ -91,6 +91,10 @@ mkdir -p "$WORK/run_typed_objects" && cd "$WORK/run_typed_objects" &&
 # 11/14/2026 (7.4): replication with gxrepl, object by object, a simulated fault and the automatic folder rebuild
 mkdir -p "$WORK/run_replication" && cd "$WORK/run_replication" &&
   check replication_walkthrough "$SRC/examples/oodb/replication_walkthrough.sh" "$E" "$WORK/run_replication/w"
+# 11/15/2026 (7.4): the same with an unchanged gxrepl and the extractor as a .so (derived_extractor = path.so)
+mkdir -p "$WORK/run_replication_so" && cd "$WORK/run_replication_so" &&
+  check replication_walkthrough_so env EXTRACTOR="$E/example_records.so" GXREPL="$BUILD/utils/gxrepl" \
+    "$SRC/examples/oodb/replication_walkthrough.sh" "$E" "$WORK/run_replication_so/w"
 # 11/14/2026 (7.4): the folder copy example (replication_copy_walkthrough.cmd on Windows), the same steps with cp
 mkdir -p "$WORK/run_replication_copy" && cd "$WORK/run_replication_copy" &&
   check replication_copy sh -c "set -e; mkdir -p p c; R='$E/replication_copy'

@@ -18,7 +18,7 @@ BIN=$(cd "${1:?usage: replication_walkthrough.sh BUILD/examples [WORK_DIR]}" && 
 W=${2:-$(mktemp -d "${TMPDIR:-/tmp}/repl_example.XXXXXX")}
 mkdir -p "$W"
 PORT=$(( 20000 + RANDOM % 20000 ))
-GX="$BIN/replication_gxrepl"
+GX="${GXREPL:-$BIN/replication_gxrepl}"   # 11/15/2026: GXREPL=BUILD/utils/gxrepl with EXTRACTOR=...so: the .so path
 APP="$BIN/replication"
 pids=()
 fail() { echo "FAILED: $*"; for p in "${pids[@]}"; do kill "$p" 2>/dev/null; done; KEEP=1; echo "(work folder kept: $W)"; exit 1; }
@@ -82,9 +82,9 @@ status_file = $W/copy.status.json
 root = $W/copy
 accept = target
 $SET
-# object by object, with the example's extractor (built into replication_gxrepl)
+# object by object, with the example's extractor (built into replication_gxrepl, or EXTRACTOR=.so)
 derived_apply = incremental
-derived_extractor = example_records
+derived_extractor = ${EXTRACTOR:-example_records}
 derived_source = data.gxd
 derived_count = by_name.btx
 # the fall back: a full rebuild of one folder
