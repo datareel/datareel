@@ -5515,6 +5515,66 @@ def _reopen_during_a_verify(name, client_env=None, sealed_within=60):
         env.stop()
 
 
+def _gen_or(p):
+    return gen_of(p) if os.path.exists(p) else -1
+
+
+def _reopen_setup(name, client_env=None, opens=1):
+    """the first verify held in its index.gxd sync while the day is archived, its log purged, reopened and written
+    (opens writers, one after another); returns (env, ws, aws, d1, the source's generation) after the release"""
+    env = Env(name, {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    d1 = os.path.join(ws, "d1")
+    arch = os.path.join(env.dir, "archive")
+    os.makedirs(d1)
+    os.makedirs(arch)
+    assert writer(d1, "--commits", 8, "--commit-block", "--ship-root", ws).returncode == 0
+    env.start_server()
+    hold = os.path.join(env.dir, "sync_hold")
+    ce = {"GXREPL_TEST_SYNC_FILE_HOLD": hold, "GXREPL_TEST_SYNC_FILE_HOLD_ON": "index.gxd"}
+    ce.update(client_env or {})
+    env.start_client(ce)
+    end = time.time() + 60
+    while time.time() < end and not os.path.exists(hold + ".held"):
+        time.sleep(0.1)
+    assert os.path.exists(hold + ".held"), "the first verify's file sync never started\n" + env.logs()
+    shutil.move(d1, os.path.join(arch, "d1"))
+    shutil.rmtree(os.path.join(ws, ".gxrepl", "log", "d1_writer.jnl"), ignore_errors=True)
+    shutil.move(os.path.join(arch, "d1"), d1)
+    for k in range(opens):
+        assert writer(d1, "--commits", 2, "--per", 6, "--commit-block", "--ship-root", ws, "--seed", 60 + k).returncode == 0
+    put(hold, b"go\n")
+    return env, ws, aws, d1, _gen_or(os.path.join(d1, "commit.bin"))
+
+
+def test_seal_guard_repeated_opens_seal_in_time():
+    """review: five writer opens during the held verify: the guard waits only for the stream's verifies, and the copy
+    is sealed at the source's generation, byte for byte, within 20 s"""
+    env, ws, aws, d1, want = _reopen_setup("reopen_opens", opens=5)
+    try:
+        end = time.time() + 20
+        while time.time() < end and not (_gen_or(os.path.join(aws, "d1", "commit.bin")) == want and
+                                         _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd"))):
+            time.sleep(0.2)
+        assert _gen_or(os.path.join(aws, "d1", "commit.bin")) == want and \
+            _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd")), env.logs()
+    finally:
+        env.stop()
+
+
+def test_seal_guard_stream_back_after_a_pass_away():
+    """review: a stream queued to verify again drops out of the source's list for a pass (its log moved aside) and
+    comes back on the same log: no stale verify-again flag holds its commit block; sealed within 20 s"""
+    def act(env, ws, d1):
+        assert writer(d1, "--commits", 2, "--commit-block", "--ship-root", ws, "--seed", 48).returncode == 0
+        ld = os.path.join(ws, ".gxrepl", "log", "d1_writer.jnl")
+        os.rename(ld, ld + ".away")
+        time.sleep(2.5)
+        os.rename(ld + ".away", ld)
+    same, log = _during_own_verify("dv_back_after", act)
+    assert same, "the copy is not sealed byte for byte after the stream came back\n" + log[-3000:]
+
+
 def test_reopen_during_a_verify_never_seals_stale_data():
     """both parts: the log-jump requeue and the seal guard"""
     _reopen_during_a_verify("reopen_verify")
@@ -5527,13 +5587,18 @@ def test_reopen_during_a_verify_seal_guard_alone():
 
 
 def test_reopen_during_a_verify_both_off_seals_stale_data():
-    """both off: the copy is sealed at the source's generation with a stale data.gxd (proves the test reaches it)"""
+    """both off: once the copy reaches the source's generation (waited for, no poll race), its data.gxd is stale
+    (proves the test reaches the bug)"""
+    env, ws, aws, d1, want = _reopen_setup("reopen_none", {"GXREPL_TEST_NO_LOGJUMP_REQUEUE": "1", "GXREPL_TEST_NO_SEAL_GUARD": "1"})
     try:
-        _reopen_during_a_verify("reopen_none", {"GXREPL_TEST_NO_LOGJUMP_REQUEUE": "1", "GXREPL_TEST_NO_SEAL_GUARD": "1"})
-    except AssertionError as e:
-        assert "never started" not in str(e), e         # it failed on the data, not on the set-up
-        return
-    raise AssertionError("both parts off and the copy still matched: the test does not reach the bug")
+        end = time.time() + 30
+        while time.time() < end and _gen_or(os.path.join(aws, "d1", "commit.bin")) != want:
+            time.sleep(0.2)
+        assert _gen_or(os.path.join(aws, "d1", "commit.bin")) == want, "the copy never reached the generation\n" + env.logs()
+        assert not _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd")), \
+            "both parts off and the copy still matched: the test does not reach the bug"
+    finally:
+        env.stop()
 
 
 def test_seal_guard_never_livelocks():

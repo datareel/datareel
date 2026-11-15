@@ -4792,7 +4792,7 @@ void gxReplClient::write_status(bool connected, const std::string &note)
       ", \"pieces_sent\": " + std::to_string(st.pieces_sent) + ", \"bytes_sent\": " + std::to_string(st.bytes_sent) +
       ", \"deletes\": " + std::to_string(st.deletes) + ", \"last_error\": " + json_str(st.last_error) +
       ", \"gxrepl_bytes\": " + std::to_string(st.gxrepl_bytes) + ", \"ship_log_bytes\": " +
-      std::to_string(st.ship_log_bytes) + ", \"warn\": " + json_str(st.warn) +
+      std::to_string(st.ship_log_bytes) + ", \"warn\": " + json_str(st.warn) + ", \"waiting\": " + json_str(st.waiting) +
       ", \"streams\": {";
     bool f2 = true;
     for(auto &e : st.streams) {
@@ -5182,6 +5182,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
 {
   gxReplSetStatus &st = status[sc.name];
   st.direction = sc.direction;
+  { std::lock_guard<std::mutex> lg(st.m); st.waiting.clear(); }   // 11/15/2026: set again by this pass's waits
   long long now = now_s();
   std::vector<gxReplStream> streams;
   if(src.Streams(sc.name, streams, err) != 0) return -1;
@@ -5228,7 +5229,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
   for(auto it = vlist.begin(); it != vlist.end() && !stop; ) {
     const gxReplStream *s = 0;
     for(auto &x : streams) if(x.name == *it) s = &x;
-    if(!s) { it = vlist.erase(it); continue; }
+    if(!s) { verify_again[sc.name].erase(*it); it = vlist.erase(it); continue; }   // (review: no stale flag)
     if(!have_sm) { if(src.Manifest(sc.name, sm, err) != 0) return -1; have_sm = true; }
     verifying[sc.name] = s->name;                 // 11/14/2026: see note_verify()
     verify_again[sc.name].erase(s->name);         // 11/15/2026: this verify is the one asked for
@@ -5248,7 +5249,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
       std::string e;
       int rc = sync_file(src, tgt, sc.name, f, s, st, e);
       if(rc < 0) { err = e; return -1; }
-      if(rc == 2) failed++;        // 11/15/2026: the seal guard's wait (expected): the stream stays, no error
+      if(rc == 2) { failed++; std::lock_guard<std::mutex> lg(st.m); st.waiting = "waiting for verify: " + s->name; }   // 11/15/2026: expected
       else if(rc > 0) { failed++; { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
       else synced++;
     }
@@ -5415,7 +5416,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
       std::string e;
       int rc = sync_file(src, tgt, sc.name, f.path, cover, st, e);
       if(rc < 0) { err = e; return -1; }
-      if(rc == 2) continue;        // 11/15/2026: the seal guard's wait (expected): the stream's verify follows
+      if(rc == 2) { std::lock_guard<std::mutex> lg(st.m); st.waiting = "waiting for verify: " + cover->name; continue; }
       if(rc > 0) { failures++; failed_dirs.insert(dir_of(f.path)); { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
       else sent_dirs.insert(dir_of(f.path));
     }
@@ -5433,7 +5434,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
       std::string e;
       int rc = sync_file(src, tgt, sc.name, cbf->path, cv->second, st, e);
       if(rc < 0) { err = e; return -1; }
-      if(rc == 2) continue;        // 11/15/2026: the seal guard's wait (expected)
+      if(rc == 2) { std::lock_guard<std::mutex> lg(st.m); st.waiting = "waiting for verify: " + cv->second->name; continue; }
       if(rc > 0) { failures++; { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
     }
     if(sc.deletes && !stop) {
