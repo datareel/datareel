@@ -5958,7 +5958,7 @@ int gxReplDigest(const std::string &path, const std::string &kind_in, uint64_t &
     auto push = [&](FAU_t a) -> bool {
       if(a == (FAU_t)0) return true;
       if(stack.size() >= max_depth || ++reads > max_reads) { err = "the B-tree's nodes loop or go too deep: " + path; return false; }
-      if(bt.ReadNode(n, a) != gxDBASE_NO_ERROR || (unsigned)n.key_count > (unsigned)bh.node_order) {
+      if(bt.ReadNode(n, a) != gxDBASE_NO_ERROR || (unsigned)n.key_count > (unsigned)bh.node_order) {   // up to node_order keys: Insert() adds to a node until IsFull()
 	err = "cannot read a B-tree node of " + path; return false;
       }
       Pos p;
@@ -5982,6 +5982,12 @@ int gxReplDigest(const std::string &path, const std::string &kind_in, uint64_t &
     }
     bt.Close();
     if(!ok) { hash = 0; count = 0; return -1; }
+    // 11/15/2026 (review): the walk must see every key the header counts
+    if(count != (uint64_t)bh.n_keys) {
+      err = "the B-tree's walk found " + std::to_string(count) + " keys, its header counts " +
+	    std::to_string((unsigned long long)bh.n_keys) + ": " + path;
+      hash = 0; count = 0; return -1;
+    }
     hash = h;
     return 0;
   }
