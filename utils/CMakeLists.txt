@@ -47,6 +47,10 @@ elseif(MSVC)
   target_compile_options(vix_test PRIVATE /fp:precise)
 endif()
 list(APPEND _dr_repl_tools vix_test)
+# 11/15/2026: the numbers of docs/benchmarks.html (dr_bench [WORK_FOLDER] [--quick])
+add_executable(dr_bench dr_bench/dr_bench.cpp)
+target_link_libraries(dr_bench PRIVATE DataReel::datareel)
+list(APPEND _dr_repl_tools dr_bench)
 
 set_target_properties(db_debug ix_debug vix_rebuild ${_dr_repl_tools} PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/utils")
