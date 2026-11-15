@@ -392,6 +392,15 @@ BETA 3 (11/14/2026)
     (gxReplLocal::ReadLogOf; pull mode later).
   Every writer open gets its verify (the protocol's rule); one restart
   costs at most one verify and one derived rebuild.
+- gxrepl: a day folder archived and reopened during a verify (osa_ingest's
+  late pass) never seals stale data. A file update that would move the
+  copy's position to another log queues the stream's verify again, and
+  the seal guard applies a folder's commit block only when its stream
+  needs no other verify (and never one of another log than the verify
+  started on); a data file gone during its sync fails it; the source's
+  reader reopens on log.id's content. Before, the copy could be sealed
+  and "in step" at the source's generation with a stale data file (in
+  the night-1 test 17 of 50 on the 7.3.x code of the .53 install).
 - gxrepl per-object derived apply (still not for production use):
   A1 one guarded index step (crash guard and breaker) for ApplyLog and
   ApplyFiles, A2, A3.
