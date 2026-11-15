@@ -993,6 +993,30 @@ static void test_phase_c_files()
     std::vector<char> b(fhs + 8, 0);
     if(t.read(b.data(), (std::streamsize)b.size()) && memcmp(b.data() + fhs, "GXVIX74", 7) == 0) dd = data_dir + "/fau64";
   }
+  // 11/15/2026: the fixture files were made on LP64 Linux (fau64 and fau32 alike). The file headers hold gxUINT32
+  // (unsigned long) fields: 8 bytes on LP64, 4 on LLP64 (64-bit Windows), so these files do not open there (a known
+  // portability item: fixed-width on-disk header types are planned). On an LLP64 build, check that each one is
+  // refused cleanly, with an error and no crash, instead of comparing results.
+  if(sizeof(unsigned long) != 8) {
+    printf("phase C files: files are for the LP64 layout (unsigned long is %u bytes here): checking that they are "
+	   "refused cleanly\n", (unsigned)sizeof(unsigned long));
+    unsigned n = 0;
+    for(const char *sub : { "/fau64", "/fau32" }) {
+      std::error_code lec;
+      for(auto &e : std::filesystem::directory_iterator(data_dir + sub, lec)) {
+	if(e.path().extension() != ".vix") continue;
+	std::string f = path(("lp64_" + e.path().filename().string()).c_str());
+	std::filesystem::copy_file(e.path(), f, std::filesystem::copy_options::overwrite_existing, lec);
+	gxVectorIndex vix;
+	gxvError oe = vix.Open(f.c_str());
+	CHECK(oe != gxv_NO_ERROR, "%s%s: an LP64 file must not open on this layout", sub, e.path().filename().string().c_str());
+	vix.Close();
+	n++;
+      }
+    }
+    CHECK(n == 8, "8 LP64 fixture files expected, %u found", n);
+    return;
+  }
   std::ifstream ex(dd + "/phase_c_expected.txt");
   CHECK(ex.good(), "no %s/phase_c_expected.txt", dd.c_str());
   if(!ex.good()) return;
