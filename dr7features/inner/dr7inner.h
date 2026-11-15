@@ -151,6 +151,43 @@ int dr7s_search(const dr7s_set *h, const float *query, unsigned k,
 		int strict, dr7v_result *results, unsigned *count);
 const char *dr7s_error(const dr7s_set *h);
 
+// Client of the DataReel 7.x database object server (gxdbobject.h,
+// served by "gxrepl serve" for a [db NAME] with "vectors = ..."):
+// mutual TLS (the 7.x gxStream), one multiplex channel to database
+// db_name, read mode, op 7 VECTOR_SEARCH and op 8 VECTOR_INFO.
+typedef struct dr7c_client_s dr7c_client;
+typedef struct dr7c_vinfo_s {
+  unsigned version;
+  unsigned dim;
+  int type;
+  int metric;
+  unsigned files;
+  unsigned long long nodes;
+  unsigned long long deleted;
+} dr7c_vinfo;
+dr7c_client *dr7c_new(void);
+void dr7c_free(dr7c_client *h);
+// 0 if connected and the channel opened; else -1 (dr7c_error())
+int dr7c_connect(dr7c_client *h, const char *host, int port,
+		 const char *server_name, const char *cert, const char *key,
+		 const char *ca, const char *db_name, int timeout_secs);
+void dr7c_close(dr7c_client *h);
+int dr7c_is_connected(const dr7c_client *h);
+// spec: the index's spec text (spec_size bytes, null terminated)
+int dr7c_vector_info(dr7c_client *h, dr7c_vinfo *info, char *spec,
+		     unsigned spec_size);
+// results holds k entries. 0 if no errors occur, else -1.
+int dr7c_vector_search(dr7c_client *h, const float *query, unsigned dim,
+		       unsigned k, unsigned ef, const dr7v_filter *filter,
+		       int day_range, unsigned day_lo, unsigned day_hi,
+		       int strict, dr7v_result *results, unsigned *count,
+		       unsigned *skipped, unsigned *missing);
+// The path (relative to the server's manifest) of a file the last
+// search's results name, or "" (buf_size bytes, null terminated)
+unsigned dr7c_file_name(const dr7c_client *h, unsigned file, char *buf,
+			unsigned buf_size);
+const char *dr7c_error(const dr7c_client *h);
+
 #ifdef __cplusplus
 }
 #endif

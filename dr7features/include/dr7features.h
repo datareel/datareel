@@ -192,6 +192,60 @@ private:
   void *h; // The 7.x set (dr7inner.h)
 };
 
+// What a vector database on a DataReel 7.x object server holds
+struct GXDLCODE_API gxv7VectorInfo {
+  gxv7VectorInfo();
+  unsigned version;
+  unsigned dim;
+  gxv7ElementType type;
+  gxv7Metric metric;
+  unsigned files;              // .vix files in the server's set
+  unsigned long long nodes;    // Live vectors
+  unsigned long long deleted;
+  gxString spec;
+};
+
+// Client of the DataReel 7.x database object server: op 7
+// VECTOR_SEARCH and op 8 VECTOR_INFO on a database the server's config
+// gives "vectors = <.vixset or .vix>" (for example "gxrepl serve" with
+// a [db NAME] section). The connection is mutual TLS: the client sends
+// its certificate (cert, key) and checks the server's against the CA
+// and server_name. The searches are read only. Return values: 0 if no
+// errors occur, -1 otherwise (Error() says why).
+class GXDLCODE_API gxv7ObjectClient
+{
+public:
+  gxv7ObjectClient();
+  ~gxv7ObjectClient();
+
+private: // Disallow copying and assignment
+  gxv7ObjectClient(const gxv7ObjectClient &) { }
+  void operator=(const gxv7ObjectClient &) { }
+
+public:
+  int Connect(const char *host, int port, const char *server_name,
+	      const char *cert, const char *key, const char *ca,
+	      const char *db_name, int timeout_secs = 10);
+  void Close();
+  int IsConnected() const;
+  int VectorInfo(gxv7VectorInfo &info);
+  // The k nearest vectors (k at most 1000), closest first. results
+  // must hold k entries. day_range = 1: only vectors with tag 2 between
+  // day_lo and day_hi; skipped/missing count the server's files skipped
+  // by their day range and listed but missing.
+  int VectorSearch(const float *query, unsigned dim, unsigned k,
+		   gxv7Result *results, unsigned &count, unsigned ef = 64,
+		   const gxv7Filter *filter = 0, int day_range = 0,
+		   unsigned day_lo = 0, unsigned day_hi = 0,
+		   unsigned *skipped = 0, unsigned *missing = 0);
+  // The path (relative to the server's manifest) of results[i].file
+  gxString FileName(unsigned file) const;
+  gxString Error() const;
+
+private:
+  void *h; // The 7.x client (dr7inner.h)
+};
+
 #endif // __DR7_FEATURES_H__
 // ----------------------------------------------------------- //
 // ------------------------------- //

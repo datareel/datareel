@@ -269,6 +269,79 @@ gxString gxv7VectorSet::FilePath(unsigned file) const
 
 unsigned gxv7VectorSet::Dim() const { return dr7s_dim(SET); }
 gxString gxv7VectorSet::Error() const { return gxString(dr7s_error(SET)); }
+
+// gxv7ObjectClient
+#define CLI ((dr7c_client *)h)
+
+gxv7VectorInfo::gxv7VectorInfo()
+{
+  version = dim = files = 0;
+  type = gxv7FLOAT32;
+  metric = gxv7L2;
+  nodes = deleted = 0;
+}
+
+gxv7ObjectClient::gxv7ObjectClient() { h = dr7c_new(); }
+gxv7ObjectClient::~gxv7ObjectClient() { dr7c_free(CLI); }
+
+int gxv7ObjectClient::Connect(const char *host, int port, const char *server_name,
+			      const char *cert, const char *key, const char *ca,
+			      const char *db_name, int timeout_secs)
+{
+  return dr7c_connect(CLI, host, port, server_name, cert, key, ca, db_name,
+		      timeout_secs);
+}
+
+void gxv7ObjectClient::Close() { dr7c_close(CLI); }
+int gxv7ObjectClient::IsConnected() const { return dr7c_is_connected(CLI); }
+
+int gxv7ObjectClient::VectorInfo(gxv7VectorInfo &info)
+{
+  dr7c_vinfo vi;
+  char spec[256];
+  if(dr7c_vector_info(CLI, &vi, spec, sizeof(spec)) != 0) return -1;
+  info.version = vi.version;
+  info.dim = vi.dim;
+  info.type = (gxv7ElementType)vi.type;
+  info.metric = (gxv7Metric)vi.metric;
+  info.files = vi.files;
+  info.nodes = vi.nodes;
+  info.deleted = vi.deleted;
+  info.spec = spec;
+  return 0;
+}
+
+int gxv7ObjectClient::VectorSearch(const float *query, unsigned dim, unsigned k,
+				   gxv7Result *results, unsigned &count,
+				   unsigned ef, const gxv7Filter *filter,
+				   int day_range, unsigned day_lo, unsigned day_hi,
+				   unsigned *skipped, unsigned *missing)
+{
+  count = 0;
+  if(k == 0) return 0;
+  if(!results) return -1;
+  dr7v_result *r = new dr7v_result[k];
+  dr7v_filter f;
+  to_inner(filter, f);
+  int rv = dr7c_vector_search(CLI, query, dim, k, ef, filter ? &f : 0,
+			      day_range, day_lo, day_hi, 0, r, &count,
+			      skipped, missing);
+  if(rv == 0) from_inner(r, count, results);
+  delete[] r;
+  return rv;
+}
+
+gxString gxv7ObjectClient::FileName(unsigned file) const
+{
+  unsigned n = dr7c_file_name(CLI, file, 0, 0);
+  char *buf = new char[n + 1];
+  dr7c_file_name(CLI, file, buf, n + 1);
+  gxString s(buf);
+  delete[] buf;
+  return s;
+}
+
+gxString gxv7ObjectClient::Error() const { return gxString(dr7c_error(CLI)); }
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

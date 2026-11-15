@@ -245,6 +245,9 @@ if(DATAREEL7_FEATURES_DIR)
   # The example and test program (examples_database/vector_index)
   add_executable(vector_index examples_database/vector_index/testprog.cpp)
   target_link_libraries(vector_index PRIVATE DataReel::dr7features)
+  # The object server client example (examples_socket/vector_client)
+  add_executable(vector_client examples_socket/vector_client/testprog.cpp)
+  target_link_libraries(vector_client PRIVATE DataReel::dr7features)
   # The replication example (examples_database/replication_6x): plain 6.x
   # programs that the 7.x gxrepl (DATAREEL7_TOOLS) replicates
   foreach(_p repl6_writer repl6_check)
