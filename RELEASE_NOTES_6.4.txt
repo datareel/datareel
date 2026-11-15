@@ -15,6 +15,7 @@ tree, only when it is asked to:
 A program that does not use the 7.x features builds and runs exactly
 as with 6.3.1, with the makefiles or with CMake. Everything in
 RELEASE_NOTES_6.3.1.txt and RELEASE_NOTES_6.3.txt is included.
+The shared library (Linux makefiles) is built as libdatareel.so.6.4.
 
 THE 7.x FEATURES BUILD (CMake only)
 -----------------------------------

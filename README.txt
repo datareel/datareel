@@ -1,4 +1,4 @@
-DataReel 6.3.1 Readme File
+DataReel 6.4 (beta) Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -266,7 +266,8 @@ index, gxv7ObjectClient searches a 7.x object server's vectors, and
 the 7.x gxrepl replicates 6.x programs' database folders (the 6.x
 journal uses the same file lock as 7.x). See RELEASE_NOTES_6.4.txt
 and examples_database/vector_index, examples_database/replication_6x
-and examples_socket/vector_client.
+and examples_socket/vector_client. The shared library is built as
+libdatareel.so.6.4.
 
 VERSION 6.3.1
 -------------
