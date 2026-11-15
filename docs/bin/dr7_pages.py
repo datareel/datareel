@@ -99,6 +99,165 @@ def page(**kw): PAGES.append(kw)
 # ------------------------------------------------------------------
 # Networking
 # ------------------------------------------------------------------
+page(file='classes/database/gxvindex.htm', title='Vector Index Class',
+ lead='gxVectorIndex keeps vectors in a .vix file built on gxDatabase, with exact search and an HNSW graph for fast approximate search (DataReel 7.4).',
+ sections=[('Overview', 'Overview', '''
+<P>A .vix file holds nodes of a fixed size: an id (a long long, often the address of the record the vector belongs to), four unsigned tags, the vector in its stored form and the node's graph links. <A HREF="#Exact">Exact()</A> compares the query with every live node; <A HREF="#Search">Search()</A> walks the graph (HNSW) and is exact for small indexes and for filters that pass fewer than about 5% of the nodes.</P>
+<P><B>Element types</B>: gxvFLOAT32, gxvFLOAT16 (IEEE binary16, half the size) and gxvINT8 (signed bytes and a float scale per vector). <B>Metrics</B>: gxvL2 (squared distance), gxvCOSINE (the vectors kept at unit length) and gxvIP (inner product, largest first). A <B>spec</B> string names what the vectors are (a model, a schema); <A HREF="#Open">Open()</A> with a spec refuses a file of another.</P>
+<P><B>Tags</B> are four unsigned values per node; a <CODE>gxvFilter</CODE> keeps nodes whose tags are in ranges (and an optional accept function). By convention tag 2 holds the day (yyyymmdd): the file keeps the smallest and largest tag 2 so a <A HREF="gxvset.htm">gxVectorSet</A> can skip it.</P>
+<P><B>Transactions</B>: attach <A HREF="#Database">Database()</A> to a <A HREF="gxdjrnl.htm">gxdJournal</A> to make writes all or nothing. After <CODE>Rollback()</CODE> call <A HREF="#Reload">Reload()</A>: the file is restored and the nodes in memory must be read again.</P>
+<P><B>Vector members</B>: a record can keep its vector in the index's stored form (<A HREF="#MakeMember">MakeMember()</A>), so the index can be made again from the records alone (<A HREF="gxvmember.htm">gxvmember.h</A>, <A HREF="../../utils/vix_rebuild.htm">vix_rebuild</A>).</P>
+<P>Every function returns gxv_NO_ERROR (0) or a gxvError; <A HREF="#ErrorMessage">ErrorMessage()</A> describes it. The examples: <A HREF="../../examples/vector_basics.htm">vector_basics</A>, <A HREF="../../examples/vector_records.htm">vector_records</A>.</P>
+''' + code('''
+gxVectorIndex vix;
+vix.Create("notes.vix", 384, gxvFLOAT16, gxvCOSINE, 16, "notes/v1");
+unsigned tags[gxvTagCount] = { 0, 0, 20261115, 0 };   // tag 2: the day
+vix.Insert(record_address, vec, tags);
+std::vector<gxvResult> r;
+vix.Search(query, 10, r, 64);                          // the 10 nearest, closest first
+''')),
+ ],
+ functions=[
+ ('Files', 'Files', [
+  ('gxvError Create(const char *fname, unsigned dim, gxvElementType type = gxvFLOAT32, gxvMetric metric = gxvL2, unsigned M = 16, const char *spec = 0, unsigned ef_construction = 200)', 'Creates a new index. M is the number of graph links per node (twice that on the bottom level); ef_construction is the search width used while inserting.'),
+  ('gxvError Open(const char *fname, gxDatabaseAccessMode mode = gxDBASE_READWRITE, const char *spec = 0)', 'Opens an index; a spec, when given, must equal the file\'s. A phase A file (no saved graph) is searched after the graph is built in memory: GraphSaved() is 0 until Repair().'),
+  ('gxvError Close() / Flush()', 'Writes the header and closes, or writes the header only.'),
+  ('gxvError Reload()', 'Reads the nodes from the file again (after a gxdJournal Rollback(), or a file another process changed).'),
+  ('gxDatabase *Database()', 'The file, to attach to a gxdJournal. Write to it only through this class.'),
+ ]),
+ ('Nodes', 'Nodes', [
+  ('gxvError Insert(long long id, const float *vec, const unsigned *tags = 0)', 'Adds a node. gxv_DUPLICATE_ID if the id is live; gxv_OUT_OF_RANGE for a float16 value beyond 65504; gxv_NOT_FINITE for a NaN or infinite value.'),
+  ('gxvError Update(long long id, const float *vec, const unsigned *tags = 0)', 'The same vector: the tags are rewritten in place. A new vector: the old node is deleted and a new one inserted.'),
+  ('gxvError Delete(long long id)', 'A tombstone: the node stays in the file, is never found, and is counted by Deleted(). Repair() drops tombstones from the graph.'),
+  ('int Contains(long long id) const / gxvError Get(long long id, float *vec, unsigned *tags = 0) const', 'Whether an id is live; its stored vector (unit length for cosine) and tags.'),
+  ('gxvError Rename(long long old_id, long long new_id)', 'The record moved to a new address: the node gets the new id.'),
+  ('unsigned long long Count() const / Deleted() const / ChangeCount() const', 'Live nodes, tombstones, and 1 + the number of writes since Open() (lets a reader see a change).'),
+ ]),
+ ('Searches', 'Searches', [
+  ('gxvError Exact(const float *query, unsigned k, std::vector<gxvResult> &results, const gxvFilter *filter = 0) const', 'The k nearest live nodes that pass the filter, closest first, by comparing every node.'),
+  ('gxvError Search(const float *query, unsigned k, std::vector<gxvResult> &results, unsigned ef = 64, const gxvFilter *filter = 0) const', 'Approximate search over the graph; a larger ef is closer to Exact() and slower.'),
+  ('struct gxvFilter: void Tag(unsigned i, unsigned value) / void Range(unsigned i, unsigned lo, unsigned hi)', 'Keep nodes whose tag i equals value, or is in [lo, hi]; accept(id, tags, data), when set, is asked last.'),
+ ]),
+ ('Members', 'Vector Members', [
+  ('gxvError MakeMember(const float *vec, std::vector<unsigned char> &member) const', 'The vector in the stored form for a record: a 12-byte head (type, dimension, spec CRC) and the code bytes (MemberSize() in all).'),
+  ('gxvError InsertMember(long long id, const unsigned char *member, unsigned len, const unsigned *tags = 0) / UpdateMember(...)', 'Puts a member\'s code in the index unchanged, so record and node hold the same bytes; a member of another type, dimension or spec is refused.'),
+  ('gxvError MemberVector(const unsigned char *member, unsigned len, float *vec) const / int MemberMatches(long long id, const unsigned char *member, unsigned len) const', 'Decodes a member; whether node id holds exactly this member\'s code.'),
+ ]),
+ ('Maintenance', 'Maintenance', [
+  ('gxvError Repair()', 'Makes the graph again from the live nodes and writes it (attach the journal first to make it all or nothing).'),
+  ('unsigned long Verify(int (*resolve)(long long id, void *data) = 0, void *data = 0, std::vector<long long> *bad = 0, std::string *report = 0)', 'Checks the file against memory and, with a resolver, whether each node\'s object still exists. Returns the number of problems.'),
+  ('static gxvError Merge(const char *out_fname, const std::vector<std::string> &inputs, ...)', 'Builds one index from the live nodes of several (the day files of a month), every link written once.'),
+  ('unsigned long long LogicalDigest(unsigned long long *nodes = 0) const', 'A hash of the live nodes in id order (id, stored code, tags): the same for two indexes that hold the same nodes, whatever their graphs.'),
+ ]),
+ ('Format', 'Format Fields (Phase D)', [
+  ('unsigned FeaturesRequired() const / FeaturesOptional() const', 'Feature bits: a reader refuses a file with a required bit it does not know; optional bits gxvOptTagRanges (tag ranges kept) and gxvOptFromMembers (derived from record members).'),
+  ('unsigned Codec() const / GraphLayout() const / PartitionId() const / PartitionCount() const', 'The stored code\'s codec (0: plain), the graph layout, and the file\'s partition of a set.'),
+  ('int TagRange(unsigned i, unsigned &lo, unsigned &hi) const / int TagRangeExcludes(unsigned i, unsigned lo, unsigned hi) const', 'The smallest and largest value tag i ever had; 1 when no node can have tag i in [lo, hi].'),
+  ('static const char *ErrorMessage(gxvError err)', 'A description of an error code.'),
+ ]),
+ ])
+
+page(file='classes/database/gxvset.htm', title='Vector Set Class',
+ lead='gxVectorSet searches many vector index files as one, through a .vixset manifest (DataReel 7.4).',
+ sections=[('Overview', 'Overview', '''
+<P>A set is a day file each, partitions of a large index, or both. The files are listed in a small text manifest, &lt;name&gt;.vixset, next to them. Each line holds a file's path (relative to the manifest, never absolute and never "..") with its node counts, the range of its tag 2 (the day) and a CRC of the header fields that never change; a file replaced by one that does not match is refused.</P>
+''' + code('''
+# gxVectorSet manifest
+set days
+version 1
+spec example/days
+dim 24
+element f32
+metric l2
+codec 0
+file 2026/11/11/vectors.vix nodes=500 deleted=0 tag2=20261111..20261111 crc=1a2b3c4d
+''') + '''
+<P>Files are opened read only when a search first needs them and kept in a cache of max_open files. A search with a day range skips a file whose tag 2 range is outside it without opening it. Results are merged by distance, then file, then id: the same for any number of threads. A listed file that is missing (an archived day) is skipped and counted, unless <CODE>strict</CODE> is set. The live day's writer can put its own open index in the set with <A HREF="#AttachOpen">AttachOpen()</A>. The example: <A HREF="../../examples/vector_days.htm">vector_days</A>.</P>
+''')],
+ functions=[
+ ('Manifest', 'The Manifest', [
+  ('gxvError Create(const char *path, const char *name, unsigned dim, gxvElementType type = gxvFLOAT32, gxvMetric metric = gxvL2, const char *spec = 0)', 'A new, empty set: the manifest is written.'),
+  ('gxvError Open(const char *path, const char *spec = 0, unsigned max_open = 16) / gxvError OpenFile(const char *vix_path, const char *spec = 0) / void Close()', 'Reads a manifest (a spec, when given, must be the set\'s); or one .vix file as a set of one.'),
+  ('gxvError AddFile(const char *rel_path) / RemoveFile(const char *rel_path)', 'Lists or removes a file (it is opened and checked against the set). Writes the manifest (to .tmp, synced, renamed).'),
+  ('gxvError Refresh()', 'Copies every file\'s counts and tag 2 range from its header again; a file that no longer matches its CRC is an error.'),
+  ('static int SafeRelPath(const std::string &rel)', '1 if a path may be in a manifest: relative, no "..", no empty or "." parts, no backslash or control characters.'),
+ ]),
+ ('Search', 'Searches', [
+  ('gxvError Search(const float *query, const gxvSetSearch &opt, std::vector<gxvSetResult> &results, gxvSetStats *stats = 0) const', 'Searches the files. gxvSetSearch: k, ef, filter, day_range with day_lo/day_hi, threads, strict. Each gxvSetResult names its file (an index into Files()).'),
+  ('gxvError AttachOpen(const char *rel_path, gxVectorIndex *vix)', 'A writer\'s own open index for a listed file: searched as it is, never reopened or evicted; 0 detaches it.'),
+  ('unsigned long long Skipped() / Opened() / Missing() / Reloaded() const; const std::string &Error() const', 'What the last search did; gxvSetStats gives the same per search for callers searching from several threads.'),
+ ]),
+ ])
+
+page(file='classes/database/gxvmember.htm', title='Vector Members and Rebuilds',
+ lead='Vector indexes made from the vector members of records: the gxvmember extractor and gxvRebuildFromMembers() (DataReel 7.4).',
+ sections=[('Overview', 'Overview', '''
+<P>A data file whose records keep their vectors as vector members (<A HREF="gxvindex.htm#MakeMember">MakeMember()</A>) can have its .vix made again from the records alone, so a replicated copy never needs the .vix bytes: the set names the .vix "derived" and the copy rebuilds it, in full (<A HREF="../../utils/vix_rebuild.htm">vix_rebuild</A>) or object by object (the "gxvmember" extractor of <A HREF="gxrextract.htm">gxrextract.h</A>).</P>
+<P>Where the member is, as a config string (space separated): <CODE>member=infohog:N</CODE> (InfoHog member N) or <CODE>member=offset:N</CODE> (a fixed field at byte N of a POD record), and <CODE>tags=A,B,C,D</CODE> where each tag comes from <CODE>infohog:N</CODE>, <CODE>offset:N</CODE> (a 4-byte value) or <CODE>-</CODE> (0). The node id is the record's address. Rebuilt in ascending address order, the index is the same file, byte for byte, on every node. The example: <A HREF="../../examples/vector_records.htm">vector_records</A>.</P>
+''')],
+ functions=[
+ ('Functions', 'Functions', [
+  ('int gxvRebuildFromMembers(const std::string &data_path, const std::string &index_path, const gxVectorIndex &like, const std::string &config, unsigned long long &records, std::string &why)', 'Rebuilds index_path from every record of data_path (into index_path.rebuild, then renamed over it); the header comes from "like". records gets the number of records with a member. 0, or -1 with why.'),
+  ('struct gxvMemberSpec: int Parse(const std::string &config, std::string &why) / int Extract(const unsigned char *rec, unsigned len, const unsigned char *&member, unsigned &mlen, unsigned tags[gxvTagCount]) const', 'Parses the config; finds a record\'s member and tags (1 found, 0 none).'),
+  ('const gxrExtractorOps *gxvMemberExtractor()', 'The "gxvmember" extractor for gxrepl\'s derived_apply = incremental.'),
+ ]),
+ ])
+
+page(file='classes/database/gxdjrnl.htm', title='Journal (Transactions) Class',
+ lead='gxdJournal makes writes to several database files all or nothing, and in 7.3 and 7.4 feeds replication through its ship log.',
+ sections=[('Overview', 'Overview', '''
+<P>Attach every file a transaction writes (gxDatabase files, gxBtree indexes, a gxVectorIndex's <CODE>Database()</CODE>), then <A HREF="#Begin">Begin()</A>, write, and <A HREF="#Commit">Commit()</A> or <A HREF="#Rollback">Rollback()</A>. The journal records each batch of pages and its commit before the pages reach the files, so after a crash the next <A HREF="#Open">Open()</A> (or <A HREF="#Recover">Recover()</A>) finishes every committed batch and drops the rest. Open the journal before the files.</P>
+<P><B>Replication</B> (gxrepl): <A HREF="#EnableShipLog">EnableShipLog()</A> appends each commit's pages to the set's ship log, and an open record when the writer starts; <A HREF="#EnableObjectNotes">EnableObjectNotes()</A> adds which records each commit added, changed and removed (for derived_apply = incremental). Readers in another process take a <CODE>gxdJournalReadLock</CODE> to see whole batches only. See the <A HREF="../../replication_admin_guide.html">replication administrator's guide</A>. The examples: <A HREF="../../examples/journal_recovery.htm">journal_recovery</A>, <A HREF="../../examples/replication.htm">replication</A>.</P>
+''')],
+ functions=[
+ ('Transactions', 'Transactions', [
+  ('gxDatabaseError Open(const char *jname) / Close()', 'Recovers, then opens the journal; Close() rolls back an open batch or checkpoints, and truncates the journal file.'),
+  ('gxDatabaseError Attach(gxDatabase *f) / Attach(gxBtree *btx) / Attach(BtreeCache *cache)', 'Adds a file to the journal\'s transactions.'),
+  ('gxDatabaseError Begin() / Commit(int durable = 1) / Rollback()', 'Starts a batch, commits it (synced when durable), or undoes it (a gxVectorIndex then needs Reload()).'),
+  ('gxDatabaseError Checkpoint()', 'Writes the committed pages to the files and empties the journal.'),
+  ('static gxDatabaseError Recover(const char *jname, unsigned long *recovered = 0) / unsigned long Recovered() const', 'Finishes the committed batches a stopped writer left; the count of batches replayed by Open().'),
+  ('void SetWriteMode(gxdJournalWriteMode mode) / void SetWriteLock(int lock)', 'When committed pages reach the files (write through or write back); the write lock that gxdJournalReadLock readers wait for.'),
+ ]),
+ ('Replication', 'Replication (7.3, 7.4)', [
+  ('gxDatabaseError EnableShipLog(const char *set_root, const char *stream = 0) / void DisableShipLog() / gxdShipLog *ShipLog()', 'Appends each commit to the set\'s ship log (an open record first); the log, for SetExclude() (derived indexes) and SetCommitBlock().'),
+  ('gxDatabaseError EnableObjectNotes(int on = 1)', 'Adds an objects record before each commit record: which records it added, changed and removed (off by default; GXDSHIP_OBJECTS=1 turns it on).'),
+ ]),
+ ])
+
+page(file='classes/database/gxdbobject.htm', title='Object Server Vector Searches',
+ lead='The database object server (gxdbobject.h) answers vector searches on a database whose config names its vectors (DataReel 7.4).',
+ sections=[('Overview', 'Overview', '''
+<P>A gxObjectService serves named databases over multiplex channels (<CODE>gxdbmux.h</CODE>) on a gxStream server with mutual TLS. In 7.4 a database's config may name its vectors, a .vixset manifest or one .vix file (<CODE>gxObjectDbConfig::vectors</CODE>, <CODE>vectors =</CODE> in a gxrepl config's [db NAME] section). Two requests read them:</P>
+<UL>
+<LI><B>VECTOR_INFO</B> (gxOBJ_VECTOR_INFO = 8): no body. Reply: u32 version, dimension, element type, metric, number of files, u64 nodes, deleted, then u32 length and the spec.</LI>
+<LI><B>VECTOR_SEARCH</B> (gxOBJ_VECTOR_SEARCH = 7): u32 version, k (1 to gxObjVectorMaxK), ef (0: 64, at most gxObjVectorMaxEf), dimension (must be the index's), flags (bit 0: day range, bit 1: strict), tag mask (4 bits), u32 lo[4], hi[4], day_lo, day_hi, then the query as dim float32 values (finite). Reply: u32 version, n, skipped, missing, n results of (u64 id, f32 distance, u32 tags[4], u32 file), then the paths of the files named.</LI>
+</UL>
+<P>Vector requests never take the database's own lock. On a replicated copy the vectors are searched under the copy's apply lock, so a search never sees a half-applied batch; a search takes its slot (at most vec_max at a time, <A HREF="#SetVectorLimits">SetVectorLimits()</A>) before that lock. Every field is length-checked; a bad request is refused with a reason. The example: <A HREF="../../examples/vector_search_service.htm">vector_search_service</A>; the client tool: <A HREF="../../utils/object_server.htm">object_client --vinfo / --vsearch</A>. POSIX only.</P>
+''')],
+ functions=[
+ ('Service', 'gxObjectService', [
+  ('gxObjectService(const std::vector<gxObjectDbConfig> &dbs, const std::string &legacy_db = std::string())', 'The service for the configured databases (name, path, journal, access read or write, vectors).'),
+  ('void SetVectorLimits(unsigned threads, unsigned max_concurrent)', 'Threads per vector search and searches at a time (one more waits up to 5 s, then "busy").'),
+  ('int Request(const std::string &name, bool write, uint8_t op, const std::vector<unsigned char> &body, std::vector<unsigned char> &reply, std::string &err)', 'One request (ADD, CHANGE, DELETE, REQUEST, the vector ops); 0 or -1 with err.'),
+  ('void ServeChannel(gxdMuxSession &mux, uint32_t ch, const std::string &name, const std::string &mode, std::atomic<bool> &stop)', 'Serves one open channel until it closes or stop is set.'),
+  ('void ProtectRoot(const std::string &root, const std::string &apply_journal)', 'Databases and vectors under a replicated copy\'s root are read only and read under its apply lock.'),
+ ]),
+ ])
+
+page(file='classes/database/gxrextract.htm', title='Derived Index Extractors and Stamps',
+ lead='How a replicated copy keeps its own indexes object by object: extractors (gxrextract.h) and index stamps (gxdstamp.h), DataReel 7.4.',
+ sections=[('Overview', 'Overview', '''
+<P>gxrepl never sends a set's derived indexes (<CODE>derived = by_*.btx, vectors.vix</CODE>): the copy keeps them itself. With <CODE>derived_apply = incremental</CODE> it updates each index object by object, in the same atomic batch as the data, from the objects records the writer adds to the ship log (<A HREF="gxdjrnl.htm#EnableObjectNotes">EnableObjectNotes()</A>). An <B>extractor</B> turns a record into its index entries; anything it cannot be sure of (a gap, an error, a crash, a damaged stamp) puts that folder back on a full rebuild ("rebuild needed"). Per-object apply is off by default and in 7.4 not yet for production use.</P>
+<P>An extractor is a table of C functions (<CODE>gxrExtractorOps</CODE>, ABI GXR_EXTRACTOR_ABI): <CODE>version</CODE>, <CODE>open(index_path, config, source, err, n)</CODE>, <CODE>remove(handle, addr, bytes, len, ...)</CODE> and <CODE>insert(...)</CODE> for each changed record (its old and new bytes), <CODE>flush</CODE>, <CODE>count</CODE> and <CODE>close</CODE>. It is either built into gxrepl (<A HREF="#gxrRegisterExtractor">gxrRegisterExtractor()</A>, as the replication example's <CODE>example_records</CODE> with GXREPL_EXTRA_EXTRACTORS) or loaded from a .so named by <CODE>derived_extractor</CODE> (the program must export DataReel's symbols to it: one copy of the library). The built-in <CODE>gxvmember</CODE> extractor keeps a vector index from record members (<A HREF="gxvmember.htm">gxvmember.h</A>).</P>
+<P>Each index has a <B>stamp</B> (<CODE>&lt;index&gt;.stamp</CODE>): the log id, the record position and the entry count it is at, and the folder a derived.stamp. A copy that finds an index whose stamp does not match its position rebuilds the folder. The administrator's view: <CODE>gxrepl derived status|rebuild</CODE> (<A HREF="../../utils/gxrepl.htm">gxrepl</A>).</P>
+''')],
+ functions=[
+ ('Extractors', 'Extractors', [
+  ('int gxrRegisterExtractor(const char *name, const gxrExtractorOps *ops)', 'Registers a built-in extractor under a name for derived_extractor.'),
+  ('struct gxrExtractorOps { uint32_t abi; const char *(*version)(); void *(*open)(...); int (*remove)(...); int (*insert)(...); int (*flush)(...); uint64_t (*count)(void *); void (*close)(void *); }', 'The functions an extractor provides; each returns 0, or -1 with a message (an error means "rebuild needed").'),
+ ]),
+ ])
+
 page(file='classes/socket/sdiagram.htm', title='Networking Model',
  lead='DataReel 7 networking is TLS first: every protocol client and server except telnet and ping is encrypted.',
  sections=[
@@ -639,6 +798,10 @@ EXAMPLES = [
   ('oodb/journal_recovery.cpp', 'journal_recovery', 'gxdJournal transactions: a writer killed mid-transaction, Recover(), a consistency check and Rollback(). POSIX only.'),
   ('oodb/day_events.cpp', 'day_events', 'One database file per YYYY/MM/DD folder and a time-range query across days.'),
   ('oodb/replication.cpp', 'replication', 'gxrepl, object by object: a copy keeps its own B-tree and vector index, rebuilds a folder by itself after a fault, and matches the primary. Linux and POSIX only.'),
+  ('oodb/vector_basics.cpp', 'vector_basics', 'The vector index: float32, float16 and int8 files, exact against graph search (recall), the l2/cosine/ip metrics, tags and filters, update, delete, repair, a rolled back transaction and the format fields.'),
+  ('oodb/vector_records.cpp', 'vector_records', 'Records that carry their own vectors (vector members): record and node in one transaction, records read back by address, Verify() with a resolver, the index rebuilt from the records alone.'),
+  ('oodb/vector_days.cpp', 'vector_days', 'One vector index per day searched as one through a .vixset manifest: threads, a day range that skips files, an archived day, a live writer attached.'),
+  ('oodb/vector_search_service.cpp', 'vector_search_service', 'Vector searches through the database object server (VECTOR_INFO, VECTOR_SEARCH) over mutual TLS, with a day range. POSIX only.'),
   ('oodb/replication_copy.cpp', 'replication_copy', 'The Windows replication example: a database folder copied with robocopy while its writer is stopped, checked with digests, and the copy\'s indexes rebuilt from its records after a fault. Windows and Linux.'),
  ]),
  ('TLS networking', [
@@ -798,6 +961,69 @@ OK: object by object, one automatic folder rebuild after the fault, and the same
 <P>examples/oodb/replication.cpp (the writer, the rebuild and the digest), replication_records.h (the record, the key and the extractor), replication_gxrepl.cpp (the example's gxrepl: gxrepl's own source built with GXREPL_EXTRA_EXTRACTORS, plus this file registering the extractor) and replication_walkthrough.sh, built by examples/CMakeLists.txt and run by tests/run_tests.sh. Back to the <A HREF="examples.htm">example programs</A>.</P>
 '''),
  ]),
+ 'vector_basics': ('oodb/vector_basics.cpp', 'Vector Index Basics Example',
+  'The vector index of DataReel 7.4, step by step: element types, exact and graph search, metrics, tags, changes, transactions and the format fields.', [
+  ('Shows', 'What It Shows', '''
+<P>The <A HREF="../classes/database/gxvindex.htm">vector index</A> (gxvindex.h) keeps vectors in a .vix file built on gxDatabase, with an HNSW graph for fast approximate search:</P>
+<OL>
+<LI>The same 4,000 clustered vectors (dimension 32) in three files, one per element type: float32, float16 and int8 (signed bytes and a scale per vector). Their sizes show what each type costs.</LI>
+<LI><CODE>Exact()</CODE> against <CODE>Search()</CODE>: the share of the exact 10 nearest the graph search finds (recall) and the time, for three search widths (ef).</LI>
+<LI>The three metrics on four 2-D points: l2 (squared distance), cosine (the vectors kept at unit length) and ip (inner product, largest first).</LI>
+<LI>Tags and a <CODE>gxvFilter</CODE>: tag 0 holds a category and tag 2 a day (yyyymmdd); a search keeps one category in two days.</LI>
+<LI><CODE>Update()</CODE>, <CODE>Delete()</CODE> (a tombstone: <CODE>Count()</CODE> and <CODE>Deleted()</CODE>), <CODE>Repair()</CODE> (the graph made again from the live nodes) and <CODE>Verify()</CODE>.</LI>
+<LI>The index's file attached to a <A HREF="../classes/database/gxdjrnl.htm">gxdJournal</A>: a transaction rolled back, then <CODE>Reload()</CODE> so the nodes in memory match the restored file.</LI>
+<LI>The phase D format fields (required and optional feature bits, codec, graph layout, the range of tag 2) and the logical digest: the same nodes inserted in another order give another graph and the same digest.</LI>
+</OL>
+'''),
+  ('Running', 'Running It', code('''
+vector_basics [WORK_FOLDER]
+''') + '<P>The files go in the work folder (vector_basics_work by default). Each step prints its numbers and its checks; the exit code is 0 when every check passes.</P>\n'),
+ ]),
+ 'vector_records': ('oodb/vector_records.cpp', 'Records with Vector Members Example',
+  'Records that carry their own vectors: written with their index in one transaction, found by search, verified, and the index rebuilt from the records alone.', [
+  ('Shows', 'What It Shows', '''
+<P>A vector member (<CODE>gxVectorIndex::MakeMember()</CODE>, gxvmember.h) is a vector in the index's stored form inside a record: a 12-byte head (type, dimension, a CRC of the spec) and the code bytes. A data file whose records keep their vectors this way can have its index made again from the records alone.</P>
+<OL>
+<LI>600 fixed records in a <A HREF="../classes/database/gxdbase.htm">gxDatabase</A> file (a name, a day, a category and a float16 member). Each record and its index node are written in the same gxdJournal transaction; the node id is the record's address.</LI>
+<LI>A search returns addresses: the records are read back and their names printed; <CODE>MemberVector()</CODE> decodes a member.</LI>
+<LI><CODE>Verify()</CODE> with a resolver that reads every node's record and checks that its member still matches the node (<CODE>MemberMatches()</CODE>).</LI>
+<LI>The index made again from the records (<CODE>gxvRebuildFromMembers()</CODE> with <CODE>member=offset:32 tags=offset:28,-,offset:24,-</CODE>, what <A HREF="../utils/vix_rebuild.htm">vix_rebuild</A> and a replicated copy do): the same logical digest as the index written with the records.</LI>
+</OL>
+'''),
+  ('Running', 'Running It', code('''
+vector_records [WORK_FOLDER]
+''') + '<P>Exit code 0 when every check passes.</P>\n'),
+ ]),
+ 'vector_days': ('oodb/vector_days.cpp', 'Vector Set Across Day Files Example',
+  'One vector index per day, searched as one through a .vixset manifest: day ranges, archived days and a live writer.', [
+  ('Shows', 'What It Shows', '''
+<P>A <A HREF="../classes/database/gxvset.htm">gxVectorSet</A> (gxvset.h) searches many .vix files as one. The files are listed in a small text manifest, &lt;name&gt;.vixset, next to them:</P>
+<OL>
+<LI>Five day files in YYYY/MM/DD folders, 500 vectors each, tag 2 = the day. <CODE>AddFile()</CODE> lists each one with its node counts, the range of its tag 2 and a CRC of its header; the manifest is printed.</LI>
+<LI>One search across the days with 1 and with 4 threads: every result names its file, and the results are the same for any thread count.</LI>
+<LI>A day range: the files whose tag 2 range is outside it are skipped from the manifest alone, without being opened.</LI>
+<LI>A day archived (its file moved away): the set skips it and counts it as missing; with <CODE>strict</CODE> set the search is an error instead.</LI>
+<LI>The live day: its writer keeps its own index open and puts it in the set with <CODE>AttachOpen()</CODE>, so searches see its newest vectors at once; <CODE>Refresh()</CODE> writes the new counts and range into the manifest.</LI>
+</OL>
+'''),
+  ('Running', 'Running It', code('''
+vector_days [WORK_FOLDER]
+''') + '<P>Exit code 0 when every check passes.</P>\n'),
+ ]),
+ 'vector_search_service': ('oodb/vector_search_service.cpp', 'Vector Search Service Example',
+  'Vector searches through the database object server over mutual TLS: VECTOR_INFO, VECTOR_SEARCH and a day range.', [
+  ('Shows', 'What It Shows', '''
+<P>The database object server (gxdbobject.h) answers two vector requests on a database whose config names its vectors (<CODE>vectors = notes.vixset</CODE>, a manifest or one .vix file):</P>
+<UL>
+<LI><B>VECTOR_INFO</B> (op 8): the dimension, element type, metric, number of files, nodes and spec.</LI>
+<LI><B>VECTOR_SEARCH</B> (op 7): the k nearest to a query, with an optional tag filter and day range. The server skips files outside the range from the manifest; every result names its file. At most a few searches run at a time (<CODE>SetVectorLimits()</CODE>); vector requests never take the database's own lock, and a replicated copy's vectors are searched under its apply lock.</LI>
+</UL>
+<P>The program has three modes: <CODE>make</CODE> (three day files and their manifest), <CODE>serve</CODE> (the server, read only) and <CODE>search</CODE> (the client). Its comment gives the request and reply layouts. POSIX only, like the object server.</P>
+'''),
+  ('Running', 'Running It', code('''
+examples/oodb/vector_search_walkthrough.sh BUILD/examples
+''') + '<P>The walkthrough makes throwaway certificates (the openssl command), the data, starts the server on 127.0.0.1 and runs the client twice: every day, then one day (the other two files skipped). Exit code 0 when every check passes; KEEP=1 keeps its folder.</P>\n'),
+ ]),
  'replication_copy': ('oodb/replication_copy.cpp', 'Folder Copy Example (Windows Replication)',
   'A database folder copied by a plain file copy while its writer is stopped, checked with digests, with the index rebuild as the fallback. The replication example for Windows.', [
   ('Shows', 'What It Shows', '''
@@ -898,8 +1124,54 @@ page(file='utils/utils.htm', title='Utility Programs',
 <UL>
 <LI><A HREF="db_debug.htm">db_debug</A>: analyze, dump and rebuild gxDatabase files.</LI>
 <LI><A HREF="ix_debug.htm">ix_debug</A>: analyze and check gxBtree index files.</LI>
+<LI><A HREF="vix_rebuild.htm">vix_rebuild</A> (7.4): rebuild a vector index from the vector members of records; digests of vector indexes.</LI>
+<LI><A HREF="gxrepl.htm">gxrepl</A> (7.3, 7.4): database replication over gxStream (Linux and POSIX).</LI>
+<LI><A HREF="object_server.htm">object_server and object_client</A>: the database object server and its client, with vector searches (POSIX).</LI>
 </UL>
 <P>Both are built by CMake into cmake-build/utils and installed with the library. The 6.x hexdump, ffind and txfilter programs were removed; use your system's tools (xxd, find, sed, PowerShell Format-Hex) instead.</P>
+''')])
+
+page(file='utils/vix_rebuild.htm', title='vix_rebuild',
+ lead='Rebuild a vector index from the vector members of records, and print digests of vector indexes (DataReel 7.4).',
+ sections=[('Usage', 'Usage', code('''
+vix_rebuild --data DATA.gxd --index OUT.vix --member infohog:N|offset:N [--tags A,B,C,D]
+            [--like OLD.vix | --dim D --element f32|f16|i8 --metric l2|cosine|ip --m M --efc N --spec TEXT]
+            [--stamp-dir DIR --lsn L [--commit-block NAME@OFFSET]]
+vix_rebuild --digest FILE.vix [--digest-kind logical|bytes]
+''') + '''
+<P>The rebuild reads every record of the data file in ascending address order and makes the index from their vector members (<A HREF="../classes/database/gxvmember.htm">gxvmember.h</A>), so it is the same file, byte for byte, on every node: what a replicated copy runs as its <CODE>derived_rebuild</CODE>. The header (dimension, element type, metric, M, ef_construction, spec) comes from --like, or from --dim, --element, --metric, --m, --efc and --spec. With --stamp-dir and --lsn it writes the index's stamp and the folder's derived.stamp at that log position. Exit 0 ok, 1 failed, 2 usage.</P>
+<P><CODE>--digest</CODE> prints "logical HASH NODES FILE": a hash of the live nodes in id order (id, stored code, tags), the same for two indexes that hold the same nodes whatever their graphs; <CODE>--digest-kind bytes</CODE> hashes the file's bytes (for rebuild against rebuild). The example <A HREF="../examples/vector_records.htm">vector_records</A> calls the same rebuild from code.</P>
+''')])
+
+page(file='utils/gxrepl.htm', title='gxrepl',
+ lead='Database replication over gxStream with mutual TLS: committed pages from a ship log, files by a scan, derived indexes kept by the copy (Linux and POSIX).',
+ sections=[('Commands', 'Commands', code('''
+gxrepl serve  --config FILE [--key-fd N]          the server (listens, TCP 2073)
+gxrepl run    --config FILE [--key-fd N]          the client (dials, replicates until stopped)
+gxrepl once   --config FILE [--set NAME]           one pass with a full verify; exit 0 = every set the same
+gxrepl status --config FILE                        the status file (JSON)
+gxrepl check  --config FILE                        certificates, sets and folders
+gxrepl torn   --config FILE [--set NAME]           promote-check: is every copy whole and sealed
+gxrepl promote --config FILE [--set NAME] [--apply] before a take over
+gxrepl digest FILE [--kind btree|bytes|objects]    what a database or index holds, whatever its layout
+gxrepl derived status|rebuild --config FILE [--set NAME] [--folder REL]
+gxrepl shiplog DIR [--from LSN]                    list a ship log's records
+gxrepl fingerprint CERT.pem / gxrepl version
+''')), ('Notes', 'What It Does', '''
+<P>A writer that commits through a <A HREF="../classes/database/gxdjrnl.htm">gxdJournal</A> with the ship log on appends each commit's pages; gxrepl sends those records to the copy, which applies them through its own journal, so the copy is always one whole commit. Files without a ship log go by a scan. Folders with a commit block are copied and sealed as one unit; <CODE>gxrepl torn</CODE> says whether every copy is whole. Derived indexes are never sent: the copy rebuilds them (<CODE>derived_apply = rebuild</CODE>, the default) or keeps them object by object (<CODE>incremental</CODE>, with an <A HREF="../classes/database/gxrextract.htm">extractor</A>; not yet for production use).</P>
+<P>In 7.4 every writer open or gap record gets its verify (also when it comes inside a file sync), a stream's log made again is seen, and a folder's commit block is applied only when its stream needs no other verify: while it waits, the set's status says <CODE>"waiting": "waiting for verify: STREAM"</CODE>. The status file's <CODE>"derived"</CODE> object gives each derived set's mode, folders, failed, not built, rebuild needed, breaker and crashes in the last hour.</P>
+<P>The design and every config key: utils/gxrepl/README.md; setup, watching, failover and failback: the <A HREF="../replication_admin_guide.html">administrator's guide</A>; examples: <A HREF="../examples/replication.htm">replication</A>, and on Windows <A HREF="../examples/replication_copy.htm">replication_copy</A>.</P>
+''')])
+
+page(file='utils/object_server.htm', title='object_server and object_client',
+ lead='The database object server example tools: store and read objects, and ask for vector searches (POSIX).',
+ sections=[('Usage', 'Usage', code('''
+object_server PORT CERT KEY CA CLIENT_CN DB_NAME DB_FILE
+object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME "text"
+object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME --vinfo
+object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME --vsearch K   < query (whitespace separated floats)
+''') + '''
+<P>object_server serves one database with mutual TLS (only CLIENT_CN may connect). object_client stores a text object and reads it back, or with --vinfo / --vsearch asks a server whose database names its vectors (gxrepl serve with a [db NAME] section and <CODE>vectors =</CODE>) for the index's description or the K nearest to the query on stdin. The requests: <A HREF="../classes/database/gxdbobject.htm">Object Server Vector Searches</A>; a complete program: <A HREF="../examples/vector_search_service.htm">vector_search_service</A>.</P>
 ''')])
 
 def main():

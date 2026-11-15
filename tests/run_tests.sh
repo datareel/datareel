@@ -100,6 +100,12 @@ mkdir -p "$WORK/run_replication_copy" && cd "$WORK/run_replication_copy" &&
     \$R digest p > p.d; \$R digest c > c.d; cmp p.d c.d
     rm c/by_name.btx c/vectors.vix; if \$R digest c > /dev/null; then exit 1; fi; \$R rebuild c > /dev/null
     \$R digest c > c.d; cmp p.d c.d"
+# 11/15/2026 (7.4): the vector examples
+for p in vector_basics vector_records vector_days; do
+  mkdir -p "$WORK/run_$p" && cd "$WORK/run_$p" && check $p "$E/$p" "$WORK/run_$p/w"
+done
+mkdir -p "$WORK/run_vector_search" && cd "$WORK/run_vector_search" &&
+  check vector_search_walkthrough "$SRC/examples/oodb/vector_search_walkthrough.sh" "$E" "$WORK/run_vector_search/w"
 mkdir -p "$WORK/run_journal_recovery" && cd "$WORK/run_journal_recovery" &&
   check journal_recovery $E/journal_recovery 5
 # Sample programs from the AI guides (docs/ai/samples); run twice to

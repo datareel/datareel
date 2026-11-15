@@ -75,6 +75,10 @@ mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" && check journal_test "$T
 U="$BUILD/utils/$CFG"; [ -d "$U" ] || U="$BUILD/utils"
 mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" && check vix_test "$U/vix_test"
 # 11/14/2026 (7.4): the Windows replication example: a folder copy with robocopy, digests, the index rebuild
+# 11/15/2026 (7.4): the portable vector examples
+for p in vector_basics vector_records vector_days; do
+  mkdir -p "$WORK/run_$p" && cd "$WORK/run_$p" && check $p "$E/$p" "$WORK/run_$p/w"
+done
 mkdir -p "$WORK/run_replication_copy" && cd "$WORK/run_replication_copy" &&
   check replication_copy cmd //c "$(cygpath -w "$SRC/examples/oodb/replication_copy_walkthrough.cmd")" \
     "$(cygpath -w "$E")" "$(cygpath -w "$U")" "$(cygpath -w "$WORK/run_replication_copy/w")"

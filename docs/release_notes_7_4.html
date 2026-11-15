@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>DataReel 7.4 Beta 2 Release Notes</title>
+<title>DataReel 7.4 Beta 3 Release Notes</title>
 <link rel="stylesheet" href="css/datareel.css">
 <link rel="icon" href="images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
@@ -18,16 +18,19 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>DataReel 7.4 Beta 2 Release Notes</h1>
+<h1>DataReel 7.4 Beta 3 Release Notes</h1>
 <div class="dr-toc-title">Contents</div>
 <p class="dr-toc"><a href="#PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</a><br>
 <a href="#PhaseB11122026HnswGraphSearchMergeRepair">Phase b (11/12/2026): hnsw graph search, merge, repair</a><br>
 <a href="#PhaseC11122026Float16AndInt8VectorsVectorMembers">Phase c (11/12/2026): float16 and int8 vectors, vector members</a><br>
 <a href="#PhaseD11142026SpeedGrowthSetsVectorSearchServiceVectorsUnderGxrepl">Phase d (11/14/2026): speed, growth, sets, vector search service, vectors under gxrepl</a><br>
 <a href="#GxreplFixesFromThe1112Stall11132026">Gxrepl fixes from the 11/12 stall (11/13/2026)</a><br>
+<a href="#Beta311142026">Beta 3 (11/14/2026)</a><br>
+<a href="#GxreplAWriterSOpenOrGapRecordAlwaysGetsItsVerify11142026">Gxrepl: a writer&#x27;s open or gap record always gets its verify (11/14/2026)</a><br>
 <a href="#License11122026">License (11/12/2026)</a><br>
 <a href="#Next">Next</a></p>
-<p>DataReel 7.4 beta 2 (tag 7.4-beta2, 11/14/2026): the OODB with AI extensions. It follows the 11/12/2026 7.4-beta preview (tag 7.4-beta, 171a3f2: vector phases A and B) and adds vector phases C and D (below), the gxrepl fixes F4, F6 and F7, the DataReel 7.3.2 replication fixes and the later ones of rel-7.3.2-next3 (the seal per folder, a stream naming new files verified again, promote-check reading each unit under a shared apply lock, GXREPL_TORN_LOCK_WAIT 15 s), and the gxrepl per-object derived apply (derived_apply = incremental, with object notes and index stamps; off by default: rebuild stays the default and the ship log is unchanged while object notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md). The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
+<p>DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the replication fixes and the security scan below (BETA 3). Beta 2:</p>
+<p>DataReel 7.4 beta 2 (tag 7.4-beta2, 11/14/2026): the OODB with AI extensions. It follows the 11/12/2026 7.4-beta preview (tag 7.4-beta, 171a3f2: vector phases A and B) and adds vector phases C and D (below), the gxrepl fixes F4, F6 and F7, the DataReel 7.3.2 replication fixes and the later ones of rel-7.3.2-next3 (the seal per folder, a stream naming new files verified again, promote-check reading each unit under a shared apply lock, GXREPL_TORN_LOCK_WAIT 15 s), and the gxrepl per-object derived apply (derived_apply = incremental, with object notes and index stamps; off by default: rebuild stays the default and the ship log is unchanged while object notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md). derived_apply = incremental is not yet for production use; fixes land in the next 7.4 build. The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
 <h2 id="PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</h2>
 <p>New headers gxvindex.h (gxVectorIndex, gxvFilter, gxvResult) and gxvkern.h (distance kernels); sources src/gxvindex.cpp and src/gxvkern.cpp; test program utils/vix_test.</p>
 <p>1. gxVectorIndex keeps vectors in a &quot;.vix&quot; file, which is an ordinary</p>
@@ -239,6 +242,25 @@
 <li>An older reader race (not from the stall fixes): the applied position is now written inside the apply lock with the pages and the seal, and the torn check re-reads a seal mismatch for up to GXREPL_TORN_RECHECK_SEC (10 s), so a promote-check no longer sees a seal ahead of the copy while an apply is in flight (test test_seal_and_position_never_split).</li>
 <li>Staged unit copies: a unit&#x27;s files are copied into a reflinked stage (.gxrepl/stage/&lt;unit&gt;/) and swapped in, commit block last, when its commit block arrives, so a link lost mid-unit leaves the copy whole at its last sealed commit; &quot;gxrepl promote [--apply]&quot; recovers the apply journal, finishes a begun swap and reports what was lost. Crash test hooks only with -DGXREPL_TEST_HOOKS=ON (test builds). Upgrade notes: - Every long-lived reader of a replicated folder (an application that keeps a copy&#x27;s commit.bin or any of its data files open across a staged swap) must reopen the file when its inode changes: the swap replaces the file, so an old handle keeps reading the previous copy. - Failover and failback scripts should run &quot;gxrepl promote --apply&quot; before a node takes over, so stages left by a cut link do not block the failback. - Set max_message to 16 MB on both ends (gxrepl.conf). For derived sets that change all day, consider derived_delay and derived_busy_rebuild at 1800. - Build releases with GXREPL_TEST_HOOKS OFF (the default); only the test builds turn it on.</li>
 <li>Tests: test_late_reply_never_desyncs_a_channel (the server stopped past the client timeout; the old build stays on &quot;bad reply&quot;) and test_slow_rebuild_never_stalls_the_other_sets (another set copies during a 20 s rebuild, gxrepl&#x27;s own shared holds are never reported as a local writer, the rebuild child inherits nothing of gxrepl&#x27;s).</li>
+</ul>
+<h2 id="Beta311142026">Beta 3 (11/14/2026)</h2>
+<ul>
+<li>gxrepl drain-verify, reviewed (the beta 2 fix below, plus): - no verify cascade: during a stream&#x27;s verify, the open, gap and unreadable records it catches up on (at or below the position it started from, of its own log) never queue it again; one later open does, once; - an lsn that is not known, and &quot;the copy&#x27;s position is gone&quot;, always queue a verify; - the copy&#x27;s position gone from the log resets it to resync, so the file sync goes on by pieces (before: &quot;gave up after 6 tries&quot; pass after pass); - a stream&#x27;s log made again (purged and reopened under the same name, as osa_ingest&#x27;s late pass does) is seen: the source&#x27;s cached readers reopen on a new log.id, a verify running on the old log runs again, and a drain reads only the log the copy&#x27;s position is on (gxReplLocal::ReadLogOf; pull mode later). Every writer open gets its verify (the protocol&#x27;s rule); one restart costs at most one verify and one derived rebuild.</li>
+<li>gxrepl: a day folder archived and reopened during a verify (osa_ingest&#x27;s late pass) never seals stale data. A file update that would move the copy&#x27;s position to another log queues the stream&#x27;s verify again, and the seal guard applies a folder&#x27;s commit block only when its stream needs no other verify (and never one of another log than the verify started on); a data file gone during its sync fails it; the source&#x27;s reader reopens on log.id&#x27;s content. Before, the copy could be sealed and &quot;in step&quot; at the source&#x27;s generation with a stale data file (in the night-1 test 17 of 50 on the 7.3.x code of the .53 install).</li>
+<li>gxrepl per-object derived apply (still not for production use): A1 one guarded index step (crash guard and breaker) for ApplyLog and ApplyFiles, A2, A3.</li>
+<li>Security scan fixes: S2 a vector search takes its search slot before the replicated copy&#x27;s apply lock (a burst of searches no longer keeps the copy&#x27;s applies busy); S3 the .vixset duplicate check is O(log n).</li>
+<li>Security scan of this build (claude_code_docs DATAREEL_74_SECURITY_SCAN.md): TSan on the gxrepl suite and the object server, ASan+UBSan on run_tests, vix_test and the gxrepl suite: no reports; static analysis (clang-tidy, gcc -fanalyzer): no real issue; libFuzzer on the database, stream, protocol, support and the new replication target (ship log records, configs, .vixset, .vix, vector requests, stamps); a secret scan of the tree and history.</li>
+<li>New tests: test_drain_verify_* (restart burst, position gone and log made again during the stream&#x27;s own verify), test_log_remade_by_a_ nightly_reopen, test_drain_never_reads_a_new_log_as_the_old_one.</li>
+<li>Install the library and the gxrepl binary together.</li>
+</ul>
+<h2 id="GxreplAWriterSOpenOrGapRecordAlwaysGetsItsVerify11142026">Gxrepl: a writer&#x27;s open or gap record always gets its verify (11/14/2026)</h2>
+<p>The same fix as DataReel 7.3.4 (branch gxrepl-drain-verify).</p>
+<ul>
+<li>The problem: a writer killed after its batch is committed in its journal but before the ship log has it leaves pages that the next writer&#x27;s journal recovery writes into the files with no ship log record. Only the verify its open record asks for brings them to the copy, and three places applied an open or gap record without that verify: the two drains inside a file sync dropped the drain&#x27;s flag, and a file update (which carries the records from the copy&#x27;s position to the pieces&#x27;) was applied without looking at its records&#x27; types. The copy then stayed &quot;in step&quot; at the source&#x27;s generation and seal with stale data pages. Found by the 7.4 beta 2 test runs; in the code since gxrepl protocol 2 (11/08/2026).</li>
+<li>The fix: the drain itself puts the stream on the verify list for an open or gap record and for a position gone from the log, the file sync keeps the drain&#x27;s flag, and the file sync checks the records of every file update it applies. A stream that gets such a record while it is being verified is verified once more in the next pass. Each part alone covers its own path.</li>
+<li>In &quot;gxrepl once&quot;, a verify that the pass itself queued runs in a later pass, so that pass returns 1 (&quot;not in step&quot;): run it again.</li>
+<li>gxReplClient has new members: install the library and the gxrepl binary together.</li>
+<li>Tests: test_drain_verify_* (the recovered batch reaches the copy; each part alone; both parts off loses the pages; one verify per stream; a clean writer restart adds none; an open record during the stream&#x27;s own verify), test_diff_pieces_against_a_racing_commit, test_position_gone_from_the_same_log_verifies. Test builds only: GXDJRNL_TEST_KILL_BEFORE_SHIP, GXREPL_TEST_SYNC_FILE_HOLD[_ON], GXREPL_TEST_DIFF_STATUS2, GXREPL_TEST_DIFF_HOLD, GXREPL_TEST_CRASH_IN_APPLY, GXREPL_TEST_NO_CALLER_VERIFY, GXREPL_TEST_NO_DRAIN_VERIFY.</li>
 </ul>
 <h2 id="License11122026">License (11/12/2026)</h2>
 <p>Every source header now says LGPL version 3 or later, matching the LICENSE file (the headers said 2.1 or later), and points to <a href="https://www.gnu.org/licenses/">https://www.gnu.org/licenses/</a> instead of the old FSF postal address.</p>

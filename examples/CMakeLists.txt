@@ -25,10 +25,16 @@ datareel_example(day_events        oodb/day_events.cpp)
 # 11/14/2026 (7.4): a database folder copied by a plain file copy and checked with digests, with the index
 # rebuild fallback: the replication example that also builds on Windows (gxrepl is POSIX only)
 datareel_example(replication_copy  oodb/replication_copy.cpp)
+# 11/15/2026 (7.4): the vector index, records with vector members, a vector set across day files
+datareel_example(vector_basics     oodb/vector_basics.cpp)
+datareel_example(vector_records    oodb/vector_records.cpp)
+datareel_example(vector_days       oodb/vector_days.cpp)
 if(NOT WIN32)
   datareel_example(journal_recovery oodb/journal_recovery.cpp)
   # 11/14/2026 (7.4): replication with gxrepl, object by object: the writer / rebuild / digest program, and the
   # example's own gxrepl with its extractor built in (POSIX only, like gxrepl)
+  # 11/15/2026 (7.4): vector searches through the object server (POSIX only, like the object server)
+  datareel_example(vector_search_service oodb/vector_search_service.cpp)
   datareel_example(replication     oodb/replication.cpp)
   add_executable(replication_gxrepl ${CMAKE_CURRENT_SOURCE_DIR}/../utils/gxrepl/gxrepl.cpp oodb/replication_gxrepl.cpp)
   target_include_directories(replication_gxrepl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/oodb)

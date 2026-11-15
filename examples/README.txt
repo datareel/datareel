@@ -98,6 +98,52 @@ Output: the day files written, the query range, the events it found
 events written".
 
 
+Vector index basics (examples/oodb/vector_basics.cpp)
+-----------------------------------------------------
+The vector index of DataReel 7.4 (gxvindex.h): 4,000 clustered vectors
+in float32, float16 and int8 files (their sizes), Exact() against the
+graph Search() (recall and time for three search widths), the l2,
+cosine and ip metrics, tags and a gxvFilter (a category in a range of
+days), Update, Delete, Repair() and Verify(), a gxdJournal transaction
+rolled back and Reload(), and the phase D format fields with the
+logical digest (the same nodes inserted in another order: another
+graph, the same digest).
+
+  vector_basics [WORK_FOLDER]
+
+Records with vector members (examples/oodb/vector_records.cpp)
+---------------------------------------------------------------
+Fixed records that carry their own vectors (gxvmember.h): each record
+and its index node in one gxdJournal transaction, the node id the
+record's address; a search, then the records read back by address;
+Verify() with a resolver that reads every node's record; and the index
+made again from the records alone (gxvRebuildFromMembers, as
+vix_rebuild and a replicated copy do), with the same logical digest.
+
+  vector_records [WORK_FOLDER]
+
+A vector set across day files (examples/oodb/vector_days.cpp)
+---------------------------------------------------------------
+One .vix per day in YYYY/MM/DD folders, searched as one through a
+.vixset manifest (gxvset.h): the manifest's lines, a search with 1 and
+4 threads (the same results), a day range that skips the other files
+from the manifest alone, an archived day skipped and counted (an error
+with strict), and a live day whose writer attaches its own open index.
+
+  vector_days [WORK_FOLDER]
+
+Vector searches through the object server
+(examples/oodb/vector_search_service.cpp, POSIX)
+---------------------------------------------------------------
+The database object server's VECTOR_INFO and VECTOR_SEARCH (gxdbobject.h
+ops 8 and 7) over gxStream with mutual TLS: make builds three day files
+and their manifest, serve answers database "notes" with "vectors =",
+search asks for the index's description and the 5 nearest, of every
+day or of a day range (the server skips the other files). The program's
+comment gives the request and reply layouts.
+
+  examples/oodb/vector_search_walkthrough.sh BUILD/examples
+
 Replication (examples/oodb/replication.cpp)
 -------------------------------------------
 Database replication with gxrepl (utils/gxrepl/README.md and
