@@ -33,7 +33,7 @@ rem   -DDATAREEL_SSL=OPENSSL -DOPENSSL_ROOT_DIR=C:/openssl64
 |--------|---------|---------|
 | `DATAREEL_SSL` | `OPENSSL` (Linux), `SCHANNEL` (Windows) | TLS backend |
 | `DATAREEL_64BIT_DATABASE` | `OFF` | 64-bit file addresses (files over 2 GB). Changes the file format. |
-| `DATAREEL_NATIVE_TYPES` | `ON` | Native integer/float types in records. `OFF` uses portable byte-order classes so files can move between Linux and Windows. Changes the file format. |
+| `DATAREEL_NATIVE_TYPES` | `ON` | Native integer/float types in records and file headers. With `ON`, files do not move between 64-bit Linux and 64-bit Windows: `gxUINT32` is `unsigned long` (8 bytes on Linux, 4 on Windows) and the file headers use it. `OFF` uses fixed-size byte-order classes instead. Changes the file format. Fixed-width header types for the default build are planned for 7.5. |
 | `DATAREEL_GUI` | `CONSOLE` | `WX` shows errors in wxWidgets message boxes |
 | `BUILD_SHARED_LIBS` | `OFF` | Shared library (`libdatareel.so.7`, `datareel.dll`) |
 | `DATAREEL_BUILD_EXAMPLES` | `ON` | Examples, utilities, tests and the docs/ai samples |

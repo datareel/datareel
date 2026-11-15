@@ -28,6 +28,8 @@
 <a href="#Beta311142026">Beta 3 (11/14/2026)</a><br>
 <a href="#GxreplAWriterSOpenOrGapRecordAlwaysGetsItsVerify11142026">Gxrepl: a writer&#x27;s open or gap record always gets its verify (11/14/2026)</a><br>
 <a href="#License11122026">License (11/12/2026)</a><br>
+<a href="#FixesAfterBeta311152026Docs74">FIXES AFTER BETA 3 (11/15/2026, docs-7.4)</a><br>
+<a href="#KnownIssues">Known issues</a><br>
 <a href="#Next">Next</a></p>
 <p>DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the replication fixes and the security scan below (BETA 3). Beta 2:</p>
 <p>DataReel 7.4 beta 2 (tag 7.4-beta2, 11/14/2026): the OODB with AI extensions. It follows the 11/12/2026 7.4-beta preview (tag 7.4-beta, 171a3f2: vector phases A and B) and adds vector phases C and D (below), the gxrepl fixes F4, F6 and F7, the DataReel 7.3.2 replication fixes and the later ones of rel-7.3.2-next3 (the seal per folder, a stream naming new files verified again, promote-check reading each unit under a shared apply lock, GXREPL_TORN_LOCK_WAIT 15 s), and the gxrepl per-object derived apply (derived_apply = incremental, with object notes and index stamps; off by default: rebuild stays the default and the ship log is unchanged while object notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md). derived_apply = incremental is not yet for production use; fixes land in the next 7.4 build. The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
@@ -264,6 +266,14 @@
 </ul>
 <h2 id="License11122026">License (11/12/2026)</h2>
 <p>Every source header now says LGPL version 3 or later, matching the LICENSE file (the headers said 2.1 or later), and points to <a href="https://www.gnu.org/licenses/">https://www.gnu.org/licenses/</a> instead of the old FSF postal address.</p>
+<h2 id="FixesAfterBeta311152026Docs74">FIXES AFTER BETA 3 (11/15/2026, docs-7.4)</h2>
+<ul>
+<li>gxrepl digest --kind btree (gxReplDigest) walked a B-tree with FindFirst()/FindNext() and a raw byte compare. FindNext() finds its place again with the compare, and the byte order is not the tree&#x27;s own when keys tie on a name and an integer (a record address) breaks the tie: the walk skipped keys (663 records digested as 256 keys). The digest now walks the nodes in order with no compare; trees whose two orders agreed digest exactly as before. run_tests: gxrepl_digest_repeated_names.</li>
+</ul>
+<h2 id="KnownIssues">Known issues</h2>
+<ul>
+<li>Database files do not move between 64-bit Linux and 64-bit Windows in the default build (DATAREEL_NATIVE_TYPES=ON). gxUINT32 is unsigned long there: 8 bytes on LP64 Linux, 4 bytes on LLP64 Windows. The file headers use it (gxFileLockHeader and gxBlockHeader, include/gxheader.h), so the layouts differ: gxd_hs_fptr is 0x168 on Linux and 0x15c on Windows, and a vector index&#x27;s static area starts at byte 104 on Linux and 92 on Windows. .gxd, .btx, .vix and .vixset files, and record addresses used as vector ids, belong to the platform that wrote them; a copy between the two does not open (a .vix fails with a database file error). Copy folders between nodes of the same platform (gxrepl is Linux to Linux; the Windows folder copy is Windows to Windows). vix_test&#x27;s phase C files are LP64: on Windows it checks that they are refused cleanly. Planned fix (7.5, before Windows replication): fixed-width on-disk header types, with a new revision letter or a read path for both layouts.</li>
+</ul>
 <h2 id="Next">Next</h2>
 <p>Turning the per-object derived apply on for a set (derived_apply = incremental) after its own measurements; rebuild stays the default. Phase E: the 6.x version with the legacy classes. DataReel 7.5 alpha: the Python module as a pip package (datareel), built from this repo.</p>
 </main>

@@ -459,6 +459,35 @@ Every source header now says LGPL version 3 or later, matching the
 LICENSE file (the headers said 2.1 or later), and points to
 https://www.gnu.org/licenses/ instead of the old FSF postal address.
 
+FIXES AFTER BETA 3 (11/15/2026, docs-7.4)
+-----------------------------------------
+- gxrepl digest --kind btree (gxReplDigest) walked a B-tree with
+  FindFirst()/FindNext() and a raw byte compare. FindNext() finds its
+  place again with the compare, and the byte order is not the tree's
+  own when keys tie on a name and an integer (a record address) breaks
+  the tie: the walk skipped keys (663 records digested as 256 keys).
+  The digest now walks the nodes in order with no compare; trees whose
+  two orders agreed digest exactly as before. run_tests:
+  gxrepl_digest_repeated_names.
+
+KNOWN ISSUES
+------------
+- Database files do not move between 64-bit Linux and 64-bit Windows
+  in the default build (DATAREEL_NATIVE_TYPES=ON). gxUINT32 is
+  unsigned long there: 8 bytes on LP64 Linux, 4 bytes on LLP64
+  Windows. The file headers use it (gxFileLockHeader and gxBlockHeader,
+  include/gxheader.h), so the layouts differ: gxd_hs_fptr is 0x168 on
+  Linux and 0x15c on Windows, and a vector index's static area starts
+  at byte 104 on Linux and 92 on Windows. .gxd, .btx, .vix and .vixset
+  files, and record addresses used as vector ids, belong to the
+  platform that wrote them; a copy between the two does not open (a
+  .vix fails with a database file error). Copy folders between nodes of the same platform (gxrepl
+  is Linux to Linux; the Windows folder copy is Windows to Windows).
+  vix_test's phase C files are LP64: on Windows it checks that they are
+  refused cleanly. Planned fix (7.5, before Windows replication):
+  fixed-width on-disk header types, with a new revision letter or a
+  read path for both layouts.
+
 NEXT
 ----
 Turning the per-object derived apply on for a set (derived_apply =

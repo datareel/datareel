@@ -32,11 +32,17 @@ Pick a layer:
   and, in revision A and later files, an optional CRC
   (`WriteObjectChecksum`, `ReadObjectChecksum`). New files are revision
   E, which also supports file and record locks.
-- Records are raw bytes. Use fixed-size types (`char[N]`, `gxINT32`,
-  `gxUINT32`, `gxINT64`, `gxFLOAT64`, `CDate`, `FAU`), never pointers,
-  `std::string` or virtual functions. With
-  `DATAREEL_NATIVE_TYPES=OFF` the gx types are byte-order-portable
-  classes and files can move between Linux and Windows.
+- Records are raw bytes. Use fixed-size types (`char[N]`, `int32_t`,
+  `uint32_t`, `int64_t`, `double`, `CDate`, `FAU`), never pointers,
+  `std::string` or virtual functions. In the default build
+  (`DATAREEL_NATIVE_TYPES=ON`) `gxUINT32` and `gxINT32` are `long`
+  types: 8 bytes on 64-bit Linux, 4 on 64-bit Windows. The file
+  headers use them too, so files (`.gxd`, `.btx`, `.vix`, `.vixset`)
+  and record addresses do not move between 64-bit Linux and 64-bit
+  Windows; keep each database on the platform that wrote it.
+  With `DATAREEL_NATIVE_TYPES=OFF` the gx types are fixed-size
+  byte-order classes (a different file format). Fixed-width header
+  types for the default build are planned for 7.5.
 - `gxDatabase`, `gxBtree` and `POD` are not copyable. Use
   one object per file per thread, or guard it with a `std::mutex`.
   `LockFile()`/`LockRecord()` coordinate several processes.
