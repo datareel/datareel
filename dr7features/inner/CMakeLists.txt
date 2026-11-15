@@ -56,6 +56,3 @@ if(DR7_TOOLS)
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools")
 endif()
 
-# Where the 6.x build finds the two libraries (one line each)
-file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/dr7inner_files.txt"
-  CONTENT "$<TARGET_FILE:dr7inner>\n$<TARGET_FILE:datareel>\n")
