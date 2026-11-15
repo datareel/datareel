@@ -939,6 +939,11 @@ The query matches the events written
   ('Running', 'Running It', '<P>The walkthrough runs it all on throwaway folders of this machine (127.0.0.1), with throwaway certificates made by the openssl command (POSIX only):</P>\n' + code('''
 examples/oodb/replication_walkthrough.sh BUILD/examples
 ''') + '''<P>It starts the copy (<CODE>replication_gxrepl serve</CODE>), the primary's replicator (<CODE>replication_gxrepl run</CODE>) and the writer (<CODE>replication write</CODE>), then: (1) waits for the copy to follow object by object; (2) damages the copy's vector index stamp, and shows gxrepl's "rebuild needed" line, the folder rebuild and the way back to object by object; (3) compares the digests on both nodes. It exits with 0 when every check passes. KEEP=1 keeps its work folder, with both configs and both logs.</P>
+<P>The same with an unchanged gxrepl and the extractor as a shared library (<CODE>derived_extractor = /path/example_records.so</CODE>, built from replication_extractor_so.cpp without DataReel, which gxrepl exports to it; gxrepl calls its <CODE>gxr_extractor()</CODE>):</P>
+''' + code('''
+EXTRACTOR=BUILD/examples/example_records.so GXREPL=BUILD/utils/gxrepl \\
+  examples/oodb/replication_walkthrough.sh BUILD/examples
+''') + '''
 '''),
   ('Output', 'Sample Output', code('''
 == 1. The copy follows object by object
