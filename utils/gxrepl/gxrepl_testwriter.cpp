@@ -799,6 +799,7 @@ int main(int argc, char **argv)
   std::string answers_log;        // 11/14/2026: after each commit "<generation> <index count> <index sum>"
   long split_at = -1; int split_how = 0;   // 11/14/2026
   unsigned long size_max = 12000;          // 11/14/2026: --size-max: a new object's payload is size_min .. + this bytes
+  bool adds_only = false;                  // 11/15/2026: --adds-only: every object a new one (no change, no delete)
   unsigned long size_min = 20;             // 11/14/2026: --size-min
   // 11/14/2026 (stress): --burst-at K --burst-per N [--burst-split M]: from commit K, N objects in commits of at
   // most M (one commit when M is 0); --wait-at K --wait-file F: before commit K, wait until F exists
@@ -822,6 +823,7 @@ int main(int argc, char **argv)
     else if(a == "--answers-log" && i + 1 < argc) answers_log = argv[++i];
     else if(a == "--size-max" && i + 1 < argc) { size_max = strtoul(argv[++i], 0, 10); if(size_max == 0) size_max = 1; }
     else if(a == "--size-min" && i + 1 < argc) size_min = strtoul(argv[++i], 0, 10);
+    else if(a == "--adds-only") adds_only = true;
     else if(a == "--burst-at" && i + 1 < argc) burst_at = atol(argv[++i]);
     else if(a == "--burst-per" && i + 1 < argc) burst_per = atol(argv[++i]);
     else if(a == "--burst-split" && i + 1 < argc) burst_split = atol(argv[++i]);
@@ -928,7 +930,7 @@ int main(int argc, char **argv)
       ObjHdr h;
       memset(&h, 0, sizeof(h));
       unsigned long long r = rnd() % 10;
-      if(r < 7 || io.count == 0) {
+      if(r < 7 || io.count == 0 || adds_only) {
 	// A new object, 20 bytes to 12 KB
 	h.id = io.next_id++;
 	h.version = 1;

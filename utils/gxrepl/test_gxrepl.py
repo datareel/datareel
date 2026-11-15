@@ -4284,6 +4284,94 @@ def test_incremental_writer_restarts_keep_the_stamps():
         env.stop()
 
 
+def _index_equals_rebuild(env, folder):
+    """11/15/2026: the copy folder's index.gxd against a full rebuild of a copy of its data (gxrepl digest)"""
+    tmp = os.path.join(env.dir, "rebuild_" + os.path.basename(folder) + "_" + str(int(time.time() * 1000)))
+    os.makedirs(tmp)
+    for f in ("data.gxd", "commit.bin", "index.gxd"):
+        shutil.copy2(os.path.join(folder, f), os.path.join(tmp, f))
+    r = run([os.path.join(BIN, "gxrepl_testwriter"), "reindex", tmp])
+    assert r.returncode == 0, r.stdout
+    d = [run([os.path.join(BIN, "gxrepl"), "digest", os.path.join(x, "index.gxd")]).stdout.split()[:2] for x in (folder, tmp)]
+    return d[0] == d[1] and bool(d[0]), d
+
+
+def _recovered_round(name, second_args=()):
+    """11/15/2026 (the recovery gap): writer A commits object X to its journal and dies before the ship log has it
+    (GXDJRNL_TEST_KILL_BEFORE_SHIP); writer B's Open() recovers X into the files with no record (only B's open
+    record) and commits again on the same tail page, so the copy gets X's bytes inside B's pages and no object note
+    for X. The copy's index must still hold X: equal to a rebuild of its own data."""
+    # adds only, small objects: the data file grows at its tail, with no freed block for X to land in, so B's
+    # commits write X's page again (OSA's append-only realtime files)
+    env, ws, aws, w = _stamped(name, commits=20, writer_args=("--adds-only", "--size-max", "64"))
+    try:
+        w.wait(120)
+        _finish(env, ws, aws, w)
+        _wait_stamped(env, aws, "d1")
+        time.sleep(2)
+        d1 = os.path.join(ws, "d1")
+        # the client down while A and B run: B's open record and its commits then reach the copy together, the
+        # commits applied object by object before the verify the open asks for compares the files (the order that
+        # leaves X out of the index; with the client up, a verify racing B's commits copies by files and rebuilds)
+        env.kill("client")
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 501,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, "writer A was not stopped before the ship log: " + a.stdout
+        b = _objects_writer(d1, "--commits", 2, "--per", 1, "--commit-block", "--ship-root", ws, "--seed", 502,
+                            "--adds-only", "--size-max", 64, *second_args)
+        assert b.returncode == 0, b.stdout
+        env.start_client()
+        _wait_gen(ws, aws, "d1", 120)
+        _wait_stamped(env, aws, "d1", 180)
+        time.sleep(2)
+        _wait_stamped(env, aws, "d1", 180)
+        ok, d = _index_equals_rebuild(env, os.path.join(aws, "d1"))
+        assert ok, f"the copy's index is not its data's (copy, rebuild): {d}\n" + env.logs()
+        check_db(os.path.join(aws, "d1"))
+        check_db(d1)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_recovered_commit_is_indexed():
+    _recovered_round("incr_recovered")
+
+
+def test_incremental_recovered_commit_then_gap_is_indexed():
+    """the same, and writer B's first commit loses its commit record (a gap follows it)"""
+    _recovered_round("incr_recovered_gap", ("--split-pair-at", "0"))
+
+
+def test_derived_vix_incremental_recovered_commit_is_indexed():
+    """the recovery gap with the built-in gxvmember extractor: vectors.vix equal to a rebuild of the copy's data"""
+    env = Env("vixrecovered", {"db": _vix_incr_opts()})
+    ws, aws = env.roots["db"]
+    w = _vwrite_bg(ws, "--commits", 30, "--per", 6, "--sleep", 100, "--seed", 5)
+    time.sleep(1.5)
+    env.start_server()
+    env.start_client()
+    try:
+        assert w.wait(timeout=180) == 0, w.stdout.read()
+        _vix_settle(env, ws, aws)
+        e = dict(os.environ, GXDSHIP_OBJECTS="1", GXDJRNL_TEST_KILL_BEFORE_SHIP="1")
+        a = subprocess.run([os.path.join(BIN, "gxrepl_testwriter"), "vwrite", ws, "--commits", "1", "--per", "3",
+                            "--seed", "501"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=e)
+        assert a.returncode == 9, "writer A was not stopped before the ship log: " + a.stdout
+        b = _vwrite_bg(ws, "--commits", 2, "--per", 1, "--seed", 502)
+        assert b.wait(timeout=180) == 0, b.stdout.read()
+        _vix_settle(env, ws, aws, 240)
+        rb = os.path.join(env.dir, "copy_rebuild.vix")
+        r = run([os.path.join(BIN, "vix_rebuild"), "--data", os.path.join(aws, "data.gxd"), "--index", rb, "--member", "infohog:1",
+                 "--tags", "-,-,infohog:2,-", "--dim", "16", "--m", "8", "--efc", "100", "--spec", "vtest"])
+        assert r.returncode == 0, r.stdout
+        assert _digest(rb)[0] == _digest(os.path.join(aws, "vectors.vix"))[0], \
+            f"the copy's vectors.vix is not its data's: {_digest(rb)} {_digest(os.path.join(aws, 'vectors.vix'))}\n" + env.logs()
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
 def test_incremental_orphan_means_rebuild():
     """11/14/2026: an objects record without its commit (a writer crash between them, here the record lost and a gap
     after it) is never applied object by object: rebuild needed, and the index checks after the rebuild"""
