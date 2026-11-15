@@ -815,7 +815,7 @@ static void strip_graph(const std::string &f)
     db.Write(&zero, 4, a + 40);
   }
   for(FAU_t a : uppers) db.Delete(a);
-  FAU_t sa = db.StaticArea();
+  FAU_t sa = (FAU_t)db.FileHeaderSize();   // where the static area starts (StaticArea() is its size)
   db.Write(&zero, 4, sa + 136);
   db.Write(&zero, 4, sa + 44);
   db.Write(&zero64, 8, sa + 48);
