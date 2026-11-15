@@ -4232,8 +4232,10 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
       // old log that the files synced before this one still lack can never come from the new log: the stream is
       // verified again, and the seal guard: the folder's commit block is never applied across such a jump, so the
       // copy is never sealed or "in step" with a stale data file (before: 1 night in 3 in the night-1 test, .53 too)
-      if(cover && !cs.log_id.empty() && cs.log_id != "resync" && !res.update.log_id.empty() && cs.log_id != res.update.log_id &&
-	 !test_off("GXREPL_TEST_NO_LOGJUMP_REQUEUE")) {
+      // (not when this is the stream's own verify of that very log: moving the copy onto it is what the verify does)
+      bool own_log = verifying[set] == (cover ? cover->name : std::string()) && res.update.log_id == verify_log_id[set];
+      if(cover && !own_log && !cs.log_id.empty() && cs.log_id != "resync" && !res.update.log_id.empty() &&
+	 cs.log_id != res.update.log_id && !test_off("GXREPL_TEST_NO_LOGJUMP_REQUEUE")) {
 	note_verify(set, cover->name, "the copy's position moved to another log during a file sync", 0, res.update.log_id);
 	const gxReplSetConfig *scp = cfg.Set(set);
 	if(scp && !scp->commit_block.empty() && base_of(path) == scp->commit_block) {
