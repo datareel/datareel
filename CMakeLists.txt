@@ -157,5 +157,93 @@ else()
   target_link_libraries(datareel PUBLIC Threads::Threads)
 endif()
 
+# 11/15/2026: DataReel 6.4: the DataReel 7.x vector database features
+# for 6.x programs, built from a DataReel 7.4 or later source tree.
+# DataReel 6.4 has no copy of the 7.x code: this builds the 7.x library
+# (its names are in namespace datareel, so it links next to the 6.x
+# library), the plain interface dr7inner (dr7features/inner, 7.x headers
+# only) and the 6.x classes in dr7features (dr7features.h, 6.x headers
+# only). Link a program with DataReel::dr7features. Off by default: the
+# 6.x library is then the same as without this option.
+set(DATAREEL7_FEATURES_DIR "" CACHE PATH
+  "DataReel 7.4 or later source tree for the vector database features (empty: off)")
+if(DATAREEL7_FEATURES_DIR)
+  include(ExternalProject)
+  get_filename_component(_dr7_dir "${DATAREEL7_FEATURES_DIR}" ABSOLUTE)
+  set(_dr7_bin "${CMAKE_CURRENT_BINARY_DIR}/dr7inner")
+  if(CMAKE_CONFIGURATION_TYPES)
+    set(_dr7_cfg "$<CONFIG>/")
+  else()
+    set(_dr7_cfg "")
+  endif()
+  set(_dr7_inner_lib
+    "${_dr7_bin}/${_dr7_cfg}${CMAKE_STATIC_LIBRARY_PREFIX}dr7inner${CMAKE_STATIC_LIBRARY_SUFFIX}")
+  set(_dr7_lib
+    "${_dr7_bin}/datareel7/${_dr7_cfg}${CMAKE_STATIC_LIBRARY_PREFIX}datareel${CMAKE_STATIC_LIBRARY_SUFFIX}")
+  set(_dr7_args
+    -DDATAREEL7_DIR=${_dr7_dir}
+    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    -DDATAREEL_64BIT_DATABASE=${DATAREEL_64BIT_DATABASE})
+  if(NOT DATAREEL_SSL STREQUAL "NONE")
+    list(APPEND _dr7_args -DDATAREEL_SSL=${DATAREEL_SSL})
+  endif()
+  if(MSVC)
+    list(APPEND _dr7_args -DCMAKE_MSVC_RUNTIME_LIBRARY=${CMAKE_MSVC_RUNTIME_LIBRARY})
+  endif()
+  ExternalProject_Add(dr7inner_build
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dr7features/inner"
+    BINARY_DIR "${_dr7_bin}"
+    CMAKE_ARGS ${_dr7_args}
+    BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG>
+    INSTALL_COMMAND ""
+    BUILD_ALWAYS ON
+    BUILD_BYPRODUCTS "${_dr7_inner_lib}" "${_dr7_lib}")
+  add_library(dr7inner STATIC IMPORTED GLOBAL)
+  set_target_properties(dr7inner PROPERTIES IMPORTED_LOCATION "${_dr7_inner_lib}")
+  add_library(datareel7 STATIC IMPORTED GLOBAL)
+  set_target_properties(datareel7 PROPERTIES IMPORTED_LOCATION "${_dr7_lib}")
+  if(CMAKE_CONFIGURATION_TYPES)
+    foreach(_c ${CMAKE_CONFIGURATION_TYPES})
+      string(TOUPPER ${_c} _cu)
+      string(REPLACE "$<CONFIG>" "${_c}" _l1 "${_dr7_inner_lib}")
+      string(REPLACE "$<CONFIG>" "${_c}" _l2 "${_dr7_lib}")
+      set_target_properties(dr7inner PROPERTIES IMPORTED_LOCATION_${_cu} "${_l1}")
+      set_target_properties(datareel7 PROPERTIES IMPORTED_LOCATION_${_cu} "${_l2}")
+    endforeach()
+  endif()
+  add_dependencies(dr7inner dr7inner_build)
+  add_dependencies(datareel7 dr7inner_build)
+  # The libraries the 7.x library needs
+  set(_dr7_link Threads::Threads)
+  if(NOT TARGET Threads::Threads)
+    find_package(Threads REQUIRED)
+  endif()
+  if(NOT DATAREEL_SSL STREQUAL "NONE" AND NOT WIN32)
+    find_package(OpenSSL REQUIRED)
+    list(APPEND _dr7_link OpenSSL::SSL OpenSSL::Crypto)
+  endif()
+  find_package(ZLIB QUIET)
+  if(ZLIB_FOUND)
+    list(APPEND _dr7_link ZLIB::ZLIB)
+  endif()
+  if(WIN32)
+    list(APPEND _dr7_link secur32 crypt32 ncrypt ws2_32 iphlpapi)
+  endif()
+  add_library(dr7features STATIC dr7features/src/dr7features.cpp)
+  add_library(DataReel::dr7features ALIAS dr7features)
+  target_include_directories(dr7features PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/dr7features/include"
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/dr7features/inner")
+  target_link_libraries(dr7features PUBLIC datareel dr7inner datareel7 ${_dr7_link})
+  target_compile_features(dr7features PUBLIC cxx_std_17)
+  add_dependencies(dr7features dr7inner_build)
+  # The example and test program (examples_database/vector_index)
+  add_executable(vector_index examples_database/vector_index/testprog.cpp)
+  target_link_libraries(vector_index PRIVATE DataReel::dr7features)
+  message(STATUS "DataReel 7.x vector database features from ${_dr7_dir}")
+endif()
+
 message(STATUS "DataReel ${PROJECT_VERSION}: GUI=${DATAREEL_GUI} SSL=${DATAREEL_SSL} "
   "64-bit database=${DATAREEL_64BIT_DATABASE}")
