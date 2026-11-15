@@ -280,7 +280,12 @@ static void phase_c(const char *dir)
     gxString path = dir;
     path << "/" << fname;
     gxv7VectorIndex v;
-    if(v.Open(path.c_str(), 1) != gxv7_NO_ERROR) { lines++; continue; }
+    int orv = v.Open(path.c_str(), 1);
+    if(orv != gxv7_NO_ERROR) {
+      printf("  %s: open failed: %s\n", fname, gxv7VectorIndex::ErrorMessage(orv));
+      lines++;
+      continue;
+    }
     lines++;
     if(strcmp(what, "count") == 0) {
       unsigned long long c = 0, d = 0;
