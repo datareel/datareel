@@ -167,6 +167,8 @@ endif()
 # 6.x library is then the same as without this option.
 set(DATAREEL7_FEATURES_DIR "" CACHE PATH
   "DataReel 7.4 or later source tree for the vector database features (empty: off)")
+option(DATAREEL7_TOOLS
+  "With DATAREEL7_FEATURES_DIR: also build the 7.x gxrepl, object server/client (POSIX) and vix_rebuild" ON)
 if(DATAREEL7_FEATURES_DIR)
   include(ExternalProject)
   get_filename_component(_dr7_dir "${DATAREEL7_FEATURES_DIR}" ABSOLUTE)
@@ -185,7 +187,8 @@ if(DATAREEL7_FEATURES_DIR)
     -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
     -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-    -DDATAREEL_64BIT_DATABASE=${DATAREEL_64BIT_DATABASE})
+    -DDATAREEL_64BIT_DATABASE=${DATAREEL_64BIT_DATABASE}
+    -DDR7_TOOLS=${DATAREEL7_TOOLS})
   if(NOT DATAREEL_SSL STREQUAL "NONE")
     list(APPEND _dr7_args -DDATAREEL_SSL=${DATAREEL_SSL})
   endif()
@@ -242,7 +245,16 @@ if(DATAREEL7_FEATURES_DIR)
   # The example and test program (examples_database/vector_index)
   add_executable(vector_index examples_database/vector_index/testprog.cpp)
   target_link_libraries(vector_index PRIVATE DataReel::dr7features)
+  # The replication example (examples_database/replication_6x): plain 6.x
+  # programs that the 7.x gxrepl (DATAREEL7_TOOLS) replicates
+  foreach(_p repl6_writer repl6_check)
+    add_executable(${_p} examples_database/replication_6x/${_p}.cpp)
+    target_link_libraries(${_p} PRIVATE datareel)
+  endforeach()
   message(STATUS "DataReel 7.x vector database features from ${_dr7_dir}")
+  if(DATAREEL7_TOOLS)
+    message(STATUS "DataReel 7.x tools (gxrepl, object_server, object_client, vix_rebuild): ${_dr7_bin}/tools")
+  endif()
 endif()
 
 message(STATUS "DataReel ${PROJECT_VERSION}: GUI=${DATAREEL_GUI} SSL=${DATAREEL_SSL} "

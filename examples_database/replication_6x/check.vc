@@ -1,0 +1,2 @@
+PROJECT = repl6_check
+!include ../../env/msvc.mak
