@@ -2270,6 +2270,7 @@ static double ms_since(const struct timespec &t0)
 
 static void drop_stamps(const gxReplSetConfig &sc, const std::string &rel, const std::string &why, bool log_it = true,
 			bool all = false);   // 11/14/2026 (review 6)
+static void derived_folders(const gxReplSetConfig &sc, const std::string &rel, std::vector<std::string> &out);
 
 int gxReplLocal::apply_batch(SetState_ *s,
   std::map<std::string, std::pair<unsigned long long,
@@ -2277,7 +2278,10 @@ int gxReplLocal::apply_batch(SetState_ *s,
   std::string &err, const std::function<int(std::string &)> &in_lock,
   const std::function<int(std::string &)> &pre_lock)
 {
-  if(pages.empty()) return 0;
+  // 11/15/2026 (the recovery gap): a batch with no pages and a pre-lock step (records with no pages, such as a
+  // writer's lone open record, on an incremental set) still takes the apply lock: the step drops the stamps of the
+  // stream's folders there, and in_lock writes the stream's position under the same lock
+  if(pages.empty() && !pre_lock) return 0;
   std::string jdir = s->root + "/.gxrepl";
   if(mkdirs(jdir) != 0) { err = "cannot make " + jdir; return -1; }
   std::string jname = jdir + "/apply.jnl";
@@ -2869,6 +2873,31 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
   if(const char *hw = getenv("GXREPL_TEST_WATCHDOG_S")) hard = strtoull(hw, 0, 10);   // test builds only
 #endif
   StepWatchdog_ dog(sc.name, hard);
+  // 11/15/2026 (the recovery gap): an open record or a gap record in the stream means pages may have reached the
+  // files with no object notes: a writer that died after its journal commit and before the ship log has it, whose
+  // batch the next writer's Open() recovers into the files (only that writer's open record says so), or records
+  // lost (a gap). The next commits can carry those pages (the same tail page, the file's header) without naming the
+  // objects in them, and a verify then finds the files equal, so an index kept object by object would miss them
+  // with its stamps in order. Every folder whose indexes are stamped on this stream's log goes back to a rebuild:
+  // its stamps, derived.stamp and derived state go, so the derived pass rebuilds it from the copy's own data.
+  for(auto &r : recs) {
+    if(r.type != gxdShipOpen && r.type != gxdShipGap) continue;
+    std::string why = r.type == gxdShipOpen ? "a writer's open record (its journal may have recovered a batch with no "
+      "record)" : "a gap record (records lost)";
+    std::vector<std::string> folders;
+    derived_folders(sc, "", folders);
+    for(auto &u : folders) {
+      std::string dir = u.empty() ? root : root + "/" + u;
+      for(auto &ix : folder_indexes(sc, u)) {
+	gxdStampData d;
+	if(gxdDerivedStamp::ReadFile(gxdDerivedStamp::PathFor(dir + "/" + ix), d) == 0 && d.log_id == stream_log_id) {
+	  drop_stamps(sc, u, why + " at " + std::to_string(r.lsn), true, true);
+	  break;
+	}
+      }
+    }
+    return;                                   // this batch's folders have no stamps now: nothing to apply to them
+  }
   // The folders this batch changes (their non-derived files)
   std::set<std::string> units;
   bool orphan = false;
@@ -3449,7 +3478,9 @@ int gxReplLocal::ApplyFiles(const std::string &set,
     for(auto &c : changed) if(write_state(s, c.second, e) != 0) return -1;
     return 0;
   };
-  if(batch.empty()) return positions(err);             // (apply_batch does nothing then, not even its in_lock)
+  // (apply_batch does nothing then, not even its in_lock). 11/15/2026: records with no pages (a lone open or gap
+  // record) on an incremental set still go through check() and its index step, under the apply lock
+  if(batch.empty() && file_recs.empty()) return positions(err);
   int arc = finish.empty() ? apply_batch(s, batch, err, positions, check) : apply_batch(s, batch, err, [&](std::string &e) {
       for(size_t i = 0; i < v.size(); i++)
 	if(results[i] == 0 && v[i].last && finish.count(dir_of(v[i].path))) times(i);
