@@ -56,6 +56,12 @@ for 6.x programs:
 The files are the 7.x files: a 7.x program opens what a 6.x program
 writes, and the other way round. Do not open one .vix file for
 writing in a 6.x program and a 7.x program at the same time.
+As with every DataReel database file (6.x and 7.x), a file made by a
+Linux build and one made by a Windows build are laid out differently:
+the file and block headers hold C "unsigned long" values (8 bytes on
+64-bit Linux, 4 bytes on Windows). Use the files on the system that
+made them; to move vectors between Linux and Windows, rebuild the
+index there (for example with the 7.x vix_rebuild).
 Example: examples_database/vector_index.
 
 VECTOR SEARCHES ON A 7.x OBJECT SERVER: gxv7ObjectClient
@@ -104,5 +110,21 @@ On RHEL 10.2 with DataReel 7.4 beta3 (tag 7.4-beta3), 32-bit and
   copy is a whole commit and never goes back.
 - vector_client: 7 of 7. The server's answers equal local searches,
   and bad requests and certificates are refused.
+- The 6.x library with DATAREEL7_FEATURES_DIR off: the same objects
+  as 6.3.1 (only a build folder name in gxssl differs); run_db_tests
+  33 of 33 and the 6.2 file compare (21 files the same) on both
+  engines.
+
+On Windows 11 with Visual Studio 2026 (MSVC 19.52), x64 (64-bit
+engine) and Win32 (32-bit engine), the CMake build with
+DATAREEL7_FEATURES_DIR:
+- builds with no errors (the 7.x library, dr7features, vector_index,
+  the replication example programs and vix_rebuild);
+- vector_index: 27 of 27 checks. The 7.x vix_rebuild reads every .vix
+  file it wrote, and the vectors are the same as the Linux build's
+  (the same logical digests; the demo file's ids are record addresses,
+  which differ by the header size).
+- gxrepl and gxv7ObjectClient are POSIX only, as in DataReel 7.4.
+  The phase C files are Linux files (see VECTOR DATABASE above).
 
 DataReel Copyright (c) 2001-2026 DataReel Software Development

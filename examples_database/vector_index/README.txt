@@ -39,6 +39,13 @@ engine; use a copy of the folder) and compares 28 results with the
 ones DataReel 7.4 wrote in phase_c_expected.txt: a 6.x program reads
 the 7.x .vix files and gets the same answers.
 
+The phase C files were made on Linux. DataReel database files (.gxd,
+.vix) made by a Linux build and by a Windows build are laid out
+differently: the file and block headers hold C "unsigned long" values,
+8 bytes on 64-bit Linux and 4 bytes on Windows. So run --phase-c on
+Linux. On Windows, check that the 7.x tool reads the files this
+program wrote: "vix_rebuild --digest FILE.vix" (build/dr7inner/tools).
+
 Using the classes in your own program:
 
   #include "dr7features.h"           // after or instead of 6.x headers

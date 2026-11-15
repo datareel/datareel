@@ -46,7 +46,10 @@ affected, and the 6.x library and its files are the same as 6.3.1.
 The .vix and .vixset files are the 7.x files: a 7.x program can open
 what a 6.x program writes and the other way round. Do not open the
 same .vix file in a 6.x program and a 7.x program at the same time
-for writing (each has its own copy of the index in memory).
+for writing (each has its own copy of the index in memory). As with
+every DataReel database file, files made on Linux and on Windows are
+laid out differently (C unsigned long header fields): use them on the
+system that made them.
 
 Return values: gxv7_NO_ERROR (0) if no errors occur, otherwise an
 error code; ErrorMessage() gives its text.
