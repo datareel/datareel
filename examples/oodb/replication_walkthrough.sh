@@ -96,7 +96,12 @@ sed -n '/\[set records\]/,$p' copy.conf
 
 step "Start the copy (serve) and the primary's replicator (run), then the primary's writer"
 "$GX" serve --config copy.conf > copy.log 2>&1 & pids+=($!)
-for _ in $(seq 50); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break; sleep 0.1; done
+# wait for the listen without connecting (a plain TCP probe is logged as a refused TLS client)
+for _ in $(seq 100); do
+  if command -v ss >/dev/null; then ss -Hltn "sport = :$PORT" 2>/dev/null | grep -q . && break
+  else grep -q "serving" copy.log 2>/dev/null && { sleep 1; break; }; fi
+  sleep 0.1
+done
 "$GX" run --config primary.conf > primary.log 2>&1 & pids+=($!)
 # one writer process for the whole walkthrough (a new writer process makes the copy verify its files once)
 "$APP" write "$W/primary" --commits 400 --per 8 --sleep 200 > writer.log 2>&1 & WRITER=$!

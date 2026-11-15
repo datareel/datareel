@@ -161,8 +161,10 @@ int main(int argc, char **argv)
   // 4. An archived day ----------------------------------------------------------
   printf("4. 2026-11-09 archived (moved away)\n");
   {
+    set.Close();                                     // Windows cannot move a file that is open: close the set first
     std::filesystem::create_directories(dir + "/archive", ec);
     std::filesystem::rename(dir + "/" + day_rel(20261109), dir + "/archive/20261109.vix", ec);
+    if(ec) printf("  cannot move the day away: %s\n", ec.message().c_str());
     gxVectorSet reader;
     reader.Open(manifest.c_str());
     gxvSetSearch s;
@@ -175,7 +177,9 @@ int main(int argc, char **argv)
     s.strict = 1;
     e = reader.Search(q.data(), s, r, &st);
     check(e != gxv_NO_ERROR, "with strict set, a missing day is an error");
+    reader.Close();
     std::filesystem::rename(dir + "/archive/20261109.vix", dir + "/" + day_rel(20261109), ec);
+    if(set.Open(manifest.c_str(), "example/days") != gxv_NO_ERROR) { printf("reopen: %s\n", set.Error().c_str()); return 1; }
   }
 
   // 5. The live day: a writer's own index in the set -------------------------

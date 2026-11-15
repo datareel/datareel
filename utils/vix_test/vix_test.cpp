@@ -798,7 +798,7 @@ static void test_graph(const ElemType &et)
 static void strip_graph(const std::string &f)
 {
   gxDatabase db;
-  db.Open(f.c_str());
+  if(db.Open(f.c_str()) != gxDBASE_NO_ERROR) printf("strip_graph: cannot open %s: %s\n", f.c_str(), db.DatabaseExceptionMessage());
   std::vector<FAU_t> uppers, nodes;
   for(FAU_t a = db.FindFirstObject(); a; a = db.FindNextObject(a)) {
     unsigned char h[16];
@@ -839,7 +839,8 @@ static void test_phase_a_files()
   strip_graph(f);
   {
     gxVectorIndex vix;
-    CHECK(vix.Open(f.c_str()) == gxv_NO_ERROR, "open phase A file");
+    gxvError oe = vix.Open(f.c_str());
+    CHECK(oe == gxv_NO_ERROR, "open phase A file: %s", gxVectorIndex::ErrorMessage(oe));
     CHECK(!vix.GraphSaved() && vix.Count() == N, "phase A: graph built in memory");
     double r = mean_recall(vix, qs, 10, 64);
     CHECK(r >= 0.95, "phase A file: recall %.4f", r);
