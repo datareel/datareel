@@ -5470,6 +5470,113 @@ def test_drain_never_reads_a_new_log_as_the_old_one():
     assert same, "the copy differs after a drain across a log made again\n" + log[-3000:]
 
 
+def _reopen_during_a_verify(name, client_env=None, sealed_within=60):
+    """11/15/2026 (the nightly-reopen bug, .53 too): the stream's first verify synced data.gxd, then (its sync of
+    index.gxd held) the day folder is archived, its log purged and the folder reopened with late lines (a new log).
+    The later files' updates jump to the new log: the stream is verified again, and the seal guard never applies the
+    folder's commit block across that jump. Invariant at every look: the copy at the source's generation means
+    data.gxd byte for byte the source's; and so at the end"""
+    env = Env(name, {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    d1 = os.path.join(ws, "d1")
+    arch = os.path.join(env.dir, "archive")
+    os.makedirs(d1)
+    os.makedirs(arch)
+    def g(p):
+        return gen_of(p) if os.path.exists(p) else -1
+    try:
+        assert writer(d1, "--commits", 8, "--commit-block", "--ship-root", ws).returncode == 0
+        env.start_server()
+        hold = os.path.join(env.dir, "sync_hold")
+        ce = {"GXREPL_TEST_SYNC_FILE_HOLD": hold, "GXREPL_TEST_SYNC_FILE_HOLD_ON": "index.gxd"}
+        ce.update(client_env or {})
+        env.start_client(ce)
+        end = time.time() + 60
+        while time.time() < end and not os.path.exists(hold + ".held"):
+            time.sleep(0.1)
+        assert os.path.exists(hold + ".held"), "the first verify's file sync never started\n" + env.logs()
+        shutil.move(d1, os.path.join(arch, "d1"))
+        shutil.rmtree(os.path.join(ws, ".gxrepl", "log", "d1_writer.jnl"), ignore_errors=True)
+        shutil.move(os.path.join(arch, "d1"), d1)
+        assert writer(d1, "--commits", 4, "--per", 6, "--commit-block", "--ship-root", ws, "--seed", 60).returncode == 0
+        put(hold, b"go\n")
+        want = g(os.path.join(d1, "commit.bin"))
+        a, b = os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd")
+        t0 = time.time()
+        end = t0 + sealed_within
+        while time.time() < end:
+            if g(os.path.join(aws, "d1", "commit.bin")) == want:
+                assert _same_file(a, b), "the copy is at the source's generation with a stale data.gxd\n" + env.logs()
+                break
+            time.sleep(0.05)
+        time.sleep(3)
+        assert g(os.path.join(aws, "d1", "commit.bin")) == want and _same_file(a, b), env.logs()
+    finally:
+        env.stop()
+
+
+def test_reopen_during_a_verify_never_seals_stale_data():
+    """both parts: the log-jump requeue and the seal guard"""
+    _reopen_during_a_verify("reopen_verify")
+
+
+def test_reopen_during_a_verify_seal_guard_alone():
+    """the requeue off (GXREPL_TEST_NO_LOGJUMP_REQUEUE): the seal guard alone never seals stale data, and the copy is
+    sealed in time (the stream stays on the list: its next verify)"""
+    _reopen_during_a_verify("reopen_guard", {"GXREPL_TEST_NO_LOGJUMP_REQUEUE": "1"})
+
+
+def test_reopen_during_a_verify_both_off_seals_stale_data():
+    """both off: the copy is sealed at the source's generation with a stale data.gxd (proves the test reaches it)"""
+    try:
+        _reopen_during_a_verify("reopen_none", {"GXREPL_TEST_NO_LOGJUMP_REQUEUE": "1", "GXREPL_TEST_NO_SEAL_GUARD": "1"})
+    except AssertionError as e:
+        assert "never started" not in str(e), e         # it failed on the data, not on the set-up
+        return
+    raise AssertionError("both parts off and the copy still matched: the test does not reach the bug")
+
+
+def test_seal_guard_never_livelocks():
+    """the seal guard waits only for the stream's verify: the copy is sealed at the source's generation within 15 s
+    of the hold's release"""
+    _reopen_during_a_verify("reopen_bounded", sealed_within=15)
+
+
+def test_open_without_a_commit_still_seals():
+    """11/15/2026 (review F1): the stream's log made again by a writer that opens and closes without a commit (a day
+    reopened by the late pass and archived again with no late line: the log holds only an open record, no commit
+    block): the verify takes the copy's own block (Diff's "gone" for a block the log does not carry) and the unit
+    stays sealed: torn rc 0 within 20 s, no endless verify"""
+    env = Env("open_no_commit", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    d1 = os.path.join(ws, "d1")
+    os.makedirs(d1)
+    try:
+        assert writer(d1, "--commits", 6, "--commit-block", "--ship-root", ws).returncode == 0
+        env.start_server()
+        env.start_client()
+        _wait_units(env, ws, aws, ["d1"])
+        shutil.rmtree(os.path.join(ws, ".gxrepl", "log", "d1_writer.jnl"))
+        r = writer(d1, "--commits", 0, "--commit-block", "--ship-root", ws, "--seed", 70)
+        assert r.returncode == 0, r.stdout
+        n = len(open(os.path.join(env.dir, "client.log")).read())
+        end = time.time() + 20
+        ok = False
+        while time.time() < end:
+            t = torn(env)
+            if t.returncode == 0 and "verified (" in open(os.path.join(env.dir, "client.log")).read()[n:]:
+                ok = True
+                break
+            time.sleep(0.5)
+        assert ok, torn(env).stdout + env.logs()
+        time.sleep(3)
+        log = open(os.path.join(env.dir, "client.log")).read()[n:]
+        assert log.count("verified (") <= 2, log            # no endless verify
+        assert _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd")), env.logs()
+    finally:
+        env.stop()
+
+
 def test_drain_verify_once_per_stream():
     """note_verify() is idempotent: one "needs a verify" line and one verify for the stream, whichever drains
     (the drain's own, then the caller's) saw the open records of two writers"""
