@@ -4421,6 +4421,48 @@ def test_drain_never_reads_a_new_log_as_the_old_one():
     assert same, "the copy differs after a drain across a log made again\n" + log[-3000:]
 
 
+def test_reopen_during_a_verify_never_seals_stale_data():
+    """11/15/2026 (the nightly-reopen bug, .53 too): the stream's first verify synced data.gxd, then (its sync of
+    index.gxd held) the day folder is archived, its log purged and the folder reopened with late lines (a new log).
+    The later files' updates jump to the new log: the stream is verified again, and the seal guard never applies the
+    folder's commit block across that jump. Invariant at every look: the copy at the source's generation means
+    data.gxd byte for byte the source's; and so at the end"""
+    env = Env("reopen_verify", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    d1 = os.path.join(ws, "d1")
+    arch = os.path.join(env.dir, "archive")
+    os.makedirs(d1)
+    os.makedirs(arch)
+    def g(p):
+        return gen_of(p) if os.path.exists(p) else -1
+    try:
+        assert writer(d1, "--commits", 8, "--commit-block", "--ship-root", ws).returncode == 0
+        env.start_server()
+        hold = os.path.join(env.dir, "sync_hold")
+        env.start_client({"GXREPL_TEST_SYNC_FILE_HOLD": hold, "GXREPL_TEST_SYNC_FILE_HOLD_ON": "index.gxd"})
+        end = time.time() + 60
+        while time.time() < end and not os.path.exists(hold + ".held"):
+            time.sleep(0.1)
+        assert os.path.exists(hold + ".held"), "the first verify's file sync never started\n" + env.logs()
+        shutil.move(d1, os.path.join(arch, "d1"))
+        shutil.rmtree(os.path.join(ws, ".gxrepl", "log", "d1_writer.jnl"), ignore_errors=True)
+        shutil.move(os.path.join(arch, "d1"), d1)
+        assert writer(d1, "--commits", 4, "--per", 6, "--commit-block", "--ship-root", ws, "--seed", 60).returncode == 0
+        put(hold, b"go\n")
+        want = g(os.path.join(d1, "commit.bin"))
+        a, b = os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd")
+        end = time.time() + 60
+        while time.time() < end:
+            if g(os.path.join(aws, "d1", "commit.bin")) == want:
+                assert _same_file(a, b), "the copy is at the source's generation with a stale data.gxd\n" + env.logs()
+                break
+            time.sleep(0.05)
+        time.sleep(3)
+        assert g(os.path.join(aws, "d1", "commit.bin")) == want and _same_file(a, b), env.logs()
+    finally:
+        env.stop()
+
+
 def test_drain_verify_once_per_stream():
     """note_verify() is idempotent: one "needs a verify" line and one verify for the stream, whichever drains
     (the drain's own, then the caller's) saw the open records of two writers"""

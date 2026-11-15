@@ -721,7 +721,7 @@ struct gxReplLocal::SetState_ {
   std::map<std::string, std::unique_ptr<gxdShipLogReader> > readers;
   // 11/14/2026 (review): the log.id file each cached reader was opened on (inode, mtime): a stream's log made again
   // (its folder removed and a writer opening a new log) gets a new reader, not the old log's ghost
-  std::map<std::string, std::pair<unsigned long long, long long> > reader_id;
+  std::map<std::string, std::string> reader_id;     // (11/15: the log.id file's content, not its inode and mtime)
   gxdShipLogReader *reader(const std::string &stream, std::string &err);
   std::set<std::string> staged;   // 11/13/2026 (F7 review 3): units this process began a staged copy of (MarkGen)
 };
@@ -731,10 +731,15 @@ gxdShipLogReader *gxReplLocal::SetState_::reader(const std::string &stream, std:
 {
   SetState_ *s = this;
   const std::string dir = s->root + "/.gxrepl/log/" + stream;
-  struct stat lst;
-  std::pair<unsigned long long, long long> id(0, 0);
-  if(stat((dir + "/log.id").c_str(), &lst) == 0)
-    id = std::make_pair((unsigned long long)lst.st_ino, (long long)lst.st_mtim.tv_sec * 1000000000LL + lst.st_mtim.tv_nsec);
+  // 11/15/2026: the log id itself (log.id's content): a log removed and made again at once can reuse the old
+  // log.id's inode and get the same mtime (coarse file times), so inode and mtime missed it 1 time in 8
+  std::string id;
+  if(FILE *f = fopen((dir + "/log.id").c_str(), "r")) {
+    char b[64] = {0};
+    size_t n = fread(b, 1, sizeof(b) - 1, f);
+    fclose(f);
+    id.assign(b, n);
+  }
   auto &rd = s->readers[stream];
   if(rd && s->reader_id[stream] != id) rd.reset();
   if(!rd) {
@@ -4186,7 +4191,14 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
       rq.copy_state = cs;
       gxReplDiffResult res;
       if(src.Diff(set, rq, res, err) != 0) return -1;
-      if(res.status == 1) return 0; // Gone from the source
+      // 11/15/2026: a file the ship log covers gone while it is synced (its folder archived and reopened at once, as
+      // osa_ingest's late pass does) is not "synced": the verify fails for it, so the folder's commit block is not
+      // sent in this pass and the stream is verified again (before: the later files' updates moved the copy to the
+      // new log's position, the commit block followed, and the copy was "in step" with a stale data file)
+      if(res.status == 1) {
+	if(cover) { err = path + " was gone while it was synced (verified again next pass)"; return 1; }
+	return 0;                   // Gone from the source
+      }
       if(res.status == 3) { retry = true; usleep(200000); break; } // 11/08/2026: changed while read
       if(res.status == 2 || res.update.stream.empty() != (cover == 0)) {
 	if(cover && cs.log_id == cover->log_id) {
@@ -4210,6 +4222,33 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
 	st.pieces_sent += res.sent;
 	start = res.next;
 	continue;
+      }
+      // 11/15/2026: the copy's position would move to another log here (the stream's log made again while its files
+      // were synced: osa_ingest's late pass archives a day, purges its log and reopens it at once). The records of the
+      // old log that the files synced before this one still lack can never come from the new log: the stream is
+      // verified again, and the seal guard: the folder's commit block is never applied across such a jump, so the
+      // copy is never sealed or "in step" with a stale data file (before: 1 night in 3 in the night-1 test, .53 too)
+      if(cover && !cs.log_id.empty() && cs.log_id != "resync" && !res.update.log_id.empty() && cs.log_id != res.update.log_id) {
+	note_verify(set, cover->name, "the copy's position moved to another log during a file sync", 0, res.update.log_id);
+	const gxReplSetConfig *scp = cfg.Set(set);
+	if(scp && !scp->commit_block.empty() && base_of(path) == scp->commit_block) {
+	  err = path + ": the commit block is not applied across a log made again (verified again)";
+	  return 1;
+	}
+      }
+      // 11/15/2026 (the seal guard): the folder's commit block is applied only when its stream needs no other
+      // verify: queued to verify again (above, or an open record during this verify), or queued while another
+      // pass is not verifying it: the copy stays unsealed (never "in step" with a stale data file) until it is
+      if(cover) {
+	const gxReplSetConfig *scb = cfg.Set(set);
+	if(scb && !scb->commit_block.empty() && base_of(path) == scb->commit_block) {
+	  const auto &vl = verify_streams[set];
+	  bool queued = std::find(vl.begin(), vl.end(), cover->name) != vl.end();
+	  if(verify_again[set].count(cover->name) || (queued && verifying[set] != cover->name)) {
+	    err = path + ": the commit block waits for the stream's verify";
+	    return 1;
+	  }
+	}
       }
       std::vector<gxReplFileUpdate> ups(1, res.update);
       std::vector<int> results;
@@ -4402,6 +4441,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     if(!s) { it = vlist.erase(it); continue; }
     if(!have_sm) { if(src.Manifest(sc.name, sm, err) != 0) return -1; have_sm = true; }
     verifying[sc.name] = s->name;                 // 11/14/2026: see note_verify()
+    verify_again[sc.name].erase(s->name);         // 11/15/2026: this verify is the one asked for
     verify_from[sc.name] = s->next_lsn ? s->next_lsn - 1 : 0;
     verify_log_id[sc.name] = s->log_id;
     int synced = 0, failed = 0;
