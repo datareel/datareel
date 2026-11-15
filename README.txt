@@ -41,8 +41,8 @@ rest:
 The library has no dependencies except the system TLS library
 (OpenSSL on Linux, Schannel or OpenSSL on Windows).
 
-DataReel 7.4 is a beta release: beta 2 (tag 7.4-beta2, 11/14/2026)
-follows the 11/12/2026 7.4-beta preview (vector phases A and B).
+DataReel 7.4 is a beta release: beta 3 (tag 7.4-beta3, 11/14/2026)
+follows beta 2 (7.4-beta2) and the 11/12/2026 7.4-beta preview.
 DataReel 6.2 remains the stable release for production use until
 DataReel 7 is final.
 
@@ -309,7 +309,11 @@ written for AI coding assistants but useful to anyone.
 
 RELEASE HISTORY
 ---------------
- 7.4   11/14/2026 Beta 2 (tag 7.4-beta2). Vector extensions phases A-D:
+ 7.4   11/14/2026 Beta 3 (tag 7.4-beta3): gxrepl drain-verify fixes (no
+                  verify cascade, position gone, a log made again,
+                  ReadLogOf), per-object apply fixes A1-A3, scan fixes
+                  S2/S3; security scan clean.
+       11/14/2026 Beta 2 (tag 7.4-beta2). Vector extensions phases A-D:
                   vector index, HNSW search, float16/int8, vector sets,
                   vector searches in the object server, vector indexes
                   under gxrepl; gxrepl F4/F6/F7, the 7.3.2 fixes and the
