@@ -4228,7 +4228,8 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
       // old log that the files synced before this one still lack can never come from the new log: the stream is
       // verified again, and the seal guard: the folder's commit block is never applied across such a jump, so the
       // copy is never sealed or "in step" with a stale data file (before: 1 night in 3 in the night-1 test, .53 too)
-      if(cover && !cs.log_id.empty() && cs.log_id != "resync" && !res.update.log_id.empty() && cs.log_id != res.update.log_id) {
+      if(cover && !cs.log_id.empty() && cs.log_id != "resync" && !res.update.log_id.empty() && cs.log_id != res.update.log_id &&
+	 !test_off("GXREPL_TEST_NO_LOGJUMP_REQUEUE")) {
 	note_verify(set, cover->name, "the copy's position moved to another log during a file sync", 0, res.update.log_id);
 	const gxReplSetConfig *scp = cfg.Set(set);
 	if(scp && !scp->commit_block.empty() && base_of(path) == scp->commit_block) {
@@ -4244,7 +4245,12 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
 	if(scb && !scb->commit_block.empty() && base_of(path) == scb->commit_block) {
 	  const auto &vl = verify_streams[set];
 	  bool queued = std::find(vl.begin(), vl.end(), cover->name) != vl.end();
-	  if(verify_again[set].count(cover->name) || (queued && verifying[set] != cover->name)) {
+	  // (also on its own: during the stream's verify, a commit block of another log than the one the verify started
+	  // on: the files synced before it may be the old log's)
+	  bool other_log = verifying[set] == cover->name && !verify_log_id[set].empty() && !res.update.log_id.empty() &&
+	    res.update.log_id != verify_log_id[set];
+	  if(!test_off("GXREPL_TEST_NO_SEAL_GUARD") &&
+	     (verify_again[set].count(cover->name) || (queued && verifying[set] != cover->name) || other_log)) {
 	    err = path + ": the commit block waits for the stream's verify";
 	    return 1;
 	  }
