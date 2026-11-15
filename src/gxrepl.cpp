@@ -5939,12 +5939,49 @@ int gxReplDigest(const std::string &path, const std::string &kind_in, uint64_t &
     // The header's key size is SizeOfDatabaseKey(): the key and its right child pointer (an FAU)
     if(bh.key_size <= sizeof(FAU) || bh.key_size > 65536 || bh.node_order < 2) { err = "not a B-tree index"; return -1; }
     size_t ks = (size_t)bh.key_size - sizeof(FAU);
-    DigestKey_ k(ks), c(ks);
+    DigestKey_ k(ks);
     gxBtree bt(k, bh.node_order);
     if(bt.Open(path.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { err = "cannot open the B-tree " + path; return -1; }
+    // 11/15/2026: walk the nodes in order (left child, then each key and its right child) instead of
+    // FindFirst()/FindNext(). FindNext() finds the next key by searching with the key's compare, and the raw byte
+    // compare here is not the tree's own (a key whose name repeats and whose record address breaks the tie sorts by
+    // the address's value, not its little-endian bytes): the search lost its place and skipped keys. The node walk
+    // needs no compare and gives the tree's own order; where the two orders agree, the digest is unchanged.
+    struct Pos { int next; unsigned keys; FAU_t left; std::vector<char> entries; };   // next -1: the left child to walk
+    std::vector<Pos> stack;                                    // one read node per level, copied out of the BtreeNode
+    const size_t max_depth = 64, entry = (size_t)bh.key_size;
+    // Every node holds at least one entry, so a valid tree has at most (file size / entry size) nodes; a damaged
+    // file whose children point back up the tree stops there (and at max_depth levels) instead of looping.
+    uint64_t max_reads = (uint64_t)gxDatabase::FileSize(path.c_str()) / entry + 2, reads = 0;
     uint64_t h = 0;
-    for(int ok = bt.FindFirst(k); ok; ok = bt.FindNext(k, c)) { h = gxdReplHash(k.b.data(), k.b.size(), h); count++; }
+    BtreeNode n(bh.key_size, bh.node_order);
+    auto push = [&](FAU_t a) -> bool {
+      if(a == (FAU_t)0) return true;
+      if(stack.size() >= max_depth || ++reads > max_reads) { err = "the B-tree's nodes loop or go too deep: " + path; return false; }
+      if(bt.ReadNode(n, a) != gxDBASE_NO_ERROR || (unsigned)n.key_count > (unsigned)bh.node_order) {
+	err = "cannot read a B-tree node of " + path; return false;
+      }
+      Pos p;
+      p.next = -1; p.keys = (unsigned)n.key_count; p.left = (FAU_t)n.left_child;
+      p.entries.assign(n.key_entries, n.key_entries + entry * p.keys);
+      stack.push_back(std::move(p));
+      return true;
+    };
+    bool ok = push((FAU_t)bt.Root());
+    while(ok && !stack.empty()) {
+      Pos &p = stack.back();
+      if(p.next == -1) { p.next = 0; FAU_t lc = p.left; ok = push(lc); continue; }
+      if(p.next >= (int)p.keys) { stack.pop_back(); continue; }
+      const char *e = p.entries.data() + entry * (size_t)p.next;   // an entry: its right child (an FAU), then the key
+      FAU rc;
+      memcpy(&rc, e, sizeof(FAU));
+      memcpy(k.b.data(), e + sizeof(FAU), ks);
+      p.next++;
+      h = gxdReplHash(k.b.data(), k.b.size(), h); count++;
+      ok = push((FAU_t)rc);
+    }
     bt.Close();
+    if(!ok) { hash = 0; count = 0; return -1; }
     hash = h;
     return 0;
   }

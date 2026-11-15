@@ -95,6 +95,15 @@ mkdir -p "$WORK/run_replication" && cd "$WORK/run_replication" &&
 mkdir -p "$WORK/run_replication_so" && cd "$WORK/run_replication_so" &&
   check replication_walkthrough_so env EXTRACTOR="$E/example_records.so" GXREPL="$BUILD/utils/gxrepl" \
     "$SRC/examples/oodb/replication_walkthrough.sh" "$E" "$WORK/run_replication_so/w"
+# 11/15/2026 (7.4): gxrepl digest --kind btree on keys whose names repeat (two writer runs with the same seed: the
+# address breaks the tie). The digest walked with FindNext() and a raw byte compare and skipped keys; it must count
+# one key per live record and match the same B-tree rebuilt from the records.
+mkdir -p "$WORK/run_digest_repeat" && cd "$WORK/run_digest_repeat" &&
+  check gxrepl_digest_repeated_names sh -c "set -e; mkdir -p p; R='$E/replication'
+    \$R write p --commits 60 --per 8 > /dev/null; LIVE=\$(\$R write p --commits 80 --per 8 | sed -n 's/.*, \([0-9]*\) live records\$/\1/p')
+    \$R digest p > p.d; grep -q \"btree [0-9a-f]* \$LIVE keys\$\" p.d
+    mkdir r; cp -a p/data.gxd p/by_name.btx p/vectors.vix p/commit.bin r/; \$R rebuild r > /dev/null; \$R digest r > r.d; cmp p.d r.d
+    '$BUILD/utils/gxrepl' digest p/by_name.btx | grep -q \" \$LIVE \""
 # 11/14/2026 (7.4): the folder copy example (replication_copy_walkthrough.cmd on Windows), the same steps with cp
 mkdir -p "$WORK/run_replication_copy" && cd "$WORK/run_replication_copy" &&
   check replication_copy sh -c "set -e; mkdir -p p c; R='$E/replication_copy'
