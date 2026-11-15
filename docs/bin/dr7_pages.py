@@ -1199,7 +1199,7 @@ OK: VECTOR_INFO, a search of every day and a search of one day (two files skippe
 <LI><CODE>replication_copy digest</CODE> prints what the folder holds, whatever the files' layout: the records (address and bytes, in address order), the B-tree's keys in order (the example's own key walk) and the vector index's live nodes. The primary and the copy print the same. <CODE>vix_rebuild --digest</CODE> checks both vector indexes as well.</LI>
 <LI>A copy that loses or damages its indexes does not need them from the primary: <CODE>replication_copy rebuild</CODE> makes both again from the copy's own records, and the digests agree again.</LI>
 </OL>
-<P>Copy Windows to Windows (and Linux to Linux). In the default build (DATAREEL_NATIVE_TYPES=ON) the file headers hold <CODE>gxUINT32</CODE> fields, which are <CODE>unsigned long</CODE>: 8 bytes on 64-bit Linux, 4 on 64-bit Windows, so the database files of one do not open on the other (fixed-width header types are planned for 7.5).</P>
+<P>Copy Windows to Windows (and Linux to Linux). In the default build (DATAREEL_NATIVE_TYPES=ON) the file headers hold <CODE>gxUINT32</CODE> fields, which are <CODE>unsigned long</CODE>: 8 bytes on 64-bit Linux, 4 on 64-bit Windows and with a 32-bit compiler, so the .gxd data file, the .btx B-tree and the .vix vector index of one layout do not open in another (fixed-width header types are planned).</P>
 '''),
   ('Running', 'Running It', '<P>On Windows, from the build folder of a Visual Studio build:</P>\n' + code('''
 examples\\oodb\\replication_copy_walkthrough.cmd BUILD\\examples\\Release BUILD\\utils\\Release

@@ -20,9 +20,11 @@ and the Windows build of the library has no ship log. On Windows, copy a databas
 describes, with robocopy, as the Windows example `examples/oodb/replication_copy_walkthrough.cmd` does.
 
 **Copies stay on one platform.** In the default build (`DATAREEL_NATIVE_TYPES=ON`) the database file headers hold
-`gxUINT32` fields, which are `unsigned long`: 8 bytes on 64-bit Linux, 4 on 64-bit Windows. A `.gxd`, `.btx`,
-`.vix` or `.vixset` file written on one does not open on the other, and record addresses used as vector ids differ
-too. Replicate Linux to Linux, copy Windows to Windows. Fixed-width on-disk header types are planned for 7.5,
+`gxUINT32` fields, which are `unsigned long`: 8 bytes on 64-bit Linux, 4 on 64-bit Windows and in 32-bit builds
+(a 32-bit compiler, on any system). A `.gxd` data file, a `.btx` B-tree index or a `.vix` vector index (and the
+files a `.vixset` lists) written in one layout does not open in another, and record addresses used as vector ids
+differ too. A 64-bit Linux build with 32-bit file addresses (`DATAREEL_64BIT_DATABASE=OFF`) keeps the 64-bit
+Linux layout. Replicate Linux to Linux, copy Windows to Windows. Fixed-width on-disk header types are planned,
 before Windows replication.
 
 ## 1. What gxrepl replicates

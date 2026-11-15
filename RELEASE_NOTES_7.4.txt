@@ -472,21 +472,29 @@ FIXES AFTER BETA 3 (11/15/2026, docs-7.4)
 
 KNOWN ISSUES
 ------------
-- Database files do not move between 64-bit Linux and 64-bit Windows
-  in the default build (DATAREEL_NATIVE_TYPES=ON). gxUINT32 is
-  unsigned long there: 8 bytes on LP64 Linux, 4 bytes on LLP64
-  Windows. The file headers use it (gxFileLockHeader and gxBlockHeader,
-  include/gxheader.h), so the layouts differ: gxd_hs_fptr is 0x168 on
-  Linux and 0x15c on Windows, and a vector index's static area starts
-  at byte 104 on Linux and 92 on Windows. .gxd, .btx, .vix and .vixset
-  files, and record addresses used as vector ids, belong to the
-  platform that wrote them; a copy between the two does not open (a
-  .vix fails with a database file error). Copy folders between nodes of the same platform (gxrepl
-  is Linux to Linux; the Windows folder copy is Windows to Windows).
-  vix_test's phase C files are LP64: on Windows it checks that they are
-  refused cleanly. Planned fix (7.5, before Windows replication):
-  fixed-width on-disk header types, with a new revision letter or a
-  read path for both layouts.
+- Database files do not move between 64-bit Linux and the other
+  platforms in the default build (DATAREEL_NATIVE_TYPES=ON). gxUINT32
+  is unsigned long there: 8 bytes on 64-bit Linux (LP64), 4 bytes on
+  64-bit Windows (LLP64) and on 32-bit builds (ILP32: a 32-bit
+  compiler, on any system). The file headers use it (gxFileLockHeader
+  and gxBlockHeader, include/gxheader.h), so the layouts differ:
+  gxd_hs_fptr is 0x168 on 64-bit Linux and 0x15c on 64-bit Windows,
+  and a vector index's static area starts at byte 104 on Linux and 92
+  on Windows (measured; 32-bit builds differ by the same rule, not yet
+  measured). Every database file (.gxd data files, .btx B-tree
+  indexes, .vix vector indexes and the files a .vixset manifest lists),
+  and record addresses used as vector ids, belong to the layout that
+  wrote them; a file copied to another layout does not open (a .vix
+  fails with a database file error). DATAREEL_64BIT_DATABASE=OFF on
+  64-bit Linux (32-bit file addresses) is still the LP64 layout. Copy
+  folders between nodes of the same layout: gxrepl is Linux to Linux,
+  the Windows folder copy is Windows to Windows.
+  vix_test's phase C fixture files were all made on 64-bit Linux:
+  fau64 (DATAREEL_64BIT_DATABASE=ON) and fau32 (OFF) are both LP64.
+  64-bit Linux builds compare against them; on 64-bit Windows and 32-bit
+  builds vix_test checks instead that all 8 are refused cleanly.
+  Planned fix (before Windows replication): fixed-width on-disk header
+  types, with a new revision letter or a read path for both layouts.
 
 NEXT
 ----

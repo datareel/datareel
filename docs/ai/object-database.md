@@ -36,13 +36,14 @@ Pick a layer:
   `uint32_t`, `int64_t`, `double`, `CDate`, `FAU`), never pointers,
   `std::string` or virtual functions. In the default build
   (`DATAREEL_NATIVE_TYPES=ON`) `gxUINT32` and `gxINT32` are `long`
-  types: 8 bytes on 64-bit Linux, 4 on 64-bit Windows. The file
-  headers use them too, so files (`.gxd`, `.btx`, `.vix`, `.vixset`)
-  and record addresses do not move between 64-bit Linux and 64-bit
-  Windows; keep each database on the platform that wrote it.
+  types: 8 bytes on 64-bit Linux, 4 on 64-bit Windows and with a
+  32-bit compiler. The file headers use them too, so files (`.gxd`,
+  `.btx`, `.vix` and the files a `.vixset` lists) and record addresses
+  do not move between 64-bit Linux and 64-bit Windows or 32-bit
+  builds; keep each database on the platform that wrote it.
   With `DATAREEL_NATIVE_TYPES=OFF` the gx types are fixed-size
   byte-order classes (a different file format). Fixed-width header
-  types for the default build are planned for 7.5.
+  types for the default build are planned.
 - `gxDatabase`, `gxBtree` and `POD` are not copyable. Use
   one object per file per thread, or guard it with a `std::mutex`.
   `LockFile()`/`LockRecord()` coordinate several processes.
