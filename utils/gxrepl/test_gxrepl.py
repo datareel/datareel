@@ -4493,6 +4493,41 @@ def test_seal_guard_never_livelocks():
     _reopen_during_a_verify("reopen_bounded", sealed_within=15)
 
 
+def test_open_without_a_commit_still_seals():
+    """11/15/2026 (review F1): the stream's log made again by a writer that opens and closes without a commit (a day
+    reopened by the late pass and archived again with no late line: the log holds only an open record, no commit
+    block): the verify takes the copy's own block (Diff's "gone" for a block the log does not carry) and the unit
+    stays sealed: torn rc 0 within 20 s, no endless verify"""
+    env = Env("open_no_commit", {"db": CB_OPTS})
+    ws, aws = env.roots["db"]
+    d1 = os.path.join(ws, "d1")
+    os.makedirs(d1)
+    try:
+        assert writer(d1, "--commits", 6, "--commit-block", "--ship-root", ws).returncode == 0
+        env.start_server()
+        env.start_client()
+        _wait_units(env, ws, aws, ["d1"])
+        shutil.rmtree(os.path.join(ws, ".gxrepl", "log", "d1_writer.jnl"))
+        r = writer(d1, "--commits", 0, "--commit-block", "--ship-root", ws, "--seed", 70)
+        assert r.returncode == 0, r.stdout
+        n = len(open(os.path.join(env.dir, "client.log")).read())
+        end = time.time() + 20
+        ok = False
+        while time.time() < end:
+            t = torn(env)
+            if t.returncode == 0 and "verified (" in open(os.path.join(env.dir, "client.log")).read()[n:]:
+                ok = True
+                break
+            time.sleep(0.5)
+        assert ok, torn(env).stdout + env.logs()
+        time.sleep(3)
+        log = open(os.path.join(env.dir, "client.log")).read()[n:]
+        assert log.count("verified (") <= 2, log            # no endless verify
+        assert _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd")), env.logs()
+    finally:
+        env.stop()
+
+
 def test_drain_verify_once_per_stream():
     """note_verify() is idempotent: one "needs a verify" line and one verify for the stream, whichever drains
     (the drain's own, then the caller's) saw the open records of two writers"""

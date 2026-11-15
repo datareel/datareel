@@ -4196,7 +4196,11 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
       // sent in this pass and the stream is verified again (before: the later files' updates moved the copy to the
       // new log's position, the commit block followed, and the copy was "in step" with a stale data file)
       if(res.status == 1) {
-	if(cover) { err = path + " was gone while it was synced (verified again next pass)"; return 1; }
+	// (review F1): a commit block the log no longer carries is answered "gone" on purpose (the copy keeps its own
+	// and its seal): synced, as before. Only a data file that really vanished fails.
+	const gxReplSetConfig *scg = cover ? cfg.Set(set) : 0;
+	bool is_cb = scg && !scg->commit_block.empty() && base_of(path) == scg->commit_block;
+	if(cover && !is_cb) { err = path + " was gone while it was synced (verified again next pass)"; return 1; }
 	return 0;                   // Gone from the source
       }
       if(res.status == 3) { retry = true; usleep(200000); break; } // 11/08/2026: changed while read
@@ -4234,7 +4238,7 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
 	const gxReplSetConfig *scp = cfg.Set(set);
 	if(scp && !scp->commit_block.empty() && base_of(path) == scp->commit_block) {
 	  err = path + ": the commit block is not applied across a log made again (verified again)";
-	  return 1;
+	  return 2;
 	}
       }
       // 11/15/2026 (the seal guard): the folder's commit block is applied only when its stream needs no other
@@ -4252,7 +4256,7 @@ int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::str
 	  if(!test_off("GXREPL_TEST_NO_SEAL_GUARD") &&
 	     (verify_again[set].count(cover->name) || (queued && verifying[set] != cover->name) || other_log)) {
 	    err = path + ": the commit block waits for the stream's verify";
-	    return 1;
+	    return 2;               // (review) expected: not an error (no last_error, no log line)
 	  }
 	}
       }
@@ -4464,7 +4468,8 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
       std::string e;
       int rc = sync_file(src, tgt, sc.name, f, s, st, e);
       if(rc < 0) { err = e; return -1; }
-      if(rc > 0) { failed++; { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
+      if(rc == 2) failed++;        // 11/15/2026: the seal guard's wait (expected): the stream stays, no error
+      else if(rc > 0) { failed++; { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
       else synced++;
     }
     if(failed) { ++it; continue; }
@@ -4630,6 +4635,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
       std::string e;
       int rc = sync_file(src, tgt, sc.name, f.path, cover, st, e);
       if(rc < 0) { err = e; return -1; }
+      if(rc == 2) continue;        // 11/15/2026: the seal guard's wait (expected): the stream's verify follows
       if(rc > 0) { failures++; failed_dirs.insert(dir_of(f.path)); { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
       else sent_dirs.insert(dir_of(f.path));
     }
@@ -4647,6 +4653,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
       std::string e;
       int rc = sync_file(src, tgt, sc.name, cbf->path, cv->second, st, e);
       if(rc < 0) { err = e; return -1; }
+      if(rc == 2) continue;        // 11/15/2026: the seal guard's wait (expected)
       if(rc > 0) { failures++; { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
     }
     if(sc.deletes && !stop) {
