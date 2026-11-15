@@ -1,0 +1,105 @@
+DataReel 6.4 Release Notes, 11/15/2026 (beta)
+DataReel version 6.4 (was 6.3.1)
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 6.4 is the DataReel 6.3.1 library with an optional build of
+the DataReel 7.x vector database and replication features for 6.x
+programs. The 6.x library itself is the 6.3.1 library: the same
+source, the same API, and database files byte-identical to 6.2 and
+6.3.1. DataReel 6.4 has no copy of the 7.x vector or replication code.
+A 6.x build uses the 7.x code, from a DataReel 7.4 or later source
+tree, only when it is asked to:
+
+  cmake -S datareel-6.4 -B build -DDATAREEL7_FEATURES_DIR=/path/to/datareel-7.4
+
+A program that does not use the 7.x features builds and runs exactly
+as with 6.3.1, with the makefiles or with CMake. Everything in
+RELEASE_NOTES_6.3.1.txt and RELEASE_NOTES_6.3.txt is included.
+
+THE 7.x FEATURES BUILD (CMake only)
+-----------------------------------
+- DATAREEL7_FEATURES_DIR (a path, empty = off): the 7.x source tree.
+  The build refuses a tree older than 7.4. It builds, next to the 6.x
+  library:
+  - the 7.x library, from that tree as it is. Its names are in the
+    datareel namespace, so it links next to the 6.x library in one
+    program;
+  - dr7inner (dr7features/inner): a plain C interface to the 7.x
+    classes, compiled against the 7.x headers only;
+  - dr7features (dr7features/include/dr7features.h): DataReel 6.x
+    classes that use it, with 6.x types (gxString, MemoryBuffer).
+  Link a program with the CMake target DataReel::dr7features. It needs
+  a C++17 compiler, the same one for both libraries.
+- DATAREEL7_TOOLS (default ON with DATAREEL7_FEATURES_DIR): also build
+  the 7.x programs from the 7.x tree into <build>/dr7inner/tools:
+  gxrepl (database replication), object_server and object_client
+  (POSIX), vix_rebuild.
+- The 7.x library is built with the same database engine as the 6.x
+  library (DATAREEL_64BIT_DATABASE).
+- Do not include DataReel 7.x headers in a 6.x source file. The two
+  versions have header files of the same names and include guards.
+  dr7features.h includes only 6.x headers.
+
+VECTOR DATABASE: gxv7VectorIndex, gxv7VectorSet
+-----------------------------------------------
+The 7.x vector index (.vix files) and vector set (.vixset manifests),
+for 6.x programs:
+- vectors of up to 4096 float32, float16 or int8 elements, L2, cosine
+  or inner product, four tags per vector, an id per vector (for
+  example a 6.x record's block address);
+- Search() (HNSW, approximate) and Exact(), tag filters, Get(),
+  Update(), Delete(), Repair(), Verify(), read-only open and a spec
+  text that Open() can require;
+- vector sets: many .vix files (for example one per day) searched as
+  one, with a day range on tag 2.
+The files are the 7.x files: a 7.x program opens what a 6.x program
+writes, and the other way round. Do not open one .vix file for
+writing in a 6.x program and a 7.x program at the same time.
+Example: examples_database/vector_index.
+
+VECTOR SEARCHES ON A 7.x OBJECT SERVER: gxv7ObjectClient
+--------------------------------------------------------
+A 6.x program sends op 7 VECTOR_SEARCH and op 8 VECTOR_INFO to a
+DataReel 7.x database object server (for example "gxrepl serve" with a
+[db NAME] section that names "vectors"). The connection uses mutual
+TLS: the client's certificate, the CA, and the server name checked.
+The client uses the 7.x client classes, so the messages are the 7.x
+ones. Example: examples_socket/vector_client.
+
+REPLICATION OF 6.x DATABASES WITH THE 7.x gxrepl
+------------------------------------------------
+A 6.x program's database folder is replicated by the 7.x gxrepl,
+running next to it as a separate process. The 6.x program is not
+changed and links no 7.x code.
+- gxrepl copies a folder without a ship log by a scan of changed
+  64 KB pieces. It reads a live folder under the shared lock of the
+  folder's journal file.
+- The DataReel 6.3/6.4 gxdJournal and gxdJournalReadLock use the same
+  lock as 7.x: flock() on the journal file (LockFileEx on Windows).
+- A 6.x writer that uses gxdJournal with SetWriteLock(1), with the
+  journal in the database folder, can be copied while it writes: every
+  copy is a whole commit.
+- A writer without a journal can be copied while it is quiet.
+- A 6.x reader of a live copy takes gxdJournalReadLock on
+  <copy>/.gxrepl/apply.jnl.
+- The ship log (commit-by-commit replication of a writer that calls
+  gxdJournal::EnableShipLog()) needs the 7.x journal. A 6.x program's
+  folders always go by the scan.
+- gxrepl is POSIX only, as in DataReel 7.4.
+Example and how-to: examples_database/replication_6x (README.txt). See
+also the DataReel 7 replication administrator's guide.
+
+TESTED PLATFORMS
+----------------
+On RHEL 10.2 with DataReel 7.4 beta3 (tag 7.4-beta3), 32-bit and
+64-bit database engines:
+- vector_index: all checks pass. A 6.x program reading the DataReel
+  7.4 phase C .vix files gets the 7.4 results: 28 of 28 result lines
+  equal, on both engines.
+- replication_6x: 12 of 12, in three rounds on the 64-bit engine and
+  one on the 32-bit engine. The copy is byte-identical, every live
+  copy is a whole commit and never goes back.
+- vector_client: 7 of 7. The server's answers equal local searches,
+  and bad requests and certificates are refused.
+
+DataReel Copyright (c) 2001-2026 DataReel Software Development

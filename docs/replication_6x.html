@@ -1,0 +1,122 @@
+<!doctype html>
+<!-- ******************************* -->
+<!-- ******** Start of Page ******** -->
+<!-- ******************************* -->
+<!-- *********************************************************** -->
+<!-- HTML Page -->
+<!-- Designed For: FireFox, Chrome, Safari -->
+<!-- Published By: DataReel Software Development -->
+<!-- Content Last Modified: 01/15/2024 -->
+<!-- File Creation Date: 01/15/2024 20:45:35 EST -->
+<!-- *** -->
+<!-- Package version: 12.3.10 -->
+<!-- *** -->
+<!-- Copyright (c) 1999-2026 DataReel Software Development -->
+<!-- *********************************************************** -->
+<!-- *********** HTML Page Description and Details ************* -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- START OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- This HTML page and its derivatives are copyright (c) 1999-2024, by -->
+<!-- DataReel Software Development. This HTML page and any derivative Web -->
+<!-- objects are published on the Internet for public viewing only. -->
+<!-- Reproduction of any HTML page and/or Web objects published on -->
+<!-- this Website is prohibited unless authorized in writing by -->
+<!-- DataReel Software Development or authorized reseller. Reproduction of any -->
+<!-- third party code used to produce pages on this Website is subject to -->
+<!-- the third party licensing and distribution agreement. -->
+<!-- *** -->
+<!-- THIS SOFTWARE IS PROVIDED AS IS WITHOUT WARRANTY OF ANY KIND. THE -->
+<!-- ENTIRE RISK OF THE QUALITY AND PERFORMANCE OF THIS SOFTWARE IS WITH -->
+<!-- YOU. SHOULD ANY ELEMENT OF THIS SOFTWARE PROVE DEFECTIVE, YOU WILL -->
+<!-- ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR, OR CORRECTION. -->
+<!-- *** -->
+<!-- *********************************************************** -->
+<!-- *************** THIRD PARTY ACKNOWLEDGMENT **************** -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- NONE -->
+<!-- *** -->
+<!-- END OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- HTML Internet page -->
+<!-- *********************************************************** -->
+<!-- PAGE CONTENT STARTS BELOW -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>Replicating 6.x Databases</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm" aria-current="page">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<H1>Replicating DataReel 6.x Databases (DataReel 6.4)</H1>
+<P>DataReel 6.4 has no replication code of its own. A DataReel 6.x program&#x27;s database folder is replicated by the DataReel 7.x gxrepl program, running next to the 6.x program as a separate process. The 6.x program is not changed and does not link any 7.x code.</P>
+<PRE>repl6_writer      a plain 6.x program: writes FOLDER/data.gxd, each
+                  commit (records + the header that counts them) in
+                  one gxdJournal transaction with the write lock on
+repl6_check       a plain 6.x program: reads a copy and checks it is
+                  one whole commit (no half commit, nothing missing)
+run_repl6_cross.sh  the test: gxrepl copies the writer&#x27;s folder to
+                  another folder, while the writer is quiet and while
+                  it writes, and the checker reads the copy</PRE>
+<P>Build (Linux; gxrepl is POSIX only):</P>
+<PRE># the 6.x programs (6.x makefiles, or the 6.x CMake build)
+cd examples_database/replication_6x &amp;&amp; make
+# gxrepl, from a DataReel 7.4 or later source tree, with the 6.x
+# CMake build (or build it in the 7.x tree itself)
+cmake -S datareel-6.4 -B build -DDATAREEL7_FEATURES_DIR=/path/to/datareel-7.4
+cmake --build build -j2            # gxrepl is in build/dr7inner/tools</PRE>
+<PRE>./run_repl6_cross.sh build/dr7inner/tools . [WORK_FOLDER]</PRE>
+<P>What the test checks:</P>
+<UL><LI>a database written by a 6.x program, copied while the program is quiet: gxrepl once reports every set the same, the copy is byte-identical, the checker finds the copy whole;</LI><LI>a 6.x database written without a journal: the same;</LI><LI>the writer&#x27;s journal (data.jnl) is never copied;</LI><LI>copied live while the 6.x program writes 300 more commits (gxrepl run): every sample of the copy the checker reads is a whole commit and the copy never goes back; the copy catches up, and after the run it is byte-identical to the primary.</LI></UL>
+<h2>How it works, and what a 6.x program must do</h2>
+<P>gxrepl copies a folder without a ship log by a scan: changed files are compared in 64 KB pieces and only the pieces that differ are sent. A live writer&#x27;s files are read under the shared lock of the journal in the same folder (gxdJournalReadLock on the folder&#x27;s .jnl file), and the copy applies each update through its own journal (&lt;root&gt;/.gxrepl/apply.jnl), so the copy is always one whole commit.</P>
+<P>The DataReel 6.3/6.4 journal (gxdJournal, gxdJournalReadLock) uses the same lock as the 7.x journal: a shared or exclusive flock() on the journal file (LockFileEx on Windows). So:</P>
+<UL><LI>A 6.x program that writes through gxdJournal with SetWriteLock(1) holds its journal file locked while it changes the database files, and gxrepl waits for it: copies taken while it writes are whole. Keep the journal in the same folder as the database files.</LI><LI>A 6.x program that writes without a journal can be copied while it is quiet (between runs, or a folder it no longer writes). Copies taken while it writes may hold half a write: gxrepl&#x27;s next pass corrects them, but a node must not take over from such a copy.</LI><LI>A 6.x program reading a live copy holds the shared lock of the copy&#x27;s apply journal (repl6_check does: gxdJournalReadLock on &lt;copy&gt;/.gxrepl/apply.jnl), the lock gxrepl holds while it applies.</LI></UL>
+<P>Commit blocks, derived indexes (vector indexes and B-trees the copy rebuilds itself), failover and failback, archived folders and the monitoring are as in the DataReel 7.x replication administrator&#x27;s guide (DataReel 7.4: docs/replication_admin_guide.md). The ship log (the commit-by-commit replication of a writer that calls gxdJournal::EnableShipLog()) needs the 7.x journal: a 6.x program&#x27;s folders always go by the scan described above.</P>
+<P>gxrepl configs used by the test (one set per database folder):</P>
+<PRE># primary.conf (the 6.x program&#x27;s node, client, pushes)
+node = primary
+role = client
+connect = 127.0.0.1:PORT
+server_name = copy
+cert = pki/primary.pem
+key = pki/primary.key
+ca = pki/ca.pem
+[set db]
+root = /path/to/the/6.x/database/folder
+direction = push
+scan_interval = 1</PRE>
+<PRE># copy.conf (the other node, server)
+node = copy
+role = server
+listen = 127.0.0.1:PORT
+allow_cn = primary
+cert = pki/copy.pem
+key = pki/copy.key
+ca = pki/ca.pem
+[set db]
+root = /path/to/the/copy
+accept = target</PRE>
+<P>Example programs and test: examples_database/replication_6x. See also <A HREF="classes/database/dr7features.htm">the 7.x features build</A> and the <A HREF="release_notes_6_4.html">DataReel 6.4 release notes</A>.</P>
+</main>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
+</html>
+<!-- PAGE CONTENT ENDS ABOVE -->
+<!-- *********************************************************** -->
+<!-- ******************************* -->
+<!-- ********* End of Page ********* -->
+<!-- ******************************* -->

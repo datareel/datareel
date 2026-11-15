@@ -1,0 +1,114 @@
+<!doctype html>
+<!-- ******************************* -->
+<!-- ******** Start of Page ******** -->
+<!-- ******************************* -->
+<!-- *********************************************************** -->
+<!-- HTML Page -->
+<!-- Designed For: FireFox, Chrome, Safari -->
+<!-- Published By: DataReel Software Development -->
+<!-- Content Last Modified: 01/15/2024 -->
+<!-- File Creation Date: 01/15/2024 20:45:35 EST -->
+<!-- *** -->
+<!-- Package version: 12.3.10 -->
+<!-- *** -->
+<!-- Copyright (c) 1999-2026 DataReel Software Development -->
+<!-- *********************************************************** -->
+<!-- *********** HTML Page Description and Details ************* -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- START OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- This HTML page and its derivatives are copyright (c) 1999-2024, by -->
+<!-- DataReel Software Development. This HTML page and any derivative Web -->
+<!-- objects are published on the Internet for public viewing only. -->
+<!-- Reproduction of any HTML page and/or Web objects published on -->
+<!-- this Website is prohibited unless authorized in writing by -->
+<!-- DataReel Software Development or authorized reseller. Reproduction of any -->
+<!-- third party code used to produce pages on this Website is subject to -->
+<!-- the third party licensing and distribution agreement. -->
+<!-- *** -->
+<!-- THIS SOFTWARE IS PROVIDED AS IS WITHOUT WARRANTY OF ANY KIND. THE -->
+<!-- ENTIRE RISK OF THE QUALITY AND PERFORMANCE OF THIS SOFTWARE IS WITH -->
+<!-- YOU. SHOULD ANY ELEMENT OF THIS SOFTWARE PROVE DEFECTIVE, YOU WILL -->
+<!-- ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR, OR CORRECTION. -->
+<!-- *** -->
+<!-- *********************************************************** -->
+<!-- *************** THIRD PARTY ACKNOWLEDGMENT **************** -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- NONE -->
+<!-- *** -->
+<!-- END OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- HTML Internet page -->
+<!-- *********************************************************** -->
+<!-- PAGE CONTENT STARTS BELOW -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>Vector Database for 6.x (dr7features)</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<link rel="icon" href="../../images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="../../images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="../../images/datareel_icon_apple_touch.png">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img class="dr-logo-light" src="../../images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="../../images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm" aria-current="page">Library</a><a href="../../examples/examples.htm">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../drcm.html">Cluster Manager</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<H1>DataReel 7.x Vector Database for 6.x Programs (dr7features)</H1>
+<div class="dr-toc-title">Contents</div>
+<P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
+<A HREF="#Build">Building</A><BR>
+<A HREF="#VectorIndex">gxv7VectorIndex</A><BR>
+<A HREF="#VectorSet">gxv7VectorSet</A><BR>
+<A HREF="#ObjectClient">gxv7ObjectClient</A><BR>
+<A HREF="#Types">Types</A></P>
+<h2 id="Overview">Overview</h2>
+<P>New in DataReel 6.4. DataReel 6.4 has no vector database code of its own: the classes in <B>dr7features.h</B> call the DataReel 7.x vector index (gxVectorIndex, <B>.vix</B> files: exact and HNSW search, float32/float16/int8 vectors, L2, cosine and inner product metrics, four tags per vector), the vector set (gxVectorSet, <B>.vixset</B> manifests that search many .vix files as one) and the database object server client (op 7 VECTOR_SEARCH, op 8 VECTOR_INFO), built from a DataReel 7.4 or later source tree. They take and return DataReel 6.x types. The .vix and .vixset files are the 7.x files: 7.x programs open what 6.x programs write and the other way round. Programs that do not use these classes are not affected: the 6.x library is the 6.3.1 library.</P>
+<P>Return values: gxv7_NO_ERROR (0) if no errors occur, otherwise an error code (gxv7VectorIndex::ErrorMessage() gives its text); gxv7ObjectClient returns 0 or -1 (Error() says why).</P>
+<h2 id="Build">Building</h2>
+<P>CMake only: <B>cmake -S datareel-6.4 -B build -DDATAREEL7_FEATURES_DIR=/path/to/datareel-7.4</B>. The build makes the 6.x library, the 7.x library (its names are in the datareel namespace, so both link into one program), the plain interface dr7inner (dr7features/inner, 7.x headers only) and the dr7features library; link with the CMake target <B>DataReel::dr7features</B>. A C++17 compiler is needed, the same for both libraries. With <B>DATAREEL7_TOOLS</B> (default ON) the 7.x gxrepl, object_server, object_client (POSIX) and vix_rebuild are built into build/dr7inner/tools. Do not include DataReel 7.x headers in a 6.x source file: the two versions share header names and include guards.</P>
+<P>Examples: <B>examples_database/vector_index</B> (records in a 6.x database, their vectors in a .vix keyed by the record address; it also reads the DataReel 7.4 phase C files) and <B>examples_socket/vector_client</B> (searching a 7.x object server). Replication of 6.x databases with the 7.x gxrepl: <A HREF="../../replication_6x.html">Replicating 6.x databases</A>.</P>
+<h2 id="VectorIndex">gxv7VectorIndex</h2>
+<div class="dr-fn"><code class="dr-sig">int Create(const char *fname, unsigned dim, gxv7ElementType type = gxv7FLOAT32, gxv7Metric metric = gxv7L2, unsigned M = 16, const char *spec = 0, unsigned ef_construction = 200)</code><p class="dr-desc">Make a new index file of vectors with dim elements (at most 4096). M is the HNSW graph width. spec is an optional text (up to 63 characters) naming what the vectors are; Open() can require it.</p></div>
+<div class="dr-fn"><code class="dr-sig">int Open(const char *fname, int read_only = 0, const char *spec = 0) / int Close() / int Flush() / int IsOpen() const</code><p class="dr-desc">Open an index (spec, when given, must equal the file's: gxv7_SPEC_MISMATCH), close it, write its changes.</p></div>
+<div class="dr-fn"><code class="dr-sig">int Insert(long long id, const float *vec, const unsigned *tags = 0) / int Insert(long long id, const MemoryBuffer &vec, const unsigned *tags = 0)</code><p class="dr-desc">Add a vector of Dim() floats (a MemoryBuffer of Dim() * sizeof(float) bytes) with up to four tags. id is any number unique in the index, for example a 6.x block address. A duplicate id gives gxv7_DUPLICATE_ID, a NaN or infinity gxv7_NOT_FINITE, a read only index gxv7_READ_ONLY.</p></div>
+<div class="dr-fn"><code class="dr-sig">int Update(long long id, const float *vec, const unsigned *tags = 0) / int Delete(long long id) / int Contains(long long id) const / int Get(long long id, float *vec, unsigned *tags = 0) const</code><p class="dr-desc">Change, delete (the vector is no longer found) and read back a vector and its tags.</p></div>
+<div class="dr-fn"><code class="dr-sig">int Search(const float *query, unsigned k, gxv7Result *results, unsigned &count, unsigned ef = 64, const gxv7Filter *filter = 0) const</code><p class="dr-desc">The k nearest vectors, closest first, approximate (HNSW; ef is the search width; exact for small indexes and narrow filters). results must hold k entries; count is set to the number found.</p></div>
+<div class="dr-fn"><code class="dr-sig">int Exact(const float *query, unsigned k, gxv7Result *results, unsigned &count, const gxv7Filter *filter = 0) const</code><p class="dr-desc">The k nearest vectors, exact.</p></div>
+<div class="dr-fn"><code class="dr-sig">int Repair() / unsigned long Verify(gxString &amp;report)</code><p class="dr-desc">Rebuild the graph from the live vectors; check the file against the copy in memory (the number of problems, one report line each).</p></div>
+<div class="dr-fn"><code class="dr-sig">unsigned Dim() const / gxv7ElementType ElementType() const / gxv7Metric Metric() const / unsigned long long Count() const / unsigned long long Deleted() const</code><p class="dr-desc">The index's dimension, element type, metric, live and deleted vectors.</p></div>
+<div class="dr-fn"><code class="dr-sig">static const char *ErrorMessage(int err) / static const char *LibraryVersion()</code><p class="dr-desc">The text of an error code; the DataReel 7.x library the features were built with ("7.4 beta3").</p></div>
+<h2 id="VectorSet">gxv7VectorSet</h2>
+<div class="dr-fn"><code class="dr-sig">int Create(const char *path, const char *name, unsigned dim, gxv7ElementType type = gxv7FLOAT32, gxv7Metric metric = gxv7L2, const char *spec = 0)</code><p class="dr-desc">Make a manifest (.vixset). Its .vix files have the same dimension, element type, metric and spec, and are listed by their path relative to the manifest.</p></div>
+<div class="dr-fn"><code class="dr-sig">int Open(const char *path, const char *spec = 0, unsigned max_open = 16) / void Close() / int AddFile(const char *rel_path) / int RemoveFile(const char *rel_path) / int Refresh()</code><p class="dr-desc">Open a set (at most max_open files open at once), change its list of files, read the manifest again.</p></div>
+<div class="dr-fn"><code class="dr-sig">int Search(const float *query, unsigned k, gxv7Result *results, unsigned &count, unsigned ef = 64, const gxv7Filter *filter = 0, int day_range = 0, unsigned day_lo = 0, unsigned day_hi = 0, unsigned threads = 1) const</code><p class="dr-desc">Search every file. day_range = 1 searches only vectors whose tag 2 is between day_lo and day_hi; files outside the range are skipped. results[i].file names the file (FilePath()).</p></div>
+<div class="dr-fn"><code class="dr-sig">unsigned FileCount() const / gxString FilePath(unsigned file) const / unsigned Dim() const / gxString Error() const</code><p class="dr-desc">The files of the set, the dimension, the last error.</p></div>
+<h2 id="ObjectClient">gxv7ObjectClient</h2>
+<P>A client of the DataReel 7.x database object server for vector searches: the server's config gives a database <B>vectors = &lt;.vixset or .vix&gt;</B> (for example "gxrepl serve" with a [db NAME] section). Mutual TLS: the client sends its certificate and checks the server's against the CA and the server name. Searches are read only.</P>
+<div class="dr-fn"><code class="dr-sig">int Connect(const char *host, int port, const char *server_name, const char *cert, const char *key, const char *ca, const char *db_name, int timeout_secs = 10) / void Close() / int IsConnected() const</code><p class="dr-desc">Connect and open a channel to database db_name (read mode).</p></div>
+<div class="dr-fn"><code class="dr-sig">int VectorInfo(gxv7VectorInfo &amp;info)</code><p class="dr-desc">Op 8 VECTOR_INFO: the version, dimension, element type, metric, number of files, live and deleted vectors and the spec of the database's vectors.</p></div>
+<div class="dr-fn"><code class="dr-sig">int VectorSearch(const float *query, unsigned dim, unsigned k, gxv7Result *results, unsigned &count, unsigned ef = 64, const gxv7Filter *filter = 0, int day_range = 0, unsigned day_lo = 0, unsigned day_hi = 0, unsigned *skipped = 0, unsigned *missing = 0)</code><p class="dr-desc">Op 7 VECTOR_SEARCH: the k nearest vectors (k at most 1000), closest first. skipped and missing count the server's files skipped by their day range and listed but missing. The server refuses a query of another dimension or one that is not finite; the channel goes on answering.</p></div>
+<div class="dr-fn"><code class="dr-sig">gxString FileName(unsigned file) const / gxString Error() const</code><p class="dr-desc">The path (relative to the server's manifest) of results[i].file; why the last call failed.</p></div>
+<h2 id="Types">Types</h2>
+<div class="dr-fn"><code class="dr-sig">enum gxv7ElementType { gxv7FLOAT32 = 1, gxv7FLOAT16 = 2, gxv7INT8 = 3 } / enum gxv7Metric { gxv7L2 = 1, gxv7COSINE = 2, gxv7IP = 3 }</code><p class="dr-desc">The same values as the 7.x gxvElementType and gxvMetric.</p></div>
+<div class="dr-fn"><code class="dr-sig">enum gxv7Error</code><p class="dr-desc">gxv7_NO_ERROR, gxv7_NOT_OPEN, gxv7_DB_ERROR, gxv7_BAD_FILE, gxv7_BAD_VERSION, gxv7_BAD_ARG, gxv7_UNSUPPORTED, gxv7_SPEC_MISMATCH, gxv7_DUPLICATE_ID, gxv7_ID_NOT_FOUND, gxv7_NOT_FINITE, gxv7_READ_ONLY, gxv7_OUT_OF_RANGE, gxv7_INDEX_FULL (the 7.x gxvError values), gxv7_NO_MEMORY (100), gxv7_BAD_HANDLE (101).</p></div>
+<div class="dr-fn"><code class="dr-sig">struct gxv7Result { long long id; float distance; unsigned tags[4]; unsigned file; }</code><p class="dr-desc">One result; file is the vector set file (gxv7VectorSet::FilePath(), gxv7ObjectClient::FileName()).</p></div>
+<div class="dr-fn"><code class="dr-sig">struct gxv7Filter { void Tag(unsigned i, unsigned value); void Range(unsigned i, unsigned lo, unsigned hi); void Clear(); }</code><p class="dr-desc">Only vectors whose tags are in the given ranges.</p></div>
+<div class="dr-fn"><code class="dr-sig">struct gxv7VectorInfo { unsigned version, dim; gxv7ElementType type; gxv7Metric metric; unsigned files; unsigned long long nodes, deleted; gxString spec; }</code><p class="dr-desc">What VectorInfo() returns.</p></div>
+<P>See the <A HREF="../../release_notes_6_4.html">DataReel 6.4 release notes</A>.</P>
+</main>
+<footer class="dr-footer">DataReel 6.3.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
+</html>
+<!-- PAGE CONTENT ENDS ABOVE -->
+<!-- *********************************************************** -->
+<!-- ******************************* -->
+<!-- ********* End of Page ********* -->
+<!-- ******************************* -->
