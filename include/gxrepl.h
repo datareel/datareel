@@ -659,6 +659,7 @@ struct gxReplSetStatus {
   std::atomic<unsigned long long> gxrepl_bytes{0}, ship_log_bytes{0};
   std::string warn;                       // kept an hour after the cap was last reached
   long long warn_time = 0;
+  std::string waiting;                    // 11/15/2026: "waiting for verify: <stream>" (a commit block the seal guard holds)
   std::mutex m;
 };
 
