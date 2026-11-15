@@ -44,7 +44,7 @@ POSIX only.
 #include "gxdlcode.h"
 #include "replication_records.h"
 
-extern "C" const datareel::gxrExtractorOps *gxr_extractor(void)
+extern "C" const gxrExtractorOps *gxr_extractor(void)
 {
   return example::extractor();
 }
