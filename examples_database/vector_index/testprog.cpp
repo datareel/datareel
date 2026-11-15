@@ -216,11 +216,11 @@ static void demo_and_checks()
     gxv7Result r[3]; unsigned n = 0;
     if(kok) kok = v.Exact(vv, 3, r, n) == gxv7_NO_ERROR && n == 3;
     // Quantised types and the inner product: the vector itself is among the closest
-    int near = 0;
-    for(unsigned i = 0; i < n; i++) if(r[i].id == 1057) near = 1;
+    int found_near = 0;
+    for(unsigned i = 0; i < n; i++) if(r[i].id == 1057) found_near = 1;
     char what[80];
     sprintf(what, "%s: create, 300 inserts, search", kinds[k].t == gxv7FLOAT16 ? "float16 cosine" : "int8 inner product");
-    check(kok && (near || kinds[k].m == gxv7IP), what);
+    check(kok && (found_near || kinds[k].m == gxv7IP), what);
     v.Close();
   }
 

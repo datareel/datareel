@@ -192,8 +192,10 @@ if(DATAREEL7_FEATURES_DIR)
   if(NOT DATAREEL_SSL STREQUAL "NONE")
     list(APPEND _dr7_args -DDATAREEL_SSL=${DATAREEL_SSL})
   endif()
-  if(MSVC)
-    list(APPEND _dr7_args -DCMAKE_MSVC_RUNTIME_LIBRARY=${CMAKE_MSVC_RUNTIME_LIBRARY})
+  # Both projects need the same MSVC runtime. With none given, both use
+  # the CMake default (/MD); an empty value would give the 7.x side /MT.
+  if(MSVC AND DEFINED CMAKE_MSVC_RUNTIME_LIBRARY AND NOT CMAKE_MSVC_RUNTIME_LIBRARY STREQUAL "")
+    list(APPEND _dr7_args "-DCMAKE_MSVC_RUNTIME_LIBRARY=${CMAKE_MSVC_RUNTIME_LIBRARY}")
   endif()
   ExternalProject_Add(dr7inner_build
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dr7features/inner"
