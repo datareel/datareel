@@ -19,6 +19,12 @@ commit block (`commit.bin`); `replication rebuild DIR [LSN]` makes both indexes 
 and the Windows build of the library has no ship log. On Windows, copy a database folder the way section 8
 describes, with robocopy, as the Windows example `examples/oodb/replication_copy_walkthrough.cmd` does.
 
+**Copies stay on one platform.** In the default build (`DATAREEL_NATIVE_TYPES=ON`) the database file headers hold
+`gxUINT32` fields, which are `unsigned long`: 8 bytes on 64-bit Linux, 4 on 64-bit Windows. A `.gxd`, `.btx`,
+`.vix` or `.vixset` file written on one does not open on the other, and record addresses used as vector ids differ
+too. Replicate Linux to Linux, copy Windows to Windows. Fixed-width on-disk header types are planned for 7.5,
+before Windows replication.
+
 ## 1. What gxrepl replicates
 
 - **Committed database pages.** A program writing through a `gxdJournal` with the ship log on
@@ -307,8 +313,10 @@ set db: 1 folder(s) checked, 0 torn
 ```
 
 Rebuild them on the old primary before its writer starts (in the demo, `replication rebuild
-/tmp/repl_demo/primary/db`), or let the writer rebuild them when it opens, if it does that. Then stop the writer
-on the interim primary, swap the roles back, and start the normal configs.
+/tmp/repl_demo/primary/db`), or let the writer rebuild them when it opens, if it does that. The `INDEXES` line
+reads gxrepl's own record of its rebuilds, so it stays after a rebuild by hand; check the rebuilt indexes with the
+digests instead (section 3: `gxrepl digest ... --kind btree` and `vix_rebuild --digest` give the same values on
+both nodes). Then stop the writer on the interim primary, swap the roles back, and start the normal configs.
 
 ## 5. Archived folders
 
@@ -380,7 +388,7 @@ out lock files the same way. Copy the indexes with the data or rebuild them on t
 `replication_copy` (its own records; your application needs its own digest, the way `replication_copy.cpp`
 makes one: the records in address order, the B-tree's keys in order, `gxVectorIndex::LogicalDigest()`):
 
-(test pending)
+(tested on Windows 11)
 
 ```
 rem with the writer stopped
@@ -402,7 +410,10 @@ seconds behind and always one whole commit, use gxrepl.
 
 ## 9. Test status of this guide
 
-The commands above were written against DataReel 7.4 beta 2 (gxrepl 4f8a1b7) and match its usage text and the
-gxrepl test suite. They are still to be run, in order, on a throwaway local setup (two folders on one machine,
-the loopback address), with each block marked tested and any correction made. Until then, every block marked
-"(test pending)" is a description, not a recipe.
+Every block marked (tested) was run as printed, in order, on 11/15/2026 with DataReel 7.4 beta 3 plus the docs-7.4
+fixes (the B-tree digest walk): sections 2.1 to 8 on one Linux machine (two folders under `/tmp/repl_demo`, the
+loopback address, the replication example as the writer), and the robocopy block of section 8 on Windows 11 (a
+Visual Studio 2026 build, `replication_copy` as the writer). Every command exited as the text says; the digests
+agreed between the nodes after each step (the B-tree and vector index digests in section 3, the data after the
+failback in 4.2, the data after the rsync and robocopy copies in section 8). The script that runs them is
+`tests/admin_guide_check.sh` (Linux).
