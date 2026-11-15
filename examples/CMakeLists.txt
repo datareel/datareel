@@ -67,6 +67,6 @@ datareel_example(telnet_client     diagnostics/telnet_client.cpp)
 
 # Sample programs from the AI guides in docs/ai, built so they stay correct
 foreach(sample tls_client tls_server https_fetch send_mail 
-    record_store indexed_records)
+    record_store indexed_records vector_search)
   datareel_example(ai_${sample} ${PROJECT_SOURCE_DIR}/docs/ai/samples/${sample}.cpp)
 endforeach()

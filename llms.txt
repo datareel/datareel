@@ -8,7 +8,7 @@ All classes are in namespace datareel. Link with CMake target DataReel::datareel
 
 - [AGENTS.md](AGENTS.md): Rules for writing code with DataReel and for changing the library
 - [TLS communications](docs/ai/tls-comms.md): TLS clients and servers, HTTPS, SMTP, POP3, FTPS and gxStream, with complete programs
-- [Object database](docs/ai/object-database.md): gxDatabase block files, gxBtree indexes, POD and InfoHog persistent objects
+- [Object database](docs/ai/object-database.md): gxDatabase block files, gxBtree indexes, POD and InfoHog persistent objects, vector indexes and sets
 - [Building and linking](docs/ai/building.md): CMake options, file format settings, find_package(DataReel), running the tests
 - [Porting from 6.x](docs/ai/porting-from-6x.md): Replacements for the removed classes and the move to TLS-only networking
 

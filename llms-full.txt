@@ -972,7 +972,7 @@ int main(int argc, char **argv)
 }
 ```
 
-## Vectors and nearest neighbor search (7.4, in development)
+## Vectors and nearest neighbor search (7.4)
 
 `gxVectorIndex` keeps float vectors in a `.vix` file, which is a normal
 `gxDatabase` file, so it goes on the same journal as its data file.
@@ -1026,9 +1026,132 @@ vix.Search(query, 20, hits, 64, &f);
   the record. When an InfoHog record grows it moves: call
   `Rename(old_fau, new_fau)`. `MemberMatches()` checks a record against
   its node in a `Verify()` resolver.
+- An index made from record members can be rebuilt from the records
+  alone: `gxvRebuildFromMembers()` (gxvmember.h) or `utils/vix_rebuild
+  --data DATA.gxd --index OUT.vix --member offset:N --tags ...`.
+  `vix.LogicalDigest()` (or `vix_rebuild --digest FILE.vix`) hashes the
+  live nodes in id order: equal for two indexes that hold the same
+  nodes, whatever their graphs.
+- Format fields (7.4 phase D): `FeaturesRequired()` /
+  `FeaturesOptional()`, `Codec()`, `GraphLayout()`, and
+  `TagRange(2, lo, hi)`: the file keeps the range of tag 2 (the day).
 - `utils/vix_test` holds the tests (including kill -9 recovery), a
   benchmark (`--bench`) and the graph gate (`--gate 1000000 --type
   f32|f16|i8`).
+
+A complete program: the notes, their vectors, the search and a day
+range.
+
+<!-- sample: docs/ai/samples/vector_search.cpp from="#include <cstdio>" -->
+```cpp
+// docs/ai/samples/vector_search.cpp (license header omitted)
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include "gxdbase.h"
+#include "gxdjrnl.h"
+#include "gxvindex.h"
+
+using namespace datareel;
+
+struct Note {              // fixed size: no std::string or pointers in a record
+  char text[40];
+  unsigned day;            // yyyymmdd
+};
+
+int main()
+{
+  const unsigned DIM = 4;
+  gxdJournal j;
+  gxDatabase db;
+  gxVectorIndex vix;
+  j.Open("notes.jnl");                                   // the journal first: it recovers
+  if(db.Open("notes.gxd") != gxDBASE_NO_ERROR) db.Create("notes.gxd");
+  if(vix.Open("notes.vix", gxDBASE_READWRITE, "notes/v1") != gxv_NO_ERROR)
+    vix.Create("notes.vix", DIM, gxvFLOAT32, gxvCOSINE, 16, "notes/v1");
+  j.Attach(&db);
+  j.Attach(vix.Database());
+
+  const char *texts[5] = { "flush to the open", "reclaim of vwap", "halt resumed", "gap down fill", "vwap hold" };
+  const float vecs[5][4] = { { 1, 0, 0, 0 }, { 0, 1, 0.2f, 0 }, { 0, 0, 1, 0 }, { 0.9f, 0.1f, 0, 0 }, { 0, 1, 0, 0.1f } };
+  if(vix.Count() == 0) {
+    j.Begin();                                           // the note and its node together, or neither
+    for(int i = 0; i < 5; i++) {
+      Note n;
+      memset(&n, 0, sizeof(n));
+      strncpy(n.text, texts[i], sizeof(n.text) - 1);
+      n.day = 20261111 + i % 3;
+      FAU_t a = db.Alloc(sizeof(n));
+      db.Write(&n, sizeof(n), a);
+      unsigned tags[gxvTagCount] = { 0, 0, n.day, 0 };   // tag 2: the day
+      vix.Insert((long long)a, vecs[i], tags);           // id = the note's address
+    }
+    if(j.Commit() != gxDBASE_NO_ERROR) { std::cout << "commit failed\n"; return 1; }
+  }
+
+  const float query[4] = { 0, 1, 0, 0 };
+  std::vector<gxvResult> hits;
+  vix.Search(query, 3, hits);                            // closest first
+  std::cout << "nearest to the query:\n";
+  for(auto &h : hits) {
+    Note n;
+    db.Read(&n, sizeof(n), (FAU_t)h.id);
+    std::printf("  %-20s day %u  distance %.3f\n", n.text, n.day, h.distance);
+  }
+
+  gxvFilter f;
+  f.Range(2, 20261111, 20261111);                        // only 2026-11-11
+  vix.Search(query, 3, hits, 64, &f);
+  std::cout << "on 2026-11-11 only: " << hits.size() << " note(s)\n";
+
+  j.Close();                                             // checkpoint, then the files
+  vix.Close();
+  db.Close();
+  return 0;
+}
+```
+
+### Many files as one: vector sets
+
+`gxVectorSet` (gxvset.h) searches many `.vix` files (a day file each, or
+partitions) as one, through a small text manifest `<name>.vixset` next
+to them. Each line keeps a file's node counts, its tag 2 range and a CRC
+of its header.
+
+```cpp
+gxVectorSet set;
+set.Create("days.vixset", "days", 384, gxvFLOAT16, gxvCOSINE, "notes/v1");
+set.AddFile("2026/11/11/notes.vix");          // relative, no "..": checked
+gxvSetSearch o;
+o.k = 10;
+o.day_range = 1; o.day_lo = 20261110; o.day_hi = 20261111;   // other files skipped unopened
+o.threads = 4;                                 // the same results for any thread count
+std::vector<gxvSetResult> r;                   // each names its file (r[i].file)
+set.Search(query, o, r);
+```
+
+- A missing file (an archived day) is skipped and counted (`Missing()`);
+  `o.strict = 1` makes it an error.
+- The live day's writer: `set.AttachOpen("2026/11/15/notes.vix", &vix)`
+  searches its open index as it is; `set.Refresh()` writes the new
+  counts into the manifest.
+
+### Vector searches over the network
+
+The database object server (gxdbobject.h) answers `VECTOR_INFO` (op 8)
+and `VECTOR_SEARCH` (op 7) for a database whose config names its vectors
+(`gxObjectDbConfig::vectors`: a `.vixset` or a `.vix`), over gxStream
+with mutual TLS. See `examples/oodb/vector_search_service.cpp` for the
+request and reply layouts; `utils/dbserver/object_client --vinfo` and
+`--vsearch K` ask from the command line. POSIX only.
+
+### Replicated copies
+
+gxrepl never sends a set's derived indexes: the copy rebuilds them
+(`derived_apply = rebuild`, running `vix_rebuild`) or keeps them object
+by object (`incremental`, with the `gxvmember` extractor; not yet for
+production use). See `utils/gxrepl/README.md` and
+`docs/replication_admin_guide.md`.
 
 ## Checking and repairing files
 

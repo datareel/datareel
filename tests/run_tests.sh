@@ -113,6 +113,8 @@ mkdir -p "$WORK/run_journal_recovery" && cd "$WORK/run_journal_recovery" &&
 mkdir -p "$WORK/run_ai_db" && cd "$WORK/run_ai_db" &&
   $E/ai_record_store > /dev/null 2>&1 && $E/ai_indexed_records > /dev/null 2>&1
 check ai_record_store $E/ai_record_store
+mkdir -p "$WORK/run_ai_vec" && (cd "$WORK/run_ai_vec" && "$E/ai_vector_search" > /dev/null 2>&1) &&
+  check ai_vector_search sh -c "cd '$WORK/run_ai_vec' && '$E/ai_vector_search' | grep -q 'on 2026-11-11 only: 2 note'"
 check ai_record_store_walk sh -c "[ \$(grep -c qty $WORK/ai_record_store.log) -eq 4 ]"
 check ai_indexed_records sh -c "$E/ai_indexed_records | tr -d '\n' | grep -q 'Found Acme Tools.*Acme Tools, 40 orders  Baker Hardware, 7 orders  Wilson Supply, 12 orders\$'"
 mkdir -p "$WORK/run_damaged" && cd "$WORK/run_damaged" && 

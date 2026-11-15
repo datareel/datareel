@@ -21,7 +21,7 @@ GUIDES = [
     ('tls-comms.md', 'TLS communications',
      'TLS clients and servers, HTTPS, SMTP, POP3, FTPS and gxStream, with complete programs'),
     ('object-database.md', 'Object database',
-     'gxDatabase block files, gxBtree indexes, POD and InfoHog persistent objects'),
+     'gxDatabase block files, gxBtree indexes, POD and InfoHog persistent objects, vector indexes and sets'),
     ('building.md', 'Building and linking',
      'CMake options, file format settings, find_package(DataReel), running the tests'),
     ('porting-from-6x.md', 'Porting from 6.x',

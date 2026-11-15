@@ -121,6 +121,10 @@ never sees a half-applied commit. `legacy_db = NAME` lets 6.x style clients (an 
     gxrepl check  --config FILE                  certificates present, sets and folders
     gxrepl fingerprint CERT.pem                  SHA-256 fingerprint and CN (for allow_fingerprint)
     gxrepl shiplog DIR [--from LSN]              list a ship log's records
+    gxrepl torn   --config FILE [--set NAME]     promote-check: is every copy whole and sealed
+    gxrepl promote --config FILE [--set NAME] [--apply]   before a take over
+    gxrepl digest FILE [--kind btree|bytes|objects]       what an index or database holds (7.4)
+    gxrepl derived status|rebuild --config FILE [--set NAME] [--folder REL]   derived indexes (7.4)
     gxrepl version
 
 Signals: `TERM` / `INT` stop after the current message, and `HUP` on the client forces a full
@@ -177,8 +181,68 @@ file on disk.
     deletes = yes                  # copy deletes of database files (default yes)
     include = commit.bin, sources.json, export/*.gz   # files carried with the databases (list)
 
+    commit_block = commit.bin@8    # a folder's seqlock commit block (copied and sealed as one unit)
+    staged_fill = yes              # a unit is filled in a stage and swapped in whole (F7)
+    stage_max_bytes = 17179869184
+    ship_log_max_total = 4294967296  # cap of the set's ship logs (oldest segments removed)
+    derived = by_*.btx, vectors.vix  # indexes the copy keeps itself: never sent
+    derived_rebuild = vix_rebuild --data {dir}/data.gxd ...  # the full rebuild of a folder ({dir}, {lsn})
+    derived_delay = 30             # seconds a folder is quiet before its rebuild
+    derived_busy_rebuild = 900     # rebuild a folder that never goes quiet after this long
+    derived_apply = rebuild        # rebuild (default) or incremental (7.4, below)
+    derived_extractor = NAME|PATH.so   # incremental: the extractor (built in, or a .so)
+    derived_extractor_config = TEXT    # passed to the extractor's open()
+    derived_source = data.gxd      # incremental: the data file whose records the extractor reads
+    derived_count = by_name.btx    # incremental: the index whose entry count derived.stamp keeps
+    derived_apply_max_mb = 256     # incremental: a batch's staged index pages at most (else rebuild)
+    derived_apply_max_s = 30       # incremental: an index step at most this long (else rebuild)
+
 `${VAR}` in a value is replaced from the environment. `examples/ws.conf` and `examples/aws.conf`
 are the OSA workstation and AWS configs.
+
+## Derived indexes (7.4)
+
+A set's `derived` indexes are made from its data, so gxrepl never sends them: the copy keeps them.
+
+- **`derived_apply = rebuild`** (the default): the copy runs `derived_rebuild` for a folder once its data is quiet
+  (`derived_delay`), or after `derived_busy_rebuild` seconds on a folder that never goes quiet. `{dir}` and
+  `{lsn}` in the command are the folder and the log position it is rebuilt at; the rebuild writes the folder's
+  `derived.stamp` (and `vix_rebuild --stamp-dir` the index stamps).
+- **`derived_apply = incremental`**: the writer adds an *objects record* before each commit record (which records
+  it added, changed and removed: `gxdJournal::EnableObjectNotes()`, or `GXDSHIP_OBJECTS=1`), and the copy updates
+  each index object by object in the same atomic batch as the data, through an **extractor** (`gxrextract.h`): the
+  built-in `gxvmember` (vector members, `gxvmember.h`), one an application builds into its own gxrepl
+  (`gxrRegisterExtractor()`, `GXREPL_EXTRA_EXTRACTORS`, as `examples/oodb/replication_gxrepl.cpp`), or a `.so`
+  loaded with dlopen (gxrepl exports DataReel's symbols to it, so there is one copy of the library). The index
+  pages a batch writes are staged in memory and applied with the data; each index's `<index>.stamp` says which
+  log position it is at. A gap, an extractor error, a crash in the index step, a damaged stamp or a batch over
+  `derived_apply_max_mb` / `derived_apply_max_s` means *rebuild needed*: that folder is rebuilt in full once,
+  then goes on object by object. A breaker puts the set back on rebuild (with an ALERT) after an index step
+  crashed gxrepl twice on one batch or three times in an hour; `gxrepl derived rebuild --set S` clears it. Off
+  by default; in 7.4 not yet for production use.
+- `gxrepl derived status --config C [--set S]` lists each folder's state and stamps; `gxrepl derived rebuild`
+  forces a folder's rebuild. `gxrepl digest FILE [--kind btree|bytes|objects]` prints what an index or database
+  holds whatever its layout, to compare a primary with a copy (`vix_rebuild --digest` for vector indexes).
+- status.json: each set's `"derived"` (mode, folders, failed, not_built, rebuild_needed, breaker, crashes_1h,
+  warn) and `"waiting"` (below).
+
+## Verifies and the seal guard (7.4)
+
+A writer's **open record** (and a **gap record**) asks for a verify of its stream: the files may have changed with
+no record (a stopped writer's batch replayed by the next writer's journal recovery). In 7.4 that verify is never
+lost, whichever path applies the record: the commit feed, a drain inside a file sync, or the records a file
+update carries. During a stream's own verify, the records it is catching up on (at or below the position it
+started from, of its own log) do not queue it again; a later open does, once. A copy whose next records are gone
+from the log is reset to *resync* and verified by pieces. A stream's log made again (purged and reopened under the
+same name, as a late pass that reopens a day does) is seen: the source's cached readers reopen on a new
+`log.id`, and a drain reads only the log the copy's position is on.
+
+**The seal guard**: a file update that would move the copy's position to another log queues the stream's verify
+again, and a folder's commit block is applied only when its stream needs no other verify (and never one of
+another log than the verify started on). While it waits the copy stays unsealed (never "in step" with a stale
+data file) and the set's status says `"waiting": "waiting for verify: STREAM"`; this is expected, not an error.
+In `gxrepl once`, a verify that the pass itself queued runs in a later pass, so that pass returns 1: run it again.
+Install the library and the gxrepl binary together (gxReplClient's layout changed in 7.4).
 
 ## Writing databases with the ship log
 
