@@ -29,6 +29,7 @@
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Shows">What It Shows</A><BR>
 <A HREF="#Running">Running It</A><BR>
+<A HREF="#Output">Sample Output</A><BR>
 <A HREF="#Source">Source</A></P>
 
 <h2 id="Shows">What It Shows</h2>
@@ -45,6 +46,43 @@
 
 <h2 id="Running">Running It</h2>
 <PRE>vector_basics [WORK_FOLDER]</PRE><P>The files go in the work folder (vector_basics_work by default). Each step prints its numbers and its checks; the exit code is 0 when every check passes.</P>
+
+<h2 id="Output">Sample Output</h2>
+<PRE>1. 4000 vectors of dimension 32, three element types
+  float32     441 ms to build, 1907904 bytes, 432 bytes a node (128 of them the vector)
+  float16     596 ms to build, 1651904 bytes, 368 bytes a node (64 of them the vector)
+  int8        522 ms to build, 1539904 bytes, 340 bytes a node (36 of them the vector)
+2. Exact() against Search() (float32), 100 queries, recall@10
+  exact:      9.0 ms
+  ef  16:     8.4 ms, recall 1.000
+  ef  64:     9.2 ms, recall 1.000
+  ef 200:     8.5 ms, recall 1.000
+  ok   the graph search finds at least 95% of the exact top 10 at the widest ef
+3. Metrics on four 2-D vectors, query (1, 0)
+  l2      order: 0 (0.000) 3 (0.580) 2 (2.000) 1 (81.000)
+  ok   l2: the nearest point is (1, 0)
+  cosine  order: 0 (0.000) 1 (0.000) 3 (0.293) 2 (1.000)
+  ok   cosine: (1, 0) and (10, 0) are the same direction
+  ip      order: 1 (-10.000) 0 (-1.000) 3 (-0.700) 2 (-0.000)
+  ok   ip: (10, 0) has the largest inner product
+4. A filter: category 1, days 2026-11-11 to 2026-11-12
+  10 results, first id 7 (category 1, day 20261112)
+  ok   every result is category 1 in the two days
+5. Update, Delete, Repair and Verify
+  live 3900, deleted 101
+  ok   a deleted id is gone, an updated one is there
+  ok   Repair() makes the graph again from the live nodes
+  ok   Verify() finds no problem
+6. A gxdJournal transaction rolled back, then Reload()
+  in the transaction: 4010 live
+  after Rollback() and Reload(): 4000 live
+  ok   the rolled back inserts are gone
+7. Format fields (phase D)
+  required 0x0, optional 0x1, codec 0, graph layout 0, tag 2 range 20261110..20261114
+  ok   the file keeps the range of tag 2 (a set can skip it)
+  logical digest c5d420944975724c (4000 nodes), reverse order c5d420944975724c (4000 nodes)
+  ok   the same nodes give the same logical digest, whatever the graph
+All checks pass</PRE><P>From a 64-bit Linux build. The times differ from machine to machine and run to run; the checks, counts and digests do not.</P>
 
 <h2 id="Source">Source</h2>
 <P>examples/oodb/vector_basics.cpp, one source file built by examples/CMakeLists.txt as <B>vector_basics</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>

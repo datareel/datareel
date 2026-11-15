@@ -29,6 +29,7 @@
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Shows">What It Shows</A><BR>
 <A HREF="#Running">Running It</A><BR>
+<A HREF="#Output">Sample Output</A><BR>
 <A HREF="#Source">Source</A></P>
 
 <h2 id="Shows">What It Shows</h2>
@@ -43,6 +44,47 @@
 
 <h2 id="Running">Running It</h2>
 <PRE>vector_days [WORK_FOLDER]</PRE><P>Exit code 0 when every check passes.</P>
+
+<h2 id="Output">Sample Output</h2>
+<PRE>1. Five day files and the manifest
+  vector_days_work/days.vixset:
+    # gxVectorSet manifest (DataReel 7.4, gxvset.h)
+    set days
+    version 1
+    spec example/days
+    dim 24
+    element f32
+    metric l2
+    codec 0
+    file 2026/11/09/vectors.vix nodes=500 deleted=0 tag2=20261109..20261109 crc=1a788e37
+    file 2026/11/10/vectors.vix nodes=500 deleted=0 tag2=20261110..20261110 crc=1a788e37
+    file 2026/11/11/vectors.vix nodes=500 deleted=0 tag2=20261111..20261111 crc=1a788e37
+    file 2026/11/12/vectors.vix nodes=500 deleted=0 tag2=20261112..20261112 crc=1a788e37
+    file 2026/11/13/vectors.vix nodes=500 deleted=0 tag2=20261113..20261113 crc=1a788e37
+  ok   five files listed
+2. The 8 nearest across all days, 1 and 4 threads
+    id  2440  14.791  2026/11/13/vectors.vix
+    id  2110  15.154  2026/11/13/vectors.vix
+    id  1072  15.406  2026/11/11/vectors.vix
+    id  2412  15.427  2026/11/13/vectors.vix
+    id   455  15.589  2026/11/09/vectors.vix
+    id    95  16.298  2026/11/09/vectors.vix
+    id  1109  16.360  2026/11/11/vectors.vix
+    id  1472  16.829  2026/11/11/vectors.vix
+  ok   the same results with 1 and 4 threads
+3. Days 2026-11-11 to 2026-11-12 only
+  8 results, 3 file(s) skipped from the manifest, 2 opened
+  ok   every result is from the two days
+  ok   the other three days were never opened
+4. 2026-11-09 archived (moved away)
+  search: No error, 8 results, 1 missing
+  ok   the missing day is skipped and counted
+  ok   with strict set, a missing day is an error
+5. The live day 2026-11-14, written while the set searches it
+  ok   the writer&#x27;s newest vector is found at once
+  manifest line for 2026/11/14/vectors.vix: nodes 1, tag2 20261114..20261114
+  ok   Refresh() wrote the live day&#x27;s counts and range
+All checks pass</PRE><P>From a 64-bit Linux build; fixed random seeds, so the ids and distances repeat.</P>
 
 <h2 id="Source">Source</h2>
 <P>examples/oodb/vector_days.cpp, one source file built by examples/CMakeLists.txt as <B>vector_days</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>

@@ -29,6 +29,7 @@
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Shows">What It Shows</A><BR>
 <A HREF="#Running">Running It</A><BR>
+<A HREF="#Output">Sample Output</A><BR>
 <A HREF="#Source">Source</A></P>
 
 <h2 id="Shows">What It Shows</h2>
@@ -42,6 +43,27 @@
 
 <h2 id="Running">Running It</h2>
 <PRE>vector_records [WORK_FOLDER]</PRE><P>Exit code 0 when every check passes.</P>
+
+<h2 id="Output">Sample Output</h2>
+<PRE>1. 600 records with float16 vector members
+  600 records indexed, 44-byte member (head 12 + code 32)
+  ok   every record has its node
+2. The 5 records nearest a &quot;part&quot;-like vector, read back by address
+  part-0241  day 20261111  distance 0.0596  member[1] 0.94
+  part-0061  day 20261111  distance 0.0850  member[1] 0.92
+  part-0547  day 20261112  distance 0.1001  member[1] 0.90
+  part-0073  day 20261113  distance 0.1064  member[1] 0.89
+  part-0016  day 20261111  distance 0.1074  member[1] 0.89
+  ok   the nearest records are all of category &quot;part&quot;
+3. Verify() reading every node&#x27;s record
+  0 problem(s)
+  ok   every node&#x27;s record exists and holds the node&#x27;s code
+4. The index rebuilt from the records (as vix_rebuild does)
+  ok   rebuilt
+  600 records with a member; digest 6cb7e194dce465c1 (600 nodes) against 6cb7e194dce465c1 (600 nodes)
+  ok   the rebuilt index holds the same nodes and tags
+  ok   it is marked as derived from record members
+All checks pass</PRE><P>From a 64-bit Linux build; the program uses fixed random seeds, so the names, distances and digest are the same on every run.</P>
 
 <h2 id="Source">Source</h2>
 <P>examples/oodb/vector_records.cpp, one source file built by examples/CMakeLists.txt as <B>vector_records</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>

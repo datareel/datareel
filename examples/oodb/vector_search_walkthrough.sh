@@ -40,7 +40,12 @@ sed 's/^/  /' "$W/data/notes.vixset"
 
 echo; echo "== 2. The server"
 "$APP" serve $PORT pki/srv.pem pki/srv.key pki/ca.pem notes-client "$W/data" > server.log 2>&1 & SRV=$!
-for _ in $(seq 50); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break; sleep 0.1; done
+# Wait for the listen without connecting (a plain TCP probe would be logged as a refused TLS client)
+for _ in $(seq 100); do
+  if command -v ss >/dev/null; then ss -Hltn "sport = :$PORT" 2>/dev/null | grep -q . && break
+  else grep -q "^serving" server.log 2>/dev/null && { sleep 1; break; }; fi
+  sleep 0.1
+done
 cat server.log
 
 echo; echo "== 3. The client"

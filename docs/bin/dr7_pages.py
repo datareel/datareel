@@ -943,6 +943,30 @@ examples/oodb/replication_walkthrough.sh BUILD/examples
 ''' + code('''
 EXTRACTOR=BUILD/examples/example_records.so GXREPL=BUILD/utils/gxrepl \\
   examples/oodb/replication_walkthrough.sh BUILD/examples
+''') + '''<P>Its output (a 64-bit Linux build; parts left out): the extractor line names the .so, and the digests agree as with the built in extractor.</P>
+''' + code('''
+derived_extractor = BUILD/examples/example_records.so
+...
+== 1. The copy follows object by object
+derived state: 60 ok incremental lsn 61
+  set records: derived_apply incremental, extractor BUILD/examples/example_records.so, source data.gxd, max 256 MB
+    .: sealed at record 61 generation 60, state 60 ok incremental lsn 61
+      by_name.btx: stamped at record 61 of log dfdaf9a990ea404b, 155 entries
+      vectors.vix: stamped at record 61 of log dfdaf9a990ea404b, 155 entries
+full rebuilds so far: 1 (the first one makes the stamped indexes the copy goes on from)
+...
+== 3. The writer finishes; both nodes hold the same indexes
+wrote 400 commits, 1910 live records
+primary:
+  by_name.btx btree b0ef7403bb0ac024 1910 keys
+  vectors.vix logical 4443ea5b9f5b681e 1910 nodes
+copy:
+  by_name.btx btree b0ef7403bb0ac024 1910 keys
+  vectors.vix logical 4443ea5b9f5b681e 1910 nodes
+  status.json: "derived": {"mode": "incremental", "folders": 1, "failed": 0, "not_built": 0, "rebuild_needed": 0, "breaker": false, "crashes_1h": 0, "warn": ""}
+  set records: 1 folder(s) checked, 0 torn
+
+OK: object by object, one automatic folder rebuild after the fault, and the same indexes on both nodes
 ''') + '''
 '''),
   ('Output', 'Sample Output', code('''
@@ -983,6 +1007,43 @@ OK: object by object, one automatic folder rebuild after the fault, and the same
   ('Running', 'Running It', code('''
 vector_basics [WORK_FOLDER]
 ''') + '<P>The files go in the work folder (vector_basics_work by default). Each step prints its numbers and its checks; the exit code is 0 when every check passes.</P>\n'),
+  ('Output', 'Sample Output', code('''
+1. 4000 vectors of dimension 32, three element types
+  float32     441 ms to build, 1907904 bytes, 432 bytes a node (128 of them the vector)
+  float16     596 ms to build, 1651904 bytes, 368 bytes a node (64 of them the vector)
+  int8        522 ms to build, 1539904 bytes, 340 bytes a node (36 of them the vector)
+2. Exact() against Search() (float32), 100 queries, recall@10
+  exact:      9.0 ms
+  ef  16:     8.4 ms, recall 1.000
+  ef  64:     9.2 ms, recall 1.000
+  ef 200:     8.5 ms, recall 1.000
+  ok   the graph search finds at least 95% of the exact top 10 at the widest ef
+3. Metrics on four 2-D vectors, query (1, 0)
+  l2      order: 0 (0.000) 3 (0.580) 2 (2.000) 1 (81.000)
+  ok   l2: the nearest point is (1, 0)
+  cosine  order: 0 (0.000) 1 (0.000) 3 (0.293) 2 (1.000)
+  ok   cosine: (1, 0) and (10, 0) are the same direction
+  ip      order: 1 (-10.000) 0 (-1.000) 3 (-0.700) 2 (-0.000)
+  ok   ip: (10, 0) has the largest inner product
+4. A filter: category 1, days 2026-11-11 to 2026-11-12
+  10 results, first id 7 (category 1, day 20261112)
+  ok   every result is category 1 in the two days
+5. Update, Delete, Repair and Verify
+  live 3900, deleted 101
+  ok   a deleted id is gone, an updated one is there
+  ok   Repair() makes the graph again from the live nodes
+  ok   Verify() finds no problem
+6. A gxdJournal transaction rolled back, then Reload()
+  in the transaction: 4010 live
+  after Rollback() and Reload(): 4000 live
+  ok   the rolled back inserts are gone
+7. Format fields (phase D)
+  required 0x0, optional 0x1, codec 0, graph layout 0, tag 2 range 20261110..20261114
+  ok   the file keeps the range of tag 2 (a set can skip it)
+  logical digest c5d420944975724c (4000 nodes), reverse order c5d420944975724c (4000 nodes)
+  ok   the same nodes give the same logical digest, whatever the graph
+All checks pass
+''') + '<P>From a 64-bit Linux build. The times differ from machine to machine and run to run; the checks, counts and digests do not.</P>\n'),
  ]),
  'vector_records': ('oodb/vector_records.cpp', 'Records with Vector Members Example',
   'Records that carry their own vectors: written with their index in one transaction, found by search, verified, and the index rebuilt from the records alone.', [
@@ -998,6 +1059,27 @@ vector_basics [WORK_FOLDER]
   ('Running', 'Running It', code('''
 vector_records [WORK_FOLDER]
 ''') + '<P>Exit code 0 when every check passes.</P>\n'),
+  ('Output', 'Sample Output', code('''
+1. 600 records with float16 vector members
+  600 records indexed, 44-byte member (head 12 + code 32)
+  ok   every record has its node
+2. The 5 records nearest a "part"-like vector, read back by address
+  part-0241  day 20261111  distance 0.0596  member[1] 0.94
+  part-0061  day 20261111  distance 0.0850  member[1] 0.92
+  part-0547  day 20261112  distance 0.1001  member[1] 0.90
+  part-0073  day 20261113  distance 0.1064  member[1] 0.89
+  part-0016  day 20261111  distance 0.1074  member[1] 0.89
+  ok   the nearest records are all of category "part"
+3. Verify() reading every node's record
+  0 problem(s)
+  ok   every node's record exists and holds the node's code
+4. The index rebuilt from the records (as vix_rebuild does)
+  ok   rebuilt
+  600 records with a member; digest 6cb7e194dce465c1 (600 nodes) against 6cb7e194dce465c1 (600 nodes)
+  ok   the rebuilt index holds the same nodes and tags
+  ok   it is marked as derived from record members
+All checks pass
+''') + '<P>From a 64-bit Linux build; the program uses fixed random seeds, so the names, distances and digest are the same on every run.</P>\n'),
  ]),
  'vector_days': ('oodb/vector_days.cpp', 'Vector Set Across Day Files Example',
   'One vector index per day, searched as one through a .vixset manifest: day ranges, archived days and a live writer.', [
@@ -1014,6 +1096,47 @@ vector_records [WORK_FOLDER]
   ('Running', 'Running It', code('''
 vector_days [WORK_FOLDER]
 ''') + '<P>Exit code 0 when every check passes.</P>\n'),
+  ('Output', 'Sample Output', code('''
+1. Five day files and the manifest
+  vector_days_work/days.vixset:
+    # gxVectorSet manifest (DataReel 7.4, gxvset.h)
+    set days
+    version 1
+    spec example/days
+    dim 24
+    element f32
+    metric l2
+    codec 0
+    file 2026/11/09/vectors.vix nodes=500 deleted=0 tag2=20261109..20261109 crc=1a788e37
+    file 2026/11/10/vectors.vix nodes=500 deleted=0 tag2=20261110..20261110 crc=1a788e37
+    file 2026/11/11/vectors.vix nodes=500 deleted=0 tag2=20261111..20261111 crc=1a788e37
+    file 2026/11/12/vectors.vix nodes=500 deleted=0 tag2=20261112..20261112 crc=1a788e37
+    file 2026/11/13/vectors.vix nodes=500 deleted=0 tag2=20261113..20261113 crc=1a788e37
+  ok   five files listed
+2. The 8 nearest across all days, 1 and 4 threads
+    id  2440  14.791  2026/11/13/vectors.vix
+    id  2110  15.154  2026/11/13/vectors.vix
+    id  1072  15.406  2026/11/11/vectors.vix
+    id  2412  15.427  2026/11/13/vectors.vix
+    id   455  15.589  2026/11/09/vectors.vix
+    id    95  16.298  2026/11/09/vectors.vix
+    id  1109  16.360  2026/11/11/vectors.vix
+    id  1472  16.829  2026/11/11/vectors.vix
+  ok   the same results with 1 and 4 threads
+3. Days 2026-11-11 to 2026-11-12 only
+  8 results, 3 file(s) skipped from the manifest, 2 opened
+  ok   every result is from the two days
+  ok   the other three days were never opened
+4. 2026-11-09 archived (moved away)
+  search: No error, 8 results, 1 missing
+  ok   the missing day is skipped and counted
+  ok   with strict set, a missing day is an error
+5. The live day 2026-11-14, written while the set searches it
+  ok   the writer's newest vector is found at once
+  manifest line for 2026/11/14/vectors.vix: nodes 1, tag2 20261114..20261114
+  ok   Refresh() wrote the live day's counts and range
+All checks pass
+''') + '<P>From a 64-bit Linux build; fixed random seeds, so the ids and distances repeat.</P>\n'),
  ]),
  'vector_search_service': ('oodb/vector_search_service.cpp', 'Vector Search Service Example',
   'Vector searches through the database object server over mutual TLS: VECTOR_INFO, VECTOR_SEARCH and a day range.', [
@@ -1028,6 +1151,43 @@ vector_days [WORK_FOLDER]
   ('Running', 'Running It', code('''
 examples/oodb/vector_search_walkthrough.sh BUILD/examples
 ''') + '<P>The walkthrough makes throwaway certificates (the openssl command), the data, starts the server on 127.0.0.1 and runs the client twice: every day, then one day (the other two files skipped). Exit code 0 when every check passes; KEEP=1 keeps its folder.</P>\n'),
+  ('Output', 'Sample Output', code('''
+== 1. Three day files and the manifest
+made WORK/data/notes.vixset (3 day files, 900 vectors) and notes.gxd
+  # gxVectorSet manifest (DataReel 7.4, gxvset.h)
+  set notes
+  version 1
+  spec example/notes
+  dim 8
+  element f32
+  metric cosine
+  codec 0
+  file day_20261112.vix nodes=300 deleted=0 tag2=20261112..20261112 crc=878bdf7e
+  file day_20261113.vix nodes=300 deleted=0 tag2=20261113..20261113 crc=878bdf7e
+  file day_20261114.vix nodes=300 deleted=0 tag2=20261114..20261114 crc=878bdf7e
+
+== 2. The server
+serving vector searches of "notes" on port 25223
+
+== 3. The client
+VECTOR_INFO: version 1, dimension 8, element 1, metric 2, 3 file(s), 900 nodes (0 deleted), spec "example/notes"
+VECTOR_SEARCH: 5 result(s), 0 file(s) skipped by their day range, 0 missing
+  id    22  distance 0.1747  day 20261112  day_20261112.vix
+  id   820  distance 0.1827  day 20261114  day_20261114.vix
+  id   183  distance 0.1935  day 20261112  day_20261112.vix
+  id   881  distance 0.1967  day 20261114  day_20261114.vix
+  id   868  distance 0.2235  day 20261114  day_20261114.vix
+
+VECTOR_INFO: version 1, dimension 8, element 1, metric 2, 3 file(s), 900 nodes (0 deleted), spec "example/notes"
+VECTOR_SEARCH days 20261113..20261113: 5 result(s), 2 file(s) skipped by their day range, 0 missing
+  id   470  distance 0.2318  day 20261113  day_20261113.vix
+  id   345  distance 0.2359  day 20261113  day_20261113.vix
+  id   451  distance 0.2922  day 20261113  day_20261113.vix
+  id   448  distance 0.3078  day 20261113  day_20261113.vix
+  id   330  distance 0.3181  day 20261113  day_20261113.vix
+
+OK: VECTOR_INFO, a search of every day and a search of one day (two files skipped)
+''') + '<P>From a 64-bit Linux build, after the certificate step (it prints nothing). The port is random; the data comes from fixed seeds.</P>\n'),
  ]),
  'replication_copy': ('oodb/replication_copy.cpp', 'Folder Copy Example (Windows Replication)',
   'A database folder copied by a plain file copy while its writer is stopped, checked with digests, with the index rebuild as the fallback. The replication example for Windows.', [

@@ -48,7 +48,29 @@
 <PRE>examples/oodb/replication_walkthrough.sh BUILD/examples</PRE><P>It starts the copy (<CODE>replication_gxrepl serve</CODE>), the primary's replicator (<CODE>replication_gxrepl run</CODE>) and the writer (<CODE>replication write</CODE>), then: (1) waits for the copy to follow object by object; (2) damages the copy's vector index stamp, and shows gxrepl's "rebuild needed" line, the folder rebuild and the way back to object by object; (3) compares the digests on both nodes. It exits with 0 when every check passes. KEEP=1 keeps its work folder, with both configs and both logs.</P>
 <P>The same with an unchanged gxrepl and the extractor as a shared library (<CODE>derived_extractor = /path/example_records.so</CODE>, built from replication_extractor_so.cpp without DataReel, which gxrepl exports to it; gxrepl calls its <CODE>gxr_extractor()</CODE>):</P>
 <PRE>EXTRACTOR=BUILD/examples/example_records.so GXREPL=BUILD/utils/gxrepl \
-  examples/oodb/replication_walkthrough.sh BUILD/examples</PRE>
+  examples/oodb/replication_walkthrough.sh BUILD/examples</PRE><P>Its output (a 64-bit Linux build; parts left out): the extractor line names the .so, and the digests agree as with the built in extractor.</P>
+<PRE>derived_extractor = BUILD/examples/example_records.so
+...
+== 1. The copy follows object by object
+derived state: 60 ok incremental lsn 61
+  set records: derived_apply incremental, extractor BUILD/examples/example_records.so, source data.gxd, max 256 MB
+    .: sealed at record 61 generation 60, state 60 ok incremental lsn 61
+      by_name.btx: stamped at record 61 of log dfdaf9a990ea404b, 155 entries
+      vectors.vix: stamped at record 61 of log dfdaf9a990ea404b, 155 entries
+full rebuilds so far: 1 (the first one makes the stamped indexes the copy goes on from)
+...
+== 3. The writer finishes; both nodes hold the same indexes
+wrote 400 commits, 1910 live records
+primary:
+  by_name.btx btree b0ef7403bb0ac024 1910 keys
+  vectors.vix logical 4443ea5b9f5b681e 1910 nodes
+copy:
+  by_name.btx btree b0ef7403bb0ac024 1910 keys
+  vectors.vix logical 4443ea5b9f5b681e 1910 nodes
+  status.json: &quot;derived&quot;: {&quot;mode&quot;: &quot;incremental&quot;, &quot;folders&quot;: 1, &quot;failed&quot;: 0, &quot;not_built&quot;: 0, &quot;rebuild_needed&quot;: 0, &quot;breaker&quot;: false, &quot;crashes_1h&quot;: 0, &quot;warn&quot;: &quot;&quot;}
+  set records: 1 folder(s) checked, 0 torn
+
+OK: object by object, one automatic folder rebuild after the fault, and the same indexes on both nodes</PRE>
 
 <h2 id="Output">Sample Output</h2>
 <PRE>== 1. The copy follows object by object

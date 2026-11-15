@@ -29,6 +29,7 @@
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Shows">What It Shows</A><BR>
 <A HREF="#Running">Running It</A><BR>
+<A HREF="#Output">Sample Output</A><BR>
 <A HREF="#Source">Source</A></P>
 
 <h2 id="Shows">What It Shows</h2>
@@ -41,6 +42,43 @@
 
 <h2 id="Running">Running It</h2>
 <PRE>examples/oodb/vector_search_walkthrough.sh BUILD/examples</PRE><P>The walkthrough makes throwaway certificates (the openssl command), the data, starts the server on 127.0.0.1 and runs the client twice: every day, then one day (the other two files skipped). Exit code 0 when every check passes; KEEP=1 keeps its folder.</P>
+
+<h2 id="Output">Sample Output</h2>
+<PRE>== 1. Three day files and the manifest
+made WORK/data/notes.vixset (3 day files, 900 vectors) and notes.gxd
+  # gxVectorSet manifest (DataReel 7.4, gxvset.h)
+  set notes
+  version 1
+  spec example/notes
+  dim 8
+  element f32
+  metric cosine
+  codec 0
+  file day_20261112.vix nodes=300 deleted=0 tag2=20261112..20261112 crc=878bdf7e
+  file day_20261113.vix nodes=300 deleted=0 tag2=20261113..20261113 crc=878bdf7e
+  file day_20261114.vix nodes=300 deleted=0 tag2=20261114..20261114 crc=878bdf7e
+
+== 2. The server
+serving vector searches of &quot;notes&quot; on port 25223
+
+== 3. The client
+VECTOR_INFO: version 1, dimension 8, element 1, metric 2, 3 file(s), 900 nodes (0 deleted), spec &quot;example/notes&quot;
+VECTOR_SEARCH: 5 result(s), 0 file(s) skipped by their day range, 0 missing
+  id    22  distance 0.1747  day 20261112  day_20261112.vix
+  id   820  distance 0.1827  day 20261114  day_20261114.vix
+  id   183  distance 0.1935  day 20261112  day_20261112.vix
+  id   881  distance 0.1967  day 20261114  day_20261114.vix
+  id   868  distance 0.2235  day 20261114  day_20261114.vix
+
+VECTOR_INFO: version 1, dimension 8, element 1, metric 2, 3 file(s), 900 nodes (0 deleted), spec &quot;example/notes&quot;
+VECTOR_SEARCH days 20261113..20261113: 5 result(s), 2 file(s) skipped by their day range, 0 missing
+  id   470  distance 0.2318  day 20261113  day_20261113.vix
+  id   345  distance 0.2359  day 20261113  day_20261113.vix
+  id   451  distance 0.2922  day 20261113  day_20261113.vix
+  id   448  distance 0.3078  day 20261113  day_20261113.vix
+  id   330  distance 0.3181  day 20261113  day_20261113.vix
+
+OK: VECTOR_INFO, a search of every day and a search of one day (two files skipped)</PRE><P>From a 64-bit Linux build, after the certificate step (it prints nothing). The port is random; the data comes from fixed seeds.</P>
 
 <h2 id="Source">Source</h2>
 <P>examples/oodb/vector_search_service.cpp, one source file built by examples/CMakeLists.txt as <B>vector_search_service</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>

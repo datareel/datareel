@@ -125,9 +125,10 @@ int main(int argc, char **argv)
       if(vix.Insert((long long)i, data.vecs[i].data(), tags) != gxv_NO_ERROR) { printf("insert failed\n"); return 1; }
     }
     double build = ms_since(t0);
+    unsigned node = vix.NodeSize(), code = vix.CodeSize();   // read before Close()
     vix.Close();
-    printf("  %-7s  %6.0f ms to build, %7llu bytes, %u bytes a node\n", type_name(t), build,
-	   (unsigned long long)std::filesystem::file_size(f, ec), vix.NodeSize());
+    printf("  %-7s  %6.0f ms to build, %7llu bytes, %u bytes a node (%u of them the vector)\n", type_name(t), build,
+	   (unsigned long long)std::filesystem::file_size(f, ec), node, code);
   }
 
   // 2. Exact against the graph ----------------------------------------------
