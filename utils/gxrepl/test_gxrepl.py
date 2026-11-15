@@ -4372,6 +4372,37 @@ def test_derived_vix_incremental_recovered_commit_is_indexed():
         env.stop()
 
 
+def test_incremental_fill_without_records_drops_the_stamps():
+    """11/15/2026 (stamp-keeping fill): a fill keeps the folder's stamps only when every page it writes is what the
+    update's records write or what the copy already holds. Commits made without the ship log (--no-ship: pages no
+    record explains, like a recovered batch) reach the copy by files: the stamps go, the folder is rebuilt, and the
+    copy's index agrees with its data"""
+    env, ws, aws, w = _stamped("incr_fill_norec", commits=20)
+    try:
+        w.wait(120)
+        _finish(env, ws, aws, w)
+        _wait_stamped(env, aws, "d1")
+        time.sleep(3)
+        r0 = _rebuilds(env)
+        log0 = len(open(os.path.join(env.dir, "server.log")).read())
+        r = subprocess.run([os.path.join(BIN, "gxrepl_testwriter"), "write", os.path.join(ws, "d1"), "--commits", "3",
+                            "--per", "6", "--commit-block", "--no-ship", "--seed", "411"],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        assert r.returncode == 0, r.stdout
+        r = _objects_writer(os.path.join(ws, "d1"), "--commits", 3, "--per", 6, "--commit-block", "--ship-root", ws,
+                            "--seed", 412)
+        assert r.returncode == 0, r.stdout
+        _wait_gen(ws, aws, "d1", 90)
+        _wait_stamped(env, aws, "d1", 120)
+        log = open(os.path.join(env.dir, "server.log")).read()[log0:]
+        assert "copied by files" in log, "pages without records kept the stamps\n" + env.logs()
+        assert _rebuilds(env) > r0, env.logs()
+        check_db(os.path.join(aws, "d1"))
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
 def test_incremental_orphan_means_rebuild():
     """11/14/2026: an objects record without its commit (a writer crash between them, here the record lost and a gap
     after it) is never applied object by object: rebuild needed, and the index checks after the rebuild"""

@@ -3258,6 +3258,13 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   std::deque<std::string> fr_texts;
   std::map<std::string, bool> staged_now;   // 11/13/2026 (F7 review 3): unit -> written in its stage
   std::set<std::string> stale_units;        // round 3: a stage not mine: discarded before this apply
+  // 11/15/2026 (stamp-keeping fill): the pages an in-step update's pieces lay into the derived source file, with
+  // the page the update's own records had put there (0: none), for the check below (under the apply lock)
+  struct FillPage_ { size_t i; unsigned long long pg; const unsigned char *piece; const unsigned char *rec; size_t len; };
+  struct FillSize_ { size_t i; bool had_rec; unsigned long long rec_size; };
+  std::vector<FillPage_> fill_pages;
+  std::vector<FillSize_> fill_sizes;
+  std::set<std::string> fill_unexplained;   // folders whose fill cannot be checked page by page (not in step, ...)
   for(size_t i = 0; i < v.size(); i++) {
     const gxReplFileUpdate &u = v[i];
     if(SafePath(s->sc, u.path, fulls[i], err) != 0) return -1;
@@ -3302,6 +3309,15 @@ int gxReplLocal::ApplyFiles(const std::string &set,
       states[u.stream] = ns;
       changed[u.stream] = ns;
     }
+    // 11/15/2026 (stamp-keeping fill): the derived source's pieces of an incremental set are noted page by page
+    bool note_fill = !u.pieces.empty() && s->sc.derived_apply == "incremental" && !s->sc.derived.empty() &&
+      !s->sc.derived_source.empty() && fnmatch(s->sc.derived_source.c_str(), base_of(u.path).c_str(), 0) == 0;
+    if(note_fill) {
+      bool in_step = !u.stream.empty() && !not_in_step.count(dir_of(u.path)) && !staged_now[dir_of(u.path)];
+      if(!in_step) fill_unexplained.insert(dir_of(u.path));
+      auto had = batch.find(fulls[i]);
+      fill_sizes.push_back(FillSize_{i, had != batch.end(), had != batch.end() ? had->second.first : 0ULL});
+    }
     auto &ent = batch[fulls[i]];
     ent.first = u.size;
     for(auto &p : u.pieces) {
@@ -3309,12 +3325,15 @@ int gxReplLocal::ApplyFiles(const std::string &set,
       size_t n = p.data.size();
       for(size_t k = 0; k < n; k += gxdPageSize) {
 	unsigned long long pg = (p.offset + k) / gxdPageSize;
+	const unsigned char *prev = 0;
+	if(note_fill) { auto pp = ent.second.find(pg); if(pp != ent.second.end()) prev = pp->second; }
 	if(n - k >= gxdPageSize) ent.second[pg] = p.data.data() + k;
 	else {
 	  padded.push_back(std::vector<unsigned char>(gxdPageSize, 0));
 	  memcpy(padded.back().data(), p.data.data() + k, n - k);
 	  ent.second[pg] = padded.back().data();
 	}
+	if(note_fill) fill_pages.push_back(FillPage_{i, pg, ent.second[pg], prev, n - k >= gxdPageSize ? (size_t)gxdPageSize : n - k});
       }
     }
     results[i] = 0;
@@ -3410,6 +3429,46 @@ int gxReplLocal::ApplyFiles(const std::string &set,
       if(!(g & 1)) finish.insert(dir_of(v[i].path));
     }
   }
+  // 11/15/2026 (stamp-keeping fill): the folders of "filled" whose derived source pieces change nothing beyond what
+  // this update's records write: each page the pieces lay in (and that no later record replaced) holds the bytes the
+  // records had put there, or, where no record wrote it, the bytes the copy holds now; and the file's size is the
+  // records' or the copy's. Called in check(), under the apply lock, before a page is written.
+  auto explained_fill = [&](const std::set<std::string> &filled) -> std::set<std::string> {
+    std::set<std::string> ok;
+    for(auto &u : filled) if(!fill_unexplained.count(u)) ok.insert(u);
+    if(ok.empty()) return ok;
+    auto bad = [&](size_t i) { ok.erase(dir_of(v[i].path)); };
+    for(auto &fs : fill_sizes) {
+      size_t i = fs.i;
+      if(!ok.count(dir_of(v[i].path))) continue;
+      auto e = batch.find(fulls[i]);
+      if(e == batch.end()) { bad(i); continue; }
+      if(e->second.first != v[i].size) continue;             // a later record set the size: the pieces' does not count
+      if(fs.had_rec) { if(fs.rec_size != v[i].size) bad(i); continue; }
+      struct stat st;
+      if(stat(fulls[i].c_str(), &st) != 0 || (unsigned long long)st.st_size != v[i].size) bad(i);
+    }
+    std::map<size_t, int> fds;
+    std::vector<unsigned char> disk(gxdPageSize);
+    for(auto &fp : fill_pages) {
+      size_t i = fp.i;
+      if(!ok.count(dir_of(v[i].path))) continue;
+      auto e = batch.find(fulls[i]);
+      if(e == batch.end()) { bad(i); continue; }
+      auto pe = e->second.second.find(fp.pg);
+      if(pe == e->second.second.end() || pe->second != fp.piece) continue;   // replaced by a later record
+      unsigned long long off = fp.pg * (unsigned long long)gxdPageSize;
+      size_t c = v[i].size > off ? (size_t)std::min<unsigned long long>(fp.len, v[i].size - off) : 0;
+      if(c == 0) continue;                                     // past the file's end: never read
+      if(fp.rec) { if(memcmp(fp.rec, fp.piece, c) != 0) bad(i); continue; }
+      auto fd = fds.find(i);
+      if(fd == fds.end()) fd = fds.emplace(i, open(fulls[i].c_str(), O_RDONLY | O_CLOEXEC)).first;
+      if(fd->second < 0 || pread(fd->second, disk.data(), c, (off_t)off) != (ssize_t)c || memcmp(disk.data(), fp.piece, c) != 0)
+	bad(i);
+    }
+    for(auto &fd : fds) if(fd.second >= 0) close(fd.second);
+    return ok;
+  };
   auto times = [&](size_t i) {
     chmod(fulls[i].c_str(), (mode_t)(v[i].mode & 07777));
     struct timespec ts[2];
@@ -3435,7 +3494,14 @@ int gxReplLocal::ApplyFiles(const std::string &set,
 	if(results[i] == 0 && !v[i].pieces.empty() &&
 	   fnmatch(s->sc.derived_source.c_str(), base_of(v[i].path).c_str(), 0) == 0)
 	  filled.insert(dir_of(v[i].path));
-      for(auto &u : filled) drop_stamps(s->sc, u, "copied by files, not by the ship log", true, true);
+      // 11/15/2026 (stamp-keeping fill): a verify that races the next commit sends the derived source's pieces
+      // with the records of that commit (Diff(): the records from the copy's position to the pieces'). When every
+      // page the pieces write is what those records write, or what the copy already holds, the pieces change nothing
+      // the records do not, and the index step below applies the records to the stamped indexes: the stamps stay.
+      // Anything else (a first fill, a resync, a stage, pages no record explains: a recovered batch) drops them.
+      std::set<std::string> explained = explained_fill(filled);
+      for(auto &u : filled)
+	if(!explained.count(u)) drop_stamps(s->sc, u, "copied by files, not by the ship log", true, true);
     }
     // 11/14/2026: the index step for the records this update applies (an incremental set), as ApplyLog runs it
     for(auto &fr : file_recs) {
