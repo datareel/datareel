@@ -4365,6 +4365,22 @@ int gxReplRemote::ReadLog(const std::string &set, const std::string &stream_name
   return 0;
 }
 
+int gxReplRemote::ReadLogOf(const std::string &set, const std::string &stream_name, const std::string &log_id,
+			    unsigned long long from, size_t max_bytes, std::vector<unsigned char> &out,
+			    unsigned long long &next, int &status, bool &checked, std::string &err)
+{
+  // 11/15/2026 (pull-mode F1): the log id goes after the four fields an older server reads (it ignores the rest);
+  // a 7.4 server answers a u32 1 after the records when it checked the id
+  WBuf w; w.str(set); w.str(stream_name); w.u64(from); w.u64(max_bytes); w.str(log_id);
+  std::vector<unsigned char> rep;
+  if(call(mkreq(OP_READLOG, w), rep, err)) return -1;
+  RBuf r(rep.data(), rep.size());
+  status = (int)r.u32(); next = r.u64(); r.bytes(out);
+  if(!r.ok) { err = "bad reply"; if(mux) { chan_broken = true; mux->CloseChannel(mux_ch, err); } return -1; }
+  checked = r.n - r.off >= 4 && r.u32() == 1;
+  return 0;
+}
+
 static int dec_files(const std::vector<unsigned char> &rep, std::vector<gxReplFile> &v,
 		     std::string &err)
 {
@@ -4776,10 +4792,17 @@ int gxReplServer::dispatch(uint8_t op, const std::vector<unsigned char> &body,
     }
     case OP_READLOG: {
       std::string set = r.str(), st = r.str(); uint64_t from = r.u64(); uint64_t mx = r.u64();
+      // 11/15/2026 (pull-mode F1): a 7.4 client sends the copy's log id after these: read only that log
+      bool with_id = r.ok && r.n - r.off >= 4;
+      std::string lid = with_id ? r.str() : std::string();
+      if(with_id && !r.ok) { e = "bad request"; rc = -1; break; }
       if(mx > cfg.max_message) mx = cfg.max_message;
       std::vector<unsigned char> out; unsigned long long next = 0; int status = 0;
-      if(!role_ok(set, false) || local.ReadLog(set, st, from, (size_t)mx, out, next, status, e) != 0) { rc = -1; break; }
+      if(!role_ok(set, false) ||
+	 (with_id ? local.ReadLogOf(set, st, lid, from, (size_t)mx, out, next, status, e)
+		  : local.ReadLog(set, st, from, (size_t)mx, out, next, status, e)) != 0) { rc = -1; break; }
       w.u32((uint32_t)status); w.u64(next); w.bytes(out);
+      if(with_id) w.u32(1);                             // checked
       break;
     }
     case OP_SMANIFEST: case OP_TMANIFEST: {
@@ -5079,11 +5102,46 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
     // 11/14/2026 (review F1): a local source reads only the log the copy's position is on (ts.log_id): a log made
     // again (the reader reopens on it) answers "position gone", never its records as if they continued the old one.
     // A remote source (pull) checks its own log id on the server side as before.
-    int rrc = static_cast<gxReplSource *>(&local) == &src ?
-      local.ReadLogOf(set, s.name, ts.log_id, ts.lsn + 1, cfg.max_message, out, next, status, err) :
-      src.ReadLog(set, s.name, ts.lsn + 1, cfg.max_message, out, next, status, err);
+    int rrc = 0;
+    if(static_cast<gxReplSource *>(&local) == &src)
+      rrc = local.ReadLogOf(set, s.name, ts.log_id, ts.lsn + 1, cfg.max_message, out, next, status, err);
+    else if(gxReplRemote *rs = dynamic_cast<gxReplRemote *>(&src)) {
+#ifdef GXREPL_TEST_HOOKS
+      // test builds: GXREPL_TEST_READLOG_HOLD=F: once F.arm exists, the next remote read writes F.held and waits
+      // (60 s at most) for F, so a test can make the source's log again between the pass's listing and the read
+      if(const char *h = getenv("GXREPL_TEST_READLOG_HOLD")) {
+	static std::atomic<int> once(0);
+	struct stat ast;
+	if(stat((std::string(h) + ".arm").c_str(), &ast) == 0 && once.exchange(1) == 0) {
+	  write_atomic(std::string(h) + ".held", "held\n");
+	  for(int k = 0; k < 600 && access(h, F_OK) != 0; k++) usleep(100000);
+	}
+      }
+#endif
+      // 11/15/2026 (pull-mode F1): the remote read says which log the copy is on; an older server does not check
+      // it, so then the stream's log id is read again after the records: another log, and they are not used
+      // (status 1: the copy's position is gone, a verify)
+      bool checked = false;
+      rrc = rs->ReadLogOf(set, s.name, ts.log_id, ts.lsn + 1, cfg.max_message, out, next, status, checked, err);
+      if(rrc == 0 && !checked && status == 0 && !out.empty() && !ts.log_id.empty()) {
+	std::vector<gxReplStream> sv;
+	if(src.Streams(set, sv, err) != 0) return -1;
+	for(auto &x : sv)
+	  if(x.name == s.name && x.log_id != ts.log_id) {
+	    glog("set %s: stream %s: the source (an older gxrepl) now has log %s, the copy is on %s: not used",
+		 set.c_str(), s.name.c_str(), x.log_id.c_str(), ts.log_id.c_str());
+	    out.clear(); status = 1;
+	  }
+      }
+    }
+    else rrc = src.ReadLog(set, s.name, ts.lsn + 1, cfg.max_message, out, next, status, err);
     if(rrc != 0)
       return -1;
+#ifdef GXREPL_TEST_HOOKS
+    // test builds: GXREPL_TEST_STATUS2_ALWAYS=1: every read with records answers "bigger than max_message"
+    if(status == 0 && !out.empty() && getenv("GXREPL_TEST_STATUS2_ALWAYS")) { out.clear(); status = 2; }
+#endif
+    if(status == 0 && !out.empty()) big_resyncs.erase(set + "\n" + s.name);   // records drained: the bound starts over
     if(status == 1) {
       verify = true;
       if(flag_lsn) *flag_lsn = ULLONG_MAX;
@@ -5101,6 +5159,21 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
       return 0;
     }
     if(status == 2) {
+      // 11/15/2026 (hardening): the status-2 bound. Resyncs with no record drained since are counted per stream;
+      // past GXREPL_STATUS2_MAX (10) the stream is not resynced again (one ALERT, the set's last_error says why)
+      // until a record drains: a copy that cannot get past a record never loops on whole-file resyncs.
+      {
+	int &n = big_resyncs[set + "\n" + s.name];
+	int maxn = 10;
+	if(const char *m = getenv("GXREPL_STATUS2_MAX")) maxn = std::max(1, atoi(m));
+	if(++n > maxn) {
+	  std::string why = "stream " + s.name + ": " + std::to_string(n - 1) + " resyncs for records bigger than max_message (" +
+	    std::to_string(cfg.max_message) + ") and none drained since: not resynced again (raise max_message on both nodes)";
+	  if(n == maxn + 1) glog("ALERT set %s: %s", set.c_str(), why.c_str());
+	  { std::lock_guard<std::mutex> lg(st.m); st.last_error = why; }
+	  return 0;
+	}
+      }
       // 11/10/2026: the next record is bigger than a message (an osa_ingest
       // rebuild writes one of 500 MB): never sent. The copy's position is
       // reset, so its files are resynced in pieces from a position after it

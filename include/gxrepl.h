@@ -531,6 +531,11 @@ public:
 	      unsigned long long from, size_t max_bytes,
 	      std::vector<unsigned char> &out, unsigned long long &next,
 	      int &status, std::string &err) override;
+  // 11/15/2026 (pull-mode F1): the read with the copy's log id: a 7.4 server reads only that log (another one:
+  // status 1) and says so (checked); an older server ignores the id (checked false: the caller checks itself)
+  int ReadLogOf(const std::string &set, const std::string &stream, const std::string &log_id,
+		unsigned long long from, size_t max_bytes, std::vector<unsigned char> &out,
+		unsigned long long &next, int &status, bool &checked, std::string &err);
   int Manifest(const std::string &set, std::vector<gxReplFile> &v,
 	       std::string &err) override;
   int Diff(const std::string &set, const gxReplDiffRequest &rq,
@@ -757,6 +762,9 @@ private:
   // 11/14/2026: the stream each set is verifying now, and streams to verify again (note_verify())
   std::map<std::string, std::string> verifying;
   std::map<std::string, std::set<std::string> > verify_again;
+  // 11/15/2026 (hardening): "set\nstream" -> resyncs for records bigger than max_message with no record drained
+  // since (drain(), the status-2 bound)
+  std::map<std::string, int> big_resyncs;
   // 11/14/2026 (review: no verify cascade): the source position the stream being verified started from
   std::map<std::string, unsigned long long> verify_from;
   std::map<std::string, std::string> verify_log_id;   // and its log id (a log remade mid-verify starts at 1 again)
