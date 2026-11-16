@@ -18,11 +18,19 @@
 </header>
 <main class="dr-main">
 <h1>DataReel 6.4 Release Notes</h1>
-<h2 id="Top">DataReel 6.4 Release Notes, 11/15/2026 (beta)</h2>
+<h2 id="Top">DataReel 6.4 Release Notes, 11/16/2026 (beta 2)</h2>
 <p>DataReel version 6.4 (was 6.3.1) DataReel Copyright (c) 2001-2026 DataReel Software Development</p>
-<p>DataReel 6.4 is the DataReel 6.3.1 library with an optional build of the DataReel 7.x vector database and replication features for 6.x programs. The 6.x library itself is the 6.3.1 library: the same source, the same API, and database files byte-identical to 6.2 and 6.3.1. DataReel 6.4 has no copy of the 7.x vector or replication code. A 6.x build uses the 7.x code, from a DataReel 7.4 or later source tree, only when it is asked to:</p>
+<p>DataReel 6.4 is the DataReel 6.3.1 library, with the single-node crash safety and damaged-file fixes of DataReel 7.0-7.4 ported to the 6.x classes (beta 2, below), and an optional build of the DataReel 7.x vector database and replication features for 6.x programs. The 6.x API is the same, and database files are byte-identical to 6.2 and 6.3.1. DataReel 6.4 has no copy of the 7.x vector or replication code. A 6.x build uses the 7.x code, from a DataReel 7.4 or later source tree, only when it is asked to:</p>
 <p>cmake -S datareel-6.4 -B build -DDATAREEL7_FEATURES_DIR=/path/to/datareel-7.4</p>
-<p>A program that does not use the 7.x features builds and runs exactly as with 6.3.1, with the makefiles or with CMake. Everything in RELEASE_NOTES_6.3.1.txt and RELEASE_NOTES_6.3.txt is included. The shared library (Linux makefiles) is built as libdatareel.so.6.4.</p>
+<p>A program that does not use the 7.x features builds with the makefiles or with CMake as with 6.3.1. Everything in RELEASE_NOTES_6.3.1.txt and RELEASE_NOTES_6.3.txt is included. The shared library (Linux makefiles) is built as libdatareel.so.6.4.</p>
+<h2>Beta 2 (11/16/2026): Fixes from DataReel 7.x</h2>
+<ul>
+<li>Power loss: gxdFPTRCreate() and gxdFPTRCreatePrivate() sync the folder after they create a file (POSIX), so a new database or journal file, and the commits made to it, survive a power cut (DataReel 7.4).</li>
+<li>Damaged files (DataReel 7.0): - BtreeBucket::ReadNode() rejects a key count larger than the node order (a heap overflow in the cached B-tree; the uncached B-tree was fixed in 6.1). - The cached B-tree walks stop after gxBtreeMaxNodeReads nodes, as the uncached ones do. - InfoHog::Read() and gxPersistent::ReadString() check lengths read from the file unsigned against the end of the file. - gxDatabase copies file names with a bound (strcpy() overflowed on long path names).</li>
+<li>The B-tree cache works with index files opened read only (clean buckets are reused); before, a cached find or walk on a read-only index found nothing.</li>
+<li>Block navigation (DataReel 7.0 and 7.3.1): FindNextBlock(), FindNextObject(), FindPrevBlock() and FindPrevObject() take an object or a block address and return 0 at the ends of the file. Before, FindNextBlock() skipped a block when given an object address and returned the last block again at the end, so a FindFirstObject()/ FindNextObject() walk missed records and never ended. FindPrevBlock() no longer skips deleted blocks (FindPrevObject() does). A damaged block length is compared unsigned, with no signed overflow. FindFirstBlock() is unchanged, and FindFirstObject() returns the same object as before in an undamaged file. Programs that walk with FindFirstBlock() and the block length (as EPDB does) are not affected.</li>
+<li>Warnings: the gxstream.cpp TLS helpers are built only with __USE_GX_SSL_EXTENSIONS__; gxSocket::InitSIN() unused parameter.</li>
+</ul>
 <h2>The 7.x Features Build (cmake Only)</h2>
 <ul>
 <li>DATAREEL7_FEATURES_DIR (a path, empty = off): the 7.x source tree. The build refuses a tree older than 7.4. It builds, next to the 6.x library: - the 7.x library, from that tree as it is. Its names are in the datareel namespace, so it links next to the 6.x library in one program; - dr7inner (dr7features/inner): a plain C interface to the 7.x classes, compiled against the 7.x headers only; - dr7features (dr7features/include/dr7features.h): DataReel 6.x classes that use it, with 6.x types (gxString, MemoryBuffer). Link a program with the CMake target DataReel::dr7features. It needs a C++17 compiler, the same one for both libraries.</li>

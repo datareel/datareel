@@ -1,4 +1,4 @@
-DataReel 6.4 (beta) Readme File
+DataReel 6.4 (beta 2) Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -256,11 +256,15 @@ format, viewable in any Web browser.
 
 VERSION 6.4 (BETA)
 ------------------
-DataReel 6.4, 11/15/2026, is the 6.3.1 library with an optional CMake
-build of the DataReel 7.x vector database and replication features
-for 6.x programs (DATAREEL7_FEATURES_DIR, a DataReel 7.4 or later
-source tree). The 6.x library is the 6.3.1 library: the same API and
-byte-identical database files; 6.4 holds no copy of the 7.x code.
+DataReel 6.4, 11/16/2026 (beta 2), is the 6.3.1 library with the
+single-node crash safety and damaged-file fixes of DataReel 7.0-7.4
+(folder sync after a file is created, cached B-tree and length checks,
+the read-only B-tree cache, the next/previous block navigation fix),
+and an optional CMake build of the DataReel 7.x vector database and
+replication features for 6.x programs (DATAREEL7_FEATURES_DIR, a
+DataReel 7.4 or later source tree). The API and the database files are
+the same as 6.3.1; 6.4 holds no copy of the 7.x vector or replication
+code.
 gxv7VectorIndex and gxv7VectorSet use the 7.x .vix/.vixset vector
 index, gxv7ObjectClient searches a 7.x object server's vectors, and
 the 7.x gxrepl replicates 6.x programs' database folders (the 6.x
