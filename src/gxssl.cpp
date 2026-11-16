@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/17/2001
-// Date Last Modified: 10/31/2026
+// Date Last Modified: 11/16/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -56,6 +56,16 @@ gxStream TLS mode: SetClientCAList(), VerifyClientCert() and
 GetPeerCertIdentity() (SHA-256 fingerprint and subject CN), and
 SetDefaultCAPaths() for clients that check a server against the system
 certificate store.
+
+11/16/2026: TLS settings from the DataReel 7.x and ssl-bridge versions.
+With OpenSSL 1.1 and later the TLS and DTLS methods are used with a
+minimum protocol version: gxSSL_SSLv23 and gxSSL_TLS negotiate TLS 1.2
+or TLS 1.3, gxSSL_TLSv1_2 is TLS 1.2 only and the new gxSSL_TLSv1_3 is
+TLS 1.3 only. SSLv2, SSLv3, TLS 1.0, TLS 1.1 and DTLS 1.0 are refused
+with gxSSL_PROTOCOL_ERROR. The server name (SNI) is not sent for IP
+addresses. With RequireVerifyCert() the handshake checks the chain and
+the host name, and the system store is trusted when no CA list is set.
+The handshake timeout keeps a shorter socket timeout set by the caller.
 */
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
@@ -67,6 +77,9 @@ certificate store.
 #include <unistd.h>
 #include <sys/stat.h>
 #include <signal.h> // 10/31/2026: gxssl_ignore_sigpipe()
+#endif
+#if !defined (__WIN32__)
+#include <arpa/inet.h> // 10/25/2026: inet_pton() for the SNI host name check
 #endif
 
 // 08/06/2009: Moved gxRandom class outside of __USE_GX_SSL_EXTENSIONS__
@@ -363,6 +376,9 @@ static void gxssl_set_handshake_timeout(gxsSocket_t s, int seconds,
 					gxsslSockTimeouts &old)
 // 10/31/2026: Save the socket's send and receive timeouts and set both
 // to seconds for a TLS handshake. Does nothing if seconds <= 0.
+// 11/16/2026: A shorter timeout already set on the socket is kept, so
+// the handshake limit never lengthens a limit the caller chose (the
+// ssl-bridge's handshake timeout was lengthened to 60 seconds).
 {
   old.saved = 0;
   if(seconds <= 0 || s == (gxsSocket_t)-1) return;
@@ -372,8 +388,11 @@ static void gxssl_set_handshake_timeout(gxsSocket_t s, int seconds,
   len = (int)sizeof(DWORD);
   if(getsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (char *)&old.snd, &len) != 0) return;
   DWORD ms = (DWORD)seconds * 1000;
-  setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&ms, sizeof(ms));
-  setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char *)&ms, sizeof(ms));
+  // 0 means no timeout
+  DWORD rcv_ms = (old.rcv != 0 && old.rcv < ms) ? old.rcv : ms;
+  DWORD snd_ms = (old.snd != 0 && old.snd < ms) ? old.snd : ms;
+  setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&rcv_ms, sizeof(rcv_ms));
+  setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char *)&snd_ms, sizeof(snd_ms));
 #else
   socklen_t len = (socklen_t)sizeof(old.rcv);
   if(getsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &old.rcv, &len) != 0) return;
@@ -382,8 +401,20 @@ static void gxssl_set_handshake_timeout(gxsSocket_t s, int seconds,
   struct timeval tv;
   tv.tv_sec = seconds;
   tv.tv_usec = 0;
-  setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-  setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+  // A zero timeval means no timeout
+  struct timeval rcv = tv, snd = tv;
+  if((old.rcv.tv_sec || old.rcv.tv_usec) && 
+     ((old.rcv.tv_sec < tv.tv_sec) || 
+      ((old.rcv.tv_sec == tv.tv_sec) && (old.rcv.tv_usec < tv.tv_usec)))) {
+    rcv = old.rcv;
+  }
+  if((old.snd.tv_sec || old.snd.tv_usec) && 
+     ((old.snd.tv_sec < tv.tv_sec) || 
+      ((old.snd.tv_sec == tv.tv_sec) && (old.snd.tv_usec < tv.tv_usec)))) {
+    snd = old.snd;
+  }
+  setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &rcv, sizeof(rcv));
+  setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &snd, sizeof(snd));
 #endif
   old.saved = 1;
 }
@@ -636,8 +667,28 @@ int gxSSL::ConnectSSLSocket()
   if(is_ssl_null()) return ssl_error;
   // 10/24/2026: Send the server name (SNI) if the caller set one
   if(!host_name.is_null()) {
-    SSL_set_tlsext_host_name(ssl, host_name.c_str());
+    // 10/25/2026: SNI is only sent for DNS names, never for IP addresses
+    unsigned char addr[16];
+    if(inet_pton(AF_INET, host_name.c_str(), addr) != 1 && inet_pton(AF_INET6, host_name.c_str(), addr) != 1) {
+      SSL_set_tlsext_host_name(ssl, host_name.c_str());
+    }
   }
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+  // 10/25/2026: With RequireVerifyCert() the handshake itself fails when
+  // the certificate chain or the host name does not verify. Names are
+  // checked against subjectAltName with RFC 6125 wildcard rules, and IP
+  // addresses against IP subjectAltName entries.
+  if(verify_cert) {
+    if(!host_name.is_null()) {
+      X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
+      X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+      if(X509_VERIFY_PARAM_set1_ip_asc(param, host_name.c_str()) != 1) {
+	if(SSL_set1_host(ssl, host_name.c_str()) != 1) return ssl_error = gxSSL_HOSTNAME_ERROR;
+      }
+    }
+    SSL_set_verify(ssl, SSL_VERIFY_PEER, 0);
+  }
+#endif
   // 10/31/2026: A server that accepts TCP and then says nothing must
   // not block the handshake for ever
   gxsSocket_t fd = gxssl_get_fd(ssl);
@@ -878,6 +929,63 @@ SSL_CTX *gxSSL::InitCTX()
 {
   InitSSLibrary();
 
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+  // 10/25/2026: OpenSSL 1.1 and 3.x. The version specific methods are
+  // deprecated, so the TLS and DTLS methods are used with minimum and
+  // maximum protocol versions. SSLv2, SSLv3, TLS 1.0 and TLS 1.1 are no
+  // longer allowed. gxSSL_SSLv23 and gxSSL_TLS negotiate TLS 1.2 or 1.3.
+  const SSL_METHOD *meth = 0;
+  int min_version = 0, max_version = 0;
+  int is_dtls = 0;
+  switch(ssl_proto) {
+    case gxSSL_SSLv23:
+    case gxSSL_TLS:
+      min_version = TLS1_2_VERSION;
+      break;
+    case gxSSL_TLSv1_2:
+      min_version = max_version = TLS1_2_VERSION;
+      break;
+#if defined (TLS1_3_VERSION)
+    case gxSSL_TLSv1_3:
+      min_version = max_version = TLS1_3_VERSION;
+      break;
+#endif
+    case gxSSL_DTLS:
+      is_dtls = 1;
+      min_version = DTLS1_2_VERSION;
+      break;
+    case gxSSL_DTLSv1_2:
+      is_dtls = 1;
+      min_version = max_version = DTLS1_2_VERSION;
+      break;
+    default: // SSLv2, SSLv3, TLSv1, TLSv1.1 and DTLSv1
+      ssl_error = gxSSL_PROTOCOL_ERROR;
+      return 0;
+  }
+  if(is_dtls) {
+    meth = is_client ? DTLS_client_method() : (is_server ? DTLS_server_method() : DTLS_method());
+  }
+  else {
+    meth = is_client ? TLS_client_method() : (is_server ? TLS_server_method() : TLS_method());
+  }
+  if(!meth) {
+    ssl_error = gxSSL_PROTOCOL_ERROR;
+    return 0;
+  }
+  ctx = SSL_CTX_new(meth);
+  if(!ctx) {
+    ssl_error = gxSSL_CTX_INIT_ERROR;
+    return 0;
+  }
+  if(SSL_CTX_set_min_proto_version(ctx, min_version) != 1 ||
+     (max_version && SSL_CTX_set_max_proto_version(ctx, max_version) != 1)) {
+    DestroyCTX();
+    ssl_error = gxSSL_PROTOCOL_ERROR;
+    return 0;
+  }
+  // Partial writes are not used; SSL_write() sends all bytes or fails
+  SSL_CTX_set_mode(ctx, SSL_MODE_AUTO_RETRY);
+#else
   const SSL_METHOD *meth = 0;
   
   // Set the SSL protocol
@@ -1116,6 +1224,7 @@ SSL_CTX *gxSSL::InitCTX()
     ssl_error = gxSSL_CTX_INIT_ERROR;
     return 0;
   }
+#endif // OPENSSL_VERSION_NUMBER >= 0x10100000L
 
   int ssl_cert_type;
   switch(cert_type) {
@@ -1181,6 +1290,10 @@ SSL_CTX *gxSSL::InitCTX()
       return 0;
     }
   }
+  else if(verify_cert) {
+    // 10/25/2026: Use the system trust store when no CA list is set
+    SSL_CTX_set_default_verify_paths(ctx);
+  }
 
 #if (OPENSSL_VERSION_NUMBER < 0x00905100L)
   SSL_CTX_set_verify_depth(ctx, 1);
@@ -1212,15 +1325,18 @@ int gxSSL::InitSSLibrary()
 {
   // Global SSL library init
   if(!gxSSL::lib_init) {
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+    // 10/25/2026: OpenSSL 1.1 and 3.x initialize themselves. This call
+    // loads the error strings and the system configuration (on RHEL the
+    // crypto policy) up front, and is thread safe.
+    OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS | OPENSSL_INIT_LOAD_CRYPTO_STRINGS |
+		     OPENSSL_INIT_LOAD_CONFIG, 0);
+#else
     SSL_library_init();       // Initialize SSL library
     SSL_load_error_strings(); // Map SSL error numbers to strings
-
-    // This is no longer needed as OpenSSL 1.1.0 as this is done automatically.
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
     SSLeay_add_all_algorithms ();
-#endif
-    
     SSLeay_add_ssl_algorithms ();
+#endif
     gxSSL::lib_init = 1;
   }
   return 1;
@@ -1395,7 +1511,11 @@ int gxSSL::VerifyCert(const char *hostname, long *X509_return_code)
   X509 *cert;
   long rv;
   
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  cert = SSL_get1_peer_certificate(ssl);
+#else
   cert = SSL_get_peer_certificate(ssl);
+#endif
   if(cert) {
     rv = SSL_get_verify_result(ssl);
     // The caller requested the X509 return code
@@ -1459,7 +1579,11 @@ int gxSSL::GetPeerCertInfo(gxString &subject, gxString &issuer)
 {
   subject.Clear(); issuer.Clear();
   if(is_ssl_null()) return ssl_error;
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  X509 *cert = SSL_get1_peer_certificate(ssl);
+#else
   X509 *cert = SSL_get_peer_certificate(ssl);
+#endif
   if(!cert) return ssl_error = gxSSL_PEERCERT_ERROR;
   char buf[4096];
   memset(buf, 0, sizeof(buf));

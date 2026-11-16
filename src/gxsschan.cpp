@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, MINGW
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/24/2026
-// Date Last Modified: 10/31/2026
+// Date Last Modified: 11/16/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -51,10 +51,12 @@ Differences from the OpenSSL version:
   is imported into the current user's key store under a name made
   from the certificate thumbprint, and deleted by DestroyCTX().
 
-- Schannel picks the protocol version, cipher suites and key exchange
-  groups from the Windows settings. gxSSL_TLSv1_2 turns off TLS 1.3.
-  The other protocol settings use the Windows defaults, which on
-  Windows 10 and 11 are TLS 1.2 and TLS 1.3.
+- Schannel picks the cipher suites and key exchange groups from the
+  Windows settings. 11/16/2026: TLS 1.2 is the minimum, the same as the
+  OpenSSL version: gxSSL_SSLv23 and gxSSL_TLS allow TLS 1.2 and TLS 1.3,
+  gxSSL_TLSv1_2 turns off TLS 1.3 and gxSSL_TLSv1_3 turns off TLS 1.2.
+  SSLv2, SSLv3, TLS 1.0 and TLS 1.1 are refused with
+  gxSSL_PROTOCOL_ERROR. gxSSL_TLSv1_3 needs Windows 10 1809 or higher.
 
 - The OpenSSL key and certificate generation functions,
   MakeRSAPrivateKey(), MakeCertReq() and MakeDHParms(), are not
@@ -631,6 +633,8 @@ gxSSL_CTX_t *gxSSL::InitCTX()
 
   switch(ssl_proto) { // Datagram TLS is not supported by this class
     case gxSSL_DTLS: case gxSSL_DTLSv1: case gxSSL_DTLSv1_2:
+    // 11/16/2026: TLS 1.2 is the minimum, as in the OpenSSL version
+    case gxSSL_SSLv2: case gxSSL_SSLv3: case gxSSL_TLSv1: case gxSSL_TLSv1_1:
       ssl_error = gxSSL_PROTOCOL_ERROR;
       return 0;
     default:
@@ -736,9 +740,18 @@ int gxSSL::sc_acquire_cred(int inbound)
   // TLS 1.3
   TLS_PARAMETERS tls_parms;
   memset(&tls_parms, 0, sizeof(tls_parms));
+  // 11/16/2026: Nothing older than TLS 1.2, whatever Windows allows
+  tls_parms.grbitDisabledProtocols = SP_PROT_SSL2_CLIENT | SP_PROT_SSL2_SERVER |
+    SP_PROT_SSL3_CLIENT | SP_PROT_SSL3_SERVER |
+    SP_PROT_TLS1_0_CLIENT | SP_PROT_TLS1_0_SERVER |
+    SP_PROT_TLS1_1_CLIENT | SP_PROT_TLS1_1_SERVER;
   if(ssl_proto == gxSSL_TLSv1_2) {
-    tls_parms.grbitDisabledProtocols = SP_PROT_TLS1_3_CLIENT |
+    tls_parms.grbitDisabledProtocols |= SP_PROT_TLS1_3_CLIENT |
       SP_PROT_TLS1_3_SERVER;
+  }
+  else if(ssl_proto == gxSSL_TLSv1_3) {
+    tls_parms.grbitDisabledProtocols |= SP_PROT_TLS1_2_CLIENT |
+      SP_PROT_TLS1_2_SERVER;
   }
   SCH_CREDENTIALS sch_cred;
   memset(&sch_cred, 0, sizeof(sch_cred));
@@ -756,12 +769,20 @@ int gxSSL::sc_acquire_cred(int inbound)
     inbound ? SECPKG_CRED_INBOUND : SECPKG_CRED_OUTBOUND, 0, &sch_cred,
     0, 0, &ctx->cred, &expiry);
 
+  if(st != SEC_E_OK && ssl_proto == gxSSL_TLSv1_3) {
+    // 11/16/2026: SCHANNEL_CRED cannot do TLS 1.3
+    sc_set_status((long)st);
+    return ssl_error = gxSSL_PROTOCOL_ERROR;
+  }
   if(st != SEC_E_OK) {
     // Older versions of Windows use SCHANNEL_CRED
     SCHANNEL_CRED old_cred;
     memset(&old_cred, 0, sizeof(old_cred));
     old_cred.dwVersion = SCHANNEL_CRED_VERSION;
     old_cred.dwFlags = flags;
+    // 11/16/2026: TLS 1.2 only (these versions of Windows have no TLS 1.3)
+    old_cred.grbitEnabledProtocols = inbound ? SP_PROT_TLS1_2_SERVER :
+      SP_PROT_TLS1_2_CLIENT;
     if(ctx->cert) {
       old_cred.cCreds = 1;
       old_cred.paCred = certs;
