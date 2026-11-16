@@ -69,6 +69,7 @@ number; records left in the file after that have an old salt.
 #include <unistd.h>
 #include <fcntl.h>
 #endif
+#include <stdio.h>
 #include "gxdlcode.h"
 
 #include <string.h>
@@ -230,6 +231,27 @@ gxdJournal::~gxdJournal()
 // 11/15/2026: the marker a replay leaves for the next EnableShipLog() (see Recover())
 static std::string recovered_marker(const char *jname) { return std::string(jname) + ".recovered"; }
 
+// 11/16/2026 (beta4 review M2): "<n>\n" written to a temporary file, flushed to the disk, renamed over the marker
+// and (POSIX) the folder synced. Returns 0, or -1 if any step failed (nothing is left behind then).
+#ifndef _WIN32
+static int write_recovered_marker(const std::string &mk, unsigned long n)
+{
+  std::string tmp = mk + ".tmp", body = std::to_string(n) + "\n";
+  int mf = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0640);
+  if(mf < 0) return -1;
+  bool ok = write(mf, body.data(), body.size()) == (ssize_t)body.size() && fsync(mf) == 0;
+  close(mf);
+  if(!ok || rename(tmp.c_str(), mk.c_str()) != 0) { unlink(tmp.c_str()); return -1; }
+  std::string::size_type sl = mk.find_last_of('/');
+  std::string d = sl == std::string::npos ? std::string(".") : (sl == 0 ? std::string("/") : mk.substr(0, sl));
+  int df = open(d.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if(df < 0) return -1;
+  int rc = fsync(df);
+  close(df);
+  return rc == 0 ? 0 : -1;
+}
+#endif
+
 gxDatabaseError gxdJournal::Recover(const char *jname,
 				    unsigned long *recovered, int mark)
 {
@@ -329,24 +351,14 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
   }
 
   gxDatabaseError err = gxDBASE_NO_ERROR;
-#ifndef _WIN32
   // 11/15/2026 (hardening): the marker, durably, before the first page is replayed: a crash in the middle of the
   // replay still leaves it
-  if(ncommits && mark) {
-    std::string mk = recovered_marker(jname), tmp = mk + ".tmp";
-    int mf = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0640);
-    if(mf >= 0) {
-      std::string body = std::to_string(ncommits) + "\n";
-      if(write(mf, body.data(), body.size()) == (ssize_t)body.size() && fsync(mf) == 0) {
-	close(mf);
-	if(rename(tmp.c_str(), mk.c_str()) == 0) {
-	  std::string d = mk.substr(0, mk.find_last_of('/') == std::string::npos ? 0 : mk.find_last_of('/'));
-	  int df = open(d.empty() ? "." : d.c_str(), O_RDONLY | O_DIRECTORY);
-	  if(df >= 0) { fsync(df); close(df); }
-	}
-      }
-      else { close(mf); unlink(tmp.c_str()); }
-    }
+  // 11/16/2026 (beta4 review M2): a marker that cannot be made durable refuses the replay (the journal is kept for
+  // another try): a replay without it would reach the files with no record and no open record saying so.
+#ifndef _WIN32
+  if(ncommits && mark && write_recovered_marker(recovered_marker(jname), ncommits) != 0) {
+    gxdFPTRClose(jfp);
+    return gxDBASE_FILE_WRITE_ERROR;
   }
 #endif
   if(ncommits) {

@@ -4924,6 +4924,43 @@ def test_incremental_static_recover_is_indexed():
         env.stop()
 
 
+def _sha(path):
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def test_static_recover_refuses_without_its_marker():
+    """11/16/2026 (beta4 review M2): the static Recover() replays a batch only after its marker is on the disk. When
+    the marker cannot be written (here its temporary name is taken by a folder) it refuses: nothing replayed, the
+    journal kept. Before the fix it replayed silently with no marker, so the next writer's open record said nothing
+    was recovered. Once the marker can be written the same journal replays, and the copy's index holds A's objects."""
+    env, ws, aws, w = _recgap_env("static_recover_marker")
+    try:
+        d1 = os.path.join(ws, "d1")
+        env.kill("client")
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 721,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, a.stdout
+        blocker = os.path.join(d1, "writer.jnl.recovered.tmp")
+        os.mkdir(blocker)
+        before = _sha(os.path.join(d1, "data.gxd"))
+        r = run([os.path.join(BIN, "gxrepl_testwriter"), "recover", d1])
+        assert r.returncode != 0 and "recovered 0 batch" in r.stdout, "replayed without its marker: " + r.stdout
+        assert _sha(os.path.join(d1, "data.gxd")) == before, "the files changed though the replay was refused"
+        assert not os.path.exists(os.path.join(d1, "writer.jnl.recovered")), "a marker after a refused replay"
+        os.rmdir(blocker)
+        r = run([os.path.join(BIN, "gxrepl_testwriter"), "recover", d1])
+        assert r.returncode == 0 and "recovered 1 batch" in r.stdout, "the kept journal did not replay: " + r.stdout
+        assert os.path.exists(os.path.join(d1, "writer.jnl.recovered")), "Recover() left no marker"
+        b = _adds(d1, ws, 722)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        env.start_client()
+        _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
 def test_incremental_orphan_means_rebuild():
     """11/14/2026: an objects record without its commit (a writer crash between them, here the record lost and a gap
     after it) is never applied object by object: rebuild needed, and the index checks after the rebuild"""
