@@ -42,6 +42,10 @@ for t in examples_general/support_security examples_socket/comm_security \
   (cd "$HERE/../$t" && make >/dev/null 2>&1)
   (cd "$d" && "$HERE/../$t/testprog" > $n.log 2>&1); result $? "$n"
 done
+# 11/16/2026: journal salts distinct across processes forked in the same second
+(cd "$HERE/journal_salt" && make >/dev/null 2>&1); result $? "build journal_salt"
+d="$W/journal_salt"; mkdir -p "$d"
+(cd "$d" && "$HERE/journal_salt/testprog" "$d" > salt.log 2>&1); result $? "journal salts distinct across forked processes"
 for m in 0 1; do
   d="$W/journal_map$m"; mkdir -p "$d"
   (cd "$d" && "$HERE/journal/testprog" 20 7 $m > journal.log 2>&1); result $? "journal tests (memory-mapped reads $m)"
