@@ -11,6 +11,9 @@
 #include <algorithm>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include "gxobjrepl.h"
 #include "gxdbase.h"
@@ -308,6 +311,109 @@ int main(int argc, char **argv)
       gxObjRepl y; int r2 = y.Open(d, pcfg(base + 6, true), gxObjRepl::PRIMARY);
       check(r1 == 0 && r2 == -1 && y.Error().find("missing") != std::string::npos, "review2 5: an unwritten state file on a new node is replaced (" + std::to_string(r1) +
 	    "); a missing one on a node with data is refused [" + y.Error() + "]");
+    }
+    // scale: a commit near the block limit (55 x 1 MB) is delivered, applied and read back on the copy
+    {
+      int pc4 = base + 8;
+      Srv C; C.start(dir + "/big_c", ccfg(pc4, "C4"));
+      gxObjRepl x; x.Open(dir + "/big_p", pcfg(pc4, true), gxObjRepl::PRIMARY); x.OpenDatabase("blob");
+      std::vector<unsigned char> mb(1024 * 1024);
+      x.Begin();
+      for(int i = 0; i < 55; i++) { for(size_t k = 0; k < mb.size(); k += 4096) mb[k] = (unsigned char)(i + k); x.Put("blob", 1000 + i, mb.data(), (uint32_t)mb.size()); }
+      int crc = x.Commit();
+      auto t0 = std::chrono::steady_clock::now();
+      int drc = x.Drain(120);
+      double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+      std::vector<unsigned char> got; bool same = true;
+      for(int i = 0; i < 55 && same; i++) { std::vector<unsigned char> want; x.Get("blob", 1000 + i, want); same = C.r.Get("blob", 1000 + i, got) == 0 && got == want; }
+      check(crc == 0 && drc == 0 && same, "scale: a 55 MB commit was delivered in " + std::to_string(secs).substr(0, 5) + " s and reads back equal on the copy");
+      x.Close(); C.stop();
+    }
+    // ---------- the third review's findings ----------
+    // r3-1: Close() from another thread stops Serve(); the folder is free; a primary then finds no copy
+    {
+      int pc5 = base + 9;
+      Srv C; C.start(dir + "/cl_c", ccfg(pc5, "C5"));
+      C.r.Close();
+      C.t.join();                                              // Serve() left
+      std::string m; int trc = gxObjRepl::Takeover(dir + "/cl_c", m);   // fails anyway (no copy role yet?) or works: the lock is free
+      gxObjRepl x; x.Open(dir + "/cl_p", pcfg(pc5, true), gxObjRepl::PRIMARY); commit1(x);
+      int prc = x.Pump(); x.Close();
+      check(prc == 1 && m.find("in use") == std::string::npos, "r3-1: Close() stopped Serve() in the other thread; the folder is free (" + m +
+	    ") and a primary finds no copy (Pump " + std::to_string(prc) + ")");
+      (void)trc;
+    }
+    // r3-2: a database whose index failed to open is not opened again over the failed objects
+    {
+      std::string d = dir + "/nv"; mkdir(d.c_str(), 0700); mkdir((d + "/nv.m.ix.btx.building").c_str(), 0700);
+      gxObjReplConfig c = pcfg(base + 4, true); c.index = "k:nv:B:0:8,m:nv:B:8:8";
+      gxObjRepl x; x.Open(d, c, gxObjRepl::PRIMARY);
+      int r1 = x.OpenDatabase("nv"), r2 = x.OpenDatabase("nv");
+      std::string e2 = x.Error();
+      x.Close();
+      rmdir((d + "/nv.m.ix.btx.building").c_str());
+      gxObjRepl y; y.Open(d, c, gxObjRepl::PRIMARY);
+      int r3 = y.OpenDatabase("nv");
+      y.Begin(); for(int i = 0; i < 50; i++) { char b8[16]; memset(b8, 0, 16); b8[0] = 'A' + i % 2; b8[8] = (char)i; y.Put("nv", y.NewId(), b8, 16); } y.Commit();
+      std::vector<uint64_t> f; y.FindKey("k", "A", 1, f); y.Close();
+      std::string rep2; int ixr = gxObjRepl::IndexCheck(d, c.index, rep2);
+      check(r1 == -1 && r2 == -1 && e2.find("failed to open earlier") != std::string::npos && r3 == 0 && f.size() == 25 && ixr == 0,
+	    "r3-2: a failed open is refused on retry [" + e2 + "]; after a reopen the indexes are whole (" + std::to_string(f.size()) + " keys, IndexCheck " + std::to_string(ixr) + ")");
+    }
+    // r3-3: an application id in the next epoch's range does not move NewId() there, also after a restart
+    {
+      std::string d = dir + "/nid";
+      gxObjRepl x; x.Open(d, pcfg(base + 4, true), gxObjRepl::PRIMARY); x.OpenDatabase("ev");
+      x.Begin(); x.Put("ev", (2ULL << 40) + 5, "x", 1); x.Commit(); x.Close();
+      gxObjRepl y; y.Open(d, pcfg(base + 4, true), gxObjRepl::PRIMARY); uint64_t nid = y.NewId(); y.Close();
+      check(nid < (2ULL << 40), "r3-3: after a restart NewId() = " + std::to_string(nid) + ", still in epoch 1's range");
+    }
+    // r3-4: a copy in the middle of a full send refuses reads
+    {
+      std::string m; gxObjRepl::Rejoin(dir + "/d_c", m);     // d_c: a copy from above, now waiting for a full send
+      gxObjRepl c4; c4.Open(dir + "/d_c", ccfg(base + 2, "C2"), gxObjRepl::COPY);
+      std::vector<unsigned char> b; int g = c4.Get("ev", 1, b); std::string e = c4.Error();
+      check(c4.InSnapshot() && g == -1 && e.find("full send") != std::string::npos, "r3-4: reads on a copy inside a full send are refused [" + e + "]");
+      c4.Close();
+    }
+    // r3-5: while Pump() waits on a copy that never answers TLS, a reader is not held up
+    {
+      int ls = socket(AF_INET, SOCK_STREAM, 0); sockaddr_in a; memset(&a, 0, sizeof(a)); a.sin_family = AF_INET; a.sin_port = htons(base + 11);
+      a.sin_addr.s_addr = htonl(0x7f000001); int one = 1; setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+      bind(ls, (sockaddr *)&a, sizeof(a)); listen(ls, 4);     // accepts in the kernel, never speaks TLS
+      gxObjRepl x; x.Open(dir + "/pb_p", pcfg(base + 11, true), gxObjRepl::PRIMARY); commit1(x);
+      std::thread pt([&]() { x.Pump(); });
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      auto t0 = std::chrono::steady_clock::now();
+      std::vector<unsigned char> b; x.Get("ev", 1, b);
+      double w = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+      pt.join(); x.Close(); close(ls);
+      check(w < 1.0, "r3-5: a reader waited " + std::to_string(w).substr(0, 5) + " s while Pump() was stuck in a TLS handshake");
+    }
+    // r3-6: Drain() after the copy was replaced by an empty one does not report 0 from stale knowledge
+    {
+      int pc6 = base + 12;
+      Srv C; C.start(dir + "/rp_c1", ccfg(pc6, "R1"));
+      gxObjRepl x; x.Open(dir + "/rp_p", pcfg(pc6, true), gxObjRepl::PRIMARY);
+      for(int k = 0; k < 3; k++) commit1(x); x.Drain(20);
+      C.stop();
+      Srv D; D.start(dir + "/rp_c2", ccfg(pc6, "R2"));
+      long s0 = x.Snapshots(); int rc = x.Drain(20); long s1 = x.Snapshots();
+      check(rc == 0 && s1 == s0 + 1 && D.r.AppliedSeq() == x.LastSeq(), "r3-6: Drain() found the new empty copy and gave it a full send (rc " + std::to_string(rc) +
+	    ", snapshots " + std::to_string(s0) + " -> " + std::to_string(s1) + ")");
+      x.Close(); D.stop();
+    }
+    // r3-8/9: a copy refuses OpenDatabase; a Stop() before Serve() does not stop the next Serve()
+    {
+      gxObjRepl c9; c9.Open(dir + "/st_c", ccfg(base + 13, "C9"), gxObjRepl::COPY);
+      int od = c9.OpenDatabase("x");
+      c9.Stop();
+      std::thread t([&]() { c9.Serve(); });
+      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+      gxObjRepl x; x.Open(dir + "/st_p", pcfg(base + 13, true), gxObjRepl::PRIMARY); commit1(x); int rc = x.Drain(20); x.Close();
+      c9.Stop(); t.join();
+      check(od == -1 && rc == 0 && c9.AppliedSeq() == 1, "r3-8/9: the copy refused OpenDatabase; Serve() after an earlier Stop() served (drain " + std::to_string(rc) + ")");
+      c9.Close();
     }
     // 8 with trim off, the copy's acknowledgement still counts: a rejoin after a full drain drops nothing
     {

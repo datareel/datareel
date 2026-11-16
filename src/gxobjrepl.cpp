@@ -589,6 +589,9 @@ struct Node {
     if(it != dbs.end()) return it->second.get();
     if(!good_name(name)) { err = "a bad database name: " + name; return 0; }
     if(j.InTransaction()) { err = "the database " + name + " is not open (open it before Begin())"; return 0; }
+    // a database whose open failed keeps its objects attached until close: it is not opened a second time over them
+    // (review 3: the dead objects' stale headers were written at close and emptied an index)
+    for(auto &d : dead_dbs) if(d->name == name) { err = "the database " + name + " failed to open earlier: Close() and Open() again"; return 0; }
     std::unique_ptr<Db> d(new Db);
     d->name = name;
     if(!d->open(root)) { d->close(); err = "cannot open the database " + name; return 0; }
@@ -684,10 +687,10 @@ struct Node {
     if(!keep_lock) unlock();
   }
   // the digest log: entries below CUTOFF out (the window of DLOG_KEEP commits)
-  bool trim_digests(uint64_t cutoff) {
+  bool trim_digests(uint64_t cutoff, size_t limit = 10000) {   // at most LIMIT entries a call (a backlog goes in steps)
     DKey k, c;
     std::vector<uint64_t> old;
-    for(int ok = dlog.FindFirst(k); ok && k.k.seq < cutoff; ok = dlog.FindNext(k, c)) old.push_back(k.k.seq);
+    for(int ok = dlog.FindFirst(k); ok && k.k.seq < cutoff && old.size() < limit; ok = dlog.FindNext(k, c)) old.push_back(k.k.seq);
     for(uint64_t q : old) { DKey d(q); if(!dlog.Delete(d, c)) return false; }
     return true;
   }
@@ -820,6 +823,8 @@ bool check_tls(const gxObjReplConfig &c, long &days_left, std::string &why)
 struct Link {
   gxStream *st = 0; uint64_t copy_applied = 0, copy_digest = 0; bool copy_in_snapshot = false; bool refused = false;
   long snapshots = 0; time_t last_contact = 0;
+  bool fresh = false;                 // connected, the hello not yet done
+  long exchanges = 0;                 // frames answered on this link
   void drop() { if(st) { st->Close(); delete st; st = 0; } }
 };
 
@@ -896,6 +901,8 @@ struct gxObjRepl::Impl {
   // every public call takes it; Serve() holds it only while it handles a hello or a frame, never while it waits, so
   // reader threads (Get, FindKey, Nearest ...) run between frames (11/16/2026)
   std::recursive_mutex mu;
+  std::atomic<int> serving{0};       // Serve() is running (Close() stops it and waits)
+  std::vector<LinkDef> pending_links; // copy: the link map of a primary not yet accepted (F_EPOCH adopts it)
   // primary: the open transaction's ops, and the moves
   std::vector<Touch> touched;
   std::set<std::pair<std::string, uint64_t>> moved;
@@ -947,11 +954,11 @@ struct gxObjRepl::Impl {
   }
   bool hello() {
     // a connection idle past the idle limit may be gone (the copy drops it then): a fresh one, with the check
-    if(L.st && cfg.idle_timeout > 0 && time(0) - L.last_contact > cfg.idle_timeout / 2) L.drop();
-    if(L.st) return true;
+    if(L.st && !L.fresh && cfg.idle_timeout > 0 && time(0) - L.last_contact > cfg.idle_timeout / 2) L.drop();
+    if(L.st && !L.fresh) return true;
     L.refused = false;                                         // each connect is judged afresh
-    L.st = new gxStream;
-    if(!connect_to(*L.st)) { L.drop(); return false; }
+    if(!L.st) { L.st = new gxStream; if(!connect_to(*L.st)) { L.drop(); return false; } }
+    L.fresh = false;
     // the reconnect check, after every connect: both sides say who they are, their role, epoch, seq and the running
     // digest at that seq; any change of roles or histories stops the stream with an alarm
     Buf h; h.u32(STATE_MAGIC); h.u64(s.st.epoch); h.str(links_spec(links));
@@ -1002,7 +1009,7 @@ struct gxObjRepl::Impl {
   bool exchange(const std::vector<unsigned char> &f, uint64_t &acked) {
     std::vector<unsigned char> ack;
     if(!send_frame(*L.st, f) || !recv_frame(*L.st, ack) || ack.size() < 8) { L.drop(); return false; }
-    L.last_contact = time(0);
+    L.last_contact = time(0); L.exchanges++;
     Rd r(ack.data(), ack.size()); acked = r.u64();
     return true;
   }
@@ -1098,7 +1105,9 @@ struct gxObjRepl::Impl {
       uint64_t d = 0;
       if(L.copy_applied == s.st.next_seq - 1) s.st.acked_digest = s.st.cur_digest;
       else if(s.digest_at(L.copy_applied, d)) s.st.acked_digest = d;
-      if(cfg.trim) for(auto &e : v) if(e.first <= L.copy_applied) s.ob.Delete(e.second);
+      bool dok = true;
+      if(cfg.trim) for(auto &e : v) if(e.first <= L.copy_applied && !s.ob.Delete(e.second)) dok = false;
+      if(!dok) { s.j.Rollback(); err = "cannot trim the outbox"; reopen(); return false; }
       if(s.st.next_seq > DLOG_KEEP && !s.trim_digests(std::min(s.st.next_seq - DLOG_KEEP, L.copy_applied))) { s.j.Rollback(); err = "cannot trim the digest log"; reopen(); return false; }
       uint64_t keep_seq = s.st.acked_seq, keep_dig = s.st.acked_digest;
       s.st.acked_seq = L.copy_applied;
@@ -1204,7 +1213,7 @@ struct gxObjRepl::Impl {
 
 gxObjRepl::gxObjRepl() : p(new Impl) { }
 gxObjRepl::~gxObjRepl() { Close(); delete p; }
-const std::string &gxObjRepl::Error() const { return p->err; }
+std::string gxObjRepl::Error() const { std::lock_guard<std::recursive_mutex> g_(p->mu); return p->err; }
 int gxObjRepl::IsOpen() const { std::lock_guard<std::recursive_mutex> g_(p->mu); return p->s.is_open; }
 
 int gxObjRepl::Open(const std::string &root, const gxObjReplConfig &cfg, Role role)
@@ -1237,15 +1246,21 @@ int gxObjRepl::Open(const std::string &root, const gxObjReplConfig &cfg, Role ro
   }
   if(role == PRIMARY) {
     for(auto &l : p->links) if(!p->s.get(l.db) || !p->s.get(l.target)) { std::string e = p->s.err; p->s.close(); return p->fail(e); }
-    p->next_id = std::max(p->next_id, p->s.st.max_id + 1);   // never an id used before, even one purged since
-    p->next_id = std::max(p->next_id, (p->s.st.epoch << ID_EPOCH_SHIFT) + 1);   // nor one of an older epoch
-    for(auto &d : p->s.dbs) for(auto &w : d.second->where) p->next_id = std::max(p->next_id, w.first + 1);
+    // never an id used before (even one purged since), nor one of an older epoch; and never into the next epoch's
+    // range, where an application's own ids may lie (review 3)
+    uint64_t lim = (p->s.st.epoch + 1) << ID_EPOCH_SHIFT;
+    p->next_id = std::max(p->next_id, (p->s.st.epoch << ID_EPOCH_SHIFT) + 1);
+    if(p->s.st.max_id + 1 < lim) p->next_id = std::max(p->next_id, p->s.st.max_id + 1);
+    for(auto &d : p->s.dbs) for(auto &w : d.second->where) if(w.first + 1 < lim) p->next_id = std::max(p->next_id, w.first + 1);
   }
   return 0;
 }
 
 void gxObjRepl::Close()
 {
+  // a Serve() running in another thread is stopped first and waited for (review 3: it went on serving a closed,
+  // unlocked node); it leaves within half a second
+  if(p->serving) { p->stop = 1; while(p->serving) std::this_thread::sleep_for(std::chrono::milliseconds(10)); }
   std::lock_guard<std::recursive_mutex> g_(p->mu);
   if(!p->s.is_open) return;
   if(p->role == PRIMARY) {
@@ -1260,7 +1275,7 @@ void gxObjRepl::Close()
 int gxObjRepl::OpenDatabase(const std::string &db)
 {
   std::lock_guard<std::recursive_mutex> g_(p->mu);
-  if(!p->s.is_open) return p->fail("not open");
+  if(!p->s.is_open || p->role != PRIMARY) return p->fail("not an open primary (a copy opens databases as they arrive)");
   return p->s.get(db) ? 0 : p->fail(p->s.err);
 }
 
@@ -1353,12 +1368,32 @@ void gxObjRepl::TestHoldAdd(const std::string &db, uint64_t id)
 
 int gxObjRepl::Pump()
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
-  if(!p->s.is_open || p->role != PRIMARY) return p->fail("not an open primary");
-  if(p->s.j.InTransaction()) return p->fail("Pump() inside a transaction");
   Link &L = p->L;
-  bool was = L.st != 0;
+  // the TCP connect and the TLS handshake run without the node's lock (review 3: readers waited up to 30 s on a copy
+  // that did not answer); the hello and everything after it run with it
+  bool connect = false;
+  {
+    std::lock_guard<std::recursive_mutex> g_(p->mu);
+    if(!p->s.is_open || p->role != PRIMARY) return p->fail("not an open primary");
+    if(p->s.j.InTransaction()) return p->fail("Pump() inside a transaction");
+    if(L.st && !L.fresh && p->cfg.idle_timeout > 0 && time(0) - L.last_contact > p->cfg.idle_timeout / 2) L.drop();
+    connect = L.st == 0;
+  }
+  gxStream *ns = 0;
+  if(connect) { ns = new gxStream; if(!p->connect_to(*ns)) { ns->Close(); delete ns; ns = 0; } }
+  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  if(!p->s.is_open) { if(ns) { ns->Close(); delete ns; } return p->fail("closed"); }
+  if(connect && !ns) { p->primary_status(true, "copy away"); return 1; }
+  if(ns) { L.drop(); L.st = ns; L.fresh = true; }
+  bool was = !connect;
+  long ex0 = L.exchanges;
   bool ok = p->pump1();
+  // a reused connection with nothing sent proves nothing: the copy may have been replaced or restarted since. One
+  // F_EPOCH exchange checks it before 0 is returned (review 3: Drain() returned 0 for an empty new copy)
+  if(ok && was && L.exchanges == ex0 && L.st) {
+    Buf e; e.u8(F_EPOCH); e.u64(p->s.st.epoch); uint64_t a = 0;
+    if(!p->exchange(e.b, a)) { L.drop(); ok = p->pump1(); }
+  }
   if(!ok && L.st) L.drop();                                    // a failed exchange: reconnect (and check) next time
   p->primary_status(was != (L.st != 0) || L.refused || !ok, L.refused ? "refused" : L.st ? "streaming" : "copy away");
   if(L.refused) return 3;
@@ -1380,8 +1415,15 @@ void gxObjRepl::Stop() { p->stop = 1; }
 
 int gxObjRepl::Serve()
 {
-  if(!p->s.is_open || p->role != COPY) return p->fail("not an open copy");
-  return p->serve();
+  {
+    std::lock_guard<std::recursive_mutex> g_(p->mu);
+    if(!p->s.is_open || p->role != COPY) return p->fail("not an open copy");
+    p->stop = 0;                                               // a Stop() before this Serve() is spent (review 3)
+    p->serving = 1;
+  }
+  int rc = p->serve();
+  p->serving = 0;
+  return rc;
 }
 
 int gxObjRepl::Impl::serve()
@@ -1391,6 +1433,7 @@ int gxObjRepl::Impl::serve()
   if(srv.AllowClientCN(cfg.allow_cn) != 0) return fail("allow-cn is required");
   if(srv.Listen(cfg.listen_port, cfg.cert, cfg.key, std::string(), cfg.listen_addr) != 0)
     return fail("cannot listen on " + cfg.listen_addr + ":" + std::to_string(cfg.listen_port) + ": " + srv.Error());
+  std::unique_lock<std::recursive_mutex> sl(mu);             // the start: said and the status written with the node held
   say("copy listening on " + cfg.listen_addr + ":" + std::to_string(cfg.listen_port) + " (gxStream, TLS, client CN " + cfg.allow_cn +
       "), applied " + std::to_string(s.st.applied_seq) + ", epoch " + std::to_string(s.st.epoch) + (s.st.in_snapshot ? ", a snapshot was cut" : ""));
   bool rolled = false;      // a rolled-back apply: the maps and index memory are stale, the node is opened again
@@ -1427,6 +1470,7 @@ int gxObjRepl::Impl::serve()
     }
   };
   status(true, "listening", false);
+  sl.unlock();
   while(!stop) {
     if(wait(srv.Listener(), 0) <= 0) { if(stop) break; continue; }
     gxStream st;
@@ -1453,7 +1497,7 @@ int gxObjRepl::Impl::serve()
       if(why.empty() && x.db == l.db && l.off < x.off + (x.kind == 'B' ? x.len : 4 * x.len) && x.off < l.off + 8)
 	why = "the primary's link field " + l.db + ":" + std::to_string(l.off) + " overlaps this copy's index " + x.name;
     bool ok = why.empty();
-    if(ok) links = plinks;
+    if(ok) pending_links = plinks;                             // adopted when the primary accepts this copy (F_EPOCH)
     if(!ok) { alarm("refused " + pname + ": " + why); refusals++; status(true, "refused " + pname, false); }
     else { primary_now = pname; status(true, "streaming", true); }
     Buf rep;
@@ -1461,7 +1505,6 @@ int gxObjRepl::Impl::serve()
     rep.str(cfg.name); rep.u8(ROLE_COPY); rep.u64(s.st.applied_digest); rep.str(why);
     send_frame(st, rep.b);
     if(!ok) { st.Close(); continue; }
-    for(auto &l : links) { s.get(l.db); s.get(l.target); }   // outside any transaction: placeholders may go there
     // the primary's epoch is saved with the first frame applied from it, never at the hello: a primary that then
     // refuses this copy must not fence out the real one (11/16/2026, review)
     long frames = 0;
@@ -1559,6 +1602,7 @@ int gxObjRepl::Impl::serve()
 	  s.st.applied_seq = seq;
 	  s.st.applied_digest = fnv(b.data(), b.size(), s.st.applied_digest);
 	  good = s.log_digest(seq, s.st.applied_digest);
+	  if(good && seq > DLOG_KEEP) good = s.trim_digests(seq - DLOG_KEEP, 100);   // the copy keeps the same window (review 3)
 	  s.put_state();
 	}
 	// not applied, or the commit failed: rolled back, the node reopened from the files, and no ack (review)
@@ -1569,6 +1613,10 @@ int gxObjRepl::Impl::serve()
       } else if(kind == F_EPOCH) {
 	uint64_t ep = r.u64();
 	if(!r.ok || ep < s.st.epoch) break;
+	// the primary accepted this copy: its link map now, and the link databases (outside any transaction:
+	// placeholders may go there) (review 3: they were made at the hello, before the primary's checks)
+	links = pending_links;
+	for(auto &l : links) { s.get(l.db); s.get(l.target); }
 	if(ep > s.st.epoch) {
 	  if(!s.begin()) break;
 	  s.st.epoch = ep; s.put_state();
@@ -1661,10 +1709,15 @@ int gxObjRepl::Impl::serve()
 }
 
 // ---------- reads ----------
+// a copy in the middle of a full send holds a part of the data, with links not yet translated: reads wait for it to
+// end (review 3: readers saw links naming nothing)
+#define GXOBJREPL_NO_READS_IN_FULL_SEND(ret) if(p->role == COPY && p->s.is_open && p->s.st.in_snapshot) { p->err = "a full send is under way"; return ret; }
+int gxObjRepl::InSnapshot() { std::lock_guard<std::recursive_mutex> g_(p->mu); return p->s.is_open && p->s.st.in_snapshot; }
 int gxObjRepl::Get(const std::string &db, uint64_t id, std::vector<unsigned char> &bytes)
 {
   std::lock_guard<std::recursive_mutex> g_(p->mu);
   bytes.clear();
+  GXOBJREPL_NO_READS_IN_FULL_SEND(-1)
   auto it = p->s.dbs.find(db);
   if(it == p->s.dbs.end() || !it->second->live(id)) return -1;
   std::vector<unsigned char> rec; ObjHead h;
@@ -1675,12 +1728,14 @@ int gxObjRepl::Get(const std::string &db, uint64_t id, std::vector<unsigned char
 int gxObjRepl::IsLive(const std::string &db, uint64_t id)
 {
   std::lock_guard<std::recursive_mutex> g_(p->mu);
+  GXOBJREPL_NO_READS_IN_FULL_SEND(0)
   auto it = p->s.dbs.find(db);
   return it != p->s.dbs.end() && it->second->live(id);
 }
 FAU_t gxObjRepl::AddressOf(const std::string &db, uint64_t id)
 {
   std::lock_guard<std::recursive_mutex> g_(p->mu);
+  GXOBJREPL_NO_READS_IN_FULL_SEND((FAU_t)0)
   auto it = p->s.dbs.find(db);
   if(it == p->s.dbs.end()) return 0;
   auto w = it->second->where.find(id);
@@ -1689,6 +1744,7 @@ FAU_t gxObjRepl::AddressOf(const std::string &db, uint64_t id)
 uint64_t gxObjRepl::IdAt(const std::string &db, FAU_t a)
 {
   std::lock_guard<std::recursive_mutex> g_(p->mu);
+  GXOBJREPL_NO_READS_IN_FULL_SEND(0)
   auto it = p->s.dbs.find(db);
   if(it == p->s.dbs.end()) return 0;
   auto w = it->second->who.find(a);
@@ -1697,6 +1753,7 @@ uint64_t gxObjRepl::IdAt(const std::string &db, FAU_t a)
 std::vector<uint64_t> gxObjRepl::Ids(const std::string &db, Which which)
 {
   std::lock_guard<std::recursive_mutex> g_(p->mu);
+  GXOBJREPL_NO_READS_IN_FULL_SEND(std::vector<uint64_t>())
   std::vector<uint64_t> v;
   auto it = p->s.dbs.find(db);
   if(it == p->s.dbs.end()) return v;
@@ -1714,6 +1771,7 @@ std::vector<std::string> gxObjRepl::Databases()
 int gxObjRepl::FindKey(const std::string &index, const void *key, unsigned n, std::vector<uint64_t> &ids)
 {
   std::lock_guard<std::recursive_mutex> g_(p->mu);
+  GXOBJREPL_NO_READS_IN_FULL_SEND(-1)
   ids.clear();
   for(auto &x : p->s.ixs) {
     if(x->def.name != index || x->def.kind != 'B') continue;
@@ -1732,6 +1790,7 @@ int gxObjRepl::FindKey(const std::string &index, const void *key, unsigned n, st
 int gxObjRepl::Nearest(const std::string &index, const float *q, unsigned k, std::vector<gxObjReplHit> &hits)
 {
   std::lock_guard<std::recursive_mutex> g_(p->mu);
+  GXOBJREPL_NO_READS_IN_FULL_SEND(-1)
   hits.clear();
   for(auto &x : p->s.ixs) {
     if(x->def.name != index || x->def.kind != 'V') continue;
@@ -1817,14 +1876,15 @@ int gxObjRepl::IndexCheck(const std::string &root, const std::string &spec, std:
       rc = 5; continue;
     }
     gxDatabase db;
-    if(!exists(path(root, def.db + ".gxd"))) {                 // no database yet: the same as an empty one (as in Digest)
+    bool nodb = !exists(path(root, def.db + ".gxd"));
+    if(nodb && !exists(x.file(root))) {                        // no database and no index yet: the same as empty
       report += "index " + def.name + " " + def.db + " " + def.kind + " entries 0 digest " + hex16(0) + " consistent\n";
       continue;
     }
-    if(db.Open(path(root, def.db + ".gxd").c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { report += "index " + def.name + ": cannot open the database " + def.db + "\n"; rc = 5; continue; }
+    if(!nodb && db.Open(path(root, def.db + ".gxd").c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { report += "index " + def.name + ": cannot open the database " + def.db + "\n"; rc = 5; continue; }
     std::set<std::pair<std::string, uint64_t>> want_b;
     std::map<uint64_t, std::vector<float>> want_v;
-    for(FAU_t a = db.FindFirstObject(); a != (FAU_t)0; a = db.FindNextObject(a)) {
+    for(FAU_t a = nodb ? (FAU_t)0 : db.FindFirstObject(); a != (FAU_t)0; a = db.FindNextObject(a)) {
       __ULWORD__ n = db.ObjectLength(a);
       std::vector<unsigned char> rec(n);
       if(n < sizeof(ObjHead) || db.Read(rec.data(), n, a) != gxDBASE_NO_ERROR) continue;
@@ -1833,7 +1893,7 @@ int gxObjRepl::IndexCheck(const std::string &root, const std::string &spec, std:
       if(def.kind == 'B') { IxKey k; if(x.key(h.id, rec.data() + sizeof(h), h.len, k)) want_b.insert({std::string((char *)k.d.k, 32), h.id}); }
       else { std::vector<float> v; if(x.vec(rec.data() + sizeof(h), h.len, v)) want_v[h.id] = v; }
     }
-    db.Close();
+    if(!nodb) db.Close();
     size_t entries = 0, missing = 0, extra = 0; uint64_t dig = DIGEST0;
     if(def.kind == 'B') {
       if(x.bt.Open(x.file(root).c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { report += "index " + def.name + ": cannot open\n"; rc = 5; continue; }
@@ -1967,7 +2027,11 @@ int gxObjRepl::Rejoin(const std::string &root, std::string &msg)
   bool was_primary = s.st.role == ROLE_PRIMARY;
   uint64_t last = s.st.next_seq - 1, unacked = was_primary && last > s.st.acked_seq ? last - s.st.acked_seq : 0;
   if(!s.begin()) { msg = s.err; s.close(); return 1; }
-  for(FAU_t a = s.ob.FindFirstObject(); a != (FAU_t)0;) { FAU_t n = s.ob.FindNextObject(a); s.ob.Delete(a); a = n; }   // the outbox
+  for(FAU_t a = s.ob.FindFirstObject(); a != (FAU_t)0;) {      // the outbox
+    FAU_t n = s.ob.FindNextObject(a);
+    if(!s.ob.Delete(a)) { s.j.Rollback(); msg = "cannot clear the outbox"; s.close(); return 1; }
+    a = n;
+  }
   s.st.role = ROLE_COPY; s.st.in_snapshot = 1; s.st.snapshot_base = 0; s.st.applied_seq = 0;
   s.st.rejoin_dropped = unacked;
   s.st.applied_digest = DIGEST0;

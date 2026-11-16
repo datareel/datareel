@@ -74,8 +74,15 @@ and any other copy refuse its older epoch); it comes back with Rejoin(),
 which replaces its databases with the new primary's and records how
 many of its own commits were dropped (dropped_at_rejoin in its status).
 The copy refuses application writes (Begin() and Put() on a copy fail).
-A gxObjRepl is not thread-safe: use one from one thread (Serve() on a
-copy runs in the calling thread until Stop()).
+Threads: every call takes one lock in the object, so readers (Get,
+FindKey, Nearest ...) may run in other threads while Serve() applies
+frames (it holds the lock only while it applies one) or while the
+application writes; a reader sees uncommitted changes of a transaction
+in progress. Pump() holds the lock while it exchanges frames with the
+copy (not while it connects). Close() stops a Serve() running in another
+thread and waits for it. Stop() may be called from a signal handler.
+While a copy receives a full send, reads fail with "a full send is under
+way" (InSnapshot() says so).
 
 After a connection drops, the primary's next Pump() connects again and
 both sides check names, roles, epoch, sequence and a running digest of
@@ -182,7 +189,7 @@ public: // Open and close
   int Open(const std::string &root, const gxObjReplConfig &cfg, Role role);
   void Close();
   int IsOpen() const;
-  const std::string &Error() const;
+  std::string Error() const;
 
 public: // Primary: changes, committed together
   // Opens (or creates) a database before Begin(): the journal attaches
@@ -237,6 +244,7 @@ public: // Reads (either role)
 	      std::vector<uint64_t> &ids);
   int Nearest(const std::string &index, const float *query, unsigned k,
 	      std::vector<gxObjReplHit> &hits);
+  int InSnapshot();                // a copy in the middle of a full send
 
 public: // State
   uint64_t Epoch() const;
