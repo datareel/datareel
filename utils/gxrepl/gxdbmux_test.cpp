@@ -22,6 +22,7 @@ Prints PASS/FAIL lines; exit code 0 when every test passed.
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
 #include "gxdbmux.h"
+#include "gxheader.h"   // 11/16/2026: gxBlockHeader, gxWirePackBlockHeader()
 
 #include <stdio.h>
 #include <string.h>
