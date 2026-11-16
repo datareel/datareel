@@ -33,7 +33,7 @@ rem   -DDATAREEL_SSL=OPENSSL -DOPENSSL_ROOT_DIR=C:/openssl64
 |--------|---------|---------|
 | `DATAREEL_SSL` | `OPENSSL` (Linux), `SCHANNEL` (Windows) | TLS backend |
 | `DATAREEL_64BIT_DATABASE` | `OFF` | 64-bit file addresses (files over 2 GB). Changes the file format. |
-| `DATAREEL_NATIVE_TYPES` | `ON` | Native integer/float types in records and file headers. With `ON`, `.gxd`, `.btx` and `.vix` files do not move between 64-bit Linux and 64-bit Windows or 32-bit builds: `gxUINT32` is `unsigned long` (8 bytes on 64-bit Linux, 4 on 64-bit Windows and with a 32-bit compiler) and the file headers use it. `DATAREEL_64BIT_DATABASE=OFF` on 64-bit Linux keeps the 64-bit Linux layout. `OFF` uses fixed-size byte-order classes instead. Changes the file format. Fixed-width header types for the default build are planned. |
+| `DATAREEL_NATIVE_TYPES` | `ON` | Native integer/float types in records and file headers. The library's file headers are written in one layout on every platform since 7.4 beta 4 (old 4-byte layout files are read and written as they are; `gxd_upgrade` converts one), but with `ON` native gx types in an application's own records keep their platform's size (`gxUINT32` is 8 bytes on 64-bit Linux, 4 on Windows): use fixed-width types in records that move. `OFF` uses fixed-size byte-order classes instead. Changes the file format. |
 | `DATAREEL_GUI` | `CONSOLE` | `WX` shows errors in wxWidgets message boxes |
 | `BUILD_SHARED_LIBS` | `OFF` | Shared library (`libdatareel.so.7`, `datareel.dll`) |
 | `DATAREEL_BUILD_EXAMPLES` | `ON` | Examples, utilities, tests and the docs/ai samples |

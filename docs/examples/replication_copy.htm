@@ -39,7 +39,7 @@
 <LI><CODE>replication_copy digest</CODE> prints what the folder holds, whatever the files' layout: the records (address and bytes, in address order), the B-tree's keys in order (the example's own key walk) and the vector index's live nodes. The primary and the copy print the same. <CODE>vix_rebuild --digest</CODE> checks both vector indexes as well.</LI>
 <LI>A copy that loses or damages its indexes does not need them from the primary: <CODE>replication_copy rebuild</CODE> makes both again from the copy's own records, and the digests agree again.</LI>
 </OL>
-<P>Copy Windows to Windows (and Linux to Linux). In the default build (DATAREEL_NATIVE_TYPES=ON) the file headers hold <CODE>gxUINT32</CODE> fields, which are <CODE>unsigned long</CODE>: 8 bytes on 64-bit Linux, 4 on 64-bit Windows and with a 32-bit compiler, so the .gxd data file, the .btx B-tree and the .vix vector index of one layout do not open in another (fixed-width header types are planned).</P>
+<P>Since 7.4 beta 4 every platform writes one file layout, so a folder copied from Windows opens on Linux and the reverse, as long as the application's own records use fixed-width types (this example's records do). Files written in the old 4-byte layout by an earlier Windows build are read and written as they are; <CODE>gxd_upgrade</CODE> rewrites one in the new layout.</P>
 
 <h2 id="Running">Running It</h2>
 <P>On Windows, from the build folder of a Visual Studio build:</P>
