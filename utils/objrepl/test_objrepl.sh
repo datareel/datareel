@@ -73,13 +73,14 @@ done
 stop_copy
 "$X" takeover "$T/c" > /dev/null
 ep=$("$X" status "$T/c" | awk '{print $2}')
-start_copy
-"$X" primary "$T/p" --copy 127.0.0.1:$PORT "${PTLS[@]}" --commits 3 --per 2 >> "$T/primary.log" 2>&1; prc=$?
+# 11/16/2026: a node that took over will not run as a copy (two primaries), so the old primary finds no copy
+"$X" copy "$T/c" --listen $PORT "${CTLS[@]}" > "$T/copy_after.log" 2>&1; crc=$?
+timeout 60 "$X" primary "$T/p" --copy 127.0.0.1:$PORT "${PTLS[@]}" --commits 1 --per 1 >> "$T/primary.log" 2>&1; prc=$?
 dc2=$("$X" digest "$T/c")
-if [ "$ep" == "2" ] && [ $prc -eq 3 ] && [ "$dc2" == "$dc" ]; then
-    ok "takeover: the copy is primary at epoch 2 and refused the old primary (exit 3); its objects unchanged"
+if [ "$ep" == "2" ] && [ $crc -eq 4 ] && grep -q "two primaries" "$T/copy_after.log" && [ $prc -ne 0 ] && [ "$dc2" == "$dc" ]; then
+    ok "takeover: the copy is primary at epoch 2, refuses to run as a copy (alarm), the old primary gets no copy; objects unchanged"
 else
-    bad "takeover" "epoch $ep, old primary rc $prc, copy before [$dc] after [$dc2]"
+    bad "takeover" "epoch $ep, copy rc $crc, old primary rc $prc, copy before [$dc] after [$dc2]"
 fi
 stop_copy
 grep -c "refused" "$T/primary.log" > /dev/null || true
