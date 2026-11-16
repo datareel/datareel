@@ -544,3 +544,5 @@ These are planned features, not part of 7.4:
   replication.
 - File utilities: hexdump, file find and text filter programs for 7.x.
 - A TLS throughput section in the dr_bench benchmarks.
+- Plain (non-TLS) UDP broadcast and multicast examples, for local
+  networks.
