@@ -177,11 +177,9 @@ struct Sim {
     std::mt19937_64 rr(seed);
     while(!stopping) {
       double t0 = now_s();
-      {
-	std::lock_guard<std::mutex> g(mu);
-	if(rr() % 2) { uint64_t sym = rr() % NSYM; std::vector<uint64_t> ids; r.FindKey("sym", &sym, 8, ids); }
-	else { float q[16]; for(auto &f : q) f = (float)((int)(rr() % 2001) - 1000) / 1000.0f; std::vector<gxObjReplHit> h; r.Nearest("vec", q, 10, h); }
-      }
+      // the library locks each call itself; the simulator's own lock is only for its id lists (the writer's)
+      if(rr() % 2) { uint64_t sym = rr() % NSYM; std::vector<uint64_t> ids; r.FindKey("sym", &sym, 8, ids); }
+      else { float q[16]; for(auto &f : q) f = (float)((int)(rr() % 2001) - 1000) / 1000.0f; std::vector<gxObjReplHit> h; r.Nearest("vec", q, 10, h); }
       double us = (now_s() - t0) * 1e6;
       reads++;
       { std::lock_guard<std::mutex> g(latmu); lat.push_back(us); }
@@ -291,7 +289,7 @@ int main(int argc, char **argv)
     double t0 = now_s();
     if(!s.commit_one(tickdb, (uint64_t)(h * 3600), 5 + (int)(s.rng() % 20))) { fprintf(stderr, "commit: %s\n", s.r.Error().c_str()); break; }
     commits++;
-    { std::lock_guard<std::mutex> g(s.mu); if(s.r.Pump() == 3) { fprintf(stderr, "refused\n"); break; } }
+    if(s.r.Pump() == 3) { fprintf(stderr, "refused\n"); break; }   // not under the writer's lock: readers go on
     double wait = 1.0 / rate - (now_s() - t0);
     if(wait > 0) std::this_thread::sleep_for(std::chrono::duration<double>(wait));
     if(now_s() - last_print >= 1) {

@@ -944,6 +944,10 @@ struct gxObjRepl::Impl {
   // reader threads (Get, FindKey, Nearest ...) run between frames (11/16/2026)
   std::recursive_mutex mu;
   std::atomic<int> serving{0};       // Serve() is running (Close() stops it and waits)
+  std::atomic<int> waiting{0};       // readers waiting for the lock: Serve() and Pump() step aside between frames
+  // a long run of frames (a catch-up, a full send) gives the lock up between frames when a reader waits: the mutex
+  // is not fair, so without this a reader could wait for the whole run (sim day: reader p99 near 50 s)
+  void step_aside() { if(waiting > 0) { mu.unlock(); std::this_thread::sleep_for(std::chrono::microseconds(300)); mu.lock(); } }
   std::vector<LinkDef> pending_links; // copy: the link map of a primary not yet accepted (F_EPOCH adopts it)
   // primary: the open transaction's ops, and the moves
   std::vector<Touch> touched;
@@ -1143,6 +1147,7 @@ struct gxObjRepl::Impl {
       uint64_t acked = 0;
       if(!exchange(b, acked)) return false;
       L.copy_applied = acked;
+      step_aside();
     }
     // the copy's acknowledgement is recorded (acked_seq and its digest) with or without trimming (review 2: with trim
     // off the rejoin count was wrong); trimming drops the outbox entries it has, and the digest log keeps a window
@@ -1560,6 +1565,7 @@ int gxObjRepl::Impl::serve()
       int w = wait(st.Connection().Socket(), cfg.idle_timeout);
       if(w == -2) { say("copy: no frame from " + pname + " in " + std::to_string(cfg.idle_timeout) + " s: connection dropped"); break; }
       if(w <= 0 || !recv_frame(st, b)) break;
+      if(waiting > 0) std::this_thread::sleep_for(std::chrono::microseconds(300));   // readers first (see step_aside)
       std::lock_guard<std::recursive_mutex> fl(mu);          // the frame: applied with the node held
       if(drop_every && ++frames % drop_every == 0) break;      // test only: the connection drops (no restart)
       frames_total++; last_frame = time(0);
@@ -1777,13 +1783,18 @@ int gxObjRepl::Impl::serve()
 }
 
 // ---------- reads ----------
+// a reader's lock: counted while it waits, so Serve() and Pump() step aside for it
+struct RLock {
+  gxObjRepl::Impl *p; std::unique_lock<std::recursive_mutex> l;
+  RLock(gxObjRepl::Impl *q) : p(q) { p->waiting++; l = std::unique_lock<std::recursive_mutex>(p->mu); p->waiting--; }
+};
 // a copy in the middle of a full send holds a part of the data, with links not yet translated: reads wait for it to
 // end (review 3: readers saw links naming nothing)
 #define GXOBJREPL_NO_READS_IN_FULL_SEND(ret) if(p->role == COPY && p->s.is_open && p->s.st.in_snapshot) { p->err = "a full send is under way"; return ret; }
-int gxObjRepl::InSnapshot() { std::lock_guard<std::recursive_mutex> g_(p->mu); return p->s.is_open && p->s.st.in_snapshot; }
+int gxObjRepl::InSnapshot() { RLock g_(p); return p->s.is_open && p->s.st.in_snapshot; }
 int gxObjRepl::Get(const std::string &db, uint64_t id, std::vector<unsigned char> &bytes)
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  RLock g_(p);
   bytes.clear();
   GXOBJREPL_NO_READS_IN_FULL_SEND(-1)
   auto it = p->s.dbs.find(db);
@@ -1795,14 +1806,14 @@ int gxObjRepl::Get(const std::string &db, uint64_t id, std::vector<unsigned char
 }
 int gxObjRepl::IsLive(const std::string &db, uint64_t id)
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  RLock g_(p);
   GXOBJREPL_NO_READS_IN_FULL_SEND(0)
   auto it = p->s.dbs.find(db);
   return it != p->s.dbs.end() && it->second->live(id);
 }
 FAU_t gxObjRepl::AddressOf(const std::string &db, uint64_t id)
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  RLock g_(p);
   GXOBJREPL_NO_READS_IN_FULL_SEND((FAU_t)0)
   auto it = p->s.dbs.find(db);
   if(it == p->s.dbs.end()) return 0;
@@ -1811,7 +1822,7 @@ FAU_t gxObjRepl::AddressOf(const std::string &db, uint64_t id)
 }
 uint64_t gxObjRepl::IdAt(const std::string &db, FAU_t a)
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  RLock g_(p);
   GXOBJREPL_NO_READS_IN_FULL_SEND(0)
   auto it = p->s.dbs.find(db);
   if(it == p->s.dbs.end()) return 0;
@@ -1820,7 +1831,7 @@ uint64_t gxObjRepl::IdAt(const std::string &db, FAU_t a)
 }
 std::vector<uint64_t> gxObjRepl::Ids(const std::string &db, Which which)
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  RLock g_(p);
   GXOBJREPL_NO_READS_IN_FULL_SEND(std::vector<uint64_t>())
   std::vector<uint64_t> v;
   auto it = p->s.dbs.find(db);
@@ -1831,14 +1842,14 @@ std::vector<uint64_t> gxObjRepl::Ids(const std::string &db, Which which)
 }
 std::vector<std::string> gxObjRepl::Databases()
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  RLock g_(p);
   std::vector<std::string> v;
   for(auto &d : p->s.dbs) v.push_back(d.first);
   return v;
 }
 int gxObjRepl::FindKey(const std::string &index, const void *key, unsigned n, std::vector<uint64_t> &ids)
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  RLock g_(p);
   GXOBJREPL_NO_READS_IN_FULL_SEND(-1)
   ids.clear();
   for(auto &x : p->s.ixs) {
@@ -1857,7 +1868,7 @@ int gxObjRepl::FindKey(const std::string &index, const void *key, unsigned n, st
 }
 int gxObjRepl::Nearest(const std::string &index, const float *q, unsigned k, std::vector<gxObjReplHit> &hits)
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  RLock g_(p);
   GXOBJREPL_NO_READS_IN_FULL_SEND(-1)
   hits.clear();
   for(auto &x : p->s.ixs) {
