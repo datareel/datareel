@@ -46,6 +46,9 @@ wait_port() {
   return 1
 }
 
+# 11/16/2026: the version the library reports, version.txt and the release notes title agree (7.4-beta4 shipped saying
+# "7.4 beta3"); before tagging, run tools/check_release_version.sh TAG
+check release_version "$SRC/tools/check_release_version.sh"
 echo "Building in $BUILD"
 cmake -S "$SRC" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release $CMAKE_OPTS > "$WORK/cmake.log" 2>&1 &&
 cmake --build "$BUILD" -j"$(nproc)" >> "$WORK/cmake.log" 2>&1 || {

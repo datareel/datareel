@@ -1,4 +1,4 @@
-DataReel 7.4 Beta 3 Release Notes (vector extensions), 11/14/2026
+DataReel 7.4 Beta 5 Release Notes (vector extensions), 11/14/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the
@@ -558,6 +558,12 @@ platform too (see NEW IN BETA 5).
 
 NEW IN BETA 5 (11/16/2026)
 --------------------------
+- Known issue of beta 4, fixed here: the library's version string
+  (DATAREEL_VERSION_STRING, include/gxdlcode.h) still said "7.4 beta3",
+  so beta 4's gxrepl reports 7.4 beta3. It says "7.4 beta5" now, and
+  tools/check_release_version.sh TAG (also a run_tests check without a
+  tag) fails when the version string, version.txt and the release notes
+  title do not match the release.
 - gxsIMAPClient (gxsimap.h): an IMAP4rev1 mail client, based on the
   IMAP client class of a 2007 program that downloads report messages
   to a spool folder, released under the LGPL. Implicit TLS (port
