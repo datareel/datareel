@@ -797,7 +797,11 @@ struct gxObjRepl::Impl {
     st.Connection().SetCAFile(cfg.ca);
     st.SetClientCert(cfg.cert, cfg.key);
     st.SetTimeOut(30);
-    return st.Connect(cfg.copy.substr(0, c), atoi(cfg.copy.substr(c + 1).c_str())) == 0;
+    if(st.Connect(cfg.copy.substr(0, c), atoi(cfg.copy.substr(c + 1).c_str())) != 0) return false;
+    // a frame is a header write and a block write, answered by a small ack: without TCP_NODELAY Nagle holds the
+    // block for the peer's delayed ack (about 40 ms per frame on Linux)
+    st.Connection().Socket().SetNoDelay(true);
+    return true;
   }
   bool hello() {
     if(L.st) return true;
@@ -1205,6 +1209,7 @@ int gxObjRepl::Impl::serve()
     gxStream st;
     st.SetTimeOut(3600);
     if(srv.Accept(st) != 0) continue;
+    st.Connection().Socket().SetNoDelay(true);                // the acks go out at once (see connect_to)
     std::vector<unsigned char> b;
     st.SetTimeOut(30);
     if(!recv_frame(st, b)) { st.Close(); continue; }
@@ -1638,6 +1643,25 @@ int gxObjRepl::Takeover(const std::string &root, std::string &msg)
   s.st.cur_digest = s.st.acked_digest = s.st.applied_digest; s.st.acked_seq = s.st.applied_seq; s.put_state();
   int rc = s.j.Commit() == gxDBASE_NO_ERROR ? 0 : 1;
   msg = root + " is primary at epoch " + std::to_string(s.st.epoch) + " (applied " + std::to_string(s.st.applied_seq) + ")";
+  s.close();
+  return rc;
+}
+
+int gxObjRepl::Rejoin(const std::string &root, std::string &msg)
+{
+  Node s;
+  std::vector<LinkDef> nolinks; s.links = &nolinks;
+  if(!s.open(root, true)) { msg = s.err; s.close(); return 1; }
+  if(s.st.role != ROLE_PRIMARY) { msg = root + " is not a primary: nothing to rejoin"; s.close(); return 1; }
+  uint64_t last = s.st.next_seq - 1, unacked = last > s.st.acked_seq ? last - s.st.acked_seq : 0;
+  s.j.Begin();
+  for(FAU_t a = s.ob.FindFirstObject(); a != (FAU_t)0;) { FAU_t n = s.ob.FindNextObject(a); s.ob.Delete(a); a = n; }   // the outbox
+  s.st.role = ROLE_COPY; s.st.in_snapshot = 1; s.st.snapshot_base = 0; s.st.applied_seq = 0;
+  s.st.applied_digest = DIGEST0;
+  s.put_state();
+  int rc = s.j.Commit() == gxDBASE_NO_ERROR ? 0 : 1;
+  msg = root + " is a copy at epoch " + std::to_string(s.st.epoch) + ", waiting for a full send; " + std::to_string(unacked) +
+	" commit(s) past seq " + std::to_string(s.st.acked_seq) + " (the last its copy acknowledged) will be dropped";
   s.close();
   return rc;
 }

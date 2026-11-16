@@ -244,6 +244,12 @@ public: // Folders, without an open node
   static int Status(const std::string &root, std::string &line);
   // A copy becomes primary at the next epoch. Returns 0, or 1 (and msg)
   static int Takeover(const std::string &root, std::string &msg);
+  // A former primary becomes a copy again (after another node took
+  // over): it waits for a full send from the new primary, which
+  // replaces its databases. Commits it made that the new primary never
+  // got are dropped; msg says how many (the last seq past the last one
+  // its copy acknowledged). Returns 0, or 1 (and msg)
+  static int Rejoin(const std::string &root, std::string &msg);
 
 public:
   struct Impl;

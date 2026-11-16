@@ -47,6 +47,7 @@ Usage:
   objrepl clear-alarm ROOT
   objrepl status ROOT
   objrepl takeover ROOT     a copy becomes primary: epoch + 1
+  objrepl rejoin ROOT       a former primary becomes a copy (full send)
   Common: --name N --peer-name N --links SPEC --index SPEC --max-lag N
   --max-behind S --min-cert-days N --config FILE. Any of them may come
   from ROOT/objrepl.conf (or --config FILE), one "key value" line each
@@ -251,7 +252,7 @@ static int run_copy(const std::string &root, const gxObjReplConfig &cfg)
 
 int main(int argc, char **argv)
 {
-  if(argc < 3) { fprintf(stderr, "usage: objrepl primary|copy|digest|ixcheck|status|check|clear-alarm|takeover ROOT [options]\n"); return 64; }
+  if(argc < 3) { fprintf(stderr, "usage: objrepl primary|copy|digest|ixcheck|status|check|clear-alarm|takeover|rejoin ROOT [options]\n"); return 64; }
   std::string cmd = argv[1], root = argv[2], why;
   gxObjReplConfig cfg;
   GenOpts o;
@@ -293,6 +294,11 @@ int main(int argc, char **argv)
   if(cmd == "check" || cmd == "monitor") { rc = gxObjRepl::Check(root, cfg, line); printf("%s\n", line.c_str()); return rc; }
   if(cmd == "clear-alarm") { rc = gxObjRepl::ClearAlarm(root, line); printf("%s\n", line.c_str()); return rc; }
   if(cmd == "status") { rc = gxObjRepl::Status(root, line); printf("%s\n", line.c_str()); return rc; }
+  if(cmd == "rejoin") {
+    rc = gxObjRepl::Rejoin(root, line);
+    if(rc == 0) printf("objrepl rejoin: %s\n", line.c_str()); else fprintf(stderr, "objrepl rejoin: %s\n", line.c_str());
+    return rc;
+  }
   if(cmd == "takeover") {
     rc = gxObjRepl::Takeover(root, line);
     if(rc == 0) printf("objrepl takeover: %s\n", line.c_str()); else fprintf(stderr, "objrepl takeover: %s\n", line.c_str());
