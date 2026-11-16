@@ -4375,6 +4375,132 @@ def test_derived_vix_incremental_recovered_commit_is_indexed():
         env.stop()
 
 
+def _recgap_env(name):
+    """11/15/2026: an incremental set's folder d1 stamped, its adds-only writer finished (small objects at the tail)"""
+    env, ws, aws, w = _stamped(name, commits=20, writer_args=("--adds-only", "--size-max", "64"))
+    w.wait(120)
+    _finish(env, ws, aws, w)
+    _wait_stamped(env, aws, "d1")
+    time.sleep(2)
+    return env, ws, aws, w
+
+
+def _recgap_index_ok(env, ws, aws):
+    _wait_gen(ws, aws, "d1", 180)
+    _wait_stamped(env, aws, "d1", 180)
+    time.sleep(3)
+    _wait_stamped(env, aws, "d1", 180)
+    ok, d = _index_equals_rebuild(env, os.path.join(aws, "d1"))
+    assert ok, f"the copy's index is not its data's (copy, rebuild): {d}\n" + env.logs()
+    check_db(os.path.join(aws, "d1"))
+    check_db(os.path.join(ws, "d1"))
+
+
+def _adds(d1, ws, seed, *extra, env_extra=None):
+    return _objects_writer_bg(d1, "--commits", 3, "--per", 1, "--commit-block", "--ship-root", ws, "--seed", seed,
+                              "--adds-only", "--size-max", 64, *extra, extra_env=env_extra)
+
+
+def test_incremental_gap_alone_is_indexed():
+    """11/15/2026 (review 4): a gap record alone (no open record in its batch, no orphan objects record): writer B's
+    first commit reaches the files and not the ship log (GXDSHIP_TEST_DROP_COMMIT), a gap record comes before its
+    next; the next commits write the same tail page. The copy's index must hold the lost commit's objects."""
+    env, ws, aws, w = _recgap_env("incr_gap_alone")
+    try:
+        d1 = os.path.join(ws, "d1")
+        gate = os.path.join(env.dir, "go")
+        b = _adds(d1, ws, 601, "--wait-at", 0, "--wait-file", gate, env_extra={"GXDSHIP_TEST_DROP_COMMIT": "1"})
+        time.sleep(2)                                  # B's open record applied (and verified) on its own first
+        _wait_stamped(env, aws, "d1", 180)
+        time.sleep(3)
+        put(gate, b"go\n")
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_lone_open_then_commit_is_indexed():
+    """11/15/2026 (review 2): writer B's open record reaches the copy alone (B waits before its first commit) and the
+    stream's verify is held off (GXREPL_TEST_VERIFY_WAIT): the derived pass rebuilds the folder from data that lacks
+    writer A's recovered commit, then B's commits (the same tail page) arrive. Until the verify is done the stream
+    stays off object by object, so the index ends with A's objects."""
+    env, ws, aws, w = _recgap_env("incr_lone_open")
+    try:
+        d1 = os.path.join(ws, "d1")
+        vw = os.path.join(env.dir, "verify_go")
+        env.kill("client")
+        env.start_client({"GXREPL_TEST_VERIFY_WAIT": vw})
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 611,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, "writer A was not stopped before the ship log: " + a.stdout
+        gate = os.path.join(env.dir, "go")
+        b = _adds(d1, ws, 612, "--wait-at", 0, "--wait-file", gate)
+        time.sleep(3)                                  # B's lone open record applied
+        _wait_stamped(env, aws, "d1", 180)             # rebuilt (or never dropped), stamped again
+        time.sleep(2)
+        put(gate, b"go\n")
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        time.sleep(5)                                  # B's commits applied while the verify waits
+        put(vw, b"go\n")
+        _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_kill_in_the_stamp_drop():
+    """11/15/2026 (review 3/4): gxrepl killed -9 in the middle of an open record's stamp drop (after the derived state
+    and derived.stamp, before the index stamps): after a restart the folder is rebuilt and its index is its data's"""
+    env, ws, aws, w = _recgap_env("incr_kill_drop")
+    try:
+        d1 = os.path.join(ws, "d1")
+        env.kill("client")
+        _restart_server(env, {"GXREPL_TEST_KILL_IN_DROP": "1"})
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 621,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, a.stdout
+        b = _adds(d1, ws, 622)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        env.start_client()
+        end = time.time() + 60
+        while time.time() < end and env.server.poll() is None:
+            time.sleep(0.2)
+        assert env.server.poll() == 9, "the server was not killed in the drop\n" + env.logs()
+        _restart_server(env)
+        _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_open_in_a_file_update_is_indexed():
+    """11/15/2026 (review 4): writer B's open record and commits reach the copy inside a file update (the reconnect's
+    file sync held while B runs, GXREPL_TEST_SYNC_FILE_HOLD), the ApplyFiles path: the copy's index holds writer A's
+    recovered objects"""
+    env, ws, aws, w = _recgap_env("incr_open_in_files")
+    try:
+        d1 = os.path.join(ws, "d1")
+        env.kill("client")
+        hold = os.path.join(env.dir, "sync_hold")
+        env.start_client({"GXREPL_TEST_SYNC_FILE_HOLD": hold, "GXREPL_TEST_SYNC_FILE_HOLD_ON": "commit.bin"})
+        end = time.time() + 60
+        while time.time() < end and not os.path.exists(hold + ".held"):
+            time.sleep(0.1)
+        assert os.path.exists(hold + ".held"), "the reconnect's file sync never started\n" + env.logs()
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 631,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, a.stdout
+        b = _adds(d1, ws, 632)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        put(hold, b"go\n")
+        _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
 def test_incremental_fill_without_records_drops_the_stamps():
     """11/15/2026 (stamp-keeping fill): a fill keeps the folder's stamps only when every page it writes is what the
     update's records write or what the copy already holds. Commits made without the ship log (--no-ship: pages no
