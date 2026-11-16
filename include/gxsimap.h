@@ -54,6 +54,9 @@ selected mailbox.
 
 #include "gxdlcode.h"
 
+#include <string>
+#include <vector>
+#include <cstddef>
 #include "gxsocket.h"
 #include "gxstring.h"
 #if defined (__USE_GX_SSL_EXTENSIONS__)
@@ -62,6 +65,25 @@ selected mailbox.
 
 // Default largest reply read for one command, in bytes
 const unsigned gxsIMAP_DEF_MAX_REPLY = 64 * 1024 * 1024;
+const int gxsIMAP_RECV_TIMEOUT_SECS = 300; // 5 minutes (2007 client, 7.4)
+
+#ifndef __GX_MAIL_SECURITY_ENUM__
+#define __GX_MAIL_SECURITY_ENUM__
+// The DataReel 7.4 mail security choice, for Connect()
+enum gxsMailSecurity {
+  gxsMAIL_IMPLICIT_TLS, // TLS from the start (IMAPS 993)
+  gxsMAIL_STARTTLS      // Plain greeting, then STARTTLS (143)
+};
+#endif
+
+// One untagged reply ("* ...") of a command, as in DataReel 7.4.
+// Literals are taken out of the text: each one leaves a NUL, its index
+// and a NUL in text, and its bytes in literals[index].
+struct GXDLCODE_API gxsIMAPUntagged
+{
+  std::string text;
+  std::vector<std::string> literals;
+};
 
 // IMAP client - See RFC 3501 for specifications
 class GXDLCODE_API gxsIMAPClient : public gxSocket
@@ -82,9 +104,10 @@ public: // Connection functions
   // successful.
   gxSocketError StartTLS();
   gxSocketError Login(const char *username, const char *password);
-  // LOGOUT, then closes the connection
-  gxSocketError Logout();
-  void CloseClient();
+  // LOGOUT, then closes the connection (or only sends LOGOUT if
+  // close_sockets is 0). Returns 0 if successful.
+  int Logout(int close_sockets = 1);
+  int CloseClient();
   int IMAPConnected() { return imap_connected; }
   int IsTLS() { return use_tls; }
   void AllowPlainLogin(int allow = 1) { allow_plain_login = allow; }
@@ -135,6 +158,79 @@ public: // Command functions
   // of a FETCH)
   const gxString &LastLiteral() { return last_literal; }
 
+public: // ------------------------------------------------------------
+  // The DataReel 7.4 interface, with the 2007 work client's calls, so a
+  // program builds against either version. Each returns 0 if successful
+  // (the server replied OK) or -1; Error() has the reason.
+  // ------------------------------------------------------------
+  // Settings used before Connect()
+  void SetTimeout(int seconds) { SetTimeOut(seconds, 0); }
+  void SetCAFile(const std::string &fname);
+  void SetVerifyPeer(bool on);
+  void SetMaxSize(std::size_t n) { max_reply = (unsigned)(n > 0xFFFFFFFFUL ? 0xFFFFFFFFUL : n); }
+  // Implicit TLS (port 993) or STARTTLS on the plain port (143). A server
+  // that does not accept STARTTLS is refused.
+  int Connect(const std::string &host, int port = gxSOCKET_SIMAP_PORT,
+	      gxsMailSecurity security = gxsMAIL_IMPLICIT_TLS);
+  // Plain text, user name and password included. Use it only for a
+  // server on the same host or a private test network.
+  int ConnectPlain(const std::string &host, int port = gxSOCKET_IMAP_PORT);
+  // 2007 form: implicit TLS
+  int ConnectClient(const std::string &host, int port = gxSOCKET_SIMAP_PORT) {
+    return ConnectClient(host.c_str(), port, 1) == gxSOCKET_NO_ERROR ? 0 : -1;
+  }
+  void Close() { CloseClient(); }
+  bool IsConnected() { return imap_connected != 0; }
+  bool IsSecure() { return use_tls != 0; }
+  int Login(const std::string &user, const std::string &passwd);
+  // 2007 form: connects with implicit TLS first if not connected
+  int Login(const std::string &host, int port, const std::string &user,
+	    const std::string &passwd);
+  int Capability(std::vector<std::string> &caps);
+  bool HasCapability(const std::string &cap) const;
+  int SelectMailbox(const std::string &mailbox, int &num_messages);
+  // 2007 form: rxbuf gets the server's reply lines
+  int SelectMailbox(const std::string &mailbox, std::string &rxbuf,
+		    int &num_messages);
+  int Examine(const std::string &mailbox, int &num_messages); // Read-only
+  int ListMailboxes(std::vector<std::string> &names,
+		    const std::string &pattern = "*");
+  int Search(const std::string &criteria, std::vector<unsigned> &numbers);
+  int FetchHeader(int message_number, std::string &header);
+  // 2007 form: also INTERNALDATE and the envelope's Date:
+  int FetchHeader(int message_number, std::string &header,
+		  std::string &datetime, std::string &sent_datetime);
+  int FetchBody(int message_number, std::string &body);
+  int FetchMessage(int message_number, std::string &message);
+  int FetchInternalDate(int message_number, std::string &datetime);
+  int Delete(int message_number); // Sets \Deleted; Expunge() removes it
+  // Sends a command (the tag is added) and reads the reply up to its
+  // tagged completion. The untagged replies are in Untagged().
+  int Command(const std::string &cmd);
+  // 2007 calls: SendCommand() sends one command and passes back its tag;
+  // RecvBuffer() reads the reply to that tag into buf.
+  int SendCommand(const std::string &command, std::string &tag);
+  int RecvBuffer(const std::string &tag, std::string &buf);
+  // 2007 ParseResponse(): the first line in rxbuf that starts with
+  // start_str, ends with end_str and contains line_str (or any line if
+  // line_str is empty); with parse_mid_str the text between start_str
+  // and line_str, trimmed. Returns 1 if found.
+  static int ParseResponse(const std::string &rxbuf,
+			   const std::string &start_str,
+			   const std::string &end_str,
+			   const std::string &line_str, std::string &line,
+			   int parse_mid_str);
+  // The value of a FETCH item (such as "BODY[TEXT]" or "INTERNALDATE")
+  // in an untagged FETCH reply: a literal, a quoted string or NIL.
+  static int FetchItem(const gxsIMAPUntagged &u, const std::string &item,
+		       std::string &value);
+  static bool Quote(const std::string &s, std::string &quoted);
+  const std::string &LastReply() const { return last_reply; } // Tagged line
+  std::string Error() const { return std::string(imap_error.c_str()); }
+  const std::vector<gxsIMAPUntagged> &Untagged() const { return untagged; }
+  void SetRecordProto(bool on) { record_proto = on ? 1 : 0; }
+  std::string ProtoString() const { return std::string(proto_log.c_str(), proto_log.length()); }
+
 public: // Error and setting functions
   const char *IMAPExceptionMessage() { return imap_error.c_str(); }
   void SetTimeOut(int seconds, int useconds = 0) {
@@ -150,6 +246,13 @@ private:
   gxSocketError IMAPError(const char *mesg);
   gxSocketError Exchange(const gxString *parts, int num_parts,
 			 gxString &reply, int no_log = 0);
+  gxSocketError SendParts(const gxString *parts, int num_parts,
+			  gxString &tag, gxString &reply, int no_log);
+  int Fail(const char *mesg);
+  int FetchOne(int message_number, const std::string &request,
+	       const std::string &item, std::string &value);
+  int SelectCmd(const char *verb, const std::string &mailbox,
+		int &num_messages, std::string *raw);
   int ReadLine(gxString &line);
   int ReadCount(unsigned n, gxString &data);
   int FillBuffer();
@@ -186,6 +289,9 @@ private:
   unsigned rx_pos;
   unsigned rx_len;
   unsigned reply_bytes;
+  std::vector<gxsIMAPUntagged> untagged; // Untagged replies of the last command
+  std::string last_reply;               // Its tagged status line
+  std::vector<std::string> capabilities;
 };
 
 #endif // __GX_EMBEDDED_IMAP_LIB_HPP__

@@ -47,6 +47,7 @@ supported, and replies are limited in size.
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 gxsIMAPClient::gxsIMAPClient()
 {
@@ -61,7 +62,7 @@ gxsIMAPClient::gxsIMAPClient()
   have_literal = 0;
   rx_pos = rx_len = 0;
   reply_bytes = 0;
-  imap_error = "IMAP: no errors reported";
+  imap_error = "IMAP exception: No errors reported";
 }
 
 gxsIMAPClient::~gxsIMAPClient()
@@ -73,7 +74,7 @@ gxSocketError gxsIMAPClient::IMAPError(const char *mesg)
 // Sets the error message and returns gxSOCKET_IMAP_ERROR, or the socket
 // error if a socket error is already set
 {
-  imap_error << clear << "IMAP: " << mesg;
+  imap_error << clear << "IMAP exception: " << mesg;
   if(socket_error == gxSOCKET_NO_ERROR) socket_error = gxSOCKET_IMAP_ERROR;
   return socket_error;
 }
@@ -230,6 +231,133 @@ static int imap_literal_size(const gxString &line, unsigned &size)
   return 1;
 }
 
+// --------------------------------------------------------------
+// 11/16/2026: Text helpers for the DataReel 7.4 interface
+// --------------------------------------------------------------
+static int imap_ieq(const std::string &a, const char *b)
+{
+  size_t n = strlen(b);
+  if(a.size() != n) return 0;
+  for(size_t i = 0; i < n; i++) {
+    if(toupper((unsigned char)a[i]) != toupper((unsigned char)b[i])) return 0;
+  }
+  return 1;
+}
+
+static int imap_istarts(const std::string &a, const char *b)
+{
+  size_t n = strlen(b);
+  if(a.size() < n) return 0;
+  return imap_ieq(a.substr(0, n), b);
+}
+
+static std::string imap_trim(const std::string &s)
+{
+  size_t b = 0, e = s.size();
+  while(b < e && (s[b] == ' ' || s[b] == '\t' || s[b] == '\r' || s[b] == '\n')) b++;
+  while(e > b && (s[e-1] == ' ' || s[e-1] == '\t' || s[e-1] == '\r' || s[e-1] == '\n')) e--;
+  return s.substr(b, e - b);
+}
+
+static void imap_parse_caps(const std::string &list, std::vector<std::string> &caps)
+{
+  caps.clear();
+  size_t pos = 0;
+  while(pos < list.size()) {
+    while(pos < list.size() && list[pos] == ' ') pos++;
+    size_t start = pos;
+    while(pos < list.size() && list[pos] != ' ') pos++;
+    if(pos > start) {
+      std::string c = list.substr(start, pos - start);
+      for(size_t i = 0; i < c.size(); i++) c[i] = (char)toupper((unsigned char)c[i]);
+      caps.push_back(c);
+    }
+  }
+}
+
+static void imap_skip_spaces(const std::string &t, size_t &pos)
+{
+  while(pos < t.size() && t[pos] == ' ') pos++;
+}
+
+// One string value: a quoted string, a literal, NIL or an atom
+static bool imap_read_string(const std::string &t, size_t &pos,
+			     const std::vector<std::string> &literals,
+			     std::string &value)
+{
+  value.clear();
+  imap_skip_spaces(t, pos);
+  if(pos >= t.size()) return false;
+  if(t[pos] == '"') {
+    for(pos++; pos < t.size(); pos++) {
+      if(t[pos] == '\\' && pos + 1 < t.size()) { value += t[++pos]; continue; }
+      if(t[pos] == '"') { pos++; return true; }
+      value += t[pos];
+    }
+    return false;
+  }
+  if(t[pos] == '\0') {
+    size_t end = t.find('\0', pos + 1);
+    if(end == std::string::npos) return false;
+    size_t idx = (size_t)strtoul(t.c_str() + pos + 1, 0, 10);
+    if(idx >= literals.size()) return false;
+    value = literals[idx];
+    pos = end + 1;
+    return true;
+  }
+  if(t[pos] == '(' || t[pos] == ')') return false;
+  size_t start = pos;
+  while(pos < t.size() && t[pos] != ' ' && t[pos] != '(' && t[pos] != ')') {
+    if(t[pos] == '[') { // BODY[HEADER.FIELDS (DATE)]
+      size_t close = t.find(']', pos);
+      if(close == std::string::npos) return false;
+      pos = close + 1;
+      continue;
+    }
+    pos++;
+  }
+  value.assign(t, start, pos - start);
+  if(imap_ieq(value, "NIL")) value.clear();
+  return pos > start;
+}
+
+// Skips one value of any kind, parenthesized lists included
+static bool imap_skip_value(const std::string &t, size_t &pos)
+{
+  static const std::vector<std::string> none;
+  imap_skip_spaces(t, pos);
+  if(pos >= t.size()) return false;
+  if(t[pos] == '(') {
+    pos++;
+    for(;;) {
+      imap_skip_spaces(t, pos);
+      if(pos >= t.size()) return false;
+      if(t[pos] == ')') { pos++; return true; }
+      if(!imap_skip_value(t, pos)) return false;
+    }
+  }
+  if(t[pos] == '\0') {
+    size_t end = t.find('\0', pos + 1);
+    if(end == std::string::npos) return false;
+    pos = end + 1;
+    return true;
+  }
+  std::string ignored;
+  return imap_read_string(t, pos, none, ignored);
+}
+
+// Leading message number of "N EXISTS", "N FETCH (...)"
+static bool imap_leading_number(const std::string &t, unsigned &n, size_t &pos)
+{
+  pos = 0;
+  n = 0;
+  while(pos < t.size() && pos < 10 && t[pos] >= '0' && t[pos] <= '9') {
+    n = n * 10 + (unsigned)(t[pos] - '0');
+    pos++;
+  }
+  return pos > 0 && (pos == t.size() || t[pos] == ' ');
+}
+
 int gxsIMAPClient::ReadReply(const gxString &tag, gxString &reply,
 			     int want_cont)
 // Reads lines and literals until the line that starts with tag, or a
@@ -246,13 +374,27 @@ int gxsIMAPClient::ReadReply(const gxString &tag, gxString &reply,
     reply << line;
     LogLine("S: ", line);
     // Literals: {n} at the end of the line, then n bytes, then the
-    // rest of the line
+    // rest of the line. u is the 7.4 form of the line: each literal is
+    // a NUL, its index and a NUL in text, its bytes in literals.
+    gxsIMAPUntagged u;
     unsigned size;
     gxString logical = line;
     while(imap_literal_size(line, size)) {
       if(ReadCount(size, lit) != 0) {
 	imap_connected = 0;
 	return -1;
+      }
+      {
+	std::string frag(line.c_str(), line.length());
+	std::string::size_type open = frag.rfind('{');
+	if(open != std::string::npos) frag.erase(open);
+	char idx[32];
+	sprintf(idx, "%u", (unsigned)u.literals.size());
+	u.text += frag;
+	u.text += '\0';
+	u.text += idx;
+	u.text += '\0';
+	u.literals.push_back(std::string(lit.c_str(), lit.length()));
       }
       reply << lit;
       if(!have_literal) {
@@ -272,6 +414,24 @@ int gxsIMAPClient::ReadReply(const gxString &tag, gxString &reply,
       LogLine("S: ", line);
       logical << line;
     }
+    {
+      std::string frag(line.c_str(), line.length());
+      while(!frag.empty() && (frag[frag.size()-1] == '\n' || frag[frag.size()-1] == '\r')) {
+	frag.erase(frag.size() - 1);
+      }
+      u.text += frag;
+    }
+    if(u.text.compare(0, 2, "* ") == 0) {
+      u.text.erase(0, 2);
+      if(imap_istarts(u.text, "CAPABILITY ")) {
+	imap_parse_caps(u.text.substr(11), capabilities);
+      }
+      untagged.push_back(u);
+    }
+    else if(!tag.is_null() && u.text.compare(0, tag.length() + 1,
+					      std::string(tag.c_str()) + " ") == 0) {
+      last_reply = u.text;
+    }
     const char *s = logical.c_str();
     if(want_cont && s[0] == '+') return 2;
     {
@@ -286,7 +446,7 @@ int gxsIMAPClient::ReadReply(const gxString &tag, gxString &reply,
 	   (status.length() == 2 || status[2] == ' ')) {
 	  return 0;
 	}
-	imap_error << clear << "IMAP: server replied " << status;
+	imap_error << clear << "IMAP exception: " << status;
 	socket_error = gxSOCKET_IMAP_ERROR;
 	return 1;
       }
@@ -297,7 +457,7 @@ int gxsIMAPClient::ReadReply(const gxString &tag, gxString &reply,
       gxString bye = logical;
       bye.TrimTrailing('\n');
       bye.TrimTrailing('\r');
-      imap_error << clear << "IMAP: " << bye;
+      imap_error << clear << "IMAP exception: Server closed the session: " << bye;
     }
   }
 }
@@ -308,14 +468,32 @@ gxSocketError gxsIMAPClient::Exchange(const gxString *parts, int num_parts,
 // with a literal size {n}; the next part starts with the n bytes and
 // is sent after the server's continuation request. Reads the reply.
 {
+  gxString tag;
+  gxSocketError err = SendParts(parts, num_parts, tag, reply, no_log);
+  if(err != gxSOCKET_NO_ERROR) return err;
+  int rv = ReadReply(tag, reply);
+  if(rv < 0) return IMAPError("no reply from the server");
+  if(rv > 0) return gxSOCKET_IMAP_ERROR; // imap_error has the reply
+  return socket_error = gxSOCKET_NO_ERROR;
+}
+
+gxSocketError gxsIMAPClient::SendParts(const gxString *parts, int num_parts,
+				       gxString &tag, gxString &reply,
+				       int no_log)
+// Sends a tagged command made of parts and passes back its tag. Every
+// part but the last ends with a literal size {n}; the next part starts
+// with the n bytes and is sent after the server's continuation request.
+{
   reply.Clear();
   last_literal.Clear();
   have_literal = 0;
   reply_bytes = 0;
-  if(!imap_connected) return IMAPError("not connected to a server");
+  untagged.clear();
+  last_reply.clear();
+  if(!imap_connected) return IMAPError("Client is not connected to server");
   socket_error = gxSOCKET_NO_ERROR;
 
-  gxString tag, sbuf;
+  gxString sbuf;
   NextTag(tag);
   for(int i = 0; i < num_parts; i++) {
     sbuf.Clear();
@@ -349,9 +527,6 @@ gxSocketError gxsIMAPClient::Exchange(const gxString *parts, int num_parts,
       if(rv != 2) return IMAPError("no continuation request for a literal");
     }
   }
-  int rv = ReadReply(tag, reply);
-  if(rv < 0) return IMAPError("no reply from the server");
-  if(rv > 0) return gxSOCKET_IMAP_ERROR; // imap_error has the reply
   return socket_error = gxSOCKET_NO_ERROR;
 }
 
@@ -404,10 +579,10 @@ gxSocketError gxsIMAPClient::ConnectClient(const char *host, int port,
 #endif
   server_host = host;
   if(InitSocketLibrary() != 0 ||
-     InitSocket(SOCK_STREAM, port, (char *)host) < 0 || Connect() < 0) {
+     InitSocket(SOCK_STREAM, port, (char *)host) < 0 || gxSocket::Connect() < 0) {
     gxSocketError err = socket_error;
-    imap_error << clear << "IMAP: " << SocketExceptionMessage();
-    Close();
+    imap_error << clear << "IMAP exception: " << SocketExceptionMessage();
+    gxSocket::Close();
     return socket_error = err;
   }
   imap_connected = 1;
@@ -524,30 +699,32 @@ gxSocketError gxsIMAPClient::Login(const char *username, const char *password)
   for(int i = 0; i < 3; i++) parts[i].Clear(1);
   if(err != gxSOCKET_NO_ERROR) {
     gxString m = imap_error;
-    m.DeleteAt(0, 6); // "IMAP: "
-    imap_error << clear << "IMAP: login failed: " << m;
+    m.DeleteAt(0, 16); // "IMAP exception: "
+    imap_error << clear << "IMAP exception: Login failed: " << m;
   }
   return err;
 }
 
-gxSocketError gxsIMAPClient::Logout()
+int gxsIMAPClient::Logout(int close_sockets)
 {
-  if(!imap_connected) return socket_error = gxSOCKET_NO_ERROR;
+  if(!imap_connected) { socket_error = gxSOCKET_NO_ERROR; return 0; }
   gxString cmd = "LOGOUT", reply;
   gxSocketError err = Exchange(&cmd, 1, reply);
-  CloseClient();
-  return err;
+  if(close_sockets) CloseClient();
+  else imap_connected = 0;
+  return err == gxSOCKET_NO_ERROR ? 0 : -1;
 }
 
-void gxsIMAPClient::CloseClient()
+int gxsIMAPClient::CloseClient()
 {
 #if defined (__USE_GX_SSL_EXTENSIONS__)
   if(use_tls) openssl.CloseSSLSocket();
 #endif
-  Close();
+  gxSocket::Close();
   imap_connected = 0;
   use_tls = 0;
   rx_pos = rx_len = 0;
+  return 0;
 }
 
 // --------------------------------------------------------------
@@ -818,6 +995,351 @@ gxSocketError gxsIMAPClient::SendCommand(const char *command, gxString &reply)
   }
   gxString cmd = command;
   return Exchange(&cmd, 1, reply);
+}
+// --------------------------------------------------------------
+// 11/16/2026: The DataReel 7.4 interface (with the 2007 calls). Each
+// returns 0 if successful or -1, with the reason in Error().
+// --------------------------------------------------------------
+int gxsIMAPClient::Fail(const char *mesg)
+{
+  IMAPError(mesg);
+  return -1;
+}
+
+void gxsIMAPClient::SetCAFile(const std::string &fname)
+{
+#if defined (__USE_GX_SSL_EXTENSIONS__)
+  openssl.SetCAList(fname.c_str());
+#else
+  (void)fname;
+#endif
+}
+
+void gxsIMAPClient::SetVerifyPeer(bool on)
+{
+#if defined (__USE_GX_SSL_EXTENSIONS__)
+  if(on) openssl.RequireVerifyCert();
+  else openssl.NoVerifyCert();
+#else
+  (void)on;
+#endif
+}
+
+int gxsIMAPClient::Connect(const std::string &host, int port,
+			   gxsMailSecurity security)
+{
+#if defined (__USE_GX_SSL_EXTENSIONS__)
+  if(!*openssl.HostName()) openssl.SetHostName(host.c_str());
+#endif
+  if(security == gxsMAIL_STARTTLS) {
+    if(ConnectClient(host.c_str(), port, 0) != gxSOCKET_NO_ERROR) return -1;
+    if(StartTLS() != gxSOCKET_NO_ERROR) return -1; // Refused or failed
+    return 0;
+  }
+  return ConnectClient(host.c_str(), port, 1) == gxSOCKET_NO_ERROR ? 0 : -1;
+}
+
+int gxsIMAPClient::ConnectPlain(const std::string &host, int port)
+{
+  AllowPlainLogin(1);
+  return ConnectClient(host.c_str(), port, 0) == gxSOCKET_NO_ERROR ? 0 : -1;
+}
+
+int gxsIMAPClient::Login(const std::string &user, const std::string &passwd)
+{
+  if(HasCapability("LOGINDISABLED")) {
+    return Fail("The server does not accept LOGIN (LOGINDISABLED)");
+  }
+  return Login(user.c_str(), passwd.c_str()) == gxSOCKET_NO_ERROR ? 0 : -1;
+}
+
+int gxsIMAPClient::Login(const std::string &host, int port,
+			 const std::string &user, const std::string &passwd)
+{
+  if(!imap_connected) {
+    if(Connect(host, port, gxsMAIL_IMPLICIT_TLS) != 0) return -1;
+  }
+  return Login(user, passwd);
+}
+
+int gxsIMAPClient::Capability(std::vector<std::string> &caps)
+{
+  caps.clear();
+  if(Command("CAPABILITY") != 0) return -1;
+  caps = capabilities;
+  return 0;
+}
+
+bool gxsIMAPClient::HasCapability(const std::string &cap) const
+{
+  for(size_t i = 0; i < capabilities.size(); i++) {
+    if(imap_ieq(capabilities[i], cap.c_str())) return true;
+  }
+  return false;
+}
+
+int gxsIMAPClient::SelectCmd(const char *verb, const std::string &mailbox,
+			     int &num_messages, std::string *raw)
+{
+  num_messages = 0;
+  if(mailbox.empty()) return Fail("No mailbox name");
+  gxString parts[2], reply;
+  int n = 0;
+  parts[0] = verb;
+  imap_add_arg(parts, n, mailbox.c_str());
+  if(Exchange(parts, n + 1, reply) != gxSOCKET_NO_ERROR) {
+    if(raw) raw->assign(reply.c_str(), reply.length());
+    return -1;
+  }
+  if(raw) raw->assign(reply.c_str(), reply.length());
+  for(size_t i = 0; i < untagged.size(); i++) {
+    unsigned v;
+    size_t pos;
+    const std::string &t = untagged[i].text;
+    if(imap_leading_number(t, v, pos) && imap_ieq(imap_trim(t.substr(pos)), "EXISTS")) {
+      num_messages = v > 0x7FFFFFFF ? 0x7FFFFFFF : (int)v;
+    }
+  }
+  return 0;
+}
+
+int gxsIMAPClient::SelectMailbox(const std::string &mailbox, int &num_messages)
+{
+  return SelectCmd("SELECT", mailbox, num_messages, 0);
+}
+
+int gxsIMAPClient::SelectMailbox(const std::string &mailbox,
+				 std::string &rxbuf, int &num_messages)
+{
+  rxbuf.clear();
+  return SelectCmd("SELECT", mailbox, num_messages, &rxbuf);
+}
+
+int gxsIMAPClient::Examine(const std::string &mailbox, int &num_messages)
+{
+  return SelectCmd("EXAMINE", mailbox, num_messages, 0);
+}
+
+int gxsIMAPClient::ListMailboxes(std::vector<std::string> &names,
+				 const std::string &pattern)
+{
+  names.clear();
+  gxString parts[3], reply;
+  int n = 0;
+  parts[0] = "LIST \"\"";
+  imap_add_arg(parts, n, pattern.c_str());
+  if(Exchange(parts, n + 1, reply) != gxSOCKET_NO_ERROR) return -1;
+  for(size_t i = 0; i < untagged.size(); i++) {
+    const gxsIMAPUntagged &u = untagged[i];
+    if(!imap_istarts(u.text, "LIST ")) continue;
+    size_t pos = 5;
+    std::string delim, name;
+    if(!imap_skip_value(u.text, pos)) continue;                      // (flags)
+    if(!imap_read_string(u.text, pos, u.literals, delim)) continue;  // "/" or NIL
+    if(!imap_read_string(u.text, pos, u.literals, name)) continue;
+    names.push_back(name);
+  }
+  return 0;
+}
+
+int gxsIMAPClient::Search(const std::string &criteria,
+			  std::vector<unsigned> &numbers)
+{
+  numbers.clear();
+  if(Command("SEARCH " + (criteria.empty() ? std::string("ALL") : criteria)) != 0) {
+    return -1;
+  }
+  for(size_t i = 0; i < untagged.size(); i++) {
+    const std::string &t = untagged[i].text;
+    if(!imap_istarts(t, "SEARCH")) continue;
+    size_t pos = 6;
+    while(pos < t.size()) {
+      imap_skip_spaces(t, pos);
+      size_t start = pos;
+      while(pos < t.size() && t[pos] != ' ') pos++;
+      std::string f = t.substr(start, pos - start);
+      if(f.empty() || f.size() > 10 ||
+	 f.find_first_not_of("0123456789") != std::string::npos) continue;
+      numbers.push_back((unsigned)strtoul(f.c_str(), 0, 10));
+    }
+  }
+  return 0;
+}
+
+// The untagged FETCH reply for message_number that has item
+static const gxsIMAPUntagged *imap_find_fetch(const std::vector<gxsIMAPUntagged> &untagged,
+					      int message_number, const std::string &item)
+{
+  std::string value;
+  for(size_t i = 0; i < untagged.size(); i++) {
+    unsigned n;
+    size_t pos;
+    if(!imap_leading_number(untagged[i].text, n, pos) ||
+       n != (unsigned)message_number) continue;
+    if(gxsIMAPClient::FetchItem(untagged[i], item, value) == 0) return &untagged[i];
+  }
+  return 0;
+}
+
+int gxsIMAPClient::FetchOne(int message_number, const std::string &request,
+			    const std::string &item, std::string &value)
+{
+  value.clear();
+  if(message_number <= 0) return Fail("Client using invalid message number");
+  char num[32];
+  sprintf(num, "%d", message_number);
+  if(Command(std::string("FETCH ") + num + " (" + request + ")") != 0) return -1;
+  const gxsIMAPUntagged *u = imap_find_fetch(untagged, message_number, item);
+  if(!u) return Fail((std::string("No ") + item + " in the reply").c_str());
+  return FetchItem(*u, item, value);
+}
+
+int gxsIMAPClient::FetchHeader(int message_number, std::string &header)
+{
+  return FetchOne(message_number, "BODY.PEEK[HEADER]", "BODY[HEADER]", header);
+}
+
+int gxsIMAPClient::FetchHeader(int message_number, std::string &header,
+			       std::string &datetime, std::string &sent_datetime)
+{
+  datetime.clear();
+  sent_datetime.clear();
+  if(FetchOne(message_number, "INTERNALDATE ENVELOPE BODY.PEEK[HEADER]",
+	      "BODY[HEADER]", header) != 0) return -1;
+  const gxsIMAPUntagged *u = imap_find_fetch(untagged, message_number, "BODY[HEADER]");
+  if(!u) return -1;
+  FetchItem(*u, "INTERNALDATE", datetime);
+  std::string env; // The envelope's first field is the Date: header
+  if(FetchItem(*u, "ENVELOPE", env) == 0 && env.size() > 1) {
+    size_t pos = 1;
+    imap_read_string(env, pos, u->literals, sent_datetime);
+  }
+  return 0;
+}
+
+int gxsIMAPClient::FetchBody(int message_number, std::string &body)
+{
+  return FetchOne(message_number, "BODY.PEEK[TEXT]", "BODY[TEXT]", body);
+}
+
+int gxsIMAPClient::FetchMessage(int message_number, std::string &message)
+{
+  return FetchOne(message_number, "BODY.PEEK[]", "BODY[]", message);
+}
+
+int gxsIMAPClient::FetchInternalDate(int message_number, std::string &datetime)
+{
+  return FetchOne(message_number, "INTERNALDATE", "INTERNALDATE", datetime);
+}
+
+int gxsIMAPClient::Delete(int message_number)
+{
+  return MarkDeleted(message_number) == gxSOCKET_NO_ERROR ? 0 : -1;
+}
+
+int gxsIMAPClient::Command(const std::string &cmd)
+{
+  std::string tag;
+  if(SendCommand(cmd, tag) != 0) return -1;
+  std::string buf;
+  return RecvBuffer(tag, buf);
+}
+
+int gxsIMAPClient::SendCommand(const std::string &command, std::string &tag)
+{
+  tag.clear();
+  if(command.empty()) return Fail("No command");
+  if(command.find_first_of("\r\n") != std::string::npos ||
+     command.find('\0') != std::string::npos) {
+    return Fail("CR, LF or NUL in the command");
+  }
+  gxString part = command.c_str(), t, reply;
+  if(SendParts(&part, 1, t, reply, 0) != gxSOCKET_NO_ERROR) return -1;
+  tag.assign(t.c_str(), t.length());
+  return 0;
+}
+
+int gxsIMAPClient::RecvBuffer(const std::string &tag, std::string &buf)
+{
+  buf.clear();
+  gxString t = tag.c_str(), reply;
+  int rv = ReadReply(t, reply);
+  buf.assign(reply.c_str(), reply.length());
+  if(rv < 0) return Fail("No reply from server");
+  return rv == 0 ? 0 : -1; // imap_error has a NO or BAD reply
+}
+
+int gxsIMAPClient::ParseResponse(const std::string &rxbuf,
+				 const std::string &start_str,
+				 const std::string &end_str,
+				 const std::string &line_str, std::string &line,
+				 int parse_mid_str)
+{
+  line.clear();
+  if(start_str.empty() || end_str.empty()) return 0;
+  size_t offset = 0;
+  while(offset < rxbuf.size()) {
+    offset = rxbuf.find(start_str, offset);
+    if(offset == std::string::npos) break;
+    size_t end_of_line = rxbuf.find(end_str, offset);
+    if(end_of_line == std::string::npos) break;
+    std::string tmp_line = rxbuf.substr(offset, end_of_line - offset + end_str.size());
+    if(line_str.empty()) { line = tmp_line; return 1; }
+    size_t mid = tmp_line.find(line_str, start_str.size());
+    if(mid != std::string::npos) {
+      if(parse_mid_str) line = imap_trim(tmp_line.substr(start_str.size(), mid - start_str.size()));
+      else line = tmp_line;
+      return 1;
+    }
+    offset++;
+  }
+  return 0;
+}
+
+int gxsIMAPClient::FetchItem(const gxsIMAPUntagged &u, const std::string &item,
+			     std::string &value)
+{
+  value.clear();
+  const std::string &t = u.text;
+  unsigned n;
+  size_t pos;
+  if(!imap_leading_number(t, n, pos)) return -1;
+  imap_skip_spaces(t, pos);
+  if(!imap_istarts(t.substr(pos), "FETCH")) return -1;
+  pos += 5;
+  imap_skip_spaces(t, pos);
+  if(pos >= t.size() || t[pos] != '(') return -1;
+  pos++;
+  for(;;) {
+    imap_skip_spaces(t, pos);
+    if(pos >= t.size() || t[pos] == ')') return -1;
+    std::string name;
+    if(!imap_read_string(t, pos, u.literals, name)) return -1;
+    imap_skip_spaces(t, pos);
+    if(imap_ieq(name, item.c_str())) {
+      if(pos < t.size() && t[pos] == '(') { // A list: its text
+	size_t start = pos;
+	if(!imap_skip_value(t, pos)) return -1;
+	value.assign(t, start, pos - start);
+	return 0;
+      }
+      return imap_read_string(t, pos, u.literals, value) ? 0 : -1;
+    }
+    if(!imap_skip_value(t, pos)) return -1;
+  }
+}
+
+bool gxsIMAPClient::Quote(const std::string &s, std::string &quoted)
+{
+  quoted = "\"";
+  for(size_t i = 0; i < s.size(); i++) {
+    unsigned char c = (unsigned char)s[i];
+    if(c == 0 || c == '\r' || c == '\n' || c > 0x7E) return false;
+    if(c == '"' || c == '\\') quoted += '\\';
+    quoted += (char)c;
+  }
+  quoted += '"';
+  return true;
 }
 // ----------------------------------------------------------- //
 // ------------------------------- //

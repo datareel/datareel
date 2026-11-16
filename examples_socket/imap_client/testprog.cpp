@@ -67,6 +67,8 @@ not show in the process list.
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <string>
+#include <vector>
 #include "gxsimap.h"
 #if defined (__WIN32__)
 #include <io.h>
@@ -89,8 +91,8 @@ static void Usage(const char *prog)
 
 static int Fail(gxsIMAPClient &imap, int show_log)
 {
-  printf("%s\n", imap.IMAPExceptionMessage());
-  if(show_log) printf("%s", imap.ProtoLog().c_str());
+  printf("%s\n", imap.Error().c_str());
+  if(show_log) printf("%s", imap.ProtoString().c_str());
   imap.CloseClient();
   return 1;
 }
@@ -141,37 +143,48 @@ int main(int argc, char **argv)
     password[strcspn(password, "\r\n")] = 0;
   }
 
+  // 11/16/2026: The calls below are the DataReel 7.4 gxsIMAPClient
+  // interface, which 6.4 also has, so this code builds with either.
   gxsIMAPClient imap;
-  imap.SetTimeOut(60);
-  imap.RecordSession(show_log);
-  imap.AllowPlainLogin(allow_plain);
+  imap.SetTimeout(60);
+  imap.SetRecordProto(show_log != 0);
+  if(ca) imap.SetCAFile(ca);
+  imap.SetVerifyPeer(verify != 0);
 #if defined (__USE_GX_SSL_EXTENSIONS__)
-  if(!plain) {
-    imap.openssl.SetHostName(name ? name : server);
-    if(ca) imap.openssl.SetCAList(ca);
-    if(verify) imap.openssl.RequireVerifyCert();
-  }
+  if(!plain && name) imap.openssl.SetHostName(name); // 6.4 only
 #endif
 
-  if(imap.ConnectClient(server, port, use_tls) != 0) return Fail(imap, show_log);
-  if(starttls && imap.StartTLS() != 0) return Fail(imap, show_log);
-  if(imap.Login(username, password) != 0) {
+  int crv;
+  if(plain) {
+    if(!allow_plain) {
+      printf("Refusing to send a password without TLS (add --allow-plain)\n");
+      return 1;
+    }
+    crv = imap.ConnectPlain(server, port);
+  }
+  else {
+    crv = imap.Connect(server, port, starttls ? gxsMAIL_STARTTLS :
+		       gxsMAIL_IMPLICIT_TLS);
+  }
+  if(crv != 0) return Fail(imap, show_log);
+  if(imap.Login(std::string(username), std::string(password)) != 0) {
     memset(password, 0, sizeof(password));
     return Fail(imap, show_log);
   }
   memset(password, 0, sizeof(password));
 
   int rv = 0;
-  gxString out, out2;
+  std::string out, out2;
   if(strcmp(command, "list") == 0) {
-    rv = imap.ListMailboxes(out);
-    if(rv == 0) printf("%s", out.c_str());
+    std::vector<std::string> names;
+    rv = imap.ListMailboxes(names);
+    for(size_t k = 0; rv == 0 && k < names.size(); k++) printf("%s\n", names[k].c_str());
   }
   else {
     int count = 0;
-    rv = imap.SelectMailbox(mailbox, count,
-			    !(strcmp(command, "seen") == 0 ||
-			      strcmp(command, "delete") == 0));
+    int writes = (strcmp(command, "seen") == 0 || strcmp(command, "delete") == 0);
+    rv = writes ? imap.SelectMailbox(std::string(mailbox), count) :
+      imap.Examine(mailbox, count);
     int n = atoi(arg);
     if(rv != 0) {
       ;
@@ -180,30 +193,37 @@ int main(int argc, char **argv)
       printf("%d\n", count);
     }
     else if(strcmp(command, "search") == 0) {
-      rv = imap.Search(*arg ? arg : "ALL", out);
-      if(rv == 0) printf("%s\n", out.c_str());
+      std::vector<unsigned> nums;
+      rv = imap.Search(*arg ? arg : "ALL", nums);
+      for(size_t k = 0; rv == 0 && k < nums.size(); k++) {
+	printf("%s%u", k ? " " : "", nums[k]);
+      }
+      if(rv == 0) printf("\n");
     }
     else if(strcmp(command, "header") == 0) {
       rv = imap.FetchHeader(n, out);
-      if(rv == 0) printf("%s", out.c_str());
+      if(rv == 0) fwrite(out.data(), 1, out.size(), stdout);
     }
     else if(strcmp(command, "body") == 0) {
       rv = imap.FetchBody(n, out);
-      if(rv == 0) printf("%s", out.c_str());
+      if(rv == 0) fwrite(out.data(), 1, out.size(), stdout);
     }
     else if(strcmp(command, "message") == 0) {
       rv = imap.FetchMessage(n, out);
-      if(rv == 0) printf("%s", out.c_str());
+      if(rv == 0) fwrite(out.data(), 1, out.size(), stdout);
     }
     else if(strcmp(command, "dates") == 0) {
-      rv = imap.FetchDates(n, out, out2);
+      std::string hdr;
+      rv = imap.FetchHeader(n, hdr, out, out2); // The 2007 form
       if(rv == 0) printf("received: %s\nsent: %s\n", out.c_str(), out2.c_str());
     }
     else if(strcmp(command, "seen") == 0) {
-      rv = imap.MarkSeen(n);
+      char cmd[64];
+      sprintf(cmd, "STORE %d +FLAGS.SILENT (\\Seen)", n);
+      rv = imap.Command(cmd);
     }
     else if(strcmp(command, "delete") == 0) {
-      rv = imap.MarkDeleted(n);
+      rv = imap.Delete(n);
       if(rv == 0) rv = imap.Expunge();
     }
     else {
@@ -214,7 +234,7 @@ int main(int argc, char **argv)
   }
   if(rv != 0) return Fail(imap, show_log);
   imap.Logout();
-  if(show_log) printf("%s", imap.ProtoLog().c_str());
+  if(show_log) printf("%s", imap.ProtoString().c_str());
   return 0;
 }
 // ----------------------------------------------------------- //

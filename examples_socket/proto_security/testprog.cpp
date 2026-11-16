@@ -862,6 +862,77 @@ static void TestIMAP()
     fs.Join();
   }
 
+  { // The DataReel 7.4 interface and the 2007 calls (std::string)
+    std::string hdr = "Date: Mon, 16 Nov 2026 09:14:59 -0500\r\nSubject: x\r\n\r\n";
+    char hl[32];
+    sprintf(hl, "{%d}\r\n", (int)hdr.size());
+    FakeServer fs;
+    fs.Send("* OK ready\r\n");
+    fs.Reply("* CAPABILITY IMAP4rev1 LOGINDISABLED STARTTLS\r\n"
+	     "A0001 OK CAPABILITY completed\r\n");                    // CAPABILITY
+    fs.Reply("* 2 EXISTS\r\nA0002 OK [READ-ONLY] EXAMINE completed\r\n"); // EXAMINE
+    fs.Reply("* SEARCH 2 1\r\nA0003 OK SEARCH completed\r\n");       // SEARCH
+    fs.Reply("* LIST () \"/\" INBOX\r\n* LIST () \"/\" {6}\r\nDrafts\r\n"
+	     "A0004 OK LIST completed\r\n");                           // LIST
+    fs.Reply(std::string("* 1 FETCH (INTERNALDATE \"16-Nov-2026 09:15:00 -0500\" "
+	     "ENVELOPE (\"Mon, 16 Nov 2026 09:14:59 -0500\" \"x\" NIL NIL NIL NIL NIL NIL NIL NIL) "
+	     "BODY[HEADER] ") + hl + hdr + ")\r\nA0005 OK FETCH completed\r\n"); // FETCH 1
+    fs.Reply("* 3 EXISTS\r\nA0006 OK [READ-WRITE] SELECT completed\r\n"); // SELECT
+    fs.ReadLine();                                                      // A0007 NOOP
+    fs.Send("* 4 EXISTS\r\nA0007 OK NOOP completed\r\n");
+    fs.Reply("A0008 OK STORE completed\r\n");                          // Delete
+    fs.Reply("A0009 NO [CANNOT] cannot expunge\r\n");                  // EXPUNGE
+    fs.Reply("* BYE\r\nA0010 OK LOGOUT completed\r\n");                // LOGOUT
+    gxsIMAPClient imap;
+    imap.SetTimeout(3);
+    int port = fs.Start();
+    Check(imap.ConnectPlain("127.0.0.1", port) == 0, sec, "7.4: ConnectPlain");
+    std::vector<std::string> caps;
+    Check(imap.Capability(caps) == 0 && caps.size() == 3 &&
+	  imap.HasCapability("logindisabled"), sec, "7.4: Capability, HasCapability");
+    Check(imap.Login(std::string("u"), std::string("p")) == -1 &&
+	  imap.Error().find("LOGINDISABLED") != std::string::npos, sec,
+	  "7.4: no LOGIN when the server says LOGINDISABLED");
+    int n = 0;
+    Check(imap.Examine("INBOX", n) == 0 && n == 2 &&
+	  imap.LastReply().find("A0002 OK") == 0, sec, "7.4: Examine, LastReply");
+    std::vector<unsigned> nums;
+    Check(imap.Search("ALL", nums) == 0 && nums.size() == 2 && nums[0] == 2 &&
+	  nums[1] == 1, sec, "7.4: Search into numbers");
+    std::vector<std::string> names;
+    Check(imap.ListMailboxes(names) == 0 && names.size() == 2 &&
+	  names[0] == "INBOX" && names[1] == "Drafts", sec,
+	  "7.4: ListMailboxes, literal name");
+    std::string h, dt, sdt;
+    Check(imap.FetchHeader(1, h, dt, sdt) == 0 && h == hdr &&
+	  dt == "16-Nov-2026 09:15:00 -0500" &&
+	  sdt == "Mon, 16 Nov 2026 09:14:59 -0500", sec,
+	  "7.4: FetchHeader with the 2007 dates");
+    Check(imap.Untagged().size() == 1 && imap.Untagged()[0].literals.size() == 1,
+	  sec, "7.4: Untagged() holds the FETCH and its literal");
+    std::string rx;
+    Check(imap.SelectMailbox("INBOX", rx, n) == 0 && n == 3 &&
+	  rx.find("* 3 EXISTS") != std::string::npos, sec,
+	  "7.4: SelectMailbox with the 2007 rxbuf");
+    std::string tag, buf, line;
+    Check(imap.SendCommand(std::string("NOOP"), tag) == 0 && tag == "A0007" &&
+	  imap.RecvBuffer(tag, buf) == 0 &&
+	  gxsIMAPClient::ParseResponse(buf, "*", "\r\n", "EXISTS", line, 1) == 1 &&
+	  line == "4", sec, "7.4: SendCommand, RecvBuffer, ParseResponse (2007)");
+    Check(imap.Delete(1) == 0, sec, "7.4: Delete");
+    Check(imap.Expunge() != 0 && imap.Error().find("cannot expunge") != std::string::npos,
+	  sec, "7.4: NO to EXPUNGE is an error with the server's text");
+    Check(imap.Logout() == 0 && !imap.IsConnected(), sec, "7.4: Logout");
+    std::string q;
+    Check(gxsIMAPClient::Quote(std::string("a\"b"), q) && q == "\"a\\\"b\"" &&
+	  !gxsIMAPClient::Quote(std::string("x\ny"), q), sec, "7.4: Quote");
+    fs.Join();
+    Check(fs.received.find("A0002 EXAMINE \"INBOX\"") != std::string::npos &&
+	  fs.received.find("A0008 STORE 1 +FLAGS.SILENT (\\Deleted)") != std::string::npos &&
+	  fs.received.find("LOGIN") == std::string::npos, sec,
+	  "7.4: commands as sent, no LOGIN");
+  }
+
 #if defined (__USE_GX_SSL_EXTENSIONS__)
   { // STARTTLS: bytes sent after the OK, before the handshake, are not
     // read as TLS data
