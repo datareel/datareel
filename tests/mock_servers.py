@@ -249,7 +249,7 @@ def imap(c, secure, starttls_port=False):
             user, pw = imap_astrings(c, args, 2)
             if starttls_port and not secure:
                 c.send(tag + ' NO LOGIN is disabled before TLS')
-            elif (user, pw) in (('test', 'secret'), ('tëst', 'sëcret')):
+            elif (user, pw) in (('test', 'secret'), ('tëst', 'sëcret'), ('quote', 'a b"c\\d')):
                 c.send(tag + ' OK logged in')
             else:
                 c.send(tag + ' NO [AUTHENTICATIONFAILED] wrong user or password')

@@ -510,6 +510,14 @@ int gxsIMAPClient::Login(const std::string &user, const std::string &passwd)
     std::vector<std::string> caps;
     if(Capability(caps) != 0) return -1;
   }
+  // 11/16/2026: user names and passwords go as quoted strings (\\ and " escaped) or, with 8-bit bytes, as literals;
+  // a line break or a NUL is refused before anything is sent (a literal could carry it, but no server takes it)
+  for(const std::string *a : {&user, &passwd}) {
+    if(a->find_first_of(std::string("\r\n\0", 3)) != std::string::npos) {
+      return fail(std::string("IMAP exception: The ") + (a == &user ? "user name" : "password") +
+		  " contains a line break or a NUL character");
+    }
+  }
   if(HasCapability("LOGINDISABLED")) {
     return fail("IMAP exception: The server does not accept LOGIN on this "
 		"connection (LOGINDISABLED)");

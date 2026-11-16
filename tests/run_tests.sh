@@ -266,6 +266,10 @@ check imap_logindisabled_refused sh -c "! $IM $((P4+9)) test secret --plain > im
 check imap_no_starttls_refused sh -c "! $IM $((P4+10)) test secret --starttls --ca ca.pem > imapns.out 2>&1 && grep -q 'does not accept STARTTLS' imapns.out"
 check imap_bad_password_refused sh -c "! $IM $((P4+8)) test wrong --ca ca.pem > imapbp.out 2>&1 && grep -q 'Login refused' imapbp.out"
 check imap_8bit_login_literals sh -c "$IM $((P4+8)) $(printf 't\303\253st') $(printf 's\303\253cret') --ca ca.pem --debug > imap8.out && grep -q 'server->+ go ahead' imap8.out && grep -q 'LOGIN xxxxxxxx' imap8.out && ! grep -q 'cret' imap8.out"
+# 11/16/2026: a password with a space, a quote and a backslash goes as a quoted string; a line break is refused
+export QPW='a b"c\d' LBPW="$(printf 'sec\nret')"
+check imap_password_quoted sh -c "$IM $((P4+8)) quote \"\$QPW\" --ca ca.pem | grep -q '2 messages'"
+check imap_password_line_break_refused sh -c "! $IM $((P4+8)) test \"\$LBPW\" --ca ca.pem > imaplb.out 2>&1 && grep -q 'contains a line break' imaplb.out"
 check imap_session_masks_password sh -c "$IM $((P4+8)) test secret --ca ca.pem --debug > imapdbg.out && grep -q 'LOGIN xxxxxxxx' imapdbg.out && ! grep -q secret imapdbg.out"
 check imap_search sh -c "$IM $((P4+8)) test secret --ca ca.pem --search 'SUBJECT \"two\"' | grep -q '^1 match'"
 rm -rf imap_spool; mkdir imap_spool

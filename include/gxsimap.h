@@ -62,9 +62,11 @@ session with the password masked), with:
     two a command.
   - Search(), ListMailboxes(), Examine(), Capability(), Noop(),
     Delete() / Expunge() and FetchMessage() / FetchInternalDate().
-  - Quoted strings for user names, passwords and mailbox names, and
-    synchronizing literals for 8-bit ones. A server that announces
-    LOGINDISABLED is not sent a password.
+  - Quoted strings for user names, passwords and mailbox names (\\
+    and " escaped; the 2007 client sent LOGIN arguments as they were),
+    and synchronizing literals for 8-bit ones. A user name or password
+    with a line break or a NUL is refused before anything is sent. A
+    server that announces LOGINDISABLED is not sent a password.
   - Replies stop at SetMaxSize() bytes (64 MB by default).
 ==============================================================
 */

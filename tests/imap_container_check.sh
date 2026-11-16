@@ -35,6 +35,7 @@ fi
 cp "$CERT" conf/server.pem && cp "$KEY" conf/server.key || exit 1
 chmod 644 conf/server.pem conf/server.key
 printf 'test:{PLAIN}secret\n'"$(printf 't\303\253st')"':{PLAIN}'"$(printf 's\303\253cret')"'\n' > conf/users
+printf 'quote:{PLAIN}a b"c\\d\n' >> conf/users      # a space, a quote and a backslash in the password
 cat > conf/dovecot.conf <<'EOF'
 protocols = imap
 listen = *
@@ -71,10 +72,10 @@ for i in $(seq 100); do
   sleep 0.1
 done
 
-# Two messages: the first holds text that cut the 2007 client short and is 300 KB, so it arrives in many TLS
+# Two messages: the first holds text that cut the 2007 client short and is over 5 MB, so it arrives in many TLS
 # records; CR LF line ends, as IMAP returns them
 { printf 'First message\r\nNO problems, nothing BAD here }\r\nA0006 OK not a reply\r\n'
-  for i in $(seq 6000); do printf 'line %05d of a long report body .......................\r\n' $i; done
+  for i in $(seq 90000); do printf 'line %06d of a long report body ......................\r\n' $i; done
   printf 'End\r\n'; } > body1.txt
 { printf 'From: a@example.com\r\nTo: test@example.com\r\nSubject: one (report)\r\nDate: Tue, 17 Apr 2007 11:59:00 -0400\r\n\r\n'
   cat body1.txt; } > msg1.eml
@@ -84,14 +85,18 @@ for m in msg1.eml msg2.eml; do
 done
 
 IM="$E/imap_fetch localhost"
-check imapc_implicit_tls sh -c "$IM $P test secret --ca $CA -r 1 > c1.out && grep -q '2 messages' c1.out && grep -q '(TLS)' c1.out && grep -q '^A0006 OK not a reply' c1.out && grep -q '^line 06000 ' c1.out && grep -q '^End' c1.out"
+check imapc_implicit_tls sh -c "$IM $P test secret --ca $CA -r 1 > c1.out && grep -q '2 messages' c1.out && grep -q '(TLS)' c1.out && grep -q '^A0006 OK not a reply' c1.out && grep -q '^line 090000 ' c1.out && grep -q '^End' c1.out"
 check imapc_starttls sh -c "$IM $((P+1)) test secret --starttls --ca $CA | grep -q '(TLS)'"
 check imapc_plain sh -c "$IM $((P+1)) test secret --plain | grep -q '(plain text)'"
 check imapc_bad_password_refused sh -c "! $IM $P test wrong --ca $CA > c2.out 2>&1 && grep -q 'Login refused' c2.out"
 check imapc_8bit_login sh -c "$IM $P $(printf 't\303\253st') $(printf 's\303\253cret') --ca $CA | grep -q '0 messages'"
 check imapc_search sh -c "$IM $P test secret --ca $CA --search 'SUBJECT \"two\"' > c3.out && grep -q '^1 match' c3.out && grep -q '^2: two' c3.out"
 check imapc_dates sh -c "$IM $P test secret --ca $CA | grep -q 'sent Tue, 17 Apr 2007 11:59:00 -0400'"
+check imapc_password_quoted sh -c "$IM $P quote 'a b\"c\\d' --ca $CA | grep -q '0 messages'"
+check imapc_untrusted_cert_refused sh -c "! $IM $P test secret > c5.out 2>&1 && grep -q 'Cannot verify certificate' c5.out"
+check imapc_starttls_untrusted_cert_refused sh -c "! $IM $((P+1)) test secret --starttls > c6.out 2>&1 && grep -q 'Cannot verify certificate' c6.out"
 rm -rf spool; mkdir spool
+check imapc_5mb_byte_for_byte sh -c "[ \$(stat -c %s body1.txt) -gt 5000000 ] && $IM $P test secret --ca $CA --spool spool > c4.out && f=\$(ls spool/*_1.txt) && cmp \"\$f\" body1.txt && rm -rf spool && mkdir spool"
 check imapc_spool sh -c "$IM $P test secret --ca $CA --spool spool > c4.out && f=\$(ls spool/*_1.txt) && cmp \"\$f\" body1.txt && $IM $P test secret --ca $CA --spool spool | grep -c 'already in the spool' | grep -q 2"
 check imapc_unseen_kept sh -c "$IM $P test secret --ca $CA --search UNSEEN | grep -q '^2 match'"
 
