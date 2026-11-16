@@ -632,6 +632,20 @@ request and reply layouts; `utils/dbserver/object_client --vinfo` and
 
 ### Replicated copies
 
+`gxObjRepl` (gxobjrepl.h, 7.4) replicates objects between two
+independent object databases over gxStream with TLS: only objects travel,
+each node keeps its own file addresses and builds its own B-tree and
+vector indexes in the same transaction as the objects. The primary
+writes with `Begin()/Put()/Remove()/Commit()` and sends with `Pump()`;
+the copy runs `Serve()`. Links between objects travel as ids. After a
+failover, `Takeover()` makes the copy the primary at the next epoch and
+`Rejoin()` brings the old primary back as a copy. Replication is
+asynchronous: commits the copy had not received are lost with a crashed
+primary. See `docs/classes/database/gxobjrepl.htm` and the `objrepl`
+tool (`utils/objrepl/`).
+
+The older file-level replication, gxrepl:
+
 gxrepl never sends a set's derived indexes: the copy rebuilds them
 (`derived_apply = rebuild`, running `vix_rebuild`) or keeps them object
 by object (`incremental`, with the `gxvmember` extractor; not yet for
