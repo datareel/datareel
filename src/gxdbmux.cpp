@@ -90,8 +90,8 @@ void gxdMuxEncode(const gxdMuxFrame &f, std::vector<unsigned char> &out)
   gx.block_length = (gxUINT32)(BODY_HDR + f.payload.size());
   gx.block_nd_fptr = (FAU)0;
   size_t start = out.size();
-  out.resize(start + sizeof(gxBlockHeader));
-  memcpy(out.data() + start, &gx, sizeof(gxBlockHeader));
+  out.resize(start + gxWireBlockHeaderSize);       // 11/15/2026 (beta 5): the canonical wire header
+  gxWirePackBlockHeader(gx, out.data() + start);
   put8(out, gxdMUX_MARK);
   put8(out, f.kind);
   put32(out, f.channel);
@@ -391,19 +391,19 @@ void gxdMuxSession::io()
     if(in.size() > before) {
       progress = true;
       std::lock_guard<std::mutex> g(m);
-      while(in.size() - in_off >= sizeof(gxBlockHeader)) {
+      while(in.size() - in_off >= gxWireBlockHeaderSize) {
 	gxBlockHeader gx;
-	memcpy(&gx, in.data() + in_off, sizeof(gxBlockHeader));
+	gxWireUnpackBlockHeader(in.data() + in_off, gx);   // 11/15/2026 (beta 5): canonical
 	if(gx.block_check_word != gxCheckWord || gx.block_length > opt.max_block) {
 	  fail_locked("bad block from the peer"); break;
 	}
-	size_t need = sizeof(gxBlockHeader) + (size_t)gx.block_length;
+	size_t need = gxWireBlockHeaderSize + (size_t)gx.block_length;
 	if(in.size() - in_off < need) break;
 	unsigned char net = (unsigned char)((gx.block_status >> 8) & 0xff);
 	if(net == (unsigned char)gxCloseConnection) { fail_locked("closed by the peer"); break; }
 	gxdMuxFrame f;
 	if(net != (unsigned char)gxSendBlock ||
-	   gxdMuxDecodeBody(in.data() + in_off + sizeof(gxBlockHeader), gx.block_length, f) != 0) {
+	   gxdMuxDecodeBody(in.data() + in_off + gxWireBlockHeaderSize, gx.block_length, f) != 0) {
 	  fail_locked("not a multiplex frame"); break;
 	}
 	in_off += need;
