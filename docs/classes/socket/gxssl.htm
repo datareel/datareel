@@ -99,18 +99,19 @@ make</PRE>
 
 <h2 id="Enumerations">Enumerations</h2><B><FONT>
 </B></FONT><PRE><A NAME="gxSSLMethod">enum gxSSLMethod</A> {
-  <B>gxSSL_SSLv23</B>,  // Supported protocols are SSLv2, SSLv3, TLSv1, TLSv1.1 and TLSv1.2
-  <B>gxSSL_SSLv2</B>,   // Only understand SSLv2
-  <B>gxSSL_SSLv3</B>,   // Only understand SSLv3
-  <B>gxSSL_TLSv1</B>,   // Only understand TLSv1
-  <B>gxSSL_TLS</B>,     // Supported protocols SSLv3, TLSv1, TLSv1.1 and TLSv1.2
-  <B>gxSSL_TLSv1_1</B>, // Only understand TLSv1.1
+  <B>gxSSL_SSLv23</B>,  // TLS 1.2 and TLS 1.3 (same as gxSSL_TLS)
+  <B>gxSSL_SSLv2</B>,   // Refused (gxSSL_PROTOCOL_ERROR)
+  <B>gxSSL_SSLv3</B>,   // Refused
+  <B>gxSSL_TLSv1</B>,   // Refused
+  <B>gxSSL_TLS</B>,     // TLS 1.2 and TLS 1.3
+  <B>gxSSL_TLSv1_1</B>, // Refused
   <B>gxSSL_TLSv1_2</B>, // Only understand TLSv1.2
   <B>gxSSL_DTLS</B>,  
-  <B>gxSSL_DTLSv1</B>,  
-  <B>gxSSL_DTLSv1_2</B>
+  <B>gxSSL_DTLSv1</B>,  // Refused
+  <B>gxSSL_DTLSv1_2</B>,
+  <B>gxSSL_TLSv1_3</B>  // Only understand TLSv1.3
 };</PRE>
-<P>Newer OpenSSL versions no longer support SSLv2 and SSLv3. With OpenSSL 1.1.0 and later gxSSL_SSLv2 and gxSSL_SSLv3 select the version flexible method. Use gxSSL_TLS for new applications; it negotiates the highest TLS version supported by both sides.</P>
+<P>6.4 (11/16/2026): TLS 1.2 is the minimum, with OpenSSL 1.1 and later and with Schannel. gxSSL_SSLv2, gxSSL_SSLv3, gxSSL_TLSv1, gxSSL_TLSv1_1 and gxSSL_DTLSv1 make InitCTX() fail with gxSSL_PROTOCOL_ERROR. Use gxSSL_TLS for new applications; it negotiates the highest version both sides support. gxSSL_TLSv1_3 needs Windows 10 1809 or later with Schannel.</P>
 <PRE><A NAME="gxSSLCertType">enum gxSSLCertType</A> {
   <B>gxSSL_PEM</B>, // Privacy Enhancement Mechanisms
   <B>gxSSL_ASN1</B> // Abstract Syntax Notation One
@@ -361,7 +362,7 @@ make</PRE>
 <div class="dr-fn" id="ReleaseSBIO"><code class="dr-sig">void gxSSL::ReleaseSBIO()</code><p class="dr-desc">Public member function used to clear the socket BIO pointer without freeing it.</p></div>
 <div class="dr-fn" id="ReleaseSSL"><code class="dr-sig">void gxSSL::ReleaseSSL()</code><p class="dr-desc">Public member function used to clear the SSL pointer without freeing the SSL object.</p></div>
 <div class="dr-fn" id="ReleaseSSLLibrary"><code class="dr-sig">static int gxSSL::ReleaseSSLLibrary()</code><p class="dr-desc">Public static member function used to mark the OpenSSL library as released. Returns true.</p></div>
-<div class="dr-fn" id="RequireVerifyCert"><code class="dr-sig">int gxSSL::RequireVerifyCert()</code><p class="dr-desc">Public member function used to require certificate verification.</p></div>
+<div class="dr-fn" id="RequireVerifyCert"><code class="dr-sig">int gxSSL::RequireVerifyCert()</code><p class="dr-desc">Public member function used to require certificate verification. 6.4: call it before InitCTX(). A client handshake then fails if the server's certificate chain, or the host name set with SetHostName() (subject alternative names and IP entries), does not verify. With no CA list the system certificate store is trusted.</p></div>
 <div class="dr-fn" id="ResetAppError"><code class="dr-sig">void gxSSL::ResetAppError()</code><p class="dr-desc">Public member function used to clear the application error string.</p></div>
 <div class="dr-fn" id="ResetSSLError"><code class="dr-sig">gxSSLError gxSSL::ResetSSLError()</code><p class="dr-desc">Public member function used to reset the last reported SSL error to gxSSL_NO_ERROR. ResetError() is the same function.</p></div>
 <div class="dr-fn" id="SendSSLSocket"><code class="dr-sig">int gxSSL::SendSSLSocket(const void *buf, int bytes)</code><p class="dr-desc">Public member function used to write the specified number of bytes from buf and not return until all the bytes have been written. Returns the number of bytes written or -1 if an error occurs.</p></div>
@@ -457,7 +458,7 @@ keygen.MakeDHParms(&quot;dhparms.pem&quot;); // RFC 7919 ffdhe2048 group</PRE>
 <P>See <A HREF="../../code_review_fixes.html">Code Review and Fixes</A> for the full list of library changes.</P>
 <h2 id="Changes631">Changes in 6.3 and 6.3.1</h2>
 <P>6.3.1: the handshake has a time limit, CloseSSLSocket() and the destructor send close_notify once and do not wait for the peer, timed reads use bytes OpenSSL already holds, SIGPIPE is ignored once (if still at its default), VerifyCert() checks the subject alternative names and IP addresses (X509_check_host()/X509_check_ip()), MakeRSAPrivateKey() writes an owner-only key file and MakeCertReq() no longer leaks files or overflows the day count. With Schannel (the Windows default), LoadDHParms() is not needed, and MakeDHParms(), MakeRSAPrivateKey() and MakeCertReq() are not supported: make keys and certificates with openssl.</P>
-<div class="dr-fn"><code class="dr-sig">void gxSSL::SetHandshakeTimeout(int seconds) / int gxSSL::HandshakeTimeout()</code><p class="dr-desc">Seconds allowed for ConnectSSLSocket()/AcceptSSLSocket() (60 by default, 0 turns the limit off).</p></div>
+<div class="dr-fn"><code class="dr-sig">void gxSSL::SetHandshakeTimeout(int seconds) / int gxSSL::HandshakeTimeout()</code><p class="dr-desc">Seconds allowed for ConnectSSLSocket()/AcceptSSLSocket() (60 by default, 0 turns the limit off). 6.4: a shorter send or receive timeout already set on the socket is kept.</p></div>
 <div class="dr-fn"><code class="dr-sig">void gxSSL::SetClientCAList(const char *s) / const char *gxSSL::ClientCAList()</code><p class="dr-desc">File of CA certificates that issue client certificates; a server then asks for and checks a client certificate.</p></div>
 <div class="dr-fn"><code class="dr-sig">int gxSSL::VerifyClientCert(long *X509_return_code = 0)</code><p class="dr-desc">Check the client certificate of an accepted connection against the client CA list. Returns zero if it is valid.</p></div>
 <div class="dr-fn"><code class="dr-sig">int gxSSL::GetPeerCertIdentity(gxString &amp;sha256_fingerprint, gxString &amp;cn)</code><p class="dr-desc">The SHA-256 fingerprint and the subject CN of the peer certificate. Returns zero if the peer sent a certificate.</p></div>
