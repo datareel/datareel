@@ -9,7 +9,9 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <sys/stat.h>
 #include "gxobjrepl.h"
+#include "gxstream.h"
 using namespace datareel;
 
 static int pass = 0, fail = 0;
@@ -107,6 +109,8 @@ int main(int argc, char **argv)
   }
   check(c.AppliedSeq() == p.LastSeq() && p.CopyApplied() == p.LastSeq(), "seq: copy applied " + std::to_string(c.AppliedSeq()) +
 	" = primary " + std::to_string(p.LastSeq()));
+  int crc = c.Begin(); int cput = c.Put("ev", 999, "x", 1);
+  check(crc == -1 && cput == -1 && !c.IsLive("ev", 999), "design 8: the copy refuses application writes [" + c.Error() + "]");
   p.Close();
   c.Stop();
   srv.join();
@@ -116,6 +120,111 @@ int main(int argc, char **argv)
   check(a == b, "digest: primary = copy (" + a + ")");
   std::string rep;
   check(gxObjRepl::IndexCheck(dir + "/c", cc.index, rep) == 0, "the copy's indexes are consistent");
+  {
+    // design 2: after a takeover the new primary's ids are above every id of the old epoch
+    std::string msg;
+    int trc = gxObjRepl::Takeover(dir + "/c", msg);
+    gxObjReplConfig tc = pc; tc.copy = "127.0.0.1:1";
+    gxObjRepl t;
+    int orc2 = t.Open(dir + "/c", tc, gxObjRepl::PRIMARY);
+    uint64_t nid = t.NewId();
+    check(trc == 0 && orc2 == 0 && t.Epoch() == 2 && nid > (2ULL << 40), "design 2: at epoch 2 NewId() = " + std::to_string(nid) +
+	  " (2 << 40 = " + std::to_string(2ULL << 40) + ")");
+    t.Close();
+  }
+
+  // ---------- 11/16/2026: the review's findings ----------
+  {
+    // a commit over the frame limit is refused at Commit() (it could never be delivered), an object over 32 MB at Put()
+    gxObjReplConfig bc = pc; bc.copy = "127.0.0.1:1"; bc.index = "";
+    gxObjRepl b;
+    b.Open(dir + "/big", bc, gxObjRepl::PRIMARY); b.OpenDatabase("x");
+    std::vector<unsigned char> mb(1024 * 1024, 7), huge(33u * 1024 * 1024, 1);
+    b.Begin();
+    int prc = b.Put("x", b.NewId(), huge.data(), (uint32_t)huge.size());
+    check(prc == -1, "review 4: a 33 MB object is refused at Put() [" + b.Error() + "]");
+    for(int i = 0; i < 70; i++) b.Put("x", b.NewId(), mb.data(), (uint32_t)mb.size());
+    int rc = b.Commit();
+    check(rc == -1 && b.Error().find("split it") != std::string::npos && b.LastSeq() == 0, "review 4: a 70 MB commit is refused at Commit(), nothing recorded [" + b.Error() + "]");
+    b.Begin(); b.Put("x", b.NewId(), mb.data(), 1000);
+    check(b.Commit() == 0 && b.LastSeq() == 1, "review 4: the next commit works");
+    b.Close();
+
+    // purge of an object a link still names is refused; once no link names it, it goes
+    gxObjReplConfig lc = bc; lc.links = "a:0:b";
+    gxObjRepl l;
+    check(l.Open(dir + "/link", lc, gxObjRepl::PRIMARY) == 0, "open a primary with links " + l.Error());
+    l.Begin();
+    unsigned char tb[16] = {1}; l.Put("b", 1, tb, 16);
+    uint64_t addr = (uint64_t)l.AddressOf("b", 1); unsigned char ta[16]; memset(ta, 0, 16); memcpy(ta, &addr, 8);
+    l.Put("a", 2, ta, 16);
+    l.Commit();
+    l.Begin(); l.Remove("b", 1);
+    rc = l.Purge("b", 1);
+    check(rc == -1 && l.Error().find("still named by a link") != std::string::npos, "review 7: purge of a linked tombstone refused [" + l.Error() + "]");
+    l.Commit();
+    l.Begin(); l.Remove("a", 2);
+    check(l.Purge("b", 1) == 0 && l.Commit() == 0, "review 7: purge once no live link names it");
+    // NewId never hands out an id used before, even one purged since (and after a restart)
+    l.Begin(); l.Put("b", 500, tb, 16); l.Commit();
+    l.Begin(); l.Remove("b", 500); l.Purge("b", 500); l.Commit();
+    l.Close();
+    check(l.Open(dir + "/link", lc, gxObjRepl::PRIMARY) == 0, "reopen " + l.Error());
+    uint64_t nid = l.NewId();
+    check(nid > 500, "review 14: NewId() after the highest id was purged and the node reopened: " + std::to_string(nid));
+    l.Close();
+  }
+  {
+    // a refusal does not stick: after the copy is set right, Pump() says 0
+    std::string port2 = std::to_string(atoi(port.c_str()) + 1);
+    gxObjReplConfig c2 = cc; c2.listen_port = atoi(port2.c_str()); c2.peer_name = "Q"; c2.index = "";
+    gxObjReplConfig p2 = pc; p2.copy = "127.0.0.1:" + port2; p2.index = "";
+    gxObjRepl cp;
+    cp.Open(dir + "/c2", c2, gxObjRepl::COPY);
+    std::thread t1([&]() { cp.Serve(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    gxObjRepl pp;
+    pp.Open(dir + "/p2", p2, gxObjRepl::PRIMARY); pp.OpenDatabase("x");
+    pp.Begin(); pp.Put("x", pp.NewId(), "abcd", 4); pp.Commit();
+    int r1 = pp.Pump();
+    cp.Stop(); t1.join(); cp.Close();
+    std::string msg; gxObjRepl::ClearAlarm(dir + "/c2", msg);
+    c2.peer_name = "P";
+    cp.Open(dir + "/c2", c2, gxObjRepl::COPY);
+    std::thread t2([&]() { cp.Serve(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    int r2 = pp.Pump();
+    check(r1 == 3 && r2 == 0 && pp.CopyApplied() == pp.LastSeq(), "review 10: refused (" + std::to_string(r1) + "), then accepted (" + std::to_string(r2) + ")");
+
+    pp.Close();                                                // the copy serves one primary at a time
+    // a client with the primary's certificate sends an 8-byte object with a 200 MB capacity: refused, nothing grows
+    gxStream st; st.Connection().SetCAFile(pki + "/ca.pem"); st.SetClientCert(pki + "/primary.pem", pki + "/primary.key"); st.SetTimeOut(10);
+    bool sent = false, acked = false;
+    if(st.Connect("127.0.0.1", atoi(port2.c_str())) == 0) {
+      std::vector<unsigned char> h;
+      auto u8 = [&](uint8_t v) { h.push_back(v); };
+      auto u16 = [&](uint16_t v) { u8((uint8_t)v); u8((uint8_t)(v >> 8)); };
+      auto u32 = [&](uint32_t v) { for(int i = 0; i < 4; i++) u8((uint8_t)(v >> (8 * i))); };
+      auto u64 = [&](uint64_t v) { for(int i = 0; i < 8; i++) u8((uint8_t)(v >> (8 * i))); };
+      auto str = [&](const std::string &x) { u16((uint16_t)x.size()); h.insert(h.end(), x.begin(), x.end()); };
+      u32(0x3450524fu); u64(1); str(""); str("P"); u8(1); u64(1000); u64(0);
+      st.WriteBlock(h.data(), (int)h.size());
+      gxBlockHeader gx; std::vector<unsigned char> rep;
+      if(st.ReadHeader(gx) == 0 && st.ReadBlock(rep, gx) == 0 && !rep.empty() && rep[0] == 1) {
+	h.clear();
+	u8(1); u64(cp.AppliedSeq() + 1); u64(1); u32(1); u8(1); str("x"); u64(77); u32(200000000u); u8(0); u32(8); u64(0x4141414141414141ULL);
+	sent = st.WriteBlock(h.data(), (int)h.size()) == 0;
+	std::vector<unsigned char> ack;
+	acked = st.ReadHeader(gx) == 0 && st.ReadBlock(ack, gx) == 0;
+      }
+      st.Close();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    struct stat sb; long long sz = stat((dir + "/c2/x.gxd").c_str(), &sb) == 0 ? (long long)sb.st_size : -1;
+    check(sent && !acked && sz >= 0 && sz < 1000000 && !cp.IsLive("x", 77), "review 9: a 200 MB capacity from the wire refused (no ack, x.gxd " + std::to_string(sz) + " bytes)");
+    cp.Stop(); t2.join(); cp.Close();
+  }
+
   printf("%d passed, %d failed\n", pass, fail);
   return fail ? 1 : 0;
 }

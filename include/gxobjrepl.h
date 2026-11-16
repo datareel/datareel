@@ -66,6 +66,17 @@ stores its own addresses.
   c.Open("copy", cfg_copy, gxObjRepl::COPY);
   c.Serve();                              // until Stop()
 
+Replication is asynchronous: Commit() is durable on the primary, and
+the copy has it once Pump() returns 0. If the primary is lost, commits
+the copy does not have are lost with it (the primary's status shows them
+as lag_seq). After a Takeover() the old primary is fenced off (the copy
+and any other copy refuse its older epoch); it comes back with Rejoin(),
+which replaces its databases with the new primary's and records how
+many of its own commits were dropped (dropped_at_rejoin in its status).
+The copy refuses application writes (Begin() and Put() on a copy fail).
+A gxObjRepl is not thread-safe: use one from one thread (Serve() on a
+copy runs in the calling thread until Stop()).
+
 After a connection drops, the primary's next Pump() connects again and
 both sides check names, roles, epoch, sequence and a running digest of
 every commit; a change of roles or of history refuses the stream and
@@ -121,6 +132,10 @@ struct GXDLCODE_API gxObjReplConfig {
   // this node's indexes. Index fields may not overlap link fields
   std::string index;
   bool trim = true;                 // primary: drop outbox entries the copy has
+  // seconds without a frame after which the copy drops a connection
+  // (a primary that lost power leaves it half open); the primary
+  // reconnects before using a connection idle half as long
+  int idle_timeout = 120;
   unsigned long long max_lag = 100; // Check(): commits behind
   unsigned long long max_behind = 60; // Check(): seconds
   long min_cert_days = 30;          // Check(): certificate days left
@@ -129,7 +144,8 @@ struct GXDLCODE_API gxObjReplConfig {
 
   // One "key value" setting, key as in the config file (name,
   // peer-name, copy, listen ([ADDR:]PORT), ca, cert, key, allow-cn,
-  // links, index, max-lag, max-behind, min-cert-days, trim (0/1)).
+  // links, index, max-lag, max-behind, min-cert-days, trim (0/1),
+  // idle-timeout).
   // Returns false (and why) for an unknown key or a bad value
   bool Set(const std::string &key, const std::string &value,
 	   std::string *why = 0);
@@ -174,14 +190,20 @@ public: // Primary: changes, committed together
   // databases of the link map and those already in ROOT themselves
   int OpenDatabase(const std::string &db);
   int Begin();
-  uint64_t NewId();                 // an id no database here has used
+  // An id no database here has used: the epoch in the high bits
+  // (epoch << 40, plus a counter), so after a takeover the new primary
+  // never reissues an id the old one may have handed out in commits
+  // that never reached it
+  uint64_t NewId();
   // An add, or an update of a live object or a tombstone. Link fields
-  // hold this node's addresses (AddressOf()); 0 = no link
+  // hold this node's addresses (AddressOf()); 0 = no link. An object
+  // is at most 32 MB, and a commit's changes at most 60 MB in all
   int Put(const std::string &db, uint64_t id, const void *bytes, uint32_t n);
   // A remove: the object becomes a tombstone (an unknown id gets one)
   int Remove(const std::string &db, uint64_t id);
   // A tombstone freed for good (with its forwarding stubs). Refused for
-  // a live object. Purge only what no link names any more
+  // a live object, and while a link in a live object still names it
+  // (its address would be reused under that link)
   int Purge(const std::string &db, uint64_t id);
   int Commit();                     // durable with its outbox entry
   int Rollback();
@@ -242,13 +264,15 @@ public: // Folders, without an open node
 		   std::string &line);
   static int ClearAlarm(const std::string &root, std::string &msg);
   static int Status(const std::string &root, std::string &line);
-  // A copy becomes primary at the next epoch. Returns 0, or 1 (and msg)
+  // A copy becomes primary at the next epoch. Refused for anything but
+  // a copy, and while the node is open. Returns 0, or 1 (and msg)
   static int Takeover(const std::string &root, std::string &msg);
-  // A former primary becomes a copy again (after another node took
-  // over): it waits for a full send from the new primary, which
-  // replaces its databases. Commits it made that the new primary never
-  // got are dropped; msg says how many (the last seq past the last one
-  // its copy acknowledged). Returns 0, or 1 (and msg)
+  // A node becomes a copy waiting for a full send, which replaces its
+  // databases: a former primary after another node took over, or a
+  // copy whose history a primary cannot check. For a former primary,
+  // msg gives the commits past the last one its copy acknowledged
+  // (some may have reached the new primary; the rest are lost).
+  // Returns 0, or 1 (and msg). The node must not be open
   static int Rejoin(const std::string &root, std::string &msg);
 
 public:
