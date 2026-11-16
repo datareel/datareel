@@ -104,6 +104,11 @@ mkdir -p "$WORK/run_digest_repeat" && cd "$WORK/run_digest_repeat" &&
     \$R digest p > p.d; grep -q \"btree [0-9a-f]* \$LIVE keys\$\" p.d
     mkdir r; cp -a p/data.gxd p/by_name.btx p/vectors.vix p/commit.bin r/; \$R rebuild r > /dev/null; \$R digest r > r.d; cmp p.d r.d
     '$BUILD/utils/gxrepl' digest p/by_name.btx | grep -q \" \$LIVE \""
+# 11/15/2026 (7.4, review of c59a264): gxrepl digest walks B-trees of node order 3 (made 5: 4 keys a node) and 16
+mkdir -p "$WORK/run_digest_orders" && cd "$WORK/run_digest_orders" &&
+  check gxrepl_digest_node_orders sh -c "set -e; for o in 3 16; do mkdir -p o\$o
+    '$BUILD/utils/gxrepl_testwriter' btree o\$o \$o 1000 > /dev/null
+    '$BUILD/utils/gxrepl' digest o\$o/keys.btx | grep -q ' 1000 '; done"
 # 11/14/2026 (7.4): the folder copy example (replication_copy_walkthrough.cmd on Windows), the same steps with cp
 mkdir -p "$WORK/run_replication_copy" && cd "$WORK/run_replication_copy" &&
   check replication_copy sh -c "set -e; mkdir -p p c; R='$E/replication_copy'
