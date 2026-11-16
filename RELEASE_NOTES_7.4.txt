@@ -470,6 +470,47 @@ FIXES AFTER BETA 3 (11/15/2026, docs-7.4)
   two orders agreed digest exactly as before. run_tests:
   gxrepl_digest_repeated_names.
 
+BETA 4 (11/16/2026)
+-------------------
+Replication (gxrepl) on an incremental set (derived_apply =
+incremental), the hardening items, and the review fixes:
+- The recovery gap: a writer's open record (its journal may have
+  recovered a batch that has no record) or a gap record sends the
+  stream's folders back to a rebuild and holds the stream: every batch
+  of it is rebuilt until the stream's verify is done. The hold goes
+  only when the client says the verify compared files (an older client,
+  or a verify that compared none, leaves it). "gxrepl derived status"
+  and status.json ("holds") show the holds; a hold that cannot be read
+  goes with the next such verify, a hold whose stream was purged is
+  reported and "gxrepl derived rebuild" removes it; a hold that cannot
+  be written turns the set's breaker on.
+- The open record says what the writer's journal recovered (0: a clean
+  restart, no rebuild). The static gxdJournal::Recover() leaves
+  <journal>.recovered before it replays a batch, so a recovery done
+  before the writer's Open() reaches the open record too; when that
+  marker cannot be written (on any platform) it refuses to replay and
+  keeps the journal.
+- Stamp-keeping fill: a verify's fill whose pages are all what its
+  records write, or what the copy already holds, keeps the folder's
+  index stamps (no rebuild); any other fill drops them.
+- Pull mode reads only the copy's own log (an older server falls back
+  to a verify). A reader that sees the newest log segment shorter than
+  its header (the writer is creating it) reads nothing yet instead of
+  starting a full resync. A record bigger than max_message asks for a
+  verify like any other, and its resyncs are bounded. The dead-folder
+  sweep removes a folder left sealed "copying" with no database file
+  for GXREPL_COPYING_ABANDONED_SEC (3600 s).
+- The late-pass hollow seal: a new log's verify that lists no file while
+  its folder has database files waits until the log lists them (said
+  once); records that would build a file the copy does not have without
+  its first page are refused and the stream resyncs. Promote-check's
+  stage times use localtime_r (thread safety only: no time was wrong).
+- Before turning derived_apply = incremental on, every program that
+  journals into a replicated set and gxrepl on both nodes must run 7.4
+  beta 4: an older writer's static Recover() leaves no marker, and an
+  older client's verify never clears a hold.
+- The digest fix above (FIXES AFTER BETA 3) is in beta 4.
+
 KNOWN ISSUES
 ------------
 - Database files do not move between 64-bit Linux and the other

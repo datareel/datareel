@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>DataReel 7.4 Beta 3 Release Notes</title>
+<title>DataReel 7.4 Beta 4 Release Notes</title>
 <link rel="stylesheet" href="css/datareel.css">
 <link rel="icon" href="images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
@@ -18,7 +18,7 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>DataReel 7.4 Beta 3 Release Notes</h1>
+<h1>DataReel 7.4 Beta 4 Release Notes</h1>
 <div class="dr-toc-title">Contents</div>
 <p class="dr-toc"><a href="#PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</a><br>
 <a href="#PhaseB11122026HnswGraphSearchMergeRepair">Phase b (11/12/2026): hnsw graph search, merge, repair</a><br>
@@ -29,6 +29,7 @@
 <a href="#GxreplAWriterSOpenOrGapRecordAlwaysGetsItsVerify11142026">Gxrepl: a writer&#x27;s open or gap record always gets its verify (11/14/2026)</a><br>
 <a href="#License11122026">License (11/12/2026)</a><br>
 <a href="#FixesAfterBeta311152026Docs74">FIXES AFTER BETA 3 (11/15/2026, docs-7.4)</a><br>
+<a href="#Beta411162026">Beta 4 (11/16/2026)</a><br>
 <a href="#KnownIssues">Known issues</a><br>
 <a href="#Next">Next</a></p>
 <p>DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the replication fixes and the security scan below (BETA 3). Beta 2:</p>
@@ -269,6 +270,17 @@
 <h2 id="FixesAfterBeta311152026Docs74">FIXES AFTER BETA 3 (11/15/2026, docs-7.4)</h2>
 <ul>
 <li>gxrepl digest --kind btree (gxReplDigest) walked a B-tree with FindFirst()/FindNext() and a raw byte compare. FindNext() finds its place again with the compare, and the byte order is not the tree&#x27;s own when keys tie on a name and an integer (a record address) breaks the tie: the walk skipped keys (663 records digested as 256 keys). The digest now walks the nodes in order with no compare; trees whose two orders agreed digest exactly as before. run_tests: gxrepl_digest_repeated_names.</li>
+</ul>
+<h2 id="Beta411162026">Beta 4 (11/16/2026)</h2>
+<p>Replication (gxrepl) on an incremental set (derived_apply = incremental), the hardening items, and the review fixes:</p>
+<ul>
+<li>The recovery gap: a writer&#x27;s open record (its journal may have recovered a batch that has no record) or a gap record sends the stream&#x27;s folders back to a rebuild and holds the stream: every batch of it is rebuilt until the stream&#x27;s verify is done. The hold goes only when the client says the verify compared files (an older client, or a verify that compared none, leaves it). &quot;gxrepl derived status&quot; and status.json (&quot;holds&quot;) show the holds; a hold that cannot be read goes with the next such verify, a hold whose stream was purged is reported and &quot;gxrepl derived rebuild&quot; removes it; a hold that cannot be written turns the set&#x27;s breaker on.</li>
+<li>The open record says what the writer&#x27;s journal recovered (0: a clean restart, no rebuild). The static gxdJournal::Recover() leaves &lt;journal&gt;.recovered before it replays a batch, so a recovery done before the writer&#x27;s Open() reaches the open record too; when that marker cannot be written (on any platform) it refuses to replay and keeps the journal.</li>
+<li>Stamp-keeping fill: a verify&#x27;s fill whose pages are all what its records write, or what the copy already holds, keeps the folder&#x27;s index stamps (no rebuild); any other fill drops them.</li>
+<li>Pull mode reads only the copy&#x27;s own log (an older server falls back to a verify). A reader that sees the newest log segment shorter than its header (the writer is creating it) reads nothing yet instead of starting a full resync. A record bigger than max_message asks for a verify like any other, and its resyncs are bounded. The dead-folder sweep removes a folder left sealed &quot;copying&quot; with no database file for GXREPL_COPYING_ABANDONED_SEC (3600 s).</li>
+<li>The late-pass hollow seal: a new log&#x27;s verify that lists no file while its folder has database files waits until the log lists them (said once); records that would build a file the copy does not have without its first page are refused and the stream resyncs. Promote-check&#x27;s stage times use localtime_r (thread safety only: no time was wrong).</li>
+<li>Before turning derived_apply = incremental on, every program that journals into a replicated set and gxrepl on both nodes must run 7.4 beta 4: an older writer&#x27;s static Recover() leaves no marker, and an older client&#x27;s verify never clears a hold.</li>
+<li>The digest fix above (FIXES AFTER BETA 3) is in beta 4.</li>
 </ul>
 <h2 id="KnownIssues">Known issues</h2>
 <ul>
