@@ -62,8 +62,18 @@ Usage:
 #include <string.h>
 #include <stdint.h>
 #include <signal.h>
+#include <thread>
+#include <chrono>
+#if defined(_WIN32)
+#include <io.h>
+#include <windows.h>
+#define access _access
+#define F_OK 0
+#else
 #include <unistd.h>
+#endif
 #include <map>
+#include <atomic>
 #include <set>
 #include <string>
 #include <vector>
@@ -74,6 +84,10 @@ using namespace datareel;
 
 static gxObjRepl *serving = 0;
 static void on_term(int) { if(serving) serving->Stop(); }
+#if defined(_WIN32)
+// Windows has no TERM: Ctrl+C, Ctrl+Break and closing the console stop the copy, and so does ROOT/objrepl.stop
+static BOOL WINAPI on_ctrl(DWORD) { if(serving) serving->Stop(); return TRUE; }
+#endif
 
 // ---------- the test data generator ----------
 static unsigned rng = 2026;
@@ -176,7 +190,7 @@ static int run_primary(const std::string &root, const gxObjReplConfig &cfg, cons
     }
     if(r.Commit() != 0) return die("commit");
     if(r.Pump() == 3) return 3;                               // best effort: a copy that is away catches up later
-    if(o.sleep_ms) usleep((useconds_t)o.sleep_ms * 1000);
+    if(o.sleep_ms) std::this_thread::sleep_for(std::chrono::milliseconds(o.sleep_ms));
   }
   if(held) { if(r.Begin() != 0 || r.Commit() != 0) return die("commit"); }   // a held-back add still owed
   if(o.drop_linked > 0 && !links.empty()) {
@@ -241,9 +255,21 @@ static int run_copy(const std::string &root, const gxObjReplConfig &cfg)
   if(rc == 4) return 4;
   if(rc != 0) { fprintf(stderr, "objrepl copy: %s\n", r.Error().c_str()); return 64; }
   serving = &r;
+#if defined(_WIN32)
+  SetConsoleCtrlHandler(on_ctrl, TRUE);
+  signal(SIGTERM, on_term); signal(SIGINT, on_term);
+#else
   struct sigaction sa; memset(&sa, 0, sizeof(sa)); sa.sa_handler = on_term;
   sigaction(SIGTERM, &sa, 0); sigaction(SIGINT, &sa, 0); signal(SIGPIPE, SIG_IGN);
+#endif
+  // ROOT/objrepl.stop (any platform): the copy stops within a second and the file is removed
+  std::string stopf = root + "/objrepl.stop";
+  std::remove(stopf.c_str());
+  std::atomic<int> served{0};
+  std::thread watch([&]() { while(!served) { if(access(stopf.c_str(), F_OK) == 0) { r.Stop(); std::remove(stopf.c_str()); break; }
+					      std::this_thread::sleep_for(std::chrono::milliseconds(500)); } });
   rc = r.Serve();
+  served = 1; watch.join();
   if(rc != 0) fprintf(stderr, "objrepl copy: %s\n", r.Error().c_str());
   serving = 0;
   r.Close();

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <thread>
+#include <atomic>
 #include <chrono>
 #include <string>
 #include <vector>
@@ -461,6 +462,63 @@ int main(int argc, char **argv)
       check(acks == 3 && Z.r.InSnapshot() && al.find("incomplete or changed") != std::string::npos,
 	    "fuzz: a full send ended with records that never arrived was refused; the copy stays in its full send (acks " + std::to_string(acks) + ")");
       Z.stop();
+    }
+    // ---------- the fourth review's findings ----------
+    // r4-1: a reader, two threads pumping and a Close() at once: no crash (step_aside re-checks after it relocks)
+    {
+      int pq = base + 15;
+      Srv C; C.start(dir + "/q_c", ccfg(pq, "Q"));
+      gxObjRepl x; x.Open(dir + "/q_p", pcfg(pq, true), gxObjRepl::PRIMARY); x.OpenDatabase("ev");
+      for(int k = 0; k < 20; k++) { x.Begin(); for(int i = 0; i < 100; i++) x.Put("ev", x.NewId(), "abcdefgh", 8); x.Commit(); }
+      std::atomic<int> done{0};
+      std::thread rd([&]() { std::vector<unsigned char> b; while(!done) { x.Get("ev", 1, b); x.IsLive("ev", 2); } });
+      std::thread t1([&]() { x.Pump(); });
+      std::thread t2([&]() { for(int k = 0; k < 20 && !done; k++) x.Pump(); });
+      std::this_thread::sleep_for(std::chrono::milliseconds(150));
+      C.r.Close();                                            // the copy goes away under the pump
+      x.Close();                                              // and the primary closes under it
+      done = 1; t1.join(); t2.join(); rd.join();
+      C.t.join();
+      check(!x.IsOpen(), "r4-1: a reader, two pumping threads and Close() at once: no crash, closed");
+    }
+    // r4-2 / r4-3: an interrupted set-aside keeps the old data; a leftover prev from an ended full send is removed,
+    // never taken for the next full send's
+    {
+      int pr = base + 16;
+      Srv C; C.start(dir + "/sa_c", ccfg(pr, "SA"));
+      gxObjRepl x; x.Open(dir + "/sa_p", pcfg(pr, true), gxObjRepl::PRIMARY); x.OpenDatabase("ev");
+      std::vector<unsigned char> big(2048, 7);
+      for(int k = 0; k < 5; k++) { x.Begin(); for(int i = 0; i < 200; i++) x.Put("ev", x.NewId(), big.data(), (uint32_t)big.size()); x.Commit(); }
+      x.Drain(30); x.Close(); C.stop();
+      std::string m; gxObjRepl::Rejoin(dir + "/sa_c", m);    // the copy will take a full send
+      // the crash: ev.gxd and ev.id.btx moved into prev.tmp, the rest not yet
+      std::string c = dir + "/sa_c"; mkdir((c + "/prev.tmp").c_str(), 0700);
+      struct stat sb; stat((c + "/ev.gxd").c_str(), &sb); long long oldsz = (long long)sb.st_size;
+      rename((c + "/ev.gxd").c_str(), (c + "/prev.tmp/ev.gxd").c_str()); rename((c + "/ev.id.btx").c_str(), (c + "/prev.tmp/ev.id.btx").c_str());
+      gxObjRepl c2; int orc = c2.Open(c, ccfg(pr, "SA"), gxObjRepl::COPY);   // completes the set-aside first
+      long long kept = stat((c + "/prev/ev.gxd").c_str(), &sb) == 0 ? (long long)sb.st_size : -1;
+      c2.Close();
+      check(orc == 0 && kept == oldsz, "r4-2: an interrupted set-aside was completed at open; the old ev.gxd kept (" + std::to_string(kept) + " of " + std::to_string(oldsz) + " bytes)");
+      // the full send ends; then a leftover prev (as if its removal had failed) is removed at the next open
+      C.start(c, ccfg(pr, "SA"));
+      gxObjRepl y; y.Open(dir + "/sa_p", pcfg(pr, true), gxObjRepl::PRIMARY); int drc = y.Drain(60); y.Close();
+      C.stop();
+      bool gone1 = stat((c + "/prev").c_str(), &sb) != 0;
+      mkdir((c + "/prev").c_str(), 0700); FILE *f = fopen((c + "/prev/old.gxd").c_str(), "w"); if(f) fclose(f);
+      gxObjRepl c3; c3.Open(c, ccfg(pr, "SA"), gxObjRepl::COPY); bool gone2 = stat((c + "/prev").c_str(), &sb) != 0; uint64_t ap = c3.AppliedSeq(); c3.Close();
+      std::string da, db; gxObjRepl::Digest(dir + "/sa_p", "", da); gxObjRepl::Digest(c, "", db);
+      check(drc == 0 && gone1 && gone2 && ap == 5 && da == db, "r4-3: the full send ended (prev removed), a leftover prev was removed at open, data equal [" + db + "]");
+    }
+    // r4-4: Open() while another thread runs Status() on the stopped node: Open() waits for the lock, never fails
+    {
+      std::string d = dir + "/stl";
+      { gxObjRepl x; x.Open(d, pcfg(base + 17, true), gxObjRepl::PRIMARY); commit1(x); x.Close(); }
+      std::atomic<int> done{0};
+      std::thread st([&]() { std::string l; while(!done) gxObjRepl::Status(d, l); });
+      int fails = 0;
+      for(int k = 0; k < 100; k++) { gxObjRepl x; if(x.Open(d, pcfg(base + 17, true), gxObjRepl::PRIMARY) != 0) fails++; x.Close(); }
+      done = 1; st.join();
+      check(fails == 0, "r4-4: Open() 100 times while Status() ran in a loop: " + std::to_string(fails) + " failures");
     }
     // 8 with trim off, the copy's acknowledgement still counts: a rejoin after a full drain drops nothing
     {

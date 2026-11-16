@@ -296,6 +296,7 @@ c.Serve();                                   // until Stop() (signal-safe) or Cl
 <LI>A copy further behind than the digest log's 1,000,000 commits, or whose history a primary cannot check, is refused: <A HREF="#Rejoin">Rejoin()</A> on it makes it take a full send.</LI>
 <LI>Threads: every call takes one lock in the object; readers (Get, FindKey, Nearest ...) run between the frames Serve() applies. Pump() holds the lock while it exchanges frames with the copy (not while it connects), and gives it up between frames when a reader waits. While a copy receives a full send, reads fail with "a full send is under way".</LI>
 <LI>Index fields may not overlap link fields.</LI>
+<LI>Platforms: both nodes must be on the same platform family for now: gxStream's block header is a raw struct whose size differs between 64-bit Linux (32 bytes) and Windows (24 bytes), so Linux and Windows nodes cannot connect. A Schannel build checks the certificates' dates, CA and key at the TLS handshake rather than at Open(). The objrepl tool stops on TERM/INT (POSIX), Ctrl+C or Ctrl+Break (Windows), or when <CODE>ROOT/objrepl.stop</CODE> appears.</LI>
 </UL>
 """),
  ('Tool', 'The objrepl Tool and Checks', """

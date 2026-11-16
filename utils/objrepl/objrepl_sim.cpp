@@ -57,7 +57,9 @@ objects written, last seq, copy applied, lag, reads, read p50/p99 us).
 #include <string.h>
 #include <stdint.h>
 #include <signal.h>
+#if !defined(_WIN32)
 #include <unistd.h>
+#endif
 #include <time.h>
 #include <atomic>
 #include <thread>
@@ -218,8 +220,12 @@ int main(int argc, char **argv)
     else if(a.compare(0, 2, "--") == 0) { if(!cfg.Set(a.substr(2), val(), &why)) { fprintf(stderr, "%s\n", why.c_str()); return 64; } }
     else return usage();
   }
+#if defined(_WIN32)
+  signal(SIGTERM, on_term); signal(SIGINT, on_term);
+#else
   struct sigaction sa; memset(&sa, 0, sizeof(sa)); sa.sa_handler = on_term;
   sigaction(SIGTERM, &sa, 0); sigaction(SIGINT, &sa, 0); signal(SIGPIPE, SIG_IGN);
+#endif
   Sim s; s.rng.seed(seed ^ (uint64_t)time(0));
   bool copy = mode == "copy";
   int rc = s.r.Open(root, cfg, copy ? gxObjRepl::COPY : gxObjRepl::PRIMARY);

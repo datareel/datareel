@@ -74,6 +74,11 @@ and any other copy refuse its older epoch); it comes back with Rejoin(),
 which replaces its databases with the new primary's and records how
 many of its own commits were dropped (dropped_at_rejoin in its status).
 The copy refuses application writes (Begin() and Put() on a copy fail).
+Platforms: two nodes must run on the same platform family for now:
+gxStream's block header is sent as a raw struct whose size differs
+between 64-bit Linux (32 bytes) and Windows (24 bytes), so a Linux node
+and a Windows node cannot connect. On Windows a connect to a copy that
+is not listening takes about 2 s, so pump less often while it is away.
 Trust: a peer with a certificate the copy accepts (allow-cn) is trusted
 with the stream; such a peer can raise the copy's epoch (fencing older
 primaries out) or send a full send. Frames that break the protocol
@@ -187,8 +192,9 @@ private:
 public: // Open and close
   // Opens ROOT (created if new) as ROLE. Checks the config (link map,
   // indexes, overlaps) and the certificates (readable; the key not
-  // readable by others; within their dates; signed by the CA; key and
-  // certificate match). Returns 0; -1 with Error(); 4 when ROOT has the
+  // readable by others (POSIX); with OpenSSL also within their dates,
+  // signed by the CA, key and certificate matching - a Schannel build
+  // finds those at the TLS handshake). Returns 0; -1 with Error(); 4 when ROOT has the
   // other role (a copy that took over will not run as a copy, and a
   // copy is not written to as a primary until Takeover())
   int Open(const std::string &root, const gxObjReplConfig &cfg, Role role);

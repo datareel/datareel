@@ -510,17 +510,24 @@ struct Node {
   bool fail(const std::string &w) { err = w; return false; }
   // ROOT/objrepl.lock, held while the node is open: one process per node (11/16/2026, review: a takeover run
   // against a serving copy was overwritten by the copy's next state write)
-  bool lock() {
+  // wait_ms: how long to keep trying while the lock is held (review 4: a Status() replaying the journal held it for
+  // a moment and a node starting then failed); a node held by a running process is still refused after that
+  bool lock(int wait_ms = 5000) {
     std::string f = path(root, "objrepl.lock");
+    for(int waited = 0;; waited += 50) {
 #if defined(_WIN32)
-    lock_h = CreateFileA(f.c_str(), GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
-    if(lock_h == INVALID_HANDLE_VALUE) return fail(root + " is in use by another process (or " + f + " cannot be opened)");
+      lock_h = CreateFileA(f.c_str(), GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+      if(lock_h != INVALID_HANDLE_VALUE) return true;
+      if(waited >= wait_ms) return fail(root + " is in use by another process (or " + f + " cannot be opened)");
 #else
-    lock_fd = ::open(f.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);   // not inherited by child processes (review 2)
-    if(lock_fd < 0) return fail("cannot open " + f);
-    if(flock(lock_fd, LOCK_EX | LOCK_NB) != 0) { ::close(lock_fd); lock_fd = -1; return fail(root + " is in use by another process"); }
+      lock_fd = ::open(f.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);   // not inherited by child processes (review 2)
+      if(lock_fd < 0) return fail("cannot open " + f);
+      if(flock(lock_fd, LOCK_EX | LOCK_NB) == 0) return true;
+      ::close(lock_fd); lock_fd = -1;
+      if(waited >= wait_ms) return fail(root + " is in use by another process");
 #endif
-    return true;
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
   }
   void unlock() {
 #if defined(_WIN32)
@@ -539,6 +546,22 @@ struct Node {
     if(!have_lock && !lock()) return false;
     if(j.Open(path(root, "node.jnl").c_str()) != gxDBASE_NO_ERROR) { unlock(); return fail(std::string("cannot open the journal: ") + gxdJournal::RecoverError()); }
     is_open = true;                                            // from here close() undoes what was opened
+    // an interrupted set-aside (review 4): the files still here are originals not moved yet; they go into prev.tmp
+    // (never over a file already there) and prev.tmp becomes prev, before this open makes any node file
+    {
+      std::string tmp = path(root, "prev.tmp"), prev = path(root, "prev");
+      if(exists(tmp) && !exists(prev)) {
+	std::error_code ec;
+	for(auto &f : list_dir(root)) {
+	  if(!node_file(f)) continue;
+	  if(exists((fs::path(tmp) / f).string())) continue;
+	  fs::rename(path(root, f), (fs::path(tmp) / f), ec);
+	  if(ec) return fail("cannot finish setting " + f + " aside: " + ec.message());
+	}
+	fs::rename(tmp, prev, ec);
+	if(ec) return fail("cannot rename " + tmp + ": " + ec.message());
+      }
+    }
     std::string dl = path(root, "digests.btx");
     if(dlog.Open(dl.c_str()) != gxDBASE_NO_ERROR && dlog.Create(dl.c_str()) != gxDBASE_NO_ERROR) return fail("cannot open " + dl);
     if(j.Attach(&dlog) != gxDBASE_NO_ERROR) return fail("cannot attach " + dl);
@@ -574,6 +597,8 @@ struct Node {
     }
     for(auto &n : list_dir(root))                              // the databases already here
       if(ends_with(n, ".gxd")) { std::string nm = n.substr(0, n.size() - 4); if(good_name(nm) && !get(nm)) return false; }
+    // old data kept from a full send that has ended (the removal failed or was cut short): it goes now (review 4)
+    if(!st.in_snapshot && (exists(path(root, "prev")) || exists(path(root, "prev.tmp")))) drop_aside();
     return true;
   }
   // the digest log: the entry for SEQ (replaced if there), or the lookup
@@ -665,7 +690,7 @@ struct Node {
 #endif
       }
       if(!commit()) { dead_ixs.push_back(std::move(x)); return fail("cannot commit the build of " + f); }
-      FILE *df = fopen(deff.c_str(), "w");
+      FILE *df = fopen(deff.c_str(), "wb");                    // binary: the compare is byte for byte (Windows wrote \r\n)
       if(!df || fputs(want.c_str(), df) < 0 || fclose(df) != 0) { dead_ixs.push_back(std::move(x)); return fail("cannot write " + deff); }
       remove_file(mark);
       if(built) say("index " + def.name + " on " + def.db + " built from " + std::to_string(built) + " object(s)");
@@ -710,12 +735,17 @@ struct Node {
     for(auto &f : list_dir(root)) {
       if(!node_file(f)) continue;
       if(done_before) remove_file(path(root, f));              // a partial full send: the old data is in prev already
+      else if(exists((fs::path(tmp) / f).string())) remove_file(path(root, f));   // the original is in prev.tmp already
       else { fs::rename(path(root, f), (fs::path(tmp) / f), ec); if(ec) return fail("cannot move " + f + " aside: " + ec.message()); }
     }
     if(!done_before) { fs::rename(tmp, prev, ec); if(ec) return fail("cannot rename " + tmp + ": " + ec.message()); }
     return open(root, false, true);
   }
-  void drop_aside() { std::error_code ec; fs::remove_all(path(root, "prev"), ec); fs::remove_all(path(root, "prev.tmp"), ec); }
+  bool drop_aside() {
+    std::error_code ec; fs::remove_all(path(root, "prev"), ec); fs::remove_all(path(root, "prev.tmp"), ec);
+    if(exists(path(root, "prev")) || exists(path(root, "prev.tmp"))) { say("cannot remove " + path(root, "prev") + ": remove it by hand"); return false; }
+    return true;
+  }
   // the digest log: entries below CUTOFF out (the window of DLOG_KEEP commits)
   bool trim_digests(uint64_t cutoff, size_t limit = 10000) {   // at most LIMIT entries a call (a backlog goes in steps)
     DKey k, c;
@@ -759,7 +789,7 @@ void settle(const std::string &root)
 {
   if(!exists(path(root, "node.jnl"))) return;
   Node n; n.root = root;
-  if(!n.lock()) return;
+  if(!n.lock(0)) return;                                      // running (or another settle): read as it is
   gxdJournal::Recover(path(root, "node.jnl").c_str(), 0, 0);
   n.unlock();
 }
@@ -947,7 +977,20 @@ struct gxObjRepl::Impl {
   std::atomic<int> waiting{0};       // readers waiting for the lock: Serve() and Pump() step aside between frames
   // a long run of frames (a catch-up, a full send) gives the lock up between frames when a reader waits: the mutex
   // is not fair, so without this a reader could wait for the whole run (sim day: reader p99 near 50 s)
-  void step_aside() { if(waiting > 0) { mu.unlock(); std::this_thread::sleep_for(std::chrono::microseconds(300)); mu.lock(); } }
+  // review 4: while the lock is given up, nothing that pump1() relies on may change: Pump()/Drain() are serialized
+  // (pumpmu), Close() and Open() wait for a running Pump() (pumping) and raise closing first, and the generation
+  // counter changes at every Open()/Close(). step_aside() returns false when any of that happened
+  std::mutex pumpmu;
+  std::atomic<int> pumping{0}, closing{0};
+  std::atomic<unsigned long> gen{0};
+  bool step_aside() {
+    if(waiting > 0 && !closing) {
+      unsigned long g = gen;
+      mu.unlock(); std::this_thread::sleep_for(std::chrono::microseconds(300)); mu.lock();
+      if(closing || g != gen || !s.is_open || !L.st) { err = "the node was closed while pumping"; return false; }
+    }
+    return true;
+  }
   std::vector<LinkDef> pending_links; // copy: the link map of a primary not yet accepted (F_EPOCH adopts it)
   // primary: the open transaction's ops, and the moves
   std::vector<Touch> touched;
@@ -1147,7 +1190,7 @@ struct gxObjRepl::Impl {
       uint64_t acked = 0;
       if(!exchange(b, acked)) return false;
       L.copy_applied = acked;
-      step_aside();
+      if(!step_aside()) return false;
     }
     // the copy's acknowledgement is recorded (acked_seq and its digest) with or without trimming (review 2: with trim
     // off the rejoin count was wrong); trimming drops the outbox entries it has, and the digest log keeps a window
@@ -1273,7 +1316,7 @@ int gxObjRepl::Open(const std::string &root, const gxObjReplConfig &cfg, Role ro
   Close();
   p->cfg = cfg; p->role = role; p->err.clear(); p->stop = 0;
   p->L = Link(); p->mon = Mon(); p->touched.clear(); p->moved.clear(); p->held.clear();
-  p->next_id = 1; p->linked_valid = false; p->last_alarm.clear();
+  p->next_id = 1; p->linked_valid = false; p->last_alarm.clear(); p->gen++;
   if(!parse_links(cfg.links, p->links)) return p->fail("bad links (DB:OFFSET:TARGET,...)");
   if(!parse_ix(cfg.index, p->ixdefs)) return p->fail("bad index (NAME:DB:B|V:OFFSET:LEN,...)");
   for(auto &x : p->ixdefs) for(auto &l : p->links)             // an index field may not hold a link (an address)
@@ -1312,7 +1355,12 @@ void gxObjRepl::Close()
   // a Serve() running in another thread is stopped first and waited for (review 3: it went on serving a closed,
   // unlocked node); it leaves within half a second
   if(p->serving) { p->stop = 1; while(p->serving) std::this_thread::sleep_for(std::chrono::milliseconds(10)); }
+  // a Pump() running in another thread is told to stop and waited for (review 4)
+  p->closing = 1;
+  while(p->pumping) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  struct Unclose { std::atomic<int> &f; ~Unclose() { f = 0; } } uc{p->closing};
   std::lock_guard<std::recursive_mutex> g_(p->mu);
+  p->gen++;
   if(!p->s.is_open) return;
   if(p->role == PRIMARY) {
     bool done = p->L.copy_applied + 1 >= p->s.st.next_seq;
@@ -1419,6 +1467,9 @@ void gxObjRepl::TestHoldAdd(const std::string &db, uint64_t id)
 
 int gxObjRepl::Pump()
 {
+  std::lock_guard<std::mutex> pg(p->pumpmu);                 // one Pump() at a time (review 4)
+  struct Pumping { std::atomic<int> &f; Pumping(std::atomic<int> &x) : f(x) { f++; } ~Pumping() { f--; } } pm(p->pumping);
+  if(p->closing) return p->fail("closing");
   Link &L = p->L;
   // the TCP connect and the TLS handshake run without the node's lock (review 3: readers waited up to 30 s on a copy
   // that did not answer); the hello and everything after it run with it
@@ -1700,7 +1751,11 @@ int gxObjRepl::Impl::serve()
 	uint64_t base = r.u64(), ep = r.u64();
 	if(!r.ok || ep < s.st.epoch) break;
 	// first the state says a full send is under way (the old data still here), then the old data goes aside and the
-	// node opens again empty (see Node::set_aside)
+	// node opens again empty (see Node::set_aside). A ROOT/prev left from an ended full send is removed first, so it is
+	// never taken for this one's (review 4)
+	if(!s.st.in_snapshot && (exists(path(s.root, "prev")) || exists(path(s.root, "prev.tmp"))) && !s.drop_aside()) {
+	  alarm("a full send cannot start: " + path(s.root, "prev") + " cannot be removed"); break;
+	}
 	if(!s.begin()) break;
 	if(ep > s.st.epoch) s.st.epoch = ep;
 	s.st.in_snapshot = 1; s.st.snapshot_base = base; s.st.applied_seq = 0; s.st.applied_digest = DIGEST0;

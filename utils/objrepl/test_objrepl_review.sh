@@ -65,7 +65,8 @@ t=$("$X" takeover "$T/p1" 2>&1); tr=$?; mkdir -p "$T/empty"; t2=$("$X" takeover 
 # 3 idle: P1 stopped on an open connection; the copy drops it after 3 s; P9 is answered (refused by name) at once
 start_copy a $P --name copyA --peer-name P1 --idle-timeout 3
 "$X" primary "$T/p1" --copy 127.0.0.1:$P "${PTLS[@]}" --name P1 --commits 100000 --per 1 --sleep 50 > "$T/p1_idle.log" 2>&1 & BG=$!   # the binary itself (its pid)
-sleep 1.5; kill -STOP $BG
+f0=$(awk '$1=="frames"{print $2}' "$T/a/objrepl.status"); for i in $(seq 1 100); do f=$(awk '$1=="frames"{print $2}' "$T/a/objrepl.status"); [ "${f:-0}" -gt $(( ${f0:-0} + 3 )) ] && break; sleep 0.1; done   # streaming (not inside its handshake)
+kill -STOP $BG
 s0=$(date +%s); timeout 60 "$X" primary "$T/x" --copy 127.0.0.1:$P "${PTLS[@]}" --name P9 --commits 1 --per 1 > "$T/p9.log" 2>&1; r=$?; s1=$(date +%s)
 kill -CONT $BG; kill -KILL $BG; wait $BG 2>/dev/null; BG=""
 stop_copy; "$X" clear-alarm "$T/a" > /dev/null; "$X" clear-alarm "$T/x" > /dev/null
@@ -152,6 +153,16 @@ stop_copy
 [ $r -eq 0 ] && grep -q "read back differently" "$T/v2/objrepl.alarm" && [ "$(dig v1)" == "$(dig v2)" ] \
   && ok "design 5: a changed byte after apply was caught by the read-back (alarm, not applied); the resend applied; copy = primary" \
   || bad "design 5" "rc $r alarm [$(cat "$T/v2/objrepl.alarm" 2>/dev/null)] [$(dig v1)] [$(dig v2)]"
+
+# stop file: a copy stops when ROOT/objrepl.stop appears (the Windows way to stop it gracefully), and removes it
+mkdir -p "$T/sf"
+"$X" copy "$T/sf" --listen $((P + 8)) "${CTLS[@]}" --name SF > "$T/copy_sf.log" 2>&1 & SPID=$!
+for i in $(seq 1 50); do grep -q "^state listening" "$T/sf/objrepl.status" 2>/dev/null && break; sleep 0.1; done
+touch "$T/sf/objrepl.stop"; s0=$(date +%s)
+for i in $(seq 1 50); do kill -0 $SPID 2>/dev/null || break; sleep 0.1; done
+alive=0; kill -0 $SPID 2>/dev/null && { alive=1; kill -KILL $SPID; }; wait $SPID 2>/dev/null; rc=$?
+[ $alive -eq 0 ] && [ $rc -eq 0 ] && [ ! -e "$T/sf/objrepl.stop" ] && grep -q "^state stopped" "$T/sf/objrepl.status" \
+  && ok "stop file: the copy stopped cleanly within $(( $(date +%s) - s0 )) s (exit 0, state stopped, the file removed)" || bad "stop file" "alive $alive rc $rc"
 
 echo "$PASS passed, $FAIL failed"
 [ $FAIL -eq 0 ]
