@@ -67,6 +67,7 @@
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
 <A HREF="#Example">Example</A><BR>
+<A HREF="#Interface74">The DataReel 7.4 interface</A><BR>
 <A HREF="#Functions">Functions</A></P>
 
 <h2 id="Overview">Overview</h2>
@@ -86,6 +87,34 @@ imap.Search("UNSEEN", unseen);
 imap.FetchHeader(1, header);
 imap.Logout();</PRE>
 <P>See examples_socket/imap_client for a command line program.</P>
+
+<h2 id="Interface74">The DataReel 7.4 interface</h2>
+<P>6.4 also has the DataReel 7.4 gxsIMAPClient calls, which keep the 2007 work client's calls, so a program builds against either version. They use std::string and std::vector and return 0 if successful or -1, with the reason in Error():</P>
+<PRE>int Connect(const std::string &amp;host, int port = 993, gxsMailSecurity security = gxsMAIL_IMPLICIT_TLS); // or gxsMAIL_STARTTLS
+int ConnectPlain(const std::string &amp;host, int port = 143);   // Plain text, password included
+int ConnectClient(const std::string &amp;host, int port = 993); // 2007
+int Login(const std::string &amp;user, const std::string &amp;passwd);
+int Login(const std::string &amp;host, int port, const std::string &amp;user, const std::string &amp;passwd); // 2007
+int Logout(int close_sockets = 1);   void Close();   bool IsConnected();   bool IsSecure();
+int Capability(std::vector&lt;std::string&gt; &amp;caps);   bool HasCapability(const std::string &amp;cap) const;
+int SelectMailbox(const std::string &amp;mailbox, int &amp;num_messages);
+int SelectMailbox(const std::string &amp;mailbox, std::string &amp;rxbuf, int &amp;num_messages); // 2007
+int Examine(const std::string &amp;mailbox, int &amp;num_messages);
+int ListMailboxes(std::vector&lt;std::string&gt; &amp;names, const std::string &amp;pattern = "*");
+int Search(const std::string &amp;criteria, std::vector&lt;unsigned&gt; &amp;numbers);
+int FetchHeader(int n, std::string &amp;header);
+int FetchHeader(int n, std::string &amp;header, std::string &amp;datetime, std::string &amp;sent_datetime); // 2007
+int FetchBody(int n, std::string &amp;body);   int FetchMessage(int n, std::string &amp;message);
+int FetchInternalDate(int n, std::string &amp;datetime);   int Delete(int n);   int Expunge();
+int Command(const std::string &amp;cmd);   const std::vector&lt;gxsIMAPUntagged&gt; &amp;Untagged() const;
+const std::string &amp;LastReply() const;   std::string Error() const;
+int SendCommand(const std::string &amp;command, std::string &amp;tag);   // 2007
+int RecvBuffer(const std::string &amp;tag, std::string &amp;buf);          // 2007
+static int ParseResponse(...);   static int FetchItem(const gxsIMAPUntagged &amp;u, const std::string &amp;item, std::string &amp;value);
+static bool Quote(const std::string &amp;s, std::string &amp;quoted);
+void SetTimeout(int seconds);   void SetCAFile(const std::string &amp;fname);   void SetVerifyPeer(bool on);
+void SetMaxSize(std::size_t n);   void SetRecordProto(bool on);   std::string ProtoString() const;</PRE>
+<P>gxsIMAPUntagged holds one untagged reply: its text, with each literal replaced by a NUL, the literal's index and a NUL, and the literals' bytes.</P>
 
 <h2 id="Functions">Functions</h2>
 <P class="dr-fnlist"><A HREF="#ConnectClient">gxsIMAPClient::ConnectClient()</A><BR>

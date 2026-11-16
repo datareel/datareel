@@ -110,8 +110,21 @@ BETA 2 (11/16/2026): IMAP CLIENT (gxsimap.h, gxsimap.cpp)
   session log (RecordSession()) leaves out passwords.
 - New gxSSL::RecvSomeSSLSocket(): the bytes available, waiting up to a
   timeout for the first one (OpenSSL and Schannel).
-- examples_socket/imap_client: one IMAP command from the command line.
-  proto_security: 32 IMAP checks with a fake server.
+- The DataReel 7.4 gxsIMAPClient interface, with the 2007 work client's
+  calls, is in 6.4 too, so a program builds against either version:
+  Connect() (gxsMAIL_IMPLICIT_TLS or gxsMAIL_STARTTLS), ConnectPlain(),
+  Login(), Logout(), Capability()/HasCapability() (LOGIN is refused on
+  LOGINDISABLED), SelectMailbox(), Examine(), ListMailboxes(), Search(),
+  FetchHeader() (also the 2007 form with the dates), FetchBody(),
+  FetchMessage(), FetchInternalDate(), Delete(), Expunge(), Command()
+  with Untagged() and LastReply(), the 2007 SendCommand(cmd, tag),
+  RecvBuffer() and ParseResponse(), FetchItem(), Quote(), Error() and
+  the settings SetTimeout(), SetCAFile(), SetVerifyPeer(), SetMaxSize()
+  and SetRecordProto()/ProtoString(). These use std::string and
+  std::vector and return 0 or -1, as in 7.4.
+- examples_socket/imap_client: one IMAP command from the command line,
+  written with the 7.4 calls. proto_security: 47 IMAP checks with a
+  fake server.
 
 THE 7.x FEATURES BUILD (CMake only)
 -----------------------------------
