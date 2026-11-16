@@ -30,6 +30,7 @@
 <li>The B-tree cache works with index files opened read only (clean buckets are reused); before, a cached find or walk on a read-only index found nothing.</li>
 <li>Block navigation (DataReel 7.0 and 7.3.1): FindNextBlock(), FindNextObject(), FindPrevBlock() and FindPrevObject() take an object or a block address and return 0 at the ends of the file. Before, FindNextBlock() skipped a block when given an object address and returned the last block again at the end, so a FindFirstObject()/ FindNextObject() walk missed records and never ended. FindPrevBlock() no longer skips deleted blocks (FindPrevObject() does). A damaged block length is compared unsigned, with no signed overflow. FindFirstBlock() is unchanged, and FindFirstObject() returns the same object as before in an undamaged file. Programs that walk with FindFirstBlock() and the block length (as EPDB does) are not affected.</li>
 <li>Warnings: the gxstream.cpp TLS helpers are built only with __USE_GX_SSL_EXTENSIONS__; gxSocket::InitSIN() unused parameter.</li>
+<li>Files from another platform&#x27;s layout (new error code): with native integer types (__USE_NATIVE_INT_TYPES__, the default) gxUINT32 and gxINT32 are 8 bytes on 64-bit Linux and 4 bytes on Windows and in 32-bit builds, so the database file headers differ. Such a file used to open and read as empty, or as damaged. gxDatabase::Open() (and so gxBtree, InfoHog and the other classes on it) now refuses it with gxDBASE_FILE_LAYOUT_ERROR. The new code is added at the end of gxDatabaseError, so the other codes keep their numbers. Builds with the portable types (fcrypt, EPDB) write the same files everywhere and are not affected.</li>
 </ul>
 <h2>Beta 2 (11/16/2026): TLS Settings from DataReel 7.x</h2>
 <ul>
@@ -40,14 +41,14 @@
 <li>The handshake timeout (SetHandshakeTimeout(), 60 seconds by default) keeps a shorter send or receive timeout that the program set on the socket. Before, the handshake ran with the 60 second limit and a program&#x27;s shorter limit (the ssl-bridge&#x27;s) did not apply.</li>
 <li>OpenSSL 3: SSL_get1_peer_certificate(); OPENSSL_init_ssl() loads the system configuration (on RHEL, the crypto policy).</li>
 </ul>
-<h2>The 7.x Features Build (cmake Only)</h2>
+<h2>The 7.x Features Build (CMake Only)</h2>
 <ul>
 <li>DATAREEL7_FEATURES_DIR (a path, empty = off): the 7.x source tree. The build refuses a tree older than 7.4. It builds, next to the 6.x library: - the 7.x library, from that tree as it is. Its names are in the datareel namespace, so it links next to the 6.x library in one program; - dr7inner (dr7features/inner): a plain C interface to the 7.x classes, compiled against the 7.x headers only; - dr7features (dr7features/include/dr7features.h): DataReel 6.x classes that use it, with 6.x types (gxString, MemoryBuffer). Link a program with the CMake target DataReel::dr7features. It needs a C++17 compiler, the same one for both libraries.</li>
 <li>DATAREEL7_TOOLS (default ON with DATAREEL7_FEATURES_DIR): also build the 7.x programs from the 7.x tree into &lt;build&gt;/dr7inner/tools: gxrepl (database replication), object_server and object_client (POSIX), vix_rebuild.</li>
 <li>The 7.x library is built with the same database engine as the 6.x library (DATAREEL_64BIT_DATABASE).</li>
 <li>Do not include DataReel 7.x headers in a 6.x source file. The two versions have header files of the same names and include guards. dr7features.h includes only 6.x headers.</li>
 </ul>
-<h2>Vector Database: Gxv7vectorindex, Gxv7vectorset</h2>
+<h2>Vector Database: gxv7VectorIndex, gxv7VectorSet</h2>
 <p>The 7.x vector index (.vix files) and vector set (.vixset manifests), for 6.x programs:</p>
 <ul>
 <li>vectors of up to 4096 float32, float16 or int8 elements, L2, cosine or inner product, four tags per vector, an id per vector (for example a 6.x record&#x27;s block address);</li>
@@ -55,9 +56,9 @@
 <li>vector sets: many .vix files (for example one per day) searched as one, with a day range on tag 2.</li>
 </ul>
 <p>The files are the 7.x files: a 7.x program opens what a 6.x program writes, and the other way round. Do not open one .vix file for writing in a 6.x program and a 7.x program at the same time. As with every DataReel database file (6.x and 7.x), a file made by a Linux build and one made by a Windows build are laid out differently: the file and block headers hold C &quot;unsigned long&quot; values (8 bytes on 64-bit Linux, 4 bytes on Windows). Use the files on the system that made them; to move vectors between Linux and Windows, rebuild the index there (for example with the 7.x vix_rebuild). Example: examples_database/vector_index.</p>
-<h2>Vector Searches on a 7.x Object Server: Gxv7objectclient</h2>
+<h2>Vector Searches on a 7.x Object Server: gxv7ObjectClient</h2>
 <p>A 6.x program sends op 7 VECTOR_SEARCH and op 8 VECTOR_INFO to a DataReel 7.x database object server (for example &quot;gxrepl serve&quot; with a [db NAME] section that names &quot;vectors&quot;). The connection uses mutual TLS: the client&#x27;s certificate, the CA, and the server name checked. The client uses the 7.x client classes, so the messages are the 7.x ones. POSIX only, as the DataReel 7.4 object client (its multiplex session is built on POSIX systems only): on Windows Connect() returns -1. Example: examples_socket/vector_client.</p>
-<h2>Replication of 6.x Databases With the 7.x Gxrepl</h2>
+<h2>Replication of 6.x Databases With the 7.x gxrepl</h2>
 <p>A 6.x program&#x27;s database folder is replicated by the 7.x gxrepl, running next to it as a separate process. The 6.x program is not changed and links no 7.x code.</p>
 <ul>
 <li>gxrepl copies a folder without a ship log by a scan of changed 64 KB pieces. It reads a live folder under the shared lock of the folder&#x27;s journal file.</li>

@@ -131,6 +131,7 @@
   <B>gxDBASE_RECORDLOCK_ACCESS_ERROR</B>,  // Record lock cannot be accessed
   <B>gxDBASE_RECORDLOCK_ERROR</B>          // Error locking a record
 };</PRE>
+<P>6.4: <B>gxDBASE_FILE_LAYOUT_ERROR</B> (added at the end of the enumeration, so the other codes keep their numbers) is returned by gxDatabase::Open() for a file written with the other on-disk layout. With native integer types a gxUINT32 is 8 bytes on 64-bit Linux and 4 bytes on Windows and in 32-bit builds, so the file headers differ; such a file used to open and read as empty.</P>
 
 <h2 id="ExceptionClasses">Exception Classes</h2><B><FONT>
 </B></FONT><P>Class declarations for exceptions representing program errors. This implementation is provided for optional use with the C++ built-in exception handling routines "try", "catch", and "throw."</P>

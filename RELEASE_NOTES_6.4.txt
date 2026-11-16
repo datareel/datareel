@@ -49,6 +49,16 @@ BETA 2 (11/16/2026): FIXES FROM DATAREEL 7.x
   FindFirstBlock() and the block length (as EPDB does) are not affected.
 - Warnings: the gxstream.cpp TLS helpers are built only with
   __USE_GX_SSL_EXTENSIONS__; gxSocket::InitSIN() unused parameter.
+- Files from another platform's layout (new error code): with native
+  integer types (__USE_NATIVE_INT_TYPES__, the default) gxUINT32 and
+  gxINT32 are 8 bytes on 64-bit Linux and 4 bytes on Windows and in
+  32-bit builds, so the database file headers differ. Such a file used
+  to open and read as empty, or as damaged. gxDatabase::Open() (and so
+  gxBtree, InfoHog and the other classes on it) now refuses it with
+  gxDBASE_FILE_LAYOUT_ERROR. The new code is added at the end of
+  gxDatabaseError, so the other codes keep their numbers. Builds with
+  the portable types (fcrypt, EPDB) write the same files everywhere
+  and are not affected.
 
 BETA 2 (11/16/2026): TLS SETTINGS FROM DATAREEL 7.x
 ---------------------------------------------------
