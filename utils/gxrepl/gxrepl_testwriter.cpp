@@ -20,6 +20,7 @@
 #include <map>
 #include <vector>
 #include "gxdbase.h"
+#include "gxbtree.h"
 #include <limits>
 #include <math.h>
 #include "gxvset.h"
@@ -775,6 +776,33 @@ int main(int argc, char **argv)
     IndexObj io;
     if(ia == (FAU_t)0 || ix.Read(&io, sizeof(io), ia) != gxDBASE_NO_ERROR) { printf("noindex\n"); return 1; }
     printf("%llu %llu %llu\n", (unsigned long long)g, (unsigned long long)io.count, (unsigned long long)io.sum);
+    return 0;
+  }
+  // 11/15/2026: btree ROOT ORDER N: a B-tree of N random 64-bit keys (numeric order) of node order ORDER in
+  // ROOT/keys.btx, for gxrepl digest's in-order walk (an order below 5 is made 5: a node then holds 4 keys)
+  if(mode == "btree" && argc > 4) {
+    struct U64Key : public DatabaseKeyB {
+      uint64_t v;
+      U64Key(uint64_t x = 0) : DatabaseKeyB((char *)&v), v(x) { }
+      size_t KeySize() { return sizeof(v); }
+      int CompareKey(const DatabaseKeyB &o) const { uint64_t w; memcpy(&w, o.db_key, sizeof(w)); return v < w ? -1 : v > w ? 1 : 0; }
+      int operator==(const DatabaseKeyB &o) const { return CompareKey(o) == 0; }
+      int operator>(const DatabaseKeyB &o) const { return CompareKey(o) > 0; }
+    };
+    unsigned order = (unsigned)strtoul(argv[3], 0, 10);
+    unsigned long n = strtoul(argv[4], 0, 10);
+    U64Key t, c;
+    gxBtree bt(t, (BtreeNodeOrder_t)order);
+    std::string f = root + "/keys.btx";
+    if(bt.Create(f.c_str()) != gxDBASE_NO_ERROR) { printf("create failed\n"); return 1; }
+    unsigned long long x = 88172645463325252ULL;
+    for(unsigned long i = 0; i < n; i++) {
+      x ^= x << 13; x ^= x >> 7; x ^= x << 17;
+      U64Key k(x);
+      if(!bt.Insert(k, c)) { printf("insert failed\n"); return 1; }
+    }
+    bt.Close();
+    printf("%lu keys, order %u\n", n, order);
     return 0;
   }
   if(mode == "check") return check(root);

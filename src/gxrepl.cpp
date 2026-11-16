@@ -6197,7 +6197,7 @@ int gxReplDigest(const std::string &path, const std::string &kind_in, uint64_t &
     auto push = [&](FAU_t a) -> bool {
       if(a == (FAU_t)0) return true;
       if(stack.size() >= max_depth || ++reads > max_reads) { err = "the B-tree's nodes loop or go too deep: " + path; return false; }
-      if(bt.ReadNode(n, a) != gxDBASE_NO_ERROR || (unsigned)n.key_count > (unsigned)bh.node_order) {   // up to node_order keys: Insert() adds to a node until IsFull()
+      if(bt.ReadNode(n, a) != gxDBASE_NO_ERROR || (unsigned)n.key_count > (unsigned)n.node_order) {   // the node's own limit: order - 1 keys (an order below 5 is 5)
 	err = "cannot read a B-tree node of " + path; return false;
       }
       Pos p;
