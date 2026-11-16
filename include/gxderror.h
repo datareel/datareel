@@ -150,7 +150,10 @@ enum gxDatabaseError { // Database error codes
   gxDBASE_BAD_INDEX_NUMBER,  // Bad index file number 
   gxDBASE_BAD_INDEX_NAME,    // Bad index file name
   gxDBASE_FILE_RENAME_ERROR, // Error renaming file
-  gxDBASE_FILE_DELETE_ERROR  // Error deleting file
+  gxDBASE_FILE_DELETE_ERROR, // Error deleting file
+
+  // 11/16/2026: 6.4
+  gxDBASE_FILE_LAYOUT_ERROR  // File written with the other long size
 };
 
 enum gxDatabaseStatus { // Database status codes

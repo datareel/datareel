@@ -52,7 +52,7 @@ the gxdExceptionMessages array.
 
 // NOTE: This array must contain the same number of exceptions as the
 // gxDatabaseError enumeration. 
-const int gxdMaxExceptionMessages = 90;
+const int gxdMaxExceptionMessages = 91;
 const char *gxdExceptionMessages[gxdMaxExceptionMessages] = {
   "Database exception: No exception reported",               // None
   "Database exception: Invalid error code reported",         // Invalid
@@ -151,7 +151,11 @@ const char *gxdExceptionMessages[gxdMaxExceptionMessages] = {
   "Database exception: Bad index file number", // BAD_INDEX_NUMBER
   "Database exception: Bad index file name",   // BAD_INDEX_NAME
   "Database exception: Error renaming file",   // FILE_RENAME_ERROR
-  "Database exception: Error deleting file"    // FILE_DELETE_ERROR 
+  "Database exception: Error deleting file",   // FILE_DELETE_ERROR 
+
+  // 11/16/2026: 6.4
+  "Database exception: File made by a build with a different file layout \
+(64-bit Linux files differ from Windows and 32-bit files)" // FILE_LAYOUT_ERROR
 };
 
 // NOTE: This array must contain the same number of status messages
