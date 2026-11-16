@@ -1137,6 +1137,8 @@ def test_pull_reads_only_the_copys_log():
     env.start_client({"GXREPL_TEST_READLOG_HOLD": hold})
     try:
         wait_same(env, "back", 90)
+        wait_status(env, lambda s: s["sets"]["back"]["ok"], 60)
+        time.sleep(3)                                  # the first verifies done: the next records go by the feed
         log0 = len(open(os.path.join(env.dir, "client.log")).read())
         put(hold + ".arm", b"1\n")
         assert writer(d1, "--commits", 1, "--ship-root", aws, "--seed", 21).returncode == 0   # a record to read
