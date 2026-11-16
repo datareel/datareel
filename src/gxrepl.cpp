@@ -5582,6 +5582,27 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
       else synced++;
     }
     if(failed) { ++it; continue; }
+    // 11/15/2026 (the late-pass hollow seal, a): a new log names its files only with its first commit. A verify that
+    // found none while the stream's folder holds database files on the source (a day reopened by a plain copy:
+    // events.gxd is there, the new log does not list it yet) is not done: taking the log's end then let the next
+    // records build that file from their pages alone on a copy that does not have it (a hollow file, sealed whole).
+    // The stream stays on the list until its files are listed.
+    if(synced == 0 && !s->journal.empty()) {
+      std::string folder = dir_of(s->journal), have;
+      for(auto &m : sm) {
+	if(dir_of(m.path) != folder || m.path == s->journal || !is_db_file(sc, m.path) || excluded(sc, m.path) ||
+	   is_derived(sc, m.path)) continue;
+	have = m.path;
+	break;
+      }
+      if(!have.empty()) {
+	glog("set %s: stream %s lists no file yet, and its folder has %s: verified when it lists its files",
+	     sc.name.c_str(), s->name.c_str(), have.c_str());
+	verifying[sc.name].clear();
+	++it;
+	continue;
+      }
+    }
     if(synced == 0) {
       // No file left to match the position against: take the log's end
       gxReplStreamState ns;
