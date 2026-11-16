@@ -292,6 +292,93 @@ gxDatabaseError gxDatabase::InitFileHdr()
   return gxd_error = gxDBASE_NO_ERROR;
 }
 
+#if defined (__64_BIT_DATABASE_ENGINE__)
+static unsigned long gxd_le32(const unsigned char *b)
+{
+  return (unsigned long)b[0] | ((unsigned long)b[1] << 8) |
+    ((unsigned long)b[2] << 16) | ((unsigned long)b[3] << 24);
+}
+
+static int gxd_block_fits(gxdFPTR *fp, unsigned long long hs,
+			  unsigned long long len, unsigned long long eof,
+			  unsigned long cw)
+// 11/16/2026: True if a block of len bytes at hs ends at the end of the
+// file or at another block's check word
+{
+  if(len < 16 || len > eof || hs + len > eof) return 0;
+  if(hs + len == eof) return 1;
+  unsigned char w[4];
+  if(gxdFPTRReadAt(fp, w, sizeof(w), (FAU_t)(hs + len)) != (__ULWORD__)sizeof(w)) return 0;
+  return gxd_le32(w) == cw;
+}
+#endif
+
+static int gxd_file_layout(gxdFPTR *fp)
+// 11/16/2026: Checks the on-disk layout of the open file before its
+// header is read. Returns 0 for this build's layout (or a file that
+// cannot tell, or is not a database file: Open() reports that one as
+// before), 1 for the other long size, 2 for the other database engine.
+//
+// With __USE_NATIVE_INT_TYPES__, gxUINT32 and gxINT32 are longs: 8
+// bytes on 64-bit Linux and 4 on Windows and in 32-bit builds, so the
+// file, lock and block headers differ and such a file read as empty or
+// damaged.
+// - 32-bit engine: the signature follows 4 FAUs, at offset 32 (8-byte
+//   FAUs) or 16 (4-byte FAUs).
+// - 64-bit engine: the file header is the same in both, so the first
+//   block tells: its length follows the check word (4-byte longs) or
+//   follows 8 bytes of check word (8-byte longs). The length that leads
+//   to the end of the file or to the next block's check word is the
+//   file's layout. A file with no blocks, or whose first block is
+//   damaged so that neither length fits, is opened as before.
+// The 32-bit engine's signature "GXDBASE" is the start of the 64-bit
+// engine's "GXDBASE64", which used to let a 32-bit engine build open a
+// 64-bit engine file.
+{
+  unsigned char b[64];
+  memset(b, 0, sizeof(b));
+  if(gxdFPTRReadAt(fp, b, sizeof(b), (FAU_t)0) < 40) return 0;
+  static const char base[] = "GXDBASE";
+  static const char base64[] = "GXDBASE64";
+  const size_t here = 4 * sizeof(FAU);
+  const size_t other = (sizeof(FAU) == 8) ? 16 : 32;
+#if defined (__64_BIT_DATABASE_ENGINE__)
+  if(memcmp(b + here, base64, 9) != 0) {
+    // A 32-bit engine file, in either layout
+    if((memcmp(b + 32, base, 7) == 0 && memcmp(b + 32, base64, 9) != 0) ||
+       (memcmp(b + 16, base, 7) == 0 && memcmp(b + 16, base64, 9) != 0)) {
+      return 2;
+    }
+    return 0;
+  }
+  (void)other;
+  unsigned long long eof = (unsigned long long)gxd_le32(b + 8) |
+    ((unsigned long long)gxd_le32(b + 12) << 32);
+  unsigned long long hs = (unsigned long long)gxd_le32(b + 16) |
+    ((unsigned long long)gxd_le32(b + 20) << 32);
+  unsigned char w[16];
+  if(hs == 0 || hs + sizeof(w) > eof ||
+     gxdFPTRReadAt(fp, w, sizeof(w), (FAU_t)hs) != (__ULWORD__)sizeof(w)) {
+    return 0;
+  }
+  unsigned long cw = (unsigned long)gxDatabase::gxInternalCheckWord & 0xffffffffUL;
+  if(gxd_le32(w) != cw) return 0;
+  unsigned long long len4 = gxd_le32(w + 4);
+  unsigned long long len8 = (unsigned long long)gxd_le32(w + 8) |
+    ((unsigned long long)gxd_le32(w + 12) << 32);
+  int fits4 = gxd_block_fits(fp, hs, len4, eof, cw);
+  int fits8 = (gxd_le32(w + 4) == 0) && gxd_block_fits(fp, hs, len8, eof, cw);
+  if(sizeof(gxUINT32) == 8 && fits4 && !fits8) return 1;
+  if(sizeof(gxUINT32) == 4 && fits8 && !fits4) return 1;
+  return 0;
+#else
+  if(memcmp(b + 32, base64, 9) == 0) return 2; // A 64-bit engine file
+  if(memcmp(b + here, base, 7) == 0) return 0;
+  if(memcmp(b + other, base, 7) == 0) return 1;
+  return 0;
+#endif
+}
+
 gxDatabaseError gxDatabase::Open(const char *fname,
 				 gxDatabaseAccessMode mode)
 // Open an existing file. The "mode" variable determines if the file
@@ -342,6 +429,22 @@ gxDatabaseError gxDatabase::Open(const char *fname,
     is_ok = 1;
     gxd_copy_name(file_name, sizeof(file_name), fname); // 11/16/2026: was strcpy(), which overflowed on long path names
     last_operation = gxDBASE_WRITE;
+
+    // 11/16/2026: A file written with the other on-disk layout (64-bit
+    // Linux versus Windows or 32-bit builds), or by the other database
+    // engine, is refused with a clear error. It used to open and read
+    // as empty, or as damaged.
+    int layout = gxd_file_layout(fp);
+    if(layout != 0) {
+      AbandonOpen();
+      gxd_error = (layout == 2) ? gxDBASE_FILE_ENGINE_ERROR :
+	gxDBASE_FILE_LAYOUT_ERROR;
+#ifdef __CPP_EXCEPTIONS__
+      throw gxCDatabaseException();
+#else
+      return gxd_error;
+#endif
+    }
     
     // 10/31/2026: A file that is not a database file, or whose header
     // cannot be read, is closed again. The file used to stay open (a
