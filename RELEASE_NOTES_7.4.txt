@@ -470,20 +470,20 @@ FIXES AFTER BETA 3 (11/15/2026, docs-7.4)
   two orders agreed digest exactly as before. run_tests:
   gxrepl_digest_repeated_names.
 
-ONE FILE LAYOUT ON EVERY PLATFORM (11/15/2026, beta 4)
+ONE FILE LAYOUT ON EVERY PLATFORM (11/15/2026, beta 5)
 -----------------------------------------------------
-Before 7.4 beta 4 the database file headers held gxUINT32/gxINT32
+Before 7.4 beta 5 the database file headers held gxUINT32/gxINT32
 fields (unsigned long, long), 8 bytes on 64-bit Linux and 4 on 64-bit
 Windows and in 32-bit builds, so .gxd, .btx and .vix files (and record
 addresses) did not move between them. Now:
 - Every platform writes one layout, the canonical one: the 64-bit Linux
   layout. Linux files are byte for byte what 7.x and 6.x write (the
-  files of a 7.4 beta 3 build and a beta 4 build with the same writer
+  files of a 7.4 beta 3 build and a beta 5 build with the same writer
   are identical; OSA's data files read the same). The header fields are
   packed explicitly (gxdbase.h: DiskLongSize(), DiskFAUSize()); the
   structs in memory are unchanged.
 - Files in the old 4-byte layout (written by 64-bit Windows and 32-bit
-  builds before beta 4) are found when opened and then read AND written
+  builds before beta 5) are found when opened and then read AND written
   in that layout, so their object addresses never move: the file
   header, block headers, file and record locks, stats, checksums,
   B-tree headers and nodes, InfoHog records (object header, member
@@ -498,7 +498,7 @@ addresses) did not move between them. Now:
   read back and compared, B-tree and vector index files are refused
   (rebuild them from the upgraded data file).
 - SetCreateLayout(4) (or GXD_CREATE_LAYOUT=4) creates a file in the old
-  layout, for readers older than beta 4 only.
+  layout, for readers older than beta 5 only.
 - gxrepl copies bytes and never rewrites a header: a folder replicates
   in the layout it has (test_old_layout_folder_replicates_byte_for_byte).
 - vix_test's phase C files (made on 64-bit Linux) are compared on every
@@ -515,10 +515,32 @@ record or key keeps its platform's size; use fixed-width types
 gxStream and object server message framing (gxBlockHeader sent as its
 bytes) still differs between Linux and Windows.
 
-NEXT
-----
-Turning the per-object derived apply on for a set (derived_apply =
-incremental) after its own measurements; rebuild stays the default. Phase E: the 6.x version with the legacy
-classes.
-DataReel 7.5 alpha: the Python module as a pip package (datareel), built
-from this repo.
+PLANNED FOR THE NEXT RELEASE (7.5)
+----------------------------------
+These are planned features, not part of 7.4:
+- The Python module as a package that installs with pip.
+- Replication on Windows: live database replication and the database
+  object server on Windows, not only the folder copy of 7.4 (7.4's one
+  file layout on every platform is the base for it).
+- The 6.x version with the legacy classes, carrying the 7.x features.
+- TLS servers on Windows without an interactive sign-in, so a server
+  can load its PEM certificate and key when started over a key-based
+  remote login or as a Windows service.
+- A decision on the build without native types
+  (DATAREEL_NATIVE_TYPES=OFF): a fixed-width file header for it, or
+  retiring that build.
+- Per-object index upkeep on a replicated copy (derived_apply =
+  incremental) as the default, once measurements show it; rebuild
+  stays the default until then.
+- A serial port example for gxSerialComm.
+- A string function that strips terminal control sequences (VT220 and
+  ANSI escapes) from text such as captured device output or logs.
+- A CSV reader and writer class, with an example that merges
+  spreadsheets exported as CSV.
+- A service framework example (worker threads, a product loop,
+  configuration and help) with a single-instance process lock.
+- An example that watches a folder and uploads new files over FTPS.
+- A direct I/O (unbuffered, aligned) test for the journal and
+  replication.
+- File utilities: hexdump, file find and text filter programs for 7.x.
+- A TLS throughput section in the dr_bench benchmarks.
