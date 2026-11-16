@@ -2025,6 +2025,8 @@ def test_big_record_resyncs():
         log = open(os.path.join(env.dir, "client.log")).read()
         assert "bigger than max_message" in log, log[-2000:]
         assert log.count("bigger than max_message") <= 3, "a resync loop: " + log[-2000:]
+        # 11/15/2026 (F3): "always", never ULLONG_MAX raw, in the log lines
+        assert "18446744073709551615" not in log, log[-2000:]
         n0 = st["sets"]["db"]["records"]
         assert writer(ws, "--commits", 4, "--seed", 78).returncode == 0          # and the log goes on
         wait_same(env, "db", 60)
@@ -5741,6 +5743,24 @@ def test_drain_verify_position_gone_during_its_own_verify():
     assert same, "the copy differs after its position left the log during its verify\n" + log[-3000:]
     tail = log[log.find("connected to", log.find("connected to") + 1):]
     assert "again after this one (the copy's position is gone" in tail or tail.count("verified (") >= 2, tail
+
+
+def test_drain_verify_big_record_during_its_own_verify():
+    """11/15/2026 (F3): a record bigger than max_message drained while the stream is being verified (its file sync
+    held): the verify is asked for again (always), as for a position gone, and the copy ends equal; the log line says
+    "always", never ULLONG_MAX raw"""
+    def act(env, ws, d1):
+        assert writer(d1, "--commits", 1, "--big", 1500000, "--commit-block", "--ship-root", ws, "--seed", 46,
+                      "--segment", 65536).returncode == 0
+        assert writer(d1, "--commits", 3, "--commit-block", "--ship-root", ws, "--seed", 47,
+                      "--segment", 65536).returncode == 0
+    same, log = _during_own_verify("dv_big_own", act)
+    assert same, "the copy differs after a big record during its verify\n" + log[-3000:]
+    tail = log[log.find("connected to", log.find("connected to") + 1):]
+    assert "bigger than max_message" in tail, tail
+    # verified again after the big record (the writer's own open asks for it too: a test writer always opens)
+    assert "verified (" in tail[tail.find("bigger than max_message"):], tail
+    assert "18446744073709551615" not in log, log[-3000:]
 
 
 def test_drain_verify_log_remade_during_its_own_verify():
