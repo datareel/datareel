@@ -70,6 +70,7 @@ number; records left in the file after that have an old salt.
 #include <fcntl.h>
 #endif
 #include <stdio.h>
+#include <errno.h>
 #include "gxdlcode.h"
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -239,40 +240,64 @@ static std::string recovered_marker(const char *jname) { return std::string(jnam
 
 // 11/16/2026 (beta4 review M2, M3): "<n>\n" written to a temporary file, flushed to the disk, renamed over the marker
 // and (POSIX) the folder synced. Returns 0, or -1 if any step failed (nothing is left behind then).
+// 11/16/2026 (beta4 re-review L-c): why the last marker in this thread could not be written (gxdJournal::RecoverError())
+static thread_local std::string g_recover_error;
+static int marker_fail(const char *step, const std::string &path, int code)
+{
+#ifdef _WIN32
+  g_recover_error = std::string("cannot ") + step + " " + path + ": Windows error " + std::to_string(code) +
+    "; the replay was refused and the journal kept";
+#else
+  g_recover_error = std::string("cannot ") + step + " " + path + ": " + strerror(code) + " (errno " +
+    std::to_string(code) + "); the replay was refused and the journal kept";
+#endif
+  return -1;
+}
+
 static int write_recovered_marker(const std::string &mk, unsigned long n)
 {
   std::string tmp = mk + ".tmp", body = std::to_string(n) + "\n";
 #ifdef _WIN32
   HANDLE h = CreateFileA(tmp.c_str(), GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
-  if(h == INVALID_HANDLE_VALUE) return -1;
+  if(h == INVALID_HANDLE_VALUE) return marker_fail("create", tmp, (int)GetLastError());
   DWORD wrote = 0;
-  BOOL ok = WriteFile(h, body.data(), (DWORD)body.size(), &wrote, 0) && wrote == (DWORD)body.size() &&
-    FlushFileBuffers(h);
+  if(!WriteFile(h, body.data(), (DWORD)body.size(), &wrote, 0) || wrote != (DWORD)body.size()) {
+    int e = (int)GetLastError(); CloseHandle(h); DeleteFileA(tmp.c_str()); return marker_fail("write", tmp, e);
+  }
+  if(!FlushFileBuffers(h)) { int e = (int)GetLastError(); CloseHandle(h); DeleteFileA(tmp.c_str()); return marker_fail("flush", tmp, e); }
   CloseHandle(h);
-  if(!ok || !MoveFileExA(tmp.c_str(), mk.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-    DeleteFileA(tmp.c_str());
-    return -1;
+  if(!MoveFileExA(tmp.c_str(), mk.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    int e = (int)GetLastError(); DeleteFileA(tmp.c_str()); return marker_fail("rename", tmp, e);
   }
   return 0;
 #else
   int mf = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0640);
-  if(mf < 0) return -1;
-  bool ok = write(mf, body.data(), body.size()) == (ssize_t)body.size() && fsync(mf) == 0;
+  if(mf < 0) return marker_fail("create", tmp, errno);
+  if(write(mf, body.data(), body.size()) != (ssize_t)body.size()) {
+    int e = errno ? errno : EIO; close(mf); unlink(tmp.c_str()); return marker_fail("write", tmp, e);
+  }
+  if(fsync(mf) != 0) { int e = errno; close(mf); unlink(tmp.c_str()); return marker_fail("fsync", tmp, e); }
   close(mf);
-  if(!ok || rename(tmp.c_str(), mk.c_str()) != 0) { unlink(tmp.c_str()); return -1; }
+  if(rename(tmp.c_str(), mk.c_str()) != 0) { int e = errno; unlink(tmp.c_str()); return marker_fail("rename", tmp, e); }
   std::string::size_type sl = mk.find_last_of('/');
   std::string d = sl == std::string::npos ? std::string(".") : (sl == 0 ? std::string("/") : mk.substr(0, sl));
   int df = open(d.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-  if(df < 0) return -1;
-  int rc = fsync(df);
+  if(df < 0) return marker_fail("open the folder", d, errno);
+  int rc = fsync(df), e = errno;
   close(df);
-  return rc == 0 ? 0 : -1;
+  return rc == 0 ? 0 : marker_fail("fsync the folder", d, e);
 #endif
+}
+
+const char *gxdJournal::RecoverError()
+{
+  return g_recover_error.c_str();
 }
 
 gxDatabaseError gxdJournal::Recover(const char *jname,
 				    unsigned long *recovered, int mark)
 {
+  g_recover_error.clear();
   if(recovered) *recovered = 0;
   if(!jname) return gxDBASE_NULL_PTR;
   if(!gxdFPTRExists(jname)) return gxDBASE_NO_ERROR;

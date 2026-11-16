@@ -821,6 +821,7 @@ int main(int argc, char **argv)
     unsigned long n = 0;
     gxDatabaseError e = gxdJournal::Recover((root + "/writer.jnl").c_str(), &n);
     printf("recovered %lu batch(es)\n", n);
+    if(*gxdJournal::RecoverError()) printf("%s\n", gxdJournal::RecoverError());   // 11/16/2026 (L-c)
     return e == gxDBASE_NO_ERROR ? 0 : 1;
   }
   if(mode == "check") return check(root);

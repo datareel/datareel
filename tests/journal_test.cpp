@@ -441,6 +441,8 @@ static void test_recovered_marker()
   unsigned long n = 99;
   CHECK(gxdJournal::Recover(jnl.c_str(), &n) != gxDBASE_NO_ERROR, "marker: replayed without its marker");
   CHECK(n == 0, "marker: a refused replay says " + std::to_string(n));
+  CHECK(std::string(gxdJournal::RecoverError()).find("cannot create") == 0, std::string("marker: no cause given: ") +
+	gxdJournal::RecoverError());
   CHECK(!fs::exists(mk), "marker: a marker after a refused replay");
   CHECK(read_file(dir + "/data.gxd") == data0, "marker: the data file changed in a refused replay");
   CHECK(read_file(jnl) == jnl0, "marker: the journal changed in a refused replay");

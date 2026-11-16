@@ -5055,6 +5055,8 @@ def test_static_recover_refuses_without_its_marker():
         before = _sha(os.path.join(d1, "data.gxd"))
         r = run([os.path.join(BIN, "gxrepl_testwriter"), "recover", d1])
         assert r.returncode != 0 and "recovered 0 batch" in r.stdout, "replayed without its marker: " + r.stdout
+        # 11/16/2026 (beta4 re-review L-c): the refusal says why
+        assert "cannot create " in r.stdout and "writer.jnl.recovered.tmp" in r.stdout and "errno" in r.stdout, r.stdout
         assert _sha(os.path.join(d1, "data.gxd")) == before, "the files changed though the replay was refused"
         assert not os.path.exists(os.path.join(d1, "writer.jnl.recovered")), "a marker after a refused replay"
         os.rmdir(blocker)
