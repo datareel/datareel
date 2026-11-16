@@ -6567,7 +6567,9 @@ int gxReplPromote(const gxReplSetConfig &sc, bool apply, std::vector<std::string
     if(!since.empty()) {
       time_t t = (time_t)atoll(since[0].c_str());
       char b[64];
-      strftime(b, sizeof(b), "%Y-%m-%d %H:%M:%S", localtime(&t));
+      struct tm tmv;                        // 11/15/2026: localtime_r (localtime() shares its buffer across threads)
+      localtime_r(&t, &tmv);
+      strftime(b, sizeof(b), "%Y-%m-%d %H:%M:%S", &tmv);
       when = b;
     }
     bool swap = stat((sd + "/.swap").c_str(), &sb) == 0;
