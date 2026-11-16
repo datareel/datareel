@@ -109,6 +109,37 @@ mkdir -p "$WORK/run_digest_orders" && cd "$WORK/run_digest_orders" &&
   check gxrepl_digest_node_orders sh -c "set -e; for o in 3 16; do mkdir -p o\$o
     '$BUILD/utils/gxrepl_testwriter' btree o\$o \$o 1000 > /dev/null
     '$BUILD/utils/gxrepl' digest o\$o/keys.btx | grep -q ' 1000 '; done"
+# 11/15/2026 (7.4): the old 4-byte layout (gxdbase.h). tests/data/old_layout: files written by the 64-bit and 32-bit
+# FAU Windows builds of 7.4 beta 3 (replication_copy write --commits 40 --per 6). This build reads them as Windows
+# did (the digests Windows printed), writes them byte for byte with GXD_CREATE_LAYOUT=4, keeps an old file in its
+# layout when it writes more to it, and gxd_upgrade makes a canonical copy.
+OL="$SRC/tests/data/old_layout"
+if grep -q "DATAREEL_64BIT_DATABASE:BOOL=ON" "$BUILD/CMakeCache.txt" 2>/dev/null; then
+  mkdir -p "$WORK/run_old_layout" && cd "$WORK/run_old_layout" &&
+    check old_layout_read sh -c "set -e; cp -r '$OL/win64' w; '$E/replication_copy' digest w > d.txt
+      cmp d.txt '$OL/win64/replication_copy_digest.txt'"
+  mkdir -p "$WORK/run_old_layout_write" && cd "$WORK/run_old_layout_write" &&
+    check old_layout_write sh -c "set -e; mkdir -p w; GXD_CREATE_LAYOUT=4 '$E/replication_copy' write w --commits 40 --per 6 > /dev/null
+      for f in data.gxd by_name.btx vectors.vix; do cmp w/\$f '$OL/win64/'\$f; done"
+  mkdir -p "$WORK/run_old_layout_rw" && cd "$WORK/run_old_layout_rw" &&
+    check old_layout_read_write sh -c "set -e; cp -r '$OL/win64' w; '$E/replication_copy' write w --commits 20 --per 6 --seed 5 > /dev/null
+      python3 -c \"import sys; d=open('w/data.gxd','rb').read(24); sys.exit(0 if int.from_bytes(d[16:24],'little') == 92 else 1)\"
+      '$E/replication_copy' digest w > a.txt; cp -r w r; rm r/by_name.btx r/vectors.vix; '$E/replication_copy' rebuild r > /dev/null
+      '$E/replication_copy' digest r > b.txt; cmp a.txt b.txt"
+else
+  mkdir -p "$WORK/run_old_layout" && cd "$WORK/run_old_layout" &&
+    check old_layout_read sh -c "set -e; cp -r '$OL/win32' w
+      '$BUILD/utils/gxrepl' digest w/data.gxd --kind objects | grep -q '^cfb8e9e470ce02d7 155 '
+      '$BUILD/utils/gxrepl' digest w/by_name.btx --kind btree | grep -q '^67917c9acb47dd07 155 '
+      '$BUILD/utils/vix_rebuild' --digest w/vectors.vix | grep -q '^logical bcd02d0e141e67e8 155 '"
+fi
+mkdir -p "$WORK/run_old_layout_upgrade" && cd "$WORK/run_old_layout_upgrade" &&
+  check old_layout_upgrade sh -c "set -e; W='$OL/win64'; grep -q 'DATAREEL_64BIT_DATABASE:BOOL=ON' '$BUILD/CMakeCache.txt' || W='$OL/win32'
+    cp -r \$W w; '$BUILD/utils/gxd_upgrade' w/data.gxd up.gxd | grep -q 'byte check ok'
+    a=\$('$BUILD/utils/gxrepl' digest w/data.gxd --kind objects | cut -d' ' -f1-2); b=\$('$BUILD/utils/gxrepl' digest up.gxd --kind objects | cut -d' ' -f1-2)
+    [ \"\$a\" = \"\$b\" ]; test -s up.gxd.map
+    if '$BUILD/utils/gxd_upgrade' w/by_name.btx x.btx; then exit 1; fi
+    '$BUILD/utils/gxd_upgrade' up.gxd again.gxd | grep -q 'canonical layout already'; test ! -e again.gxd"
 # 11/14/2026 (7.4): the folder copy example (replication_copy_walkthrough.cmd on Windows), the same steps with cp
 mkdir -p "$WORK/run_replication_copy" && cd "$WORK/run_replication_copy" &&
   check replication_copy sh -c "set -e; mkdir -p p c; R='$E/replication_copy'

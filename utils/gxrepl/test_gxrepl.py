@@ -1158,6 +1158,33 @@ def test_pull_reads_only_the_copys_log():
         env.stop()
 
 
+def test_old_layout_folder_replicates_byte_for_byte():
+    """11/15/2026 (7.4 headers): gxrepl copies bytes and never rewrites a database file's headers: a folder written
+    in the old 4-byte layout (GXD_CREATE_LAYOUT=4: what 64-bit Windows and 32-bit builds wrote before 7.4) by the
+    commit feed and the scan arrives byte for byte, stays in that layout, and reads on the copy"""
+    env = Env("old_layout_copy", {"db": {}})
+    ws, aws = env.roots["db"]
+    e = dict(os.environ, GXD_CREATE_LAYOUT="4")
+    r = subprocess.run([os.path.join(BIN, "gxrepl_testwriter"), "write", ws, "--commits", "30", "--per", "6"],
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=e)
+    assert r.returncode == 0, r.stdout
+    env.start_server()
+    env.start_client()
+    try:
+        wait_same(env, "db", 90)
+        assert writer(ws, "--commits", 20, "--seed", 31).returncode == 0     # more commits, in the old layout
+        wait_same(env, "db", 90)
+        for f in ("data.gxd", "index.gxd"):
+            assert _same_file(os.path.join(ws, f), os.path.join(aws, f)), f + " differs"
+        # still the old layout on both nodes (the 64-bit FAU header: heap start 92, the canonical 104), and readable
+        check_db(ws)
+        check_db(aws)
+        r = run([os.path.join(BIN, "gxd_upgrade"), os.path.join(aws, "data.gxd"), os.path.join(env.dir, "up.gxd")])
+        assert r.returncode == 0 and "old 4-byte layout" in r.stdout, r.stdout
+    finally:
+        env.stop()
+
+
 def test_pull_direction():
     env = Env("pull", {"back": {"direction": "pull", "accept": "source"}})
     ws, aws = env.roots["back"]
