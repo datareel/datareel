@@ -2049,6 +2049,7 @@ int gxReplLocal::State(const std::string &set, std::vector<gxReplStreamState> &v
 }
 
 static std::string derived_dir(const gxReplSetConfig &sc);   // 11/15/2026: the stream holds (see hold_path)
+static bool test_off(const char *name);   // test builds: a hook is on
 static std::string hold_path(const gxReplSetConfig &sc, const std::string &stream);
 static bool read_hold(const gxReplSetConfig &sc, const std::string &stream, std::string &log_id, unsigned long long &lsn);
 static bool mem_hold(const gxReplSetConfig &sc, const std::string &stream, int op);   // 11/16/2026 (L2)
@@ -3646,6 +3647,9 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   // records' or the copy's. Called in check(), under the apply lock, before a page is written.
   auto explained_fill = [&](const std::set<std::string> &filled) -> std::set<std::string> {
     std::set<std::string> ok;
+    // 11/16/2026 (beta4 review L3): test builds: GXREPL_TEST_FILL_TRUST_ALL takes every fill as explained (the check
+    // switched off), so a test can show that it is the check, and nothing else, that drops the stamps
+    if(test_off("GXREPL_TEST_FILL_TRUST_ALL") && s->sc.derived_apply == "incremental") return filled;
     // review (HIGH): only an incremental set keeps stamps through a fill; in rebuild mode a fill of the derived
     // source always drops them (and derived.stamp and the state), as before
     if(s->sc.derived_apply != "incremental") return ok;

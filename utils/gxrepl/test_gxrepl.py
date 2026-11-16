@@ -4594,13 +4594,16 @@ def test_incremental_lone_open_then_commit_is_indexed():
     """11/15/2026 (review 2): writer B's open record reaches the copy alone (B waits before its first commit) and the
     stream's verify is held off (GXREPL_TEST_VERIFY_WAIT): the derived pass rebuilds the folder from data that lacks
     writer A's recovered commit, then B's commits (the same tail page) arrive. Until the verify is done the stream
-    stays off object by object, so the index ends with A's objects."""
+    stays off object by object, so the index ends with A's objects.
+    11/16/2026 (beta4 review L3): fails on 5e07237 with only the GXREPL_TEST_VERIFY_WAIT hook added (2 / 2: the copy's
+    index is not its data's); it now checks that the hook held the verify, so a binary without it fails here."""
     env, ws, aws, w = _recgap_env("incr_lone_open")
     try:
         d1 = os.path.join(ws, "d1")
         vw = os.path.join(env.dir, "verify_go")
         env.kill("client")
         env.start_client({"GXREPL_TEST_VERIFY_WAIT": vw})
+        c0 = len(open(os.path.join(env.dir, "client.log")).read())
         a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 611,
                             "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
         assert a.returncode == 9, "writer A was not stopped before the ship log: " + a.stdout
@@ -4612,6 +4615,11 @@ def test_incremental_lone_open_then_commit_is_indexed():
         put(gate, b"go\n")
         assert b.wait(timeout=120) == 0, b.stdout.read()
         time.sleep(5)                                  # B's commits applied while the verify waits
+        # 11/16/2026 (beta4 review L3): the race needs the open's verify held until now; a gxrepl without the hook
+        # (5e07237 itself) verifies at once and the test would pass there for the wrong reason
+        cl = open(os.path.join(env.dir, "client.log")).read()[c0:]
+        assert "needs a verify (a writer's open record)" in cl and "verified (" not in cl.split(
+            "needs a verify (a writer's open record)", 1)[1], "the open's verify was not held (no hook?)\n" + env.logs()
         put(vw, b"go\n")
         _recgap_index_ok(env, ws, aws)
     finally:
@@ -4836,35 +4844,63 @@ def test_incremental_open_in_a_file_update_is_indexed():
         env.stop()
 
 
+def _fill_without_records(name, server_env=None):
+    """commits made without the ship log (--no-ship: pages no record explains) then a clean writer whose open record
+    says it recovered nothing: only the fill check can send d1 to a rebuild. Returns (log since, rebuilds, index ok,
+    detail, env, ws, aws, w)."""
+    env, ws, aws, w = _stamped(name, commits=20)
+    w.wait(120)
+    _finish(env, ws, aws, w)
+    _wait_stamped(env, aws, "d1")
+    if server_env:
+        _restart_server(env, server_env)
+    time.sleep(3)
+    r0 = _rebuilds(env)
+    log0 = len(open(os.path.join(env.dir, "server.log")).read())
+    r = subprocess.run([os.path.join(BIN, "gxrepl_testwriter"), "write", os.path.join(ws, "d1"), "--commits", "3",
+                        "--per", "6", "--commit-block", "--no-ship", "--seed", "411"],
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert r.returncode == 0, r.stdout
+    r = _objects_writer(os.path.join(ws, "d1"), "--commits", 3, "--per", 6, "--commit-block", "--ship-root", ws,
+                        "--seed", 412)
+    assert r.returncode == 0, r.stdout
+    _wait_gen(ws, aws, "d1", 90)
+    _wait_stamped(env, aws, "d1", 120)
+    time.sleep(3)
+    _wait_stamped(env, aws, "d1", 120)
+    log = open(os.path.join(env.dir, "server.log")).read()[log0:]
+    ok, d = _index_equals_rebuild(env, os.path.join(aws, "d1"))
+    return log, _rebuilds(env) - r0, ok, d, env, ws, aws, w
+
+
 def test_incremental_fill_without_records_drops_the_stamps():
     """11/15/2026 (stamp-keeping fill): a fill keeps the folder's stamps only when every page it writes is what the
     update's records write or what the copy already holds. Commits made without the ship log (--no-ship: pages no
     record explains, like a recovered batch) reach the copy by files: the stamps go, the folder is rebuilt, and the
-    copy's index agrees with its data"""
-    env, ws, aws, w = _stamped("incr_fill_norec", commits=20)
+    copy's index agrees with its data.
+    11/16/2026 (beta4 review L3): isolated again: the second writer's open is clean (it recovered nothing), so no
+    open-record rule sends d1 to a rebuild; only the fill check does ("copied by files")"""
+    log, reb, ok, d, env, ws, aws, w = _fill_without_records("incr_fill_norec")
     try:
-        w.wait(120)
-        _finish(env, ws, aws, w)
-        _wait_stamped(env, aws, "d1")
-        time.sleep(3)
-        r0 = _rebuilds(env)
-        log0 = len(open(os.path.join(env.dir, "server.log")).read())
-        r = subprocess.run([os.path.join(BIN, "gxrepl_testwriter"), "write", os.path.join(ws, "d1"), "--commits", "3",
-                            "--per", "6", "--commit-block", "--no-ship", "--seed", "411"],
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        assert r.returncode == 0, r.stdout
-        r = _objects_writer(os.path.join(ws, "d1"), "--commits", 3, "--per", 6, "--commit-block", "--ship-root", ws,
-                            "--seed", 412)
-        assert r.returncode == 0, r.stdout
-        _wait_gen(ws, aws, "d1", 90)
-        _wait_stamped(env, aws, "d1", 120)
-        log = open(os.path.join(env.dir, "server.log")).read()[log0:]
-        # 11/15/2026: the writer's open record now sends the folder to a rebuild first (the recovery gap rule);
-        # either way the pages without records must not keep the stamps
-        assert "copied by files" in log or "rebuild needed: a writer's open record" in log, \
-            "pages without records kept the stamps\n" + env.logs()
-        assert _rebuilds(env) > r0, env.logs()
+        assert "rebuild needed: a writer's open record" not in log and "rebuild needed: a gap record" not in log, \
+            "an open or gap record, not the fill check, sent d1 to a rebuild: the test isolates nothing\n" + env.logs()
+        assert "copied by files" in log, "pages without records kept the stamps\n" + env.logs()
+        assert reb > 0, env.logs()
+        assert ok, f"the copy's index is not its data's (copy, rebuild): {d}\n" + env.logs()
         check_db(os.path.join(aws, "d1"))
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_fill_without_records_needs_the_check():
+    """11/16/2026 (beta4 review L3): the same with the fill check switched off (GXREPL_TEST_FILL_TRUST_ALL): the stamps
+    stay and the copy's index misses the commits made without the ship log. This shows the test above depends on
+    the check alone."""
+    log, reb, ok, d, env, ws, aws, w = _fill_without_records("incr_fill_trust", {"GXREPL_TEST_FILL_TRUST_ALL": "1"})
+    try:
+        assert "copied by files" not in log, "the hook did not switch the check off\n" + env.logs()
+        assert not ok, "the index is still its data's with the check off: the fill test proves nothing\n" + env.logs()
     finally:
         if w.poll() is None: w.kill(); w.wait()
         env.stop()
