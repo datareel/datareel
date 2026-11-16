@@ -75,14 +75,55 @@ throughout the library.
 
 #include "gxdfptr.h"
 
+#if defined (__UNIX__)
+#include <fcntl.h>   // 11/16/2026 (6.4 beta 2): the folder sync in gxdFPTRCreate()
+#include <unistd.h>
+#include <string.h>
+#endif
+
 #ifdef __BCC32__
 #pragma warn -8080
 #endif
+
+static gxdFPTR *gxdFPTRCreateFile(const char *fname);
+
+static void gxdFPTRSyncFolder(const char *fname)
+// 11/16/2026 (6.4 beta 2): Sync the folder that holds fname, so a file
+// just created there survives a power loss (POSIX; nothing elsewhere).
+{
+#if defined (__UNIX__)
+  if(!fname) return;
+  const char *slash = strrchr(fname, '/');
+  char dir[4096];
+  if(!slash) { dir[0] = '.'; dir[1] = 0; }
+  else if(slash == fname) { dir[0] = '/'; dir[1] = 0; }
+  else if((size_t)(slash - fname) < sizeof(dir)) { memcpy(dir, fname, (size_t)(slash - fname)); dir[slash - fname] = 0; }
+  else dir[0] = 0;
+  if(dir[0]) {
+    int dfd = open(dir, O_RDONLY | O_DIRECTORY);
+    if(dfd >= 0) { fsync(dfd); close(dfd); }
+  }
+#else
+  (void)fname;
+#endif
+}
 
 GXDLCODE_API gxdFPTR *gxdFPTRCreate(const char *fname)
 // Create a new file and truncate existing files.
 // Returns a null value if the file cannot be
 // created.
+// 11/16/2026 (6.4 beta 2, from DataReel 7.4): On UNIX the folder is
+// synced after the create, so the new name survives a power loss.
+// Without it a database or journal created and then committed to (each
+// commit syncs the file, not the folder) could be gone after a power
+// cut, commits and all.
+{
+  gxdFPTR *stream = gxdFPTRCreateFile(fname);
+  if(stream) gxdFPTRSyncFolder(fname);
+  return stream;
+}
+
+static gxdFPTR *gxdFPTRCreateFile(const char *fname)
 {
 #if defined (__GXD_USE_FPTR64__)
   return gxdFPTR64Create(fname);
@@ -536,7 +577,10 @@ GXDLCODE_API gxdFPTR *gxdFPTRCreatePrivate(const char *fname)
 // be created or its access cannot be set.
 {
 #if defined (__GXD_USE_FPTR64__)
-  return gxdFPTR64CreatePrivate(fname);
+  // 11/16/2026 (6.4 beta 2): sync the folder as gxdFPTRCreate() does
+  gxdFPTR *stream = gxdFPTR64CreatePrivate(fname);
+  if(stream) gxdFPTRSyncFolder(fname);
+  return stream;
 #else
   gxdFPTR *stream = gxdFPTRCreate(fname);
   if(stream && (gxdFPTRMakePrivate(fname) != 0)) {
