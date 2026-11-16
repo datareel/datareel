@@ -109,8 +109,9 @@ gxDatabaseError gxDatabaseDebugManager::BlindOpen(const char *fname,
     return gxd_error = gxDBASE_INVALID_FILE;
   }
   
-  // Read and test the file header
-  if(Read(&fh, sizeof(fh), (FAU_t)0) != gxDBASE_NO_ERROR) {
+  // Read and test the file header (11/15/2026: in the file's layout, gxdbase.h)
+  detect_layout();
+  if(ReadFileHdrRaw(fh) != gxDBASE_NO_ERROR) {
     ResetFileHeader(file_header);
   }
   else {
@@ -181,7 +182,7 @@ FAU_t gxDatabaseDebugManager::BlockSearch(FAU_t offset)
   // and a header sized read for every byte, which took hours on a large
   // damaged file. Each chunk overlaps the next by one header so no 
   // address is skipped. As before, a header must end before EOF.
-  const __ULWORD__ hdr_size = (__ULWORD__)sizeof(gxBlockHeader);
+  const __ULWORD__ hdr_size = (__ULWORD__)DiskBlockHdrSize();
   const __ULWORD__ chunk_size = 64 * 1024;
   std::vector<char> chunk;
   try {
@@ -257,7 +258,7 @@ gxDatabaseError gxDatabaseDebugManager::AnalyzeHeader(const char *sig,
   status_message.clear();
   str_append(status_message, "Analyzing database file header", "\n");
 
-  Read(&fh, sizeof(gxFileHeader), (FAU_t)0);
+  ReadFileHdrRaw(fh);
   if(gxd_error != gxDBASE_NO_ERROR) {
     str_append(status_message, "Cannot read gxDatabase file header", "\n");
     str_append(status_message, DatabaseExceptionMessage(), "\n");
@@ -345,7 +346,7 @@ gxDatabaseError gxDatabaseDebugManager::AnalyzeHeader(const char *sig,
       str_append(status_message, "No database blocks allocated", "\n");
     }
     else {
-      if((FAU_t)(fh.gxd_hs_fptr + sizeof(gxBlockHeader)) > StaticEOF) {
+      if((FAU_t)(fh.gxd_hs_fptr + DiskBlockHdrSize()) > StaticEOF) {
 	gxd_error = gxDBASE_HEAPSTART_ERROR;
 	str_append(status_message, "Bad heap start value in file: ", DatabaseName(), "\n");
 	str_append(status_message, "The heap start is past the end of file", "\n");
@@ -353,7 +354,7 @@ gxDatabaseError gxDatabaseDebugManager::AnalyzeHeader(const char *sig,
 	if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
       }
       else {
-	Read(&blk, sizeof(gxBlockHeader), fh.gxd_hs_fptr);
+	ReadBlockHdrRaw(blk, fh.gxd_hs_fptr);
 	if(gxd_error != gxDBASE_NO_ERROR) {
 	  str_append(status_message, "Error reading block header at heap start", "\n");
 	  str_append(status_message, DatabaseExceptionMessage(), "\n");
@@ -390,7 +391,7 @@ gxDatabaseError gxDatabaseDebugManager::AnalyzeHeader(const char *sig,
     if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
   }
   else if(fh.gxd_fs_fptr != (FAU_t)0) {
-    if((FAU_t)(fh.gxd_fs_fptr + sizeof(gxBlockHeader)) > StaticEOF) {
+    if((FAU_t)(fh.gxd_fs_fptr + DiskBlockHdrSize()) > StaticEOF) {
       gxd_error = gxDBASE_FREESPACE_ERROR;
       str_append(status_message, "Bad free space value in file: ", DatabaseName(), "\n");
       str_append(status_message, "Free space is past the end of file", "\n");
@@ -398,7 +399,7 @@ gxDatabaseError gxDatabaseDebugManager::AnalyzeHeader(const char *sig,
       if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
     }
     else {
-      Read(&blk, sizeof(gxBlockHeader), fh.gxd_fs_fptr);
+      ReadBlockHdrRaw(blk, fh.gxd_fs_fptr);
       if(gxd_error != gxDBASE_NO_ERROR) {
 	str_append(status_message, "Error reading block header at free space start", "\n");
 	str_append(status_message, DatabaseExceptionMessage(), "\n");
@@ -431,7 +432,7 @@ gxDatabaseError gxDatabaseDebugManager::AnalyzeHeader(const char *sig,
       str_append(status_message, "No database blocks allocated", "\n");
     }
     else { // Test the highest block
-      if((FAU_t)(fh.gxd_hb_fptr + sizeof(gxBlockHeader)) > StaticEOF) {
+      if((FAU_t)(fh.gxd_hb_fptr + DiskBlockHdrSize()) > StaticEOF) {
 	gxd_error = gxDBASE_HIGHBLOCK_ERROR;
 	str_append(status_message, "Bad highest block value in file: ", DatabaseName(), "\n");
 	str_append(status_message, "The highest block is past the end of file", "\n");
@@ -439,7 +440,7 @@ gxDatabaseError gxDatabaseDebugManager::AnalyzeHeader(const char *sig,
 	if(header_error == gxDBASE_NO_ERROR) header_error = gxd_error;
       }
       else {
-	Read(&blk, sizeof(gxBlockHeader), fh.gxd_hb_fptr);
+	ReadBlockHdrRaw(blk, fh.gxd_hb_fptr);
 	if(gxd_error != gxDBASE_NO_ERROR) {
 	  str_append(status_message, "Error reading block header at highest block address", "\n");
 	  str_append(status_message, DatabaseExceptionMessage(), "\n");
@@ -567,7 +568,7 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
   // ensure that the byte size of the file is equal to at least one
   // file header, so do not check for EOF error be reading the file
   // header.
-  Read(&fh, sizeof(gxFileHeader), (FAU_t)0);
+  ReadFileHdrRaw(fh);
   if(gxd_error != gxDBASE_NO_ERROR) { // Cannot read the file header
     str_append(status_message, "Error reading database file header", "\n");
     str_append(status_message, DatabaseExceptionMessage(), "\n");
@@ -592,14 +593,14 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	errors++;
       }
       else if(fh.gxd_hb_fptr != (FAU_t)0) {
-	if((FAU_t)(fh.gxd_hs_fptr + sizeof(gxBlockHeader)) > StaticEOF) {
+	if((FAU_t)(fh.gxd_hs_fptr + DiskBlockHdrSize()) > StaticEOF) {
 	  gxd_error = gxDBASE_HEAPSTART_ERROR;
 	  str_append(status_message, "Database has a bad heap start value", "\n");
 	  str_append(status_message, "The heap start is past the end of file", "\n");
 	  errors++;
 	}
 	else {
-	  Read(&blk, sizeof(gxBlockHeader), fh.gxd_hs_fptr);
+	  ReadBlockHdrRaw(blk, fh.gxd_hs_fptr);
 	  if(gxd_error != gxDBASE_NO_ERROR) {
 	    str_append(status_message, "Database has a bad heap start value", "\n");
 	    errors++;
@@ -749,8 +750,8 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
     }
 
     // Read the block header and set the current address pointer
-    Read(&blk, sizeof(gxBlockHeader), addr);
-    curr_addr = FAU_t(addr + sizeof(gxBlockHeader));
+    ReadBlockHdrRaw(blk, addr);
+    curr_addr = FAU_t(addr + DiskBlockHdrSize());
     if(gxd_error != gxDBASE_NO_ERROR) {
       str_append(status_message, "Error reading database block header", "\n");
       str_append(status_message, DatabaseExceptionMessage(), "\n");
@@ -783,7 +784,7 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	    object_length = blk.block_length-BlockHeaderSize();
 	    break;
 	  default:
-	    object_length = (blk.block_length-(BlockHeaderSize()+sizeof(gxChecksum)));
+	    object_length = (blk.block_length-(BlockHeaderSize()+DiskChecksumSize()));
 	    break;
 	}
 	if(object_length < (FAU_t)0) { // 10/14/2026: See above
@@ -798,7 +799,7 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	if((rev_letter == 'c') || (rev_letter == 'C') || (rev_letter == 'd')
 	   || (rev_letter == 'D')) {
 	  // Seek past the record lock header
-	  curr_addr += sizeof(gxRecordLockHeader);
+	  curr_addr += DiskLockHdrSize();
 	  if(curr_addr >= StaticEOF) { // Do not seek past the end of file
 	    str_append(status_message, "Reached the end of file mark rebuild stopped", "\n");
 	    break;
@@ -852,7 +853,7 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	  case '\0' : case ' ' : case 'e' : case 'E' :
 	    break;
 	  default:
-	    curr_addr += sizeof(gxChecksum);
+	    curr_addr += DiskChecksumSize();
 	    break;
 	}
 	gxDatabase::gxVersion = ver;
@@ -879,7 +880,7 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 	if((rev == 'a') || (rev == 'A') || (rev == 'b') || (rev == 'B') ||
 	   (rev == 'c') || (rev == 'C') || (rev == 'd') || (rev == 'D')) {
 	  checksum = calcCRC32(v, (__ULWORD__)object_length);
-	  NewFile.Write(&checksum, sizeof(checksum));
+	  NewFile.WriteDiskLong((__ULWORD__)checksum);   // 11/15/2026: a long of the file's layout
 	  if(NewFile.gxd_error != gxDBASE_NO_ERROR) {
 	    str_append(status_message, "Error writing persistent checksum value", "\n");
 	    str_append(status_message, NewFile.DatabaseExceptionMessage(), "\n");
@@ -939,7 +940,7 @@ int gxDatabaseDebugManager::Rebuild(const char *fname, FAU_t *num_objects,
 int gxDatabaseDebugManager::CheckFileSize(const char *fname)
 {
   FAU_t fsize = gxdFPTRFileSize(fname);
-  if(fsize < (FAU_t)sizeof(gxFileHeader)) return 0;
+  if(fsize < (FAU_t)DiskFileHdrSize()) return 0;
   return 1;
 }
 
