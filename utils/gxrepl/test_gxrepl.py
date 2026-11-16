@@ -4781,6 +4781,40 @@ def test_incremental_hold_write_fail_turns_the_breaker_on():
         env.stop()
 
 
+def test_incremental_memory_hold_shows_in_status():
+    """11/16/2026 (beta4 re-review L-e): a hold that could not be written is kept in the server's memory; status.json's
+    "holds" lists it (in_memory true), so it is not invisible while it holds the stream"""
+    env, ws, aws, w = _recgap_env("incr_mem_hold_status")
+    try:
+        d1 = os.path.join(ws, "d1")
+        env.kill("client")
+        _restart_server(env, {"GXREPL_TEST_HOLD_WRITE_FAIL": "1"})
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 771,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, a.stdout
+        vw = os.path.join(env.dir, "verify_go")
+        env.start_client({"GXREPL_TEST_VERIFY_WAIT": vw})   # the verify that would clear it waits
+        b = _adds(d1, ws, 772)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        _wait_log(env, "ALERT set db: cannot write", secs=90)
+        end = time.time() + 75                         # status.json's derived part is cached for 30 s
+        found = None
+        while time.time() < end and not found:
+            try:
+                for h in json.load(open(env.srv_status))["sets"]["db"]["derived"].get("holds", []):
+                    if h.get("in_memory"):
+                        found = h
+            except Exception:
+                pass
+            time.sleep(1)
+        assert found, "the memory hold is not in status.json\n" + open(env.srv_status).read()
+        put(vw, b"go\n")
+        _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
 def test_incremental_fresh_log_recovered_open_is_indexed():
     """11/16/2026 (beta4 review H1 and M1, from the reviewer's reproducer): a fresh ship log (the log folder purged, as
     a late pass does) lists no file until its first commit. Writer A opens it and dies between its journal sync and
@@ -4814,6 +4848,136 @@ def test_incremental_fresh_log_recovered_open_is_indexed():
         cl = open(os.path.join(env.dir, "client.log")).read()
         assert "verified (0 file(s))" not in cl or "verified past its open or gap record" not in slog, \
             "a 0-file verify and a cleared hold\n" + env.logs()
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_dead_writer_mid_commit_keeps_the_copys_seal():
+    """11/16/2026 (beta4 re-review M-c, L-b): a fresh log (the log folder purged) whose writer A died mid-commit: the
+    source's commit block stays odd and the new log lists no file, so the scan copies d1 as a unit. Before the fix
+    every pass gave up on it ("it commits faster than a copy", ~44 a minute) and its last step marked the copy's
+    sealed unit "copying" with an odd generation: a take over was refused for as long as the writer stayed dead.
+    Now the copy keeps its seal, the pass says once that it waits, and the client's status is ok with "waiting"
+    set. Writer B then recovers A's commit and the copy ends whole, sealed, and its index its data's."""
+    env, ws, aws, w = _recgap_env("dead_writer_seal")
+    try:
+        d1 = os.path.join(ws, "d1")
+        seal = os.path.join(aws, ".gxrepl", "units", "_d1")
+        assert not open(seal).read().startswith("copying"), "d1 not sealed before the test"
+        env.kill("client")
+        for p in glob.glob(os.path.join(ws, ".gxrepl", "log", "*")):
+            if os.path.isdir(p):
+                shutil.rmtree(p)
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 731,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, a.stdout
+        c0 = len(open(os.path.join(env.dir, "client.log")).read())
+        env.start_client()
+        time.sleep(10)
+        cl = open(os.path.join(env.dir, "client.log")).read()[c0:]
+        assert not open(seal).read().startswith("copying"), "the dead writer turned the copy's seal to copying\n" + env.logs()
+        assert "gave up on d1" not in cl, "the scan gives up on d1 every pass\n" + env.logs()
+        assert cl.count("the source is in a commit") == 1, "the wait is not said exactly once\n" + env.logs()
+        st = json.load(open(env.cli_status))["sets"]["db"]
+        assert st.get("ok") is True and "in a commit" in st.get("waiting", ""), st
+        b = _adds(d1, ws, 732)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        _recgap_index_ok(env, ws, aws)
+        end = time.time() + 120
+        while time.time() < end and open(seal).read().startswith("copying"):
+            time.sleep(0.5)
+        assert not open(seal).read().startswith("copying"), "d1 stays sealed copying\n" + env.logs()
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_new_log_with_an_empty_folder_waits_for_its_files():
+    """11/16/2026 (beta4 re-review M-a): a new stream whose folder holds no database file at its first verify (its
+    writer opened the log and waits before its first commit) is not verified with 0 files: the verify waits until the
+    log lists its files (before the fix it took the log's end at once, and a plain copy into the folder before the
+    first commit was then built from records alone). The copy ends equal to the source."""
+    env, ws, aws, w = _recgap_env("empty_folder_wait")
+    try:
+        d2 = os.path.join(ws, "d2")
+        os.makedirs(d2)
+        gate = os.path.join(env.dir, "go2")
+        c0 = len(open(os.path.join(env.dir, "client.log")).read())
+        b = _objects_writer_bg(d2, "--commits", 3, "--per", 2, "--commit-block", "--ship-root", ws, "--seed", 741,
+                               "--wait-at", 0, "--wait-file", gate)
+        time.sleep(8)                                  # the new stream seen and verified, or waiting
+        cl = open(os.path.join(env.dir, "client.log")).read()[c0:]
+        assert re.search(r"stream d2\S* lists no file yet", cl), "no wait for the new log's files\n" + env.logs()
+        assert not re.search(r"stream d2\S* verified \(0 file", cl), "a 0-file verify of the new log\n" + env.logs()
+        put(gate, b"go\n")
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        _wait_gen(ws, aws, "d2", 120)
+        cl = open(os.path.join(env.dir, "client.log")).read()[c0:]
+        assert re.search(r"stream d2\S* verified \([1-9]", cl), "the new log was never verified\n" + env.logs()
+        assert _same_file(os.path.join(ws, "d2", "data.gxd"), os.path.join(aws, "d2", "data.gxd")), env.logs()
+        check_db(os.path.join(aws, "d2"))
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_verify_waits_for_an_unlisted_database_file():
+    """11/16/2026 (beta4 re-review M-a): a fresh log (the log folder purged) whose writer lists data.gxd while a second
+    database file sits plain-copied in its folder (extra.gxd, listed by no log): the stream's verify waits for the
+    log to list it (here at most GXREPL_TEST_UNLISTED_WAIT_S, 6 s), then finishes and names it, and the scan copies
+    it. Before the fix the verify finished at once and said nothing."""
+    env, ws, aws, w = _recgap_env("unlisted_file_wait")
+    try:
+        d1 = os.path.join(ws, "d1")
+        env.kill("client")
+        for p in glob.glob(os.path.join(ws, ".gxrepl", "log", "*")):
+            if os.path.isdir(p):
+                shutil.rmtree(p)
+        shutil.copyfile(os.path.join(d1, "data.gxd"), os.path.join(d1, "extra.gxd"))
+        r = _objects_writer(d1, "--commits", 2, "--per", 2, "--commit-block", "--ship-root", ws, "--seed", 751,
+                            "--adds-only", "--size-max", 64)
+        assert r.returncode == 0, r.stdout
+        c0 = len(open(os.path.join(env.dir, "client.log")).read())
+        env.start_client({"GXREPL_TEST_UNLISTED_WAIT_S": "6"})
+        end = time.time() + 90
+        while time.time() < end and "database file(s) its log does not list" not in \
+                open(os.path.join(env.dir, "client.log")).read()[c0:]:
+            time.sleep(0.5)
+        cl = open(os.path.join(env.dir, "client.log")).read()[c0:]
+        assert "does not list d1/extra.gxd" in cl, "no wait for the unlisted file\n" + env.logs()
+        assert "verified with 1 database file(s) its log does not list (d1/extra.gxd)" in cl, env.logs()
+        wait_same(env, "db", 120)
+        _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_records_refused_on_a_short_copy_file():
+    """11/16/2026 (beta4 re-review M-b): the copy's data.gxd is left short (cut to its first two pages while the
+    client is down: a plain copy that stopped part way), then the writer commits at the file's tail. Records whose
+    lowest page past the copy's end is not the page right at its end would leave the pages between as zeros under a
+    seal: they are refused ("not in step"), the stream resyncs, and the copy ends equal to the source. Before the fix
+    only a missing file was refused."""
+    env, ws, aws, w = _recgap_env("short_copy_file")
+    try:
+        d1 = os.path.join(ws, "d1")
+        env.kill("client")
+        cf = os.path.join(aws, "d1", "data.gxd")
+        assert os.path.getsize(cf) > 3 * 4096, "data.gxd too small for the test"
+        with open(cf, "r+b") as fh:
+            fh.truncate(2 * 4096)
+        r = _objects_writer(d1, "--commits", 3, "--per", 2, "--commit-block", "--ship-root", ws, "--seed", 761,
+                            "--adds-only", "--size-max", 64)
+        assert r.returncode == 0, r.stdout
+        c0 = len(open(os.path.join(env.dir, "client.log")).read())
+        env.start_client()
+        _wait_gen(ws, aws, "d1", 120)
+        _recgap_index_ok(env, ws, aws)
+        cl = open(os.path.join(env.dir, "client.log")).read()[c0:]
+        assert "not in step: d1/data.gxd is 8192 bytes on the copy" in cl, "the short file was not refused\n" + env.logs()
+        assert _same_file(os.path.join(ws, "d1", "data.gxd"), cf), "the copy's data.gxd is not the source's\n" + env.logs()
     finally:
         if w.poll() is None: w.kill(); w.wait()
         env.stop()
