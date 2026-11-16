@@ -638,6 +638,11 @@ int gxReplConfig::Load(const std::string &fname, std::string &err)
       else if(k == "derived_rebuild") cur->derived_rebuild = v;
       else if(k == "derived_delay") cur->derived_delay = atoi(v.c_str());
       else if(k == "derived_busy_rebuild") cur->derived_busy_rebuild = atoi(v.c_str());   // 11/11/2026
+      else if(k == "seal_created_files") {                                                // 11/15/2026 (beta 5)
+	if(v == "verify") cur->seal_created_verify = 1;
+	else if(v == "records") cur->seal_created_verify = 0;
+	else { err = "seal_created_files = verify or records"; return -1; }
+      }
       else if(k == "derived_apply") {        // 11/14/2026: rebuild | incremental
 	if(v != "rebuild" && v != "incremental") {
 	  fclose(f); err = fname + ":" + std::to_string(ln) + ": derived_apply must be rebuild or incremental";
@@ -2533,6 +2538,43 @@ static bool fill_copying(const std::string &seal)
 //   without C reads as C = L.
 // fresh (11/14/2026, seal per folder review 2): units not in step with the stream (a first fill, a new log id:
 // its lsn numbering starts again): their last change is this record, never one kept from an older numbering
+// 11/15/2026 (beta 5, seal_created_files = verify): the folders a stream's records sealed, and under which log
+// ("FOLDER LOG_ID" lines in .gxrepl/units/history/STREAM; kept when a folder is swept: a reopened day is known)
+static std::string seal_history_path(const std::string &root, const std::string &stream)
+{
+  std::string k = stream;
+  for(auto &c : k) if(c == '/') c = '#';
+  return root + "/.gxrepl/units/history/" + k;
+}
+static std::map<std::string, std::string> read_seal_history(const std::string &root, const std::string &stream)
+{
+  std::map<std::string, std::string> h;
+  std::string body = read_small(seal_history_path(root, stream));
+  size_t a = 0;
+  while(a < body.size()) {
+    size_t e = body.find('\n', a);
+    if(e == std::string::npos) e = body.size();
+    std::string line = body.substr(a, e - a);
+    size_t sp = line.rfind(' ');
+    if(sp != std::string::npos) h[line.substr(0, sp) == "." ? std::string() : line.substr(0, sp)] = line.substr(sp + 1);
+    a = e + 1;
+  }
+  return h;
+}
+static void note_seal_history(const std::string &root, const std::string &stream, const std::set<std::string> &units,
+			      const std::string &log_id)
+{
+  if(units.empty() || log_id.empty()) return;
+  std::map<std::string, std::string> h = read_seal_history(root, stream);
+  bool changed = false;
+  for(auto &u : units) if(h[u] != log_id) { h[u] = log_id; changed = true; }
+  if(!changed) return;
+  std::string body;
+  for(auto &x : h) body += (x.first.empty() ? std::string(".") : x.first) + " " + x.second + "\n";
+  mkdirs(root + "/.gxrepl/units/history");
+  write_atomic(seal_history_path(root, stream), body);
+}
+
 static int add_unit_seals(const gxReplSetConfig &sc, const std::string &root, PageBatch &batch,
 			  unsigned long long lsn, const std::string &stream,
 			  const std::map<std::string, bool> &unit_cb,
@@ -3339,9 +3381,29 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
   // 11/10/2026: the record's commit block (gxdShipLog::SetCommitBlock) makes
   // its unit whole at this record: its seal goes in the same transaction
   std::deque<std::string> seals;
+  // 11/15/2026 (beta 5, seal_created_files = verify): the folders whose files these records create on the copy,
+  // which this stream sealed under an earlier log (a reopened day): they stay "copying" until the stream's verify
+  std::set<std::string> hold;
+  if(s->sc.seal_created_verify) {
+    std::map<std::string, std::string> hist = read_seal_history(s->root, stream);
+    for(auto &e : batch) {
+      if(e.first.compare(0, s->root.size() + 1, s->root + "/") != 0) continue;
+      std::string rel = e.first.substr(s->root.size() + 1);
+      if(base_of(rel) == s->sc.commit_block || is_derived(s->sc, rel)) continue;
+      struct stat fst;
+      if(stat(e.first.c_str(), &fst) == 0) continue;
+      auto h = hist.find(dir_of(rel));
+      if(h != hist.end() && h->second != log_id) hold.insert(dir_of(rel));
+    }
+    for(auto &u : hold) {
+      glog("set %s: %s: its records create a file of a folder sealed under an earlier log: \"copying\" until the "
+	   "stream's verify (seal_created_files = verify)", s->sc.name.c_str(), u.empty() ? "." : u.c_str());
+      put_seal(batch, s->root, u, "copying\n", seals);
+    }
+  }
   // (a unit a verify is filling, "copying", stays so: only its commit block, sent after its files, seals it)
   if(add_unit_seals(s->sc, s->root, batch, last, stream, unit_cb, seals, err,
-		    [&](const std::string &u) { return !fill_copying(read_seal(s->root, u)); }) != 0) return -1;
+		    [&](const std::string &u) { return !hold.count(u) && !fill_copying(read_seal(s->root, u)); }) != 0) return -1;
   // 11/12/2026: the stream's applied position is written under the same apply lock as the records' pages and their
   // seal, not after it is let go: a reader holding the lock never sees a seal at record L with the position at L-1
   gxReplStreamState st = it->second;
@@ -3360,6 +3422,12 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
   }
   if(apply_batch(s, batch, err, [&](std::string &e) { test_position_delay(); return write_state(s, st, e); }, pre) != 0)
     return -1;
+  // 11/15/2026 (beta 5): the folders these records sealed, under this log (seal_created_files = verify)
+  if(s->sc.seal_created_verify) {
+    std::set<std::string> sealed;
+    for(auto &uc : unit_cb) if(uc.second && !hold.count(uc.first)) sealed.insert(uc.first);
+    note_seal_history(s->root, stream, sealed, log_id);
+  }
   applied_records += count;
   lsn = last;
   return 0;
