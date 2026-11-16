@@ -38,9 +38,19 @@ fi
 
 cp "$CERT" conf/server.pem && cp "$KEY" conf/server.key || exit 1
 chmod 644 conf/server.pem conf/server.key
-printf 'test:{PLAIN}secret\n'"$(printf 't\303\253st')"':{PLAIN}'"$(printf 's\303\253cret')"'\n' > conf/users
+# an 8-bit password (sent as a literal) for an ASCII user: Dovecot's default auth_username_chars refuse 8-bit names
+printf 'test:{PLAIN}secret\neight:{PLAIN}'"$(printf 's\303\253cret')"'\n' > conf/users
 printf 'quote:{PLAIN}a b"c\\d\n' >> conf/users      # a space, a quote and a backslash in the password
+# Rootless podman here may map only one id: tests/imap_server/nogroups.c, preloaded into Dovecot, lets it run its
+# login and mail processes as "imaptest" (uid 1000) without switching ids (as the DataReel 6.4 IMAP test server)
+command -v gcc > /dev/null || { echo "FAIL imap_container: needs gcc for tests/imap_server/nogroups.c"; exit 1; }
+gcc -shared -fPIC -nostdlib -O2 -o conf/nogroups.so "$(dirname "$0")/imap_server/nogroups.c" > shim.log 2>&1 ||
+  { echo "FAIL imap_container: nogroups.so (see $WORK/shim.log)"; exit 1; }
 cat > conf/dovecot.conf <<'EOF'
+import_environment = TZ LD_PRELOAD=/conf/nogroups.so
+default_internal_user = root
+default_internal_group = root
+default_login_user = imaptest
 protocols = imap
 listen = *
 ssl = yes
@@ -55,11 +65,10 @@ passdb {
 }
 userdb {
   driver = static
-  args = uid=0 gid=0 home=/srv/mail/%u
+  args = uid=1000 gid=1000 home=/srv/mail/%u
 }
 mail_location = maildir:~/Maildir
-first_valid_uid = 0
-first_valid_gid = 0
+first_valid_uid = 1000
 log_path = /dev/stderr
 service imap-login {
   inet_listener imap {
@@ -74,8 +83,15 @@ EOF
 
 # Ports below the ephemeral range, on 127.0.0.1 only
 P=$((10000 + RANDOM % 20000))
-podman run -d --rm --name "$NAME" -p 127.0.0.1:$P:993 -p 127.0.0.1:$((P+1)):143 \
-  -v "$WORK/conf:/conf:ro,Z" $IMAGE dovecot -F -c /conf/dovecot.conf > run.log 2>&1 ||
+mkdir -p mail/test/Maildir/new mail/test/Maildir/cur mail/test/Maildir/tmp
+# the image's passwd and group with the "imaptest" user (1000) added
+podman run --rm $IMAGE cat /etc/passwd > conf/passwd && podman run --rm $IMAGE cat /etc/group > conf/group || {
+  echo "FAIL imap_container: cannot read the image's passwd"; exit 1; }
+echo 'imaptest:x:1000:1000::/srv/mail:/sbin/nologin' >> conf/passwd
+echo 'imaptest:x:1000:' >> conf/group
+podman run -d --rm --name "$NAME" -e LD_PRELOAD=/conf/nogroups.so -p 127.0.0.1:$P:993 -p 127.0.0.1:$((P+1)):143 \
+  -v "$WORK/conf:/conf:ro,Z" -v "$WORK/conf/passwd:/etc/passwd:ro,Z" -v "$WORK/conf/group:/etc/group:ro,Z" -v "$WORK/mail:/srv/mail:Z" \
+  $IMAGE dovecot -F -c /conf/dovecot.conf > run.log 2>&1 ||
   { echo "FAIL imap_container: container start (see $WORK/run.log)"; exit 1; }
 for i in $(seq 100); do
   (exec 3<>/dev/tcp/127.0.0.1/$((P+1))) 2>/dev/null && break
@@ -90,16 +106,16 @@ done
 { printf 'From: a@example.com\r\nTo: test@example.com\r\nSubject: one (report)\r\nDate: Tue, 17 Apr 2007 11:59:00 -0400\r\n\r\n'
   cat body1.txt; } > msg1.eml
 printf 'From: a@example.com\r\nTo: test@example.com\r\nSubject: two\r\nDate: Wed, 18 Apr 2007 08:29:00 -0400\r\n\r\nSecond\r\n' > msg2.eml
-for m in msg1.eml msg2.eml; do
-  podman exec -i "$NAME" doveadm -c /conf/dovecot.conf save -u test < $m > save.log 2>&1 || { echo "FAIL imap_container: doveadm save"; cat save.log; exit 1; }
-done
+# (written into the mounted mail folder before Dovecot reads it: doveadm cannot run under the shim)
+n=0
+for m in msg1.eml msg2.eml; do n=$((n+1)); cp $m "mail/test/Maildir/new/$((1700000000 + n)).M${n}P1.imaptest,S=$(stat -c %s $m)"; done
 
 IM="$E/imap_fetch localhost"
 check imapc_implicit_tls sh -c "$IM $P test secret --ca $CA -r 1 > c1.out && grep -q '2 messages' c1.out && grep -q '(TLS)' c1.out && grep -q '^A0006 OK not a reply' c1.out && grep -q '^line 090000 ' c1.out && grep -q '^End' c1.out"
 check imapc_starttls sh -c "$IM $((P+1)) test secret --starttls --ca $CA | grep -q '(TLS)'"
 check imapc_plain sh -c "$IM $((P+1)) test secret --plain | grep -q '(plain text)'"
 check imapc_bad_password_refused sh -c "! $IM $P test wrong --ca $CA > c2.out 2>&1 && grep -q 'Login refused' c2.out"
-check imapc_8bit_login sh -c "$IM $P $(printf 't\303\253st') $(printf 's\303\253cret') --ca $CA | grep -q '0 messages'"
+check imapc_8bit_password sh -c "$IM $P eight $(printf 's\303\253cret') --ca $CA --debug > c7.out && grep -q '0 messages' c7.out && grep -q 'server->+' c7.out && ! grep -q 'cret' c7.out"
 check imapc_search sh -c "$IM $P test secret --ca $CA --search 'SUBJECT \"two\"' > c3.out && grep -q '^1 match' c3.out && grep -q '^2: two' c3.out"
 check imapc_dates sh -c "$IM $P test secret --ca $CA | grep -q 'sent Tue, 17 Apr 2007 11:59:00 -0400'"
 check imapc_password_quoted sh -c "$IM $P quote 'a b\"c\\d' --ca $CA | grep -q '0 messages'"
