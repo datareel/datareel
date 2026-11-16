@@ -142,11 +142,6 @@ struct GXDLCODE_API gxReplSetConfig {
   // Missing or stale indexes are a warning in "gxrepl torn", not torn: a
   // take over's writer open rebuilds them; a failed rebuild stays torn.
   int derived_busy_rebuild = 900;
-  // 11/15/2026 (beta 5, opt-in): seal_created_files = verify: records of a new log that create a file the copy
-  // does not have, in a folder this stream sealed under an earlier log (a day reopened by a plain copy), leave the
-  // folder "copying" until the stream's verify has hashed its files; a folder the stream never sealed (a new day)
-  // seals as before. Default off.
-  int seal_created_verify = 0;
   // 11/12/2026 (F7, staged unit copies): the copy of a commit_block unit by its files goes into a copy-on-write
   // stage (<root>/.gxrepl/stage/<unit>/, reflinked from the unit) and is swapped in at its commit block, so the
   // live unit stays whole at its last sealed generation until the new one is whole: a link lost in the middle of
