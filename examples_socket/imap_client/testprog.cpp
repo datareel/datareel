@@ -68,6 +68,10 @@ not show in the process list.
 #include <string.h>
 #include <stdlib.h>
 #include "gxsimap.h"
+#if defined (__WIN32__)
+#include <io.h>
+#include <fcntl.h>
+#endif
 
 #ifdef __MSVC_DEBUG__
 #include "leaktest.h"
@@ -97,6 +101,10 @@ int main(int argc, char **argv)
   InitLeakTest();
 #endif
 
+#if defined (__WIN32__)
+  // Messages are printed as received, with their CR LF line ends
+  _setmode(_fileno(stdout), _O_BINARY);
+#endif
   int port = 0, starttls = 0, plain = 0, allow_plain = 0, verify = 1;
   int show_log = 0;
   const char *ca = 0, *name = 0;
