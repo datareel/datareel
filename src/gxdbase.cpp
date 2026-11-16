@@ -292,11 +292,13 @@ gxDatabaseError gxDatabase::InitFileHdr()
   return gxd_error = gxDBASE_NO_ERROR;
 }
 
+#if defined (__64_BIT_DATABASE_ENGINE__)
 static unsigned long gxd_le32(const unsigned char *b)
 {
   return (unsigned long)b[0] | ((unsigned long)b[1] << 8) |
     ((unsigned long)b[2] << 16) | ((unsigned long)b[3] << 24);
 }
+#endif
 
 static int gxd_other_layout(gxdFPTR *fp)
 // 11/16/2026: Returns 1 if the open file is a database file written with
