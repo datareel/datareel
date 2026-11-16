@@ -31,6 +31,15 @@
 <li>Block navigation (DataReel 7.0 and 7.3.1): FindNextBlock(), FindNextObject(), FindPrevBlock() and FindPrevObject() take an object or a block address and return 0 at the ends of the file. Before, FindNextBlock() skipped a block when given an object address and returned the last block again at the end, so a FindFirstObject()/ FindNextObject() walk missed records and never ended. FindPrevBlock() no longer skips deleted blocks (FindPrevObject() does). A damaged block length is compared unsigned, with no signed overflow. FindFirstBlock() is unchanged, and FindFirstObject() returns the same object as before in an undamaged file. Programs that walk with FindFirstBlock() and the block length (as EPDB does) are not affected.</li>
 <li>Warnings: the gxstream.cpp TLS helpers are built only with __USE_GX_SSL_EXTENSIONS__; gxSocket::InitSIN() unused parameter.</li>
 </ul>
+<h2>Beta 2 (11/16/2026): TLS Settings from DataReel 7.x</h2>
+<ul>
+<li>TLS 1.2 is the minimum. With OpenSSL 1.1 and later, gxSSL_SSLv23 and gxSSL_TLS negotiate TLS 1.2 or TLS 1.3 and gxSSL_TLSv1_2 is TLS 1.2 only. SSLv2, SSLv3, TLS 1.0, TLS 1.1 and DTLS 1.0 (gxSSL_SSLv2, gxSSL_SSLv3, gxSSL_TLSv1, gxSSL_TLSv1_1, gxSSL_DTLSv1) make InitCTX() fail with gxSSL_PROTOCOL_ERROR. The Windows Schannel build has the same minimum.</li>
+<li>New gxSSL_TLSv1_3: TLS 1.3 only (Windows 10 1809 and later with Schannel).</li>
+<li>With RequireVerifyCert() set before InitCTX(), a client handshake fails when the server&#x27;s certificate chain or host name (SetHostName(), checked against the subject alternative names and IP entries) does not verify, and the system certificate store is trusted when no CA list is set. Before, the check was left to VerifyCert() after the handshake.</li>
+<li>The server name (SNI) is not sent when SetHostName() is an IP address.</li>
+<li>The handshake timeout (SetHandshakeTimeout(), 60 seconds by default) keeps a shorter send or receive timeout that the program set on the socket. Before, the handshake ran with the 60 second limit and a program&#x27;s shorter limit (the ssl-bridge&#x27;s) did not apply.</li>
+<li>OpenSSL 3: SSL_get1_peer_certificate(); OPENSSL_init_ssl() loads the system configuration (on RHEL, the crypto policy).</li>
+</ul>
 <h2>The 7.x Features Build (cmake Only)</h2>
 <ul>
 <li>DATAREEL7_FEATURES_DIR (a path, empty = off): the 7.x source tree. The build refuses a tree older than 7.4. It builds, next to the 6.x library: - the 7.x library, from that tree as it is. Its names are in the datareel namespace, so it links next to the 6.x library in one program; - dr7inner (dr7features/inner): a plain C interface to the 7.x classes, compiled against the 7.x headers only; - dr7features (dr7features/include/dr7features.h): DataReel 6.x classes that use it, with 6.x types (gxString, MemoryBuffer). Link a program with the CMake target DataReel::dr7features. It needs a C++17 compiler, the same one for both libraries.</li>

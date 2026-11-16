@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/31/2026
-// Date Last Modified: 10/31/2026
+// Date Last Modified: 11/16/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -40,6 +40,8 @@ signal is reported as a FAIL.
               answer the close_notify (it waited for the peer).
   pending     RecvSSLSocket() with a timeout returns the rest of a
               record OpenSSL has already decrypted (it timed out).
+  short_timeout, old_protocols, versions, require_verify
+              11/16/2026: the 6.4 beta 2 TLS settings.
   verify      VerifyCert() checks the subject alternative names and IP
               addresses (only the CN was compared), and does not crash
               without a connection.
@@ -118,7 +120,8 @@ static int connect_local(gxSocket &client, int port)
 
 enum ServerAction { SEND_AND_WAIT, WAIT, CLOSE_AT_ONCE };
 
-static pid_t fork_tls_server(gxSocket &listener, ServerAction action)
+static pid_t fork_tls_server(gxSocket &listener, ServerAction action,
+			     gxSSLMethod proto = gxSSL_TLS)
 // Accept one TLS client in a child process and do the action
 {
   pid_t pid = fork();
@@ -127,6 +130,7 @@ static pid_t fork_tls_server(gxSocket &listener, ServerAction action)
   gxsSocket_t s = listener.Accept();
   if(s < 0) _exit(2);
   gxSSL tls;
+  tls.SetSSLProto(proto);
   tls.MakeServer();
   if(!tls.InitCTX(gxTestCertPath("server.pem"),
 		  gxTestCertPath("server.key"))) _exit(2);
@@ -142,9 +146,11 @@ static pid_t fork_tls_server(gxSocket &listener, ServerAction action)
   _exit(0); // CLOSE_AT_ONCE: the socket closes with the process
 }
 
-static int client_connect(gxSocket &client, gxSSL &tls, int port)
+static int client_connect(gxSocket &client, gxSSL &tls, int port,
+			  gxSSLMethod proto = gxSSL_TLS)
 {
   if(connect_local(client, port) < 0) return -1;
+  tls.SetSSLProto(proto);
   tls.MakeClient();
   tls.SetCAList(gxTestCertPath("ca.pem"));
   if(!tls.InitCTX()) return -1;
@@ -319,6 +325,144 @@ static int test_sigpipe()
   return rv < 0 ? 0 : 1;
 }
 
+// 11/16/2026: TLS settings (DataReel 6.4 beta 2)
+static int test_short_timeout()
+// A shorter receive timeout set by the caller is kept during the
+// handshake (the default handshake timeout is 60 seconds) and is the
+// socket's timeout again afterwards
+{
+  gxSocket server;
+  int port = listen_local(server);
+  if(port < 0) return 2;
+  gxSocket client;
+  if(connect_local(client, port) < 0) return 2;
+  struct timeval tv;
+  tv.tv_sec = 2; tv.tv_usec = 0;
+  setsockopt(client.GetSocket(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  gxSSL tls;
+  tls.MakeClient();
+  if(!tls.InitCTX()) return 2;
+  if(tls.OpenSSLSocket(client.GetSocket()) != 0) return 2;
+  time_t start = time(0);
+  int rv = tls.ConnectSSLSocket();
+  time_t took = time(0) - start;
+  if(rv == 0 || took > 8) {
+    printf("  ConnectSSLSocket() returned %d after %d seconds\n",
+	   rv, (int)took);
+    return 1;
+  }
+  struct timeval after;
+  socklen_t len = (socklen_t)sizeof(after);
+  memset(&after, 0, sizeof(after));
+  getsockopt(client.GetSocket(), SOL_SOCKET, SO_RCVTIMEO, &after, &len);
+  if(after.tv_sec != 2) {
+    printf("  receive timeout after the handshake: %d seconds\n",
+	   (int)after.tv_sec);
+    return 1;
+  }
+  return 0;
+}
+
+static int test_old_protocols()
+// SSLv2, SSLv3, TLS 1.0, TLS 1.1 and DTLS 1.0 are refused by InitCTX()
+{
+  gxSSLMethod old[] = { gxSSL_SSLv2, gxSSL_SSLv3, gxSSL_TLSv1,
+			gxSSL_TLSv1_1, gxSSL_DTLSv1 };
+  int rc = 0;
+  for(unsigned i = 0; i < sizeof(old)/sizeof(old[0]); i++) {
+    gxSSL tls;
+    tls.SetSSLProto(old[i]);
+    tls.MakeClient();
+    if(tls.InitCTX() || tls.GetSSLError() != gxSSL_PROTOCOL_ERROR) {
+      printf("  protocol %d was not refused\n", (int)old[i]);
+      rc = 1;
+    }
+  }
+  return rc;
+}
+
+static int version_of(gxSocket &listener, int port, gxSSLMethod server_proto,
+		      gxSSLMethod client_proto)
+// The protocol version a client and a server agree on, or -1 if the
+// handshake fails
+{
+  pid_t pid = fork_tls_server(listener, WAIT, server_proto);
+  gxSocket client;
+  gxSSL tls;
+  int v = -1;
+  if(client_connect(client, tls, port, client_proto) == 0) {
+    v = SSL_version(tls.GetSSL());
+  }
+  kill(pid, SIGKILL);
+  waitpid(pid, 0, 0);
+  return v;
+}
+
+static int test_versions()
+{
+  gxSocket server;
+  int port = listen_local(server);
+  if(port < 0) return 2;
+  int rc = 0;
+  int v = version_of(server, port, gxSSL_TLS, gxSSL_TLS);
+  if(v != TLS1_3_VERSION) { printf("  TLS and TLS: version %x\n", v); rc = 1; }
+  v = version_of(server, port, gxSSL_TLS, gxSSL_TLSv1_3);
+  if(v != TLS1_3_VERSION) { printf("  TLS and TLSv1_3: version %x\n", v); rc = 1; }
+  v = version_of(server, port, gxSSL_TLS, gxSSL_TLSv1_2);
+  if(v != TLS1_2_VERSION) { printf("  TLS and TLSv1_2: version %x\n", v); rc = 1; }
+  v = version_of(server, port, gxSSL_SSLv23, gxSSL_SSLv23);
+  if(v != TLS1_3_VERSION) { printf("  SSLv23 and SSLv23: version %x\n", v); rc = 1; }
+  v = version_of(server, port, gxSSL_TLSv1_3, gxSSL_TLSv1_2);
+  if(v != -1) { printf("  TLSv1_3 server and TLSv1_2 client agreed on %x\n", v); rc = 1; }
+  v = version_of(server, port, gxSSL_TLSv1_2, gxSSL_TLSv1_3);
+  if(v != -1) { printf("  TLSv1_2 server and TLSv1_3 client agreed on %x\n", v); rc = 1; }
+  return rc;
+}
+
+static int verified_connect(gxSocket &listener, int port, const char *host,
+			    int use_ca)
+// RequireVerifyCert() client. Returns the ConnectSSLSocket() value.
+{
+  pid_t pid = fork_tls_server(listener, WAIT);
+  gxSocket client;
+  gxSSL tls;
+  int rv = -1;
+  if(connect_local(client, port) == 0) {
+    tls.MakeClient();
+    tls.RequireVerifyCert();
+    if(use_ca) tls.SetCAList(gxTestCertPath("ca.pem"));
+    tls.SetHostName(host);
+    if(tls.InitCTX() && tls.OpenSSLSocket(client.GetSocket()) == 0) {
+      rv = tls.ConnectSSLSocket();
+    }
+  }
+  kill(pid, SIGKILL);
+  waitpid(pid, 0, 0);
+  return rv;
+}
+
+static int test_require_verify()
+// With RequireVerifyCert() the handshake checks the chain and the host
+{
+  gxSocket server;
+  int port = listen_local(server);
+  if(port < 0) return 2;
+  int rc = 0;
+  if(verified_connect(server, port, "localhost", 1) != 0) {
+    printf("  localhost with the test CA failed\n"); rc = 1;
+  }
+  if(verified_connect(server, port, "127.0.0.1", 1) != 0) {
+    printf("  127.0.0.1 with the test CA failed\n"); rc = 1;
+  }
+  if(verified_connect(server, port, "other.example", 1) == 0) {
+    printf("  other.example connected\n"); rc = 1;
+  }
+  if(verified_connect(server, port, "localhost", 0) == 0) {
+    printf("  the test CA was trusted from the system store\n"); rc = 1;
+  }
+  return rc;
+}
+
 int main()
 {
   if(MakeTestCerts() != 0) {
@@ -333,6 +477,13 @@ int main()
   run("verify: VerifyCert() alternative names and IP addresses",
       test_verify);
   run("sigpipe: SendSSLSocket() to a closed peer returns -1", test_sigpipe);
+  run("short_timeout: a shorter socket timeout is kept in the handshake",
+      test_short_timeout);
+  run("old_protocols: SSLv2/SSLv3/TLS 1.0/TLS 1.1/DTLS 1.0 refused",
+      test_old_protocols);
+  run("versions: TLS 1.2 minimum, TLSv1_2 and TLSv1_3 only", test_versions, 60);
+  run("require_verify: the handshake checks the chain and host name",
+      test_require_verify, 60);
   RemoveTestCerts();
   printf("%d failure(s)\n", failures);
   return failures ? 1 : 0;

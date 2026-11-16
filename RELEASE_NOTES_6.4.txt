@@ -50,6 +50,30 @@ BETA 2 (11/16/2026): FIXES FROM DATAREEL 7.x
 - Warnings: the gxstream.cpp TLS helpers are built only with
   __USE_GX_SSL_EXTENSIONS__; gxSocket::InitSIN() unused parameter.
 
+BETA 2 (11/16/2026): TLS SETTINGS FROM DATAREEL 7.x
+---------------------------------------------------
+- TLS 1.2 is the minimum. With OpenSSL 1.1 and later, gxSSL_SSLv23 and
+  gxSSL_TLS negotiate TLS 1.2 or TLS 1.3 and gxSSL_TLSv1_2 is TLS 1.2
+  only. SSLv2, SSLv3, TLS 1.0, TLS 1.1 and DTLS 1.0 (gxSSL_SSLv2,
+  gxSSL_SSLv3, gxSSL_TLSv1, gxSSL_TLSv1_1, gxSSL_DTLSv1) make InitCTX()
+  fail with gxSSL_PROTOCOL_ERROR. The Windows Schannel build has the
+  same minimum.
+- New gxSSL_TLSv1_3: TLS 1.3 only (Windows 10 1809 and later with
+  Schannel).
+- With RequireVerifyCert() set before InitCTX(), a client handshake
+  fails when the server's certificate chain or host name (SetHostName(),
+  checked against the subject alternative names and IP entries) does
+  not verify, and the system certificate store is trusted when no CA
+  list is set. Before, the check was left to VerifyCert() after the
+  handshake.
+- The server name (SNI) is not sent when SetHostName() is an IP address.
+- The handshake timeout (SetHandshakeTimeout(), 60 seconds by default)
+  keeps a shorter send or receive timeout that the program set on the
+  socket. Before, the handshake ran with the 60 second limit and a
+  program's shorter limit (the ssl-bridge's) did not apply.
+- OpenSSL 3: SSL_get1_peer_certificate(); OPENSSL_init_ssl() loads the
+  system configuration (on RHEL, the crypto policy).
+
 THE 7.x FEATURES BUILD (CMake only)
 -----------------------------------
 - DATAREEL7_FEATURES_DIR (a path, empty = off): the 7.x source tree.
