@@ -78,6 +78,15 @@ gxDatabaseError BtreeBucket::ReadNode(gxDatabase *f)
   memcpy(&key_count, hdr, sizeof(key_count));
   memcpy(&left_child, hdr + sizeof(key_count), sizeof(left_child));
 
+  // 11/16/2026 (6.4 beta 2, from DataReel 7.0): The key count comes from
+  // the index file. A count larger than the node can hold overflowed
+  // key_entries, the same problem fixed in gxBtree::ReadNode() in 6.1.
+  if((key_count < (BtreeKeyCount_t)0) ||
+     (key_count > (BtreeKeyCount_t)node_order)) {
+    key_count = (BtreeKeyCount_t)0;
+    return f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+  }
+
   // Optimize the read by only reading the exact number of keys
   if(key_count > (BtreeKeyCount_t)0) { // Ensure node has entries
     if(f->Read(key_entries, (key_size * key_count)) != 
@@ -353,7 +362,10 @@ BtreeBucket *BtreeCache::FindEmptyBucket()
 	return 0; // Error writing to the file 
       }
     }
-    else { // The file is not ready for writing
+    else if(bucket->IsDirty()) { // The file is not ready for writing
+      // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Only a modified bucket
+      // needs writing. Clean buckets are reused, so the cache now works
+      // with read-only index files.
       f->SetDatabaseError(gxDBASE_FILE_NOT_READY);
       return 0;
     }
