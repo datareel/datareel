@@ -7,6 +7,9 @@ endforeach()
 
 # 11/07/2026: gxrepl, database replication over gxStream (POSIX only)
 if(NOT WIN32)
+  # 11/16/2026: objrepl, the object replication prototype (objects only over the wire, independent copies)
+  add_executable(objrepl objrepl/objrepl.cpp)
+  target_link_libraries(objrepl PRIVATE DataReel::datareel)
   add_executable(gxrepl gxrepl/gxrepl.cpp)
   target_link_libraries(gxrepl PRIVATE DataReel::datareel)
   # 11/14/2026: derived index extractors loaded from a .so take DataReel from gxrepl (one copy of the library, so
