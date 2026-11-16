@@ -4885,6 +4885,42 @@ def test_dead_copy_folder_goes_with_its_source():
         env.stop()
 
 
+def test_dead_copy_folder_abandoned_copying_is_swept():
+    """11/15/2026 (hardening, PurgeOrphans): the source purged a stream with its folder while the copy's unit was
+    still sealed "copying" (ACK is applied, not sealed): a "copying" seal unchanged past GXREPL_COPYING_ABANDONED_SEC
+    with no database file in its folder is swept; a fresh "copying" seal is kept"""
+    env = Env("dead_copying", {"db": _derived_opts()})
+    ws, aws = env.roots["db"]
+    os.makedirs(os.path.join(ws, "d2"))
+    assert writer(os.path.join(ws, "d2"), "--commits", 3, "--no-ship", "--commit-block", "--seed", 4).returncode == 0
+    env.start_server()
+    env.start_client()
+    try:
+        _wait_units(env, ws, aws, ["d2"])
+        env.stop()
+        units = os.path.join(aws, ".gxrepl", "units")
+        for name, age in (("old_copy", 7200), ("new_copy", 0)):
+            d = os.path.join(aws, name)
+            os.makedirs(d, exist_ok=True)
+            open(os.path.join(d, "index.gxd"), "wb").write(b"x" * 1024)
+            seal = os.path.join(units, "_" + name)
+            open(seal, "w").write("copying\n")
+            t0 = time.time() - age
+            os.utime(seal, (t0, t0))
+            os.utime(os.path.join(d, "index.gxd"), (t0, t0))
+        env.start_server(extra_env={"GXREPL_SWEEP_SEC": "1", "GXREPL_DEAD_QUIET_SEC": "0",
+                                    "GXREPL_COPYING_ABANDONED_SEC": "3600"})
+        end = time.time() + 20
+        while time.time() < end and os.path.exists(os.path.join(aws, "old_copy")):
+            time.sleep(0.3)
+        log = open(os.path.join(env.dir, "server.log")).read()
+        assert not os.path.exists(os.path.join(aws, "old_copy")), "an abandoned copying folder stayed\n" + log[-1500:]
+        assert not os.path.exists(os.path.join(units, "_old_copy")), "its seal stayed"
+        assert os.path.isdir(os.path.join(aws, "new_copy")), "a copy in progress was swept"
+    finally:
+        env.stop()
+
+
 def test_dead_copy_folder_swept_after_a_stop():
     """11/13/2026 (dead copy folders): a dead copy folder left by a stop in the middle of its removal, or by a gxrepl
     from before this change (the 11/12-11/13 leftovers: only by_*.btx, derived.stamp, news.jnl), is swept at the
