@@ -87,6 +87,8 @@ Usage:
 #include "gxbtree.h"
 #include "gxdjrnl.h"
 #include "gxstream.h"
+#include "gxvindex.h"
+#include <sys/stat.h>
 
 using namespace datareel;
 
@@ -200,6 +202,76 @@ static std::string links_spec()
   return s;
 }
 
+// ---------- indexes: each node builds its own ----------
+// 11/16/2026: an index is this node's business, like its file addresses: it is configured on each node (--index),
+// never sent on the wire, and built from the object bytes in the same transaction as the object (so a crash leaves
+// both or neither). "NAME:DB:B:OFF:LEN" is a B-tree on LEN bytes (at most 32) at OFF; "NAME:DB:V:OFF:DIM" is a
+// vector index (gxVectorIndex, float32, L2) on DIM floats at OFF. An object too short for the field, or with a
+// vector that is not finite, is not in that index. Index fields must not overlap link fields (links hold addresses).
+// A new index on a database that already has objects is built from them; ROOT/<file>.building marks an unfinished
+// build, which the next open starts again.
+struct IxDef { std::string name, db; char kind; uint32_t off, len; };
+static std::vector<IxDef> ixdefs;
+static bool parse_ix(const std::string &spec)
+{
+  size_t i = 0;
+  while(i < spec.size()) {
+    size_t j = spec.find(',', i); if(j == std::string::npos) j = spec.size();
+    std::vector<std::string> f; std::string e = spec.substr(i, j - i);
+    for(size_t a = 0;;) { size_t b = e.find(':', a); f.push_back(e.substr(a, b == std::string::npos ? b : b - a)); if(b == std::string::npos) break; a = b + 1; }
+    if(f.size() != 5 || (f[2] != "B" && f[2] != "V")) return false;
+    IxDef d{f[0], f[1], f[2][0], (uint32_t)atol(f[3].c_str()), (uint32_t)atol(f[4].c_str())};
+    if(d.name.empty() || d.name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != std::string::npos) return false;
+    if(d.len == 0 || (d.kind == 'B' && d.len > 32) || (d.kind == 'V' && d.len > 4096)) return false;
+    ixdefs.push_back(d);
+    i = j + 1;
+  }
+  return true;
+}
+struct IxKeyData { unsigned char k[32]; uint64_t id; };
+class IxKey : public DatabaseKeyB {
+public:
+  IxKey() : DatabaseKeyB((char *)&d) { memset(&d, 0, sizeof(d)); }
+  size_t KeySize() { return sizeof(d); }
+  int CompareKey(const DatabaseKeyB &o) const {
+    const IxKeyData *k = (const IxKeyData *)o.db_key;
+    int c = memcmp(d.k, k->k, sizeof(d.k));
+    if(c) return c < 0 ? -1 : 1;
+    return d.id < k->id ? -1 : d.id > k->id ? 1 : 0;
+  }
+  int operator==(const DatabaseKeyB &o) const { return CompareKey(o) == 0; }
+  int operator>(const DatabaseKeyB &o) const { return CompareKey(o) > 0; }
+  IxKeyData d;
+};
+struct Ix {
+  IxDef def;
+  IxKey type;
+  gxBtree bt{type, 16};
+  gxVectorIndex vx;
+  std::string file(const std::string &root) const { return root + "/" + def.db + "." + def.name + (def.kind == 'B' ? ".ix.btx" : ".vix"); }
+  std::string spec() const { return "objrepl/" + def.name + "/" + std::to_string(def.off) + "/" + std::to_string(def.len); }
+  bool key(uint64_t id, const unsigned char *p, uint32_t n, IxKey &k) const {
+    if((size_t)def.off + def.len > n) return false;
+    memset(&k.d, 0, sizeof(k.d)); memcpy(k.d.k, p + def.off, def.len); k.d.id = id;
+    return true;
+  }
+  bool vec(const unsigned char *p, uint32_t n, std::vector<float> &v) const {
+    if((size_t)def.off + 4 * (size_t)def.len > n) return false;
+    v.resize(def.len); memcpy(v.data(), p + def.off, 4 * (size_t)def.len);
+    for(float x : v) if(!(x == x) || x > 3.0e38f || x < -3.0e38f) return false;
+    return true;
+  }
+  bool add(uint64_t id, const unsigned char *p, uint32_t n) {
+    if(def.kind == 'B') { IxKey k, c; return !key(id, p, n, k) || bt.Insert(k, c) != 0; }
+    std::vector<float> v; return !vec(p, n, v) || vx.Insert((long long)id, v.data()) == gxv_NO_ERROR;
+  }
+  bool del(uint64_t id, const unsigned char *p, uint32_t n) {
+    if(def.kind == 'B') { IxKey k, c; return !key(id, p, n, k) || bt.Delete(k, c) != 0; }
+    std::vector<float> v; return !vec(p, n, v) || vx.Delete((long long)id) == gxv_NO_ERROR;
+  }
+  void close() { if(def.kind == 'B') bt.Close(); else vx.Close(); }
+};
+
 // ---------- one database: NAME.gxd + NAME.id.btx ----------
 struct Db {
   std::string name;
@@ -210,6 +282,22 @@ struct Db {
   std::map<FAU_t, uint64_t> who;          // address -> id (records and forwarding stubs)
   std::set<uint64_t> tombs;               // ids whose record is a tombstone
   std::map<FAU_t, uint64_t> stubs;        // forwarding stubs: address -> id
+  std::vector<Ix *> ixs;                  // this node's indexes on this database (owned by the Node)
+  // the indexes: a live object's entries out (before it changes or goes) and in (after)
+  bool ix_drop(uint64_t id) {
+    if(ixs.empty() || !live(id)) return true;
+    FAU_t a = where[id];
+    __ULWORD__ n = db.ObjectLength(a);
+    std::vector<unsigned char> rec(n);
+    if(n < sizeof(ObjHead) || db.Read(rec.data(), n, a) != gxDBASE_NO_ERROR) return false;
+    ObjHead h; memcpy(&h, rec.data(), sizeof(h));
+    for(Ix *x : ixs) if(!x->del(id, rec.data() + sizeof(h), h.len)) return false;
+    return true;
+  }
+  bool ix_put(uint64_t id, const unsigned char *p, uint32_t n) {
+    for(Ix *x : ixs) if(!x->add(id, p, n)) return false;
+    return true;
+  }
 
   bool open(const std::string &root) {
     std::string g = root + "/" + name + ".gxd", x = root + "/" + name + ".id.btx";
@@ -248,16 +336,17 @@ struct Db {
   bool put(uint64_t id, uint32_t ver, const unsigned char *p, uint32_t n, __ULWORD__ want_cap, bool force_move,
 	   bool free_old, bool &moved) {
     moved = false;
+    if(!ix_drop(id)) return false;
     ObjHead h; memset(&h, 0, sizeof(h)); h.id = id; h.version = ver; h.len = n;
     __ULWORD__ need = (__ULWORD__)(sizeof(ObjHead) + n), cap = std::max(need, want_cap);
     auto old = where.find(id);
-    if(old == where.end()) return alloc_at(id, h, p, n, cap) != 0;
+    if(old == where.end()) return alloc_at(id, h, p, n, cap) != 0 && ix_put(id, p, n);
     FAU_t oa = old->second;
     __ULWORD__ ocap = db.ObjectLength(oa);
     if(need <= ocap && !force_move) {                        // in place
       if(!write_at(oa, h, p, n, ocap)) return false;
       tombs.erase(id);
-      return true;
+      return ix_put(id, p, n);
     }
     IdKey ok(id, oa), c;                                     // the move
     bt.Delete(ok, c);
@@ -275,7 +364,7 @@ struct Db {
       stubs[oa] = id; who[oa] = id;
     }
     moved = true;
-    return true;
+    return ix_put(id, p, n);
   }
   // a remove: the record becomes a tombstone at the same address (an unknown id gets a new one)
   bool tombstone(uint64_t id, uint32_t reason, uint64_t seq, __ULWORD__ cap = 0) {
@@ -283,6 +372,7 @@ struct Db {
     auto it = where.find(id);
     if(it != where.end()) {
       if(tombs.count(id)) return true;                       // already one
+      if(!ix_drop(id)) return false;
       if(!write_at(it->second, h, 0, 0, db.ObjectLength(it->second))) return false;
       tombs.insert(id);
       return true;
@@ -305,6 +395,7 @@ struct Db {
     return true;
   }
   bool clear() {                                    // every record and stub (a full send starts from empty)
+    for(auto &w : where) if(!ix_drop(w.first)) return false;
     for(auto &w : where) { IdKey k(w.first, w.second), c; bt.Delete(k, c); if(!db.Delete(w.second)) return false; }
     for(auto &st : stubs) if(!db.Delete(st.first)) return false;
     where.clear(); who.clear(); tombs.clear(); stubs.clear();
@@ -330,6 +421,7 @@ struct Node {
   gxDatabase sdb, ob;
   bool primary = false;
   std::map<std::string, std::unique_ptr<Db>> dbs;
+  std::vector<std::unique_ptr<Ix>> ixs;
   State st;
   std::string root;
 
@@ -373,9 +465,72 @@ struct Node {
     if(j.Attach(&d->db) != gxDBASE_NO_ERROR || j.Attach(&d->bt) != gxDBASE_NO_ERROR) return 0;
     Db *p = d.get();
     dbs[name] = std::move(d);
+    for(auto &def : ixdefs) if(def.db == name && !open_ix(p, def)) { fprintf(stderr, "objrepl: cannot open index %s\n", def.name.c_str()); return 0; }
+    // an index file of NAME this node is not configured for would go stale while the objects change: it is
+    // dropped (an index is derived data), so configuring it again builds it from the objects
+    if(DIR *dd = opendir(root.c_str())) {
+      std::string pre = name + ".";
+      while(struct dirent *e = readdir(dd)) {
+	std::string f = e->d_name, ix;
+	if(f.compare(0, pre.size(), pre) != 0) continue;
+	if(f.size() > pre.size() + 7 && f.compare(f.size() - 7, 7, ".ix.btx") == 0) ix = f.substr(pre.size(), f.size() - pre.size() - 7);
+	else if(f.size() > pre.size() + 4 && f.compare(f.size() - 4, 4, ".vix") == 0) ix = f.substr(pre.size(), f.size() - pre.size() - 4);
+	else continue;
+	bool configured = false;
+	for(auto &def : ixdefs) if(def.db == name && def.name == ix) configured = true;
+	if(!configured) { unlink((root + "/" + f).c_str()); fprintf(stderr, "objrepl: index %s on %s is not configured here: dropped\n", ix.c_str(), name.c_str()); }
+      }
+      closedir(dd);
+    }
     return p;
   }
-  void close() { j.Close(); for(auto &d : dbs) d.second->close(); if(primary) ob.Close(); sdb.Close(); }
+  // an index of D: opened, or created and built from the objects already here (in one transaction)
+  bool open_ix(Db *d, const IxDef &def) {
+    std::unique_ptr<Ix> x(new Ix); x->def = def;
+    std::string f = x->file(root), mark = f + ".building";
+    struct stat sb;
+    bool fresh = stat(f.c_str(), &sb) != 0 || stat(mark.c_str(), &sb) == 0;
+    if(fresh) {
+      if(FILE *m = fopen(mark.c_str(), "w")) fclose(m); else return false;
+      unlink(f.c_str());
+    }
+    if(def.kind == 'B') {
+      if((fresh ? x->bt.Create(f.c_str()) : x->bt.Open(f.c_str())) != gxDBASE_NO_ERROR) return false;
+      if(j.Attach(&x->bt) != gxDBASE_NO_ERROR) return false;
+    } else {
+      gxvError e = fresh ? x->vx.Create(f.c_str(), def.len, gxvFLOAT32, gxvL2, 16, x->spec().c_str())
+			 : x->vx.Open(f.c_str(), gxDBASE_READWRITE, x->spec().c_str());
+      if(e != gxv_NO_ERROR || j.Attach(x->vx.Database()) != gxDBASE_NO_ERROR) return false;
+    }
+    if(fresh) {
+      size_t built = 0;
+      j.Begin();
+      for(auto &w : d->where) {
+	if(d->tombs.count(w.first)) continue;
+	__ULWORD__ n = d->db.ObjectLength(w.second);
+	std::vector<unsigned char> rec(n);
+	if(n < sizeof(ObjHead) || d->db.Read(rec.data(), n, w.second) != gxDBASE_NO_ERROR) { j.Rollback(); return false; }
+	ObjHead h; memcpy(&h, rec.data(), sizeof(h));
+	if(!x->add(w.first, rec.data() + sizeof(h), h.len)) { j.Rollback(); return false; }
+	built++;
+	if(built == 50 && getenv("OBJREPL_TEST_KILL_IN_IXBUILD")) _exit(9);   // test only: killed inside the build
+      }
+      if(j.Commit() != gxDBASE_NO_ERROR) return false;
+      unlink(mark.c_str());
+      if(built) fprintf(stderr, "objrepl: index %s on %s built from %zu object(s)\n", def.name.c_str(), def.db.c_str(), built);
+    }
+    d->ixs.push_back(x.get());
+    ixs.push_back(std::move(x));
+    return true;
+  }
+  void close() {
+    j.Close();
+    for(auto &x : ixs) x->close();
+    for(auto &d : dbs) d.second->close();
+    if(primary) ob.Close();
+    sdb.Close();
+    ixs.clear(); dbs.clear();
+  }
   // the state lives in state.gxd's static area, right after the file header (StaticArea() is its size)
   bool put_state() { return sdb.Write(&st, sizeof(st), (FAU_t)sdb.FileHeaderSize()) == gxDBASE_NO_ERROR; }
   // link fields of DB's object bytes: to ids (to_ids) or to this node's addresses. A removed target is a
@@ -632,6 +787,18 @@ static std::vector<uint64_t> live_ids(Db *d)
   return v;
 }
 
+// (test data) index fields that mean something: a B-tree key from 64 values (so ids share keys), a vector of
+// floats in [-1, 1]. A field the object is too short for is left as random bytes (that object is not indexed)
+static void ix_fields(const std::string &db, std::vector<unsigned char> &b)
+{
+  for(auto &x : ixdefs) {
+    if(x.db != db) continue;
+    if(x.kind == 'B' && (size_t)x.off + x.len <= b.size()) { memset(b.data() + x.off, 0, x.len); b[x.off] = (unsigned char)(rnd() % 64); }
+    if(x.kind == 'V' && (size_t)x.off + 4 * (size_t)x.len <= b.size())
+      for(uint32_t i = 0; i < x.len; i++) { float f = (float)((int)(rnd() % 2001) - 1000) / 1000.0f; memcpy(b.data() + x.off + 4 * i, &f, 4); }
+  }
+}
+
 static int run_primary(const std::string &root, const std::string &copy, long commits, long per, long ndbs, long sleep_ms,
 		       bool drain, bool trim)
 {
@@ -691,6 +858,7 @@ static int run_primary(const std::string &root, const std::string &copy, long co
       if(r < 6 || lv.empty()) {                                  // add
 	uint32_t n = 40 + rnd() % 400; std::vector<unsigned char> b(n);
 	for(auto &x : b) x = (unsigned char)rnd();
+	ix_fields(d->name, b);
 	uint64_t id = next_id++;
 	if(!d->put(id, 1, b.data(), n, 0, false, false, mv)) { fprintf(stderr, "add failed\n"); return 1; }
 	touched.push_back(Touch(OP_ADD, d->name, id));
@@ -699,6 +867,7 @@ static int run_primary(const std::string &root, const std::string &copy, long co
 	if(r < 9) {                                             // update: new bytes, a new size (in place when it fits)
 	  uint32_t n = 40 + rnd() % 400; std::vector<unsigned char> b(n);
 	  for(auto &x : b) x = (unsigned char)rnd();
+	  ix_fields(d->name, b);
 	  if(!d->put(id, 2, b.data(), n, 0, false, false, mv)) { fprintf(stderr, "update failed\n"); return 1; }
 	  if(mv) moved.insert({d->name, id});
 	  touched.push_back(Touch(OP_UPDATE, d->name, id));
@@ -824,6 +993,7 @@ static int run_copy(const std::string &root, int port)
 	 tls.allow_cn.c_str(), (unsigned long long)s.st.applied_seq, (unsigned long long)s.st.epoch,
 	 s.st.in_snapshot ? ", a snapshot was cut" : "");
   fflush(stdout);
+  bool rolled = false;      // a rolled-back apply: the maps and index memory are stale, the node is opened again
   while(!stopping) {
     gxStream st;
     st.SetTimeOut(3600);
@@ -897,7 +1067,7 @@ static int run_copy(const std::string &root, int port)
 	  good = s.translate(w.first, rec.data() + sizeof(oh), oh.len, false) &&
 		 d->db.Write(rec.data(), n, it->second) == gxDBASE_NO_ERROR;
 	}
-	if(!good) { s.j.Rollback(); fprintf(stderr, "objrepl copy: commit %llu did not apply\n", (unsigned long long)seq); break; }
+	if(!good) { { s.j.Rollback(); rolled = true; } fprintf(stderr, "objrepl copy: commit %llu did not apply\n", (unsigned long long)seq); break; }
 	s.st.applied_seq = seq;
 	s.st.applied_digest = fnv(b.data(), b.size(), s.st.applied_digest);
 	s.put_state();
@@ -911,7 +1081,7 @@ static int run_copy(const std::string &root, int port)
 	for(auto &d : s.dbs) if(!d.second->clear()) good = false;
 	s.st.in_snapshot = 1; s.st.snapshot_base = base; s.st.applied_seq = 0;
 	s.put_state();
-	if(!good || s.j.Commit() != gxDBASE_NO_ERROR) { if(s.j.InTransaction()) s.j.Rollback(); break; }
+	if(!good || s.j.Commit() != gxDBASE_NO_ERROR) { if(s.j.InTransaction()) { s.j.Rollback(); rolled = true; } break; }
 	Buf a; a.u64(0);
 	if(!send_frame(st, a.b)) break;
       } else if(kind == F_SNAP_BATCH) {
@@ -926,7 +1096,7 @@ static int run_copy(const std::string &root, int port)
 	  bool mv = false;
 	  good = (flags & OF_TOMB) ? d->tombstone(id, reason, seen, cap) : d->put(id, ver, p, n, cap, false, true, mv);
 	}
-	if(!good) { s.j.Rollback(); break; }
+	if(!good) { { s.j.Rollback(); rolled = true; } break; }
 	if(s.j.Commit() != gxDBASE_NO_ERROR) break;
 	Buf a; a.u64(0);
 	if(!send_frame(st, a.b)) break;
@@ -952,7 +1122,7 @@ static int run_copy(const std::string &root, int port)
 	    if(getenv("OBJREPL_TEST_KILL_IN_FIXUP")) _exit(9);   // test only: killed inside the link fix-up's transaction
 	  }
 	}
-	if(!good) { s.j.Rollback(); break; }
+	if(!good) { { s.j.Rollback(); rolled = true; } break; }
 	s.st.in_snapshot = 0; s.st.applied_seq = base; s.st.applied_digest = sdig;
 	s.put_state();
 	if(s.j.Commit() != gxDBASE_NO_ERROR) break;
@@ -961,6 +1131,7 @@ static int run_copy(const std::string &root, int port)
       } else break;
     }
     st.Close();
+    if(rolled) { s.close(); if(!s.open(root, false)) return 1; rolled = false; }
   }
   s.close();
   return 0;
@@ -1030,6 +1201,56 @@ static int run_digest(const std::string &root)
   return 0;
 }
 
+// every --index of ROOT: its entries against the objects (rebuilt from the bytes), and a digest of its contents
+// (keys and ids, or ids and vectors; never addresses) to compare across nodes. 0 = all consistent, 5 = not
+static int run_ixcheck(const std::string &root)
+{
+  int rc = 0;
+  for(auto &def : ixdefs) {
+    gxDatabase db;
+    std::string g = root + "/" + def.db + ".gxd";
+    if(db.Open(g.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { printf("index %s: no database %s\n", def.name.c_str(), def.db.c_str()); rc = 5; continue; }
+    Ix x; x.def = def;
+    std::set<std::pair<std::string, uint64_t>> want_b;
+    std::map<uint64_t, std::vector<float>> want_v;
+    for(FAU_t a = db.FindFirstObject(); a != (FAU_t)0; a = db.FindNextObject(a)) {
+      __ULWORD__ n = db.ObjectLength(a);
+      std::vector<unsigned char> rec(n);
+      if(n < sizeof(ObjHead) || db.Read(rec.data(), n, a) != gxDBASE_NO_ERROR) continue;
+      ObjHead h; memcpy(&h, rec.data(), sizeof(h));
+      if(h.flags & (OF_TOMB | OF_STUB)) continue;
+      if(def.kind == 'B') { IxKey k; if(x.key(h.id, rec.data() + sizeof(h), h.len, k)) want_b.insert({std::string((char *)k.d.k, 32), h.id}); }
+      else { std::vector<float> v; if(x.vec(rec.data() + sizeof(h), h.len, v)) want_v[h.id] = v; }
+    }
+    db.Close();
+    size_t entries = 0, missing = 0, extra = 0; uint64_t dig = 14695981039346656037ULL;
+    if(def.kind == 'B') {
+      if(x.bt.Open(x.file(root).c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { printf("index %s: cannot open\n", def.name.c_str()); rc = 5; continue; }
+      std::set<std::pair<std::string, uint64_t>> have;
+      IxKey k, c;
+      for(int ok = x.bt.FindFirst(k); ok; ok = x.bt.FindNext(k, c)) { have.insert({std::string((char *)k.d.k, 32), k.d.id}); dig = fnv(&k.d, sizeof(k.d), dig); entries++; }
+      x.bt.Close();
+      for(auto &w : want_b) if(!have.count(w)) missing++;
+      for(auto &h : have) if(!want_b.count(h)) extra++;
+    } else {
+      if(x.vx.Open(x.file(root).c_str(), gxDBASE_READONLY, x.spec().c_str()) != gxv_NO_ERROR) { printf("index %s: cannot open\n", def.name.c_str()); rc = 5; continue; }
+      unsigned long long nodes = 0;
+      dig = x.vx.LogicalDigest(&nodes); entries = (size_t)nodes;
+      std::vector<float> got(def.len);
+      for(auto &w : want_v)
+	if(x.vx.Get((long long)w.first, got.data()) != gxv_NO_ERROR || memcmp(got.data(), w.second.data(), 4 * (size_t)def.len) != 0) missing++;
+      if(entries > want_v.size() - std::min(missing, want_v.size())) extra = entries - (want_v.size() - missing);
+      x.vx.Close();
+    }
+    bool good = !missing && !extra;
+    printf("index %s %s %c entries %zu digest %016llx %s", def.name.c_str(), def.db.c_str(), def.kind, entries, (unsigned long long)dig, good ? "consistent" : "MISMATCH");
+    if(!good) printf(" (%zu missing or wrong, %zu extra)", missing, extra);
+    printf("\n");
+    if(!good) rc = 5;
+  }
+  return rc;
+}
+
 static int run_status(const std::string &root)
 {
   gxDatabase db; State st;
@@ -1060,7 +1281,7 @@ static int run_takeover(const std::string &root)
 
 int main(int argc, char **argv)
 {
-  if(argc < 3) { fprintf(stderr, "usage: objrepl primary|copy|digest|status|takeover ROOT [options]\n"); return 64; }
+  if(argc < 3) { fprintf(stderr, "usage: objrepl primary|copy|digest|ixcheck|status|takeover ROOT [options]\n"); return 64; }
   std::string cmd = argv[1], root = argv[2], copy;
   long commits = 100, per = 10, ndbs = 3, sleep_ms = 0, port = 0; bool drain = false, trim = true;
   for(int i = 3; i < argc; i++) {
@@ -1085,12 +1306,18 @@ int main(int argc, char **argv)
     else if(a == "--allow-cn") tls.allow_cn = val();
     else if(a == "--name") my_name = val();
     else if(a == "--peer-name") peer_name = val();
+    else if(a == "--index") { if(!parse_ix(val())) { fprintf(stderr, "bad --index (NAME:DB:B|V:OFFSET:LEN,...)\n"); return 64; } }
     else if(a == "--links") { if(!parse_links(val())) { fprintf(stderr, "bad --links (DB:OFFSET:TARGET,...)\n"); return 64; } }
     else { fprintf(stderr, "unknown option %s\n", a.c_str()); return 64; }
   }
   if(cmd == "primary") return copy.empty() ? 64 : run_primary(root, copy, commits, per, ndbs, sleep_ms, drain, trim);
   if(cmd == "copy") return port ? run_copy(root, (int)port) : 64;
+  for(auto &x : ixdefs) for(auto &l : links)          // an index field may not hold a link (an address)
+    if(x.db == l.db && l.off < x.off + (x.kind == 'B' ? x.len : 4 * x.len) && x.off < l.off + 8) {
+      fprintf(stderr, "index %s overlaps the link field %s:%u\n", x.name.c_str(), l.db.c_str(), l.off); return 64;
+    }
   if(cmd == "digest") return run_digest(root);
+  if(cmd == "ixcheck") return run_ixcheck(root);
   if(cmd == "status") return run_status(root);
   if(cmd == "takeover") return run_takeover(root);
   return 64;
