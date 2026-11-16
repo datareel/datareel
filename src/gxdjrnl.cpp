@@ -71,6 +71,12 @@ number; records left in the file after that have an old salt.
 #endif
 #include <stdio.h>
 #include "gxdlcode.h"
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX                  // std::numeric_limits<>::max() below
+#endif
+#include <windows.h>              // 11/16/2026: the recovered marker (FlushFileBuffers, MoveFileEx)
+#endif
 
 #include <string.h>
 #include <stdlib.h>
@@ -231,12 +237,24 @@ gxdJournal::~gxdJournal()
 // 11/15/2026: the marker a replay leaves for the next EnableShipLog() (see Recover())
 static std::string recovered_marker(const char *jname) { return std::string(jname) + ".recovered"; }
 
-// 11/16/2026 (beta4 review M2): "<n>\n" written to a temporary file, flushed to the disk, renamed over the marker
+// 11/16/2026 (beta4 review M2, M3): "<n>\n" written to a temporary file, flushed to the disk, renamed over the marker
 // and (POSIX) the folder synced. Returns 0, or -1 if any step failed (nothing is left behind then).
-#ifndef _WIN32
 static int write_recovered_marker(const std::string &mk, unsigned long n)
 {
   std::string tmp = mk + ".tmp", body = std::to_string(n) + "\n";
+#ifdef _WIN32
+  HANDLE h = CreateFileA(tmp.c_str(), GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+  if(h == INVALID_HANDLE_VALUE) return -1;
+  DWORD wrote = 0;
+  BOOL ok = WriteFile(h, body.data(), (DWORD)body.size(), &wrote, 0) && wrote == (DWORD)body.size() &&
+    FlushFileBuffers(h);
+  CloseHandle(h);
+  if(!ok || !MoveFileExA(tmp.c_str(), mk.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    DeleteFileA(tmp.c_str());
+    return -1;
+  }
+  return 0;
+#else
   int mf = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0640);
   if(mf < 0) return -1;
   bool ok = write(mf, body.data(), body.size()) == (ssize_t)body.size() && fsync(mf) == 0;
@@ -249,8 +267,8 @@ static int write_recovered_marker(const std::string &mk, unsigned long n)
   int rc = fsync(df);
   close(df);
   return rc == 0 ? 0 : -1;
-}
 #endif
+}
 
 gxDatabaseError gxdJournal::Recover(const char *jname,
 				    unsigned long *recovered, int mark)
@@ -353,14 +371,13 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
   gxDatabaseError err = gxDBASE_NO_ERROR;
   // 11/15/2026 (hardening): the marker, durably, before the first page is replayed: a crash in the middle of the
   // replay still leaves it
-  // 11/16/2026 (beta4 review M2): a marker that cannot be made durable refuses the replay (the journal is kept for
-  // another try): a replay without it would reach the files with no record and no open record saying so.
-#ifndef _WIN32
+  // 11/16/2026 (beta4 review M2, M3): a marker that cannot be made durable refuses the replay (the journal is kept for
+  // another try): a replay without it would reach the files with no record and no open record saying so. Windows
+  // writes it too (FlushFileBuffers), so a folder copied from Windows carries it to the next writer that ships.
   if(ncommits && mark && write_recovered_marker(recovered_marker(jname), ncommits) != 0) {
     gxdFPTRClose(jfp);
     return gxDBASE_FILE_WRITE_ERROR;
   }
-#endif
   if(ncommits) {
     std::vector<gxdFPTR *> fps(paths.size(), (gxdFPTR *)0);
     for(size_t i = 0; i < paths.size(); i++) {
@@ -779,21 +796,17 @@ gxDatabaseError gxdJournal::EnableShipLog(const char *set_root,
   // static Recover()'s marker. A copy keeps its derived indexes object by object only across an open that says 0.
   unsigned long long rec = recovered;
   std::string mk;
-#ifndef _WIN32
-  mk = recovered_marker(jname.c_str());
+  mk = recovered_marker(jname.c_str());       // 11/16/2026 (M3): on every platform
   {
     FILE *mf = fopen(mk.c_str(), "r");
     if(mf) { unsigned long long n = 0; if(fscanf(mf, "%llu", &n) != 1 || n == 0) n = 1; rec += n; fclose(mf); }
   }
-#endif
   log->SetOpenRecovered(rec);
   if(log->Open(set_root, stream, jfull_path(jname.c_str()).c_str()) != 0) {
     delete log;
     return jerror = gxDBASE_FILE_OPEN_ERROR;
   }
-#ifndef _WIN32
-  if(!mk.empty()) unlink(mk.c_str());                    // said in the open record (synced by the ship log)
-#endif
+  if(!mk.empty()) remove(mk.c_str());                    // said in the open record (synced by the ship log)
   ship = log;
   write_lock = 1;
   // 11/14/2026: object notes from the environment (EnableObjectNotes())

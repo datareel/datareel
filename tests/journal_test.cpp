@@ -417,6 +417,47 @@ static void test_torn_journal(std::mt19937 &rng, int rounds)
   std::cout << "PASS torn_journal (" << mode_name() << ", " << rounds << " rounds)\n";
 }
 
+// 11/16/2026 (DataReel 7.4, beta4 review M2/M3): the static Recover() leaves "<journal>.recovered" (the number of
+// batches it replayed) before it writes a page, on every platform, and refuses to replay when the marker cannot be
+// written (the journal is kept for another try)
+static void test_recovered_marker()
+{
+  std::string dir = fresh_dir("marker"), image = dir + "_image";
+  {
+    TestDb t(dir);
+    CHECK(t.Open(true, 1), "marker open");
+    t.j.SetCheckpointSize(64 * 1024 * 1024); // No checkpoint
+    CHECK(t.j.Begin() == gxDBASE_NO_ERROR, "marker begin");
+    for(int i = 0; i < BATCH; i++) CHECK(t.Insert(i), "marker insert");
+    CHECK(t.j.Commit(1) == gxDBASE_NO_ERROR, "marker commit");
+    copy_files(dir, image); // The program dies here, before a checkpoint
+    t.Close();
+  }
+  restore_files(image, dir);
+  std::string jnl = dir + "/data.jnl", mk = jnl + ".recovered";
+  std::vector<char> data0 = read_file(dir + "/data.gxd"), jnl0 = read_file(jnl);
+  // The marker's temporary name taken by a folder: no marker can be written, so no replay
+  fs::create_directory(mk + ".tmp");
+  unsigned long n = 99;
+  CHECK(gxdJournal::Recover(jnl.c_str(), &n) != gxDBASE_NO_ERROR, "marker: replayed without its marker");
+  CHECK(n == 0, "marker: a refused replay says " + std::to_string(n));
+  CHECK(!fs::exists(mk), "marker: a marker after a refused replay");
+  CHECK(read_file(dir + "/data.gxd") == data0, "marker: the data file changed in a refused replay");
+  CHECK(read_file(jnl) == jnl0, "marker: the journal changed in a refused replay");
+  fs::remove(mk + ".tmp");
+  CHECK(gxdJournal::Recover(jnl.c_str(), &n) == gxDBASE_NO_ERROR && n >= 1, "marker: the kept journal did not replay");
+  std::vector<char> m = fs::exists(mk) ? read_file(mk) : std::vector<char>();
+  CHECK(!m.empty() && atol(std::string(m.begin(), m.end()).c_str()) == (long)n,
+	"marker: no marker, or not the replayed count, after Recover()");
+  CHECK(!fs::exists(mk + ".tmp"), "marker: the temporary marker stayed");
+  {
+    TestDb t(dir);
+    CHECK(t.Open(false, 0), "marker reopen");
+    CHECK(t.Verify() == BATCH, "marker: the replayed records");
+  }
+  std::cout << "PASS recovered_marker\n";
+}
+
 static void test_torn_checkpoint(std::mt19937 &rng, int rounds)
 {
   for(int r = 0; r < rounds; r++) {
@@ -640,6 +681,7 @@ int main(int argc, char **argv)
   g_mode = gxdJOURNAL_WRITE_THROUGH;
   test_reader();
   test_security_fixes();
+  test_recovered_marker();
   if(failures) {
     std::cout << failures << " journal tests failed\n";
     return 1;
