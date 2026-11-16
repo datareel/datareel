@@ -1158,6 +1158,93 @@ def test_pull_reads_only_the_copys_log():
         env.stop()
 
 
+def _late_pass_round(name, opts=None, writer_kind="write"):
+    """11/15/2026 (the late-pass hollow seal): a day archived (its folder and stream gone from the source; the copy
+    removes its folder), then reopened by a plain copy of the archived folder and written with a new log. Polls the
+    copy: a unit sealed whole ("log ...") at the source's generation must hold the source's data byte for byte.
+    Returns (problems, client log, server log)."""
+    env = Env(name, {"db": opts or CB_OPTS})
+    ws, aws = env.roots["db"]
+    d1 = os.path.join(ws, "d1")
+    os.makedirs(d1)
+    arch = os.path.join(env.dir, "archive")
+    os.makedirs(arch)
+    tw = os.path.join(BIN, "gxrepl_testwriter")
+    def write(*args, seed=1):
+        if writer_kind == "vwrite":
+            return subprocess.run([tw, "vwrite", d1, *map(str, args), "--seed", str(seed)], stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT, text=True)
+        return subprocess.run([tw, "write", d1, *map(str, args), "--commit-block", "--ship-root", ws, "--seed", str(seed)],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    problems = []
+    try:
+        # a large day file (the late pass reopened files of 300 MB and more): the copy of it takes seconds
+        r = write("--commits", 30, "--per", 6, "--big", 150000000, seed=3)
+        assert r.returncode == 0, r.stdout
+        env.start_server()
+        env.start_client()
+        _wait_units(env, ws, aws, ["d1"])
+        # the night: the day archived, its stream purged; the copy removes the folder
+        shutil.move(d1, os.path.join(arch, "d1"))
+        shutil.rmtree(os.path.join(ws, ".gxrepl", "log", "d1_writer.jnl"), ignore_errors=True)
+        end = time.time() + 60
+        while time.time() < end and os.path.exists(os.path.join(aws, "d1", "data.gxd")):
+            time.sleep(0.2)
+        assert not os.path.exists(os.path.join(aws, "d1", "data.gxd")), "the copy kept the archived folder\n" + env.logs()
+        # the late pass: a plain copy back, a new log, a few commits
+        shutil.copytree(os.path.join(arch, "d1"), d1)
+        # the writer opens (its new log's open record) and waits before its first commit, as the late pass did: the
+        # client verifies the new log while it lists no file yet
+        gate = os.path.join(env.dir, "first_commit")
+        w = subprocess.Popen([tw, "write", d1, "--commits", "8", "--per", "3", "--sleep", "300", "--commit-block",
+                              "--ship-root", ws, "--seed", "9", "--wait-at", "0", "--wait-file", gate]
+                             if writer_kind == "write" else
+                             [tw, "vwrite", d1, "--commits", "8", "--per", "3", "--sleep", "300", "--seed", "9"],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        log0 = len(open(os.path.join(env.dir, "client.log")).read())
+        end = time.time() + 30
+        while time.time() < end and "new log id" not in open(os.path.join(env.dir, "client.log")).read()[log0:]:
+            time.sleep(0.1)
+        time.sleep(2)
+        put(gate, b"go\n")
+        seal = os.path.join(aws, ".gxrepl", "units", "_d1")
+        end = time.time() + 40
+        while time.time() < end:
+            try:
+                sb = open(seal).read()
+            except OSError:
+                sb = ""
+            if sb.startswith("log "):
+                g = _gen_or_none(os.path.join(aws, "d1", "commit.bin"))
+                if g is not None and g == _gen_or_none(os.path.join(d1, "commit.bin")) and \
+                   not _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd")):
+                    a, b = os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd")
+                    zb = 0
+                    try:
+                        cb = open(b, "rb").read()
+                        zb = sum(1 for k in range(0, len(cb), 4096) if not cb[k:k + 4096].strip(b"\0"))
+                    except OSError:
+                        pass
+                    problems.append(f"sealed whole ({sb.strip()}) at generation {g} with a data.gxd that differs from "
+                                    f"the source's ({os.path.getsize(b) if os.path.exists(b) else 0} bytes, {zb} zero pages)")
+                    break
+            if w.poll() is not None and time.time() > end - 25:
+                pass
+            time.sleep(0.1)
+        w.wait(120)
+        _wait_units(env, ws, aws, ["d1"], 120)
+        return problems, open(os.path.join(env.dir, "client.log")).read(), open(os.path.join(env.dir, "server.log")).read()
+    finally:
+        env.stop()
+
+
+def test_late_pass_reopened_day_never_sealed_hollow():
+    """11/15/2026 (the late-pass hollow seal, beta3 production 11/15 20:30): an archived day reopened by a plain copy
+    and written with a new log is never sealed whole on the copy while its data file differs from the source's"""
+    problems, clog, slog = _late_pass_round("late_hollow")
+    assert not problems, "; ".join(problems) + "\n" + clog[-2500:] + "\n" + slog[-2500:]
+
+
 def test_old_layout_folder_replicates_byte_for_byte():
     """11/15/2026 (7.4 headers): gxrepl copies bytes and never rewrites a database file's headers: a folder written
     in the old 4-byte layout (GXD_CREATE_LAYOUT=4: what 64-bit Windows and 32-bit builds wrote before 7.4) by the

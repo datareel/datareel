@@ -3323,6 +3323,18 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
   unsigned long long last = add_records(*this, s->sc, records, it->second.lsn + 1,
 					batch, count, err, keep, &unit_cb);
   if(last == 0) return -1;
+  // 11/15/2026 (the late-pass hollow seal, b): records only change a file the copy has. A file the copy does not
+  // have, whose first page (its header) the records do not hold, cannot be made from them: its other pages would be
+  // zeros, and the unit's commit block in the same records would seal it whole. The copy is not in step: nothing is
+  // applied or sealed, and the client resyncs the stream (its files by pieces, then the records).
+  for(auto &e : batch) {
+    if(e.second.second.count(0)) continue;
+    struct stat fst;
+    if(stat(e.first.c_str(), &fst) == 0) continue;
+    std::string rel = e.first.compare(0, s->root.size() + 1, s->root + "/") == 0 ? e.first.substr(s->root.size() + 1) : e.first;
+    err = "not in step: " + rel + " is not on the copy and the records do not hold it whole (resynced)";
+    return -1;
+  }
   std::map<std::string, bool> unit_cb_records = unit_cb;   // 11/14/2026: for the incremental derived apply
   // 11/10/2026: the record's commit block (gxdShipLog::SetCommitBlock) makes
   // its unit whole at this record: its seal goes in the same transaction
@@ -5208,7 +5220,21 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
       }
     }
     unsigned long long lsn = 0;
-    if(tgt.ApplyLog(set, s.name, s.log_id, out, lsn, err) != 0) return -1;
+    if(tgt.ApplyLog(set, s.name, s.log_id, out, lsn, err) != 0) {
+      // 11/15/2026 (the late-pass hollow seal, b): the copy is not in step with these records (a file they would
+      // only part build): reset its position and verify the stream, as for a position gone from the log
+      if(err.compare(0, 12, "not in step:") != 0) return -1;
+      glog("set %s: stream %s: %s", set.c_str(), s.name.c_str(), err.c_str());
+      err.clear();
+      gxReplStreamState rs;
+      rs.name = s.name; rs.log_id = "resync"; rs.lsn = 0;
+      if(tgt.SetState(set, rs, err) != 0) return -1;
+      ts = rs;
+      verify = true;
+      if(flag_lsn) *flag_lsn = ULLONG_MAX;
+      note_verify(set, s.name, "the copy is not in step with the records", ULLONG_MAX);
+      return 0;
+    }
     ts.lsn = lsn;
     // 11/08/2026: The copy has it durably: the retention floor, when this
     // node is the source (never fatal)
@@ -5582,6 +5608,27 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
       else synced++;
     }
     if(failed) { ++it; continue; }
+    // 11/15/2026 (the late-pass hollow seal, a): a new log names its files only with its first commit. A verify that
+    // found none while the stream's folder holds database files on the source (a day reopened by a plain copy:
+    // events.gxd is there, the new log does not list it yet) is not done: taking the log's end then let the next
+    // records build that file from their pages alone on a copy that does not have it (a hollow file, sealed whole).
+    // The stream stays on the list until its files are listed.
+    if(synced == 0 && !s->journal.empty()) {
+      std::string folder = dir_of(s->journal), have;
+      for(auto &m : sm) {
+	if(dir_of(m.path) != folder || m.path == s->journal || !is_db_file(sc, m.path) || excluded(sc, m.path) ||
+	   is_derived(sc, m.path)) continue;
+	have = m.path;
+	break;
+      }
+      if(!have.empty()) {
+	glog("set %s: stream %s lists no file yet, and its folder has %s: verified when it lists its files",
+	     sc.name.c_str(), s->name.c_str(), have.c_str());
+	verifying[sc.name].clear();
+	++it;
+	continue;
+      }
+    }
     if(synced == 0) {
       // No file left to match the position against: take the log's end
       gxReplStreamState ns;
@@ -6521,7 +6568,9 @@ int gxReplPromote(const gxReplSetConfig &sc, bool apply, std::vector<std::string
     if(!since.empty()) {
       time_t t = (time_t)atoll(since[0].c_str());
       char b[64];
-      strftime(b, sizeof(b), "%Y-%m-%d %H:%M:%S", localtime(&t));
+      struct tm tmv;                        // 11/15/2026: localtime_r (localtime() shares its buffer across threads)
+      localtime_r(&t, &tmv);
+      strftime(b, sizeof(b), "%Y-%m-%d %H:%M:%S", &tmv);
       when = b;
     }
     bool swap = stat((sd + "/.swap").c_str(), &sb) == 0;
