@@ -686,6 +686,33 @@ struct Node {
     is_open = false;
     if(!keep_lock) unlock();
   }
+  // a full send starts from empty: the node's databases, indexes and digest log are moved aside into ROOT/prev as one
+  // unit (ROOT/prev.tmp while it fills, then a rename) and the node opens again empty, instead of deleting the
+  // objects one by one (11/16/2026: a 1M-object rejoin spent most of its 24 minutes clearing). ROOT/prev is removed
+  // once the full send has ended (SNAP_END committed). After a crash in the middle: a complete ROOT/prev holds the old
+  // data and what is here now is a partial full send (deleted); an incomplete ROOT/prev.tmp is completed first
+  static bool node_file(const std::string &f) {
+    if(f == "digests.btx") return true;
+    size_t dot = f.find('.');
+    if(dot == std::string::npos || !good_name(f.substr(0, dot))) return false;
+    for(const char *e : {".gxd", ".id.btx", ".ix.btx", ".vix", ".def", ".building"}) if(ends_with(f, e)) return true;
+    return false;
+  }
+  bool set_aside() {
+    std::string prev = path(root, "prev"), tmp = path(root, "prev.tmp");
+    bool done_before = exists(prev);
+    close(true);                                               // the lock is kept
+    std::error_code ec;
+    if(!done_before) fs::create_directories(tmp, ec);
+    for(auto &f : list_dir(root)) {
+      if(!node_file(f)) continue;
+      if(done_before) remove_file(path(root, f));              // a partial full send: the old data is in prev already
+      else { fs::rename(path(root, f), (fs::path(tmp) / f), ec); if(ec) return fail("cannot move " + f + " aside: " + ec.message()); }
+    }
+    if(!done_before) { fs::rename(tmp, prev, ec); if(ec) return fail("cannot rename " + tmp + ": " + ec.message()); }
+    return open(root, false, true);
+  }
+  void drop_aside() { std::error_code ec; fs::remove_all(path(root, "prev"), ec); fs::remove_all(path(root, "prev.tmp"), ec); }
   // the digest log: entries below CUTOFF out (the window of DLOG_KEEP commits)
   bool trim_digests(uint64_t cutoff, size_t limit = 10000) {   // at most LIMIT entries a call (a backlog goes in steps)
     DKey k, c;
@@ -1636,14 +1663,15 @@ int gxObjRepl::Impl::serve()
       } else if(kind == F_SNAP_BEGIN) {
 	uint64_t base = r.u64(), ep = r.u64();
 	if(!r.ok || ep < s.st.epoch) break;
-	if(!s.begin()) break;                                  // from empty: every database and the digest log cleared
-	for(auto &d : s.dbs) if(!d.second->clear()) good = false;
-	if(good) good = s.clear_digests();
+	// first the state says a full send is under way (the old data still here), then the old data goes aside and the
+	// node opens again empty (see Node::set_aside)
+	if(!s.begin()) break;
 	if(ep > s.st.epoch) s.st.epoch = ep;
-	s.st.in_snapshot = 1; s.st.snapshot_base = base; s.st.applied_seq = 0;
+	s.st.in_snapshot = 1; s.st.snapshot_base = base; s.st.applied_seq = 0; s.st.applied_digest = DIGEST0;
 	s.put_state();
-	if(!good) { s.j.Rollback(); rolled = true; break; }
 	if(!s.commit()) { rolled = true; break; }
+	if(!s.set_aside()) { say("copy: " + s.err); s.close(); return fail(s.err); }
+	for(auto &l : links) { s.get(l.db); s.get(l.target); }   // the link databases again (empty)
 	Buf a; a.u64(0);
 	if(!send_frame(st, a.b)) break;
       } else if(kind == F_SNAP_BATCH) {
@@ -1694,6 +1722,7 @@ int gxObjRepl::Impl::serve()
 	s.st.in_snapshot = 0; s.st.applied_seq = base; s.st.applied_digest = sdig;
 	s.put_state();
 	if(!s.commit()) { rolled = true; break; }
+	s.drop_aside();                                        // the full send is whole: the old data goes
 	Buf a; a.u64(base);
 	if(!send_frame(st, a.b)) break;
       } else break;
@@ -2032,12 +2061,18 @@ int gxObjRepl::Rejoin(const std::string &root, std::string &msg)
     if(!s.ob.Delete(a)) { s.j.Rollback(); msg = "cannot clear the outbox"; s.close(); return 1; }
     a = n;
   }
-  s.st.role = ROLE_COPY; s.st.in_snapshot = 1; s.st.snapshot_base = 0; s.st.applied_seq = 0;
-  s.st.rejoin_dropped = unacked;
-  s.st.applied_digest = DIGEST0;
+  // a former primary whose copy acknowledged every commit (a planned switchover) holds exactly the history the new
+  // primary started from: it follows on from its last seq with no full send (the new primary checks the digest at
+  // that seq). Otherwise it waits for a full send
+  bool fast = was_primary && unacked == 0 && last > 0;
+  s.st.role = ROLE_COPY; s.st.snapshot_base = 0; s.st.rejoin_dropped = unacked;
+  if(fast) { s.st.in_snapshot = 0; s.st.applied_seq = last; s.st.applied_digest = s.st.cur_digest; }
+  else { s.st.in_snapshot = 1; s.st.applied_seq = 0; s.st.applied_digest = DIGEST0; }
   s.put_state();
   int rc = s.commit() ? 0 : 1;
-  msg = rc ? s.err : root + " is a copy at epoch " + std::to_string(s.st.epoch) + ", waiting for a full send" +
+  msg = rc ? s.err : fast ? root + " is a copy at epoch " + std::to_string(s.st.epoch) + ", following on from seq " + std::to_string(last) +
+	" (its copy had every commit: no full send)" :
+	root + " is a copy at epoch " + std::to_string(s.st.epoch) + ", waiting for a full send" +
 	(was_primary ? "; " + std::to_string(unacked) + " commit(s) past seq " + std::to_string(s.st.acked_seq) +
 	 " (the last its copy acknowledged) are replaced by what the new primary has" : "");
   s.close();

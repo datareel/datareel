@@ -44,7 +44,10 @@ start_copy() {  # start_copy [ENV=VAL]: the copy C, waits until it says listenin
 }
 stop_copy() { [ -n "$CPID" ] || return 0; kill -TERM $CPID 2>/dev/null
               for i in $(seq 1 50); do kill -0 $CPID 2>/dev/null || break; sleep 0.2; done
-              if kill -0 $CPID 2>/dev/null; then log "WARN copy pid $CPID did not stop on TERM in 10 s: KILL"; kill -KILL $CPID; TERMFAIL=$((TERMFAIL + 1)); fi
+              if kill -0 $CPID 2>/dev/null; then
+                log "WARN copy pid $CPID did not stop on TERM in 10 s: its stacks in $T/stuck_$CPID.txt, then KILL"
+                timeout 60 gdb -p $CPID -batch -ex "thread apply all bt" > "$T/stuck_$CPID.txt" 2>&1; cp "$T/stuck_$CPID.txt" "${STUCK_DIR:-/tmp}/" 2>/dev/null
+                kill -KILL $CPID; TERMFAIL=$((TERMFAIL + 1)); fi
               wait $CPID 2>/dev/null; CPID=""; }
 kill_copy() { [ -n "$CPID" ] && kill -KILL $CPID 2>/dev/null; wait $CPID 2>/dev/null; CPID=""; }
 start_primary() {  # start_primary OPTIONS...: in the background

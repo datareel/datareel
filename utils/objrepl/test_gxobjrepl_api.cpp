@@ -422,7 +422,15 @@ int main(int argc, char **argv)
       { gxObjRepl x; x.Open(dir + "/r_p", pcfg(pc3, false), gxObjRepl::PRIMARY); for(int k = 0; k < 3; k++) commit1(x); x.Drain(20); x.Close(); }
       C.stop();
       gxObjRepl::Rejoin(dir + "/r_p", msg);
-      check(msg.find("0 commit(s) past seq 3") != std::string::npos, "review2 8: with trim off, rejoin counts from the acknowledged seq [" + msg + "]");
+      check(msg.find("following on from seq 3") != std::string::npos, "review2 8: with trim off the acknowledgement counts: every commit was acknowledged, so the rejoin needs no full send [" + msg + "]");
+      // the fast rejoin works: the copy takes over, the old primary follows on from seq 3 with no full send
+      gxObjRepl::Takeover(dir + "/r_c", msg);
+      Srv R; R.start(dir + "/r_p", ccfg(pc3, "P-as-copy"));
+      int rc; long sn;
+      { gxObjRepl t; t.Open(dir + "/r_c", pcfg(pc3, false), gxObjRepl::PRIMARY); commit1(t); rc = t.Drain(20); sn = t.Snapshots(); t.Close(); }
+      std::string da, db; R.stop();
+      gxObjRepl::Digest(dir + "/r_c", "", da); gxObjRepl::Digest(dir + "/r_p", "", db);
+      check(rc == 0 && sn == 0 && da == db, "fast rejoin: after a planned switchover the old primary followed on with no full send (snapshots " + std::to_string(sn) + "); equal [" + da + "]");
     }
   }
 
