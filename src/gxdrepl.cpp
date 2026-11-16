@@ -597,7 +597,15 @@ int gxdShipLog::Open(const char *set_root, const char *stream,
       if(open_segment() != 0) { std::string e = error; Close(); return fail(e); }
     }
   }
-  if(append(gxdShipOpen, 0, 0) != 0) {
+  // 11/15/2026 (hardening): the open record's payload (format 1)
+  unsigned char opl[gxdShipOpenPayloadSize];
+  for(int i = 0; i < 4; i++) {                    // little endian, as sput32/sput64
+    opl[i] = (unsigned char)(gxdShipOpenMagic >> (8 * i));
+    opl[4 + i] = (unsigned char)(gxdShipOpenFormat >> (8 * i));
+    opl[16 + i] = 0;
+  }
+  for(int i = 0; i < 8; i++) opl[8 + i] = (unsigned char)(open_recovered >> (8 * i));
+  if(append(gxdShipOpen, opl, sizeof(opl)) != 0) {
     std::string e = error;
     Close();
     return fail(e);

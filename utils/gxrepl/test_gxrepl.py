@@ -4694,6 +4694,52 @@ def test_rebuild_mode_fill_still_drops_the_stamps():
         env.stop()
 
 
+def test_incremental_clean_restarts_keep_the_stamps():
+    """11/15/2026 (hardening): a writer's open record says what its journal recovered; a clean restart (nothing) is
+    not a rebuild and no hold: three restarts, no "rebuild needed" for them, no rebuild, the index its data's"""
+    env, ws, aws, w = _recgap_env("incr_clean_restarts")
+    try:
+        d1 = os.path.join(ws, "d1")
+        r0 = _rebuilds(env)
+        log0 = len(open(os.path.join(env.dir, "server.log")).read())
+        for i in range(3):
+            b = _adds(d1, ws, 700 + i)
+            assert b.wait(timeout=120) == 0, b.stdout.read()
+            _wait_gen(ws, aws, "d1", 120)
+            time.sleep(2)
+        log = open(os.path.join(env.dir, "server.log")).read()[log0:]
+        assert "rebuild needed: a writer's open record" not in log and "waits for its verify" not in log, log[-2000:]
+        assert _rebuilds(env) == r0, "a clean restart was rebuilt:\n" + log[-2000:]
+        _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_static_recover_is_indexed():
+    """11/15/2026 (hardening): the batch writer A died with is replayed by the static gxdJournal::Recover() before
+    writer B opens (B's own Open() then recovers nothing): Recover()'s marker makes B's open record say it, so the
+    copy rebuilds and its index holds A's objects"""
+    env, ws, aws, w = _recgap_env("incr_static_recover")
+    try:
+        d1 = os.path.join(ws, "d1")
+        env.kill("client")
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 711,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, a.stdout
+        r = run([os.path.join(BIN, "gxrepl_testwriter"), "recover", d1])
+        assert r.returncode == 0 and "recovered 1 batch" in r.stdout, r.stdout
+        assert os.path.exists(os.path.join(d1, "writer.jnl.recovered")), "Recover() left no marker"
+        b = _adds(d1, ws, 712)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        assert not os.path.exists(os.path.join(d1, "writer.jnl.recovered")), "the marker stayed after the open record"
+        env.start_client()
+        _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
 def test_incremental_orphan_means_rebuild():
     """11/14/2026: an objects record without its commit (a writer crash between them, here the record lost and a gap
     after it) is never applied object by object: rebuild needed, and the index checks after the rebuild"""

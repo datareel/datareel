@@ -67,6 +67,7 @@ number; records left in the file after that have an old salt.
 // ----------------------------------------------------------- //
 #if !defined(_WIN32)
 #include <unistd.h>
+#include <fcntl.h>
 #endif
 #include "gxdlcode.h"
 
@@ -226,8 +227,11 @@ gxdJournal::~gxdJournal()
   DisableShipLog();
 }
 
+// 11/15/2026: the marker a replay leaves for the next EnableShipLog() (see Recover())
+static std::string recovered_marker(const char *jname) { return std::string(jname) + ".recovered"; }
+
 gxDatabaseError gxdJournal::Recover(const char *jname,
-				    unsigned long *recovered)
+				    unsigned long *recovered, int mark)
 {
   if(recovered) *recovered = 0;
   if(!jname) return gxDBASE_NULL_PTR;
@@ -325,6 +329,26 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
   }
 
   gxDatabaseError err = gxDBASE_NO_ERROR;
+#ifndef _WIN32
+  // 11/15/2026 (hardening): the marker, durably, before the first page is replayed: a crash in the middle of the
+  // replay still leaves it
+  if(ncommits && mark) {
+    std::string mk = recovered_marker(jname), tmp = mk + ".tmp";
+    int mf = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0640);
+    if(mf >= 0) {
+      std::string body = std::to_string(ncommits) + "\n";
+      if(write(mf, body.data(), body.size()) == (ssize_t)body.size() && fsync(mf) == 0) {
+	close(mf);
+	if(rename(tmp.c_str(), mk.c_str()) == 0) {
+	  std::string d = mk.substr(0, mk.find_last_of('/') == std::string::npos ? 0 : mk.find_last_of('/'));
+	  int df = open(d.empty() ? "." : d.c_str(), O_RDONLY | O_DIRECTORY);
+	  if(df >= 0) { fsync(df); close(df); }
+	}
+      }
+      else { close(mf); unlink(tmp.c_str()); }
+    }
+  }
+#endif
   if(ncommits) {
     std::vector<gxdFPTR *> fps(paths.size(), (gxdFPTR *)0);
     for(size_t i = 0; i < paths.size(); i++) {
@@ -739,10 +763,25 @@ gxDatabaseError gxdJournal::EnableShipLog(const char *set_root,
     return jerror = gxDBASE_FILE_NOT_READY;
   DisableShipLog();
   gxdShipLog *log = new gxdShipLog;
+  // 11/15/2026 (hardening): the open record says what this writer's journal recovered: Open()'s replay and a
+  // static Recover()'s marker. A copy keeps its derived indexes object by object only across an open that says 0.
+  unsigned long long rec = recovered;
+  std::string mk;
+#ifndef _WIN32
+  mk = recovered_marker(jname.c_str());
+  {
+    FILE *mf = fopen(mk.c_str(), "r");
+    if(mf) { unsigned long long n = 0; if(fscanf(mf, "%llu", &n) != 1 || n == 0) n = 1; rec += n; fclose(mf); }
+  }
+#endif
+  log->SetOpenRecovered(rec);
   if(log->Open(set_root, stream, jfull_path(jname.c_str()).c_str()) != 0) {
     delete log;
     return jerror = gxDBASE_FILE_OPEN_ERROR;
   }
+#ifndef _WIN32
+  if(!mk.empty()) unlink(mk.c_str());                    // said in the open record (synced by the ship log)
+#endif
   ship = log;
   write_lock = 1;
   // 11/14/2026: object notes from the environment (EnableObjectNotes())
@@ -802,7 +841,7 @@ gxDatabaseError gxdJournal::ApplyPages(const char *jname,
   if(af.size() > gxdJournalMaxFiles) return gxDBASE_BAD_REFERENCE;
 
   // Finish a batch an earlier call left in the journal
-  gxDatabaseError err = Recover(jname);
+  gxDatabaseError err = Recover(jname, 0, 0);
   if(err != gxDBASE_NO_ERROR) return err;
 
   // Every file must exist before Recover() opens it
@@ -893,7 +932,7 @@ gxDatabaseError gxdJournal::ApplyPages(const char *jname,
 #endif
 
   unsigned long n = 0;
-  err = Recover(jname, &n);
+  err = Recover(jname, &n, 0);
   if(err != gxDBASE_NO_ERROR) return err;
   if(n != 1) return gxDBASE_FILE_WRITE_ERROR;
   if(pages_written) *pages_written = npages;
