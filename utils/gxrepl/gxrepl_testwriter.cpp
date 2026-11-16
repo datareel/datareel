@@ -851,6 +851,7 @@ int main(int argc, char **argv)
   // 11/14/2026 (stress): --burst-at K --burst-per N [--burst-split M]: from commit K, N objects in commits of at
   // most M (one commit when M is 0); --wait-at K --wait-file F: before commit K, wait until F exists
   long burst_at = -1, burst_per = 0, burst_split = 0, wait_at = -1;
+  bool no_index = false;          // 11/16/2026: --no-index: index.gxd is not attached (nor written) in this session
   std::string wait_file;
   for(int i = 3; i < argc; i++) {
     std::string a = argv[i];
@@ -875,6 +876,7 @@ int main(int argc, char **argv)
     else if(a == "--burst-per" && i + 1 < argc) burst_per = atol(argv[++i]);
     else if(a == "--burst-split" && i + 1 < argc) burst_split = atol(argv[++i]);
     else if(a == "--wait-at" && i + 1 < argc) wait_at = atol(argv[++i]);
+    else if(a == "--no-index") no_index = true;
     else if(a == "--wait-file" && i + 1 < argc) wait_file = argv[++i];
     else if(a == "--segment" && i + 1 < argc) seg_bytes = strtoull(argv[++i], 0, 10);
     else if(a == "--keep-days" && i + 1 < argc) keep_days = atoi(argv[++i]);
@@ -894,11 +896,16 @@ int main(int argc, char **argv)
     if(db.Create(dn.c_str()) != gxDBASE_NO_ERROR) { fprintf(stderr, "create failed\n"); return 1; }
     fresh = true;
   }
-  if(ix.Open(in.c_str()) != gxDBASE_NO_ERROR) {
+  // 11/16/2026: --no-index: this session writes data.gxd only (index.gxd read if it is there, never attached): its log
+  // names index.gxd only when a later session attaches it (the newly listed file test)
+  if(no_index) {
+    if(ix.Open(in.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { fprintf(stderr, "--no-index needs index.gxd\n"); return 1; }
+  }
+  else if(ix.Open(in.c_str()) != gxDBASE_NO_ERROR) {
     if(ix.Create(in.c_str()) != gxDBASE_NO_ERROR) { fprintf(stderr, "create failed\n"); return 1; }
     fresh = true;
   }
-  if(j.Attach(&db) != gxDBASE_NO_ERROR || j.Attach(&ix) != gxDBASE_NO_ERROR) {
+  if(j.Attach(&db) != gxDBASE_NO_ERROR || (!no_index && j.Attach(&ix) != gxDBASE_NO_ERROR)) {
     fprintf(stderr, "attach failed\n"); return 1;
   }
   if(ship && j.EnableShipLog(ship_root.c_str(), stream_name.empty() ? 0 : stream_name.c_str()) != gxDBASE_NO_ERROR) {
@@ -911,7 +918,7 @@ int main(int argc, char **argv)
   IndexObj io;
   memset(&io, 0, sizeof(io));
   FAU_t ia = ix.FindFirstObject();
-  if(fresh || ia == (FAU_t)0) {
+  if(!no_index && (fresh || ia == (FAU_t)0)) {
     j.Begin();
     ia = ix.Alloc(sizeof(io));
     io.next_id = 1;
@@ -1019,7 +1026,9 @@ int main(int argc, char **argv)
       }
     }
     io.commits++;
-    ix.Write(&io, sizeof(io), ia);
+    // 11/16/2026: with --index-from N the index object is written from commit N on (a log that names index.gxd only
+    // then: the newly listed file test)
+    if(!no_index) ix.Write(&io, sizeof(io), ia);
     // 11/10/2026: the commit block as it will be once this commit lands goes in the record (as OSA's
     // writers do), unless --old-ship-format (a log from before that: the copy reports the unit unsealed)
     if(cbfd >= 0 && j.ShipLog() && !old_ship_format) {

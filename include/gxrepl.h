@@ -770,6 +770,7 @@ private:
   std::set<std::string> unit_wait_noted;   // 11/16/2026 (M-c): "SET|FOLDER|MTIME" said "in a commit" once
   // 11/16/2026 (M-a): "SET|STREAM" -> (log id, the files the log listed last pass)
   std::map<std::string, std::pair<std::string, std::set<std::string> > > known_files;
+  std::set<std::string> new_file_verify;   // "SET|STREAM": a newly listed file's verify is pending (no drain until done)
   std::map<std::string, std::pair<std::string, long long> > wait_seen;   // "SET|STREAM" -> (files, when)
   // 11/15/2026 (hardening): "set\nstream" -> resyncs for records bigger than max_message with no record drained
   // since (drain(), the status-2 bound)

@@ -4978,6 +4978,107 @@ def test_new_log_with_an_empty_folder_waits_for_its_files():
         env.stop()
 
 
+def _newly_listed_round(name, client_env=None):
+    """11/16/2026 (beta5, asked by the review when seal_created_files went): a fresh log whose first writer session
+    attaches data.gxd only (--no-index: the log lists data.gxd and commit.bin), the copy in step with it; then
+    index.gxd is plain-copied on the source (another index file's bytes and a 200 KB tail: the copy's is stale),
+    and a second session attaches it: the log lists index.gxd from its records on. The scan does not run meanwhile
+    (scan_interval 3600). Polled every 0.1 s for 25 s: whenever the copy's d1 is sealed at the source's generation,
+    its three files must be the source's, byte for byte. Returns (bad polls, env log)."""
+    opts = {"client": CB_OPTS["client"] + ["scan_interval = 3600"], "server": list(CB_OPTS["server"])}
+    env = Env(name, {"db": opts})
+    ws, aws = env.roots["db"]
+    d1 = os.path.join(ws, "d1")
+    os.makedirs(d1)
+    other = os.path.join(env.dir, "other")
+    os.makedirs(other)
+    try:
+        assert writer(d1, "--commits", 4, "--per", 6, "--commit-block", "--ship-root", ws, "--seed", 81).returncode == 0
+        assert writer(other, "--commits", 9, "--per", 6, "--commit-block", "--seed", 82, "--no-ship").returncode == 0
+        env.start_server()
+        env.start_client(client_env)
+        _wait_units(env, ws, aws, ["d1"])
+        env.kill("client")
+        for p in glob.glob(os.path.join(ws, ".gxrepl", "log", "*")):
+            if os.path.isdir(p):
+                shutil.rmtree(p)
+        r = writer(d1, "--commits", 2, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 83, "--no-index")
+        assert r.returncode == 0, r.stdout
+        env.start_client(client_env)
+        _wait_units(env, ws, aws, ["d1"])
+        time.sleep(2)
+        # the second session's open record asks for a verify of its own: held here (GXREPL_TEST_VERIFY_WAIT), so
+        # only the newly listed file's rule stands between its records and a seal over the stale index.gxd
+        env.kill("client")
+        vw = os.path.join(env.dir, "verify_go")
+        c0 = len(open(os.path.join(env.dir, "client.log")).read())
+        env.start_client(dict(client_env or {}, GXREPL_TEST_VERIFY_WAIT=vw))
+        # the restarted client has seen the log's two files (in step) before the plain copy and the next session
+        end = time.time() + 60
+        while time.time() < end and "in step" not in open(os.path.join(env.dir, "client.log")).read()[c0:]:
+            time.sleep(0.2)
+        time.sleep(1)
+        # the plain copy: another index file's bytes and a 200 KB tail, so the next session's records (its first page and
+        # the file's size) cannot make the copy's file whole
+        with open(os.path.join(other, "index.gxd"), "rb") as fh:
+            body = fh.read()
+        put(os.path.join(d1, "index.gxd"), body + random.Random(85).randbytes(200 * 1024))
+        r = writer(d1, "--commits", 1, "--per", 2, "--commit-block", "--ship-root", ws, "--seed", 84)
+        assert r.returncode == 0, r.stdout
+        seal = os.path.join(aws, ".gxrepl", "units", "_d1")
+        bad = 0
+        end = time.time() + 25
+        while time.time() < end:
+            try:
+                sealed = open(seal).read().startswith("log ")
+                same_gen = gen_of(os.path.join(ws, "d1", "commit.bin")) == gen_of(os.path.join(aws, "d1", "commit.bin"))
+            except OSError:
+                sealed = same_gen = False
+            if sealed and same_gen:
+                for f in ("data.gxd", "index.gxd", "commit.bin"):
+                    if not _same_file(os.path.join(ws, "d1", f), os.path.join(aws, "d1", f)):
+                        bad += 1
+                        break
+            time.sleep(0.1)
+        put(vw, b"go\n")                                # the verify: the copy ends the source's
+        _wait_units(env, ws, aws, ["d1"], 120)
+        end = time.time() + 60
+        while time.time() < end and not _same_file(os.path.join(ws, "d1", "index.gxd"), os.path.join(aws, "d1", "index.gxd")):
+            time.sleep(0.5)
+        final_ok = _same_file(os.path.join(ws, "d1", "index.gxd"), os.path.join(aws, "d1", "index.gxd"))
+        return bad, final_ok, env.logs()
+    finally:
+        env.stop()
+
+
+def test_newly_listed_file_never_sealed_stale():
+    """11/16/2026: d1 is never sealed with the plain-copied index.gxd stale on the copy (see _newly_listed_round): the
+    second session's open record stops the drain until its verify, and the newly listed file asks for one too; it
+    ends equal to the source"""
+    bad, final_ok, log = _newly_listed_round("newly_listed")
+    assert bad == 0, f"{bad} polls found d1 sealed at the source's generation with a file not the source's\n" + log[-3000:]
+    assert final_ok, "index.gxd never became the source's after the verify\n" + log[-3000:]
+
+
+def test_newly_listed_file_rule_alone_never_sealed_stale():
+    """11/16/2026: the same with the open record's verify off (GXREPL_TEST_NO_DRAIN_VERIFY, GXREPL_TEST_NO_CALLER_VERIFY):
+    the newly listed file's verify alone keeps the records from sealing d1 over the stale index.gxd"""
+    bad, final_ok, log = _newly_listed_round("newly_listed_alone", {"GXREPL_TEST_NO_DRAIN_VERIFY": "1",
+                                                                    "GXREPL_TEST_NO_CALLER_VERIFY": "1"})
+    assert "the log lists a new file" in log, "no verify for the newly listed file\n" + log[-3000:]
+    assert bad == 0, f"{bad} polls found d1 sealed at the source's generation with a file not the source's\n" + log[-3000:]
+    assert final_ok, "index.gxd never became the source's after the verify\n" + log[-3000:]
+
+
+def test_newly_listed_file_without_both_verifies_is_sealed_stale():
+    """11/16/2026: with both off (the open record's verify and the newly listed file's, GXREPL_TEST_NO_NEW_FILE_VERIFY)
+    the records land on the stale index.gxd and seal d1 over it: the two tests above reach the case"""
+    bad, final_ok, log = _newly_listed_round("newly_listed_off", {"GXREPL_TEST_NO_DRAIN_VERIFY": "1",
+                                                                  "GXREPL_TEST_NO_CALLER_VERIFY": "1",
+                                                                  "GXREPL_TEST_NO_NEW_FILE_VERIFY": "1"})
+    assert bad > 0, "d1 was never sealed stale with both off: the tests prove nothing\n" + log[-3000:]
+
+
 def test_unlisted_database_file_is_copied_without_a_wait():
     """11/16/2026 (beta4 re-review M-a, narrowed in the beta5 validation): a database file in a stream's folder that its
     log does not list (extra.gxd, plain-copied next to a fresh log's data.gxd) does not hold the stream's verify (a

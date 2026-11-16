@@ -5702,7 +5702,27 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
   for(auto &s : streams) {
     gxReplStreamState ts = tstates[s.name];
     bool v = false;
-    if(ts.log_id != s.log_id) v = true;
+    // 11/16/2026 (beta4 re-review M-a): the log lists a file it did not list before (a file a later writer session
+    // attaches, possibly plain-copied into the folder meanwhile): the stream is verified before any of its records
+    // is drained, so the records never land on (and seal) a copy of that file the verify has not compared whole
+    bool new_file = false;
+    {
+      std::string key = sc.name + "|" + s.name;
+      auto kf = known_files.find(key);
+      std::set<std::string> now_files(s.files.begin(), s.files.end());
+      if(kf != known_files.end() && kf->second.first == s.log_id && ts.log_id == s.log_id)
+	for(auto &f : now_files) if(!kf->second.second.count(f)) { new_file = true; break; }
+#ifdef GXREPL_TEST_HOOKS
+      if(getenv("GXREPL_TEST_NO_NEW_FILE_VERIFY")) new_file = false;   // test builds: the rule off
+#endif
+      known_files[key] = std::make_pair(s.log_id, now_files);
+    }
+    if(new_file) {
+      if(std::find(vlist.begin(), vlist.end(), s.name) == vlist.end()) note_verify(sc.name, s.name, "the log lists a new file");
+      new_file_verify.insert(sc.name + "|" + s.name);   // its records wait for that verify (also in later passes)
+    }
+    else if(new_file_verify.count(sc.name + "|" + s.name)) { }
+    else if(ts.log_id != s.log_id) v = true;
     else if(s.first_lsn > 0 && ts.lsn + 1 < s.first_lsn) v = true;
     else if(ts.lsn + 1 < s.next_lsn) {
       if(drain(src, tgt, sc.name, s, ts, st, v, err) != 0) return -1;
@@ -5711,22 +5731,6 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
       glog("set %s: stream %s needs a verify (%s)", sc.name.c_str(), s.name.c_str(),
 	   ts.log_id.empty() ? "new" : ts.log_id != s.log_id ? "new log id" : "open, gap or old position");
       vlist.push_back(s.name);
-    }
-    // 11/16/2026 (beta4 re-review M-a): the log lists a file it did not list before (a reopened day's plain-copied
-    // file named by the next commit, a file a commit adds): the stream is verified again, so the copy's file is
-    // compared whole and its unit is not sealed before that verify (the seal guard)
-    {
-      std::string key = sc.name + "|" + s.name;
-      auto kf = known_files.find(key);
-      std::set<std::string> now_files(s.files.begin(), s.files.end());
-      if(kf != known_files.end() && kf->second.first == s.log_id) {
-	for(auto &f : now_files)
-	  if(!kf->second.second.count(f)) {
-	    if(std::find(vlist.begin(), vlist.end(), s.name) == vlist.end()) note_verify(sc.name, s.name, "the log lists a new file");
-	    break;
-	  }
-      }
-      known_files[key] = std::make_pair(s.log_id, now_files);
     }
     { std::lock_guard<std::mutex> lg(st.m); st.streams[s.name] = std::make_pair(s.next_lsn ? s.next_lsn - 1 : 0, ts.lsn); }
   }
@@ -5738,7 +5742,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
   for(auto it = vlist.begin(); it != vlist.end() && !stop; ) {
     const gxReplStream *s = 0;
     for(auto &x : streams) if(x.name == *it) s = &x;
-    if(!s) { verify_again[sc.name].erase(*it); it = vlist.erase(it); continue; }   // (review: no stale flag)
+    if(!s) { verify_again[sc.name].erase(*it); new_file_verify.erase(sc.name + "|" + *it); it = vlist.erase(it); continue; }   // (review: no stale flag)
 #ifdef GXREPL_TEST_HOOKS
     // test builds: GXREPL_TEST_VERIFY_WAIT=F: a queued stream verify waits (the pass goes on) until F exists
     if(const char *vw = getenv("GXREPL_TEST_VERIFY_WAIT")) { struct stat vst; if(stat(vw, &vst) != 0) { ++it; continue; } }
@@ -5868,6 +5872,7 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     // a 7.4 copy that the stream's hold may go (an older copy writes the same position again)
     {
       auto tsx = tstates.find(s->name);
+      new_file_verify.erase(sc.name + "|" + s->name);   // 11/16/2026 (M-a): its records may drain again
       if(tsx != tstates.end()) {
 	// 11/16/2026 (beta4 review H1): with the number of files the verify compared (the hold goes only after > 0)
 	gxReplStreamState done = tsx->second;
