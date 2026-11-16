@@ -69,8 +69,10 @@ cmake-build\examples\Release\db_infohog  # Windows</PRE>
 <div class="dr-fn"><code class="dr-sig">examples/tls/tls_echo_client.cpp</code><p class="dr-desc"><B>tls_echo_client</B>: TLS client with certificate checking. Usage: tls_echo_client host port [--ca ca.pem] [--insecure]</p></div>
 <div class="dr-fn"><code class="dr-sig">examples/tls/https_get.cpp</code><p class="dr-desc"><B>https_get</B>: Fetch a URL or download a file with gxsHTTPClient. Usage: https_get url [file] [--ca ca.pem]</p></div>
 <div class="dr-fn"><code class="dr-sig">examples/tls/https_server.cpp</code><p class="dr-desc"><B>https_server</B>: Small HTTPS file server built on gxsHTTPReadRequest() and gxsHTTPWriteResponse().</p></div>
+<div class="dr-fn"><code class="dr-sig">examples/tls/https_check.cpp</code><p class="dr-desc"><B>https_check</B>: Check a list of web sites over TLS: status, time (fastest/median/slowest with --count), size, redirects, and the response headers with --headers (7.4). Usage: https_check [--head] [--headers] [--count N] [--list file] [--ca ca.pem] url ...</p></div>
 <div class="dr-fn"><code class="dr-sig">examples/tls/smtp_send.cpp</code><p class="dr-desc"><B>smtp_send</B>: Send mail over implicit TLS or STARTTLS.</p></div>
 <div class="dr-fn"><code class="dr-sig">examples/tls/pop3_list.cpp</code><p class="dr-desc"><B>pop3_list</B>: List and read a POP3 mailbox over TLS.</p></div>
+<div class="dr-fn"><code class="dr-sig">examples/tls/imap_fetch.cpp</code><p class="dr-desc"><B><A HREF="imap_fetch.htm">imap_fetch</A></B>: Read an IMAP mailbox over TLS (or STARTTLS, or plain text for a local server): search, list newest first, save each message once to a spool folder (7.4).</p></div>
 <div class="dr-fn"><code class="dr-sig">examples/tls/ftps_client.cpp</code><p class="dr-desc"><B>ftps_client</B>: List, download and upload with FTPS.</p></div>
 <div class="dr-fn"><code class="dr-sig">examples/tls/stream_server.cpp</code><p class="dr-desc"><B>stream_server</B>: gxStream server that stores client blocks in a gxDatabase file.</p></div>
 <div class="dr-fn"><code class="dr-sig">examples/tls/stream_client.cpp</code><p class="dr-desc"><B>stream_client</B>: gxStream client that stores and reads back blocks over TLS.</p></div>
@@ -85,6 +87,8 @@ cmake-build\examples\Release\db_infohog  # Windows</PRE>
 <h2 id="Plaintextdiagnostics">Plain text diagnostics</h2>
 <div class="dr-fn"><code class="dr-sig">examples/diagnostics/ping.cpp</code><p class="dr-desc"><B>ping</B>: ICMP and ICMPv6 echo. Usage: ping host [count] [-4|-6]</p></div>
 <div class="dr-fn"><code class="dr-sig">examples/diagnostics/telnet_client.cpp</code><p class="dr-desc"><B>telnet_client</B>: Telnet login and command (plain text; trusted networks only).</p></div>
+<div class="dr-fn"><code class="dr-sig">examples/diagnostics/udp_broadcast.cpp</code><p class="dr-desc"><B><A HREF="udp_broadcast.htm">udp_broadcast</A></B>: Send and receive UDP broadcast datagrams with gxSocket (plain text; trusted local networks only) (7.4).</p></div>
+<div class="dr-fn"><code class="dr-sig">examples/diagnostics/udp_multicast.cpp</code><p class="dr-desc"><B><A HREF="udp_multicast.htm">udp_multicast</A></B>: Send and receive IPv4 or IPv6 multicast datagrams, join a group (plain text; trusted local networks only) (7.4).</p></div>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

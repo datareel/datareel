@@ -30,6 +30,7 @@
 <a href="#License11122026">License (11/12/2026)</a><br>
 <a href="#FixesAfterBeta311152026Docs74">FIXES AFTER BETA 3 (11/15/2026, docs-7.4)</a><br>
 <a href="#OneFileLayoutOnEveryPlatform11152026Beta5">ONE FILE LAYOUT ON EVERY PLATFORM (11/15/2026, beta 5)</a><br>
+<a href="#NewInBeta511162026">New in beta 5 (11/16/2026)</a><br>
 <a href="#PlannedForTheNextRelease75">Planned for the next release (7.5)</a></p>
 <p>DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the replication fixes and the security scan below (BETA 3). Beta 2:</p>
 <p>DataReel 7.4 beta 2 (tag 7.4-beta2, 11/14/2026): the OODB with AI extensions. It follows the 11/12/2026 7.4-beta preview (tag 7.4-beta, 171a3f2: vector phases A and B) and adds vector phases C and D (below), the gxrepl fixes F4, F6 and F7, the DataReel 7.3.2 replication fixes and the later ones of rel-7.3.2-next3 (the seal per folder, a stream naming new files verified again, promote-check reading each unit under a shared apply lock, GXREPL_TORN_LOCK_WAIT 15 s), and the gxrepl per-object derived apply (derived_apply = incremental, with object notes and index stamps; off by default: rebuild stays the default and the ship log is unchanged while object notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md). derived_apply = incremental is not yet for production use; fixes land in the next 7.4 build. The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
@@ -282,6 +283,15 @@
 <li>tests/data/old_layout: files written by the 64-bit and 32-bit FAU Windows builds of beta 3; run_tests reads them with the digests Windows printed, writes them byte for byte with GXD_CREATE_LAYOUT=4, writes more to an old file (it stays old, its indexes equal a rebuild) and upgrades one.</li>
 </ul>
 <p>Still per platform: the application&#x27;s own record and key types. A native gx type (gxUINT32, gxINT32) or, in a 32-bit FAU build, a FAU in a record or key keeps its platform&#x27;s size; use fixed-width types (uint32_t, int64_t) in records that move between platforms. And the gxStream and object server message framing (gxBlockHeader sent as its bytes) still differs between Linux and Windows.</p>
+<h2 id="NewInBeta511162026">New in beta 5 (11/16/2026)</h2>
+<ul>
+<li>gxsIMAPClient (gxsimap.h): an IMAP4rev1 mail client, based on the IMAP client class of a 2007 program that downloads report messages to a spool folder, released under the LGPL. Implicit TLS (port 993), STARTTLS (port 143), or plain text (port 143) only when asked for by name with ConnectPlain(). Login, select and examine, list mailboxes, search, fetch the header, text or whole message and the arrival time, delete and expunge, any other command, and a recorded session with the password masked. Replies are read to their own tagged completion and message data as literals, so a message can hold any text; the 2007 client&#x27;s calls are kept. A server that announces LOGINDISABLED is never sent a password.</li>
+<li>Example imap_fetch: search a mailbox, list the matches newest first and save each message&#x27;s text to a spool folder once (from cron).</li>
+<li>Example https_check, based on the 2007 HTTP ping and header programs: a list of web sites checked over TLS, with the status, times, size, redirects and the response headers.</li>
+<li>Examples udp_broadcast and udp_multicast, based on the 2001 broadcast and multicast programs: plain (non-TLS) UDP broadcast, and IPv4/IPv6 multicast with group joins, for trusted local networks only.</li>
+<li>The header documentation (Database Headers) explains the on-disk layout and byte order: every header field is written little endian, field by field, on every machine.</li>
+<li>Tests: the IMAP client against a mock server (TLS, STARTTLS, plain text, 8-bit logins, LOGINDISABLED, message bodies that look like replies) and against a local IMAP server in a container; https_check against the example HTTPS server; broadcast and multicast on this host.</li>
+</ul>
 <h2 id="PlannedForTheNextRelease75">Planned for the next release (7.5)</h2>
 <p>These are planned features, not part of 7.4:</p>
 <ul>
@@ -299,7 +309,6 @@
 <li>A direct I/O (unbuffered, aligned) test for the journal and replication.</li>
 <li>File utilities: hexdump, file find and text filter programs for 7.x.</li>
 <li>A TLS throughput section in the dr_bench benchmarks.</li>
-<li>Plain (non-TLS) UDP broadcast and multicast examples, for local networks.</li>
 </ul>
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

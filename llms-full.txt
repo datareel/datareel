@@ -142,6 +142,7 @@ OpenSSL 3.x). Telnet and ping are the only plain text protocols.
 | HTTPS server messages | `gxsHTTPReadRequest`, `gxsHTTPWriteResponse` | `gxshttp.h` |
 | Send mail | `gxsSMTPClient` | `gxsmtp.h` |
 | Read mail | `gxsPOP3Client` | `gxspop3.h` |
+| Read mail with IMAP (7.4) | `gxsIMAPClient` | `gxsimap.h` |
 | File transfer | `gxsFTPClient` (FTPS) | `gxsftp.h` |
 | Database blocks client/server | `gxStream` | `gxstream.h` |
 | Thread pool for servers | `ThreadPool` | `thrpool.h` |
@@ -446,6 +447,25 @@ pop3.Stat(count, bytes);
 std::string msg;
 if(count > 0) pop3.Retr(1, msg);                 // Whole message, dot-unstuffed
 pop3.Quit();
+```
+
+IMAP (7.4; implicit TLS on 993 or STARTTLS on 143; `ConnectPlain()`
+is plain text, for a server on the same host or a test only):
+
+```cpp
+gxsIMAPClient imap;
+int count = 0;
+std::vector<unsigned> unseen;
+if(imap.Connect("mail.example.com") != 0 ||      // 993, implicit TLS
+   imap.Login("user", "password") != 0 ||
+   imap.SelectMailbox("INBOX", count) != 0 ||
+   imap.Search("UNSEEN", unseen) != 0) { /* imap.Error() */ }
+std::string header, body;
+for(unsigned n : unseen) {                       // BODY.PEEK: \Seen is not set
+  imap.FetchHeader(n, header);
+  imap.FetchBody(n, body);
+}
+imap.Logout();
 ```
 
 FTPS (data connections are encrypted with PROT P and reuse the control

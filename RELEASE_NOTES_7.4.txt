@@ -515,6 +515,37 @@ record or key keeps its platform's size; use fixed-width types
 gxStream and object server message framing (gxBlockHeader sent as its
 bytes) still differs between Linux and Windows.
 
+NEW IN BETA 5 (11/16/2026)
+--------------------------
+- gxsIMAPClient (gxsimap.h): an IMAP4rev1 mail client, based on the
+  IMAP client class of a 2007 program that downloads report messages
+  to a spool folder, released under the LGPL. Implicit TLS (port
+  993), STARTTLS (port 143), or plain text (port 143) only when asked
+  for by name with ConnectPlain(). Login, select and examine, list
+  mailboxes, search, fetch the header, text or whole message and the
+  arrival time, delete and expunge, any other command, and a recorded
+  session with the password masked. Replies are read to their own
+  tagged completion and message data as literals, so a message can
+  hold any text; the 2007 client's calls are kept. A server that
+  announces LOGINDISABLED is never sent a password.
+- Example imap_fetch: search a mailbox, list the matches newest first
+  and save each message's text to a spool folder once (from cron).
+- Example https_check, based on the 2007 HTTP ping and header
+  programs: a list of web sites checked over TLS, with the status,
+  times, size, redirects and the response headers.
+- Examples udp_broadcast and udp_multicast, based on the 2001
+  broadcast and multicast programs: plain (non-TLS) UDP broadcast,
+  and IPv4/IPv6 multicast with group joins, for trusted local
+  networks only.
+- The header documentation (Database Headers) explains the on-disk
+  layout and byte order: every header field is written little endian,
+  field by field, on every machine.
+- Tests: the IMAP client against a mock server (TLS, STARTTLS, plain
+  text, 8-bit logins, LOGINDISABLED, message bodies that look like
+  replies) and against a local IMAP server in a container; https_check
+  against the example HTTPS server; broadcast and multicast on this
+  host.
+
 PLANNED FOR THE NEXT RELEASE (7.5)
 ----------------------------------
 These are planned features, not part of 7.4:
@@ -544,5 +575,3 @@ These are planned features, not part of 7.4:
   replication.
 - File utilities: hexdump, file find and text filter programs for 7.x.
 - A TLS throughput section in the dr_bench benchmarks.
-- Plain (non-TLS) UDP broadcast and multicast examples, for local
-  networks.

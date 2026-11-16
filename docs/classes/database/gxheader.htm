@@ -72,7 +72,8 @@
 <A HREF="#FileHeader">File Header</A><BR>
 <A HREF="#BlockHeader">Block Header</A><BR>
 <A HREF="#FileLockHeader">File Lock Header</A><BR>
-<A HREF="#RecordLockHeader">Record Lock Header</A></P>
+<A HREF="#RecordLockHeader">Record Lock Header</A><BR>
+<A HREF="#Layout">On-Disk Layout and Byte Order (7.4)</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>Type definitions, constants, and data structures needed by the 32/64-bit database engine and network DB functions to create database files and device headers. </P>
@@ -252,6 +253,16 @@ Database blocks use the "next deleted block" field to store a file address to th
   gxUINT32 record_write_lock;   // Exclusive (or write-only) file lock
 };</PRE>
 </FONT>
+<h2 id="Layout">On-Disk Layout and Byte Order (7.4)</h2>
+<P>The structures above are what a program sees in memory. Their fields are gxUINT32/gxINT32 (unsigned long, long), 8 bytes on 64-bit Linux and 4 on 64-bit Windows and in 32-bit builds, so DataReel 7.4 does not write them to files or the network as their bytes. Every platform writes one layout, the canonical one:</P>
+<UL>
+<LI><B>Byte order:</B> every header field is written least significant byte first (little endian), field by field, whatever the machine. A file written on 64-bit Linux and one written on 64-bit Windows have the same bytes.</LI>
+<LI><B>Sizes:</B> the long fields are 8 bytes and file addresses (FAUs) 8 bytes, each aligned to its size: the 64-bit Linux layout of 6.x and 7.x. On 64-bit Linux the structures already have this layout and are read and written directly.</LI>
+<LI><B>Old files:</B> files written before 7.4 beta 5 by 64-bit Windows and 32-bit builds (4-byte long fields) are recognized when opened and stay in their own layout, so record addresses never move; gxd_upgrade rewrites one in the canonical layout when asked.</LI>
+<LI><B>Network blocks:</B> a gxStream or object server message starts with the block header in a fixed 32-byte form (the three long fields as 8 little-endian bytes each, then the FAU as 8 bytes), so Linux and Windows peers exchange the same frames.</LI>
+<LI><B>Your own data:</B> the bytes of your records and keys are written as your program lays them out. Use fixed-width types (uint32_t, int64_t) in records that move between platforms, and write multi-byte numbers in one byte order (for example with a loop over the bytes, as above) if a big-endian machine may read them; a native gx type (gxUINT32, gxINT32) keeps its platform's size.</LI>
+</UL>
+<P>See <A HREF="gxdbase.htm">gxDatabase</A> (DiskLongSize(), DiskFAUSize(), SetCreateLayout()) and the release notes for the details.</P>
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>

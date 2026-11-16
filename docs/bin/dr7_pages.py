@@ -273,6 +273,7 @@ page(file='classes/socket/sdiagram.htm', title='Networking Model',
 <LI><A HREF="gxshttpc.htm">gxsHTTPClient</A>: HTTPS client (http:// URLs are refused). <A HREF="gxshttp.htm">gxsHTTPMessage</A> and its read/write functions are also used to write HTTPS servers.</LI>
 <LI><A HREF="gxsmtp.htm">gxsSMTPClient</A>: send mail over implicit TLS (port 465) or STARTTLS (port 587).</LI>
 <LI><A HREF="gxspop3.htm">gxsPOP3Client</A>: read mail over implicit TLS (port 995) or STLS (port 110).</LI>
+<LI><A HREF="gxsimap.htm">gxsIMAPClient</A> (7.4): read mail with IMAP over implicit TLS (port 993), STARTTLS or, asked for by name, plain text (port 143).</LI>
 <LI><A HREF="gxsftp.htm">gxsFTPClient</A>: FTPS with encrypted data connections.</LI>
 <LI><A HREF="gxstream.htm">gxStream</A>: the DataReel database block protocol over TLS.</LI>
 </UL>
@@ -601,6 +602,51 @@ pop3.Quit();
   ('const std::string &gxsPOP3Client::Error() const / LastReply() const', 'Last failure and reply.'),
  ])])
 
+page(file='classes/socket/gxsimap.htm', title='IMAP Client',
+ lead='gxsIMAPClient (DataReel 7.4) reads mail with IMAP4rev1: implicit TLS on port 993, STARTTLS on port 143, or plain text on port 143 when asked for by name.',
+ sections=[('Overview', 'Overview', '''
+<P>gxsIMAPClient is based on the IMAP client class of a 2007 program that downloads report messages to a spool folder, released with DataReel 7.4 under the LGPL. Its calls are kept (Login(), SelectMailbox(), FetchHeader(), FetchBody(), SendCommand(), RecvBuffer(), ParseResponse() and the recorded session) and it has the interface of the other DataReel 7 mail clients (<A HREF="gxspop3.htm">gxsPOP3Client</A>, <A HREF="gxsmtp.htm">gxsSMTPClient</A>): every call returns 0 if the server replied OK, or -1 with the reason in Error().</P>
+<P>TLS goes through <A HREF="gxstls.htm">gxsTLSConnection</A> and <A HREF="gxssl.htm">gxSSL</A>: the server certificate and host name are checked by default, TLS 1.2 is the minimum and TLS 1.3 is used when the server has it. With gxsMAIL_STARTTLS a server that does not accept STARTTLS is refused. ConnectPlain() sends everything, the password included, in plain text: use it only for a server on the same host or a private test network. A server that announces LOGINDISABLED is never sent a password.</P>
+''' + code('''
+gxsIMAPClient imap;
+int count = 0;
+std::vector<unsigned> unseen;
+std::string header, body;
+if(imap.Connect("mail.example.com") == 0 && imap.Login("user", "pw") == 0 &&
+   imap.SelectMailbox("INBOX", count) == 0 && imap.Search("UNSEEN", unseen) == 0) {
+  for(unsigned n : unseen) {
+    if(imap.FetchHeader(n, header) == 0 && imap.FetchBody(n, body) == 0)
+      std::cout << header << body;
+  }
+}
+imap.Logout();
+''')), ('Replies', 'Replies and Message Data', '''
+<P>A command's reply is read up to its own tagged completion line (A0001 OK, NO or BAD). Message data comes as IMAP literals ({size} and that many bytes) or quoted strings and is returned as it is, so a message may hold any text, including words such as NO or BAD and lines that look like replies. The untagged replies of the last command are in Untagged(); a literal is taken out of the text and kept in the reply's literals. Replies stop at SetMaxSize() bytes (64 MB by default) and the connection is then closed.</P>
+<P>FetchHeader(), FetchBody() and FetchMessage() use BODY.PEEK, so reading a message does not set its \\Seen flag. Message numbers are sequence numbers from 1 to the count SelectMailbox() returns. User names, passwords and mailbox names are sent as quoted strings, or as literals when they hold 8-bit characters. Mailbox names are sent as given (non-ASCII names are modified UTF-7 in IMAP).</P>
+<P>SetRecordProto(true) records the session for debugging (ProtoString()); the arguments of LOGIN are recorded as xxxxxxxx and literal data as its size.</P>
+''')],
+ functions=[('Functions', 'Functions', [
+  ('int gxsIMAPClient::Connect(const std::string &host, int port = gxSOCKET_SIMAP_PORT, gxsMailSecurity security = gxsMAIL_IMPLICIT_TLS)', 'Connects with implicit TLS (993) or STARTTLS (143) and reads the greeting. Returns 0 if successful.'),
+  ('int gxsIMAPClient::ConnectPlain(const std::string &host, int port = gxSOCKET_IMAP_PORT)', 'Plain text connection, for a local or test server only.'),
+  ('int gxsIMAPClient::Login(const std::string &user, const std::string &passwd)', 'LOGIN. Refused without sending the password if the server announces LOGINDISABLED.'),
+  ('int gxsIMAPClient::Login(const std::string &host, int port, const std::string &user, const std::string &passwd)', 'The 2007 form: connects with implicit TLS first if not connected.'),
+  ('int gxsIMAPClient::Logout(int close_sockets = 1)', 'LOGOUT, then closes the connection.'),
+  ('int gxsIMAPClient::Capability(std::vector<std::string> &caps) / bool HasCapability(const std::string &cap) const', 'The server\'s capabilities (upper case).'),
+  ('int gxsIMAPClient::SelectMailbox(const std::string &mailbox, int &num_messages)', 'SELECT; num_messages from EXISTS. A second form also returns the reply lines in a string.'),
+  ('int gxsIMAPClient::Examine(const std::string &mailbox, int &num_messages)', 'EXAMINE: the mailbox read-only.'),
+  ('int gxsIMAPClient::ListMailboxes(std::vector<std::string> &names, const std::string &pattern = "*")', 'LIST: mailbox names.'),
+  ('int gxsIMAPClient::Search(const std::string &criteria, std::vector<unsigned> &numbers)', 'SEARCH with criteria such as ALL, UNSEEN or SUBJECT "report", sent as given.'),
+  ('int gxsIMAPClient::FetchHeader(int message_number, std::string &header)', 'The header lines. A second form also returns the arrival time (INTERNALDATE) and the envelope\'s Date.'),
+  ('int gxsIMAPClient::FetchBody(int message_number, std::string &body)', 'The text after the header.'),
+  ('int gxsIMAPClient::FetchMessage(int message_number, std::string &message) / FetchInternalDate(...)', 'The whole message, or its arrival time.'),
+  ('int gxsIMAPClient::Delete(int message_number) / Expunge() / Noop()', 'Sets \\Deleted, removes deleted messages, NOOP.'),
+  ('int gxsIMAPClient::Command(const std::string &cmd)', 'Any other command: the tag is added and the reply read to its completion.'),
+  ('int gxsIMAPClient::SendCommand(const std::string &command, std::string &tag) / RecvBuffer(const std::string &tag, std::string &buf)', 'The 2007 calls: send one command, read its reply as text.'),
+  ('static int gxsIMAPClient::ParseResponse(...) / FetchItem(...) / Quote(...)', 'Parsers: a line between two strings (2007), one FETCH item, an IMAP quoted string.'),
+  ('void gxsIMAPClient::SetTimeout(int seconds) / SetCAFile(...) / SetVerifyPeer(bool) / SetMaxSize(std::size_t)', 'Settings used before Connect(). The timeout is 300 seconds by default.'),
+  ('const std::string &gxsIMAPClient::Error() const / LastReply() const', 'Last failure and tagged reply.'),
+ ])])
+
 page(file='classes/socket/gxsftp.htm', title='FTPS Client',
  lead='gxsFTPClient transfers files with FTPS. Control and data connections are always encrypted.',
  sections=[('Overview', 'Overview', '''
@@ -809,8 +855,10 @@ EXAMPLES = [
   ('tls/tls_echo_client.cpp', 'tls_echo_client', 'TLS client with certificate checking. Usage: tls_echo_client host port [--ca ca.pem] [--insecure]'),
   ('tls/https_get.cpp', 'https_get', 'Fetch a URL or download a file with gxsHTTPClient. Usage: https_get url [file] [--ca ca.pem]'),
   ('tls/https_server.cpp', 'https_server', 'Small HTTPS file server built on gxsHTTPReadRequest() and gxsHTTPWriteResponse().'),
+  ('tls/https_check.cpp', 'https_check', 'Check a list of web sites over TLS: status, time (fastest/median/slowest with --count), size, redirects, and the response headers with --headers (7.4). Usage: https_check [--head] [--headers] [--count N] [--list file] [--ca ca.pem] url ...'),
   ('tls/smtp_send.cpp', 'smtp_send', 'Send mail over implicit TLS or STARTTLS.'),
   ('tls/pop3_list.cpp', 'pop3_list', 'List and read a POP3 mailbox over TLS.'),
+  ('tls/imap_fetch.cpp', 'imap_fetch', 'Read an IMAP mailbox over TLS (or STARTTLS, or plain text for a local server): search, list newest first, save each message once to a spool folder (7.4).'),
   ('tls/ftps_client.cpp', 'ftps_client', 'List, download and upload with FTPS.'),
   ('tls/stream_server.cpp', 'stream_server', 'gxStream server that stores client blocks in a gxDatabase file.'),
   ('tls/stream_client.cpp', 'stream_client', 'gxStream client that stores and reads back blocks over TLS.'),
@@ -825,6 +873,8 @@ EXAMPLES = [
  ('Plain text diagnostics', [
   ('diagnostics/ping.cpp', 'ping', 'ICMP and ICMPv6 echo. Usage: ping host [count] [-4|-6]'),
   ('diagnostics/telnet_client.cpp', 'telnet_client', 'Telnet login and command (plain text; trusted networks only).'),
+  ('diagnostics/udp_broadcast.cpp', 'udp_broadcast', 'Send and receive UDP broadcast datagrams with gxSocket (plain text; trusted local networks only) (7.4).'),
+  ('diagnostics/udp_multicast.cpp', 'udp_multicast', 'Send and receive IPv4 or IPv6 multicast datagrams, join a group (plain text; trusted local networks only) (7.4).'),
  ]),
 ]
 
@@ -989,6 +1039,123 @@ OK: object by object, one automatic folder rebuild after the fault, and the same
   ('Files', 'Files', '''
 <P>examples/oodb/replication.cpp (the writer, the rebuild and the digest), replication_records.h (the record, the key and the extractor), replication_gxrepl.cpp (the example's gxrepl: gxrepl's own source built with GXREPL_EXTRA_EXTRACTORS, plus this file registering the extractor) and replication_walkthrough.sh, built by examples/CMakeLists.txt and run by tests/run_tests.sh. Back to the <A HREF="examples.htm">example programs</A>.</P>
 '''),
+ ]),
+ 'imap_fetch': ('tls/imap_fetch.cpp', 'IMAP Mailbox Example',
+  'Read a mailbox with gxsIMAPClient (DataReel 7.4): log in over TLS, search, list the messages newest first and save each message\'s text to a spool folder once.', [
+  ('Shows', 'What It Shows', '''
+<P>The program is the 2007 IMAP client program on the DataReel 7.4 <A HREF="../classes/socket/gxsimap.htm">gxsIMAPClient</A>:</P>
+<OL>
+<LI>Connect() with implicit TLS (port 993), or --starttls (port 143, then STARTTLS), or --plain (port 143, plain text, for a server on the same host or a test only), then Login().</LI>
+<LI>SelectMailbox() and Search() with IMAP search criteria (ALL by default).</LI>
+<LI>FetchHeader() with the arrival time and the envelope's date, for each match, newest first.</LI>
+<LI>With --spool, FetchBody() into a file named by the arrival time and the message number; a message already in the folder is skipped, so the program can run from cron.</LI>
+<LI>With --debug, the session, with the password recorded as xxxxxxxx.</LI>
+</OL>
+<P>Nothing is changed on the server: the fetches use BODY.PEEK and do not set \\Seen.</P>
+'''),
+  ('Running', 'Running It', code('''
+imap_fetch host port user password [--mailbox INBOX] [--search CRITERIA] [-r number]
+           [--spool folder] [--debug] [--starttls | --plain] [--ca ca.pem] [--insecure]
+''') + '<P>-r prints that whole message. --ca names the CA file for a server with a private CA (the test server); --insecure skips the certificate check (tests only). The exit code is 0 when every step succeeded.</P>\n'),
+  ('Output', 'Sample Output', '<P>Against the mock server of tests/run_tests.sh, twice with the same spool folder:</P>' + code('''
+$ imap_fetch localhost 24318 test secret --ca ca.pem --spool spool
+Connected to localhost port 24318 (TLS)
+INBOX has 2 messages
+2 match ALL
+2: two
+   received 18-Apr-2007 08:30:00 -0400, sent Wed, 18 Apr 2007 08:29:00 -0400
+   saved 6 bytes to spool/18-Apr-2007_08_30_00_-0400_2.txt
+1: one (report)
+   received 17-Apr-2007 12:00:00 -0400, sent Tue, 17 Apr 2007 11:59:00 -0400
+   saved 75 bytes to spool/17-Apr-2007_12_00_00_-0400_1.txt
+
+$ imap_fetch localhost 24318 test secret --ca ca.pem --spool spool --search 'SUBJECT "two"' --debug
+Connected to localhost port 24318 (TLS)
+INBOX has 2 messages
+1 match SUBJECT "two"
+2: two
+   received 18-Apr-2007 08:30:00 -0400, sent Wed, 18 Apr 2007 08:29:00 -0400
+   already in the spool, skipped
+
+--- Session ---
+server->* OK [CAPABILITY IMAP4rev1] mock IMAP
+client->A0001 LOGIN xxxxxxxx
+server->A0001 OK logged in
+client->A0002 SELECT "INBOX"
+server->* FLAGS (\\Seen \\Deleted)
+server->* 2 EXISTS
+server->* 0 RECENT
+server->A0002 OK [READ-WRITE] selected
+client->A0003 SEARCH SUBJECT "two"
+server->* SEARCH 2
+server->A0003 OK searched
+client->A0004 FETCH 2 (INTERNALDATE ENVELOPE BODY.PEEK[HEADER])
+server->* 2 FETCH (FLAGS (\\Recent))
+server->* 2 FETCH (INTERNALDATE "18-Apr-2007 08:30:00 -0400" ENVELOPE ("Wed, 18 Apr 2007 08:29:00 -0400" "two" NIL NIL NIL NIL NIL NIL NIL "<2@mock>") BODY[HEADER] {16}
+server-> (16 bytes)
+server->)
+server->A0004 OK fetched
+client->A0005 LOGOUT
+server->* BYE logging out
+server->A0005 OK bye
+''')),
+  ('Tests', 'How It Is Tested', '''
+<P>tests/run_tests.sh runs it against the mock IMAP server in tests/mock_servers.py (implicit TLS, STARTTLS, plain text, 8-bit logins sent as literals, a refused password, LOGINDISABLED, a server without STARTTLS, search, the spool and the masked session) and against a local IMAP server in a container on 127.0.0.1 (tests/imap_container_check.sh), removed after the test.</P>
+'''),
+ ]),
+ 'udp_broadcast': ('diagnostics/udp_broadcast.cpp', 'UDP Broadcast Example',
+  'Send and receive UDP broadcast datagrams with gxSocket (DataReel 7.4).', [
+  ('Shows', 'What It Shows', '''<P class="dr-note"><B>Plain text.</B> The datagrams are not encrypted or authenticated: anyone on the network can read them or send forged ones. Use this only on a trusted local network, for data that is not secret. Every other DataReel 7 network example uses TLS.</P>
+<P>Based on the 2001 broadcast sender and receiver programs, on the DataReel 7 <A HREF="../classes/socket/gxsocket.htm">gxSocket</A> datagram calls:</P>
+<UL>
+<LI><B>send</B>: OpenDatagram(AF_INET), SO_BROADCAST with SetSockOpt(), then SendTo() a broadcast address: 255.255.255.255 (this network), a subnet's broadcast address such as 192.168.1.255, or 127.255.255.255 (this host only).</LI>
+<LI><B>recv</B>: OpenDatagram(AF_INET, port) binds the port on every address, then RecvFrom() with a timeout prints each datagram and its sender.</LI>
+</UL>
+<P>Broadcasts are IPv4 only (IPv6 uses multicast instead, see <A HREF="udp_multicast.htm">udp_multicast</A>) and routers do not forward them, so they stay on the local network.</P>
+'''),
+  ('Running', 'Running It', code('''
+udp_broadcast send address port [--count N] [--interval ms] [text]
+udp_broadcast recv port [--count N] [--timeout seconds]
+''') + '<P>recv exits 0 when N datagrams arrived and 1 when none came for the timeout (10 seconds by default). Start the receiver first.</P>\n'),
+  ('Output', 'Sample Output', code('''
+$ udp_broadcast recv 24520 --count 3 &
+receiving broadcasts on port 24520
+$ udp_broadcast send 127.255.255.255 24520 --count 3 --interval 50 hello
+sent "hello 1" to 127.255.255.255:24520
+sent "hello 2" to 127.255.255.255:24520
+sent "hello 3" to 127.255.255.255:24520
+from 127.0.0.1:35730: hello 1
+from 127.0.0.1:35730: hello 2
+from 127.0.0.1:35730: hello 3
+3 datagrams received
+''')),
+ ]),
+ 'udp_multicast': ('diagnostics/udp_multicast.cpp', 'UDP Multicast Example',
+  'Send and receive IP multicast datagrams with gxSocket, IPv4 or IPv6 (DataReel 7.4).', [
+  ('Shows', 'What It Shows', '''<P class="dr-note"><B>Plain text.</B> The datagrams are not encrypted or authenticated: anyone on the network can read them or send forged ones. Use this only on a trusted local network, for data that is not secret. Every other DataReel 7 network example uses TLS.</P>
+<P>Based on the 2001 multicast sender and receiver programs, on the DataReel 7 <A HREF="../classes/socket/gxsocket.htm">gxSocket</A> datagram calls and the standard multicast socket options:</P>
+<UL>
+<LI><B>send</B>: a sender does not join the group. It sets the hop limit (IP_MULTICAST_TTL or IPV6_MULTICAST_HOPS, 1 by default so the datagrams stay on the subnet), turns loopback on so a receiver on the same host gets them, picks the interface with --interface (IPv4: its address; IPv6: its index) and sends with SendTo().</LI>
+<LI><B>recv</B>: binds the port with OpenDatagram(), joins the group on the interface (IP_ADD_MEMBERSHIP or IPV6_JOIN_GROUP) and prints each datagram with RecvFrom(). Closing the socket leaves the group.</LI>
+</UL>
+<P>Use a group meant for local use: 239.0.0.0/8 for IPv4 (such as 239.255.0.1) or a link-local ff02:: group for IPv6.</P>
+'''),
+  ('Running', 'Running It', code('''
+udp_multicast send group port [--count N] [--interval ms] [--ttl N] [--interface address|index] [text]
+udp_multicast recv group port [--count N] [--timeout seconds] [--interface address|index]
+''') + '<P>recv exits 0 when N datagrams arrived and 1 when none came for the timeout (10 seconds by default). Start the receiver first. With --interface 127.0.0.1 on both sides everything stays on this host, as in the test.</P>\n'),
+  ('Output', 'Sample Output', code('''
+$ udp_multicast recv 239.255.0.1 24521 --count 3 --interface 127.0.0.1 &
+joined 239.255.0.1, receiving on port 24521
+$ udp_multicast send 239.255.0.1 24521 --count 3 --interval 50 --interface 127.0.0.1
+sent "multicast 1" to 239.255.0.1:24521
+sent "multicast 2" to 239.255.0.1:24521
+sent "multicast 3" to 239.255.0.1:24521
+from 127.0.0.1:52739: multicast 1
+from 127.0.0.1:52739: multicast 2
+from 127.0.0.1:52739: multicast 3
+3 datagrams received
+''')),
  ]),
  'vector_basics': ('oodb/vector_basics.cpp', 'Vector Index Basics Example',
   'The vector index of DataReel 7.4, step by step: element types, exact and graph search, metrics, tags, changes, transactions and the format fields.', [
