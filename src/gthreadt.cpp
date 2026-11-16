@@ -33,6 +33,7 @@ store thread variables prior to and after thread creation.
 // ----------------------------------------------------------- //   
 #include "gxdlcode.h"
 
+#include <string.h>
 #include "gthreadt.h"
 #include "gxthread.h"
 #include "gxmutex.h"
@@ -158,11 +159,22 @@ gxThread_t::~gxThread_t()
   if(suspend_t) delete suspend_t;
 }
 
+// 11/16/2026 (6.4 beta 2): The message functions below check that a
+// stored value is in range. Reading an out-of-range value through the
+// enum type is undefined behaviour (UBSan reports it), so the bytes are
+// copied into an int and checked there.
+template <class E> static int gxthread_enum_value(const E &e)
+{
+  int v = 0;
+  memcpy(&v, &e, sizeof(e) < sizeof(v) ? sizeof(e) : sizeof(v));
+  return v;
+}
+
 const char *gxThread_t::ThreadExceptionMessage()
 // Returns a null terminated string that can
 // be used to log or print a thread exception.
 {
-  int error = (int)thread_error;
+  int error = gxthread_enum_value(thread_error);
   // 11/14/2026: >= and < 0, the old test let the index one past the table
   if(error < 0 || error >= gxMaxThreadExceptionMessages) error = gxTHREAD_INVALID_CODE;
   // Find the corresponding message in the exception array
@@ -173,7 +185,7 @@ const char *gxThread_t::ThreadTypeMessage()
 // Returns a null terminated string that can
 // be used to log or print the thread type.
 {
-  int type = (int)thread_type;
+  int type = gxthread_enum_value(thread_type);
   if(type < 0 || type >= gxMaxThreadTypeMessages) type = gxTHREAD_TYPE_JOINABLE; // 11/14/2026
   return gxThreadTypeMessages[type];
 }
@@ -201,7 +213,7 @@ const char *gxThread_t::ThreadPriorityClassMessage()
 // Returns a null terminated string that can
 // be used to log or print the thread's priority class.
 {
-  int type = (int)thread_priority_class;
+  int type = gxthread_enum_value(thread_priority_class);
   if(type < 0 || type >= gxMaxThreadPriorityClassMessages) // 11/14/2026
     type = gxTHREAD_PRIORITY_CLASS_INVALID;
   return gxThreadPriorityClassMessages[type];
@@ -211,7 +223,7 @@ const char *gxThread_t::ThreadStateMessage()
 // Returns a null terminated string that can
 // be used to log or print the thread's state.
 {
-  int state = (int)thread_state;
+  int state = gxthread_enum_value(thread_state);
   if(state < 0 || state >= gxMaxThreadStateMessages) state = gxTHREAD_STATE_INVALID; // 11/14/2026
   return gxThreadStateMessages[state];
 }
