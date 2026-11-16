@@ -513,6 +513,10 @@ incremental), the hardening items, and the review fixes:
 
 KNOWN ISSUES
 ------------
+- A build with 32-bit file addresses (DATAREEL_64BIT_DATABASE=OFF)
+  opens a file of the 64-bit engine without an error: its signature
+  check compares only "GXDBASE", the start of "GXDBASE64". Fixed in
+  beta 5 (gxDBASE_FILE_ENGINE_ERROR).
 - Database files do not move between 64-bit Linux and the other
   platforms in the default build (DATAREEL_NATIVE_TYPES=ON). gxUINT32
   is unsigned long there: 8 bytes on 64-bit Linux (LP64), 4 bytes on
