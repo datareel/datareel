@@ -578,6 +578,30 @@ static void alarm_say(const std::string &why)
   }
 }
 
+// ---------- status and monitoring ----------
+// 11/16/2026: a running node keeps ROOT/objrepl.status, "key value" lines replaced whole (a temp file and a rename),
+// at most once a second and at once on a connect, a drop, a refusal and the end. "objrepl check ROOT" reads it with
+// the alarm file and the state and says OK, WARN or FAIL in one line (exit 0, 1, 2) for DRSM or cron.
+struct Mon {
+  std::map<std::string, std::string> v;
+  time_t last_write = 0;
+  time_t behind_since = 0;            // primary: since when the copy has been behind (0 = current)
+  void set(const std::string &k, const std::string &x) { v[k] = x; }
+  void set(const std::string &k, unsigned long long x) { v[k] = std::to_string(x); }
+  void write(bool force) {
+    time_t now = time(0);
+    if(alarm_root.empty() || (!force && now == last_write)) return;
+    last_write = now;
+    set("updated", (unsigned long long)now); set("pid", (unsigned long long)getpid());
+    std::string f = alarm_root + "/objrepl.status", t = f + ".tmp";
+    FILE *o = fopen(t.c_str(), "w");
+    if(!o) return;
+    for(auto &e : v) fprintf(o, "%s %s\n", e.first.c_str(), e.second.c_str());
+    if(fclose(o) == 0) rename(t.c_str(), f.c_str());
+  }
+};
+static Mon mon;
+
 static bool send_frame(gxStream &st, const std::vector<unsigned char> &b)
 {
   return st.WriteBlock(b.data(), (int)b.size()) == 0;
@@ -615,7 +639,7 @@ static std::vector<std::pair<uint64_t, FAU_t>> outbox_entries(Node &s)
 }
 
 struct Link { gxStream *st = 0; uint64_t copy_applied = 0, copy_digest = 0; bool copy_in_snapshot = false; bool refused = false;
-  long snapshots = 0;
+  long snapshots = 0; time_t last_contact = 0;
   void drop() { if(st) { st->Close(); delete st; st = 0; } } };
 
 static bool hello(Node &s, Link &L, const std::string &copy)
@@ -667,6 +691,7 @@ static bool exchange(Link &L, const std::vector<unsigned char> &f, uint64_t &ack
 {
   std::vector<unsigned char> ack;
   if(!send_frame(*L.st, f) || !recv_frame(*L.st, ack) || ack.size() < 8) { L.drop(); return false; }
+  L.last_contact = time(0);
   Rd r(ack.data(), ack.size()); acked = r.u64();
   return true;
 }
@@ -705,8 +730,43 @@ static bool snapshot(Node &s, Link &L)
   return true;
 }
 
+static bool pump1(Node &s, Link &L, const std::string &copy, bool trim);
+// the primary's status: its seq, the copy's applied seq as last acknowledged, the lag and how long it has lasted
+static void primary_status(Node &s, Link &L, bool force, const std::string &state)
+{
+  uint64_t last = s.st.next_seq - 1, lag = last > L.copy_applied ? last - L.copy_applied : 0;
+  time_t now = time(0);
+  if(!lag) mon.behind_since = 0; else if(!mon.behind_since) mon.behind_since = now;
+  if(!force && now == mon.last_write) return;                  // at most once a second (the outbox scan is not free)
+  size_t n = 0; unsigned long long bytes = 0, oldest = 0;
+  for(auto &e : outbox_entries(s)) {
+    __ULWORD__ len = s.ob.ObjectLength(e.second);
+    n++; bytes += len;
+    if(!oldest && e.first > L.copy_applied && len >= 16) {     // the oldest commit the copy does not have yet
+      uint64_t t = 0; if(s.ob.Read(&t, 8, e.second + (FAU_t)(len - 16)) == gxDBASE_NO_ERROR && t && (time_t)t <= now) oldest = now - (time_t)t;
+    }
+  }
+  unsigned long long tombs = 0; for(auto &d : s.dbs) tombs += d.second->tombs.size();
+  mon.set("oldest_unacked_secs", oldest); mon.set("last_contact", (unsigned long long)L.last_contact); mon.set("tombstones", tombs);
+  mon.set("role", "primary"); mon.set("name", my_name); mon.set("epoch", (unsigned long long)s.st.epoch);
+  mon.set("state", state); mon.set("connected", L.st ? 1ULL : 0ULL);
+  mon.set("last_seq", (unsigned long long)last); mon.set("copy_applied", (unsigned long long)L.copy_applied);
+  mon.set("lag_seq", (unsigned long long)lag); mon.set("behind_secs", (unsigned long long)(mon.behind_since ? now - mon.behind_since : 0));
+  mon.set("outbox_entries", (unsigned long long)n); mon.set("outbox_bytes", bytes);
+  mon.set("snapshots", (unsigned long long)L.snapshots);
+  mon.write(force);
+}
 // send everything past the copy's applied seq (or a snapshot); trim the outbox up to what the copy has
 static bool pump(Node &s, Link &L, const std::string &copy, bool trim)
+{
+  bool was = L.st != 0;
+  bool ok = pump1(s, L, copy, trim);
+  bool is = L.st != 0;
+  if(!ok && L.st) L.drop();                                    // a failed exchange: reconnect (and check) next time
+  primary_status(s, L, was != is || L.refused || !ok, L.refused ? "refused" : L.st ? "streaming" : "copy away");
+  return ok;
+}
+static bool pump1(Node &s, Link &L, const std::string &copy, bool trim)
 {
   if(!hello(s, L, copy)) return false;
   auto v = outbox_entries(s);
@@ -717,8 +777,8 @@ static bool pump(Node &s, Link &L, const std::string &copy, bool trim)
     if(e.first <= L.copy_applied) continue;
     __ULWORD__ n = s.ob.ObjectLength(e.second);
     std::vector<unsigned char> b(n);
-    if(n < 8 || s.ob.Read(b.data(), n, e.second) != gxDBASE_NO_ERROR) return false;
-    b.resize(n - 8);                                           // the frame without the digest trailer
+    if(n < 16 || s.ob.Read(b.data(), n, e.second) != gxDBASE_NO_ERROR) return false;
+    b.resize(n - 16);                                          // the frame without the time and digest trailer
     uint64_t acked = 0;
     if(!exchange(L, b, acked)) return false;
     L.copy_applied = acked;
@@ -770,7 +830,8 @@ static bool record_commit(Node &s, const std::vector<Touch> &touched, const std:
   }
   f.u32(nops); f.raw(ops.b.data(), ops.b.size());
   s.st.cur_digest = fnv(f.b.data(), f.b.size(), s.st.cur_digest);
-  f.u64(s.st.cur_digest);                                      // the outbox entry: the frame, then the digest after it
+  f.u64((uint64_t)time(0));                                    // the outbox entry: the frame, its commit time and
+  f.u64(s.st.cur_digest);                                      // the running digest after it (the last 8 bytes)
   FAU_t oa = s.ob.Alloc((__ULWORD__)f.b.size());
   if(!oa || s.ob.Write(f.b.data(), (__ULWORD__)f.b.size(), oa) != gxDBASE_NO_ERROR) { fprintf(stderr, "outbox write failed\n"); return false; }
   s.st.next_seq = seq + 1;
@@ -949,6 +1010,8 @@ static int run_primary(const std::string &root, const std::string &copy, long co
     usleep(200000);
   }
   bool done = L.copy_applied + 1 >= s.st.next_seq;
+  L.drop();
+  primary_status(s, L, true, done ? "stopped, drained" : "stopped, NOT drained");
   printf("objrepl primary: epoch %llu, last seq %llu, copy applied %llu, %ld snapshot(s), outbox %s\n",
 	 (unsigned long long)s.st.epoch, (unsigned long long)(s.st.next_seq - 1), (unsigned long long)L.copy_applied,
 	 L.snapshots, done ? "drained" : "NOT drained");
@@ -958,7 +1021,10 @@ static int run_primary(const std::string &root, const std::string &copy, long co
 }
 
 // ---------- copy ----------
-static void on_term(int) { stopping = 1; }
+// gxSocket::Accept() retries accept() on EINTR, so a TERM while waiting for a primary would never be seen: in there
+// (no transaction is open) the copy leaves at once; anywhere else it finishes the frame in hand and stops
+static volatile sig_atomic_t in_accept = 0;
+static void on_term(int) { stopping = 1; if(in_accept) _exit(0); }
 
 // the databases named in a commit's ops or a snapshot batch, opened before the transaction begins
 static bool open_named(Node &s, const unsigned char *p, size_t n, bool snapshot_batch)
@@ -994,10 +1060,30 @@ static int run_copy(const std::string &root, int port)
 	 s.st.in_snapshot ? ", a snapshot was cut" : "");
   fflush(stdout);
   bool rolled = false;      // a rolled-back apply: the maps and index memory are stale, the node is opened again
+  unsigned long long frames_total = 0, rollbacks = 0, refusals = 0;
+  time_t last_frame = 0, snap_since = 0;
+  std::string primary_now;
+  auto status = [&](bool force, const std::string &state, bool connected) {
+    mon.set("role", "copy"); mon.set("name", my_name); mon.set("epoch", (unsigned long long)s.st.epoch);
+    mon.set("state", state); mon.set("connected", connected ? 1ULL : 0ULL); mon.set("primary", primary_now.empty() ? "-" : primary_now);
+    mon.set("applied_seq", (unsigned long long)s.st.applied_seq); mon.set("in_snapshot", (unsigned long long)s.st.in_snapshot);
+    if(s.st.in_snapshot) { if(!snap_since) snap_since = time(0); } else snap_since = 0;
+    mon.set("snapshot_secs", (unsigned long long)(snap_since ? time(0) - snap_since : 0));
+    mon.set("frames", frames_total); mon.set("last_frame", (unsigned long long)last_frame);
+    mon.set("rollbacks", rollbacks); mon.set("refusals", refusals); mon.set("last_contact", (unsigned long long)last_frame);
+    unsigned long long tombs = 0; for(auto &d : s.dbs) tombs += d.second->tombs.size();
+    mon.set("tombstones", tombs);
+    mon.write(force);
+  };
+  status(true, "listening", false);
   while(!stopping) {
     gxStream st;
     st.SetTimeOut(3600);
-    if(srv.Accept(st) != 0) { if(stopping) break; continue; }
+    in_accept = 1;
+    if(stopping) _exit(0);
+    int arc = srv.Accept(st);
+    in_accept = 0;
+    if(arc != 0) { if(stopping) break; continue; }
     std::vector<unsigned char> b;
     if(!recv_frame(st, b)) { st.Close(); continue; }
     Rd h(b.data(), b.size()); uint32_t magic = h.u32(); uint64_t pep = h.u64(); std::string lspec = h.str();
@@ -1012,7 +1098,8 @@ static int run_copy(const std::string &root, int port)
       why = "this copy is at seq " + std::to_string(s.st.applied_seq) + ", past the primary's last commit " + std::to_string(plast);
     else if(!parse_links(lspec)) why = "a bad link map";
     bool ok = why.empty();
-    if(!ok) alarm_say("refused " + pname + ": " + why);
+    if(!ok) { alarm_say("refused " + pname + ": " + why); refusals++; status(true, "refused " + pname, false); }
+    else { primary_now = pname; status(true, "streaming", true); }
     Buf rep;
     rep.u8(ok ? 1 : 0); rep.u64(s.st.applied_seq); rep.u64(s.st.epoch); rep.u8(s.st.in_snapshot ? 1 : 0);
     rep.str(my_name); rep.u8(ROLE_COPY); rep.u64(s.st.applied_digest); rep.str(why);
@@ -1023,6 +1110,8 @@ static int run_copy(const std::string &root, int port)
     long frames = 0, drop_every = getenv("OBJREPL_TEST_DROP_EVERY") ? atol(getenv("OBJREPL_TEST_DROP_EVERY")) : 0;
     while(!stopping && recv_frame(st, b)) {
       if(drop_every && ++frames % drop_every == 0) break;      // test only: the connection drops (no restart)
+      frames_total++; last_frame = time(0);
+      status(false, "streaming", true);
       Rd r(b.data(), b.size());
       uint8_t kind = r.u8();
       bool good = r.ok;
@@ -1131,8 +1220,10 @@ static int run_copy(const std::string &root, int port)
       } else break;
     }
     st.Close();
-    if(rolled) { s.close(); if(!s.open(root, false)) return 1; rolled = false; }
+    if(rolled) { rollbacks++; s.close(); if(!s.open(root, false)) return 1; rolled = false; }
+    status(true, "listening", false);
   }
+  status(true, "stopped", false);
   s.close();
   return 0;
 }
@@ -1251,6 +1342,72 @@ static int run_ixcheck(const std::string &root)
   return rc;
 }
 
+// objrepl check ROOT [--max-lag N] [--max-behind S]: one line and an exit code: 0 OK, 1 WARN, 2 FAIL. FAIL: an alarm
+// not yet cleared (objrepl clear-alarm ROOT).
+// WARN: the node is not running; a primary's copy is more than max_lag commits behind for more than max_behind
+// seconds, or away that long; a copy inside a full send for more than max_behind seconds
+static int run_monitor(const std::string &root, unsigned long long max_lag, unsigned long long max_behind)
+{
+  std::map<std::string, std::string> v;
+  if(FILE *f = fopen((root + "/objrepl.status").c_str(), "r")) {
+    char line[1024];
+    while(fgets(line, sizeof(line), f)) {
+      std::string l(line); while(!l.empty() && (l.back() == '\n' || l.back() == '\r')) l.pop_back();
+      size_t sp = l.find(' '); if(sp != std::string::npos) v[l.substr(0, sp)] = l.substr(sp + 1);
+    }
+    fclose(f);
+  }
+  auto num = [&](const char *k) { return v.count(k) ? strtoull(v[k].c_str(), 0, 10) : 0ULL; };
+  std::string last_alarm; unsigned long long alarms = 0;
+  if(FILE *f = fopen((root + "/objrepl.alarm").c_str(), "r")) {
+    char line[1024];
+    while(fgets(line, sizeof(line), f)) { alarms++; last_alarm = line; }
+    fclose(f);
+    while(!last_alarm.empty() && last_alarm.back() == '\n') last_alarm.pop_back();
+  }
+  if(v.empty() && !alarms) { printf("WARN %s: no status (never run here)\n", root.c_str()); return 1; }
+  pid_t pid = (pid_t)num("pid");
+  bool running = pid > 0 && kill(pid, 0) == 0 && v["state"].compare(0, 7, "stopped") != 0;
+  unsigned long long age = (unsigned long long)time(0) - num("updated");
+  std::string who = v["role"] + " " + v["name"] + " epoch " + v["epoch"];
+  std::string what;
+  if(v["role"] == "primary")
+    what = "seq " + v["last_seq"] + ", copy applied " + v["copy_applied"] + ", lag " + v["lag_seq"] + " for " + v["behind_secs"] +
+	   "s, oldest unacked " + v["oldest_unacked_secs"] + "s, outbox " + v["outbox_entries"] + " (" + v["outbox_bytes"] + " bytes), " +
+	   v["tombstones"] + " tombstones, " + v["state"];
+  else
+    what = "applied " + v["applied_seq"] + " from " + v["primary"] + (num("in_snapshot") ? ", inside a full send for " + v["snapshot_secs"] + "s" : "") +
+	   ", " + v["frames"] + " frames, " + v["tombstones"] + " tombstones, " + v["state"];
+  what += running ? "" : " (not running, status " + std::to_string(age) + "s old)";
+  if(alarms) { printf("FAIL %s: %s; %llu alarm(s), last: %s\n", who.c_str(), what.c_str(), alarms, last_alarm.c_str()); return 2; }
+  unsigned long long contact = num("last_contact");
+  std::string warn;
+  if(!running) warn = "not running";
+  else if(v["role"] == "primary" && !num("connected") && num("behind_secs") > max_behind) warn = "the copy is away";
+  else if(v["role"] == "primary" && num("lag_seq") > max_lag && num("behind_secs") > max_behind) warn = "the copy is behind";
+  else if(v["role"] == "primary" && num("lag_seq") && num("oldest_unacked_secs") > max_behind) warn = "the oldest unacknowledged commit is old";
+  else if(v["role"] == "copy" && num("in_snapshot") && num("snapshot_secs") > max_behind) warn = "a full send is taking long";
+  if(!warn.empty()) { printf("WARN %s: %s; %s\n", who.c_str(), warn.c_str(), what.c_str()); return 1; }
+  printf("OK %s: %s; last contact %s\n", who.c_str(), what.c_str(),
+	 contact ? (std::to_string((unsigned long long)time(0) - contact) + "s ago").c_str() : "never");
+  return 0;
+}
+// an alarm read by someone: kept in objrepl.alarm.seen, so monitor says OK again
+static int run_clear_alarm(const std::string &root)
+{
+  std::string a = root + "/objrepl.alarm", s = a + ".seen";
+  FILE *in = fopen(a.c_str(), "r");
+  if(!in) { printf("no alarm\n"); return 0; }
+  FILE *out = fopen(s.c_str(), "a");
+  char buf[4096]; size_t n;
+  while(out && (n = fread(buf, 1, sizeof(buf), in)) > 0) fwrite(buf, 1, n, out);
+  fclose(in);
+  if(!out || fclose(out) != 0) return 1;
+  unlink(a.c_str());
+  printf("alarm cleared (kept in %s)\n", s.c_str());
+  return 0;
+}
+
 static int run_status(const std::string &root)
 {
   gxDatabase db; State st;
@@ -1281,9 +1438,10 @@ static int run_takeover(const std::string &root)
 
 int main(int argc, char **argv)
 {
-  if(argc < 3) { fprintf(stderr, "usage: objrepl primary|copy|digest|ixcheck|status|takeover ROOT [options]\n"); return 64; }
+  if(argc < 3) { fprintf(stderr, "usage: objrepl primary|copy|digest|ixcheck|status|check|clear-alarm|takeover ROOT [options]\n"); return 64; }
   std::string cmd = argv[1], root = argv[2], copy;
   long commits = 100, per = 10, ndbs = 3, sleep_ms = 0, port = 0; bool drain = false, trim = true;
+  unsigned long long max_lag = 100, max_behind = 60;
   for(int i = 3; i < argc; i++) {
     std::string a = argv[i];
     auto val = [&]() { return i + 1 < argc ? std::string(argv[++i]) : std::string(); };
@@ -1306,6 +1464,8 @@ int main(int argc, char **argv)
     else if(a == "--allow-cn") tls.allow_cn = val();
     else if(a == "--name") my_name = val();
     else if(a == "--peer-name") peer_name = val();
+    else if(a == "--max-lag") max_lag = strtoull(val().c_str(), 0, 10);
+    else if(a == "--max-behind") max_behind = strtoull(val().c_str(), 0, 10);
     else if(a == "--index") { if(!parse_ix(val())) { fprintf(stderr, "bad --index (NAME:DB:B|V:OFFSET:LEN,...)\n"); return 64; } }
     else if(a == "--links") { if(!parse_links(val())) { fprintf(stderr, "bad --links (DB:OFFSET:TARGET,...)\n"); return 64; } }
     else { fprintf(stderr, "unknown option %s\n", a.c_str()); return 64; }
@@ -1318,6 +1478,8 @@ int main(int argc, char **argv)
     }
   if(cmd == "digest") return run_digest(root);
   if(cmd == "ixcheck") return run_ixcheck(root);
+  if(cmd == "check" || cmd == "monitor") return run_monitor(root, max_lag, max_behind);
+  if(cmd == "clear-alarm") return run_clear_alarm(root);
   if(cmd == "status") return run_status(root);
   if(cmd == "takeover") return run_takeover(root);
   return 64;
