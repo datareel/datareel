@@ -9,6 +9,12 @@ target_link_libraries(journal_test PRIVATE DataReel::datareel)
 set_target_properties(journal_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 
+# 11/16/2026 (7.4): the engine signature and the layout detection (layout_detect_test.cpp)
+add_executable(layout_detect_test layout_detect_test.cpp)
+target_link_libraries(layout_detect_test PRIVATE DataReel::datareel)
+set_target_properties(layout_detect_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+
 # 11/14/2026 (7.4): the per-object derived apply's parts (ship log, objects records, stamps): POSIX only, like
 # gxrepl
 if(NOT WIN32)

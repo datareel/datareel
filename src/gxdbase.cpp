@@ -921,10 +921,26 @@ gxDatabaseError gxDatabase::detect_layout()
   if(gxdFPTRReadAt(fp, b, sizeof(b), (FAU_t)0) < 40) return gxd_error = gxDBASE_NO_ERROR;   // ReadFileHdr says
 #if defined (__64_BIT_DATABASE_ENGINE__)
   FAU_t hs = (FAU_t)(long long)gxd_get(b + 16, 8), eof = (FAU_t)(long long)gxd_get(b + 8, 8);
-  unsigned char w[8];
+  unsigned char w[16];
   if(hs > 0 && hs < eof && gxdFPTRReadAt(fp, w, sizeof(w), hs) == (__ULWORD__)sizeof(w)) {
-    unsigned long long cw = gxd_get(w, 4), hi = gxd_get(w + 4, 4);
-    if(cw == (unsigned long long)(__ULWORD__)gxDatabase::gxInternalCheckWord && hi != 0) set_layout(4);
+    // 11/16/2026 (from the 6.4 review): the first block's length read both ways (old: 4 bytes after a 4-byte check
+    // word; canonical: 8 bytes after an 8-byte one). The old layout only when its length lands on the end of the file
+    // or on the next block's check word and the canonical one does not: a damaged first block (its length zero or
+    // random, the high half of its check word not 0) is never taken for the old layout. A block that fits neither is
+    // read in the canonical layout (LayoutGuessed(); SetOpenLayout(4) opens an old file whose first block is damaged).
+    const unsigned long long cwv = (unsigned long long)(__ULWORD__)gxDatabase::gxInternalCheckWord;
+    auto lands = [&](unsigned long long len, unsigned long long min_len) -> bool {
+      if(len < min_len || len > (unsigned long long)(eof - hs)) return false;
+      FAU_t next = hs + (FAU_t)len;
+      if(next == eof) return true;
+      unsigned char n[4];
+      return gxdFPTRReadAt(fp, n, sizeof(n), next) == (__ULWORD__)sizeof(n) && gxd_get(n, 4) == cwv;
+    };
+    bool cw_ok = gxd_get(w, 4) == cwv;
+    bool old_ok = cw_ok && lands(gxd_get(w + 4, 4), 24);
+    bool can_ok = cw_ok && gxd_get(w + 4, 4) == 0 && lands(gxd_get(w + 8, 8), 32);
+    if(old_ok && !can_ok) set_layout(4);
+    else if(!can_ok) layout_guessed = 1;
   }
   else layout_guessed = 1;
 #else

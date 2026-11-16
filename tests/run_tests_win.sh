@@ -71,6 +71,9 @@ check ai_record_store "$E/ai_record_store"
 check ai_indexed_records sh -c "'$E/ai_indexed_records' | tr -d '\r\n' | grep -q 'Found Acme Tools'"
 mkdir -p "$WORK/run_damaged" && cd "$WORK/run_damaged" && check damaged_files "$T/damaged_files" 300 7
 mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" && check journal_test "$T/journal_test" 20 7
+# 11/16/2026 (7.4): the engine signature and the layout detection (the old Windows file of this build's engine)
+LW="$SRC/tests/data/old_layout/win64"; grep -q "DATAREEL_64BIT_DATABASE:BOOL=ON" "$BUILD/CMakeCache.txt" 2>/dev/null || LW="$SRC/tests/data/old_layout/win32"
+mkdir -p "$WORK/run_layout" && cd "$WORK/run_layout" && check layout_detect "$T/layout_detect_test" . "$LW"
 # 11/14/2026 (7.4): the vector index tests (the crash rounds are POSIX only and left out of the Windows build)
 U="$BUILD/utils/$CFG"; [ -d "$U" ] || U="$BUILD/utils"
 mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" && check vix_test "$U/vix_test"

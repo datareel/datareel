@@ -133,6 +133,11 @@ else
       '$BUILD/utils/gxrepl' digest w/by_name.btx --kind btree | grep -q '^67917c9acb47dd07 155 '
       '$BUILD/utils/vix_rebuild' --digest w/vectors.vix | grep -q '^logical bcd02d0e141e67e8 155 '"
 fi
+# 11/16/2026 (7.4): the other engine's file refused (gxDBASE_FILE_ENGINE_ERROR), a damaged first block never taken for
+# the old layout, and the old Windows file of this engine still found to be old
+mkdir -p "$WORK/run_layout_detect" && cd "$WORK/run_layout_detect" &&
+  check layout_detect sh -c "W='$OL/win64'; grep -q 'DATAREEL_64BIT_DATABASE:BOOL=ON' '$BUILD/CMakeCache.txt' || W='$OL/win32'
+    '$BUILD/tests/layout_detect_test' . \$W"
 mkdir -p "$WORK/run_old_layout_upgrade" && cd "$WORK/run_old_layout_upgrade" &&
   check old_layout_upgrade sh -c "set -e; W='$OL/win64'; grep -q 'DATAREEL_64BIT_DATABASE:BOOL=ON' '$BUILD/CMakeCache.txt' || W='$OL/win32'
     cp -r \$W w; '$BUILD/utils/gxd_upgrade' w/data.gxd up.gxd | grep -q 'byte check ok'
