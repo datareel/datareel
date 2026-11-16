@@ -10,7 +10,10 @@
 #include <vector>
 #include <algorithm>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include "gxobjrepl.h"
+#include "gxdbase.h"
 #include "gxstream.h"
 using namespace datareel;
 
@@ -223,6 +226,98 @@ int main(int argc, char **argv)
     struct stat sb; long long sz = stat((dir + "/c2/x.gxd").c_str(), &sb) == 0 ? (long long)sb.st_size : -1;
     check(sent && !acked && sz >= 0 && sz < 1000000 && !cp.IsLive("x", 77), "review 9: a 200 MB capacity from the wire refused (no ack, x.gxd " + std::to_string(sz) + " bytes)");
     cp.Stop(); t2.join(); cp.Close();
+  }
+
+
+  // ---------- 11/16/2026: the second review's findings ----------
+  {
+    int base = atoi(port.c_str()) + 10;
+    auto pcfg = [&](int pt, bool trim) { gxObjReplConfig c = pc; c.copy = "127.0.0.1:" + std::to_string(pt); c.trim = trim; c.index = ""; return c; };
+    struct Srv {
+      gxObjRepl r; std::thread t;
+      bool start(const std::string &d, const gxObjReplConfig &c) { if(r.Open(d, c, gxObjRepl::COPY) != 0) return false; t = std::thread([this]() { r.Serve(); }); std::this_thread::sleep_for(std::chrono::milliseconds(300)); return true; }
+      void stop() { r.Stop(); t.join(); r.Close(); }
+    };
+    auto ccfg = [&](int pt, const std::string &name) { gxObjReplConfig c = cc; c.listen_port = pt; c.name = name; c.peer_name = ""; c.index = ""; return c; };
+    auto commit1 = [&](gxObjRepl &x) { x.OpenDatabase("ev"); x.Begin(); x.Put("ev", x.NewId(), "abcdefgh", 8); return x.Commit(); };
+    std::string msg;
+    // 1 fence: a new-epoch primary with nothing to send must still fence the old primary out of the copy
+    {
+      int pc1 = base, pt1 = base + 1;
+      Srv C; C.start(dir + "/f_c", ccfg(pc1, "C"));
+      { gxObjRepl x; x.Open(dir + "/f_p1", pcfg(pc1, false), gxObjRepl::PRIMARY); for(int k = 0; k < 3; k++) commit1(x); x.Drain(20); x.Close(); }
+      Srv T; T.start(dir + "/f_t", ccfg(pt1, "T"));
+      { gxObjRepl x; x.Open(dir + "/f_p1", pcfg(pt1, false), gxObjRepl::PRIMARY); x.Drain(20); x.Close(); }
+      T.stop();
+      gxObjRepl::Takeover(dir + "/f_t", msg);
+      { gxObjRepl t; t.Open(dir + "/f_t", pcfg(pc1, false), gxObjRepl::PRIMARY); t.Drain(20); t.Close(); }
+      uint64_t ce = C.r.Epoch();
+      int orc;
+      { gxObjRepl x; x.Open(dir + "/f_p1", pcfg(pc1, false), gxObjRepl::PRIMARY); commit1(x); orc = x.Drain(10); x.Close(); }
+      int trc;
+      { gxObjRepl t; t.Open(dir + "/f_t", pcfg(pc1, false), gxObjRepl::PRIMARY); trc = t.Pump(); t.Close(); }
+      check(ce == 2 && orc == 3 && C.r.AppliedSeq() == 3 && trc == 0, "review2 1: the copy took epoch 2 from a primary with nothing to send (" + std::to_string(ce) +
+	    "); the old primary was refused (" + std::to_string(orc) + "), the copy stayed at 3, the new primary still streams (" + std::to_string(trc) + ")");
+      C.stop();
+    }
+    // 2 digest log: a node that took over after a full send can check a copy at an older seq of the same history
+    {
+      int pc2 = base + 2, pt2 = base + 3;
+      Srv C; C.start(dir + "/d_c", ccfg(pc2, "C2"));
+      { gxObjRepl x; x.Open(dir + "/d_p", pcfg(pc2, true), gxObjRepl::PRIMARY); for(int k = 0; k < 3; k++) commit1(x); x.Drain(20); commit1(x); commit1(x); x.Close(); }
+      C.stop();
+      Srv T; T.start(dir + "/d_t", ccfg(pt2, "T2"));
+      long snaps = 0;
+      { gxObjRepl x; x.Open(dir + "/d_p", pcfg(pt2, true), gxObjRepl::PRIMARY); x.Drain(20); snaps = x.Snapshots(); x.Close(); }
+      T.stop();
+      gxObjRepl::Takeover(dir + "/d_t", msg);
+      C.start(dir + "/d_c", ccfg(pc2, "C2"));
+      int rc;
+      { gxObjRepl t; t.Open(dir + "/d_t", pcfg(pc2, true), gxObjRepl::PRIMARY); rc = t.Drain(20); t.Close(); }
+      check(snaps == 1 && rc == 0 && C.r.AppliedSeq() == 5, "review2 2: after a full send and a takeover, a copy at seq 3 of the same history is accepted and caught up (rc " +
+	    std::to_string(rc) + ", at " + std::to_string(C.r.AppliedSeq()) + ")");
+      C.stop();
+    }
+    // 3 an index that cannot be opened: its database is not kept open without it
+    {
+      std::string d = dir + "/ix"; mkdir(d.c_str(), 0700); mkdir((d + "/ev.k.ix.btx.building").c_str(), 0700);
+      gxObjReplConfig c = pcfg(base + 4, true); c.index = "k:ev:B:0:8";
+      gxObjRepl x; x.Open(d, c, gxObjRepl::PRIMARY);
+      int r1 = x.OpenDatabase("ev"), r2 = x.OpenDatabase("ev");
+      check(r1 == -1 && r2 == -1, "review2 3: the database stays closed while its index cannot open (" + std::to_string(r1) + ", " + std::to_string(r2) + ")");
+      x.Close();
+    }
+    // 4 the lock is not inherited by a child process
+    {
+      std::string d = dir + "/lk";
+      gxObjRepl x; x.Open(d, pcfg(base + 5, true), gxObjRepl::PRIMARY);
+      pid_t kid = fork();
+      if(kid == 0) { execlp("sleep", "sleep", "3", (char *)0); _exit(127); }
+      x.Close();
+      gxObjRepl y; int orc = y.Open(d, pcfg(base + 5, true), gxObjRepl::PRIMARY);
+      check(orc == 0, "review2 4: the node opens again while a child of the first opener still runs [" + y.Error() + "]");
+      y.Close(); kill(kid, SIGKILL); waitpid(kid, 0, 0);
+    }
+    // 5 a state file created but never written (a crash in the first open): the new node starts; a node with data
+    // whose state file is gone is refused
+    {
+      std::string d = dir + "/st"; mkdir(d.c_str(), 0700);
+      { gxDatabase sdb; sdb.Create((d + "/state.gxd").c_str(), (FAU_t)96); sdb.Close(); }
+      gxObjRepl x; int r1 = x.Open(d, pcfg(base + 6, true), gxObjRepl::PRIMARY); commit1(x); x.Close();
+      std::remove((d + "/state.gxd").c_str());
+      gxObjRepl y; int r2 = y.Open(d, pcfg(base + 6, true), gxObjRepl::PRIMARY);
+      check(r1 == 0 && r2 == -1 && y.Error().find("missing") != std::string::npos, "review2 5: an unwritten state file on a new node is replaced (" + std::to_string(r1) +
+	    "); a missing one on a node with data is refused [" + y.Error() + "]");
+    }
+    // 8 with trim off, the copy's acknowledgement still counts: a rejoin after a full drain drops nothing
+    {
+      int pc3 = base + 7;
+      Srv C; C.start(dir + "/r_c", ccfg(pc3, "C3"));
+      { gxObjRepl x; x.Open(dir + "/r_p", pcfg(pc3, false), gxObjRepl::PRIMARY); for(int k = 0; k < 3; k++) commit1(x); x.Drain(20); x.Close(); }
+      C.stop();
+      gxObjRepl::Rejoin(dir + "/r_p", msg);
+      check(msg.find("0 commit(s) past seq 3") != std::string::npos, "review2 8: with trim off, rejoin counts from the acknowledged seq [" + msg + "]");
+    }
   }
 
   printf("%d passed, %d failed\n", pass, fail);

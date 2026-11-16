@@ -13,6 +13,8 @@ if(NOT WIN32)
   target_link_libraries(objrepl PRIVATE DataReel::datareel)
   add_executable(test_gxobjrepl_api objrepl/test_gxobjrepl_api.cpp)
   target_link_libraries(test_gxobjrepl_api PRIVATE DataReel::datareel)
+  add_executable(objrepl_sim objrepl/objrepl_sim.cpp)
+  target_link_libraries(objrepl_sim PRIVATE DataReel::datareel)
   add_executable(gxrepl gxrepl/gxrepl.cpp)
   target_link_libraries(gxrepl PRIVATE DataReel::datareel)
   # 11/14/2026: derived index extractors loaded from a .so take DataReel from gxrepl (one copy of the library, so
