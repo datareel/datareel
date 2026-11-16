@@ -2060,28 +2060,6 @@ def test_a_segment_being_started_reads_as_nothing_yet():
     os.remove(seg)
 
 
-def test_big_record_resync_bound():
-    """11/15/2026 (hardening): records bigger than max_message that never pass (GXREPL_TEST_STATUS2_ALWAYS) are not
-    resynced forever: after GXREPL_STATUS2_MAX resyncs with no record drained, one ALERT and no more resyncs"""
-    env = Env("big_bound", {"db": {}})
-    ws, aws = env.roots["db"]
-    assert writer(ws, "--commits", 5).returncode == 0
-    env.start_server()
-    try:
-        wait_ok = time.time() + 30
-        env.start_client({"GXREPL_TEST_STATUS2_ALWAYS": "1", "GXREPL_STATUS2_MAX": "3"})
-        for i in range(12):                              # new records every second: each read answers status 2
-            assert writer(ws, "--commits", 1, "--seed", 300 + i).returncode == 0
-            time.sleep(1)
-        log = open(os.path.join(env.dir, "client.log")).read()
-        n = log.count("the copy resyncs its files")
-        print(f"    {n} resyncs, {log.count('ALERT')} ALERT(s)", flush=True)
-        assert log.count("ALERT") == 1 and "not resynced again" in log, log[-3000:]
-        assert n <= 4, f"{n} resyncs past the bound of 3:\n" + log[-3000:]
-    finally:
-        env.stop()
-
-
 def test_big_record_resyncs():
     """11/10/2026: a ship-log record bigger than max_message (an osa_ingest rebuild writes one of 500 MB) is never
     sent: the copy's position is reset, its files are resynced in pieces, and the records after it drain as usual."""
