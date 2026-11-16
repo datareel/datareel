@@ -3323,6 +3323,18 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
   unsigned long long last = add_records(*this, s->sc, records, it->second.lsn + 1,
 					batch, count, err, keep, &unit_cb);
   if(last == 0) return -1;
+  // 11/15/2026 (the late-pass hollow seal, b): records only change a file the copy has. A file the copy does not
+  // have, whose first page (its header) the records do not hold, cannot be made from them: its other pages would be
+  // zeros, and the unit's commit block in the same records would seal it whole. The copy is not in step: nothing is
+  // applied or sealed, and the client resyncs the stream (its files by pieces, then the records).
+  for(auto &e : batch) {
+    if(e.second.second.count(0)) continue;
+    struct stat fst;
+    if(stat(e.first.c_str(), &fst) == 0) continue;
+    std::string rel = e.first.compare(0, s->root.size() + 1, s->root + "/") == 0 ? e.first.substr(s->root.size() + 1) : e.first;
+    err = "not in step: " + rel + " is not on the copy and the records do not hold it whole (resynced)";
+    return -1;
+  }
   std::map<std::string, bool> unit_cb_records = unit_cb;   // 11/14/2026: for the incremental derived apply
   // 11/10/2026: the record's commit block (gxdShipLog::SetCommitBlock) makes
   // its unit whole at this record: its seal goes in the same transaction
@@ -5208,7 +5220,21 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
       }
     }
     unsigned long long lsn = 0;
-    if(tgt.ApplyLog(set, s.name, s.log_id, out, lsn, err) != 0) return -1;
+    if(tgt.ApplyLog(set, s.name, s.log_id, out, lsn, err) != 0) {
+      // 11/15/2026 (the late-pass hollow seal, b): the copy is not in step with these records (a file they would
+      // only part build): reset its position and verify the stream, as for a position gone from the log
+      if(err.compare(0, 12, "not in step:") != 0) return -1;
+      glog("set %s: stream %s: %s", set.c_str(), s.name.c_str(), err.c_str());
+      err.clear();
+      gxReplStreamState rs;
+      rs.name = s.name; rs.log_id = "resync"; rs.lsn = 0;
+      if(tgt.SetState(set, rs, err) != 0) return -1;
+      ts = rs;
+      verify = true;
+      if(flag_lsn) *flag_lsn = ULLONG_MAX;
+      note_verify(set, s.name, "the copy is not in step with the records", ULLONG_MAX);
+      return 0;
+    }
     ts.lsn = lsn;
     // 11/08/2026: The copy has it durably: the retention floor, when this
     // node is the source (never fatal)
