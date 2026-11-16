@@ -4721,6 +4721,32 @@ def test_incremental_hold_shown_and_unreadable_hold_cleared():
         env.stop()
 
 
+def test_incremental_hold_write_fail_turns_the_breaker_on():
+    """11/16/2026 (beta4 review L2): when a stream's hold cannot be written (GXREPL_TEST_HOLD_WRITE_FAIL) the copy
+    must not go on object by object as if there were none: the stream is held in memory, the breaker goes on (every
+    batch rebuilt, across a restart too), an ALERT is logged, and the index stays its data's"""
+    env, ws, aws, w = _recgap_env("incr_hold_write_fail")
+    try:
+        d1 = os.path.join(ws, "d1")
+        env.kill("client")
+        _restart_server(env, {"GXREPL_TEST_HOLD_WRITE_FAIL": "1"})
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 651,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, a.stdout
+        b = _adds(d1, ws, 652)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        env.start_client()
+        _wait_log(env, "ALERT set db: cannot write", secs=90)
+        slog = open(os.path.join(env.dir, "server.log")).read()
+        assert "ALERT set db: cannot write" in slog, env.logs()
+        st = run([os.path.join(BIN, "gxrepl"), "derived", "status", "--config", env.srv_conf])
+        assert "BREAKER on: the hold of stream" in st.stdout, st.stdout
+        _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
 def test_incremental_fresh_log_recovered_open_is_indexed():
     """11/16/2026 (beta4 review H1 and M1, from the reviewer's reproducer): a fresh ship log (the log folder purged, as
     a late pass does) lists no file until its first commit. Writer A opens it and dies between its journal sync and

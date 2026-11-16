@@ -2051,6 +2051,7 @@ int gxReplLocal::State(const std::string &set, std::vector<gxReplStreamState> &v
 static std::string derived_dir(const gxReplSetConfig &sc);   // 11/15/2026: the stream holds (see hold_path)
 static std::string hold_path(const gxReplSetConfig &sc, const std::string &stream);
 static bool read_hold(const gxReplSetConfig &sc, const std::string &stream, std::string &log_id, unsigned long long &lsn);
+static bool mem_hold(const gxReplSetConfig &sc, const std::string &stream, int op);   // 11/16/2026 (L2)
 
 int gxReplLocal::SetState(const std::string &set, const gxReplStreamState &st,
 			  std::string &err)
@@ -2089,7 +2090,9 @@ int gxReplLocal::SetState(const std::string &set, const gxReplStreamState &st,
       if(held && st.verified_files > 0 && (hl == ULLONG_MAX || hid != st.log_id || st.lsn >= hl)) {
 	int lk = open((s->root + "/.gxrepl/apply.jnl").c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
 	if(lk >= 0 && lock_apply_bounded(lk) == 0) {          // under the apply lock, as the hold is written
-	  if(unlink(hold_path(s->sc, st.name).c_str()) == 0) {
+	  bool gone = unlink(hold_path(s->sc, st.name).c_str()) == 0;
+	  gone = mem_hold(s->sc, st.name, -1) || gone;   // 11/16/2026 (L2): a hold kept in memory goes too
+	  if(gone) {
 	    sync_dir(derived_dir(s->sc));
 	    glog("set %s: stream %s verified past its open or gap record at %s: object by object again",
 		 s->sc.name.c_str(), st.name.c_str(), hl == ULLONG_MAX ? "? (an unreadable hold)" : std::to_string(hl).c_str());
@@ -2710,10 +2713,27 @@ static std::string hold_path(const gxReplSetConfig &sc, const std::string &strea
   for(auto &c : k) if(c == '/') c = '#';
   return derived_dir(sc) + "/hold_" + k;
 }
+// 11/16/2026 (beta4 review L2): holds that could not be written, kept in memory for this run ("ROOT|STREAM").
+// op: 1 hold, 0 is it held, -1 remove (true if it was there)
+static bool mem_hold(const gxReplSetConfig &sc, const std::string &stream, int op)
+{
+  static std::mutex mx;
+  static std::set<std::string> held;
+  std::lock_guard<std::mutex> g(mx);
+  std::string k = sc.root + "|" + stream;
+  if(op > 0) { held.insert(k); return true; }
+  if(op == 0) return held.count(k) > 0;
+  return held.erase(k) > 0;
+}
 static bool read_hold(const gxReplSetConfig &sc, const std::string &stream, std::string &log_id, unsigned long long &lsn)
 {
   FILE *f = fopen(hold_path(sc, stream).c_str(), "r");
-  if(!f) return false;
+  if(!f) {
+    if(!mem_hold(sc, stream, 0)) return false;
+    log_id.clear();
+    lsn = ULLONG_MAX;                         // held in memory: any verify that compares files clears it
+    return true;
+  }
   char id[128] = {0};
   if(fscanf(f, "%127s %llu", id, &lsn) != 2) { id[0] = 0; lsn = ULLONG_MAX; }   // unreadable: held until a verify
   fclose(f);
@@ -3057,8 +3077,21 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
       }
     if(og) {
       mkdirs(derived_dir(sc));
-      if(write_atomic(hold_path(sc, stream_name), stream_log_id + " " + std::to_string(og) + "\n") != 0)
-	glog("set %s: cannot write %s", sc.name.c_str(), hold_path(sc, stream_name).c_str());
+      int hw = write_atomic(hold_path(sc, stream_name), stream_log_id + " " + std::to_string(og) + "\n");
+#ifdef GXREPL_TEST_HOOKS
+      if(getenv("GXREPL_TEST_HOLD_WRITE_FAIL")) hw = -1;   // test builds: the hold cannot be written
+#endif
+      if(hw != 0) {
+	// 11/16/2026 (beta4 review L2): without its hold the stream's next batches would go object by object from a
+	// rebuild that may lack the recovered pages. Held in memory for this run, and the set's breaker on (it stays
+	// across a restart): every batch is rebuilt until "gxrepl derived rebuild" clears it
+	mem_hold(sc, stream_name, 1);
+	write_atomic(breaker_path(sc), "the hold of stream " + stream_name + " (an open or gap record at " +
+		     std::to_string(og) + ") could not be written\n");
+	glog("ALERT set %s: cannot write %s: stream %s held in memory and derived_apply back on rebuild (the breaker; "
+	     "gxrepl derived rebuild --set %s clears it)", sc.name.c_str(), hold_path(sc, stream_name).c_str(),
+	     stream_name.c_str(), sc.name.c_str());
+      }
       std::set<std::string> fs(units.begin(), units.end());
       for(auto &u : stream_folders(sc, stream_name)) fs.insert(u);
       for(auto &u : fs) if(!folder_indexes(sc, u).empty()) drop_stamps(sc, u, ogwhy + " at " + std::to_string(og), true, true);
