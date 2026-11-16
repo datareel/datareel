@@ -27,7 +27,11 @@ check() { # check "name" command...
 }
 
 if ! podman image exists $IMAGE; then
-  printf 'FROM quay.io/rockylinux/rockylinux:9\nRUN dnf -y install dovecot && dnf clean all && useradd -u 5000 -M -d /srv/mail vmail\n' \
+  # Rootless podman with no subordinate ids maps only the caller as root in the container: the package's own users
+  # (dovecot, dovenull) are made uid and gid 0 first, so its chown of their folders works, and the server and the
+  # mail store run as that one id. The container is a local test fixture on 127.0.0.1 only.
+  printf '%s\n' 'FROM quay.io/rockylinux/rockylinux:9' \
+    'RUN groupadd -o -g 0 dovecot && groupadd -o -g 0 dovenull && useradd -o -u 0 -g 0 -M -d /usr/libexec/dovecot -s /sbin/nologin dovecot && useradd -o -u 0 -g 0 -M -d /usr/libexec/dovecot -s /sbin/nologin dovenull && dnf -y install dovecot && dnf clean all' \
     > Containerfile
   podman build -q -t $IMAGE -f Containerfile . > build.log 2>&1 || { echo "FAIL imap_container: image build (see $WORK/build.log)"; exit 1; }
 fi
@@ -51,14 +55,20 @@ passdb {
 }
 userdb {
   driver = static
-  args = uid=5000 gid=5000 home=/srv/mail/%u
+  args = uid=0 gid=0 home=/srv/mail/%u
 }
 mail_location = maildir:~/Maildir
-first_valid_uid = 5000
+first_valid_uid = 0
+first_valid_gid = 0
 log_path = /dev/stderr
 service imap-login {
-  inet_listener imap { port = 143 }
-  inet_listener imaps { port = 993 ssl = yes }
+  inet_listener imap {
+    port = 143
+  }
+  inet_listener imaps {
+    port = 993
+    ssl = yes
+  }
 }
 EOF
 
@@ -81,7 +91,7 @@ done
   cat body1.txt; } > msg1.eml
 printf 'From: a@example.com\r\nTo: test@example.com\r\nSubject: two\r\nDate: Wed, 18 Apr 2007 08:29:00 -0400\r\n\r\nSecond\r\n' > msg2.eml
 for m in msg1.eml msg2.eml; do
-  podman exec -i "$NAME" doveadm save -u test < $m > save.log 2>&1 || { echo "FAIL imap_container: doveadm save"; cat save.log; exit 1; }
+  podman exec -i "$NAME" doveadm -c /conf/dovecot.conf save -u test < $m > save.log 2>&1 || { echo "FAIL imap_container: doveadm save"; cat save.log; exit 1; }
 done
 
 IM="$E/imap_fetch localhost"
