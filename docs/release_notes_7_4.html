@@ -29,6 +29,7 @@
 <a href="#GxreplAWriterSOpenOrGapRecordAlwaysGetsItsVerify11142026">Gxrepl: a writer&#x27;s open or gap record always gets its verify (11/14/2026)</a><br>
 <a href="#License11122026">License (11/12/2026)</a><br>
 <a href="#FixesAfterBeta311152026Docs74">FIXES AFTER BETA 3 (11/15/2026, docs-7.4)</a><br>
+<a href="#Beta411162026">Beta 4 (11/16/2026)</a><br>
 <a href="#OneFileLayoutOnEveryPlatform11152026Beta5">ONE FILE LAYOUT ON EVERY PLATFORM (11/15/2026, beta 5)</a><br>
 <a href="#NewInBeta511162026">New in beta 5 (11/16/2026)</a><br>
 <a href="#PlannedForTheNextRelease75">Planned for the next release (7.5)</a></p>
@@ -271,6 +272,17 @@
 <ul>
 <li>gxrepl digest --kind btree (gxReplDigest) walked a B-tree with FindFirst()/FindNext() and a raw byte compare. FindNext() finds its place again with the compare, and the byte order is not the tree&#x27;s own when keys tie on a name and an integer (a record address) breaks the tie: the walk skipped keys (663 records digested as 256 keys). The digest now walks the nodes in order with no compare; trees whose two orders agreed digest exactly as before. run_tests: gxrepl_digest_repeated_names.</li>
 </ul>
+<h2 id="Beta411162026">Beta 4 (11/16/2026)</h2>
+<p>Replication (gxrepl) on an incremental set (derived_apply = incremental), the hardening items, and the review fixes:</p>
+<ul>
+<li>The recovery gap: a writer&#x27;s open record (its journal may have recovered a batch that has no record) or a gap record sends the stream&#x27;s folders back to a rebuild and holds the stream: every batch of it is rebuilt until the stream&#x27;s verify is done. The hold goes only when the client says the verify compared files (an older client, or a verify that compared none, leaves it). &quot;gxrepl derived status&quot; and status.json (&quot;holds&quot;) show the holds; a hold that cannot be read goes with the next such verify, a hold whose stream was purged is reported and &quot;gxrepl derived rebuild&quot; removes it; a hold that cannot be written turns the set&#x27;s breaker on.</li>
+<li>The open record says what the writer&#x27;s journal recovered (0: a clean restart, no rebuild). The static gxdJournal::Recover() leaves &lt;journal&gt;.recovered before it replays a batch, so a recovery done before the writer&#x27;s Open() reaches the open record too; when that marker cannot be written (on any platform) it refuses to replay and keeps the journal.</li>
+<li>Stamp-keeping fill: a verify&#x27;s fill whose pages are all what its records write, or what the copy already holds, keeps the folder&#x27;s index stamps (no rebuild); any other fill drops them.</li>
+<li>Pull mode reads only the copy&#x27;s own log (an older server falls back to a verify). A reader that sees the newest log segment shorter than its header (the writer is creating it) reads nothing yet instead of starting a full resync. A record bigger than max_message asks for a verify like any other, and its resyncs are bounded. The dead-folder sweep removes a folder left sealed &quot;copying&quot; with no database file for GXREPL_COPYING_ABANDONED_SEC (3600 s).</li>
+<li>The late-pass hollow seal: a new log&#x27;s verify that lists no file while its folder has database files waits until the log lists them (said once); records that would build a missing file without its first page are refused and the stream resyncs. Promote-check&#x27;s stage times use localtime_r (thread safety only: no time was wrong).</li>
+<li>Before turning derived_apply = incremental on, every program that journals into a replicated set and gxrepl on both nodes must run 7.4 beta 4: an older writer&#x27;s static Recover() leaves no marker, and an older client&#x27;s verify never clears a hold.</li>
+<li>The digest fix above (FIXES AFTER BETA 3) is in beta 4.</li>
+</ul>
 <h2 id="OneFileLayoutOnEveryPlatform11152026Beta5">ONE FILE LAYOUT ON EVERY PLATFORM (11/15/2026, beta 5)</h2>
 <p>Before 7.4 beta 5 the database file headers held gxUINT32/gxINT32 fields (unsigned long, long), 8 bytes on 64-bit Linux and 4 on 64-bit Windows and in 32-bit builds, so .gxd, .btx and .vix files (and record addresses) did not move between them. Now:</p>
 <ul>
@@ -282,13 +294,15 @@
 <li>vix_test&#x27;s phase C files (made on 64-bit Linux) are compared on every platform again.</li>
 <li>tests/data/old_layout: files written by the 64-bit and 32-bit FAU Windows builds of beta 3; run_tests reads them with the digests Windows printed, writes them byte for byte with GXD_CREATE_LAYOUT=4, writes more to an old file (it stays old, its indexes equal a rebuild) and upgrades one.</li>
 </ul>
-<p>Still per platform: the application&#x27;s own record and key types. A native gx type (gxUINT32, gxINT32) or, in a 32-bit FAU build, a FAU in a record or key keeps its platform&#x27;s size; use fixed-width types (uint32_t, int64_t) in records that move between platforms. And the gxStream and object server message framing (gxBlockHeader sent as its bytes) still differs between Linux and Windows.</p>
+<p>Still per platform: the application&#x27;s own record and key types. A native gx type (gxUINT32, gxINT32) or, in a 32-bit FAU build, a FAU in a record or key keeps its platform&#x27;s size; use fixed-width types (uint32_t, int64_t) in records that move between platforms. The gxStream and object server message framing is one form on every platform too (see NEW IN BETA 5).</p>
 <h2 id="NewInBeta511162026">New in beta 5 (11/16/2026)</h2>
 <ul>
 <li>gxsIMAPClient (gxsimap.h): an IMAP4rev1 mail client, based on the IMAP client class of a 2007 program that downloads report messages to a spool folder, released under the LGPL. Implicit TLS (port 993), STARTTLS (port 143), or plain text (port 143) only when asked for by name with ConnectPlain(). Login, select and examine, list mailboxes, search, fetch the header, text or whole message and the arrival time, delete and expunge, any other command, and a recorded session with the password masked. Replies are read to their own tagged completion and message data as literals, so a message can hold any text; the 2007 client&#x27;s calls are kept. A server that announces LOGINDISABLED is never sent a password.</li>
 <li>Example imap_fetch: search a mailbox, list the matches newest first and save each message&#x27;s text to a spool folder once (from cron).</li>
 <li>Example https_check, based on the 2007 HTTP ping and header programs: a list of web sites checked over TLS, with the status, times, size, redirects and the response headers.</li>
 <li>Examples udp_broadcast and udp_multicast, based on the 2001 broadcast and multicast programs: plain (non-TLS) UDP broadcast, and IPv4/IPv6 multicast with group joins, for trusted local networks only.</li>
+<li>A file of the other database engine (written with 32-bit file addresses, or with 64-bit ones) is refused with gxDBASE_FILE_ENGINE_ERROR. Before, a build with 32-bit file addresses opened a 64-bit engine&#x27;s file without an error (its check compared only &quot;GXDBASE&quot;, the start of &quot;GXDBASE64&quot;).</li>
+<li>The layout detection reads the first block&#x27;s length both ways and takes the old 4-byte layout only when that length fits the file and the canonical one does not: a damaged first block is never taken for the old layout (tests/layout_detect_test).</li>
 <li>The header documentation (Database Headers) explains the on-disk layout and byte order: every header field is written little endian, field by field, on every machine.</li>
 <li>Tests: the IMAP client against a mock server (TLS, STARTTLS, plain text, 8-bit logins, LOGINDISABLED, message bodies that look like replies) and against a local IMAP server in a container; https_check against the example HTTPS server; broadcast and multicast on this host.</li>
 </ul>

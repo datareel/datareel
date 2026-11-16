@@ -1043,7 +1043,9 @@ static int recover_journal_locked(const std::string &root)
   struct stat jb;
   if(stat(jname.c_str(), &jb) != 0 || jb.st_size == 0) return 0;
   unsigned long n = 0;
-  if(gxdJournal::Recover(jname.c_str(), &n) != gxDBASE_NO_ERROR) return -1;
+  // 11/16/2026 (beta4 re-review L-d): mark 0: gxrepl's own apply.jnl has no ship log, so no open record would ever
+  // take a ".recovered" marker (and a marker that cannot be written must not stop gxrepl from starting)
+  if(gxdJournal::Recover(jname.c_str(), &n, 0) != gxDBASE_NO_ERROR) return -1;
   if(truncate(jname.c_str(), 0) != 0) { }
   return 0;
 }
@@ -1170,7 +1172,7 @@ static int stage_begin(const gxReplSetConfig &sc, const std::string &root, const
     struct stat jb;
     if(stat(jname.c_str(), &jb) == 0 && jb.st_size > 0) {
       unsigned long n = 0;
-      if(gxdJournal::Recover(jname.c_str(), &n) != gxDBASE_NO_ERROR) {
+      if(gxdJournal::Recover(jname.c_str(), &n, 0) != gxDBASE_NO_ERROR) {
 	why = "the apply journal holds a batch that cannot be applied yet (" + jname + "): the stage is kept, "
 	      "tried again next pass";
 	return -1;
@@ -2054,8 +2056,10 @@ int gxReplLocal::State(const std::string &set, std::vector<gxReplStreamState> &v
 }
 
 static std::string derived_dir(const gxReplSetConfig &sc);   // 11/15/2026: the stream holds (see hold_path)
+static bool test_off(const char *name);   // test builds: a hook is on
 static std::string hold_path(const gxReplSetConfig &sc, const std::string &stream);
 static bool read_hold(const gxReplSetConfig &sc, const std::string &stream, std::string &log_id, unsigned long long &lsn);
+static bool mem_hold(const gxReplSetConfig &sc, const std::string &stream, int op);   // 11/16/2026 (L2)
 
 int gxReplLocal::SetState(const std::string &set, const gxReplStreamState &st,
 			  std::string &err)
@@ -2066,8 +2070,12 @@ int gxReplLocal::SetState(const std::string &set, const gxReplStreamState &st,
   WriterHold wh;                             // 11/10/2026: held until this change is done
   if(hold_writer_locks(s->sc, wh, err)) return -1;
   // 11/15/2026 (the recovery gap, review 2): the client sends the copy's own position after a stream's verify is
-  // done (an older client never does, and an older copy just writes the same position again). Nothing to write
-  // then; the stream's hold goes when the verify reached the hold's record (or verified another log, whole).
+  // done (an older copy just writes the same position again). Nothing to write then; the stream's hold goes when the
+  // verify reached the hold's record (or verified another log, whole).
+  // 11/16/2026 (beta4 review H1): ... and only when the client says how many files the verify compared and that is
+  // more than none. The same position alone is no proof: a verify that compared no file (a new log that lists none
+  // yet) sends it, and so does an older client (the end of a 0-file verify, its log end, is the copy's position
+  // too). Such a hold stays until a verify that compared files, and the derived status shows it.
   {
     std::map<std::string, gxReplStreamState> cur;
     std::string e2;
@@ -2076,13 +2084,26 @@ int gxReplLocal::SetState(const std::string &set, const gxReplStreamState &st,
     if(c != cur.end() && c->second.log_id == st.log_id && c->second.lsn == st.lsn && st.log_id != "resync") {
       std::string hid;
       unsigned long long hl = 0;
-      if(read_hold(s->sc, st.name, hid, hl) && hl != ULLONG_MAX && (hid != st.log_id || st.lsn >= hl)) {
+      bool held = read_hold(s->sc, st.name, hid, hl);
+      if(held && st.verified_files <= 0) {
+	static std::set<std::string> said;     // once per stream and hold
+	static std::mutex said_mx;
+	std::lock_guard<std::mutex> sg(said_mx);
+	if(said.insert(s->sc.name + "|" + st.name + "|" + hid + "|" + std::to_string(hl)).second)
+	  glog("set %s: stream %s: %s: its hold (an open or gap record at %s) stays until a verify compares its files",
+	       s->sc.name.c_str(), st.name.c_str(), st.verified_files < 0 ? "the same position without a verify's count "
+	       "(an older client)" : "a verify that compared no file", hl == ULLONG_MAX ? "?" : std::to_string(hl).c_str());
+      }
+      // 11/16/2026 (beta4 review L1): an unreadable hold ("?") goes with any verify that compared files
+      if(held && st.verified_files > 0 && (hl == ULLONG_MAX || hid != st.log_id || st.lsn >= hl)) {
 	int lk = open((s->root + "/.gxrepl/apply.jnl").c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
 	if(lk >= 0 && lock_apply_bounded(lk) == 0) {          // under the apply lock, as the hold is written
-	  if(unlink(hold_path(s->sc, st.name).c_str()) == 0) {
+	  bool gone = unlink(hold_path(s->sc, st.name).c_str()) == 0;
+	  gone = mem_hold(s->sc, st.name, -1) || gone;   // 11/16/2026 (L2): a hold kept in memory goes too
+	  if(gone) {
 	    sync_dir(derived_dir(s->sc));
-	    glog("set %s: stream %s verified past its open or gap record at %llu: object by object again",
-		 s->sc.name.c_str(), st.name.c_str(), hl);
+	    glog("set %s: stream %s verified past its open or gap record at %s: object by object again",
+		 s->sc.name.c_str(), st.name.c_str(), hl == ULLONG_MAX ? "? (an unreadable hold)" : std::to_string(hl).c_str());
 	  }
 	  flock(lk, LOCK_UN);
 	}
@@ -2737,15 +2758,57 @@ static std::string hold_path(const gxReplSetConfig &sc, const std::string &strea
   for(auto &c : k) if(c == '/') c = '#';
   return derived_dir(sc) + "/hold_" + k;
 }
+// 11/16/2026 (beta4 review L2): holds that could not be written, kept in memory for this run ("ROOT|STREAM").
+// op: 1 hold, 0 is it held, -1 remove (true if it was there)
+static bool mem_hold(const gxReplSetConfig &sc, const std::string &stream, int op)
+{
+  static std::mutex mx;
+  static std::set<std::string> held;
+  std::lock_guard<std::mutex> g(mx);
+  std::string k = sc.root + "|" + stream;
+  if(op > 0) { held.insert(k); return true; }
+  if(op == 0) return held.count(k) > 0;
+  return held.erase(k) > 0;
+}
 static bool read_hold(const gxReplSetConfig &sc, const std::string &stream, std::string &log_id, unsigned long long &lsn)
 {
   FILE *f = fopen(hold_path(sc, stream).c_str(), "r");
-  if(!f) return false;
+  if(!f) {
+    if(!mem_hold(sc, stream, 0)) return false;
+    log_id.clear();
+    lsn = ULLONG_MAX;                         // held in memory: any verify that compares files clears it
+    return true;
+  }
   char id[128] = {0};
   if(fscanf(f, "%127s %llu", id, &lsn) != 2) { id[0] = 0; lsn = ULLONG_MAX; }   // unreadable: held until a verify
   fclose(f);
   log_id = id;
   return true;
+}
+// 11/16/2026 (beta4 review L1): the set's holds, for the derived status: each stream, its log id and record ("?"
+// when the hold cannot be read) and whether the stream still has a position on the copy (a stream purged from the
+// copy leaves its hold behind: reported, cleared by "gxrepl derived rebuild")
+struct HoldInfo { std::string stream, log_id; unsigned long long lsn = 0; bool unreadable = false, orphan = false; };
+static std::vector<HoldInfo> list_holds(const gxReplSetConfig &sc)
+{
+  std::vector<HoldInfo> out;
+  DIR *d = opendir(derived_dir(sc).c_str());
+  if(!d) return out;
+  while(struct dirent *e = readdir(d)) {
+    std::string n = e->d_name;
+    if(n.compare(0, 5, "hold_") != 0) continue;
+    HoldInfo h;
+    h.stream = n.substr(5);
+    for(auto &c : h.stream) if(c == '#') c = '/';
+    if(!read_hold(sc, h.stream, h.log_id, h.lsn)) continue;
+    h.unreadable = h.lsn == ULLONG_MAX;
+    struct stat st;
+    h.orphan = stat((sc.root + "/.gxrepl/state/" + h.stream + ".state").c_str(), &st) != 0;
+    out.push_back(h);
+  }
+  closedir(d);
+  std::sort(out.begin(), out.end(), [](const HoldInfo &a, const HoldInfo &b) { return a.stream < b.stream; });
+  return out;
 }
 // 11/15/2026 (review 5): the folders whose seals name this stream ("log G L STREAM C"), from the seals folder (no
 // walk of the set's tree under the apply lock)
@@ -3059,8 +3122,21 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
       }
     if(og) {
       mkdirs(derived_dir(sc));
-      if(write_atomic(hold_path(sc, stream_name), stream_log_id + " " + std::to_string(og) + "\n") != 0)
-	glog("set %s: cannot write %s", sc.name.c_str(), hold_path(sc, stream_name).c_str());
+      int hw = write_atomic(hold_path(sc, stream_name), stream_log_id + " " + std::to_string(og) + "\n");
+#ifdef GXREPL_TEST_HOOKS
+      if(getenv("GXREPL_TEST_HOLD_WRITE_FAIL")) hw = -1;   // test builds: the hold cannot be written
+#endif
+      if(hw != 0) {
+	// 11/16/2026 (beta4 review L2): without its hold the stream's next batches would go object by object from a
+	// rebuild that may lack the recovered pages. Held in memory for this run, and the set's breaker on (it stays
+	// across a restart): every batch is rebuilt until "gxrepl derived rebuild" clears it
+	mem_hold(sc, stream_name, 1);
+	write_atomic(breaker_path(sc), "the hold of stream " + stream_name + " (an open or gap record at " +
+		     std::to_string(og) + ") could not be written\n");
+	glog("ALERT set %s: cannot write %s: stream %s held in memory and derived_apply back on rebuild (the breaker; "
+	     "gxrepl derived rebuild --set %s clears it)", sc.name.c_str(), hold_path(sc, stream_name).c_str(),
+	     stream_name.c_str(), sc.name.c_str());
+      }
       std::set<std::string> fs(units.begin(), units.end());
       for(auto &u : stream_folders(sc, stream_name)) fs.insert(u);
       for(auto &u : fs) if(!folder_indexes(sc, u).empty()) drop_stamps(sc, u, ogwhy + " at " + std::to_string(og), true, true);
@@ -3641,6 +3717,9 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   // records' or the copy's. Called in check(), under the apply lock, before a page is written.
   auto explained_fill = [&](const std::set<std::string> &filled) -> std::set<std::string> {
     std::set<std::string> ok;
+    // 11/16/2026 (beta4 review L3): test builds: GXREPL_TEST_FILL_TRUST_ALL takes every fill as explained (the check
+    // switched off), so a test can show that it is the check, and nothing else, that drops the stamps
+    if(test_off("GXREPL_TEST_FILL_TRUST_ALL") && s->sc.derived_apply == "incremental") return filled;
     // review (HIGH): only an incremental set keeps stamps through a fill; in rebuild mode a fill of the derived
     // source always drops them (and derived.stamp and the state), as before
     if(s->sc.derived_apply != "incremental") return ok;
@@ -4075,7 +4154,7 @@ int gxReplLocal::RecoverAll(std::string &err)
     std::string j = sc.root + "/.gxrepl/apply.jnl";
     if(access(j.c_str(), F_OK) != 0) continue;
     unsigned long n = 0;
-    if(gxdJournal::Recover(j.c_str(), &n) != gxDBASE_NO_ERROR) {
+    if(gxdJournal::Recover(j.c_str(), &n, 0) != gxDBASE_NO_ERROR) {
       err = "cannot recover " + j; return -1;
     }
     if(n) glog("set %s: finished %lu unfinished apply batch(es)", sc.name.c_str(), n);
@@ -4635,6 +4714,8 @@ int gxReplRemote::SetState(const std::string &set, const gxReplStreamState &s,
 			   std::string &err)
 {
   WBuf w; w.str(set); enc(w, s);
+  // 11/16/2026 (beta4 review H1): a verify's end says so after the state; an older server ignores the extra bytes
+  if(s.verified_files >= 0) { w.u32(0x56444F4E); w.u32((uint32_t)s.verified_files); }
   std::vector<unsigned char> rep;
   if(call(mkreq(OP_SETSTATE, w), rep, err)) return -1;
   return 0;
@@ -4691,6 +4772,18 @@ static std::string derived_status_json(const gxReplSetConfig &sc)
   return c.second;
 }
 
+// 11/16/2026 (beta4 review L1): [{"stream": S, "log_id": L, "lsn": N or null, "orphan": B}, ...]
+static std::string holds_json(const gxReplSetConfig &sc)
+{
+  std::string j = "[";
+  for(auto &h : list_holds(sc)) {
+    if(j.size() > 1) j += ", ";
+    j += "{\"stream\": " + json_str(h.stream) + ", \"log_id\": " + json_str(h.log_id) + ", \"lsn\": " +
+      (h.unreadable ? std::string("null") : std::to_string(h.lsn)) + ", \"orphan\": " + (h.orphan ? "true" : "false") + "}";
+  }
+  return j + "]";
+}
+
 static std::string derived_status_json_uncached(const gxReplSetConfig &sc)
 {
   std::vector<std::string> folders;
@@ -4725,7 +4818,8 @@ static std::string derived_status_json_uncached(const gxReplSetConfig &sc)
   return std::string(", \"derived\": {\"mode\": ") + json_str(sc.derived_apply) + ", \"folders\": " +
     std::to_string(folders.size()) + ", \"failed\": " + std::to_string(failed) + ", \"not_built\": " +
     std::to_string(behind) + ", \"rebuild_needed\": " + std::to_string(unstamped) + ", \"breaker\": " +
-    (brk ? "true" : "false") + ", \"crashes_1h\": " + std::to_string(crashes) + ", \"warn\": " + json_str(warn) + "}";
+    (brk ? "true" : "false") + ", \"crashes_1h\": " + std::to_string(crashes) + ", \"holds\": " + holds_json(sc) +
+    ", \"warn\": " + json_str(warn) + "}";
 }
 
 void gxReplServer::write_status()
@@ -4976,6 +5070,10 @@ int gxReplServer::dispatch(uint8_t op, const std::vector<unsigned char> &body,
     }
     case OP_SETSTATE: {
       std::string set = r.str(); gxReplStreamState st; dec(r, st);
+      if(r.ok && r.n - r.off >= 8) {                   // 11/16/2026 (H1): "VDON" N, a verify done with N files
+	uint32_t mg = r.u32(), nf = r.u32();
+	if(mg == 0x56444F4E && nf <= 0x7FFFFFFF) st.verified_files = (int)nf;
+      }
       if(!r.ok) { e = "bad request"; rc = -1; break; }
       if(!role_ok(set, true) || local.SetState(set, st, e) != 0) { rc = -1; break; }
       break;
@@ -5690,8 +5788,10 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
 	break;
       }
       if(!have.empty()) {
-	glog("set %s: stream %s lists no file yet, and its folder has %s: verified when it lists its files",
-	     sc.name.c_str(), s->name.c_str(), have.c_str());
+	// 11/16/2026 (beta4 review): said once per log, not every pass
+	if(files_wait_noted.insert(sc.name + "|" + s->name + "|" + s->log_id).second)
+	  glog("set %s: stream %s lists no file yet, and its folder has %s: verified when it lists its files",
+	       sc.name.c_str(), s->name.c_str(), have.c_str());
 	verifying[sc.name].clear();
 	++it;
 	continue;
@@ -5757,7 +5857,15 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     // a 7.4 copy that the stream's hold may go (an older copy writes the same position again)
     {
       auto tsx = tstates.find(s->name);
-      if(tsx != tstates.end() && tgt.SetState(sc.name, tsx->second, err) != 0) return -1;
+      if(tsx != tstates.end()) {
+	// 11/16/2026 (beta4 review H1): with the number of files the verify compared (the hold goes only after > 0)
+	gxReplStreamState done = tsx->second;
+	done.verified_files = synced;
+#ifdef GXREPL_TEST_HOOKS
+	if(getenv("GXREPL_TEST_OLD_VERIFY_DONE")) done.verified_files = -1;   // test builds: as a 7.4 beta3 client
+#endif
+	if(tgt.SetState(sc.name, done, err) != 0) return -1;
+      }
     }
     it = vlist.erase(it);
   }
@@ -6465,6 +6573,10 @@ int gxReplDerivedStatus(const gxReplSetConfig &sc, std::vector<std::string> &lin
   }
   if(FILE *f = fopen(try_path(sc).c_str(), "r")) { char b[128] = {0}; if(fgets(b, sizeof(b), f)) {} fclose(f);
     std::string t(b); while(!t.empty() && t.back() == '\n') t.pop_back(); lines.push_back("  index step in progress or stopped: " + t); }
+  for(auto &h : list_holds(sc))                      // 11/16/2026 (beta4 review L1)
+    lines.push_back("  HOLD stream " + h.stream + ": waits for its verify (" + (h.unreadable ? std::string("an unreadable hold") :
+		    "an open or gap record at " + std::to_string(h.lsn) + " of log " + h.log_id) + ")" +
+		    (h.orphan ? "; the stream has no position on the copy (purged): gxrepl derived rebuild clears it" : ""));
   if(sc.derived.empty()) return 0;
   std::vector<std::string> folders;
   derived_folders(sc, "", folders);
@@ -6508,6 +6620,9 @@ int gxReplDerivedReset(const gxReplSetConfig &sc, const std::string &folder, std
     drop_stamps(sc, rel, "", false);
     unlink(derived_state_path(sc, rel).c_str());
   }
+  // 11/16/2026 (beta4 review L1): the hold of a stream with no position on the copy (purged) goes too: nothing
+  // would ever verify it, and every folder it named is rebuilt now
+  for(auto &h : list_holds(sc)) if(h.orphan) unlink(hold_path(sc, h.stream).c_str());
   flock(lk, LOCK_UN);
   close(lk);
   return 0;
@@ -6620,7 +6735,7 @@ int gxReplPromote(const gxReplSetConfig &sc, bool apply, std::vector<std::string
     }
     if(stat(jname.c_str(), &jb) == 0 && jb.st_size > 0) {
       unsigned long n = 0;
-      if(gxdJournal::Recover(jname.c_str(), &n) != gxDBASE_NO_ERROR) {
+      if(gxdJournal::Recover(jname.c_str(), &n, 0) != gxDBASE_NO_ERROR) {
 	flock(lk, LOCK_UN); close(lk); err = "cannot recover " + jname; return -1;
       }
       if(n) lines.push_back("set " + sc.name + ": finished " + std::to_string(n) + " unfinished apply batch(es)");

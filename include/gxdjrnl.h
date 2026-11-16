@@ -155,6 +155,9 @@ public:
   // the writer's Open(), is never invisible to a replicated copy. gxrepl's apply journals pass 0.
   static gxDatabaseError Recover(const char *jname,
 				 unsigned long *recovered = 0, int mark = 1);
+  // 11/16/2026: why this thread's last Recover() refused to replay (its marker could not be written: the step,
+  // the path and the error), or "" when it did not refuse for that reason
+  static const char *RecoverError();
 
   gxDatabaseError Open(const char *jname); // Recover, then open
   gxDatabaseError Close(); // Rollback or checkpoint, then close

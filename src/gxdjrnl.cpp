@@ -69,7 +69,15 @@ number; records left in the file after that have an old salt.
 #include <unistd.h>
 #include <fcntl.h>
 #endif
+#include <stdio.h>
+#include <errno.h>
 #include "gxdlcode.h"
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX                  // std::numeric_limits<>::max() below
+#endif
+#include <windows.h>              // 11/16/2026: the recovered marker (FlushFileBuffers, MoveFileEx)
+#endif
 
 #include <string.h>
 #include <stdlib.h>
@@ -230,9 +238,66 @@ gxdJournal::~gxdJournal()
 // 11/15/2026: the marker a replay leaves for the next EnableShipLog() (see Recover())
 static std::string recovered_marker(const char *jname) { return std::string(jname) + ".recovered"; }
 
+// 11/16/2026 (beta4 review M2, M3): "<n>\n" written to a temporary file, flushed to the disk, renamed over the marker
+// and (POSIX) the folder synced. Returns 0, or -1 if any step failed (nothing is left behind then).
+// 11/16/2026 (beta4 re-review L-c): why the last marker in this thread could not be written (gxdJournal::RecoverError())
+static thread_local std::string g_recover_error;
+static int marker_fail(const char *step, const std::string &path, int code)
+{
+#ifdef _WIN32
+  g_recover_error = std::string("cannot ") + step + " " + path + ": Windows error " + std::to_string(code) +
+    "; the replay was refused and the journal kept";
+#else
+  g_recover_error = std::string("cannot ") + step + " " + path + ": " + strerror(code) + " (errno " +
+    std::to_string(code) + "); the replay was refused and the journal kept";
+#endif
+  return -1;
+}
+
+static int write_recovered_marker(const std::string &mk, unsigned long n)
+{
+  std::string tmp = mk + ".tmp", body = std::to_string(n) + "\n";
+#ifdef _WIN32
+  HANDLE h = CreateFileA(tmp.c_str(), GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+  if(h == INVALID_HANDLE_VALUE) return marker_fail("create", tmp, (int)GetLastError());
+  DWORD wrote = 0;
+  if(!WriteFile(h, body.data(), (DWORD)body.size(), &wrote, 0) || wrote != (DWORD)body.size()) {
+    int e = (int)GetLastError(); CloseHandle(h); DeleteFileA(tmp.c_str()); return marker_fail("write", tmp, e);
+  }
+  if(!FlushFileBuffers(h)) { int e = (int)GetLastError(); CloseHandle(h); DeleteFileA(tmp.c_str()); return marker_fail("flush", tmp, e); }
+  CloseHandle(h);
+  if(!MoveFileExA(tmp.c_str(), mk.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    int e = (int)GetLastError(); DeleteFileA(tmp.c_str()); return marker_fail("rename", tmp, e);
+  }
+  return 0;
+#else
+  int mf = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0640);
+  if(mf < 0) return marker_fail("create", tmp, errno);
+  if(write(mf, body.data(), body.size()) != (ssize_t)body.size()) {
+    int e = errno ? errno : EIO; close(mf); unlink(tmp.c_str()); return marker_fail("write", tmp, e);
+  }
+  if(fsync(mf) != 0) { int e = errno; close(mf); unlink(tmp.c_str()); return marker_fail("fsync", tmp, e); }
+  close(mf);
+  if(rename(tmp.c_str(), mk.c_str()) != 0) { int e = errno; unlink(tmp.c_str()); return marker_fail("rename", tmp, e); }
+  std::string::size_type sl = mk.find_last_of('/');
+  std::string d = sl == std::string::npos ? std::string(".") : (sl == 0 ? std::string("/") : mk.substr(0, sl));
+  int df = open(d.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if(df < 0) return marker_fail("open the folder", d, errno);
+  int rc = fsync(df), e = errno;
+  close(df);
+  return rc == 0 ? 0 : marker_fail("fsync the folder", d, e);
+#endif
+}
+
+const char *gxdJournal::RecoverError()
+{
+  return g_recover_error.c_str();
+}
+
 gxDatabaseError gxdJournal::Recover(const char *jname,
 				    unsigned long *recovered, int mark)
 {
+  g_recover_error.clear();
   if(recovered) *recovered = 0;
   if(!jname) return gxDBASE_NULL_PTR;
   if(!gxdFPTRExists(jname)) return gxDBASE_NO_ERROR;
@@ -329,26 +394,15 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
   }
 
   gxDatabaseError err = gxDBASE_NO_ERROR;
-#ifndef _WIN32
   // 11/15/2026 (hardening): the marker, durably, before the first page is replayed: a crash in the middle of the
   // replay still leaves it
-  if(ncommits && mark) {
-    std::string mk = recovered_marker(jname), tmp = mk + ".tmp";
-    int mf = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0640);
-    if(mf >= 0) {
-      std::string body = std::to_string(ncommits) + "\n";
-      if(write(mf, body.data(), body.size()) == (ssize_t)body.size() && fsync(mf) == 0) {
-	close(mf);
-	if(rename(tmp.c_str(), mk.c_str()) == 0) {
-	  std::string d = mk.substr(0, mk.find_last_of('/') == std::string::npos ? 0 : mk.find_last_of('/'));
-	  int df = open(d.empty() ? "." : d.c_str(), O_RDONLY | O_DIRECTORY);
-	  if(df >= 0) { fsync(df); close(df); }
-	}
-      }
-      else { close(mf); unlink(tmp.c_str()); }
-    }
+  // 11/16/2026 (beta4 review M2, M3): a marker that cannot be made durable refuses the replay (the journal is kept for
+  // another try): a replay without it would reach the files with no record and no open record saying so. Windows
+  // writes it too (FlushFileBuffers), so a folder copied from Windows carries it to the next writer that ships.
+  if(ncommits && mark && write_recovered_marker(recovered_marker(jname), ncommits) != 0) {
+    gxdFPTRClose(jfp);
+    return gxDBASE_FILE_WRITE_ERROR;
   }
-#endif
   if(ncommits) {
     std::vector<gxdFPTR *> fps(paths.size(), (gxdFPTR *)0);
     for(size_t i = 0; i < paths.size(); i++) {
@@ -767,21 +821,17 @@ gxDatabaseError gxdJournal::EnableShipLog(const char *set_root,
   // static Recover()'s marker. A copy keeps its derived indexes object by object only across an open that says 0.
   unsigned long long rec = recovered;
   std::string mk;
-#ifndef _WIN32
-  mk = recovered_marker(jname.c_str());
+  mk = recovered_marker(jname.c_str());       // 11/16/2026 (M3): on every platform
   {
     FILE *mf = fopen(mk.c_str(), "r");
     if(mf) { unsigned long long n = 0; if(fscanf(mf, "%llu", &n) != 1 || n == 0) n = 1; rec += n; fclose(mf); }
   }
-#endif
   log->SetOpenRecovered(rec);
   if(log->Open(set_root, stream, jfull_path(jname.c_str()).c_str()) != 0) {
     delete log;
     return jerror = gxDBASE_FILE_OPEN_ERROR;
   }
-#ifndef _WIN32
-  if(!mk.empty()) unlink(mk.c_str());                    // said in the open record (synced by the ship log)
-#endif
+  if(!mk.empty()) remove(mk.c_str());                    // said in the open record (synced by the ship log)
   ship = log;
   write_lock = 1;
   // 11/14/2026: object notes from the environment (EnableObjectNotes())

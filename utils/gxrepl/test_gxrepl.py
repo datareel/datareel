@@ -8,10 +8,12 @@ make a test CA and certificates. Everything runs on 127.0.0.1 in a
 temporary folder. Each test starts its own server and client.
 """
 import argparse
+import glob
 import hashlib
 import json
 import os
 import random
+import re
 import shutil
 import signal
 import socket
@@ -3523,6 +3525,32 @@ def test_staged_fill_promote_after_a_crash_with_a_committed_batch():
         env.stop()
 
 
+def test_apply_journal_recovers_without_a_marker():
+    """11/16/2026 (beta4 re-review L-d): gxrepl's own apply.jnl has no ship log, so its recovery writes no
+    ".recovered" marker. The server dies inside an apply with its batch committed to apply.jnl, and the marker's
+    temporary name is taken (a folder): the server must still start, finish the batch and leave no marker (before the
+    fix the recovery refused, as a writer's does, and gxrepl would not start). Needs GXREPL_TEST_HOOKS."""
+    env, ws, aws = _staged_env("apply_jnl_nomarker", slow=False)
+    try:
+        env.stop()
+        env.start_server(extra_env={"GXREPL_TEST_APPLY_CRASH": "1"})
+        assert writer(ws, "--commits", 3, "--big", 8 * 1024 * 1024, "--no-ship", "--commit-block", "--seed", 53).returncode == 0
+        env.start_client()
+        _server_dies(env)
+        jnl = os.path.join(aws, ".gxrepl", "apply.jnl")
+        assert os.path.getsize(jnl) > 0, "no committed batch left in the journal"
+        os.mkdir(jnl + ".recovered.tmp")
+        env.start_server()                                # raises when it does not start
+        env.start_client()
+        wait_same(env, "db", 120)
+        assert not os.path.exists(jnl + ".recovered"), "gxrepl's apply journal left a marker"
+        t = torn(env)
+        assert t.returncode == 0, t.stdout
+        check_db(aws)
+    finally:
+        env.stop()
+
+
 def _hashes(root):
     return run([os.path.join(BIN, "gxrepl_testwriter"), "hashes", root]).stdout.split()
 
@@ -4639,11 +4667,22 @@ def test_derived_vix_incremental_recovered_commit_is_indexed():
 
 
 def _recgap_env(name):
-    """11/15/2026: an incremental set's folder d1 stamped, its adds-only writer finished (small objects at the tail)"""
+    """11/15/2026: an incremental set's folder d1 stamped, its adds-only writer finished (small objects at the tail)
+    11/16/2026: and quiet: _finish's writer leaves an open record, whose verify and hold must be over before a test
+    restarts the client with a held verify (else the test finds that open's hold, cleared by its verify, and takes it
+    for its own writer's: seen under suite load)"""
     env, ws, aws, w = _stamped(name, commits=20, writer_args=("--adds-only", "--size-max", "64"))
     w.wait(120)
     _finish(env, ws, aws, w)
     _wait_stamped(env, aws, "d1")
+    end = time.time() + 120
+    while time.time() < end:
+        cl = open(os.path.join(env.dir, "client.log")).read()
+        quiet = cl.rfind("needs a verify") < cl.rfind("verified (") and not glob.glob(
+            os.path.join(aws, ".gxrepl", "derived", "hold_*"))
+        if quiet:
+            break
+        time.sleep(0.5)
     time.sleep(2)
     return env, ws, aws, w
 
@@ -4688,13 +4727,16 @@ def test_incremental_lone_open_then_commit_is_indexed():
     """11/15/2026 (review 2): writer B's open record reaches the copy alone (B waits before its first commit) and the
     stream's verify is held off (GXREPL_TEST_VERIFY_WAIT): the derived pass rebuilds the folder from data that lacks
     writer A's recovered commit, then B's commits (the same tail page) arrive. Until the verify is done the stream
-    stays off object by object, so the index ends with A's objects."""
+    stays off object by object, so the index ends with A's objects.
+    11/16/2026 (beta4 review L3): fails on 5e07237 with only the GXREPL_TEST_VERIFY_WAIT hook added (2 / 2: the copy's
+    index is not its data's); it now checks that the hook held the verify, so a binary without it fails here."""
     env, ws, aws, w = _recgap_env("incr_lone_open")
     try:
         d1 = os.path.join(ws, "d1")
         vw = os.path.join(env.dir, "verify_go")
         env.kill("client")
         env.start_client({"GXREPL_TEST_VERIFY_WAIT": vw})
+        c0 = len(open(os.path.join(env.dir, "client.log")).read())
         a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 611,
                             "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
         assert a.returncode == 9, "writer A was not stopped before the ship log: " + a.stdout
@@ -4706,8 +4748,181 @@ def test_incremental_lone_open_then_commit_is_indexed():
         put(gate, b"go\n")
         assert b.wait(timeout=120) == 0, b.stdout.read()
         time.sleep(5)                                  # B's commits applied while the verify waits
+        # 11/16/2026 (beta4 review L3): the race needs the open's verify held until now; a gxrepl without the hook
+        # (5e07237 itself) verifies at once and the test would pass there for the wrong reason
+        cl = open(os.path.join(env.dir, "client.log")).read()[c0:]
+        # (the open record is said as "a writer's open record" or, when it came inside a file update, "... in a file
+        # update")
+        k = cl.find("needs a verify (a writer's open record")
+        assert k >= 0 and "verified (" not in cl[k:], "the open's verify was not held (no hook?)\n" + env.logs()
         put(vw, b"go\n")
         _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def _holds(aws):
+    return glob.glob(os.path.join(aws, ".gxrepl", "derived", "hold_*"))
+
+
+def test_incremental_old_client_verify_keeps_the_hold():
+    """11/16/2026 (beta4 review H1): a stream's hold goes only when the client says its verify compared files. An
+    older client (GXREPL_TEST_OLD_VERIFY_DONE: the same position, no count, as 7.4 beta3 sends after any verify, a
+    0-file one too) must not clear it: before the fix the copy took the same position as "verified past the hold".
+    Writer A dies before the ship log, writer B's open record holds the stream; after the open's verify the hold is
+    still there, the copy says why, and the index is still its data's."""
+    env, ws, aws, w = _recgap_env("incr_old_verify")
+    try:
+        d1 = os.path.join(ws, "d1")
+        env.kill("client")
+        env.start_client({"GXREPL_TEST_OLD_VERIFY_DONE": "1"})
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 631,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, "writer A was not stopped before the ship log: " + a.stdout
+        c0 = len(open(os.path.join(env.dir, "client.log")).read())
+        b = _adds(d1, ws, 632)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        end = time.time() + 120
+        while time.time() < end:
+            cl = open(os.path.join(env.dir, "client.log")).read()[c0:]
+            if re.search(r"verified \([1-9][0-9]* file", cl):
+                break
+            time.sleep(0.5)
+        else:
+            raise AssertionError("no verify of the open record\n" + env.logs())
+        time.sleep(3)
+        slog = open(os.path.join(env.dir, "server.log")).read()
+        assert "verified past its open or gap record" not in slog, "an older client's verify cleared the hold\n" + env.logs()
+        assert _holds(aws), "the stream's hold is gone\n" + env.logs()
+        assert "its hold (an open or gap record at" in slog and "an older client" in slog, env.logs()
+        _recgap_index_ok(env, ws, aws)
+        # a 7.4 client: the next open's verify compares files, says so, and the hold goes
+        env.kill("client")
+        env.start_client()
+        s0 = len(slog)
+        a2 = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 633,
+                             "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a2.returncode == 9, a2.stdout
+        b2 = _adds(d1, ws, 634)
+        assert b2.wait(timeout=120) == 0, b2.stdout.read()
+        end = time.time() + 120
+        while time.time() < end and not ("verified past its open or gap record" in
+                                         open(os.path.join(env.dir, "server.log")).read()[s0:] and not _holds(aws)):
+            time.sleep(0.5)
+        assert not _holds(aws), "a 7.4 client's verify did not clear the hold\n" + env.logs()
+        _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_hold_shown_and_unreadable_hold_cleared():
+    """11/16/2026 (beta4 review L1): a stream's hold shows in "gxrepl derived status" (and status.json's "holds"); a
+    hold that cannot be read is still cleared by the stream's next verify that compares files (before, an unreadable
+    hold stayed for good and the stream never went object by object again)"""
+    env, ws, aws, w = _recgap_env("incr_hold_status")
+    try:
+        d1 = os.path.join(ws, "d1")
+        vw = os.path.join(env.dir, "verify_go")
+        env.kill("client")
+        env.start_client({"GXREPL_TEST_VERIFY_WAIT": vw})
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 641,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, a.stdout
+        b = _adds(d1, ws, 642)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        end = time.time() + 60
+        while time.time() < end and not _holds(aws):
+            time.sleep(0.5)
+        holds = _holds(aws)
+        assert holds, "no hold after B's open record\n" + env.logs()
+        st = run([os.path.join(BIN, "gxrepl"), "derived", "status", "--config", env.srv_conf])
+        assert "HOLD stream" in st.stdout and "an open or gap record at" in st.stdout, st.stdout
+        put(holds[0], b"garbage\n")
+        st = run([os.path.join(BIN, "gxrepl"), "derived", "status", "--config", env.srv_conf])
+        assert "an unreadable hold" in st.stdout, st.stdout
+        put(vw, b"go\n")
+        end = time.time() + 120
+        while time.time() < end and _holds(aws):
+            time.sleep(0.5)
+        assert not _holds(aws), "the unreadable hold stayed after the verify\n" + env.logs()
+        _recgap_index_ok(env, ws, aws)
+        end = time.time() + 75                         # status.json's derived part is cached for 30 s
+        while time.time() < end:
+            try:
+                d = json.load(open(env.srv_status))["sets"]["db"]["derived"]
+                if "holds" in d and d["holds"] == []:
+                    break
+            except Exception:
+                pass
+            time.sleep(1)
+        else:
+            raise AssertionError("status.json has no empty \"holds\"\n" + open(env.srv_status).read())
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_hold_write_fail_turns_the_breaker_on():
+    """11/16/2026 (beta4 review L2): when a stream's hold cannot be written (GXREPL_TEST_HOLD_WRITE_FAIL) the copy
+    must not go on object by object as if there were none: the stream is held in memory, the breaker goes on (every
+    batch rebuilt, across a restart too), an ALERT is logged, and the index stays its data's"""
+    env, ws, aws, w = _recgap_env("incr_hold_write_fail")
+    try:
+        d1 = os.path.join(ws, "d1")
+        env.kill("client")
+        _restart_server(env, {"GXREPL_TEST_HOLD_WRITE_FAIL": "1"})
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 651,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, a.stdout
+        b = _adds(d1, ws, 652)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        env.start_client()
+        _wait_log(env, "ALERT set db: cannot write", secs=90)
+        slog = open(os.path.join(env.dir, "server.log")).read()
+        assert "ALERT set db: cannot write" in slog, env.logs()
+        st = run([os.path.join(BIN, "gxrepl"), "derived", "status", "--config", env.srv_conf])
+        assert "BREAKER on: the hold of stream" in st.stdout, st.stdout
+        _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_fresh_log_recovered_open_is_indexed():
+    """11/16/2026 (beta4 review H1 and M1, from the reviewer's reproducer): a fresh ship log (the log folder purged, as
+    a late pass does) lists no file until its first commit. Writer A opens it and dies between its journal sync and
+    the ship log; the copy's verify of the new log finds no file listed while d1 has its files. Writer B's Open()
+    recovers A's commit (its open record) and commits. The hold must not go on a verify that compared nothing, d1
+    must not stay sealed "copying", and the index must be its data's."""
+    env, ws, aws, w = _recgap_env("incr_fresh_log")
+    try:
+        d1 = os.path.join(ws, "d1")
+        env.kill("client")
+        for p in glob.glob(os.path.join(ws, ".gxrepl", "log", "*")):
+            if os.path.isdir(p):
+                shutil.rmtree(p)
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 711,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, "writer A was not stopped before the ship log: " + a.stdout
+        env.start_client()
+        time.sleep(6)                                  # the new log seen, verified or waiting for its files
+        clog = open(os.path.join(env.dir, "client.log")).read()
+        assert clog.count("lists no file yet") <= 1, "said every pass\n" + env.logs()
+        b = _adds(d1, ws, 712)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        _recgap_index_ok(env, ws, aws)
+        end = time.time() + 120
+        seal = os.path.join(aws, ".gxrepl", "units", "_d1")
+        while time.time() < end and open(seal).read().startswith("copying"):
+            time.sleep(0.5)
+        assert not open(seal).read().startswith("copying"), "d1 stays sealed copying\n" + env.logs()
+        assert _same_file(os.path.join(ws, "d1", "data.gxd"), os.path.join(aws, "d1", "data.gxd")), env.logs()
+        slog = open(os.path.join(env.dir, "server.log")).read()
+        cl = open(os.path.join(env.dir, "client.log")).read()
+        assert "verified (0 file(s))" not in cl or "verified past its open or gap record" not in slog, \
+            "a 0-file verify and a cleared hold\n" + env.logs()
     finally:
         if w.poll() is None: w.kill(); w.wait()
         env.stop()
@@ -4764,35 +4979,63 @@ def test_incremental_open_in_a_file_update_is_indexed():
         env.stop()
 
 
+def _fill_without_records(name, server_env=None):
+    """commits made without the ship log (--no-ship: pages no record explains) then a clean writer whose open record
+    says it recovered nothing: only the fill check can send d1 to a rebuild. Returns (log since, rebuilds, index ok,
+    detail, env, ws, aws, w)."""
+    env, ws, aws, w = _stamped(name, commits=20)
+    w.wait(120)
+    _finish(env, ws, aws, w)
+    _wait_stamped(env, aws, "d1")
+    if server_env:
+        _restart_server(env, server_env)
+    time.sleep(3)
+    r0 = _rebuilds(env)
+    log0 = len(open(os.path.join(env.dir, "server.log")).read())
+    r = subprocess.run([os.path.join(BIN, "gxrepl_testwriter"), "write", os.path.join(ws, "d1"), "--commits", "3",
+                        "--per", "6", "--commit-block", "--no-ship", "--seed", "411"],
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert r.returncode == 0, r.stdout
+    r = _objects_writer(os.path.join(ws, "d1"), "--commits", 3, "--per", 6, "--commit-block", "--ship-root", ws,
+                        "--seed", 412)
+    assert r.returncode == 0, r.stdout
+    _wait_gen(ws, aws, "d1", 90)
+    _wait_stamped(env, aws, "d1", 120)
+    time.sleep(3)
+    _wait_stamped(env, aws, "d1", 120)
+    log = open(os.path.join(env.dir, "server.log")).read()[log0:]
+    ok, d = _index_equals_rebuild(env, os.path.join(aws, "d1"))
+    return log, _rebuilds(env) - r0, ok, d, env, ws, aws, w
+
+
 def test_incremental_fill_without_records_drops_the_stamps():
     """11/15/2026 (stamp-keeping fill): a fill keeps the folder's stamps only when every page it writes is what the
     update's records write or what the copy already holds. Commits made without the ship log (--no-ship: pages no
     record explains, like a recovered batch) reach the copy by files: the stamps go, the folder is rebuilt, and the
-    copy's index agrees with its data"""
-    env, ws, aws, w = _stamped("incr_fill_norec", commits=20)
+    copy's index agrees with its data.
+    11/16/2026 (beta4 review L3): isolated again: the second writer's open is clean (it recovered nothing), so no
+    open-record rule sends d1 to a rebuild; only the fill check does ("copied by files")"""
+    log, reb, ok, d, env, ws, aws, w = _fill_without_records("incr_fill_norec")
     try:
-        w.wait(120)
-        _finish(env, ws, aws, w)
-        _wait_stamped(env, aws, "d1")
-        time.sleep(3)
-        r0 = _rebuilds(env)
-        log0 = len(open(os.path.join(env.dir, "server.log")).read())
-        r = subprocess.run([os.path.join(BIN, "gxrepl_testwriter"), "write", os.path.join(ws, "d1"), "--commits", "3",
-                            "--per", "6", "--commit-block", "--no-ship", "--seed", "411"],
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        assert r.returncode == 0, r.stdout
-        r = _objects_writer(os.path.join(ws, "d1"), "--commits", 3, "--per", 6, "--commit-block", "--ship-root", ws,
-                            "--seed", 412)
-        assert r.returncode == 0, r.stdout
-        _wait_gen(ws, aws, "d1", 90)
-        _wait_stamped(env, aws, "d1", 120)
-        log = open(os.path.join(env.dir, "server.log")).read()[log0:]
-        # 11/15/2026: the writer's open record now sends the folder to a rebuild first (the recovery gap rule);
-        # either way the pages without records must not keep the stamps
-        assert "copied by files" in log or "rebuild needed: a writer's open record" in log, \
-            "pages without records kept the stamps\n" + env.logs()
-        assert _rebuilds(env) > r0, env.logs()
+        assert "rebuild needed: a writer's open record" not in log and "rebuild needed: a gap record" not in log, \
+            "an open or gap record, not the fill check, sent d1 to a rebuild: the test isolates nothing\n" + env.logs()
+        assert "copied by files" in log, "pages without records kept the stamps\n" + env.logs()
+        assert reb > 0, env.logs()
+        assert ok, f"the copy's index is not its data's (copy, rebuild): {d}\n" + env.logs()
         check_db(os.path.join(aws, "d1"))
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_fill_without_records_needs_the_check():
+    """11/16/2026 (beta4 review L3): the same with the fill check switched off (GXREPL_TEST_FILL_TRUST_ALL): the stamps
+    stay and the copy's index misses the commits made without the ship log. This shows the test above depends on
+    the check alone."""
+    log, reb, ok, d, env, ws, aws, w = _fill_without_records("incr_fill_trust", {"GXREPL_TEST_FILL_TRUST_ALL": "1"})
+    try:
+        assert "copied by files" not in log, "the hook did not switch the check off\n" + env.logs()
+        assert not ok, "the index is still its data's with the check off: the fill test proves nothing\n" + env.logs()
     finally:
         if w.poll() is None: w.kill(); w.wait()
         env.stop()
@@ -4925,6 +5168,45 @@ def test_incremental_static_recover_is_indexed():
         env.stop()
 
 
+def _sha(path):
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def test_static_recover_refuses_without_its_marker():
+    """11/16/2026 (beta4 review M2): the static Recover() replays a batch only after its marker is on the disk. When
+    the marker cannot be written (here its temporary name is taken by a folder) it refuses: nothing replayed, the
+    journal kept. Before the fix it replayed silently with no marker, so the next writer's open record said nothing
+    was recovered. Once the marker can be written the same journal replays, and the copy's index holds A's objects."""
+    env, ws, aws, w = _recgap_env("static_recover_marker")
+    try:
+        d1 = os.path.join(ws, "d1")
+        env.kill("client")
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 721,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, a.stdout
+        blocker = os.path.join(d1, "writer.jnl.recovered.tmp")
+        os.mkdir(blocker)
+        before = _sha(os.path.join(d1, "data.gxd"))
+        r = run([os.path.join(BIN, "gxrepl_testwriter"), "recover", d1])
+        assert r.returncode != 0 and "recovered 0 batch" in r.stdout, "replayed without its marker: " + r.stdout
+        # 11/16/2026 (beta4 re-review L-c): the refusal says why
+        assert "cannot create " in r.stdout and "writer.jnl.recovered.tmp" in r.stdout and "errno" in r.stdout, r.stdout
+        assert _sha(os.path.join(d1, "data.gxd")) == before, "the files changed though the replay was refused"
+        assert not os.path.exists(os.path.join(d1, "writer.jnl.recovered")), "a marker after a refused replay"
+        os.rmdir(blocker)
+        r = run([os.path.join(BIN, "gxrepl_testwriter"), "recover", d1])
+        assert r.returncode == 0 and "recovered 1 batch" in r.stdout, "the kept journal did not replay: " + r.stdout
+        assert os.path.exists(os.path.join(d1, "writer.jnl.recovered")), "Recover() left no marker"
+        b = _adds(d1, ws, 722)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        env.start_client()
+        _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
 def test_incremental_orphan_means_rebuild():
     """11/14/2026: an objects record without its commit (a writer crash between them, here the record lost and a gap
     after it) is never applied object by object: rebuild needed, and the index checks after the rebuild"""
@@ -5014,7 +5296,15 @@ def test_notes_off_output_is_unchanged():
         assert a == n, f + " differs from the old writer's"
     ro, rn = _log_records(outs["old"]), _log_records(outs["new"])
     assert len(ro) == len(rn) and len(ro) > 12, (len(ro), len(rn))
+    # 11/16/2026: since 7.4 beta 4 (hardening) a writer's open record carries what its journal recovered: the old
+    # writer's has no payload, the new one exactly the clean payload ("GXRO", format 1, 0 recovered, flags 0)
+    import struct
+    clean_open = struct.pack("<IIQI", 0x4f525847, 1, 0, 0)
     for x, y in zip(ro, rn):
+        if x[1] == 2 and y[1] == 2:
+            assert x[:3] == y[:3] and x[3] == b"" and y[3] == clean_open, \
+                f"open record {x[2]}: old payload {x[3]!r}, new {y[3]!r} (want the clean open payload)"
+            continue
         assert x == y, f"record {x[2]} differs (type {x[1]} / {y[1]})"
     assert not any(r[1] == 5 for r in rn), "an objects record with notes off"
 
@@ -6307,7 +6597,10 @@ def test_open_without_a_commit_still_seals():
     """11/15/2026 (review F1): the stream's log made again by a writer that opens and closes without a commit (a day
     reopened by the late pass and archived again with no late line: the log holds only an open record, no commit
     block): the verify takes the copy's own block (Diff's "gone" for a block the log does not carry) and the unit
-    stays sealed: torn rc 0 within 20 s, no endless verify"""
+    stays sealed: torn rc 0 within 20 s, no endless verify.
+    11/16/2026: since the late-pass seal fix (f7661c1) a log that lists no file while its folder has files waits for
+    its files instead of being verified with none ("lists no file yet", said once): either is right here, as long
+    as the unit stays sealed, nothing loops and the data is the source's"""
     env = Env("open_no_commit", {"db": CB_OPTS})
     ws, aws = env.roots["db"]
     d1 = os.path.join(ws, "d1")
@@ -6325,7 +6618,8 @@ def test_open_without_a_commit_still_seals():
         ok = False
         while time.time() < end:
             t = torn(env)
-            if t.returncode == 0 and "verified (" in open(os.path.join(env.dir, "client.log")).read()[n:]:
+            cl = open(os.path.join(env.dir, "client.log")).read()[n:]
+            if t.returncode == 0 and ("verified (" in cl or "lists no file yet" in cl):
                 ok = True
                 break
             time.sleep(0.5)
@@ -6333,6 +6627,7 @@ def test_open_without_a_commit_still_seals():
         time.sleep(3)
         log = open(os.path.join(env.dir, "client.log")).read()[n:]
         assert log.count("verified (") <= 2, log            # no endless verify
+        assert log.count("lists no file yet") <= 1, log     # said once, not every pass
         assert _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd")), env.logs()
     finally:
         env.stop()
