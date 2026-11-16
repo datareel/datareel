@@ -53,6 +53,12 @@ will affect all function that call ReadBlockHdr().
 function to test for valid blocks: gxDatabase::TotalBlocks(), 
 gxDatabase::DeletedBlocks(), gxDatabase::UnDelete(), 
 gDatabase::ReclaimBestFit(), and gxDatabase::ReclaimFirstFit().
+11/16/2026 (6.4 beta 2): FindNextBlock(), FindNextObject(),
+FindPrevBlock() and FindPrevObject() from DataReel 7.4. The offset is an
+object or block address, and each returns 0 at the end of the file. The
+old FindNextBlock() skipped a block when given an object address and
+returned the last block again at the end, so walks never ended. The
+walks compare a damaged block length unsigned (no signed overflow).
 ==============================================================
 */
 // ----------------------------------------------------------- // 
@@ -86,10 +92,22 @@ __SBYTE__ gxDatabase::gxSignature[gxSignatureSize] = {
 // Current 32-bit synchronization word
 gxUINT32 gxDatabase::gxInternalCheckWord = gxCheckWord;
 
+// 11/16/2026 (6.4 beta 2, from DataReel 7.0): bounded copy of a file
+// name into a fixed size member (strcpy() overflowed on long names)
+static void gxd_copy_name(char *dst, size_t size, const char *src)
+{
+  if(!dst || size == 0) return;
+  if(!src) { dst[0] = 0; return; }
+  size_t n = strlen(src);
+  if(n >= size) n = size - 1;
+  memcpy(dst, src, n);
+  dst[n] = 0;
+}
+
 gxDatabase::gxDatabase()
 // Creates a database file object.
 {
-  strcpy(file_name, gxDefaultFileName); // Set the initial file name
+  gxd_copy_name(file_name, sizeof(file_name), gxDefaultFileName); // Set the initial file name
   fp = 0;
 
   // Reset the last reported error and the file status members
@@ -128,7 +146,7 @@ void gxDatabase::Release()
 // this file pointer. This allows the file to remain open until all 
 // threads accessing this file pointer have exited or released it.
 {
-  strcpy(file_name, gxDefaultFileName); // Reset the open file name
+  gxd_copy_name(file_name, sizeof(file_name), gxDefaultFileName); // Reset the open file name
   DisablePageCache(); // 10/31/2026: The cache belongs to this object
   fp = 0; 
 
@@ -191,7 +209,7 @@ gxDatabaseError gxDatabase::Create(const char *fname, FAU_t static_size,
     is_ok = 1;
     ready_for_writing = 1;
     ready_for_reading = 1;
-    strcpy(file_name, fname);
+    gxd_copy_name(file_name, sizeof(file_name), fname); // 11/16/2026: was strcpy(), which overflowed on long path names
 
     // Set the specified revision letter. NOTE This will default to the
     // current revision unless a lower version is specified.
@@ -322,7 +340,7 @@ gxDatabaseError gxDatabase::Open(const char *fname,
   else {
     is_open = 1;
     is_ok = 1;
-    strcpy(file_name, fname);
+    gxd_copy_name(file_name, sizeof(file_name), fname); // 11/16/2026: was strcpy(), which overflowed on long path names
     last_operation = gxDBASE_WRITE;
     
     // 10/31/2026: A file that is not a database file, or whose header
@@ -368,7 +386,7 @@ void gxDatabase::AbandonOpen()
   fp = 0;
   is_open = is_ok = 0;
   ready_for_reading = ready_for_writing = 0;
-  strcpy(file_name, gxDefaultFileName);
+  gxd_copy_name(file_name, sizeof(file_name), gxDefaultFileName);
 }
 
 gxDatabaseError gxDatabase::Close()
@@ -393,7 +411,7 @@ gxDatabaseError gxDatabase::Close()
       return gxd_error;
 #endif
     }
-    strcpy(file_name, gxDefaultFileName); // Set the initial file name
+    gxd_copy_name(file_name, sizeof(file_name), gxDefaultFileName); // Set the initial file name
   }
 
   is_open = 0;
@@ -2199,6 +2217,65 @@ FAU_t gxDatabase::FindFirstBlock(FAU_t offset)
   return SeekTo(file_address);
 }
 
+// 10/26/2026: Helpers for the linear navigation functions. Blocks are
+// stored back to back from the heap start to the end of file, so the
+// next block starts block_length bytes after the current one.
+static int gxd_valid_block(gxDatabase &db, FAU_t address, FAU_t eof)
+// Returns true if a valid block header starts at address
+{
+  if(address <= (FAU_t)0 || 
+     (FAU_t)(address + db.BlockHeaderSize()) > eof) return 0;
+  gxBlockHeader hdr;
+  if(db.Read(&hdr, sizeof(gxBlockHeader), address) != gxDBASE_NO_ERROR) {
+    return 0;
+  }
+  return db.TestBlockHeader(hdr);
+}
+
+static FAU_t gxd_block_of(gxDatabase &db, FAU_t offset, FAU_t eof)
+// Returns the address of the block holding the object at offset, or
+// of the block that starts at offset, or 0 if neither is a block.
+{
+  FAU_t hdr_size = (FAU_t)db.BlockHeaderSize();
+  if(offset > hdr_size && gxd_valid_block(db, offset - hdr_size, eof)) {
+    return offset - hdr_size;
+  }
+  if(gxd_valid_block(db, offset, eof)) return offset;
+  return (FAU_t)0;
+}
+
+static FAU_t gxd_next_block(gxDatabase &db, FAU_t block_address, FAU_t eof)
+// Returns the address of the block after the block at block_address,
+// or 0 at the end of the file. A damaged block length is skipped by
+// searching for the next valid block header.
+{
+  gxBlockHeader hdr;
+  if(db.ReadBlockHdr(hdr, block_address) != gxDBASE_NO_ERROR) return 0;
+  // 11/01/2026: Compare the length unsigned against the room left in
+  // the file. block_address plus a damaged length cast to FAU_t could
+  // overflow (undefined behaviour) for lengths near the type's maximum.
+  if((block_address < (FAU_t)0) || (block_address >= eof)) return (FAU_t)0;
+  FAU_t next;
+  if((hdr.block_length == 0) ||
+     ((unsigned long long)hdr.block_length >
+      (unsigned long long)(eof - block_address))) {
+    next = block_address + 1; // Damaged length: search from the next byte
+  }
+  else {
+    next = block_address + (FAU_t)hdr.block_length;
+  }
+  if(next > eof - (FAU_t)db.BlockHeaderSize()) return (FAU_t)0;
+  if(gxd_valid_block(db, next, eof)) return next;
+  return db.FindFirstBlock(next);
+}
+
+static int gxd_normal_block(gxDatabase &db, FAU_t block_address)
+{
+  gxBlockHeader hdr;
+  if(db.ReadBlockHdr(hdr, block_address) != gxDBASE_NO_ERROR) return 0;
+  return (__SBYTE__(hdr.block_status & 0xff)) == gxNormalBlock;
+}
+
 FAU_t gxDatabase::FindFirstObject(FAU_t offset)
 // Search through the database until a valid block is found and
 // then return the object's address. If the block is marked deleted
@@ -2206,176 +2283,97 @@ FAU_t gxDatabase::FindFirstObject(FAU_t offset)
 // search starts at the heap start or the offset. Returns 0 if
 // no valid block is found in the file or the end of file is reached.
 {
-  gxBlockHeader blk_hdr;
   FAU_t file_address = FindFirstBlock(offset);
-  if(!file_address) return (FAU_t)0;
-
-  while(1) { // Loop until a normal block status is found
-    if(ReadBlockHdr(blk_hdr, file_address) != gxDBASE_NO_ERROR) 
-      return (FAU_t)0;
-    if((__SBYTE__(blk_hdr.block_status & 0xff)) == gxNormalBlock) 
-      break;
-    // 10/31/2026: The search must move forward in the file
-    FAU_t next_address = file_address + (FAU_t)blk_hdr.block_length;
-    if(next_address <= file_address) return (FAU_t)0;
-    file_address = FindFirstBlock(next_address);
-    if(!file_address) return (FAU_t)0;
+  FAU_t eof = (FAU_t)file_header.gxd_eof;
+  while(file_address && !gxd_normal_block(*this, file_address)) {
+    file_address = gxd_next_block(*this, file_address, eof);
   }
-
+  if(!file_address) return (FAU_t)0;
   return file_address + BlockHeaderSize();
 }
 
 FAU_t gxDatabase::FindNextBlock(FAU_t offset)
-// Search through the database until the next valid block after the
-// first valid block is found. The search starts at the heap start
-// or the offset value. Returns 0 if no valid block is found or the
-// end of file is reached.
+// Returns the address of the block after the block at offset, which
+// is an object address (as returned by Alloc() and FindFirstObject())
+// or a block address. With no offset, returns the block after the
+// first block. Returns 0 if there is no next block. NOTE: This
+// function does not check the block's status. 10/26/2026: Rewritten.
+// It skipped a block when given an object address and returned the
+// last block again at the end of the file, so loops never ended.
 {
-  gxBlockHeader blk_hdr;
-
-  // No blocks have been allocated yet
+  TestFileHeader();
   if(file_header.gxd_hs_fptr == file_header.gxd_eof) return (FAU_t)0;
-
-  FAU_t file_address = FindFirstBlock(offset);
-
-  if(!file_address) return (FAU_t)0; // No Vaild block found
-
-  if(ReadBlockHdr(blk_hdr, file_address) != gxDBASE_NO_ERROR) return (FAU_t)0;
-  FAU_t next_blk = file_address + blk_hdr.block_length;
-
-  // This is last the blocks
-  if(next_blk >= file_header.gxd_eof) return file_address; 
-
-  // Ensure block header is valid
-  if(ReadBlockHdr(blk_hdr, next_blk) != gxDBASE_NO_ERROR) return (FAU_t)0;
-
-  return next_blk;
+  FAU_t eof = (FAU_t)file_header.gxd_eof;
+  FAU_t block_address;
+  if(!offset) {
+    block_address = FindFirstBlock();
+  }
+  else {
+    block_address = gxd_block_of(*this, offset, eof);
+    if(!block_address) return FindFirstBlock(offset); // First one after
+  }
+  if(!block_address) return (FAU_t)0;
+  return gxd_next_block(*this, block_address, eof);
 }
 
 FAU_t gxDatabase::FindNextObject(FAU_t offset)
-// Search through the database until the next valid block after the
-// first valid block is found and then return the object's address.
-// If the block is marked deleted continue searching until the next
-// normal block is found. The search starts at the heap start or the
-// offset value. Returns 0 if no valid block is found or the end of
-// file is reached.
+// Returns the address of the next object that is not deleted after
+// the object (or block) at offset, or 0 at the end of the file. With
+// no offset, returns the second object. 10/26/2026: Rewritten, see
+// FindNextBlock().
 {
-  gxBlockHeader blk_hdr;
   FAU_t file_address = FindNextBlock(offset);
-  if(!file_address) return (FAU_t)0;
-  
-  while(1) { // Loop until a normal block status is found
-    if(ReadBlockHdr(blk_hdr, file_address) != gxDBASE_NO_ERROR) 
-      return (FAU_t)0;
-    if((__SBYTE__(blk_hdr.block_status & 0xff)) == gxNormalBlock) 
-      break;
-    // 10/31/2026: The search must move forward in the file
-    FAU_t next_address = file_address + (FAU_t)blk_hdr.block_length;
-    if(next_address <= file_address) return (FAU_t)0;
-    FAU_t found = FindNextBlock(next_address);
-    if(found <= file_address) return (FAU_t)0;
-    file_address = found;
+  FAU_t eof = (FAU_t)file_header.gxd_eof;
+  while(file_address && !gxd_normal_block(*this, file_address)) {
+    file_address = gxd_next_block(*this, file_address, eof);
   }
-
+  if(!file_address) return (FAU_t)0;
   return file_address + BlockHeaderSize();
 }
 
 FAU_t gxDatabase::FindPrevBlock(FAU_t offset)
-// Search backwards through the database until a valid block is found and
-// then return the block's address. If the block is marked deleted
-// continue searching until the first normal block is found. The
-// search starts at the offset. Returns 0 if no valid block is found in
-// the file or the start of file is reached.
+// Returns the address of the block before the block at offset, which
+// is an object or block address, or 0 if there is no previous block.
+// 10/26/2026: Rewritten to walk the blocks from the heap start. It
+// skipped deleted blocks (FindPrevObject() does that), and returned
+// an address that was not a block for the first block.
 {
-  const FAU_t DEF_BUF_SIZE = 1000 * sizeof(FAU_t);
-  gxBlockHeader blk_hdr;
-  FAU_t file_address = (FAU_t)0;
-  FAU_t bufsize, rdsize;
-  char *buf;
-
-  // Ensure that the database header stays in sync
-  // during multiple file access.
   TestFileHeader();
- 
-  // No blocks have been allocated yet
-  if(file_header.gxd_hs_fptr == file_header.gxd_eof) return (FAU_t)0;
-  
-  if(!offset) return (FAU_t)0;
-  else {
-    // offset the starting address 
-    file_address = ((file_address + offset) - BlockHeaderSize()); 
-    
-    // Prevent offsetting past EOF
-    if((file_address <= file_header.gxd_hs_fptr) ||
-       (file_address > file_header.gxd_eof)) 
-      return 0; // Invalid address
+  if(file_header.gxd_hs_fptr == file_header.gxd_eof || !offset) {
+    return (FAU_t)0;
   }
-  bufsize = file_address - file_header.gxd_hs_fptr;
-  if(bufsize == 0) {
-    file_address = FAU_t(file_header.gxd_hs_fptr + BlockHeaderSize());
-    return file_address;
+  FAU_t eof = (FAU_t)file_header.gxd_eof;
+  FAU_t target = gxd_block_of(*this, offset, eof);
+  if(!target) return (FAU_t)0;
+  FAU_t prev = (FAU_t)0;
+  FAU_t block_address = FindFirstBlock();
+  while(block_address && block_address < target) {
+    prev = block_address;
+    block_address = gxd_next_block(*this, block_address, eof);
   }
-  if(bufsize > DEF_BUF_SIZE) bufsize = DEF_BUF_SIZE;
-
-  buf = new char[(__ULWORD__)bufsize];
-
-  while (1) {
-    if(!IsOK()) {
-      delete[] buf; // Prevent any memory leaks
-      return (FAU_t)0;
-    }
-    rdsize = bufsize;
-    if((file_address - rdsize) < file_header.gxd_hs_fptr) {
-      rdsize = file_address - file_header.gxd_hs_fptr;
-    }
-    if(rdsize < (FAU_t)sizeof(gxINT32)) {
-      delete[] buf; // Prevent any memory leaks
-      return (FAU_t)0;
-    }
-
-    file_address -= rdsize;
-    if(Read(buf, (__ULWORD__)rdsize, file_address) !=
-       gxDBASE_NO_ERROR) {
-      delete[] buf; // Prevent any memory leaks
-      return (FAU_t)0;
-    }
-    for(FAU_t i = rdsize - sizeof(FAU_t); i >= 0; i--) {
-      if((file_address+i == file_header.gxd_hs_fptr) ||
-	 (*((gxUINT32*)(buf+(FAU_t)i)) == \
-gxDatabase::gxInternalCheckWord)) {
-        Read(&blk_hdr, sizeof(gxBlockHeader), file_address+i);
-	if(TestBlockHeader(blk_hdr)) { // Found valid block
-	  if((__SBYTE__(blk_hdr.block_status & 0xff)) == gxNormalBlock) {
-	    delete[] buf; // Prevent any memory leaks
-	    return file_address+i;
-	  }
-	}
-      }
-    }
-  }
+  return prev;
 }
 
 FAU_t gxDatabase::FindPrevObject(FAU_t offset)
-// Search backwards through the database until a valid block is found
-// and then return the object's address. If the block is marked deleted
-// continue searching until the first normal block is found. The
-// search starts at the offset. Returns 0 if no valid block is found in
-// the file or the start of file is reached.
+// Returns the address of the object that is not deleted before the
+// object (or block) at offset, or 0 if there is none. 10/26/2026:
+// Rewritten, see FindPrevBlock().
 {
-  gxBlockHeader blk_hdr;
-  FAU_t file_address = FindPrevBlock(offset);
-  if(!file_address) return (FAU_t)0;
-
-  while(1) { // Loop until a normal block status is found
-    if(ReadBlockHdr(blk_hdr, file_address) != gxDBASE_NO_ERROR) 
-      return (FAU_t)0;
-    if((__SBYTE__(blk_hdr.block_status & 0xff)) == gxNormalBlock) 
-      break;
-    file_address = FindPrevBlock(file_address+blk_hdr.block_length);
-    if(!file_address) return (FAU_t)0;
+  TestFileHeader();
+  if(file_header.gxd_hs_fptr == file_header.gxd_eof || !offset) {
+    return (FAU_t)0;
   }
-
-  return file_address + BlockHeaderSize();
+  FAU_t eof = (FAU_t)file_header.gxd_eof;
+  FAU_t target = gxd_block_of(*this, offset, eof);
+  if(!target) return (FAU_t)0;
+  FAU_t prev = (FAU_t)0;
+  FAU_t block_address = FindFirstBlock();
+  while(block_address && block_address < target) {
+    if(gxd_normal_block(*this, block_address)) prev = block_address;
+    block_address = gxd_next_block(*this, block_address, eof);
+  }
+  if(!prev) return (FAU_t)0;
+  return prev + BlockHeaderSize();
 }  
 // ==============================================================
 // Database Linear Navigation Functions (END HERE)
