@@ -962,6 +962,14 @@ int gxdShipLog::AppendCommit(const std::vector<gxdShipFile> &files)
     }
   }
 #endif
+#if defined(GXREPL_TEST_HOOKS) && !defined(_WIN32)
+  // 11/15/2026: test builds: GXDSHIP_TEST_DROP_COMMIT=N: the Nth commit of this writer (from 1) is left out of the
+  // log, objects record and all, and a gap record comes before the next one (a gap alone, no orphan objects record)
+  if(const char *dc = getenv("GXDSHIP_TEST_DROP_COMMIT")) {
+    static unsigned long commits_seen = 0;
+    if(++commits_seen == strtoul(dc, 0, 10)) { pending_gap = 1; return 0; }
+  }
+#endif
   stored_bytes += plen;
   int arc = have_objects ? append2(gxdShipObjects, obuf.data(), obuf.size(), type, pay, plen)
                          : append(type, pay, plen);

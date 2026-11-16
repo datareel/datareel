@@ -2036,6 +2036,10 @@ int gxReplLocal::State(const std::string &set, std::vector<gxReplStreamState> &v
   return 0;
 }
 
+static std::string derived_dir(const gxReplSetConfig &sc);   // 11/15/2026: the stream holds (see hold_path)
+static std::string hold_path(const gxReplSetConfig &sc, const std::string &stream);
+static bool read_hold(const gxReplSetConfig &sc, const std::string &stream, std::string &log_id, unsigned long long &lsn);
+
 int gxReplLocal::SetState(const std::string &set, const gxReplStreamState &st,
 			  std::string &err)
 {
@@ -2044,6 +2048,32 @@ int gxReplLocal::SetState(const std::string &set, const gxReplStreamState &st,
   std::lock_guard<std::mutex> g(s->m);
   WriterHold wh;                             // 11/10/2026: held until this change is done
   if(hold_writer_locks(s->sc, wh, err)) return -1;
+  // 11/15/2026 (the recovery gap, review 2): the client sends the copy's own position after a stream's verify is
+  // done (an older client never does, and an older copy just writes the same position again). Nothing to write
+  // then; the stream's hold goes when the verify reached the hold's record (or verified another log, whole).
+  {
+    std::map<std::string, gxReplStreamState> cur;
+    std::string e2;
+    read_states(s, cur, e2);
+    auto c = cur.find(st.name);
+    if(c != cur.end() && c->second.log_id == st.log_id && c->second.lsn == st.lsn && st.log_id != "resync") {
+      std::string hid;
+      unsigned long long hl = 0;
+      if(read_hold(s->sc, st.name, hid, hl) && hl != ULLONG_MAX && (hid != st.log_id || st.lsn >= hl)) {
+	int lk = open((s->root + "/.gxrepl/apply.jnl").c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+	if(lk >= 0 && lock_apply_bounded(lk) == 0) {          // under the apply lock, as the hold is written
+	  if(unlink(hold_path(s->sc, st.name).c_str()) == 0) {
+	    sync_dir(derived_dir(s->sc));
+	    glog("set %s: stream %s verified past its open or gap record at %llu: object by object again",
+		 s->sc.name.c_str(), st.name.c_str(), hl);
+	  }
+	  flock(lk, LOCK_UN);
+	}
+	if(lk >= 0) close(lk);
+      }
+      return 0;
+    }
+  }
   return write_state(s, st, err);
 }
 
@@ -2281,7 +2311,9 @@ int gxReplLocal::apply_batch(SetState_ *s,
   // 11/15/2026 (the recovery gap): a batch with no pages and a pre-lock step (records with no pages, such as a
   // writer's lone open record, on an incremental set) still takes the apply lock: the step drops the stamps of the
   // stream's folders there, and in_lock writes the stream's position under the same lock
-  if(pages.empty() && !pre_lock) return 0;
+  // review 6 (11/15/2026): and with an in_lock step (the stream's position), so a lone open record's position is
+  // written under the lock in rebuild mode too
+  if(pages.empty() && !pre_lock && !in_lock) return 0;
   std::string jdir = s->root + "/.gxrepl";
   if(mkdirs(jdir) != 0) { err = "cannot make " + jdir; return -1; }
   std::string jname = jdir + "/apply.jnl";
@@ -2640,6 +2672,54 @@ static const gxrExtractorOps *load_extractor(const std::string &spec, std::strin
 }
 
 static std::string derived_dir(const gxReplSetConfig &sc) { return sc.root + "/.gxrepl/derived"; }
+// 11/15/2026 (the recovery gap, review 2): a stream's hold. An open or a gap record of an incremental set's stream
+// writes "LOG_ID LSN" here; while it is there, every batch of the stream sends the folders it changes back to a
+// rebuild (a rebuild between a lone open and the stream's verify may come from data that still lacks the recovered
+// pages: the commits after it would then go on object by object from that rebuild). The stream's verify, once done,
+// clears it (SetState with the copy's own position, see gxReplLocal::SetState).
+static std::string hold_path(const gxReplSetConfig &sc, const std::string &stream)
+{
+  std::string k = stream;
+  for(auto &c : k) if(c == '/') c = '#';
+  return derived_dir(sc) + "/hold_" + k;
+}
+static bool read_hold(const gxReplSetConfig &sc, const std::string &stream, std::string &log_id, unsigned long long &lsn)
+{
+  FILE *f = fopen(hold_path(sc, stream).c_str(), "r");
+  if(!f) return false;
+  char id[128] = {0};
+  if(fscanf(f, "%127s %llu", id, &lsn) != 2) { id[0] = 0; lsn = ULLONG_MAX; }   // unreadable: held until a verify
+  fclose(f);
+  log_id = id;
+  return true;
+}
+// 11/15/2026 (review 5): the folders whose seals name this stream ("log G L STREAM C"), from the seals folder (no
+// walk of the set's tree under the apply lock)
+static std::vector<std::string> stream_folders(const gxReplSetConfig &sc, const std::string &stream)
+{
+  std::vector<std::string> out;
+  std::string dir = sc.root + "/.gxrepl/units";
+  DIR *d = opendir(dir.c_str());
+  struct dirent *e;
+  while(d && (e = readdir(d)) != 0) {
+    std::string n = e->d_name;
+    if(n.size() < 2 || n[0] != '_' || n.find(".gxrtmp") != std::string::npos) continue;
+    FILE *f = fopen((dir + "/" + n).c_str(), "r");
+    if(!f) continue;
+    char b[512] = {0};
+    size_t got = fread(b, 1, sizeof(b) - 1, f);
+    fclose(f);
+    b[got] = 0;
+    char sname[256] = {0};
+    unsigned long long g = 0, l = 0;
+    if(sscanf(b, "log %llu %llu %255s", &g, &l, sname) != 3 || stream != sname) continue;
+    std::string rel = n == "_root" ? std::string() : n.substr(1);
+    for(auto &c : rel) if(c == '#') c = '/';
+    out.push_back(rel);
+  }
+  if(d) closedir(d);
+  return out;
+}
 static std::string breaker_path(const gxReplSetConfig &sc) { return derived_dir(sc) + "/incremental.breaker"; }
 static std::string try_path(const gxReplSetConfig &sc) { return derived_dir(sc) + "/incremental.try"; }
 // 11/14/2026 (review 4): the times (unix seconds) the index step stopped gxrepl, any batch, the last hour's kept
@@ -2694,12 +2774,20 @@ static void drop_stamps(const gxReplSetConfig &sc, const std::string &rel, const
 {
   std::string dir = rel.empty() ? sc.root : sc.root + "/" + rel;
   int n = 0;
+  // 11/15/2026 (review 3): the derived state and derived.stamp first, then the per-index stamps, and synced before
+  // the caller writes the stream's position: a crash part way leaves the folder rebuilt, never stamps that look good
+  if(all) {
+    if(unlink(derived_state_path(sc, rel).c_str()) == 0) n++;
+    if(unlink((dir + "/derived.stamp").c_str()) == 0) n++;
+    sync_dir(derived_dir(sc));
+    sync_dir(dir);
+#ifdef GXREPL_TEST_HOOKS
+    if(n && getenv("GXREPL_TEST_KILL_IN_DROP")) _exit(9);   // test builds: killed between the two
+#endif
+  }
   for(auto &ix : folder_indexes(sc, rel))
     if(unlink(gxdDerivedStamp::PathFor(dir + "/" + ix).c_str()) == 0) n++;
-  if(all) {
-    if(unlink((dir + "/derived.stamp").c_str()) == 0) n++;
-    if(unlink(derived_state_path(sc, rel).c_str()) == 0) n++;
-  }
+  sync_dir(dir);
   if(n && log_it) glog("set %s: %s: derived indexes: rebuild needed: %s", sc.name.c_str(),
 		       rel.empty() ? "." : rel.c_str(), why.c_str());
 }
@@ -2855,8 +2943,8 @@ struct StepWatchdog_ {
 // The incremental step of one batch, under the apply lock, before a page is written. Adds the index pages and
 // stamps to "batch" (their bytes in "store"). Never fails the batch: a folder it cannot do is "rebuild needed".
 // peak_mb: the most staged MB seen (stress tests).
-static void incremental_apply(const gxReplSetConfig &sc, const std::string &root, const std::string &stream_log_id,
-			      const std::vector<gxdShipRecordView> &recs, PageBatch &batch,
+static void incremental_apply(const gxReplSetConfig &sc, const std::string &root, const std::string &stream_name,
+			      const std::string &stream_log_id, const std::vector<gxdShipRecordView> &recs, PageBatch &batch,
 			      std::deque<std::vector<unsigned char> > &store, std::deque<std::string> &texts,
 			      const std::map<std::string, bool> &unit_cb, unsigned long long last, bool &tried,
 			      double *peak_mb = 0)
@@ -2873,31 +2961,6 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
   if(const char *hw = getenv("GXREPL_TEST_WATCHDOG_S")) hard = strtoull(hw, 0, 10);   // test builds only
 #endif
   StepWatchdog_ dog(sc.name, hard);
-  // 11/15/2026 (the recovery gap): an open record or a gap record in the stream means pages may have reached the
-  // files with no object notes: a writer that died after its journal commit and before the ship log has it, whose
-  // batch the next writer's Open() recovers into the files (only that writer's open record says so), or records
-  // lost (a gap). The next commits can carry those pages (the same tail page, the file's header) without naming the
-  // objects in them, and a verify then finds the files equal, so an index kept object by object would miss them
-  // with its stamps in order. Every folder whose indexes are stamped on this stream's log goes back to a rebuild:
-  // its stamps, derived.stamp and derived state go, so the derived pass rebuilds it from the copy's own data.
-  for(auto &r : recs) {
-    if(r.type != gxdShipOpen && r.type != gxdShipGap) continue;
-    std::string why = r.type == gxdShipOpen ? "a writer's open record (its journal may have recovered a batch with no "
-      "record)" : "a gap record (records lost)";
-    std::vector<std::string> folders;
-    derived_folders(sc, "", folders);
-    for(auto &u : folders) {
-      std::string dir = u.empty() ? root : root + "/" + u;
-      for(auto &ix : folder_indexes(sc, u)) {
-	gxdStampData d;
-	if(gxdDerivedStamp::ReadFile(gxdDerivedStamp::PathFor(dir + "/" + ix), d) == 0 && d.log_id == stream_log_id) {
-	  drop_stamps(sc, u, why + " at " + std::to_string(r.lsn), true, true);
-	  break;
-	}
-      }
-    }
-    return;                                   // this batch's folders have no stamps now: nothing to apply to them
-  }
   // The folders this batch changes (their non-derived files)
   std::set<std::string> units;
   bool orphan = false;
@@ -2909,6 +2972,53 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
     std::vector<gxdShipCommitFile> fl;
     if(gxdParseShipCommitRecord(r, st, fl) != 0) continue;
     for(auto &f : fl) if(!is_derived(sc, f.name)) units.insert(dir_of(f.name));
+  }
+  // 11/15/2026 (the recovery gap): an open record or a gap record in the stream means pages may have reached the
+  // files with no object notes: a writer that died after its journal commit and before the ship log has it, whose
+  // batch the next writer's Open() recovers into the files (only that writer's open record says so), or records
+  // lost (a gap). The next commits can carry those pages (the same tail page, the file's header) without naming the
+  // objects in them, and a verify then finds the files equal, so an index kept object by object would miss them
+  // with its stamps in order. The stream's folders go back to a rebuild (their stamps, derived.stamp and derived
+  // state), and (review 2) the stream is held off object by object until its verify is done: every batch of it
+  // until then sends the folders it changes back to a rebuild too.
+  // review 10 (moved 11/15/2026): commits without their objects record mean the source's object notes are off; said
+  // here, before the open/gap rule and the hold (which return early), so the WARN shows whatever this batch holds
+  for(size_t i = 0; i < recs.size(); i++) {
+    if(recs[i].type != gxdShipCommit && recs[i].type != gxdShipCommitZ) continue;
+    gxdShipObjectsRecord o;
+    if(gxdShipObjectsFor(recs, i, o) == 0) {
+      write_atomic(notes_off_path(sc), std::to_string((long long)time(0)) + " a commit without its objects record (lsn " +
+		   std::to_string(recs[i].lsn) + ")\n");
+      break;
+    }
+  }
+  {
+    unsigned long long og = 0;
+    std::string ogwhy;
+    for(auto &r : recs)
+      if(r.type == gxdShipOpen || r.type == gxdShipGap) {
+	og = r.lsn;
+	ogwhy = r.type == gxdShipOpen ? "a writer's open record (its journal may have recovered a batch with no record)"
+				      : "a gap record (records lost)";
+      }
+    if(og) {
+      mkdirs(derived_dir(sc));
+      if(write_atomic(hold_path(sc, stream_name), stream_log_id + " " + std::to_string(og) + "\n") != 0)
+	glog("set %s: cannot write %s", sc.name.c_str(), hold_path(sc, stream_name).c_str());
+      std::set<std::string> fs(units.begin(), units.end());
+      for(auto &u : stream_folders(sc, stream_name)) fs.insert(u);
+      for(auto &u : fs) if(!folder_indexes(sc, u).empty()) drop_stamps(sc, u, ogwhy + " at " + std::to_string(og), true, true);
+      return;
+    }
+    std::string hid;
+    unsigned long long hl = 0;
+    if(read_hold(sc, stream_name, hid, hl)) {
+      for(auto &u : units)
+	if(!folder_indexes(sc, u).empty())
+	  drop_stamps(sc, u, "stream " + stream_name + " waits for its verify (an open or gap record at " +
+		      (hl == ULLONG_MAX ? std::string("?") : std::to_string(hl)) + ")", true, true);
+      return;
+    }
   }
   std::string mode_why;
   const gxrExtractorOps *ops = 0;
@@ -3129,8 +3239,8 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
 // 11/14/2026 (review A1): the index step of one batch's records with its crash guard (incremental.try, the crash
 // log and the breaker), under the apply lock before a page is written: the same for ApplyLog's records and for the
 // records a verify's file update brings (ApplyFiles)
-static void index_step(const gxReplSetConfig &sc, const std::string &root, const std::string &log_id,
-		       const std::vector<gxdShipRecordView> &recs, PageBatch &batch,
+static void index_step(const gxReplSetConfig &sc, const std::string &root, const std::string &stream_name,
+		       const std::string &log_id, const std::vector<gxdShipRecordView> &recs, PageBatch &batch,
 		       std::deque<std::vector<unsigned char> > &store, std::deque<std::string> &texts,
 		       const std::map<std::string, bool> &unit_cb, unsigned long long last, double &peak_mb)
 {
@@ -3167,7 +3277,7 @@ static void index_step(const gxReplSetConfig &sc, const std::string &root, const
   bool tried = false;
   double pk = 0;
   struct timespec it0; clock_gettime(CLOCK_MONOTONIC, &it0);
-  incremental_apply(sc, root, log_id, recs, batch, store, texts, unit_cb, last, tried, &pk);
+  incremental_apply(sc, root, stream_name, log_id, recs, batch, store, texts, unit_cb, last, tried, &pk);
   if(pk > peak_mb) peak_mb = pk;
   if(tried) stats_line("incremental", sc.name, ms_since(it0), std::to_string(pk) + " " + std::to_string(recs.size()));
   unlink(try_path(sc).c_str());
@@ -3218,7 +3328,7 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
   if(s->sc.derived_apply == "incremental" && !s->sc.derived.empty() &&
      gxdParseShipRecords(records.data(), records.size(), recs) == 0 && !recs.empty()) {
     pre = [&](std::string &) -> int {
-      index_step(s->sc, s->root, it->second.log_id, recs, batch, istore, itexts, unit_cb_records, last, derived_peak_mb);
+      index_step(s->sc, s->root, stream, it->second.log_id, recs, batch, istore, itexts, unit_cb_records, last, derived_peak_mb);
       return 0;
     };
   }
@@ -3251,7 +3361,7 @@ int gxReplLocal::ApplyFiles(const std::string &set,
   std::vector<std::string> fulls(v.size());
   std::set<std::string> not_in_step;
   std::map<std::string, bool> unit_cb;      // 11/10/2026 (review): see add_records()
-  struct FileRecs_ { std::string log_id; const std::vector<unsigned char> *records; unsigned long long last;
+  struct FileRecs_ { std::string stream, log_id; const std::vector<unsigned char> *records; unsigned long long last;
 		     std::map<std::string, bool> unit_cb; };
   std::vector<FileRecs_> file_recs;         // 11/14/2026: records applied here (see below)
   std::deque<std::vector<unsigned char> > fr_store;
@@ -3294,7 +3404,7 @@ int gxReplLocal::ApplyFiles(const std::string &set,
 	  // review A2: one entry per stream's records (two files of one folder can carry the same records)
 	  bool dup = false;
 	  for(auto &fr : file_recs) if(fr.log_id == u.log_id && fr.last == e) dup = true;
-	  if(!dup) file_recs.push_back(FileRecs_{u.log_id, &u.records, e, unit_cb});
+	  if(!dup) file_recs.push_back(FileRecs_{u.stream, u.log_id, &u.records, e, unit_cb});
 	}
       }
       gxReplStreamState ns;
@@ -3442,7 +3552,7 @@ int gxReplLocal::ApplyFiles(const std::string &set,
       std::vector<gxdShipRecordView> recs;
       if(gxdParseShipRecords(fr.records->data(), fr.records->size(), recs) != 0 || recs.empty()) continue;
       // a folder this update also fills by files has no stamps now: its index step finds that (rebuild needed)
-      index_step(s->sc, s->root, fr.log_id, recs, batch, fr_store, fr_texts, fr.unit_cb, fr.last, derived_peak_mb);
+      index_step(s->sc, s->root, fr.stream, fr.log_id, recs, batch, fr_store, fr_texts, fr.unit_cb, fr.last, derived_peak_mb);
     }
     if(!stale_units.empty()) {
       if(recover_journal_locked(s->root) != 0) {
@@ -5263,6 +5373,10 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     const gxReplStream *s = 0;
     for(auto &x : streams) if(x.name == *it) s = &x;
     if(!s) { verify_again[sc.name].erase(*it); it = vlist.erase(it); continue; }   // (review: no stale flag)
+#ifdef GXREPL_TEST_HOOKS
+    // test builds: GXREPL_TEST_VERIFY_WAIT=F: a queued stream verify waits (the pass goes on) until F exists
+    if(const char *vw = getenv("GXREPL_TEST_VERIFY_WAIT")) { struct stat vst; if(stat(vw, &vst) != 0) { ++it; continue; } }
+#endif
     if(!have_sm) { if(src.Manifest(sc.name, sm, err) != 0) return -1; have_sm = true; }
     verifying[sc.name] = s->name;                 // 11/14/2026: see note_verify()
     verify_again[sc.name].erase(s->name);         // 11/15/2026: this verify is the one asked for
@@ -5343,6 +5457,12 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     verifying[sc.name].clear();
     // 11/14/2026: an open or gap record drained during this verify: the stream stays on the list (next pass)
     if(verify_again[sc.name].erase(s->name)) { ++it; continue; }
+    // 11/15/2026 (the recovery gap, review 2): the verify is done: the copy's own position back to it, which tells
+    // a 7.4 copy that the stream's hold may go (an older copy writes the same position again)
+    {
+      auto tsx = tstates.find(s->name);
+      if(tsx != tstates.end() && tgt.SetState(sc.name, tsx->second, err) != 0) return -1;
+    }
     it = vlist.erase(it);
   }
   verifying[sc.name].clear();
