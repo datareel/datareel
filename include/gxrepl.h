@@ -772,6 +772,13 @@ private:
   std::map<std::string, std::string> verifying;
   std::map<std::string, std::set<std::string> > verify_again;
   std::set<std::string> files_wait_noted;   // 11/16/2026: "SET|STREAM|LOG" said "lists no file yet" once
+  std::set<std::string> unit_wait_noted;   // 11/16/2026 (M-c): "SET|FOLDER|MTIME" said "in a commit" once
+  // 11/16/2026 (M-a): "SET|STREAM|LOG" -> when a verify first saw unlisted database files in the stream's folders;
+  // "SET|STREAM" -> (log id, the files the log listed last pass)
+  std::map<std::string, long long> unlisted_since;
+  std::map<std::string, std::pair<std::string, std::set<std::string> > > known_files;
+  int verify_unlisted_wait_s = 120;
+  std::map<std::string, std::pair<std::string, long long> > wait_seen;   // "SET|STREAM" -> (files, when)
   // 11/15/2026 (hardening): "set\nstream" -> resyncs for records bigger than max_message with no record drained
   // since (drain(), the status-2 bound)
   std::map<std::string, int> big_resyncs;

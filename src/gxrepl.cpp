@@ -2760,15 +2760,24 @@ static std::string hold_path(const gxReplSetConfig &sc, const std::string &strea
 }
 // 11/16/2026 (beta4 review L2): holds that could not be written, kept in memory for this run ("ROOT|STREAM").
 // op: 1 hold, 0 is it held, -1 remove (true if it was there)
+static std::mutex g_mem_hold_mx;
+static std::set<std::string> g_mem_holds;
 static bool mem_hold(const gxReplSetConfig &sc, const std::string &stream, int op)
 {
-  static std::mutex mx;
-  static std::set<std::string> held;
-  std::lock_guard<std::mutex> g(mx);
+  std::lock_guard<std::mutex> g(g_mem_hold_mx);
   std::string k = sc.root + "|" + stream;
-  if(op > 0) { held.insert(k); return true; }
-  if(op == 0) return held.count(k) > 0;
-  return held.erase(k) > 0;
+  if(op > 0) { g_mem_holds.insert(k); return true; }
+  if(op == 0) return g_mem_holds.count(k) > 0;
+  return g_mem_holds.erase(k) > 0;
+}
+// 11/16/2026 (beta4 re-review L-e): the streams of this set held in memory (their hold file could not be written)
+static std::vector<std::string> mem_holds_of(const gxReplSetConfig &sc)
+{
+  std::lock_guard<std::mutex> g(g_mem_hold_mx);
+  std::vector<std::string> out;
+  std::string pre = sc.root + "|";
+  for(auto &k : g_mem_holds) if(k.compare(0, pre.size(), pre) == 0) out.push_back(k.substr(pre.size()));
+  return out;
 }
 static bool read_hold(const gxReplSetConfig &sc, const std::string &stream, std::string &log_id, unsigned long long &lsn)
 {
@@ -2788,13 +2797,13 @@ static bool read_hold(const gxReplSetConfig &sc, const std::string &stream, std:
 // 11/16/2026 (beta4 review L1): the set's holds, for the derived status: each stream, its log id and record ("?"
 // when the hold cannot be read) and whether the stream still has a position on the copy (a stream purged from the
 // copy leaves its hold behind: reported, cleared by "gxrepl derived rebuild")
-struct HoldInfo { std::string stream, log_id; unsigned long long lsn = 0; bool unreadable = false, orphan = false; };
+struct HoldInfo { std::string stream, log_id; unsigned long long lsn = 0; bool unreadable = false, orphan = false,
+  in_memory = false; };
 static std::vector<HoldInfo> list_holds(const gxReplSetConfig &sc)
 {
   std::vector<HoldInfo> out;
   DIR *d = opendir(derived_dir(sc).c_str());
-  if(!d) return out;
-  while(struct dirent *e = readdir(d)) {
+  while(struct dirent *e = d ? readdir(d) : 0) {
     std::string n = e->d_name;
     if(n.compare(0, 5, "hold_") != 0) continue;
     HoldInfo h;
@@ -2806,7 +2815,16 @@ static std::vector<HoldInfo> list_holds(const gxReplSetConfig &sc)
     h.orphan = stat((sc.root + "/.gxrepl/state/" + h.stream + ".state").c_str(), &st) != 0;
     out.push_back(h);
   }
-  closedir(d);
+  if(d) closedir(d);
+  // 11/16/2026 (L-e): and the holds kept in memory (this process only: status.json shows them, the CLI cannot)
+  for(auto &m : mem_holds_of(sc)) {
+    bool have = false;
+    for(auto &h : out) if(h.stream == m) { have = h.in_memory = true; }
+    if(have) continue;
+    HoldInfo h;
+    h.stream = m; h.lsn = ULLONG_MAX; h.unreadable = h.in_memory = true;
+    out.push_back(h);
+  }
   std::sort(out.begin(), out.end(), [](const HoldInfo &a, const HoldInfo &b) { return a.stream < b.stream; });
   return out;
 }
@@ -3445,13 +3463,25 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
   // have, whose first page (its header) the records do not hold, cannot be made from them: its other pages would be
   // zeros, and the unit's commit block in the same records would seal it whole. The copy is not in step: nothing is
   // applied or sealed, and the client resyncs the stream (its files by pieces, then the records).
+  // 11/16/2026 (beta4 re-review M-b): ... and a file the copy has but that is shorter than the records' pages need: the
+  // lowest page they write past its end must be the page right at its end (a file left short or empty by a plain
+  // copy, or sparse: the pages between its end and the records' would stay zeros under a seal)
   for(auto &e : batch) {
-    if(e.second.second.count(0)) continue;
-    struct stat fst;
-    if(stat(e.first.c_str(), &fst) == 0) continue;
     std::string rel = e.first.compare(0, s->root.size() + 1, s->root + "/") == 0 ? e.first.substr(s->root.size() + 1) : e.first;
-    err = "not in step: " + rel + " is not on the copy and the records do not hold it whole (resynced)";
-    return -1;
+    struct stat fst;
+    if(stat(e.first.c_str(), &fst) != 0) {
+      if(e.second.second.count(0)) continue;
+      err = "not in step: " + rel + " is not on the copy and the records do not hold it whole (resynced)";
+      return -1;
+    }
+    unsigned long long have_pages = ((unsigned long long)fst.st_size + gxdPageSize - 1) / gxdPageSize;
+    auto past = e.second.second.lower_bound(have_pages);
+    if(past != e.second.second.end() && past->first > have_pages) {
+      err = "not in step: " + rel + " is " + std::to_string((long long)fst.st_size) + " bytes on the copy and the "
+	"records write from page " + std::to_string(past->first) + " on (pages " + std::to_string(have_pages) + " to " +
+	std::to_string(past->first - 1) + " missing; resynced)";
+      return -1;
+    }
   }
   std::map<std::string, bool> unit_cb_records = unit_cb;   // 11/14/2026: for the incremental derived apply
   // 11/10/2026: the record's commit block (gxdShipLog::SetCommitBlock) makes
@@ -4779,7 +4809,8 @@ static std::string holds_json(const gxReplSetConfig &sc)
   for(auto &h : list_holds(sc)) {
     if(j.size() > 1) j += ", ";
     j += "{\"stream\": " + json_str(h.stream) + ", \"log_id\": " + json_str(h.log_id) + ", \"lsn\": " +
-      (h.unreadable ? std::string("null") : std::to_string(h.lsn)) + ", \"orphan\": " + (h.orphan ? "true" : "false") + "}";
+      (h.unreadable ? std::string("null") : std::to_string(h.lsn)) + ", \"orphan\": " + (h.orphan ? "true" : "false") +
+      ", \"in_memory\": " + (h.in_memory ? "true" : "false") + "}";
   }
   return j + "]";
 }
@@ -5631,20 +5662,27 @@ int gxReplClient::sync_unit(gxReplSource &src, gxReplTarget &tgt, const gxReplSe
   // writer added or removed since the pass listed them is not missed)
   std::vector<gxReplFile> fresh;
   std::vector<const gxReplFile *> cur(files);
+  // 11/16/2026 (beta4 re-review M-c): the copy is touched (marked "copying") only once a try finds the source between
+  // commits. A source that stays in a commit (a writer stopped mid-commit: its generation stays odd) leaves the copy
+  // sealed as it is, so a take over can still use it; the pass waits quietly and the folder's files are listed
+  // again only after a try that touched the copy.
+  bool touched = false, relist = false;
   for(int attempt = 0; attempt < 10 && !stop; attempt++) {
     uint64_t g0 = 0, g1 = 0;
     int exists = 0;
-    if(attempt > 0) {
+    if(relist) {
       if(src.Manifest(sc.name, fresh, err) != 0) return -1;
       cur.clear();
       std::string unit = dir_of(cb_path);
       for(auto &f : fresh) if(dir_of(f.path) == unit) cur.push_back(&f);
+      relist = false;
     }
     if(src.CommitGen(sc.name, cb_path, sc.commit_gen_offset, g0, exists, err) != 0) return -1;
     if(!exists) { err = cb_path + " is gone from the source"; return 1; }
     if(g0 & 1) { usleep(100000); continue; }        // a batch is writing: wait for it
     // the copy is marked in progress (an odd generation) before its files change
     if(mark() != 0) return -1;
+    touched = relist = true;
     bool redo = false;
     for(auto *f : cur) {
       if(f->path == cb_path) continue;
@@ -5684,6 +5722,12 @@ int gxReplClient::sync_unit(gxReplSource &src, gxReplTarget &tgt, const gxReplSe
     }
     if(mark() != 0) return -1;                     // not one commit: torn until the next try
     usleep(100000);                                // it committed meanwhile: read the folder again
+  }
+  if(!touched) {                                   // 11/16/2026 (M-c): the source never left its commit
+    if(stop) return 0;
+    err = (dir_of(cb_path).empty() ? std::string(".") : dir_of(cb_path)) + ": the source is in a commit (its "
+      "generation stays odd: a writer is writing or stopped mid-commit); the copy keeps its seal";
+    return 2;
   }
   if(mark() != 0) return -1;
   if(stop) return 0;
@@ -5735,6 +5779,22 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
 	   ts.log_id.empty() ? "new" : ts.log_id != s.log_id ? "new log id" : "open, gap or old position");
       vlist.push_back(s.name);
     }
+    // 11/16/2026 (beta4 re-review M-a): the log lists a file it did not list before (a reopened day's plain-copied
+    // file named by the next commit, a file a commit adds): the stream is verified again, so the copy's file is
+    // compared whole and its unit is not sealed before that verify (the seal guard)
+    {
+      std::string key = sc.name + "|" + s.name;
+      auto kf = known_files.find(key);
+      std::set<std::string> now_files(s.files.begin(), s.files.end());
+      if(kf != known_files.end() && kf->second.first == s.log_id) {
+	for(auto &f : now_files)
+	  if(!kf->second.second.count(f)) {
+	    if(std::find(vlist.begin(), vlist.end(), s.name) == vlist.end()) note_verify(sc.name, s.name, "the log lists a new file");
+	    break;
+	  }
+      }
+      known_files[key] = std::make_pair(s.log_id, now_files);
+    }
     { std::lock_guard<std::mutex> lg(st.m); st.streams[s.name] = std::make_pair(s.next_lsn ? s.next_lsn - 1 : 0, ts.lsn); }
   }
 
@@ -5750,6 +5810,18 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     // test builds: GXREPL_TEST_VERIFY_WAIT=F: a queued stream verify waits (the pass goes on) until F exists
     if(const char *vw = getenv("GXREPL_TEST_VERIFY_WAIT")) { struct stat vst; if(stat(vw, &vst) != 0) { ++it; continue; } }
 #endif
+    // 11/16/2026 (beta4 re-review M-a, M-c): a stream waiting for its log to list its files is looked at again only
+    // when the list changed, or every 5 s (not the source's manifest every pass)
+    std::string wsig = s->log_id;
+    for(auto &f : s->files) wsig += "\n" + f;
+    {
+      auto ww = wait_seen.find(sc.name + "|" + s->name);
+      if(ww != wait_seen.end() && ww->second.first == wsig && now_s() - ww->second.second < 5) {
+	{ std::lock_guard<std::mutex> lg(st.m); st.waiting = "waiting for stream " + s->name + " to list its files"; }
+	++it;
+	continue;
+      }
+    }
     if(!have_sm) { if(src.Manifest(sc.name, sm, err) != 0) return -1; have_sm = true; }
     verifying[sc.name] = s->name;                 // 11/14/2026: see note_verify()
     verify_again[sc.name].erase(s->name);         // 11/15/2026: this verify is the one asked for
@@ -5779,23 +5851,54 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     // events.gxd is there, the new log does not list it yet) is not done: taking the log's end then let the next
     // records build that file from their pages alone on a copy that does not have it (a hollow file, sealed whole).
     // The stream stays on the list until its files are listed.
-    if(synced == 0 && !s->journal.empty()) {
-      std::string folder = dir_of(s->journal), have;
+    // 11/16/2026 (beta4 re-review M-a): every folder the stream touches (its journal's and each listed file's), and
+    // not only "no file listed": a log that lists nothing yet waits until it lists its files (also with its folders
+    // empty on the source now: a plain copy may still put files there before the first commit); a database file in
+    // those folders that the log does not list yet (a second plain-copied file, a file the next commit adds) keeps
+    // the verify waiting too, for verify_unlisted_wait_s (120 s) once files were compared (a file that never gets
+    // listed belongs to no record: the scan copies it), then the verify finishes and names it. When the log later
+    // lists a file it did not, the stream is verified again (the commit feed, step 1).
+    if(!s->journal.empty()) {
+      std::set<std::string> folders{dir_of(s->journal)};
+      for(auto &f : s->files) folders.insert(dir_of(f));
+      std::set<std::string> listed(s->files.begin(), s->files.end());
+      std::string have;
+      int unlisted = 0;
       for(auto &m : sm) {
-	if(dir_of(m.path) != folder || m.path == s->journal || !is_db_file(sc, m.path) || excluded(sc, m.path) ||
-	   is_derived(sc, m.path)) continue;
-	have = m.path;
-	break;
+	if(!folders.count(dir_of(m.path)) || m.path == s->journal || listed.count(m.path) || !is_db_file(sc, m.path) ||
+	   excluded(sc, m.path) || is_derived(sc, m.path)) continue;
+	if(have.empty()) have = m.path;
+	unlisted++;
       }
-      if(!have.empty()) {
+      std::string key = sc.name + "|" + s->name + "|" + s->log_id;
+#ifdef GXREPL_TEST_HOOKS
+      if(const char *uw = getenv("GXREPL_TEST_UNLISTED_WAIT_S")) verify_unlisted_wait_s = atoi(uw);   // test builds
+#endif
+      long long t0 = 0;
+      { auto ws = unlisted_since.find(key); if(ws == unlisted_since.end()) unlisted_since[key] = now_s(); else t0 = ws->second; }
+      bool wait = s->files.empty() || (unlisted > 0 && (synced == 0 || t0 == 0 || now_s() - t0 < verify_unlisted_wait_s));
+      if(wait) {
 	// 11/16/2026 (beta4 review): said once per log, not every pass
-	if(files_wait_noted.insert(sc.name + "|" + s->name + "|" + s->log_id).second)
-	  glog("set %s: stream %s lists no file yet, and its folder has %s: verified when it lists its files",
-	       sc.name.c_str(), s->name.c_str(), have.c_str());
+	if(files_wait_noted.insert(key).second) {
+	  if(s->files.empty())
+	    glog("set %s: stream %s lists no file yet%s: verified when it lists its files", sc.name.c_str(), s->name.c_str(),
+		 have.empty() ? "" : (", and its folder has " + have).c_str());
+	  else
+	    glog("set %s: stream %s does not list %s (%d unlisted database file(s) in its folders): verified when it lists "
+		 "them (%s)", sc.name.c_str(), s->name.c_str(), have.c_str(), unlisted,
+		 synced ? ("at most " + std::to_string(verify_unlisted_wait_s) + " s").c_str() : "no file compared yet");
+	}
+	{ std::lock_guard<std::mutex> lg(st.m); st.waiting = "waiting for stream " + s->name + " to list its files"; }
+	wait_seen[sc.name + "|" + s->name] = std::make_pair(wsig, now_s());
 	verifying[sc.name].clear();
 	++it;
 	continue;
       }
+      if(unlisted > 0)
+	glog("set %s: stream %s verified with %d database file(s) its log does not list (%s): the scan copies them",
+	     sc.name.c_str(), s->name.c_str(), unlisted, have.c_str());
+      unlisted_since.erase(key);
+      wait_seen.erase(sc.name + "|" + s->name);
     }
     if(synced == 0) {
       // No file left to match the position against: take the log's end
@@ -5936,7 +6039,12 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
 	std::string e;
 	int rc = sync_unit(src, tgt, sc, fd.second, cb->path, st, e);
 	if(rc < 0) { err = e; return -1; }
-	if(rc > 0) { failures++; { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
+	if(rc == 2) {                                // 11/16/2026 (M-c): expected: a wait, said once per folder and state
+	  { std::lock_guard<std::mutex> lg(st.m); st.waiting = e; }
+	  if(unit_wait_noted.insert(sc.name + "|" + fd.first + "|" + std::to_string(cb->mtime_ns)).second)
+	    glog("set %s: %s", sc.name.c_str(), e.c_str());
+	}
+	else if(rc > 0) { failures++; { std::lock_guard<std::mutex> lg(st.m); st.last_error = e; } glog("set %s: %s", sc.name.c_str(), e.c_str()); }
       }
     }
     // 11/10/2026: in a folder the ship log keeps, the commit block comes only
