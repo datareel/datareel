@@ -74,6 +74,31 @@ BETA 2 (11/16/2026): TLS SETTINGS FROM DATAREEL 7.x
 - OpenSSL 3: SSL_get1_peer_certificate(); OPENSSL_init_ssl() loads the
   system configuration (on RHEL, the crypto policy).
 
+BETA 2 (11/16/2026): IMAP CLIENT (gxsimap.h, gxsimap.cpp)
+---------------------------------------------------------
+- New gxsIMAPClient class, the IMAP counterpart of gxsPOP3Client, based
+  on the 2007 IMAP client by Douglas Gaer (RFC 3501, RFC 2595):
+  - ConnectClient() with TLS from the start (port 993) or plain text
+    (port 143) and StartTLS();
+  - Login(), Logout(), SelectMailbox() (SELECT or EXAMINE),
+    ListMailboxes(), Search(), Noop(), Capability();
+  - FetchHeader(), FetchBody(), FetchMessage(), FetchDates(); the
+    fetches do not set \Seen;
+  - StoreFlags(), MarkSeen(), MarkDeleted(), Expunge();
+  - SendCommand() for any other command.
+- A reply ends only at the line that starts with the command's tag,
+  and only an OK status is success; NO and BAD replies are errors with
+  the server's text. Literals are read by count. Arguments are quoted,
+  or sent as literals when they have 8-bit characters.
+- Login() refuses to send a password without TLS unless
+  AllowPlainLogin() is set. Data sent before a STARTTLS handshake is
+  refused. Replies are limited to SetMaxReply() bytes (64 MB). The
+  session log (RecordSession()) leaves out passwords.
+- New gxSSL::RecvSomeSSLSocket(): the bytes available, waiting up to a
+  timeout for the first one (OpenSSL and Schannel).
+- examples_socket/imap_client: one IMAP command from the command line.
+  proto_security: 32 IMAP checks with a fake server.
+
 THE 7.x FEATURES BUILD (CMake only)
 -----------------------------------
 - DATAREEL7_FEATURES_DIR (a path, empty = off): the 7.x source tree.

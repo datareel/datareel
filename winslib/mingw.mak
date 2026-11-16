@@ -70,6 +70,7 @@ GLIB_SOCKET_EX_OBJECTS = gxshttp$(OBJ_EXT) \
 	gxsmtp$(OBJ_EXT) \
 	gxsping$(OBJ_EXT) \
 	gxspop3$(OBJ_EXT) \
+	gxsimap$(OBJ_EXT) \
 	gxsftp$(OBJ_EXT) \
 	gxshtml$(OBJ_EXT) \
 	gxsurl$(OBJ_EXT) \

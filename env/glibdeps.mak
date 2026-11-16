@@ -849,6 +849,13 @@ GXSPOP3_DEP = $(GLIB_INCLUDE_PATH)gxdlcode.h \
 	$(GLIB_INCLUDE_PATH)gxspop3.h \
 	$(GLIB_INCLUDE_PATH)gxstypes.h
 
+GXSIMAP_DEP = $(GLIB_INCLUDE_PATH)gxdlcode.h \
+	$(GLIB_INCLUDE_PATH)gxsocket.h \
+	$(GLIB_INCLUDE_PATH)gxsimap.h \
+	$(GLIB_INCLUDE_PATH)gxssl.h \
+	$(GLIB_INCLUDE_PATH)gxstring.h \
+	$(GLIB_INCLUDE_PATH)gxstypes.h
+
 GXSSL_DEP = $(GLIB_INCLUDE_PATH)gxssl.h \
 	$(GLIB_INCLUDE_PATH)gxd_ver.h \
 	$(GLIB_INCLUDE_PATH)gxdfp64.h \

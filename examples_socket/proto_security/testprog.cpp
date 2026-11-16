@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/31/2026
-// Date Last Modified: 10/31/2026
+// Date Last Modified: 11/16/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -27,7 +27,8 @@ License along with this library; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
-6.3 tests for the HTTP, URL, SMTP, POP3 and FTP security fixes
+6.3 tests for the HTTP, URL, SMTP, POP3 and FTP security fixes, and
+6.4 tests for the IMAP client
 (DataReel 7.3 security sweep findings that apply to 6.x and 6.x-only
 parsing code). Network tests use fake servers on 127.0.0.1 run in
 a thread of this program. Usage:
@@ -56,6 +57,12 @@ Sections:
   pop3      gxsPOP3Client: "+OK" must start the status line, "-ERR" to
             a multi-line command, no write past a full buffer, long
             arguments and CR LF in commands, CheckReply().
+  imap      gxsIMAPClient (6.4): a reply ends only at its tagged line
+            (not at NO/BAD or a tag inside message text), NO and BAD
+            are errors, literals read by count, quoting and literals
+            for arguments, no password without TLS, LIST/SEARCH/SELECT
+            parsing, the reply size limit, data sent before a STARTTLS
+            handshake.
   ftp       gxsFTPClient: multi-line and left over 226 replies, PASV
             address not used, PASV field checks and a long PASV reply
             (stack overflow), long file names, CR LF in commands, no
@@ -84,6 +91,7 @@ Sections:
 #include "dfileb.h"
 #include "gxsmtp.h"
 #include "gxspop3.h"
+#include "gxsimap.h"
 #include "gxsftp.h"
 #include "gxsutils.h"
 
@@ -685,6 +693,191 @@ static void TestPOP3()
 }
 
 // --------------------------------------------------------------
+// imap (6.4)
+// --------------------------------------------------------------
+static int IMAPConnect(gxsIMAPClient &imap, FakeServer &fs)
+{
+  int port = fs.Start();
+  if(port <= 0) return -1;
+  imap.SetTimeOut(3, 0);
+  imap.AllowPlainLogin();
+  return imap.ConnectClient("127.0.0.1", port, 0);
+}
+
+static void TestIMAP()
+{
+  const char *sec = "imap";
+
+  Check(gxsIMAPClient::Quote("a\"b\\c") == "\"a\\\"b\\\\c\"" &&
+	gxsIMAPClient::Quote("x\r\ny").is_null() &&
+	gxsIMAPClient::Quote("caf\xc3\xa9").is_null(), sec, "Quote()");
+
+  { // Login: NO is an error, a literal for 8-bit passwords, the
+    // password is not recorded
+    FakeServer fs;
+    fs.Send("* OK IMAP4rev1 ready\r\n");
+    fs.Reply("A0001 NO [AUTHENTICATIONFAILED] Invalid credentials\r\n");
+    fs.Reply("+ Ready for literal data\r\n");    // A0002 LOGIN "user" {5}
+    fs.Reply("A0002 OK LOGIN completed\r\n");    // the literal
+    fs.Reply("* BYE logging out\r\nA0003 OK LOGOUT completed\r\n");
+    gxsIMAPClient imap;
+    imap.RecordSession();
+    Check(IMAPConnect(imap, fs) == 0, sec, "connect");
+    int rv = imap.Login("user", "wrong");
+    Check(rv == gxSOCKET_IMAP_ERROR && 
+	  strstr(imap.IMAPExceptionMessage(), "Invalid credentials") != 0,
+	  sec, "LOGIN NO is an error with the server's text");
+    rv = imap.Login("user", "p\xc3\xa4ss");
+    Check(rv == 0, sec, "8-bit password sent as a literal");
+    Check(imap.Logout() == 0 && !imap.IMAPConnected(), sec, "logout");
+    fs.Join();
+    Check(fs.received.find("A0001 LOGIN \"user\" \"wrong\"\r\n") == 0, sec,
+	  "LOGIN arguments quoted");
+    Check(fs.received.find("A0002 LOGIN \"user\" {5}\r\np\xc3\xa4ss\r\n") 
+	  != std::string::npos, sec, "literal sent after the continuation");
+    Check(imap.ProtoLog().Find("wrong") == -1 && 
+	  imap.ProtoLog().Find("p\xc3\xa4ss") == -1, sec, 
+	  "passwords not recorded");
+  }
+
+  { // A tagged NO instead of a continuation request ends the command
+    FakeServer fs;
+    fs.Send("* OK ready\r\n");
+    fs.Reply("A0001 NO literal too big\r\n");
+    gxsIMAPClient imap;
+    Check(IMAPConnect(imap, fs) == 0, sec, "connect 2");
+    Check(imap.Login("u", "\xff\xfe") == gxSOCKET_IMAP_ERROR, sec, 
+	  "NO instead of + is an error");
+    imap.CloseClient();
+    fs.Join();
+  }
+
+  { // No password over a connection without TLS unless allowed
+    FakeServer fs;
+    fs.Send("* OK ready\r\n");
+    int port = fs.Start();
+    gxsIMAPClient imap;
+    imap.SetTimeOut(3, 0);
+    Check(imap.ConnectClient("127.0.0.1", port, 0) == 0, sec, "connect 3");
+    Check(imap.Login("u", "p") != 0, sec, "plain text login refused");
+    imap.CloseClient();
+    fs.Join();
+    Check(fs.received.find("LOGIN") == std::string::npos, sec, 
+	  "password not sent");
+  }
+
+  { // Replies: message text with NO, BAD and our tag inside a literal,
+    // SELECT, SEARCH, LIST, FETCH, BAD
+    std::string body = "A0003 OK not the end\r\nNO\r\nBAD\r\n* 9 EXISTS\r\n";
+    char lit[64];
+    sprintf(lit, "{%d}\r\n", (int)body.size());
+    FakeServer fs;
+    fs.Send("* OK ready\r\n");
+    fs.Reply("* FLAGS (\\Seen \\Deleted)\r\n* 3 EXISTS\r\n* 0 RECENT\r\n"
+	     "A0001 OK [READ-WRITE] SELECT completed\r\n");
+    fs.Reply("* SEARCH 1 3\r\nA0002 OK SEARCH completed\r\n");
+    fs.Reply(std::string("* 3 FETCH (BODY[TEXT] ") + lit + body + 
+	     ")\r\nA0003 OK FETCH completed\r\n");
+    fs.Reply("* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n"
+	     "* LIST () \"/\" {9}\r\nSent Mail\r\n"
+	     "* LIST () \".\" Archive\r\nA0004 OK LIST completed\r\n");
+    std::string dhdr = "Date: Mon, 16 Nov 2026\r\n 09:14:59 -0500\r\n\r\n";
+    char dlit[32];
+    sprintf(dlit, "{%d}\r\n", (int)dhdr.size());
+    fs.Reply(std::string("* 2 FETCH (INTERNALDATE \"16-Nov-2026 09:15:00 -0500\" "
+	     "BODY[HEADER.FIELDS (DATE)] ") + dlit + dhdr + 
+	     ")\r\nA0005 OK done\r\n");
+    fs.Reply("A0006 BAD unknown command\r\n");
+    gxsIMAPClient imap;
+    Check(IMAPConnect(imap, fs) == 0, sec, "connect 4");
+    int n = 0;
+    Check(imap.SelectMailbox("INBOX", n) == 0 && n == 3, sec, 
+	  "SELECT EXISTS count");
+    gxString ids;
+    Check(imap.Search("UNSEEN", ids) == 0 && ids == "1 3", sec, "SEARCH");
+    gxString text;
+    int rv = imap.FetchBody(3, text);
+    Check(rv == 0 && text == body.c_str(), sec, 
+	  "NO, BAD and the tag inside a literal do not end the reply");
+    gxString names;
+    Check(imap.ListMailboxes(names) == 0 && 
+	  names == "INBOX\nSent Mail\nArchive\n", sec, 
+	  "LIST quoted, literal and atom names");
+    gxString rd, sd;
+    Check(imap.FetchDates(2, rd, sd) == 0 && 
+	  rd == "16-Nov-2026 09:15:00 -0500" &&
+	  sd == "Mon, 16 Nov 2026 09:14:59 -0500", sec, "FetchDates()");
+    gxString reply;
+    Check(imap.SendCommand("XYZZY", reply) == gxSOCKET_IMAP_ERROR, sec,
+	  "BAD is an error");
+    Check(imap.SendCommand("NOOP\r\nA9 LOGOUT", reply) != 0, sec,
+	  "CR LF in a command refused");
+    Check(imap.Search("ALL\r\nA9 LOGOUT", ids) != 0, sec,
+	  "CR LF in search criteria refused");
+    Check(imap.StoreFlags(1, "\\Seen) (x") != 0, sec, 
+	  "parentheses in flags refused");
+    imap.CloseClient();
+    fs.Join();
+    Check(fs.received.find("A0001 SELECT \"INBOX\"\r\n") == 0 &&
+	  fs.received.find("A0003 FETCH 3 (BODY.PEEK[TEXT])") != 
+	  std::string::npos, sec, "commands as sent");
+    Check(fs.received.find("LOGOUT") == std::string::npos, sec,
+	  "refused commands not sent");
+  }
+
+  { // Reply size limit, and a literal size beyond it
+    FakeServer fs;
+    fs.Send("* OK ready\r\n");
+    fs.Reply("* 1 FETCH (BODY[] {999999999}\r\n");
+    gxsIMAPClient imap;
+    Check(IMAPConnect(imap, fs) == 0, sec, "connect 5");
+    imap.SetMaxReply(4096);
+    gxString msg;
+    Check(imap.FetchMessage(1, msg) != 0 && msg.is_null(), sec,
+	  "literal larger than the reply limit refused");
+    imap.CloseClient();
+    fs.Join();
+  }
+
+  { // A server that never sends the tagged reply times out
+    FakeServer fs;
+    fs.Send("* OK ready\r\n");
+    fs.Reply("* 1 EXISTS\r\n");
+    fs.Sleep(3000);
+    gxsIMAPClient imap;
+    Check(IMAPConnect(imap, fs) == 0, sec, "connect 6");
+    imap.SetTimeOut(1, 0);
+    Check(imap.Noop() != 0, sec, "missing tagged reply times out");
+    imap.CloseClient();
+    fs.Join();
+  }
+
+  { // A greeting that is not OK
+    FakeServer fs;
+    fs.Send("* BYE too many connections\r\n");
+    gxsIMAPClient imap;
+    Check(IMAPConnect(imap, fs) != 0 && 
+	  strstr(imap.IMAPExceptionMessage(), "too many") != 0, sec,
+	  "BYE greeting refused");
+    fs.Join();
+  }
+
+#if defined (__USE_GX_SSL_EXTENSIONS__)
+  { // STARTTLS: bytes sent after the OK, before the handshake, are not
+    // read as TLS data
+    FakeServer fs;
+    fs.Send("* OK ready\r\n");
+    fs.Reply("A0001 OK Begin TLS negotiation now\r\n* 1 EXISTS\r\n");
+    gxsIMAPClient imap;
+    Check(IMAPConnect(imap, fs) == 0, sec, "connect 7");
+    Check(imap.StartTLS() != 0 && !imap.IMAPConnected(), sec,
+	  "data after the STARTTLS OK refused");
+    fs.Join();
+  }
+#endif
+}
+
+// --------------------------------------------------------------
 // ftp
 // --------------------------------------------------------------
 static void TestFTP()
@@ -825,6 +1018,7 @@ int main(int argc, char **argv)
   if(Enabled(argc, argv, "url")) TestURL();
   if(Enabled(argc, argv, "smtp")) TestSMTP();
   if(Enabled(argc, argv, "pop3")) TestPOP3();
+  if(Enabled(argc, argv, "imap")) TestIMAP();
   if(Enabled(argc, argv, "ftp")) TestFTP();
   if(Enabled(argc, argv, "utils")) TestUtils();
 

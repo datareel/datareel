@@ -54,7 +54,7 @@ set(DATAREEL_SOURCES
   # RDBMS
   gxrdbdef gxrdbhdr gxrdbms gxrdbsql
   # Sockets
-  gxsocket gxshttp gxshttpc gxsmtp gxsping gxspop3 gxsftp gxshtml gxsurl
+  gxsocket gxshttp gxshttpc gxsmtp gxsping gxspop3 gxsimap gxsftp gxshtml gxsurl
   gxsutils gxs_b64 gxtelnet wserror gxsrss gxsxml gxssl gxdatagm gxstream
   # Serial comm
   gxscomm scomserv
