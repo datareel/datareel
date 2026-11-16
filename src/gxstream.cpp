@@ -124,6 +124,7 @@ struct gxStreamTLS
   int tls_mode() { return use_tls || accepted_tls || server_tls(); }
 };
 
+#if defined (__USE_GX_SSL_EXTENSIONS__) // 11/16/2026 (6.4 beta 2): used only with TLS
 static void gxs_linger_close(gxsSocket_t s)
 // 10/31/2026: Used after the TLS close_notify, before the socket is
 // closed. Closing a socket with unread data in it (TLS 1.3 session
@@ -159,6 +160,7 @@ static void gxs_linger_close(gxsSocket_t s)
     total += n;
   }
 }
+#endif // __USE_GX_SSL_EXTENSIONS__
 
 #if defined (__USE_GX_SSL_EXTENSIONS__)
 static void gxs_free_conn(gxSSL *&c, int owns_ctx, gxsSocket_t s, 
@@ -219,6 +221,7 @@ static gxString gxs_normalize_fingerprint(const char *s)
   return out;
 }
 
+#if defined (__USE_GX_SSL_EXTENSIONS__) // 11/16/2026 (6.4 beta 2): used only with TLS
 static gxString gxs_printable(const gxString &s, unsigned max_len = 256)
 // 10/31/2026: Copy of a string from a certificate that is safe to put
 // in an error message or log: control characters, DEL and backslash
@@ -243,6 +246,7 @@ static gxString gxs_printable(const gxString &s, unsigned max_len = 256)
   if(len > max_len) out << "...";
   return out;
 }
+#endif // __USE_GX_SSL_EXTENSIONS__
 
 static int gxs_in_list(const std::vector<gxString> &v, const gxString &s)
 {

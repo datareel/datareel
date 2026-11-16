@@ -513,6 +513,7 @@ int gxSocket::InitSIN(gxsSocketAddress *host_sin, gxsAddressFamily af,
 // structure. To use the Internet address of this host pass a null 
 // pointer to hostname variable. Returns -1 if an error occurs.
 {
+  (void)af; // 11/16/2026 (6.4 beta 2): the object's address_family is used
   // Reset the current SIN
   memset(host_sin, 0, sizeof(gxsSocketAddress));
 
