@@ -153,7 +153,8 @@ enum gxDatabaseError { // Database error codes
   gxDBASE_FILE_DELETE_ERROR, // Error deleting file
 
   // 11/16/2026: 6.4
-  gxDBASE_FILE_LAYOUT_ERROR  // File written with the other long size
+  gxDBASE_FILE_LAYOUT_ERROR, // File written with the other long size
+  gxDBASE_FILE_ENGINE_ERROR  // File written by the other database engine
 };
 
 enum gxDatabaseStatus { // Database status codes

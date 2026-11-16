@@ -55,10 +55,14 @@ BETA 2 (11/16/2026): FIXES FROM DATAREEL 7.x
   32-bit builds, so the database file headers differ. Such a file used
   to open and read as empty, or as damaged. gxDatabase::Open() (and so
   gxBtree, InfoHog and the other classes on it) now refuses it with
-  gxDBASE_FILE_LAYOUT_ERROR. The new code is added at the end of
-  gxDatabaseError, so the other codes keep their numbers. Builds with
-  the portable types (fcrypt, EPDB) write the same files everywhere
-  and are not affected.
+  gxDBASE_FILE_LAYOUT_ERROR. A file from the other database engine
+  (32-bit or 64-bit file addresses) gets gxDBASE_FILE_ENGINE_ERROR: a
+  32-bit engine build used to open a 64-bit engine file, because the
+  signature "GXDBASE" is the start of "GXDBASE64". The new codes are
+  added at the end of gxDatabaseError, so the other codes keep their
+  numbers. A file with no objects, or with a damaged first block, is
+  opened as before. Builds with the portable types (fcrypt, EPDB) write
+  the same files everywhere and are not affected.
 
 BETA 2 (11/16/2026): TLS SETTINGS FROM DATAREEL 7.x
 ---------------------------------------------------

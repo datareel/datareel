@@ -35,10 +35,13 @@ read as empty.
 
   same_layout   A file made by this build, with and without objects,
                 and its B-tree index, open as before.
-  other_sig     A header with the signature where the other layout
-                puts it (the 32-bit engine's difference) is refused.
+  other_sig     32-bit engine: a header with the signature where the
+                other layout puts it is refused.
   other_block   A file whose first block header has the other layout
-                (the 64-bit engine's difference) is refused.
+                (the 64-bit engine's difference) is refused, and a
+                damaged first block is not taken for one.
+  other_engine  A file from the other database engine (32-bit or 64-bit
+                file addresses) gives gxDBASE_FILE_ENGINE_ERROR.
   not_database  A file that is not a database file still gives
                 gxDBASE_WRONG_FILE_TYPE.
 
@@ -148,6 +151,7 @@ static int run_tests()
   memset(buf, 0, n + 64);
   if(read_file("t.gxd", buf, n) != 0) { printf("read failed\n"); return 1; }
 
+#if !defined (__64_BIT_DATABASE_ENGINE__)
   { // other_sig: the signature where the other layout puts it
     unsigned char *o = new unsigned char[n + 64];
     memcpy(o, buf, n);
@@ -163,20 +167,36 @@ static int run_tests()
     check(err == gxDBASE_FILE_LAYOUT_ERROR,
 	  "other_sig: signature at the other layout's offset is refused");
   }
+#endif
 
 #if defined (__64_BIT_DATABASE_ENGINE__)
-  { // other_block: the 4 bytes after the first block's check word
+  FAU_t hs;
+  {
     gxDatabase db;
     db.Open("t.gxd", gxDBASE_READONLY);
-    FAU_t hs = db.GetHeapStart();
+    hs = db.GetHeapStart();
     db.Close();
+  }
+  { // other_block: the first block header in the other layout
     unsigned char *o = new unsigned char[n + 64];
     memcpy(o, buf, n);
-    if(sizeof(gxUINT32) == 8) { // 4-byte longs: the block length follows
-      o[hs + 4] = 0x40; o[hs + 5] = o[hs + 6] = o[hs + 7] = 0;
+    unsigned long len;
+    if(sizeof(gxUINT32) == 8) { // Make it look like 4-byte longs
+      len = (unsigned long)o[hs + 8] | ((unsigned long)o[hs + 9] << 8) |
+	((unsigned long)o[hs + 10] << 16) | ((unsigned long)o[hs + 11] << 24);
+      o[hs + 4] = (unsigned char)(len & 0xff);
+      o[hs + 5] = (unsigned char)((len >> 8) & 0xff);
+      o[hs + 6] = (unsigned char)((len >> 16) & 0xff);
+      o[hs + 7] = (unsigned char)((len >> 24) & 0xff);
     }
-    else {                      // 8-byte longs: 4 zero bytes follow
-      o[hs + 4] = o[hs + 5] = o[hs + 6] = o[hs + 7] = 0;
+    else {                      // Make it look like 8-byte longs
+      len = (unsigned long)o[hs + 4] | ((unsigned long)o[hs + 5] << 8) |
+	((unsigned long)o[hs + 6] << 16) | ((unsigned long)o[hs + 7] << 24);
+      memset(o + hs + 4, 0, 12);
+      o[hs + 8] = (unsigned char)(len & 0xff);
+      o[hs + 9] = (unsigned char)((len >> 8) & 0xff);
+      o[hs + 10] = (unsigned char)((len >> 16) & 0xff);
+      o[hs + 11] = (unsigned char)((len >> 24) & 0xff);
     }
     write_file("other_block.gxd", o, n);
     delete[] o;
@@ -185,9 +205,35 @@ static int run_tests()
     check(err == gxDBASE_FILE_LAYOUT_ERROR,
 	  "other_block: first block in the other layout is refused");
   }
+  { // damaged_block: a zero block length is not taken for a layout
+    unsigned char *o = new unsigned char[n + 64];
+    memcpy(o, buf, n);
+    memset(o + hs + sizeof(gxUINT32), 0, sizeof(gxUINT32));
+    write_file("damaged_block.gxd", o, n);
+    delete[] o;
+    check(open_ro("damaged_block.gxd") == gxDBASE_NO_ERROR,
+	  "damaged_block: a damaged first block still opens");
+  }
 #else
   printf("  other_block: 32-bit engine, the signature offset tells\n");
 #endif
+
+  { // other_engine: a file from the other database engine
+    unsigned char *o = new unsigned char[n + 64];
+    memcpy(o, buf, n);
+    memset(o + 16, 0, 32);
+#if defined (__64_BIT_DATABASE_ENGINE__)
+    memcpy(o + 32, "GXDBASEE", 8);   // 32-bit engine, 8-byte FAUs
+#else
+    memcpy(o + 32, "GXDBASE64E", 10); // 64-bit engine
+#endif
+    write_file("other_engine.gxd", o, n);
+    delete[] o;
+    gxDatabaseError err = open_ro("other_engine.gxd");
+    printf("  other_engine: %s\n", gxDatabaseExceptionMessage(err));
+    check(err == gxDBASE_FILE_ENGINE_ERROR,
+	  "other_engine: file from the other database engine is refused");
+  }
 
   { // not_database
     const char *junk = "this is not a database file, just some text....."
@@ -216,6 +262,7 @@ static int check_dir(const char *dir)
   printf("%s: %s\n", p, gxDatabaseExceptionMessage(e2));
   bt.Close();
   if(e1 == gxDBASE_FILE_LAYOUT_ERROR && e2 == gxDBASE_FILE_LAYOUT_ERROR) return 3;
+  if(e1 == gxDBASE_FILE_ENGINE_ERROR && e2 == gxDBASE_FILE_ENGINE_ERROR) return 4;
   return (e1 == gxDBASE_NO_ERROR && e2 == gxDBASE_NO_ERROR) ? 0 : 1;
 }
 

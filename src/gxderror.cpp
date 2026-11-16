@@ -52,7 +52,7 @@ the gxdExceptionMessages array.
 
 // NOTE: This array must contain the same number of exceptions as the
 // gxDatabaseError enumeration. 
-const int gxdMaxExceptionMessages = 91;
+const int gxdMaxExceptionMessages = 92;
 const char *gxdExceptionMessages[gxdMaxExceptionMessages] = {
   "Database exception: No exception reported",               // None
   "Database exception: Invalid error code reported",         // Invalid
@@ -155,7 +155,9 @@ const char *gxdExceptionMessages[gxdMaxExceptionMessages] = {
 
   // 11/16/2026: 6.4
   "Database exception: File made by a build with a different file layout \
-(64-bit Linux files differ from Windows and 32-bit files)" // FILE_LAYOUT_ERROR
+(64-bit Linux files differ from Windows and 32-bit files)", // FILE_LAYOUT_ERROR
+  "Database exception: File made by the other database engine \
+(32-bit and 64-bit file address engines)" // FILE_ENGINE_ERROR
 };
 
 // NOTE: This array must contain the same number of status messages
