@@ -5137,6 +5137,11 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
     else rrc = src.ReadLog(set, s.name, ts.lsn + 1, cfg.max_message, out, next, status, err);
     if(rrc != 0)
       return -1;
+#ifdef GXREPL_TEST_HOOKS
+    // test builds: GXREPL_TEST_STATUS2_ALWAYS=1: every read with records answers "bigger than max_message"
+    if(status == 0 && !out.empty() && getenv("GXREPL_TEST_STATUS2_ALWAYS")) { out.clear(); status = 2; }
+#endif
+    if(status == 0 && !out.empty()) big_resyncs.erase(set + "\n" + s.name);   // records drained: the bound starts over
     if(status == 1) {
       verify = true;
       if(flag_lsn) *flag_lsn = ULLONG_MAX;
@@ -5154,6 +5159,21 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
       return 0;
     }
     if(status == 2) {
+      // 11/15/2026 (hardening): the status-2 bound. Resyncs with no record drained since are counted per stream;
+      // past GXREPL_STATUS2_MAX (10) the stream is not resynced again (one ALERT, the set's last_error says why)
+      // until a record drains: a copy that cannot get past a record never loops on whole-file resyncs.
+      {
+	int &n = big_resyncs[set + "\n" + s.name];
+	int maxn = 10;
+	if(const char *m = getenv("GXREPL_STATUS2_MAX")) maxn = std::max(1, atoi(m));
+	if(++n > maxn) {
+	  std::string why = "stream " + s.name + ": " + std::to_string(n - 1) + " resyncs for records bigger than max_message (" +
+	    std::to_string(cfg.max_message) + ") and none drained since: not resynced again (raise max_message on both nodes)";
+	  if(n == maxn + 1) glog("ALERT set %s: %s", set.c_str(), why.c_str());
+	  { std::lock_guard<std::mutex> lg(st.m); st.last_error = why; }
+	  return 0;
+	}
+      }
       // 11/10/2026: the next record is bigger than a message (an osa_ingest
       // rebuild writes one of 500 MB): never sent. The copy's position is
       // reset, so its files are resynced in pieces from a position after it
