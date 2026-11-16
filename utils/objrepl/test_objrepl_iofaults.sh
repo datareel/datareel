@@ -45,7 +45,7 @@ start_copy() {
 stop_copy() { [ -n "$CPID" ] || return 0; kill -TERM $CPID 2>/dev/null
 	      for i in $(seq 1 50); do kill -0 $CPID 2>/dev/null || break; sleep 0.2; done
 	      kill -KILL $CPID 2>/dev/null; wait $CPID 2>/dev/null; CPID=""; }
-trap 'stop_copy; rm -rf "$T"' EXIT
+trap 'stop_copy; [ "${KEEP:-0}" == 1 ] && echo "kept $T" || rm -rf "$T"' EXIT
 # prim DIR PORT [ENV...] [--limit KB] -- OPTIONS: the primary (foreground), the same way
 prim() {
   local d=$1 port=$2 lim=""; shift 2

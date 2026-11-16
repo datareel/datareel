@@ -41,7 +41,8 @@ gxObjRepl, object replication (see gxobjrepl.h). The wire format:
                    u32 length, bytes
   F_SNAP_DLOG      u8 6, u32 entries, each: u64 seq, u64 digest (the
                    primary's digest log up to the base, before F_SNAP_END)
-  F_SNAP_END       u8 4, u64 base seq, u64 digest
+  F_SNAP_END       u8 4, u64 base seq, u64 digest, u64 records + digest-log
+                   entries sent, u64 hash chained over them (as sent)
   F_EPOCH          u8 5, u64 epoch: sent once the primary has accepted the
                    copy (after the hello); the copy saves the epoch
   ack (copy)       u64 seq applied
@@ -111,7 +112,7 @@ struct ObjHead { uint64_t id; uint32_t version; uint32_t len; uint32_t flags; ui
 enum { OF_TOMB = 1, OF_STUB = 2 };
 enum { TR_REMOVED = 1, TR_UNKNOWN_TARGET = 2, TR_UNKNOWN_REMOVE = 3 };   // why a tombstone exists
 const uint32_t PLACEHOLDER_RESERVE = 512;   // the capacity of a tombstone made for an object not known yet
-const uint32_t STATE_MAGIC = 0x3450524fu;   // "ORP4" (11/16/2026: max_id added)
+const uint32_t STATE_MAGIC = 0x3550524fu;   // "ORP5" (11/16/2026: max_id, rejoin_dropped, the full-send count and hash)
 enum { ROLE_NONE = 0, ROLE_PRIMARY = 1, ROLE_COPY = 2 };
 // The running digest: a hash chained over every commit frame in order (the primary when it records a commit, the
 // copy when it applies it), so two nodes at the same seq with different histories never look alike
@@ -125,6 +126,8 @@ struct State {
   uint64_t applied_digest;  // copy: after applied_seq
   uint64_t max_id;          // the highest object id ever written here (NewId() never hands out an old one)
   uint64_t rejoin_dropped;  // commits this node had made as a primary past its copy's last ack, at its last Rejoin()
+  uint64_t snap_count;      // copy, in a full send: the records and digest-log entries received so far
+  uint64_t snap_hash;       // and a hash chained over them, checked against the primary's at F_SNAP_END
 };
 // NewId(): epoch << ID_EPOCH_SHIFT plus a counter, so a primary at a new epoch never hands out an id an old primary
 // may have used in commits that never reached it (11/16/2026, design review)
@@ -749,6 +752,18 @@ struct Node {
   }
 };
 
+// a node that is not running (its lock is free): the journal's committed transactions are written to the files first,
+// so Digest(), IndexCheck() and Status() read what an Open() would see (property test: Status() after a SIGKILL read
+// applied 1 where the node, opened, was at 2). A running node is read as it is
+void settle(const std::string &root)
+{
+  if(!exists(path(root, "node.jnl"))) return;
+  Node n; n.root = root;
+  if(!n.lock()) return;
+  gxdJournal::Recover(path(root, "node.jnl").c_str(), 0, 0);
+  n.unlock();
+}
+
 // ---------- the wire: one gxStream block per frame ----------
 bool send_frame(gxStream &st, const std::vector<unsigned char> &b)
 {
@@ -1043,6 +1058,7 @@ struct gxObjRepl::Impl {
   // every object and tombstone of every database as of the last commit, then the copy's applied seq = that commit
   bool snapshot() {
     uint64_t base = s.st.next_seq - 1, acked = 0;
+    uint64_t scount = 0, shash = DIGEST0;                      // what this full send carries, checked by the copy
     Buf b0; b0.u8(F_SNAP_BEGIN); b0.u64(base); b0.u64(s.st.epoch);
     if(!exchange(b0.b, acked)) return false;
     Buf f; f.u8(F_SNAP_BATCH); uint32_t nobj = 0; size_t cnt_at = f.b.size(); f.u32(0);
@@ -1059,8 +1075,10 @@ struct gxObjRepl::Impl {
 	std::vector<unsigned char> rec; ObjHead h;
 	if(!d.second->read(w.second, rec, h)) return false;
 	if(!(h.flags & OF_TOMB) && !s.translate(d.first, rec.data() + sizeof(h), h.len, true)) return false;
+	size_t at0 = f.b.size();
 	f.str(d.first); f.u64(h.id); f.u32(h.version); f.u32(h.flags); f.u32(h.reason); f.u64(h.seen_seq); f.u32((uint32_t)n);
 	f.u32(h.len); f.raw(rec.data() + sizeof(h), h.len);
+	shash = fnv(f.b.data() + at0, f.b.size() - at0, shash); scount++;
 	nobj++;
 	if(f.b.size() >= SNAP_BATCH_BYTES && !flush()) return false;
       }
@@ -1075,11 +1093,12 @@ struct gxObjRepl::Impl {
       DKey k, c;
       for(int ok = s.dlog.FindFirst(k); ok && k.k.seq <= base; ok = s.dlog.FindNext(k, c)) {
 	g.u64(k.k.seq); g.u64(k.k.digest); n++;
+	shash = fnv(g.b.data() + g.b.size() - 16, 16, shash); scount++;
 	if(n == DLOG_BATCH) { if(!send()) return false; start(); }
       }
       if(!send()) return false;
     }
-    Buf e; e.u8(F_SNAP_END); e.u64(base); e.u64(s.st.cur_digest);
+    Buf e; e.u8(F_SNAP_END); e.u64(base); e.u64(s.st.cur_digest); e.u64(scount); e.u64(shash);
     if(!exchange(e.b, acked) || acked != base) return false;
     L.copy_applied = base; L.copy_in_snapshot = false; L.snapshots++;
     return true;
@@ -1535,6 +1554,7 @@ int gxObjRepl::Impl::serve()
     // the primary's epoch is saved with the first frame applied from it, never at the hello: a primary that then
     // refuses this copy must not fence out the real one (11/16/2026, review)
     long frames = 0;
+    bool accepted = false;                                     // F_EPOCH seen on this connection
     hl.unlock();
     while(!stop) {
       int w = wait(st.Connection().Socket(), cfg.idle_timeout);
@@ -1547,12 +1567,15 @@ int gxObjRepl::Impl::serve()
       Rd r(b.data(), b.size());
       uint8_t kind = r.u8();
       bool good = r.ok;
+      // a primary's data comes only after it accepted this copy (F_EPOCH): frames before that are refused (fuzz:
+      // commits ahead of F_EPOCH were applied with no link map)
+      if(kind != F_EPOCH && !accepted) { alarm("a frame (kind " + std::to_string(kind) + ") from " + pname + " before it accepted this copy: refused"); break; }
       if(kind == F_COMMIT) {
 	uint64_t seq = r.u64(), ep = r.u64();
-	if(!r.ok || ep < s.st.epoch || s.st.in_snapshot) break;
+	if(!r.ok || ep < s.st.epoch || s.st.in_snapshot) { alarm("a commit from " + pname + " that cannot apply here (malformed, an older epoch, or during a full send): refused"); break; }
 	if(seq <= s.st.applied_seq) { Buf a; a.u64(s.st.applied_seq); send_frame(st, a.b); continue; }   // a resend
-	if(seq != s.st.applied_seq + 1) { say("copy: commit " + std::to_string(seq) + " after " + std::to_string(s.st.applied_seq) + ": a gap"); break; }
-	if(!open_named(b.data() + r.o, b.size() - r.o, false)) { say("copy: a bad database name in commit " + std::to_string(seq)); break; }
+	if(seq != s.st.applied_seq + 1) { alarm("commit " + std::to_string(seq) + " from " + pname + " after " + std::to_string(s.st.applied_seq) + ": a gap: refused"); break; }
+	if(!open_named(b.data() + r.o, b.size() - r.o, false)) { alarm("commit " + std::to_string(seq) + " from " + pname + ": malformed or a bad database name: refused"); break; }
 	uint32_t nops = r.u32();
 	if(!s.begin()) break;
 	if(ep > s.st.epoch) s.st.epoch = ep;                   // saved with this commit
@@ -1639,7 +1662,8 @@ int gxObjRepl::Impl::serve()
 	if(!send_frame(st, a.b)) break;
       } else if(kind == F_EPOCH) {
 	uint64_t ep = r.u64();
-	if(!r.ok || ep < s.st.epoch) break;
+	if(!r.ok || ep < s.st.epoch) { alarm("an epoch frame from " + pname + " older than this copy's: refused"); break; }
+	accepted = true;
 	// the primary accepted this copy: its link map now, and the link databases (outside any transaction:
 	// placeholders may go there) (review 3: they were made at the hello, before the primary's checks)
 	links = pending_links;
@@ -1655,7 +1679,13 @@ int gxObjRepl::Impl::serve()
 	uint32_t n = r.u32();
 	if(!r.ok || !s.st.in_snapshot || n > DLOG_BATCH || (size_t)n * 16 > b.size() - r.o) break;
 	if(!s.begin()) break;
-	for(uint32_t i = 0; i < n && good; i++) { uint64_t q = r.u64(), d = r.u64(); good = r.ok && q <= s.st.snapshot_base && s.log_digest(q, d); }
+	for(uint32_t i = 0; i < n && good; i++) {
+	  size_t at0 = r.o;
+	  uint64_t q = r.u64(), d = r.u64();
+	  good = r.ok && q <= s.st.snapshot_base && s.log_digest(q, d);
+	  s.st.snap_hash = fnv(b.data() + at0, 16, s.st.snap_hash); s.st.snap_count++;
+	}
+	if(good) s.put_state();
 	if(!good) { s.j.Rollback(); rolled = true; break; }
 	if(!s.commit()) { rolled = true; break; }
 	Buf a; a.u64(0);
@@ -1668,6 +1698,7 @@ int gxObjRepl::Impl::serve()
 	if(!s.begin()) break;
 	if(ep > s.st.epoch) s.st.epoch = ep;
 	s.st.in_snapshot = 1; s.st.snapshot_base = base; s.st.applied_seq = 0; s.st.applied_digest = DIGEST0;
+	s.st.snap_count = 0; s.st.snap_hash = DIGEST0;
 	s.put_state();
 	if(!s.commit()) { rolled = true; break; }
 	if(!s.set_aside()) { say("copy: " + s.err); s.close(); return fail(s.err); }
@@ -1679,10 +1710,12 @@ int gxObjRepl::Impl::serve()
 	uint32_t nobj = r.u32();
 	if(!s.begin()) break;
 	for(uint32_t i = 0; i < nobj && good; i++) {
+	  size_t at0 = r.o;
 	  std::string name = r.str(); uint64_t id = r.u64(); uint32_t ver = r.u32(), flags = r.u32(), reason = r.u32();
 	  uint64_t seen = r.u64(); uint32_t cap = r.u32(); uint32_t n = r.u32(); const unsigned char *pb = r.raw(n);
 	  Db *d = s.get(name);
 	  if(!r.ok || !d) { good = false; break; }
+	  s.st.snap_hash = fnv(b.data() + at0, r.o - at0, s.st.snap_hash); s.st.snap_count++;
 	  if(n > MAX_OBJECT || cap > MAX_RECORD || (!(flags & OF_TOMB) && cap < sizeof(ObjHead) + n)) { say("copy: a full-send record out of bounds: refused"); good = false; break; }
 	  s.st.max_id = std::max(s.st.max_id, id);
 	  bool mv = false;
@@ -1694,8 +1727,14 @@ int gxObjRepl::Impl::serve()
 	Buf a; a.u64(0);
 	if(!send_frame(st, a.b)) break;
       } else if(kind == F_SNAP_END) {
-	uint64_t base = r.u64(), sdig = r.u64();
-	if(!r.ok || !s.st.in_snapshot || base != s.st.snapshot_base) break;
+	uint64_t base = r.u64(), sdig = r.u64(), scount = r.u64(), shash = r.u64();
+	if(!r.ok || !s.st.in_snapshot || base != s.st.snapshot_base) { alarm("a full-send end that does not match the full send under way: refused"); break; }
+	// what arrived must be what was sent (fuzz: a lost, repeated or changed batch ended a full send that looked whole)
+	if(scount != s.st.snap_count || shash != s.st.snap_hash) {
+	  alarm("the full send to seq " + std::to_string(base) + " arrived incomplete or changed (" + std::to_string(s.st.snap_count) + " of " +
+		std::to_string(scount) + " records): not ended; the primary sends it again");
+	  break;
+	}
 	if(!s.begin()) break;
 	s.seen_seq = base;
 	// the links came as ids (targets may have arrived later in the snapshot): now each to this copy's address
@@ -1725,7 +1764,7 @@ int gxObjRepl::Impl::serve()
 	s.drop_aside();                                        // the full send is whole: the old data goes
 	Buf a; a.u64(base);
 	if(!send_frame(st, a.b)) break;
-      } else break;
+      } else { alarm("an unknown frame (kind " + std::to_string(kind) + ") from " + pname + ": refused"); break; }
     }
     st.Close();
     std::lock_guard<std::recursive_mutex> el(mu);
@@ -1840,6 +1879,7 @@ long gxObjRepl::Snapshots() const { std::lock_guard<std::recursive_mutex> g_(p->
 // ---------- folders ----------
 int gxObjRepl::Digest(const std::string &root, const std::string &lspec, std::string &line, std::string *detail)
 {
+  settle(root);
   std::vector<LinkDef> links;
   if(!parse_links(lspec, links)) { line = "bad links"; return 1; }
   std::vector<std::string> names;
@@ -1894,6 +1934,7 @@ int gxObjRepl::Digest(const std::string &root, const std::string &lspec, std::st
 
 int gxObjRepl::IndexCheck(const std::string &root, const std::string &spec, std::string &report)
 {
+  settle(root);
   std::vector<IxDef> ixdefs;
   report.clear();
   if(!parse_ix(spec, ixdefs)) { report = "bad index\n"; return 5; }
@@ -2020,6 +2061,7 @@ int gxObjRepl::ClearAlarm(const std::string &root, std::string &msg)
 
 int gxObjRepl::Status(const std::string &root, std::string &line)
 {
+  settle(root);
   gxDatabase db; State st;
   if(db.Open(path(root, "state.gxd").c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { line = "no state"; return 1; }
   if(db.Read(&st, sizeof(st), (FAU_t)db.FileHeaderSize()) != gxDBASE_NO_ERROR || st.magic != STATE_MAGIC) { db.Close(); line = "no state"; return 1; }

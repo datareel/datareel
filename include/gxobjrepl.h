@@ -74,6 +74,11 @@ and any other copy refuse its older epoch); it comes back with Rejoin(),
 which replaces its databases with the new primary's and records how
 many of its own commits were dropped (dropped_at_rejoin in its status).
 The copy refuses application writes (Begin() and Put() on a copy fail).
+Trust: a peer with a certificate the copy accepts (allow-cn) is trusted
+with the stream; such a peer can raise the copy's epoch (fencing older
+primaries out) or send a full send. Frames that break the protocol
+(out of order, a gap, before the primary accepted the copy, a full send
+that arrives incomplete or changed) are refused with an alarm.
 Threads: every call takes one lock in the object, so readers (Get,
 FindKey, Nearest ...) may run in other threads while Serve() applies
 frames (it holds the lock only while it applies one) or while the

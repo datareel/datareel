@@ -21,6 +21,7 @@
 using namespace datareel;
 
 static int pass = 0, fail = 0;
+static std::string read_alarm(const std::string &root) { std::string s; FILE *f = fopen((root + "/objrepl.alarm").c_str(), "r"); if(f) { char b[4096]; size_t n; while((n = fread(b, 1, sizeof(b), f)) > 0) s.append(b, n); fclose(f); } return s; }
 static void check(bool ok, const std::string &what) { printf("%s %s\n", ok ? "PASS" : "FAIL", what.c_str()); (ok ? pass : fail)++; }
 
 struct Rec { char key[8]; float v[4]; char text[20]; };   // B-tree key at 0, vector at 8
@@ -213,10 +214,12 @@ int main(int argc, char **argv)
       auto u32 = [&](uint32_t v) { for(int i = 0; i < 4; i++) u8((uint8_t)(v >> (8 * i))); };
       auto u64 = [&](uint64_t v) { for(int i = 0; i < 8; i++) u8((uint8_t)(v >> (8 * i))); };
       auto str = [&](const std::string &x) { u16((uint16_t)x.size()); h.insert(h.end(), x.begin(), x.end()); };
-      u32(0x3450524fu); u64(1); str(""); str("P"); u8(1); u64(1000); u64(0);
+      u32(0x3550524fu); u64(1); str(""); str("P"); u8(1); u64(1000); u64(0);
       st.WriteBlock(h.data(), (int)h.size());
       gxBlockHeader gx; std::vector<unsigned char> rep;
       if(st.ReadHeader(gx) == 0 && st.ReadBlock(rep, gx) == 0 && !rep.empty() && rep[0] == 1) {
+	h.clear(); u8(5); u64(1);                              // F_EPOCH: the copy takes data only after it
+	st.WriteBlock(h.data(), (int)h.size()); std::vector<unsigned char> ea; st.ReadHeader(gx); st.ReadBlock(ea, gx);
 	h.clear();
 	u8(1); u64(cp.AppliedSeq() + 1); u64(1); u32(1); u8(1); str("x"); u64(77); u32(200000000u); u8(0); u32(8); u64(0x4141414141414141ULL);
 	sent = st.WriteBlock(h.data(), (int)h.size()) == 0;
@@ -414,6 +417,50 @@ int main(int argc, char **argv)
       c9.Stop(); t.join();
       check(od == -1 && rc == 0 && c9.AppliedSeq() == 1, "r3-8/9: the copy refused OpenDatabase; Serve() after an earlier Stop() served (drain " + std::to_string(rc) + ")");
       c9.Close();
+    }
+    // fuzz findings: a frame before F_EPOCH is refused with an alarm; a full-send end that does not match what
+    // arrived is refused (the copy stays in its full send) with an alarm
+    {
+      int pz = base + 14;
+      Srv Z; Z.start(dir + "/fz_c", ccfg(pz, "Z"));
+      auto raw = [&](const std::vector<std::vector<unsigned char>> &frames, int &acks) {
+	gxStream st; st.Connection().SetCAFile(pki + "/ca.pem"); st.SetClientCert(pki + "/primary.pem", pki + "/primary.key"); st.SetTimeOut(10);
+	acks = -1;
+	if(st.Connect("127.0.0.1", pz) != 0) return;
+	acks = 0;
+	for(auto &f : frames) {
+	  if(st.WriteBlock(f.data(), (int)f.size()) != 0) break;
+	  gxBlockHeader gx; std::vector<unsigned char> rep;
+	  if(st.ReadHeader(gx) != 0 || st.ReadBlock(rep, gx) != 0) break;
+	  acks++;
+	}
+	st.Close();
+      };
+      auto fr = [](std::initializer_list<std::pair<int, uint64_t>> f, const std::vector<std::string> &strs = {}) {
+	std::vector<unsigned char> h; size_t si = 0;
+	for(auto &x : f) {
+	  if(x.first == 0) { const std::string &t = strs[si++]; h.push_back((unsigned char)t.size()); h.push_back((unsigned char)(t.size() >> 8)); h.insert(h.end(), t.begin(), t.end()); }
+	  else for(int i = 0; i < x.first; i++) h.push_back((unsigned char)(x.second >> (8 * i)));
+	}
+	return h;
+      };
+      auto hello = fr({{4, 0x3550524fu}, {8, 1}, {0, 0}, {0, 0}, {1, 1}, {8, 0}, {8, 0}}, {"", "P"});
+      int acks = 0;
+      std::vector<unsigned char> commit = fr({{1, 1}, {8, 1}, {8, 1}, {4, 0}});      // an empty commit 1, before F_EPOCH
+      raw({hello, commit}, acks);
+      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+      std::string al = read_alarm(dir + "/fz_c");
+      check(acks == 1 && Z.r.AppliedSeq() == 0 && al.find("before it accepted") != std::string::npos, "fuzz: a commit before F_EPOCH was refused with an alarm (acks " + std::to_string(acks) + ")");
+      std::string m; gxObjRepl::ClearAlarm(dir + "/fz_c", m);
+      std::vector<unsigned char> ep = fr({{1, 5}, {8, 1}});
+      std::vector<unsigned char> sb = fr({{1, 2}, {8, 7}, {8, 1}});                   // SNAP_BEGIN base 7
+      std::vector<unsigned char> se = fr({{1, 4}, {8, 7}, {8, 99}, {8, 5}, {8, 1234}}); // SNAP_END: 5 records claimed, none sent
+      raw({hello, ep, sb, se}, acks);
+      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+      al = read_alarm(dir + "/fz_c");
+      check(acks == 3 && Z.r.InSnapshot() && al.find("incomplete or changed") != std::string::npos,
+	    "fuzz: a full send ended with records that never arrived was refused; the copy stays in its full send (acks " + std::to_string(acks) + ")");
+      Z.stop();
     }
     // 8 with trim off, the copy's acknowledgement still counts: a rejoin after a full drain drops nothing
     {

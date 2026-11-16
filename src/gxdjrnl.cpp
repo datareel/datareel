@@ -87,12 +87,36 @@ number; records left in the file after that have an old salt.
 #include <atomic>
 #include <limits>
 #include <map>
+#include <random>
+#include <chrono>
 #include "gxdjrnl.h"
 #include "gxdrepl.h"
 #include "gxbtree.h"
 #include "btcache.h"
 
 namespace datareel {
+
+// 11/16/2026: a header's salt. It was time(0), a counter and the object's address, so two processes forked from one
+// parent that wrote a header in the same second (same counter, same address) wrote the same salt; Recover() then
+// took the previous session's records left after the cleared header for this session's and replayed old
+// transactions (a copy went back from applied 4 to 3). Now: random (the OS entropy source), mixed with a fine clock,
+// the process id and a counter, and never 0 or the salt this object wrote last
+static uint32_t jnewsalt(uint32_t avoid)
+{
+  static std::atomic<unsigned> counter{0};
+  uint64_t x = (uint64_t)std::chrono::high_resolution_clock::now().time_since_epoch().count();
+#if defined(_WIN32)
+  x ^= (uint64_t)GetCurrentProcessId() << 32;
+#else
+  x ^= (uint64_t)getpid() << 32;
+#endif
+  x ^= (uint64_t)(counter.fetch_add(1) + 1) * 0x9E3779B97F4A7C15ULL;
+  try { std::random_device rd; x ^= ((uint64_t)rd() << 32) ^ (uint64_t)rd(); } catch(...) { }
+  x ^= x >> 29; x *= 0xBF58476D1CE4E5B9ULL; x ^= x >> 32;
+  uint32_t s = (uint32_t)x;
+  while(s == 0 || s == avoid) s = s * 2654435761u + 1;
+  return s;
+}
 
 #if defined(GXREPL_TEST_HOOKS) && !defined(_WIN32)
 // 11/14/2026 (test builds only): set by gxrepl's GXREPL_TEST_CRASH_IN_APPLY hook: the next ApplyPages() ends the
@@ -564,11 +588,7 @@ gxDatabaseError gxdJournal::Begin()
 
 gxDatabaseError gxdJournal::WriteHeader()
 {
-  static unsigned counter = 0;
-  salt = (unsigned long)(((unsigned)time(0) * 2654435761u) ^
-			 (++counter * 40503u) ^ (unsigned)(size_t)this);
-  salt &= 0xFFFFFFFFUL;
-  if(salt == 0) salt = 1;
+  salt = (unsigned long)jnewsalt((uint32_t)salt);
   std::vector<unsigned char> h(gxdJournalMagic, gxdJournalMagic + 8);
   jput32(h, gxdJournalVersion);
   jput32(h, (uint32_t)salt);
@@ -912,10 +932,7 @@ gxDatabaseError gxdJournal::ApplyPages(const char *jname,
   if(!jfp) return gxDBASE_FILE_OPEN_ERROR;
 
   // 11/08/2026: atomic, several replication channels apply at once
-  static std::atomic<unsigned> counter{0};
-  uint32_t salt = (uint32_t)(((unsigned)time(0) * 2654435761u) ^
-			     ((counter.fetch_add(1) + 1) * 40503u) ^ 0x5A17u);
-  if(salt == 0) salt = 1;
+  uint32_t salt = jnewsalt(0);                                  // 11/16/2026: see jnewsalt()
   std::vector<unsigned char> h(gxdJournalMagic, gxdJournalMagic + 8);
   jput32(h, gxdJournalVersion);
   jput32(h, salt);
