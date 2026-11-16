@@ -1053,7 +1053,10 @@ struct gxObjRepl::Impl {
     Buf h; h.u32(STATE_MAGIC); h.u64(s.st.epoch); h.str(links_spec(links));
     h.str(cfg.name); h.u8(ROLE_PRIMARY); h.u64(s.st.next_seq - 1); h.u64(s.st.cur_digest);
     std::vector<unsigned char> rep;
-    if(!send_frame(*L.st, h.b) || !recv_frame(*L.st, rep)) { L.drop(); return false; }
+    if(!send_frame(*L.st, h.b) || !recv_frame(*L.st, rep)) {
+      if(L.st->PeerOldHeader()) { alarm("the copy uses another gxStream block header (DataReel before 7.4?): refused"); L.refused = true; }
+      L.drop(); return false;
+    }
     Rd r(rep.data(), rep.size());
     uint8_t ok = r.u8(); uint64_t applied = r.u64(), cep = r.u64(); uint8_t snap = r.u8();
     std::string cname = r.str(); uint8_t crole = r.u8(); uint64_t cdig = r.u64(); std::string why = r.str();
@@ -1580,7 +1583,10 @@ int gxObjRepl::Impl::serve()
     if(srv.Accept(st) != 0) continue;
     st.Connection().Socket().SetNoDelay(true);                // the acks go out at once (see connect_to)
     std::vector<unsigned char> b;
-    if(!recv_frame(st, b)) { st.Close(); continue; }
+    if(!recv_frame(st, b)) {
+      if(st.PeerOldHeader()) { std::lock_guard<std::recursive_mutex> al(mu); alarm("a primary with another gxStream block header (DataReel before 7.4?) was refused"); }
+      st.Close(); continue;
+    }
     st.SetTimeOut(cfg.idle_timeout > 0 ? cfg.idle_timeout : 3600);   // a frame that stops half way: dropped too
     std::unique_lock<std::recursive_mutex> hl(mu);           // the hello: the node is held while it is answered
     Rd h(b.data(), b.size()); uint32_t magic = h.u32(); uint64_t pep = h.u64(); std::string lspec = h.str();
