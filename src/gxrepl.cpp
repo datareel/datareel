@@ -156,6 +156,18 @@ static long long dead_quiet_sec()
   return e && *e ? std::max(0LL, atoll(e)) : 600;
 }
 
+// 11/15/2026 (hardening, PurgeOrphans): a "copying" seal unchanged for the quiet time is a copy nobody finishes (the
+// source's stream was purged with its folder while the copy was still "copying": ACK is applied, not sealed); a fill
+// in progress writes its files and its seal within seconds
+// (GXREPL_COPYING_ABANDONED_SEC, default 3600 s; the folder must hold no database file as well: dead_unit_candidate)
+static bool copying_abandoned(const std::string &seal_path)
+{
+  const char *e = getenv("GXREPL_COPYING_ABANDONED_SEC");
+  long long q = e && *e ? std::max(0LL, atoll(e)) : 3600;
+  struct stat st;
+  return stat(seal_path.c_str(), &st) == 0 && (long long)st.st_mtime < (long long)time(0) - q;
+}
+
 // 11/13/2026: the dead copy folder sweep's period (GXREPL_SWEEP_SEC, default 60 s)
 static long long sweep_every()
 {
@@ -3732,7 +3744,8 @@ static int sweep_dead_unit(const gxReplSetConfig &sc, const std::string &root, c
   struct stat st;
   bool exists = lstat(dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
   if(seal.empty()) return 0;                                             // never a folder gxrepl did not seal (review)
-  if(!any_seal && seal.compare(0, 8, "copying\n") == 0) return 0;        // a copy in progress ("copying-log": not)
+  if(!any_seal && seal.compare(0, 8, "copying\n") == 0 && !copying_abandoned(seal_path))
+    return 0;                                                            // a copy in progress ("copying-log": not)
   std::vector<std::string> files;
   if(exists) {
     DIR *d = opendir(dir.c_str());
@@ -3819,7 +3832,8 @@ int gxReplSweepDeadCopies(const gxReplSetConfig &sc, std::vector<std::string> &l
       if(rel.find('#') != std::string::npos && lstat((root + "/" + rel).c_str(), &lst) == 0) continue;
       for(auto &c : rel) if(c == '#') c = '/';
       std::string seal = read_small(ub + "/" + n);
-      if(seal.empty() || seal.compare(0, 8, "copying\n") == 0) continue;  // a copy in progress: never swept
+      // a copy in progress: never swept; 11/15/2026: unless abandoned (its seal unchanged for the quiet time)
+      if(seal.empty() || (seal.compare(0, 8, "copying\n") == 0 && !copying_abandoned(ub + "/" + n))) continue;
       if(dead_unit_candidate(sc, root, rel)) cand.push_back(rel);
     }
     closedir(d);
