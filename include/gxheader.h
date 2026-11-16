@@ -312,6 +312,31 @@ struct GXDLCODE_API gxBlockHeader // Marks each data block
 // required in the platform interoperable locking scheme because file lock 
 // headers operate independently of the I/O subsystem and are manipulated
 // by the database engine in the same manner as database blocks.
+// 11/15/2026 (beta 5): a gxBlockHeader on the wire (gxStream, the serial comm server, the database object server's
+// multiplex): the canonical layout, as on disk (gxdbase.h): the check word, the length and the status as 8-byte
+// little endian words, then the next deleted block's FAU as 8 bytes. 32 bytes: what a 64-bit Linux build always
+// sent, now sent by every platform. A peer older than 7.4 beta 5 on 64-bit Windows or a 32-bit build sent 24 or 16
+// bytes: such a peer needs a 7.4 beta 5 build on both ends.
+const unsigned gxWireBlockHeaderSize = 32;
+inline void gxWirePackBlockHeader(const gxBlockHeader &h, unsigned char *p)
+{
+  unsigned long long w[4];
+  w[0] = (unsigned long long)(__ULWORD__)h.block_check_word;
+  w[1] = (unsigned long long)(__ULWORD__)h.block_length;
+  w[2] = (unsigned long long)(__ULWORD__)h.block_status;
+  w[3] = (unsigned long long)(long long)(FAU_t)h.block_nd_fptr;
+  for(int k = 0; k < 4; k++) for(int i = 0; i < 8; i++) p[8 * k + i] = (unsigned char)(w[k] >> (8 * i));
+}
+inline void gxWireUnpackBlockHeader(const unsigned char *p, gxBlockHeader &h)
+{
+  unsigned long long w[4];
+  for(int k = 0; k < 4; k++) { w[k] = 0; for(int i = 7; i >= 0; i--) w[k] = (w[k] << 8) | p[8 * k + i]; }
+  h.block_check_word = (gxUINT32)(__ULWORD__)w[0];
+  h.block_length = (gxUINT32)(__ULWORD__)w[1];
+  h.block_status = (gxUINT32)(__ULWORD__)w[2];
+  h.block_nd_fptr = (FAU)(FAU_t)(long long)w[3];
+}
+
 struct GXDLCODE_API gxFileLockHeader
 {
   gxFileLockHeader() {

@@ -86,7 +86,9 @@ int gxStream::WriteHeader(gxBlockHeader &gx)
 {
   // 11/01/2026: Never send database blocks in cleartext
   if(!conn.IsSecure()) return set_error(gxSOCKET_SSL_ERROR);
-  if(conn.Send(&gx, (int)sizeof(gxBlockHeader)) != (int)sizeof(gxBlockHeader)) {
+  unsigned char wb[gxWireBlockHeaderSize];      // 11/15/2026 (beta 5): the canonical wire header (gxheader.h)
+  gxWirePackBlockHeader(gx, wb);
+  if(conn.Send(wb, (int)gxWireBlockHeaderSize) != (int)gxWireBlockHeaderSize) {
     return set_error(gxSOCKET_BLOCKHEADER_ERROR);
   }
   return set_error(gxSOCKET_NO_ERROR);
@@ -124,11 +126,11 @@ int gxStream::ReadHeader(gxBlockHeader &gx)
   // 11/01/2026: Never accept database blocks in cleartext
   if(!conn.IsSecure()) return set_error(gxSOCKET_SSL_ERROR);
   std::string s;
-  if(conn.Read(s, sizeof(gxBlockHeader)) != (int)sizeof(gxBlockHeader)) {
+  if(conn.Read(s, gxWireBlockHeaderSize) != (int)gxWireBlockHeaderSize) {
     return set_error(conn.IsOpen() ? gxSOCKET_BLOCKHEADER_ERROR : 
 		     gxSOCKET_DISCONNECTED_ERROR);
   }
-  memcpy((void *)&gx, s.data(), sizeof(gxBlockHeader));
+  gxWireUnpackBlockHeader((const unsigned char *)s.data(), gx);   // 11/15/2026 (beta 5): canonical
   if(gx.block_check_word != gxCheckWord) {
     return set_error(gxSOCKET_BLOCKSYNC_ERROR);
   }

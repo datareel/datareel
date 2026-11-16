@@ -263,9 +263,42 @@ static bool test_shutdown_wakes_waiters()
   return true;
 }
 
+// 11/15/2026 (beta 5): the frame header on the wire is the canonical gxBlockHeader (gxheader.h): 32 bytes, on
+// 64-bit Linux the struct's own bytes (what beta 3 sent), unpacked as packed, and gxdMuxEncode() starts with them
+static bool test_wire_frame_header_canonical()
+{
+  gxBlockHeader h;
+  h.block_check_word = gxCheckWord;
+  h.block_length = (gxUINT32)123456;
+  h.block_status = (gxUINT32)0x0201;
+  h.block_nd_fptr = (FAU)0;
+  unsigned char w[gxWireBlockHeaderSize];
+  gxWirePackBlockHeader(h, w);
+  CHECK(w[0] == 0xfe && w[1] == 0xfe && w[8] == (123456 & 0xff) && w[16] == 0x01 && w[17] == 0x02, "the packed words");
+  for(int i = 2; i < 8; i++) CHECK(w[i] == 0, "the check word is 8 bytes");
+  if(sizeof(gxBlockHeader) == gxWireBlockHeaderSize && sizeof(long) == 8)
+    CHECK(memcmp(w, &h, gxWireBlockHeaderSize) == 0, "on 64-bit Linux the wire header is the struct's bytes (beta 3)");
+  gxBlockHeader b;
+  gxWireUnpackBlockHeader(w, b);
+  CHECK(b.block_check_word == h.block_check_word && b.block_length == h.block_length &&
+	b.block_status == h.block_status && (FAU_t)b.block_nd_fptr == (FAU_t)h.block_nd_fptr, "unpacked as packed");
+  gxdMuxFrame f;
+  f.kind = 1; f.channel = 7; f.seq = 9; f.flags = 0;
+  f.payload.assign(10, 'x');
+  std::vector<unsigned char> out;
+  gxdMuxEncode(f, out);
+  CHECK(out.size() > gxWireBlockHeaderSize, "an encoded frame");
+  gxBlockHeader e;
+  gxWireUnpackBlockHeader(out.data(), e);
+  CHECK(e.block_check_word == gxCheckWord && (size_t)(__ULWORD__)e.block_length == out.size() - gxWireBlockHeaderSize,
+	"the frame's header and length");
+  return true;
+}
+
 int main(int argc, char **argv)
 {
   struct T { const char *name; bool (*fn)(); } tests[] = {
+    { "wire_frame_header_canonical", test_wire_frame_header_canonical },
     { "interleaved", test_interleaved },
     { "refused_and_error", test_refused_and_error },
     { "slow_large_does_not_block_small", test_slow_large_does_not_block_small },

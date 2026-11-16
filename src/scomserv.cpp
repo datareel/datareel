@@ -113,12 +113,14 @@ int gxSerialCommServer::WriteHeader(gxBlockHeader &gx)
 // Write a database block header. Returns zero if no errors occur.
 {
   // Write the block header
-  if(Send((char *)&gx, sizeof(gxBlockHeader)) < 0)
+  unsigned char wb[gxWireBlockHeaderSize];      // 11/15/2026 (beta 5): the canonical wire header (gxheader.h)
+  gxWirePackBlockHeader(gx, wb);
+  if(Send((char *)wb, gxWireBlockHeaderSize) < 0)
     return scomm_error;
 
   // If the bytes sent do not equal the bytes moved then
   // the transmitter and receiver are no longer synchronized.
-  if(bytes_moved != sizeof(gxBlockHeader)) 
+  if(bytes_moved != gxWireBlockHeaderSize) 
     return scomm_error = gxSerialComm::scomm_BLOCKHEADER_ERROR;
 
   return scomm_error = gxSerialComm::scomm_NO_ERROR;
@@ -166,13 +168,15 @@ int gxSerialCommServer::ReadHeader(gxBlockHeader &gx)
 // an error number corresponding to a value defined in the serial
 // comm internal error code enumeration.
 {
-  if(Recv((char *)&gx, sizeof(gxBlockHeader)) < 0)
+  unsigned char wb[gxWireBlockHeaderSize];      // 11/15/2026 (beta 5): the canonical wire header (gxheader.h)
+  if(Recv((char *)wb, gxWireBlockHeaderSize) < 0)
     return scomm_error;
 
   // If the bytes read do not equal the bytes received then
   // the transmitter and receiver are no longer synchronized.
-  if(bytes_read != sizeof(gxBlockHeader)) 
+  if(bytes_read != gxWireBlockHeaderSize) 
     return scomm_error = gxSerialComm::scomm_BLOCKHEADER_ERROR;
+  gxWireUnpackBlockHeader(wb, gx);
       
   if(gx.block_check_word != gxCheckWord) 
     return scomm_error = gxSerialComm::scomm_BLOCKSYNC_ERROR;
