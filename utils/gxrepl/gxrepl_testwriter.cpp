@@ -805,6 +805,24 @@ int main(int argc, char **argv)
     printf("%lu keys, order %u\n", n, order);
     return 0;
   }
+  // 11/15/2026: readlog STREAM_DIR FROM: gxdShipLogReader::Read() from record FROM: "status S count N next X"
+  if(mode == "readlog" && argc > 3) {
+    gxdShipLogReader rd;
+    if(rd.Open(root) != 0) { printf("open failed: %s\n", rd.Error().c_str()); return 1; }
+    std::vector<unsigned char> out;
+    unsigned long long next = 0;
+    unsigned long count = 0;
+    int st = rd.Read(strtoull(argv[3], 0, 10), 1 << 20, out, next, count);
+    printf("status %d count %lu next %llu\n", st, count, next);
+    return 0;
+  }
+  // 11/15/2026: recover ROOT: gxdJournal::Recover() of ROOT/writer.jnl, the static call, before any writer opens
+  if(mode == "recover") {
+    unsigned long n = 0;
+    gxDatabaseError e = gxdJournal::Recover((root + "/writer.jnl").c_str(), &n);
+    printf("recovered %lu batch(es)\n", n);
+    return e == gxDBASE_NO_ERROR ? 0 : 1;
+  }
   if(mode == "check") return check(root);
   if(mode == "hashes") return hashes(root);
   if(mode == "reindex") { if(argc > 3) stamp_lsn = strtoull(argv[3], 0, 10); return reindex(root); }

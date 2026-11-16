@@ -1123,6 +1123,39 @@ def test_log_lost_long_outage():
         env.stop()
 
 
+def test_pull_reads_only_the_copys_log():
+    """11/15/2026 (hardening, pull-mode F1): the source's log made again (purged and reopened under the same name)
+    between a pull pass's listing and its read: the remote read carries the copy's log id, the 7.4 server answers
+    "position gone" (a verify), never the new log's records as if they continued the old one; the copy ends equal"""
+    env = Env("pull_logid", {"back": {"direction": "pull", "accept": "source"}})
+    ws, aws = env.roots["back"]
+    d1 = os.path.join(aws, "d1")
+    os.makedirs(d1, exist_ok=True)
+    assert writer(d1, "--commits", 20, "--ship-root", aws).returncode == 0
+    hold = os.path.join(env.dir, "readlog_hold")
+    env.start_server()
+    env.start_client({"GXREPL_TEST_READLOG_HOLD": hold})
+    try:
+        wait_same(env, "back", 90)
+        log0 = len(open(os.path.join(env.dir, "client.log")).read())
+        put(hold + ".arm", b"1\n")
+        assert writer(d1, "--commits", 1, "--ship-root", aws, "--seed", 21).returncode == 0   # a record to read
+        end = time.time() + 60
+        while time.time() < end and not os.path.exists(hold + ".held"):
+            time.sleep(0.1)
+        assert os.path.exists(hold + ".held"), "the read was never held\n" + env.logs()
+        # the log made again: the old one purged, a new writer from record 1 (more records than the copy has)
+        shutil.rmtree(os.path.join(aws, ".gxrepl", "log", "d1_writer.jnl"))
+        assert writer(d1, "--commits", 40, "--ship-root", aws, "--seed", 22).returncode == 0
+        put(hold, b"go\n")
+        wait_same(env, "back", 120)
+        check_db(d1); check_db(os.path.join(ws, "d1"))
+        tail = open(os.path.join(env.dir, "client.log")).read()[log0:]
+        assert "position is gone" in tail or "not used" in tail, tail
+    finally:
+        env.stop()
+
+
 def test_pull_direction():
     env = Env("pull", {"back": {"direction": "pull", "accept": "source"}})
     ws, aws = env.roots["back"]
@@ -2002,6 +2035,49 @@ def test_server_does_not_leak_descriptors():
         wait_same(env, "db", 60)
         n1 = fds()
         assert n1 <= n0 + 5, f"server descriptors {n0} -> {n1}"
+    finally:
+        env.stop()
+
+
+def test_a_segment_being_started_reads_as_nothing_yet():
+    """11/15/2026 (F2): the writer's newest segment, truncated and its header not written yet (open_segment()), reads
+    as nothing to send (status 0), never as a segment of another log (status 1: the copy's position gone, a full
+    resync of the stream); a segment of another log still reads as status 1"""
+    root = os.path.join(TMP, "seg_start")
+    d1 = os.path.join(root, "d1")
+    os.makedirs(d1)
+    assert writer(d1, "--commits", 5, "--commit-block", "--ship-root", root).returncode == 0
+    ld = os.path.join(root, ".gxrepl", "log", "d1_writer.jnl")
+    head = run([os.path.join(BIN, "gxrepl"), "shiplog", ld]).stdout.split("\n")[0].split()
+    nxt = int(head[head.index("next") + 1])
+    seg = os.path.join(ld, "%016x.gxl" % nxt)
+    open(seg, "wb").close()                            # the moment between O_TRUNC and the header write
+    r = run([os.path.join(BIN, "gxrepl_testwriter"), "readlog", ld, str(nxt)])
+    assert r.stdout.startswith("status 0 count 0"), "a segment being started: " + r.stdout
+    open(seg, "wb").write(b"GXRSEG01" + b"f" * 16 + b"\0" * 8)   # a whole header of another log id
+    r = run([os.path.join(BIN, "gxrepl_testwriter"), "readlog", ld, str(nxt)])
+    assert r.stdout.startswith("status 1"), "a segment of another log: " + r.stdout
+    os.remove(seg)
+
+
+def test_big_record_resync_bound():
+    """11/15/2026 (hardening): records bigger than max_message that never pass (GXREPL_TEST_STATUS2_ALWAYS) are not
+    resynced forever: after GXREPL_STATUS2_MAX resyncs with no record drained, one ALERT and no more resyncs"""
+    env = Env("big_bound", {"db": {}})
+    ws, aws = env.roots["db"]
+    assert writer(ws, "--commits", 5).returncode == 0
+    env.start_server()
+    try:
+        wait_ok = time.time() + 30
+        env.start_client({"GXREPL_TEST_STATUS2_ALWAYS": "1", "GXREPL_STATUS2_MAX": "3"})
+        for i in range(12):                              # new records every second: each read answers status 2
+            assert writer(ws, "--commits", 1, "--seed", 300 + i).returncode == 0
+            time.sleep(1)
+        log = open(os.path.join(env.dir, "client.log")).read()
+        n = log.count("the copy resyncs its files")
+        print(f"    {n} resyncs, {log.count('ALERT')} ALERT(s)", flush=True)
+        assert log.count("ALERT") == 1 and "not resynced again" in log, log[-3000:]
+        assert n <= 4, f"{n} resyncs past the bound of 3:\n" + log[-3000:]
     finally:
         env.stop()
 

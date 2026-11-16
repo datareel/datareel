@@ -1232,13 +1232,18 @@ int gxdShipLogReader::Read(unsigned long long from, size_t max_bytes,
 	next = l + 1;
 	return true;
       }, from, max_bytes, &big);   // a big commit after an objects record: both held back (resync)
+    // 11/15/2026 (F2): the newest segment shorter than its header is one the writer is starting (open_segment()
+    // truncates, then writes the header): nothing to read yet (status 0), not a segment of another log (status 1,
+    // now a full resync of the stream)
+    struct stat fst;
+    bool starting = i + 1 == segs.size() && fstat(f, &fst) == 0 && fst.st_size < (off_t)gxdShipSegmentHeaderSize;
     close(f);
     if(big) hold_back(true);
     if(big && count == 0) { next = from; return 2; }   // 11/10/2026: the record at "from" is bigger than max_bytes
     if(big) return 0;                                  // a big one after some: send these first
     if(rc != 0) {
       hold_back(true);
-      if(count == 0) return 1; // A segment of another log id
+      if(count == 0) return starting ? 0 : 1; // A segment of another log id (or one being started: nothing yet)
       return 0;
     }
     rd_path = segs[i].path;
