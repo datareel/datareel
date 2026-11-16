@@ -502,8 +502,8 @@ incremental), the hardening items, and the review fixes:
   for GXREPL_COPYING_ABANDONED_SEC (3600 s).
 - The late-pass hollow seal: a new log's verify that lists no file while
   its folder has database files waits until the log lists them (said
-  once); records that would build a file the copy does not have without
-  its first page are refused and the stream resyncs. Promote-check's
+  once); records that would build a missing file without its first
+  page are refused and the stream resyncs. Promote-check's
   stage times use localtime_r (thread safety only: no time was wrong).
 - Before turning derived_apply = incremental on, every program that
   journals into a replicated set and gxrepl on both nodes must run 7.4
