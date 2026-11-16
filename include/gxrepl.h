@@ -243,6 +243,10 @@ struct gxReplStream {        // A ship log on the source
 struct gxReplStreamState {   // What the copy has applied
   std::string name, log_id;
   unsigned long long lsn = 0;
+  // 11/16/2026 (beta4 review H1): SetState only, never stored: -1, or the number of files a stream's verify compared
+  // when the client says the verify is done (sent after the state as "VDON" N; an older client never sends it). The
+  // copy clears the stream's hold only when N > 0.
+  int verified_files = -1;
 };
 
 struct gxReplPiece {
@@ -762,6 +766,7 @@ private:
   // 11/14/2026: the stream each set is verifying now, and streams to verify again (note_verify())
   std::map<std::string, std::string> verifying;
   std::map<std::string, std::set<std::string> > verify_again;
+  std::set<std::string> files_wait_noted;   // 11/16/2026: "SET|STREAM|LOG" said "lists no file yet" once
   // 11/15/2026 (hardening): "set\nstream" -> resyncs for records bigger than max_message with no record drained
   // since (drain(), the status-2 bound)
   std::map<std::string, int> big_resyncs;

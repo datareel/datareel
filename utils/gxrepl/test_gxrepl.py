@@ -8,10 +8,12 @@ make a test CA and certificates. Everything runs on 127.0.0.1 in a
 temporary folder. Each test starts its own server and client.
 """
 import argparse
+import glob
 import hashlib
 import json
 import os
 import random
+import re
 import shutil
 import signal
 import socket
@@ -4612,6 +4614,99 @@ def test_incremental_lone_open_then_commit_is_indexed():
         time.sleep(5)                                  # B's commits applied while the verify waits
         put(vw, b"go\n")
         _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def _holds(aws):
+    return glob.glob(os.path.join(aws, ".gxrepl", "derived", "hold_*"))
+
+
+def test_incremental_old_client_verify_keeps_the_hold():
+    """11/16/2026 (beta4 review H1): a stream's hold goes only when the client says its verify compared files. An
+    older client (GXREPL_TEST_OLD_VERIFY_DONE: the same position, no count, as 7.4 beta3 sends after any verify, a
+    0-file one too) must not clear it: before the fix the copy took the same position as "verified past the hold".
+    Writer A dies before the ship log, writer B's open record holds the stream; after the open's verify the hold is
+    still there, the copy says why, and the index is still its data's."""
+    env, ws, aws, w = _recgap_env("incr_old_verify")
+    try:
+        d1 = os.path.join(ws, "d1")
+        env.kill("client")
+        env.start_client({"GXREPL_TEST_OLD_VERIFY_DONE": "1"})
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 631,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, "writer A was not stopped before the ship log: " + a.stdout
+        c0 = len(open(os.path.join(env.dir, "client.log")).read())
+        b = _adds(d1, ws, 632)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        end = time.time() + 120
+        while time.time() < end:
+            cl = open(os.path.join(env.dir, "client.log")).read()[c0:]
+            if re.search(r"verified \([1-9][0-9]* file", cl):
+                break
+            time.sleep(0.5)
+        else:
+            raise AssertionError("no verify of the open record\n" + env.logs())
+        time.sleep(3)
+        slog = open(os.path.join(env.dir, "server.log")).read()
+        assert "verified past its open or gap record" not in slog, "an older client's verify cleared the hold\n" + env.logs()
+        assert _holds(aws), "the stream's hold is gone\n" + env.logs()
+        assert "its hold (an open or gap record at" in slog and "an older client" in slog, env.logs()
+        _recgap_index_ok(env, ws, aws)
+        # a 7.4 client: the next open's verify compares files, says so, and the hold goes
+        env.kill("client")
+        env.start_client()
+        s0 = len(slog)
+        a2 = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 633,
+                             "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a2.returncode == 9, a2.stdout
+        b2 = _adds(d1, ws, 634)
+        assert b2.wait(timeout=120) == 0, b2.stdout.read()
+        end = time.time() + 120
+        while time.time() < end and not ("verified past its open or gap record" in
+                                         open(os.path.join(env.dir, "server.log")).read()[s0:] and not _holds(aws)):
+            time.sleep(0.5)
+        assert not _holds(aws), "a 7.4 client's verify did not clear the hold\n" + env.logs()
+        _recgap_index_ok(env, ws, aws)
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
+def test_incremental_fresh_log_recovered_open_is_indexed():
+    """11/16/2026 (beta4 review H1 and M1, from the reviewer's reproducer): a fresh ship log (the log folder purged, as
+    a late pass does) lists no file until its first commit. Writer A opens it and dies between its journal sync and
+    the ship log; the copy's verify of the new log finds no file listed while d1 has its files. Writer B's Open()
+    recovers A's commit (its open record) and commits. The hold must not go on a verify that compared nothing, d1
+    must not stay sealed "copying", and the index must be its data's."""
+    env, ws, aws, w = _recgap_env("incr_fresh_log")
+    try:
+        d1 = os.path.join(ws, "d1")
+        env.kill("client")
+        for p in glob.glob(os.path.join(ws, ".gxrepl", "log", "*")):
+            if os.path.isdir(p):
+                shutil.rmtree(p)
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 711,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, "writer A was not stopped before the ship log: " + a.stdout
+        env.start_client()
+        time.sleep(6)                                  # the new log seen, verified or waiting for its files
+        clog = open(os.path.join(env.dir, "client.log")).read()
+        assert clog.count("lists no file yet") <= 1, "said every pass\n" + env.logs()
+        b = _adds(d1, ws, 712)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        _recgap_index_ok(env, ws, aws)
+        end = time.time() + 120
+        seal = os.path.join(aws, ".gxrepl", "units", "_d1")
+        while time.time() < end and open(seal).read().startswith("copying"):
+            time.sleep(0.5)
+        assert not open(seal).read().startswith("copying"), "d1 stays sealed copying\n" + env.logs()
+        assert _same_file(os.path.join(ws, "d1", "data.gxd"), os.path.join(aws, "d1", "data.gxd")), env.logs()
+        slog = open(os.path.join(env.dir, "server.log")).read()
+        cl = open(os.path.join(env.dir, "client.log")).read()
+        assert "verified (0 file(s))" not in cl or "verified past its open or gap record" not in slog, \
+            "a 0-file verify and a cleared hold\n" + env.logs()
     finally:
         if w.poll() is None: w.kill(); w.wait()
         env.stop()

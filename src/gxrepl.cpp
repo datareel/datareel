@@ -2061,8 +2061,12 @@ int gxReplLocal::SetState(const std::string &set, const gxReplStreamState &st,
   WriterHold wh;                             // 11/10/2026: held until this change is done
   if(hold_writer_locks(s->sc, wh, err)) return -1;
   // 11/15/2026 (the recovery gap, review 2): the client sends the copy's own position after a stream's verify is
-  // done (an older client never does, and an older copy just writes the same position again). Nothing to write
-  // then; the stream's hold goes when the verify reached the hold's record (or verified another log, whole).
+  // done (an older copy just writes the same position again). Nothing to write then; the stream's hold goes when the
+  // verify reached the hold's record (or verified another log, whole).
+  // 11/16/2026 (beta4 review H1): ... and only when the client says how many files the verify compared and that is
+  // more than none. The same position alone is no proof: a verify that compared no file (a new log that lists none
+  // yet) sends it, and so does an older client (the end of a 0-file verify, its log end, is the copy's position
+  // too). Such a hold stays until a verify that compared files, and the derived status shows it.
   {
     std::map<std::string, gxReplStreamState> cur;
     std::string e2;
@@ -2071,7 +2075,17 @@ int gxReplLocal::SetState(const std::string &set, const gxReplStreamState &st,
     if(c != cur.end() && c->second.log_id == st.log_id && c->second.lsn == st.lsn && st.log_id != "resync") {
       std::string hid;
       unsigned long long hl = 0;
-      if(read_hold(s->sc, st.name, hid, hl) && hl != ULLONG_MAX && (hid != st.log_id || st.lsn >= hl)) {
+      bool held = read_hold(s->sc, st.name, hid, hl);
+      if(held && st.verified_files <= 0) {
+	static std::set<std::string> said;     // once per stream and hold
+	static std::mutex said_mx;
+	std::lock_guard<std::mutex> sg(said_mx);
+	if(said.insert(s->sc.name + "|" + st.name + "|" + hid + "|" + std::to_string(hl)).second)
+	  glog("set %s: stream %s: %s: its hold (an open or gap record at %s) stays until a verify compares its files",
+	       s->sc.name.c_str(), st.name.c_str(), st.verified_files < 0 ? "the same position without a verify's count "
+	       "(an older client)" : "a verify that compared no file", hl == ULLONG_MAX ? "?" : std::to_string(hl).c_str());
+      }
+      if(held && st.verified_files > 0 && hl != ULLONG_MAX && (hid != st.log_id || st.lsn >= hl)) {
 	int lk = open((s->root + "/.gxrepl/apply.jnl").c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
 	if(lk >= 0 && lock_apply_bounded(lk) == 0) {          // under the apply lock, as the hold is written
 	  if(unlink(hold_path(s->sc, st.name).c_str()) == 0) {
@@ -4567,6 +4581,8 @@ int gxReplRemote::SetState(const std::string &set, const gxReplStreamState &s,
 			   std::string &err)
 {
   WBuf w; w.str(set); enc(w, s);
+  // 11/16/2026 (beta4 review H1): a verify's end says so after the state; an older server ignores the extra bytes
+  if(s.verified_files >= 0) { w.u32(0x56444F4E); w.u32((uint32_t)s.verified_files); }
   std::vector<unsigned char> rep;
   if(call(mkreq(OP_SETSTATE, w), rep, err)) return -1;
   return 0;
@@ -4908,6 +4924,10 @@ int gxReplServer::dispatch(uint8_t op, const std::vector<unsigned char> &body,
     }
     case OP_SETSTATE: {
       std::string set = r.str(); gxReplStreamState st; dec(r, st);
+      if(r.ok && r.n - r.off >= 8) {                   // 11/16/2026 (H1): "VDON" N, a verify done with N files
+	uint32_t mg = r.u32(), nf = r.u32();
+	if(mg == 0x56444F4E && nf <= 0x7FFFFFFF) st.verified_files = (int)nf;
+      }
       if(!r.ok) { e = "bad request"; rc = -1; break; }
       if(!role_ok(set, true) || local.SetState(set, st, e) != 0) { rc = -1; break; }
       break;
@@ -5622,8 +5642,10 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
 	break;
       }
       if(!have.empty()) {
-	glog("set %s: stream %s lists no file yet, and its folder has %s: verified when it lists its files",
-	     sc.name.c_str(), s->name.c_str(), have.c_str());
+	// 11/16/2026 (beta4 review): said once per log, not every pass
+	if(files_wait_noted.insert(sc.name + "|" + s->name + "|" + s->log_id).second)
+	  glog("set %s: stream %s lists no file yet, and its folder has %s: verified when it lists its files",
+	       sc.name.c_str(), s->name.c_str(), have.c_str());
 	verifying[sc.name].clear();
 	++it;
 	continue;
@@ -5689,7 +5711,15 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     // a 7.4 copy that the stream's hold may go (an older copy writes the same position again)
     {
       auto tsx = tstates.find(s->name);
-      if(tsx != tstates.end() && tgt.SetState(sc.name, tsx->second, err) != 0) return -1;
+      if(tsx != tstates.end()) {
+	// 11/16/2026 (beta4 review H1): with the number of files the verify compared (the hold goes only after > 0)
+	gxReplStreamState done = tsx->second;
+	done.verified_files = synced;
+#ifdef GXREPL_TEST_HOOKS
+	if(getenv("GXREPL_TEST_OLD_VERIFY_DONE")) done.verified_files = -1;   // test builds: as a 7.4 beta3 client
+#endif
+	if(tgt.SetState(sc.name, done, err) != 0) return -1;
+      }
     }
     it = vlist.erase(it);
   }
