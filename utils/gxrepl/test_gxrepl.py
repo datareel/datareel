@@ -4989,7 +4989,9 @@ def test_dead_writer_mid_commit_keeps_the_copys_seal():
         assert "gave up on d1" not in cl, "the scan gives up on d1 every pass\n" + env.logs()
         assert cl.count("the source is in a commit") == 1, "the wait is not said exactly once\n" + env.logs()
         st = json.load(open(env.cli_status))["sets"]["db"]
-        assert st.get("ok") is True and "in a commit" in st.get("waiting", ""), st
+        # (status keeps the pass's last wait: this one, or the fresh log's wait for its files)
+        assert st.get("ok") is True and ("in a commit" in st.get("waiting", "") or
+                                         "to list its files" in st.get("waiting", "")), st
         b = _adds(d1, ws, 732)
         assert b.wait(timeout=120) == 0, b.stdout.read()
         _recgap_index_ok(env, ws, aws)
@@ -5003,27 +5005,41 @@ def test_dead_writer_mid_commit_keeps_the_copys_seal():
 
 
 def test_new_log_with_an_empty_folder_waits_for_its_files():
-    """11/16/2026 (beta4 re-review M-a): a new stream whose folder holds no database file at its first verify (its
-    writer opened the log and waits before its first commit) is not verified with 0 files: the verify waits until the
-    log lists its files (before the fix it took the log's end at once, and a plain copy into the folder before the
-    first commit was then built from records alone). The copy ends equal to the source."""
+    """11/16/2026 (beta4 re-review M-a): a log that lists no file while its folder has no database file on the source
+    either (a writer opened d2 and closed it without a commit, then the day's files were moved away) is not verified
+    with 0 files: before the fix the copy took the log's end at once (only a folder with files made it wait), and a
+    plain copy into the folder before the next commit was then built from records alone. Now it waits until the log
+    lists its files, and the copy ends equal to the source."""
     env, ws, aws, w = _recgap_env("empty_folder_wait")
     try:
         d2 = os.path.join(ws, "d2")
         os.makedirs(d2)
-        gate = os.path.join(env.dir, "go2")
+        env.kill("client")
+        r = _objects_writer(d2, "--commits", 2, "--per", 2, "--commit-block", "--ship-root", ws, "--seed", 741)
+        assert r.returncode == 0, r.stdout
+        saved = os.path.join(env.dir, "d2_saved")
+        shutil.copytree(d2, saved)
+        for p in glob.glob(os.path.join(ws, ".gxrepl", "log", "d2*")):
+            shutil.rmtree(p)
+        r = writer(d2, "--commits", 0, "--commit-block", "--ship-root", ws, "--seed", 742)   # a log with no file
+        assert r.returncode == 0, r.stdout
+        for f in os.listdir(d2):                         # the day moved away: no database file left
+            if f.endswith(".gxd") or f.endswith(".btx") or f == "commit.bin":
+                os.unlink(os.path.join(d2, f))
         c0 = len(open(os.path.join(env.dir, "client.log")).read())
-        b = _objects_writer_bg(d2, "--commits", 3, "--per", 2, "--commit-block", "--ship-root", ws, "--seed", 741,
-                               "--wait-at", 0, "--wait-file", gate)
-        time.sleep(8)                                  # the new stream seen and verified, or waiting
+        env.start_client()
+        time.sleep(8)
         cl = open(os.path.join(env.dir, "client.log")).read()[c0:]
-        assert re.search(r"stream d2\S* lists no file yet", cl), "no wait for the new log's files\n" + env.logs()
+        assert re.search(r"stream d2\S* lists no file yet: verified when it lists its files", cl), \
+            "no wait for the new log's files\n" + env.logs()
         assert not re.search(r"stream d2\S* verified \(0 file", cl), "a 0-file verify of the new log\n" + env.logs()
-        put(gate, b"go\n")
-        assert b.wait(timeout=120) == 0, b.stdout.read()
+        for f in os.listdir(saved):                      # the plain copy back, then the next writer commits
+            if not os.path.isdir(os.path.join(saved, f)):
+                shutil.copy2(os.path.join(saved, f), os.path.join(d2, f))
+        r = _objects_writer(d2, "--commits", 2, "--per", 2, "--commit-block", "--ship-root", ws, "--seed", 743)
+        assert r.returncode == 0, r.stdout
         _wait_gen(ws, aws, "d2", 120)
-        cl = open(os.path.join(env.dir, "client.log")).read()[c0:]
-        assert re.search(r"stream d2\S* verified \([1-9]", cl), "the new log was never verified\n" + env.logs()
+        wait_same(env, "db", 120)
         assert _same_file(os.path.join(ws, "d2", "data.gxd"), os.path.join(aws, "d2", "data.gxd")), env.logs()
         check_db(os.path.join(aws, "d2"))
     finally:
@@ -5031,12 +5047,12 @@ def test_new_log_with_an_empty_folder_waits_for_its_files():
         env.stop()
 
 
-def test_verify_waits_for_an_unlisted_database_file():
-    """11/16/2026 (beta4 re-review M-a): a fresh log (the log folder purged) whose writer lists data.gxd while a second
-    database file sits plain-copied in its folder (extra.gxd, listed by no log): the stream's verify waits for the
-    log to list it (here at most GXREPL_TEST_UNLISTED_WAIT_S, 6 s), then finishes and names it, and the scan copies
-    it. Before the fix the verify finished at once and said nothing."""
-    env, ws, aws, w = _recgap_env("unlisted_file_wait")
+def test_unlisted_database_file_is_copied_without_a_wait():
+    """11/16/2026 (beta4 re-review M-a, narrowed in the beta5 validation): a database file in a stream's folder that its
+    log does not list (extra.gxd, plain-copied next to a fresh log's data.gxd) does not hold the stream's verify (a
+    folder may hold files no log lists: the first beta5 build held test_initial_copy's set for 120 s), and the scan
+    copies it: the copy ends equal to the source."""
+    env, ws, aws, w = _recgap_env("unlisted_file")
     try:
         d1 = os.path.join(ws, "d1")
         env.kill("client")
@@ -5048,15 +5064,12 @@ def test_verify_waits_for_an_unlisted_database_file():
                             "--adds-only", "--size-max", 64)
         assert r.returncode == 0, r.stdout
         c0 = len(open(os.path.join(env.dir, "client.log")).read())
-        env.start_client({"GXREPL_TEST_UNLISTED_WAIT_S": "6"})
-        end = time.time() + 90
-        while time.time() < end and "database file(s) its log does not list" not in \
-                open(os.path.join(env.dir, "client.log")).read()[c0:]:
-            time.sleep(0.5)
+        env.start_client()
+        wait_same(env, "db", 60)
         cl = open(os.path.join(env.dir, "client.log")).read()[c0:]
-        assert "does not list d1/extra.gxd" in cl, "no wait for the unlisted file\n" + env.logs()
-        assert "verified with 1 database file(s) its log does not list (d1/extra.gxd)" in cl, env.logs()
-        wait_same(env, "db", 120)
+        assert re.search(r"stream d1\S* verified \([1-9]", cl), "the fresh log was not verified\n" + env.logs()
+        assert "does not list" not in cl, env.logs()
+        assert _same_file(os.path.join(d1, "extra.gxd"), os.path.join(aws, "d1", "extra.gxd")), env.logs()
         _recgap_index_ok(env, ws, aws)
     finally:
         if w.poll() is None: w.kill(); w.wait()
@@ -5196,7 +5209,9 @@ def test_incremental_fill_without_records_needs_the_check():
     """11/16/2026 (beta4 review L3): the same with the fill check switched off (GXREPL_TEST_FILL_TRUST_ALL): the stamps
     stay and the copy's index misses the commits made without the ship log. This shows the test above depends on
     the check alone."""
-    log, reb, ok, d, env, ws, aws, w = _fill_without_records("incr_fill_trust", {"GXREPL_TEST_FILL_TRUST_ALL": "1"})
+    # (11/16/2026, beta5: the short-file refusal, M-b, off too: it also catches the pages no record explains)
+    log, reb, ok, d, env, ws, aws, w = _fill_without_records("incr_fill_trust", {"GXREPL_TEST_FILL_TRUST_ALL": "1",
+                                                                                 "GXREPL_TEST_NO_GAP_REFUSAL": "1"})
     try:
         assert "copied by files" not in log, "the hook did not switch the check off\n" + env.logs()
         assert not ok, "the index is still its data's with the check off: the fill test proves nothing\n" + env.logs()
@@ -6296,7 +6311,8 @@ def _drain_verify_round(name, client_env=None, recovery=True, pre_open=False):
     os.makedirs(d1)
     try:
         assert writer(d1, "--commits", 5, "--commit-block", "--ship-root", ws).returncode == 0
-        env.start_server()
+        # 11/16/2026: the short-file refusal (M-b) runs on the copy's side
+        env.start_server(extra_env={"GXREPL_TEST_NO_GAP_REFUSAL": "1"} if (client_env or {}).get("GXREPL_TEST_NO_GAP_REFUSAL") else None)
         env.start_client()
         _wait_units(env, ws, aws, ["d1"])
         end = time.time() + 60                          # the first connect's own verify done before the restart
@@ -6369,8 +6385,9 @@ def test_drain_verify_drain_part_alone():
 
 def test_drain_verify_drain_path_both_parts_off_loses_the_pages():
     """the same drain path with both parts off loses the pages (proves the drain test reaches the bug)"""
+    # 11/16/2026 (beta5): and the short-file refusal (M-b) off, which also catches the lost pages (and resyncs)
     same, log = _drain_verify_round("dv_drain_none", {"GXREPL_TEST_NO_CALLER_VERIFY": "1", "GXREPL_TEST_NO_DRAIN_VERIFY": "1",
-                                                      "GXREPL_TEST_DIFF_STATUS2": "1"})
+                                                      "GXREPL_TEST_DIFF_STATUS2": "1", "GXREPL_TEST_NO_GAP_REFUSAL": "1"})
     assert not same, "the copy matched with both parts off on the drain path\n" + log[-3000:]
 
 

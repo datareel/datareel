@@ -3476,7 +3476,8 @@ int gxReplLocal::ApplyLog(const std::string &set, const std::string &stream,
     }
     unsigned long long have_pages = ((unsigned long long)fst.st_size + gxdPageSize - 1) / gxdPageSize;
     auto past = e.second.second.lower_bound(have_pages);
-    if(past != e.second.second.end() && past->first > have_pages) {
+    // (test builds: GXREPL_TEST_NO_GAP_REFUSAL switches this check off, for the tests that prove the others)
+    if(past != e.second.second.end() && past->first > have_pages && !test_off("GXREPL_TEST_NO_GAP_REFUSAL")) {
       err = "not in step: " + rel + " is " + std::to_string((long long)fst.st_size) + " bytes on the copy and the "
 	"records write from page " + std::to_string(past->first) + " on (pages " + std::to_string(have_pages) + " to " +
 	std::to_string(past->first - 1) + " missing; resynced)";
@@ -5851,55 +5852,30 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     // events.gxd is there, the new log does not list it yet) is not done: taking the log's end then let the next
     // records build that file from their pages alone on a copy that does not have it (a hollow file, sealed whole).
     // The stream stays on the list until its files are listed.
-    // 11/16/2026 (beta4 re-review M-a): every folder the stream touches (its journal's and each listed file's), and
-    // not only "no file listed": a log that lists nothing yet waits until it lists its files (also with its folders
-    // empty on the source now: a plain copy may still put files there before the first commit); a database file in
-    // those folders that the log does not list yet (a second plain-copied file, a file the next commit adds) keeps
-    // the verify waiting too, for verify_unlisted_wait_s (120 s) once files were compared (a file that never gets
-    // listed belongs to no record: the scan copies it), then the verify finishes and names it. When the log later
-    // lists a file it did not, the stream is verified again (the commit feed, step 1).
-    if(!s->journal.empty()) {
-      std::set<std::string> folders{dir_of(s->journal)};
-      for(auto &f : s->files) folders.insert(dir_of(f));
-      std::set<std::string> listed(s->files.begin(), s->files.end());
-      std::string have;
-      int unlisted = 0;
+    // 11/16/2026 (beta4 re-review M-a): a log that lists nothing yet waits until it lists its files, also with its
+    // folder empty on the source now (a plain copy may still put files there before the first commit). A database
+    // file in its folders that the log does not list is no reason to wait (a folder may hold files no log lists,
+    // which the scan copies); when the log later lists a file it did not, the stream is verified again (the commit
+    // feed, step 1), so the copy's file is compared whole before its unit is sealed.
+    if(!s->journal.empty() && s->files.empty()) {
+      std::string folder = dir_of(s->journal), have;
       for(auto &m : sm) {
-	if(!folders.count(dir_of(m.path)) || m.path == s->journal || listed.count(m.path) || !is_db_file(sc, m.path) ||
-	   excluded(sc, m.path) || is_derived(sc, m.path)) continue;
-	if(have.empty()) have = m.path;
-	unlisted++;
+	if(dir_of(m.path) != folder || m.path == s->journal || !is_db_file(sc, m.path) || excluded(sc, m.path) ||
+	   is_derived(sc, m.path)) continue;
+	have = m.path;
+	break;
       }
-      std::string key = sc.name + "|" + s->name + "|" + s->log_id;
-#ifdef GXREPL_TEST_HOOKS
-      if(const char *uw = getenv("GXREPL_TEST_UNLISTED_WAIT_S")) verify_unlisted_wait_s = atoi(uw);   // test builds
-#endif
-      long long t0 = 0;
-      { auto ws = unlisted_since.find(key); if(ws == unlisted_since.end()) unlisted_since[key] = now_s(); else t0 = ws->second; }
-      bool wait = s->files.empty() || (unlisted > 0 && (synced == 0 || t0 == 0 || now_s() - t0 < verify_unlisted_wait_s));
-      if(wait) {
-	// 11/16/2026 (beta4 review): said once per log, not every pass
-	if(files_wait_noted.insert(key).second) {
-	  if(s->files.empty())
-	    glog("set %s: stream %s lists no file yet%s: verified when it lists its files", sc.name.c_str(), s->name.c_str(),
-		 have.empty() ? "" : (", and its folder has " + have).c_str());
-	  else
-	    glog("set %s: stream %s does not list %s (%d unlisted database file(s) in its folders): verified when it lists "
-		 "them (%s)", sc.name.c_str(), s->name.c_str(), have.c_str(), unlisted,
-		 synced ? ("at most " + std::to_string(verify_unlisted_wait_s) + " s").c_str() : "no file compared yet");
-	}
-	{ std::lock_guard<std::mutex> lg(st.m); st.waiting = "waiting for stream " + s->name + " to list its files"; }
-	wait_seen[sc.name + "|" + s->name] = std::make_pair(wsig, now_s());
-	verifying[sc.name].clear();
-	++it;
-	continue;
-      }
-      if(unlisted > 0)
-	glog("set %s: stream %s verified with %d database file(s) its log does not list (%s): the scan copies them",
-	     sc.name.c_str(), s->name.c_str(), unlisted, have.c_str());
-      unlisted_since.erase(key);
-      wait_seen.erase(sc.name + "|" + s->name);
+      // 11/16/2026 (beta4 review): said once per log, not every pass
+      if(files_wait_noted.insert(sc.name + "|" + s->name + "|" + s->log_id).second)
+	glog("set %s: stream %s lists no file yet%s: verified when it lists its files", sc.name.c_str(), s->name.c_str(),
+	     have.empty() ? "" : (", and its folder has " + have).c_str());
+      { std::lock_guard<std::mutex> lg(st.m); st.waiting = "waiting for stream " + s->name + " to list its files"; }
+      wait_seen[sc.name + "|" + s->name] = std::make_pair(wsig, now_s());
+      verifying[sc.name].clear();
+      ++it;
+      continue;
     }
+    wait_seen.erase(sc.name + "|" + s->name);
     if(synced == 0) {
       // No file left to match the position against: take the log's end
       gxReplStreamState ns;
@@ -6118,7 +6094,16 @@ int gxReplClient::sync_set(gxReplSource &src, gxReplTarget &tgt,
     if(full && failures == 0) st.last_full_verify = now;
     if(failures) return 1;
   }
-  return vlist.empty() ? 0 : 1;
+  // 11/16/2026 (beta4 re-review L-b): streams that only wait for their log to list its files are an expected wait, not
+  // a set out of step: the set stays ok (its status says "waiting") while the client runs; "gxrepl once" still says
+  // the copy is not the same
+  if(vlist.empty()) return 0;
+  if(!once) {
+    bool all_wait = true;
+    for(auto &v : vlist) if(!wait_seen.count(sc.name + "|" + v)) all_wait = false;
+    if(all_wait) return 0;
+  }
+  return 1;
 }
 
 // 11/10/2026: derived index state, one file per folder:
