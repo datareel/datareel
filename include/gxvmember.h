@@ -75,6 +75,10 @@ struct GXDLCODE_API gxvMemberSpec {
   // record has no such member (or it is too short for it).
   int Extract(const unsigned char *rec, unsigned len, const unsigned char *&member, unsigned &mlen,
 	      unsigned tags[gxvTagCount]) const;
+  // 11/15/2026: an InfoHog record's layout (gxdbase.h): the count and lengths are longs (8 canonical, 4 in an
+  // old 4-byte layout file) after a gxObjectHeader of two FAUs. SetLayout() takes them from the data file.
+  unsigned ih_word = 8, ih_ohdr = 16;
+  void SetLayout(const gxDatabase &db) { ih_word = (unsigned)db.DiskLongSize(); ih_ohdr = 2u * (unsigned)db.DiskFAUSize(); }
 };
 
 // The "gxvmember" extractor (gxrextract.h)

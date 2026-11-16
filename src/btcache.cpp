@@ -73,28 +73,10 @@ gxDatabaseError BtreeBucket::ReadNode(gxDatabase *f)
 {
   if(!f) return gxDBASE_NULL_PTR;
 
-  // 10/31/2026: Read the key count and left child with one read
-  char hdr[sizeof(key_count) + sizeof(left_child)];
-  if(f->Read(hdr, sizeof(hdr), node_address) != gxDBASE_NO_ERROR)
-    return f->GetDatabaseError();
-  memcpy(&key_count, hdr, sizeof(key_count));
-  memcpy(&left_child, hdr + sizeof(key_count), sizeof(left_child));
-
-  // 10/26/2026: The key count comes from the index file. A count larger
-  // than the node can hold overflowed key_entries, the same problem
-  // fixed in gxBtree::ReadNode() in 6.1.
-  if((key_count < (BtreeKeyCount_t)0) ||
-     (key_count > (BtreeKeyCount_t)node_order)) {
-    key_count = (BtreeKeyCount_t)0;
-    return f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
-  }
-
-  // Optimize the read by only reading the exact number of keys
-  if(key_count > (BtreeKeyCount_t)0) { // Ensure node has entries
-    if(f->Read(key_entries, (key_size * key_count)) != 
-       gxDBASE_NO_ERROR)
-      return f->GetDatabaseError();
-  }
+  // 11/15/2026: in the file's layout (gxBtreeReadNodeDisk(): on 64-bit Linux the bytes as before)
+  gxDatabaseError e = gxBtreeReadNodeDisk(f, node_address, key_count, left_child, key_entries, (size_t)key_size,
+					  node_order);
+  if(e != gxDBASE_NO_ERROR) return e;
 
   is_dirty = 0; // Reset this bucket's dirty flag
   return gxDBASE_NO_ERROR;
@@ -107,21 +89,9 @@ gxDatabaseError BtreeBucket::WriteNode(gxDatabase *f)
 {
   if(!f) return gxDBASE_NULL_PTR;
 
-  // 10/31/2026: Write the key count, left child and keys with one write.
-  // The bytes and their order in the file are unchanged.
-  static thread_local std::vector<char> wbuf;
-  size_t hdr_len = sizeof(key_count) + sizeof(left_child);
-  size_t keys_len = 0;
-  if(key_count > (BtreeKeyCount_t)0) { // Only the keys in use
-    keys_len = (size_t)(key_size * key_count);
-  }
-  wbuf.resize(hdr_len + keys_len);
-  memcpy(wbuf.data(), &key_count, sizeof(key_count));
-  memcpy(wbuf.data() + sizeof(key_count), &left_child, sizeof(left_child));
-  if(keys_len) memcpy(wbuf.data() + hdr_len, key_entries, keys_len);
-  if(f->Write(wbuf.data(), (__ULWORD__)wbuf.size(), node_address, 0, 0) 
-     != gxDBASE_NO_ERROR)
-    return f->GetDatabaseError();
+  // 11/15/2026: in the file's layout (gxBtreeWriteNodeDisk(): on 64-bit Linux the bytes as before, in one write)
+  gxDatabaseError e = gxBtreeWriteNodeDisk(f, node_address, key_count, left_child, key_entries, (size_t)key_size);
+  if(e != gxDBASE_NO_ERROR) return e;
 
   is_dirty = 0; // Reset this bucket's dirty flag
   return gxDBASE_NO_ERROR;
@@ -551,7 +521,10 @@ int BtreeCacheNode::Alloc(BtreeNode *node, FAU_t address)
   // BtreeBucket *bucket = Alloc(node->SizeOfBtreeNode(), address);
   // TODO: Retest
 
-  bucket = Alloc(node->SizeOfBtreeNode(), address);
+  // 11/15/2026: a new node's block is its size on disk, in the file's layout
+  gxDatabase *cf = cache->gxDatabasePtr();
+  bucket = Alloc(cf ? gxBtreeDiskNodeSize(cf, (size_t)node->key_size, node->node_order) : node->SizeOfBtreeNode(),
+		 address);
   if(!bucket) {
     // Set the database error code here to ensure that an exception 
     // is properly signaled in the gxBtree cached insert, delete, 

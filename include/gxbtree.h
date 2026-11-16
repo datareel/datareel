@@ -243,6 +243,8 @@ public:
 	       BtreeNode &curr_node, int test_tree = 0);
   
 public:
+  // 11/15/2026: before Create(): 4 makes the index file in the old 4-byte layout (gxdbase.h), for old readers only
+  void SetCreateLayout(int long_size) { create_layout = long_size; }
   int TestTree(FAU_t header_address, int reinit);
   int TestTree(int reinit = 1) {
     return TestTree(btree_header_address, reinit);
@@ -313,6 +315,7 @@ protected: // Internal Insert, delete, and balancing functions
 protected:
   gxDatabase *f;              // Database the Btree is connected to
   FAU_t btree_header_address; // File address of the Btree header
+  int create_layout = 0;       // 11/15/2026: SetCreateLayout()
   gxBtreeHeader btree_header; // In memory copy of the Btree header
   
   // True if the in-memory copy of the header is in sync with the disk copy
@@ -414,6 +417,11 @@ protected:
 // End - B-tree cache additions
 // =========================================================== //
 };
+
+// 11/15/2026: the B-tree header on disk in a layout (gxdbase.h): its size, and a read from a file opened as a
+// gxDatabase (gxrepl digest)
+GXDLCODE_API size_t gxBtreeDiskHeaderSize(int long_size, int fau_size);
+GXDLCODE_API gxDatabaseError gxBtreeReadHeaderDisk(gxDatabase *f, gxBtreeHeader &h, FAU_t header_address);
 
 } // namespace datareel
 

@@ -559,10 +559,24 @@ gxvError gxVectorIndex::WriteEntry()
 gxvError gxVectorIndex::ReadHeader()
 {
   static_area = (FAU_t)db.FileHeaderSize();
-  if(db.StaticArea() < (FAU_t)gxvHeaderSize) return gxv_BAD_FILE;
   unsigned char h[gxvHeaderSize];
-  if(db.Read(h, sizeof(h), static_area) != gxDBASE_NO_ERROR) return gxv_BAD_FILE;
-  if(memcmp(h + hMAGIC, gxv_magic, sizeof(gxv_magic)) != 0) return gxv_BAD_FILE;
+  bool got = db.StaticArea() >= (FAU_t)gxvHeaderSize && db.Read(h, sizeof(h), static_area) == gxDBASE_NO_ERROR &&
+    memcmp(h + hMAGIC, gxv_magic, sizeof(gxv_magic)) == 0;
+  // 11/15/2026: a file with no block cannot show its layout (gxdbase.h): taken as canonical; an old 4-byte layout
+  // index with no node has its header 12 bytes earlier: open it again in that layout and look there
+  if(!got && db.LayoutGuessed()) {
+    std::string name = db.DatabaseName();
+    gxDatabaseAccessMode mode = db.ReadyForWriting() ? gxDBASE_READWRITE : gxDBASE_READONLY;
+    db.Close();
+    db.SetOpenLayout(4);
+    gxDatabaseError oe = db.Open(name.c_str(), mode);
+    db.SetOpenLayout(0);
+    if(oe != gxDBASE_NO_ERROR) return gxv_BAD_FILE;
+    static_area = (FAU_t)db.FileHeaderSize();
+    got = db.StaticArea() >= (FAU_t)gxvHeaderSize && db.Read(h, sizeof(h), static_area) == gxDBASE_NO_ERROR &&
+      memcmp(h + hMAGIC, gxv_magic, sizeof(gxv_magic)) == 0;
+  }
+  if(!got) return gxv_BAD_FILE;
   if(get<unsigned>(h, hVERSION) != gxvVersion) return gxv_BAD_VERSION;
   dim = get<unsigned>(h, hDIM);
   elem_type = (gxvElementType)get<unsigned>(h, hELEM);

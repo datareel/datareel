@@ -6266,7 +6266,8 @@ int gxReplDigest(const std::string &path, const std::string &kind_in, uint64_t &
     {
       gxDatabase probe;
       if(probe.Open(path.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { err = "cannot open " + path; return -1; }
-      if(probe.Read(&bh, sizeof(bh), (FAU_t)probe.FileHeaderSize()) != gxDBASE_NO_ERROR) { err = "no B-tree header"; return -1; }
+      // 11/15/2026: in the file's layout (gxdbase.h); the key size comes back as it is in memory
+      if(gxBtreeReadHeaderDisk(&probe, bh, (FAU_t)probe.FileHeaderSize()) != gxDBASE_NO_ERROR) { err = "no B-tree header"; return -1; }
     }
     // The header's key size is SizeOfDatabaseKey(): the key and its right child pointer (an FAU)
     if(bh.key_size <= sizeof(FAU) || bh.key_size > 65536 || bh.node_order < 2) { err = "not a B-tree index"; return -1; }

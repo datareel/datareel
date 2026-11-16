@@ -256,6 +256,47 @@ public: // Record lock functions (revision C and higher)
   int UnlockRecord(gxDatabaseLockType l_type = gxDBASE_WRITELOCK,
 		   FAU_t block_address = gxCurrAddress);
 
+public: // 11/15/2026: the on-disk layout
+  // DataReel 7.4 writes one layout on every platform, the canonical one: the 64-bit Linux layout, where the
+  // header fields the structs keep as "long" (gxUINT32, gxINT32, a 32-bit FAU) take 8 bytes. Files written by
+  // 64-bit Windows and by 32-bit builds before 7.4 have them as 4 bytes (the old 4-byte layout). A file's layout
+  // is found when it is opened, and the file is then read and written in that layout, so its object addresses
+  // never move; gxd_upgrade rewrites one into the canonical layout. The structs in memory are unchanged.
+  int DiskLongSize() const { return disk_long; }  // 8 (canonical) or 4 (old)
+  int DiskFAUSize() const { return disk_fau; }    // 8, or 4 for an old file of a 32-bit FAU build
+  int IsOldLayout() const { return disk_long == 4; }
+  // A file with no block cannot show its layout (64-bit FAU builds): canonical was taken (see SetOpenLayout())
+  int LayoutGuessed() const { return layout_guessed; }
+  // Before Open(): 0 finds the layout (the default), 8 or 4 takes that one (an empty old-layout file)
+  void SetOpenLayout(int long_size) { open_layout = long_size; }
+  // Before Create(): 0 or 8 the canonical layout (the default), 4 the old 4-byte layout (for old readers only)
+  void SetCreateLayout(int long_size) { create_layout = long_size; }
+  size_t DiskFileHdrSize() const;      // the gxFileHeader on disk
+  size_t DiskLockHdrSize() const;      // a gxFileLockHeader or a gxRecordLockHeader on disk
+  size_t DiskStatsHdrSize() const;     // the gxFileStatsHeader on disk
+  size_t DiskBlockHdrSize() const;     // a gxBlockHeader on disk
+  size_t DiskChecksumSize() const { return (size_t)disk_long; }
+  gxDatabaseError ReadBlockHdrRaw(gxBlockHeader &hdr, FAU_t block_address = gxCurrAddress);
+  gxDatabaseError WriteBlockHdrRaw(const gxBlockHeader &hdr, FAU_t block_address = gxCurrAddress);
+  // A "long" field of the file's layout (lock words, checksums, InfoHog counts and lengths)
+  gxDatabaseError ReadDiskLong(__ULWORD__ &v, FAU_t file_address = gxCurrAddress);
+  gxDatabaseError WriteDiskLong(__ULWORD__ v, FAU_t file_address = gxCurrAddress);
+  // A FAU field of the file's layout (gxBtree's node links)
+  void PackFAU(unsigned char *p, FAU_t v) const;
+  FAU_t UnpackFAU(const unsigned char *p) const;
+  void PackLong(unsigned char *p, __ULWORD__ v) const;
+  __ULWORD__ UnpackLong(const unsigned char *p) const;
+  int RawLayout() const { return raw_ok; }   // the structs in memory are the file's layout (read as they are)
+
+protected:
+  void set_layout(int long_size);
+  gxDatabaseError detect_layout();
+  gxDatabaseError ReadFileHdrRaw(gxFileHeader &fh);
+  gxDatabaseError WriteFileHdrRaw(const gxFileHeader &fh);
+  gxDatabaseError ReadLock3(gxUINT32 &a, gxUINT32 &b, gxUINT32 &c, FAU_t file_address);
+  gxDatabaseError WriteLock3(const gxUINT32 &a, const gxUINT32 &b, const gxUINT32 &c, FAU_t file_address);
+  int disk_long, disk_fau, layout_guessed, raw_ok, open_layout, create_layout;
+
 public: // 10/25/2026: Write notification
   // The hook is called after each successful Write(), so an application
   // can tell its own changes to a file apart from changes made by others

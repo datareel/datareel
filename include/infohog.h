@@ -409,14 +409,23 @@ void InfoHog<TYPE>::DeleteArray()
   num_members = 0;
 }
 
+// 11/15/2026: a long of the data file's layout (gxdbase.h): the member count and lengths of an InfoHog record
+inline gxDatabaseError ih_read_long(gxDatabase *f, gxUINT32 &v)
+{
+  __ULWORD__ x = 0;
+  gxDatabaseError e = f->ReadDiskLong(x);
+  v = (gxUINT32)x;
+  return e;
+}
+
 template<class TYPE>
 __UWORD__ InfoHog<TYPE>::ObjectLength()
 // Calculates the length of this object based on total number of 
 // InfoHog data members: 
 // [num_members][len_record*num_members][member_len*num_members] 
 {
-  __UWORD__ len = sizeof(gxUINT32); // Persistent number of members record
-  len += (num_members * sizeof(gxUINT32)); // Persistent length record
+  __UWORD__ len = (size_t)pod->OpenDataFile()->DiskLongSize(); // Persistent number of members record
+  len += (num_members * (size_t)pod->OpenDataFile()->DiskLongSize()); // Persistent length record
   
   for(unsigned i = 0; i  < num_members; i++) {
     len += ih_members[i].size(); // Length of the data member 
@@ -430,7 +439,7 @@ gxDatabaseError InfoHog<TYPE>::Write()
   gxObjectHeader oh;
 
   // Allocate a block in the data file for this object's data
-  objectaddress = pod->OpenDataFile()->Alloc(sizeof(gxObjectHeader) + 
+  objectaddress = pod->OpenDataFile()->Alloc((2 * (size_t)pod->OpenDataFile()->DiskFAUSize()) + 
 					     ObjectLength());
   
   // Check for any allocation errors
@@ -448,14 +457,14 @@ gxDatabaseError InfoHog<TYPE>::Write()
   
   // Record the number of members
   gxUINT32 num = (__ULWORD__)num_members;
-  if(pod->OpenDataFile()->Write(&num, sizeof(gxUINT32)) != gxDBASE_NO_ERROR) {
+  if(pod->OpenDataFile()->WriteDiskLong((__ULWORD__)num) != gxDBASE_NO_ERROR) {
     return pod->GetDataFileError();
   }
 
   // Record the length of each object and write object 
   for(unsigned i = 0; i  < num_members; i++) {
     gxUINT32 len = (__ULWORD__)ih_members[i].size();
-    if(pod->OpenDataFile()->Write(&len, sizeof(gxUINT32)) != 
+    if(pod->OpenDataFile()->WriteDiskLong((__ULWORD__)len) != 
        gxDBASE_NO_ERROR) {
       return pod->GetDataFileError();
     }
@@ -506,7 +515,7 @@ gxDatabaseError InfoHog<TYPE>::Read(FAU object_address)
   
   // Read the only the name portion of the database key   
   gxUINT32 num = (__ULWORD__)0;
-  if(pod->OpenDataFile()->Read(&num, sizeof(gxUINT32)) != gxDBASE_NO_ERROR) {
+  if(ih_read_long(pod->OpenDataFile(), num) != gxDBASE_NO_ERROR) {
     return pod->GetDataFileError();
   }
   
@@ -524,7 +533,7 @@ gxDatabaseError InfoHog<TYPE>::Read(FAU object_address)
   // Read the InfoHog members
   for(unsigned i = 0; i  < num_members; i++) {
     gxUINT32 len = (__ULWORD__)0;
-    if(pod->OpenDataFile()->Read(&len, sizeof(gxUINT32)) != gxDBASE_NO_ERROR) {
+    if(ih_read_long(pod->OpenDataFile(), len) != gxDBASE_NO_ERROR) {
       return pod->GetDataFileError();
     }
     // 10/26/2026: Compare without the FAU_t cast, which made large
@@ -581,7 +590,7 @@ int InfoHog<TYPE>::Find()
   while(1) { 
     if(FAU_t(addr + pod->OpenDataFile()->BlockHeaderSize()) >= gxdfileEOF) 
       break;
-    if(pod->OpenDataFile()->Read(&blk, sizeof(gxBlockHeader), addr) !=
+    if(pod->OpenDataFile()->ReadBlockHdrRaw(blk, addr) !=
        gxDBASE_NO_ERROR) {
       return 0;
     }
@@ -729,7 +738,7 @@ int InfoHog<TYPE>::CompareIndex(unsigned index_number)
   while(1) { 
     if(FAU_t(addr + pod->OpenDataFile()->BlockHeaderSize()) >= gxdfileEOF) 
       break;
-    pod->OpenDataFile()->Read(&blk, sizeof(gxBlockHeader), addr);
+    pod->OpenDataFile()->ReadBlockHdrRaw(blk, addr);
     if(blk.block_check_word == gxCheckWord) {
       if((__SBYTE__)blk.block_status == gxNormalBlock) {
 	oa = addr + pod->OpenDataFile()->BlockHeaderSize();
@@ -800,7 +809,7 @@ int InfoHog<TYPE>::RebuildIndexFile(const char *fname, unsigned index_number,
   while(1) { 
     if(FAU_t(addr + pod->OpenDataFile()->BlockHeaderSize()) >= gxdfileEOF) 
       break;
-    pod->OpenDataFile()->Read(&blk, sizeof(gxBlockHeader), addr);
+    pod->OpenDataFile()->ReadBlockHdrRaw(blk, addr);
     if(blk.block_check_word == gxCheckWord) {
       if((__SBYTE__)blk.block_status == gxNormalBlock) {
 	oa = addr + pod->OpenDataFile()->BlockHeaderSize();
@@ -849,18 +858,18 @@ int InfoHog<TYPE>::OverWriteObject(FAU_t object_address)
 // overwrite the object's key name. Returns true if successful or 
 // false if an error occurs.
 {
-  FAU_t member_address = object_address + sizeof(gxObjectHeader);
+  FAU_t member_address = object_address + (2 * (size_t)pod->OpenDataFile()->DiskFAUSize());
   
   // Seek to the first general-purpose member address
   // Skip over num_members record, key length record,
   // and the data key
-  member_address += (sizeof(gxUINT32) * 2);
+  member_address += ((size_t)pod->OpenDataFile()->DiskLongSize() * 2);
   member_address += ih_members[0].size();
   pod->OpenDataFile()->SeekTo(member_address);
   if(pod->GetDataFileError() != gxDBASE_NO_ERROR) return 0;
 
   for(unsigned i = 1; i  < num_members-1; i++) {
-    member_address += sizeof(gxUINT32); // Skip length record
+    member_address += (size_t)pod->OpenDataFile()->DiskLongSize(); // Skip length record
     pod->OpenDataFile()->SeekTo(member_address);
     if(pod->GetDataFileError() != gxDBASE_NO_ERROR) return 0;
     gxUINT32 len = (__ULWORD__)ih_members[i].size();
@@ -902,17 +911,17 @@ int InfoHog<TYPE>::ChangeObject(InfoHog<TYPE> &ob, int find_object)
     }
   }
 
-  FAU_t member_address = objectaddress + sizeof(gxObjectHeader);
+  FAU_t member_address = objectaddress + (2 * (size_t)pod->OpenDataFile()->DiskFAUSize());
   
   // Seek to the first general-purpose member address
   // Skip over num_members record, key length record,
   // and the data key
-  member_address += (sizeof(gxUINT32) * 2);
+  member_address += ((size_t)pod->OpenDataFile()->DiskLongSize() * 2);
   member_address += ih_members[0].size();
   pod->OpenDataFile()->SeekTo(member_address);
   if(pod->GetDataFileError() != gxDBASE_NO_ERROR) return 0;
   for(unsigned i = 1; i <= num_members-1; i++) {
-    member_address += sizeof(gxUINT32); // Skip length record
+    member_address += (size_t)pod->OpenDataFile()->DiskLongSize(); // Skip length record
     pod->OpenDataFile()->SeekTo(member_address);
     if(pod->GetDataFileError() != gxDBASE_NO_ERROR) return 0;
     gxUINT32 len = (__ULWORD__)ob.ih_members[i].size();
@@ -954,15 +963,15 @@ int InfoHog<TYPE>::ChangeMember(const void *ob, unsigned len, unsigned index,
 
   // Position the file stream to member being changed
   FAU_t member_address = objectaddress + \
-    (sizeof(gxObjectHeader) + sizeof(gxINT32));
+    ((2 * (size_t)pod->OpenDataFile()->DiskFAUSize()) + (size_t)pod->OpenDataFile()->DiskLongSize());
   for(unsigned i = 0; i < index; i++) {
-    member_address += sizeof(gxUINT32); // Skip length record
+    member_address += (size_t)pod->OpenDataFile()->DiskLongSize(); // Skip length record
     member_address += ih_members[i].size();
   }
   pod->OpenDataFile()->SeekTo(member_address);
   if(pod->GetDataFileError() != gxDBASE_NO_ERROR) return 0;
   SetMember(ob, len, index); // Set the member
-  member_address += sizeof(gxUINT32); // Skip length record
+  member_address += (size_t)pod->OpenDataFile()->DiskLongSize(); // Skip length record
   pod->OpenDataFile()->SeekTo(member_address);
   if(pod->GetDataFileError() != gxDBASE_NO_ERROR) return 0;
   if(len > (__ULWORD__)0) {
@@ -998,7 +1007,7 @@ int InfoHog<TYPE>::ChangeKeyMember(TYPE &k, int find_object)
   SetMember(&k, sizeof(k), 0); // Set the key name
     
   FAU_t member_address = objectaddress + \
-    ((sizeof(gxObjectHeader) + (sizeof(gxUINT32)*2)));
+    (((2 * (size_t)pod->OpenDataFile()->DiskFAUSize()) + ((size_t)pod->OpenDataFile()->DiskLongSize()*2)));
   
   // Skip over the object header and the num_members record
   // Skip over the length record assuming that all keys are fixed in length

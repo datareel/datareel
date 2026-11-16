@@ -102,6 +102,17 @@ public: // Persistent data members
   char *key_entries;       // Variable order of key entries
 };
 
+// 11/15/2026: a B-tree node on disk in its file's layout (gxdbase.h): the key count (a long), the left child (a
+// FAU), then each entry: its right child (a FAU) and the key's own bytes, as they are. mem_entry is the entry's size
+// in memory (sizeof(FAU) + the key's size: BtreeNode::key_size). On 64-bit Linux the memory and disk forms are the
+// same and the node is read and written as before.
+GXDLCODE_API gxDatabaseError gxBtreeReadNodeDisk(gxDatabase *f, FAU_t node_address, BtreeKeyCount &key_count,
+						FAU &left_child, char *entries, size_t mem_entry,
+						BtreeNodeOrder_t node_order);
+GXDLCODE_API gxDatabaseError gxBtreeWriteNodeDisk(gxDatabase *f, FAU_t node_address, const BtreeKeyCount &key_count,
+						 const FAU &left_child, const char *entries, size_t mem_entry);
+GXDLCODE_API size_t gxBtreeDiskNodeSize(const gxDatabase *f, size_t mem_entry, BtreeNodeOrder_t node_order);
+
 } // namespace datareel
 
 #endif // __GX_BTREE_NODE_HPP__

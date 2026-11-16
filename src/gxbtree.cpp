@@ -51,7 +51,12 @@ to use the B-tree cache.
 #include <vector>
 #include "gxbtree.h"
 
+#include <stdlib.h>
+
 namespace datareel {
+
+// 11/15/2026: the B-tree header in its file's layout (defined below, with WriteBtreeHeader())
+static size_t bt_hdr_size(const gxDatabase *f);
 
 
 
@@ -133,7 +138,7 @@ gxDatabaseError gxBtree::InitBtree(int create, FAU_t header_address,
   if(create) {
     if(num_trees <= 0) num_trees = 1;
     BtreeNode root_node(btree_header.key_size, btree_header.node_order); 
-    FAU_t root_address = f->Alloc(root_node.SizeOfBtreeNode());
+    FAU_t root_address = f->Alloc((__ULWORD__)gxBtreeDiskNodeSize(f, (size_t)root_node.key_size, root_node.node_order));
 
     // Check for block allocation errors
     if(root_address == (FAU_t)0) return f->GetDatabaseError();
@@ -232,7 +237,17 @@ gxDatabaseError gxBtree::Create(const char *fname, int num_trees,
   
   if(num_trees <= 0) num_trees = 1;
   // PC-lint 09/08/2005: Suspicious truncation warning for FAU_t(sizeof(gxBtreeHeader) * num_trees)
-  FAU_t static_size = (FAU_t)sizeof(gxBtreeHeader) * num_trees;
+  // 11/15/2026: the headers in the layout the new file gets (canonical; SetCreateLayout(4) for the old one)
+  int cl = create_layout;                       // (or GXD_CREATE_LAYOUT=4, as gxDatabase::Create())
+  if(cl == 0) { const char *e = getenv("GXD_CREATE_LAYOUT"); if(e && atoi(e) == 4) cl = 4; }
+  f->SetCreateLayout(cl);
+  FAU_t static_size = (FAU_t)gxBtreeDiskHeaderSize(cl == 4 ? 4 : 8,
+#if defined (__64_BIT_DATABASE_ENGINE__)
+						   8
+#else
+						   cl == 4 ? 4 : 8
+#endif
+						   ) * num_trees;
   if(f->Create(fname, static_size, RevisionLetter) != gxDBASE_NO_ERROR)
     return f->GetDatabaseError();
   int i;
@@ -240,7 +255,7 @@ gxDatabaseError gxBtree::Create(const char *fname, int num_trees,
   for(i = 0; i < num_trees; i++) {
     if(InitBtree(1, offset, num_trees, 0) != gxDBASE_NO_ERROR)
       return f->GetDatabaseError();
-    offset += FAU_t(sizeof(gxBtreeHeader));
+    offset += FAU_t(bt_hdr_size(f));
   }
 
   Flush(0); // Flush all open disk buffers after creating the tree
@@ -294,6 +309,55 @@ gxDatabaseError gxBtree::Open(const char *fname, FAU_t header_address,
   return InitBtree(0, header_address);
 }
 
+// 11/15/2026: the B-tree header in its file's layout (gxdbase.h): node order, key size, keys, nodes, height (longs),
+// (align), the root (a FAU), the number of trees (a long), (align). The key size on disk counts the layout's FAU.
+static size_t bt_align(size_t o, size_t a) { return a ? (o + a - 1) / a * a : o; }
+size_t gxBtreeDiskHeaderSize(int L, int F)
+{
+  size_t o = bt_align(5 * (size_t)L, (size_t)F) + (size_t)F + (size_t)L;
+  return bt_align(o, (size_t)(L > F ? L : F));
+}
+static size_t bt_hdr_size(const gxDatabase *f) { return gxBtreeDiskHeaderSize(f->DiskLongSize(), f->DiskFAUSize()); }
+static bool bt_hdr_raw(const gxDatabase *f)
+{
+  return f->RawLayout() && sizeof(gxBtreeHeader) == bt_hdr_size(f) && sizeof(FAU) == (size_t)f->DiskFAUSize() &&
+    sizeof(BtreeSize) == (size_t)f->DiskLongSize();
+}
+gxDatabaseError gxBtreeReadHeaderDisk(gxDatabase *f, gxBtreeHeader &h, FAU_t a);
+static gxDatabaseError bt_hdr_read(gxDatabase *f, gxBtreeHeader &h, FAU_t a) { return gxBtreeReadHeaderDisk(f, h, a); }
+gxDatabaseError gxBtreeReadHeaderDisk(gxDatabase *f, gxBtreeHeader &h, FAU_t a)
+{
+  if(bt_hdr_raw(f)) return f->Read(&h, sizeof(gxBtreeHeader), a);
+  const size_t L = (size_t)f->DiskLongSize(), F = (size_t)f->DiskFAUSize(), n = bt_hdr_size(f);
+  unsigned char b[64];
+  if(f->Read(b, (__ULWORD__)n, a) != gxDBASE_NO_ERROR) return f->GetDatabaseError();
+  size_t ro = bt_align(5 * L, F);
+  h.node_order = (BtreeNodeOrder_t)f->UnpackLong(b);
+  h.key_size = (BtreeSize_t)(f->UnpackLong(b + L) - F + sizeof(FAU));
+  h.n_keys = (BtreeSize_t)f->UnpackLong(b + 2 * L);
+  h.n_nodes = (BtreeSize_t)f->UnpackLong(b + 3 * L);
+  h.btree_height = (BtreeSize_t)f->UnpackLong(b + 4 * L);
+  h.root = (FAU)f->UnpackFAU(b + ro);
+  h.num_trees = (BtreeSize_t)f->UnpackLong(b + ro + F);
+  return gxDBASE_NO_ERROR;
+}
+static gxDatabaseError bt_hdr_write(gxDatabase *f, const gxBtreeHeader &h, FAU_t a)
+{
+  if(bt_hdr_raw(f)) return f->Write(&h, sizeof(gxBtreeHeader), a);
+  const size_t L = (size_t)f->DiskLongSize(), F = (size_t)f->DiskFAUSize(), n = bt_hdr_size(f);
+  unsigned char b[64];
+  memset(b, 0, sizeof(b));
+  size_t ro = bt_align(5 * L, F);
+  f->PackLong(b, (__ULWORD__)(BtreeNodeOrder_t)h.node_order);
+  f->PackLong(b + L, (__ULWORD__)((BtreeSize_t)h.key_size - sizeof(FAU) + F));
+  f->PackLong(b + 2 * L, (__ULWORD__)(BtreeSize_t)h.n_keys);
+  f->PackLong(b + 3 * L, (__ULWORD__)(BtreeSize_t)h.n_nodes);
+  f->PackLong(b + 4 * L, (__ULWORD__)(BtreeSize_t)h.btree_height);
+  f->PackFAU(b + ro, (FAU_t)h.root);
+  f->PackLong(b + ro + F, (__ULWORD__)(BtreeSize_t)h.num_trees);
+  return f->Write(b, (__ULWORD__)n, a);
+}
+
 gxDatabaseError gxBtree::WriteBtreeHeader()
 // Write the B-tree header. Returns zero if successful or 
 // a non-zero value to indicate a failure.
@@ -308,7 +372,7 @@ gxDatabaseError gxBtree::WriteBtreeHeader()
   if(f->ReadyForWriting()) {
     // 11/14/2026: The B-tree header is not an object note
     f->ObjectNotesPause();
-    gxDatabaseError e = f->Write(&btree_header, sizeof(gxBtreeHeader), btree_header_address);
+    gxDatabaseError e = bt_hdr_write(f, btree_header, btree_header_address);
     f->ObjectNotesResume();
     if(e != gxDBASE_NO_ERROR) return f->GetDatabaseError();
     header_in_sync = 1;
@@ -339,7 +403,7 @@ gxDatabaseError gxBtree::ReadBtreeHeader()
     return gxDBASE_NULL_PTR;
   }
 
-  if(f->Read(&btree_header, sizeof(gxBtreeHeader), btree_header_address) !=
+  if(bt_hdr_read(f, btree_header, btree_header_address) !=
      gxDBASE_NO_ERROR)
     return f->GetDatabaseError();
 
@@ -358,7 +422,7 @@ gxDatabaseError gxBtree::ReadBtreeHeader(gxBtreeHeader &hdr,
     return gxDBASE_NULL_PTR;
   }
 
-  if(f->Read(&hdr, sizeof(gxBtreeHeader), header_address) !=
+  if(bt_hdr_read(f, hdr, header_address) !=
      gxDBASE_NO_ERROR)
     return f->GetDatabaseError();
 
@@ -390,7 +454,7 @@ size_t gxBtree::TotalNodeSize()
   }
 
   BtreeNode node(btree_header.key_size, btree_header.node_order);
-  size_t node_size = node.SizeOfBtreeNode();
+  size_t node_size = gxBtreeDiskNodeSize(f, (size_t)node.key_size, node.node_order);   // 11/15/2026: on disk
   node_size += f->BlockHeaderSize();
   
   // Adjust the node size according to the GXD revision letter.
@@ -398,7 +462,7 @@ size_t gxBtree::TotalNodeSize()
     return node_size;
   }
   else {
-    node_size += sizeof(gxChecksum); // Rev 'A' and higher
+    node_size += f->DiskChecksumSize(); // Rev 'A' and higher
     return node_size;
   }
 }
@@ -413,25 +477,9 @@ gxDatabaseError gxBtree::WriteNode(const BtreeNode &node, FAU_t node_address)
   if(!f) {
     return gxDBASE_NULL_PTR;
   }
-
-  // 10/31/2026: Write the key count, left child and keys with one write.
-  // The bytes and their order in the file are unchanged.
-  static thread_local std::vector<char> wbuf;
-  size_t hdr_len = sizeof(node.key_count) + sizeof(node.left_child);
-  size_t keys_len = 0;
-  if(node.key_count > (BtreeKeyCount_t)0) { // Only the keys in use
-    keys_len = (size_t)(node.key_size * node.key_count);
-  }
-  wbuf.resize(hdr_len + keys_len);
-  memcpy(wbuf.data(), &node.key_count, sizeof(node.key_count));
-  memcpy(wbuf.data() + sizeof(node.key_count), &node.left_child, 
-	 sizeof(node.left_child));
-  if(keys_len) memcpy(wbuf.data() + hdr_len, node.key_entries, keys_len);
-  if(f->Write(wbuf.data(), (__ULWORD__)wbuf.size(), node_address, 0, 0) 
-     != gxDBASE_NO_ERROR)
-    return f->GetDatabaseError();
-
-  return gxDBASE_NO_ERROR;
+  // 11/15/2026: in the file's layout (gxBtreeWriteNodeDisk(): on 64-bit Linux the bytes as before, in one write)
+  return gxBtreeWriteNodeDisk(f, node_address, node.key_count, node.left_child, node.key_entries,
+			      (size_t)node.key_size);
 }
 
 gxDatabaseError gxBtree::ReadNodeChecked(BtreeNode &node, FAU_t node_address,
@@ -464,29 +512,10 @@ gxDatabaseError gxBtree::ReadNode(BtreeNode &node, FAU_t node_address)
     return gxDBASE_NULL_PTR;
   }
 
-  // 10/31/2026: Read the key count and left child with one read
-  char hdr[sizeof(node.key_count) + sizeof(node.left_child)];
-  if(f->Read(hdr, sizeof(hdr), node_address) != gxDBASE_NO_ERROR)
-    return f->GetDatabaseError();
-  memcpy(&node.key_count, hdr, sizeof(node.key_count));
-  memcpy(&node.left_child, hdr + sizeof(node.key_count), sizeof(node.left_child));
-
-  // 10/25/2026: The key count is read from the file. A count larger than
-  // the node can hold overflowed the key_entries buffer.
-  if((node.key_count < (BtreeKeyCount_t)0) ||
-     (node.key_count > (BtreeKeyCount_t)node.node_order)) {
-    node.key_count = (BtreeKeyCount_t)0;
-    return f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
-  }
-
-  // Optimize the read by only reading the exact number of keys
-  if(node.key_count > (BtreeKeyCount_t)0) { // Ensure node has entries
-    if(f->Read(node.key_entries, (node.key_size * node.key_count)) != 
-       gxDBASE_NO_ERROR)
-      return f->GetDatabaseError();
-  }
-
-  return gxDBASE_NO_ERROR;
+  // 11/15/2026: in the file's layout (gxBtreeReadNodeDisk(): on 64-bit Linux the bytes as before; a key count
+  // larger than the node can hold is refused, 10/25/2026)
+  return gxBtreeReadNodeDisk(f, node_address, node.key_count, node.left_child, node.key_entries,
+			     (size_t)node.key_size, node.node_order);
 }
 
 gxDatabaseError gxBtree::GrowNewRoot(DatabaseKeyB &key)
@@ -500,7 +529,7 @@ gxDatabaseError gxBtree::GrowNewRoot(DatabaseKeyB &key)
 
   FAU_t old_root = btree_header.root;
   BtreeNode new_root_node(btree_header.key_size, btree_header.node_order);
-  FAU_t root_address = f->Alloc(new_root_node.SizeOfBtreeNode());
+  FAU_t root_address = f->Alloc((__ULWORD__)gxBtreeDiskNodeSize(f, (size_t)new_root_node.key_size, new_root_node.node_order));
   if(root_address == (FAU_t)0) f->GetDatabaseError();
   btree_header.n_nodes++; 
   btree_header.btree_height++;
@@ -759,7 +788,7 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
     else { // Split the node
       num_splits++;
       BtreeNode right_node(btree_header.key_size, btree_header.node_order);
-      FAU_t right_address = f->Alloc(right_node.SizeOfBtreeNode());
+      FAU_t right_address = f->Alloc((__ULWORD__)gxBtreeDiskNodeSize(f, (size_t)right_node.key_size, right_node.node_order));
 
       // Check for block allocation errors
       if(right_address == (FAU_t)0) {
@@ -1411,7 +1440,7 @@ gxDatabaseError gxBtree::ReConnect(int tree_number)
   // Calculate the current B-tree header address
   btree_header_address = (FAU_t)f->FileHeaderSize();
   if(tree_number > 0) tree_number--;
-  btree_header_address += (FAU_t)tree_number * sizeof(gxBtreeHeader);
+  btree_header_address += (FAU_t)tree_number * (FAU_t)bt_hdr_size(f);
 
   return ReadBtreeHeader();          
 }
@@ -1452,7 +1481,7 @@ int gxBtree::TestTree(FAU_t header_address, int reinit)
   gxBtreeHeader curr_btree_header;
   btree_header_address = header_address;
 
-  if(f->Read(&curr_btree_header, sizeof(gxBtreeHeader), 
+  if(bt_hdr_read(f, curr_btree_header, 
 	     btree_header_address) !=  gxDBASE_NO_ERROR) {
     return error_number = 8; // Error reading the btree header
   }
@@ -2133,7 +2162,7 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
       BtreeCacheNode right_node(btree_cache);
       
       // Check for block allocation errors
-      if(!right_node.Alloc(curr_node->SizeOfBtreeNode())) {
+      if(!right_node.Alloc(gxBtreeDiskNodeSize(f, (size_t)curr_node->key_size, curr_node->node_order))) {
 	node_stack.Clear();
 	return f->GetDatabaseError();
       }
@@ -2179,7 +2208,7 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
 	BtreeCacheNode new_root_node(btree_cache);
 
 	// Check for block allocation errors
-	if(!new_root_node.Alloc(curr_node->SizeOfBtreeNode())) {
+	if(!new_root_node.Alloc(gxBtreeDiskNodeSize(f, (size_t)curr_node->key_size, curr_node->node_order))) {
 	  return f->GetDatabaseError();
 	}
 

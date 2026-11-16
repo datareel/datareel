@@ -54,6 +54,8 @@ DatabaseKeyB::CompareKey() function with return values of: -1 less than,
 
 #include <string.h>
 #include "btnode.h"
+#include <vector>
+#include <stdint.h>
 
 namespace datareel {
 
@@ -304,6 +306,92 @@ void BtreeNode::Release()
 {
   // PC-lint 04/20/2004: Creation of memory leak warning (ignore)
   key_entries = 0;
+}
+
+// 11/15/2026: B-tree nodes in their file's layout (see btnode.h)
+static bool node_raw(const gxDatabase *f)
+{
+  return (size_t)f->DiskLongSize() == sizeof(BtreeKeyCount) && (size_t)f->DiskFAUSize() == sizeof(FAU);
+}
+
+size_t gxBtreeDiskNodeSize(const gxDatabase *f, size_t mem_entry, BtreeNodeOrder_t node_order)
+{
+  size_t disk_entry = mem_entry - sizeof(FAU) + (size_t)f->DiskFAUSize();
+  return disk_entry * (size_t)node_order + (size_t)f->DiskLongSize() + (size_t)f->DiskFAUSize();
+}
+
+gxDatabaseError gxBtreeReadNodeDisk(gxDatabase *f, FAU_t node_address, BtreeKeyCount &key_count, FAU &left_child,
+				    char *entries, size_t mem_entry, BtreeNodeOrder_t node_order)
+{
+  if(node_raw(f)) {                       // the bytes as they are (10/31/2026: count and left child in one read)
+    char hdr[sizeof(key_count) + sizeof(left_child)];
+    if(f->Read(hdr, sizeof(hdr), node_address) != gxDBASE_NO_ERROR) return f->GetDatabaseError();
+    memcpy(&key_count, hdr, sizeof(key_count));
+    memcpy(&left_child, hdr + sizeof(key_count), sizeof(left_child));
+    if((key_count < (BtreeKeyCount_t)0) || (key_count > (BtreeKeyCount_t)node_order)) {
+      key_count = (BtreeKeyCount_t)0;
+      return f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+    }
+    if(key_count > (BtreeKeyCount_t)0 &&
+       f->Read(entries, (__ULWORD__)(mem_entry * (size_t)key_count)) != gxDBASE_NO_ERROR)
+      return f->GetDatabaseError();
+    return gxDBASE_NO_ERROR;
+  }
+  const size_t L = (size_t)f->DiskLongSize(), F = (size_t)f->DiskFAUSize();
+  unsigned char hdr[16];
+  if(f->Read(hdr, (__ULWORD__)(L + F), node_address) != gxDBASE_NO_ERROR) return f->GetDatabaseError();
+  long long kc = (long long)(int64_t)f->UnpackLong(hdr);
+  if(L == 4) kc = (long long)(int32_t)(uint32_t)f->UnpackLong(hdr);
+  if(kc < 0 || kc > (long long)node_order) {
+    key_count = (BtreeKeyCount_t)0;
+    return f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+  }
+  key_count = (BtreeKeyCount_t)kc;
+  left_child = (FAU)f->UnpackFAU(hdr + L);
+  if(kc == 0) return gxDBASE_NO_ERROR;
+  const size_t key_len = mem_entry - sizeof(FAU), disk_entry = key_len + F;
+  std::vector<unsigned char> buf(disk_entry * (size_t)kc);
+  if(f->Read(buf.data(), (__ULWORD__)buf.size()) != gxDBASE_NO_ERROR) return f->GetDatabaseError();
+  for(long long k = 0; k < kc; k++) {
+    const unsigned char *src = buf.data() + disk_entry * (size_t)k;
+    char *dst = entries + mem_entry * (size_t)k;
+    FAU rc = (FAU)f->UnpackFAU(src);
+    memcpy(dst, &rc, sizeof(FAU));
+    memcpy(dst + sizeof(FAU), src + F, key_len);
+  }
+  return gxDBASE_NO_ERROR;
+}
+
+gxDatabaseError gxBtreeWriteNodeDisk(gxDatabase *f, FAU_t node_address, const BtreeKeyCount &key_count,
+				     const FAU &left_child, const char *entries, size_t mem_entry)
+{
+  static thread_local std::vector<char> wbuf;
+  size_t n = key_count > (BtreeKeyCount_t)0 ? (size_t)key_count : 0;
+  if(node_raw(f)) {                       // 10/31/2026: count, left child and keys with one write
+    size_t hdr_len = sizeof(key_count) + sizeof(left_child), keys_len = mem_entry * n;
+    wbuf.resize(hdr_len + keys_len);
+    memcpy(wbuf.data(), &key_count, sizeof(key_count));
+    memcpy(wbuf.data() + sizeof(key_count), &left_child, sizeof(left_child));
+    if(keys_len) memcpy(wbuf.data() + hdr_len, entries, keys_len);
+  }
+  else {
+    const size_t L = (size_t)f->DiskLongSize(), F = (size_t)f->DiskFAUSize();
+    const size_t key_len = mem_entry - sizeof(FAU), disk_entry = key_len + F;
+    wbuf.assign(L + F + disk_entry * n, 0);
+    f->PackLong((unsigned char *)wbuf.data(), (__ULWORD__)(long long)(BtreeKeyCount_t)key_count);
+    f->PackFAU((unsigned char *)wbuf.data() + L, (FAU_t)left_child);
+    for(size_t k = 0; k < n; k++) {
+      const char *src = entries + mem_entry * k;
+      unsigned char *dst = (unsigned char *)wbuf.data() + L + F + disk_entry * k;
+      FAU rc;
+      memcpy(&rc, src, sizeof(FAU));
+      f->PackFAU(dst, (FAU_t)rc);
+      memcpy(dst + F, src + sizeof(FAU), key_len);
+    }
+  }
+  if(f->Write(wbuf.data(), (__ULWORD__)wbuf.size(), node_address, 0, 0) != gxDBASE_NO_ERROR)
+    return f->GetDatabaseError();
+  return gxDBASE_NO_ERROR;
 }
 
 } // namespace datareel

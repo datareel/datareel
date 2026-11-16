@@ -161,7 +161,7 @@ GXDLCODE_API  void BlockStats(gxDatabase *f, FAU oa)
   std::string intbuf;
   gxBlockHeader blk_hdr;
   FAU blk_address = oa - f->BlockHeaderSize();
-  f->Read(&blk_hdr, sizeof(gxBlockHeader), blk_address);
+  f->ReadBlockHdrRaw(blk_hdr, blk_address);   // 11/15/2026: the file's layout
   char rev_letter = f->GetRevLetter();
   __ULWORD__ object_crc, calc_crc;
   

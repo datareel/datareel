@@ -87,22 +87,26 @@ int gxvMemberSpec::Parse(const std::string &config, std::string &why)
 }
 
 // An InfoHog record as InfoHog<TYPE>::Write() lays it out: its object header, the member count, then per
-// member its length and the bytes. The count and lengths are gxUINT32 values, sizeof(gxUINT32) bytes wide
-// (8 on a 64-bit native build, where gxUINT32 is unsigned long), read whole and from zero.
-static const size_t ih_word = sizeof(gxUINT32);
-static int infohog_member(const unsigned char *rec, unsigned len, unsigned n, const unsigned char *&p, unsigned &plen)
+// member its length and the bytes. The count and lengths are longs of the data file's layout (11/15/2026:
+// gxvMemberSpec::SetLayout(); 8 bytes canonical, 4 in an old 4-byte layout file), little endian.
+static unsigned long long ih_get(const unsigned char *p, size_t w)
 {
-  size_t off = sizeof(gxObjectHeader);
+  unsigned long long v = 0;
+  for(size_t i = w; i-- > 0; ) v = (v << 8) | p[i];
+  return v;
+}
+static int infohog_member(const unsigned char *rec, unsigned len, unsigned n, const unsigned char *&p, unsigned &plen,
+			  size_t ih_word, size_t ih_ohdr)
+{
+  size_t off = ih_ohdr;
   if(len < off + ih_word) return 0;
-  gxUINT32 num = 0;
-  memcpy(&num, rec + off, ih_word);
+  unsigned long long num = ih_get(rec + off, ih_word);
   off += ih_word;
   if((unsigned long long)n >= (unsigned long long)num) return 0;
   for(unsigned i = 0; i <= n; i++) {
     if(len - off < ih_word) return 0;
-    gxUINT32 lw = 0;
-    memcpy(&lw, rec + off, ih_word);
-    if((unsigned long long)lw > 0xFFFFFFFFULL) return 0;
+    unsigned long long lw = ih_get(rec + off, ih_word);
+    if(lw > 0xFFFFFFFFULL) return 0;
     unsigned l = (unsigned)lw;
     off += ih_word;
     if(l > len - off) return 0;
@@ -119,7 +123,7 @@ int gxvMemberSpec::Extract(const unsigned char *rec, unsigned len, const unsigne
   for(unsigned i = 0; i < gxvTagCount; i++) tags[i] = 0;
   if(!rec) return 0;
   if(where == 1) {
-    if(!infohog_member(rec, len, at, member, mlen)) return 0;
+    if(!infohog_member(rec, len, at, member, mlen, ih_word, ih_ohdr)) return 0;
   }
   else if(where == 2) {
     if(at >= len) return 0;
@@ -130,7 +134,7 @@ int gxvMemberSpec::Extract(const unsigned char *rec, unsigned len, const unsigne
   for(unsigned i = 0; i < gxvTagCount; i++) {
     const unsigned char *t = 0;
     unsigned tl = 0;
-    if(tag_where[i] == 1) { if(!infohog_member(rec, len, tag_at[i], t, tl) || tl < 4) return 0; }
+    if(tag_where[i] == 1) { if(!infohog_member(rec, len, tag_at[i], t, tl, ih_word, ih_ohdr) || tl < 4) return 0; }
     else if(tag_where[i] == 2) { if(tag_at[i] > len || len - tag_at[i] < 4) return 0; t = rec + tag_at[i]; }
     else continue;
     memcpy(&tags[i], t, 4);
@@ -151,11 +155,16 @@ void say(char *err, size_t n, const std::string &m) { if(err && n) snprintf(err,
 
 const char *m_version() { return "gxvmember 1 (DataReel 7.4 vector members)"; }
 
-void *m_open(const char *index_path, const char *, const char *config, char *err, size_t n)
+void *m_open(const char *index_path, const char *data_path, const char *config, char *err, size_t n)
 {
   MemberH *h = new MemberH;
   std::string why;
   if(h->spec.Parse(config ? config : "", why) != 0) { say(err, n, why); delete h; return 0; }
+  // 11/15/2026: the data file's layout (an InfoHog record's longs), read only
+  if(data_path && *data_path) {
+    gxDatabase d;
+    if(d.Open(data_path, gxDBASE_READONLY) == gxDBASE_NO_ERROR) { h->spec.SetLayout(d); d.Close(); }
+  }
   gxvError e = h->vix.Open(index_path);
   if(e != gxv_NO_ERROR) { say(err, n, std::string(index_path) + ": " + gxVectorIndex::ErrorMessage(e)); delete h; return 0; }
   return h;
@@ -225,6 +234,7 @@ int gxvRebuildFromMembers(const std::string &data_path, const std::string &index
   if(spec.Parse(config, why) != 0) return -1;
   gxDatabase db;
   if(db.Open(data_path.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { why = "cannot open " + data_path; return -1; }
+  spec.SetLayout(db);                       // 11/15/2026: the data file's layout
   std::string tmp = index_path + ".rebuild";
   remove(tmp.c_str());
   {

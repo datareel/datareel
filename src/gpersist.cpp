@@ -74,15 +74,28 @@ gxDatabaseError gxPersistent::Connect(const POD *DB)
 gxDatabaseError gxPersistent::WriteObjectHeader(const gxObjectHeader &oh,
 						FAU_t object_address)
 {
-  return pod->OpenDataFile()->Write(&oh, sizeof(gxObjectHeader),
-				    object_address);
+  // 11/15/2026: two FAUs of the data file's layout (gxdbase.h)
+  gxDatabase *f = pod->OpenDataFile();
+  if(f->RawLayout() && sizeof(gxObjectHeader) == 2 * (size_t)f->DiskFAUSize())
+    return f->Write(&oh, sizeof(gxObjectHeader), object_address);
+  unsigned char b[16];
+  f->PackFAU(b, (FAU_t)oh.ClassID);
+  f->PackFAU(b + f->DiskFAUSize(), (FAU_t)oh.ObjectID);
+  return f->Write(b, (__ULWORD__)(2 * f->DiskFAUSize()), object_address);
 }
 
 gxDatabaseError gxPersistent::ReadObjectHeader(gxObjectHeader &oh,
 					       FAU_t object_address)
 {
-  return pod->OpenDataFile()->Read(&oh, sizeof(gxObjectHeader),
-				   object_address);
+  // 11/15/2026: two FAUs of the data file's layout (gxdbase.h)
+  gxDatabase *f = pod->OpenDataFile();
+  if(f->RawLayout() && sizeof(gxObjectHeader) == 2 * (size_t)f->DiskFAUSize())
+    return f->Read(&oh, sizeof(gxObjectHeader), object_address);
+  unsigned char b[16];
+  if(f->Read(b, (__ULWORD__)(2 * f->DiskFAUSize()), object_address) != gxDBASE_NO_ERROR) return f->GetDatabaseError();
+  oh.ClassID = (gxClassID_t)f->UnpackFAU(b);
+  oh.ObjectID = (gxObjectID_t)f->UnpackFAU(b + f->DiskFAUSize());
+  return gxDBASE_NO_ERROR;
 }
 
 __UWORD__ gxPersistent::StringFileLength(const char *s)
@@ -92,7 +105,7 @@ __UWORD__ gxPersistent::StringFileLength(const char *s)
   __UWORD__ len;
   // Ensure at least one byte is alloacted
   if(s) len = strlen(s); else len = 1; 
-  return len + sizeof(gxUINT32); 
+  return len + (pod ? (__UWORD__)pod->OpenDataFile()->DiskLongSize() : (__UWORD__)sizeof(gxUINT32)); 
 }
 
 __UWORD__ gxPersistent::StringFileLength(char *s)
@@ -102,7 +115,7 @@ __UWORD__ gxPersistent::StringFileLength(char *s)
   __UWORD__ len;
   // Ensure at least one byte is alloacted
   if(s) len = strlen(s); else len = 1;
-  return len + sizeof(gxUINT32); 
+  return len + (pod ? (__UWORD__)pod->OpenDataFile()->DiskLongSize() : (__UWORD__)sizeof(gxUINT32)); 
 }
 
 gxDatabaseError gxPersistent::WriteString(const char *s, FAU_t file_address)
@@ -121,7 +134,7 @@ gxDatabaseError gxPersistent::WriteString(const char *s, FAU_t file_address)
     len = 1;
 
   // Record the string length
-  if(pod->OpenDataFile()->Write(&len, sizeof(gxUINT32), file_address) !=
+  if(pod->OpenDataFile()->WriteDiskLong((__ULWORD__)len, file_address) !=
      gxDBASE_NO_ERROR) {
     return pod->GetDataFileError();
   }
@@ -156,7 +169,7 @@ gxDatabaseError gxPersistent::WriteString(char *s, FAU_t file_address)
     len = 1;
 
   // Record the string length
-  if(pod->OpenDataFile()->Write(&len, sizeof(gxUINT32), file_address) !=
+  if(pod->OpenDataFile()->WriteDiskLong((__ULWORD__)len, file_address) !=
      gxDBASE_NO_ERROR) {
     return pod->GetDataFileError();
   }
@@ -184,9 +197,10 @@ char *gxPersistent::ReadString(FAU_t file_address)
   gxUINT32 len;
 
   // Obtain the string length
-  if(pod->OpenDataFile()->Read(&len, sizeof(gxUINT32), file_address) !=
-     gxDBASE_NO_ERROR) {
-    return 0;
+  {                                // 11/15/2026: a long of the data file's layout
+    __ULWORD__ lv = 0;
+    if(pod->OpenDataFile()->ReadDiskLong(lv, file_address) != gxDBASE_NO_ERROR) return 0;
+    len = (gxUINT32)lv;
   }
 
   // 10/26/2026: The length comes from the file. Reject one that runs

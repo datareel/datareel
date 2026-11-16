@@ -62,6 +62,8 @@ returned the last block again at the end, so walks never ended.
 */
 // ----------------------------------------------------------- // 
 #include "gxdlcode.h"
+#include <stdint.h>
+#include <stdlib.h>
 
 #include <new>
 #include "gxdbase.h"
@@ -118,6 +120,9 @@ gxDatabase::gxDatabase()
   pcache = 0;
   sync_on_flush = 0;
   write_count = 0;
+  open_layout = create_layout = 0;   // 11/15/2026: the on-disk layout (see set_layout())
+  layout_guessed = 0;
+  set_layout(8);
 }
 
 gxDatabase::~gxDatabase()
@@ -197,6 +202,12 @@ gxDatabaseError gxDatabase::Create(const char *fname, FAU_t static_size,
     // Set the specified revision letter. NOTE This will default to the
     // current revision unless a lower version is specified.
     SetRevisionLetter(RevisionLetter);
+    // 11/15/2026: new files are canonical unless SetCreateLayout(4) (or GXD_CREATE_LAYOUT=4 in the environment,
+    // for programs that do not call it) asked for the old 4-byte layout, for readers older than 7.4 only
+    int cl = create_layout;
+    if(cl == 0) { const char *e = getenv("GXD_CREATE_LAYOUT"); if(e && atoi(e) == 4) cl = 4; }
+    set_layout(cl == 4 ? 4 : 8);
+    layout_guessed = 0;
     
     file_header.gxd_hs_fptr = static_size + FileHeaderSize();
     last_operation = gxDBASE_READ;
@@ -322,6 +333,7 @@ gxDatabaseError gxDatabase::Open(const char *fname,
     datareel::copy_to(file_name, sizeof(file_name), fname);
     last_operation = gxDBASE_WRITE;
     
+    if(detect_layout() != gxDBASE_NO_ERROR) return gxd_error;   // 11/15/2026
     if(ReadFileHdr()!= gxDBASE_NO_ERROR) return gxd_error;
 
     // Test the file type without checking the revision letter
@@ -668,7 +680,7 @@ gxUINT32 gxDatabase::WriteObjectChecksum(FAU_t object_address)
     }
 
     // Calculate a checksum based on the block data
-    bytes = (blk_hdr.block_length - BlockHeaderSize()) - sizeof(gxChecksum);
+    bytes = (blk_hdr.block_length - BlockHeaderSize()) - DiskChecksumSize();
     CRC = CalcChecksum(bytes, object_address);
 
     // Check for file errors
@@ -679,7 +691,7 @@ gxUINT32 gxDatabase::WriteObjectChecksum(FAU_t object_address)
     object_address += bytes;
 
     // Write the CRC for the block header and the block data.
-    if(Write(&CRC, sizeof(CRC), object_address) != gxDBASE_NO_ERROR)
+    if(WriteDiskLong((__ULWORD__)CRC, object_address) != gxDBASE_NO_ERROR)
       return (gxUINT32)0;
   }
 
@@ -729,7 +741,7 @@ int gxDatabase::ReadObjectChecksum(FAU_t object_address,
     }
 
     // Calculate a checksum based on the block data
-    bytes = (blk_hdr.block_length - BlockHeaderSize()) - sizeof(gxChecksum);
+    bytes = (blk_hdr.block_length - BlockHeaderSize()) - DiskChecksumSize();
     CRC = CalcChecksum(bytes, object_address);
 
     // Check for file errors
@@ -740,8 +752,10 @@ int gxDatabase::ReadObjectChecksum(FAU_t object_address,
     object_address += bytes;
 
     // Read the CRC value stored on disk
-    if(Read(&objectCRC, sizeof(objectCRC), object_address) != gxDBASE_NO_ERROR)
+    __ULWORD__ ocrc = 0;                           // 11/15/2026: a long of the file's layout
+    if(ReadDiskLong(ocrc, object_address) != gxDBASE_NO_ERROR)
       return 0;
+    objectCRC = (gxUINT32)ocrc;
   }
   else {
     return 0;
@@ -823,13 +837,185 @@ __ULWORD__ gxDatabase::CalcChecksum(__ULWORD__ bytes, FAU_t file_address,
   return CRC; 
 }
 
+// ==============================================================
+// 11/15/2026: the on-disk layout (see gxdbase.h). Little endian, as every
+// supported node. Each struct's fields in order, a FAU aligned to its size:
+//   gxFileHeader       4 FAUs, the signature, (align), the version FAU
+//   gxFileLockHeader   3 longs (gxRecordLockHeader the same)
+//   gxFileStatsHeader  3 FAUs
+//   gxBlockHeader      3 longs, (align), the next deleted block's FAU
+//   checksum           1 long
+// Canonical: longs 8 bytes, FAUs 8 bytes. Old: longs 4 bytes, FAUs 8 (64-bit
+// FAU builds) or 4 (32-bit FAU builds). On 64-bit Linux the canonical layout
+// is the structs as they are (raw_ok: read and written as before).
+// ==============================================================
+static size_t gxd_align(size_t o, size_t a) { return a ? (o + a - 1) / a * a : o; }
+static void gxd_put(unsigned char *p, int n, unsigned long long v) { for(int i = 0; i < n; i++) p[i] = (unsigned char)(v >> (8 * i)); }
+static unsigned long long gxd_get(const unsigned char *p, int n)
+{
+  unsigned long long v = 0;
+  for(int i = n - 1; i >= 0; i--) v = (v << 8) | p[i];
+  return v;
+}
+
+void gxDatabase::set_layout(int long_size)
+{
+  disk_long = long_size == 4 ? 4 : 8;
+#if defined (__64_BIT_DATABASE_ENGINE__)
+  disk_fau = 8;
+#else
+  disk_fau = disk_long;
+#endif
+  raw_ok = sizeof(gxUINT32) == (size_t)disk_long && sizeof(FAU) == (size_t)disk_fau &&
+    sizeof(gxFileHeader) == DiskFileHdrSize() && sizeof(gxFileLockHeader) == DiskLockHdrSize() &&
+    sizeof(gxRecordLockHeader) == DiskLockHdrSize() && sizeof(gxFileStatsHeader) == DiskStatsHdrSize() &&
+    sizeof(gxBlockHeader) == DiskBlockHdrSize() && sizeof(gxChecksum) == DiskChecksumSize();
+}
+
+size_t gxDatabase::DiskFileHdrSize() const
+{
+  return gxd_align(4 * (size_t)disk_fau + gxSignatureSize, (size_t)disk_fau) + (size_t)disk_fau;
+}
+size_t gxDatabase::DiskLockHdrSize() const { return 3 * (size_t)disk_long; }
+size_t gxDatabase::DiskStatsHdrSize() const { return 3 * (size_t)disk_fau; }
+size_t gxDatabase::DiskBlockHdrSize() const { return gxd_align(3 * (size_t)disk_long, (size_t)disk_fau) + (size_t)disk_fau; }
+
+void gxDatabase::PackFAU(unsigned char *p, FAU_t v) const { gxd_put(p, disk_fau, (unsigned long long)(long long)v); }
+FAU_t gxDatabase::UnpackFAU(const unsigned char *p) const
+{
+  unsigned long long v = gxd_get(p, disk_fau);
+  if(disk_fau == 4) return (FAU_t)(long long)(int32_t)(uint32_t)v;       // a 32-bit FAU is signed
+  return (FAU_t)(long long)v;
+}
+void gxDatabase::PackLong(unsigned char *p, __ULWORD__ v) const { gxd_put(p, disk_long, (unsigned long long)v); }
+__ULWORD__ gxDatabase::UnpackLong(const unsigned char *p) const { return (__ULWORD__)gxd_get(p, disk_long); }
+
+gxDatabaseError gxDatabase::detect_layout()
+// The layout of the file just opened, before its header is read: SetOpenLayout()'s choice, else from the file.
+// 32-bit FAU builds: the signature follows 4 FAUs (offset 32 canonical, 16 old). 64-bit FAU builds: the header
+// is the same in both, so the first block tells: its check word fills 8 bytes (canonical) or 4, followed by the
+// block's length (old). A file with no block is taken as canonical (LayoutGuessed()).
+{
+  layout_guessed = 0;
+  if(open_layout == 4 || open_layout == 8) { set_layout(open_layout); return gxd_error = gxDBASE_NO_ERROR; }
+  set_layout(8);
+  unsigned char b[64];
+  memset(b, 0, sizeof(b));
+  if(gxdFPTRReadAt(fp, b, sizeof(b), (FAU_t)0) < 40) return gxd_error = gxDBASE_NO_ERROR;   // ReadFileHdr says
+#if defined (__64_BIT_DATABASE_ENGINE__)
+  FAU_t hs = (FAU_t)(long long)gxd_get(b + 16, 8), eof = (FAU_t)(long long)gxd_get(b + 8, 8);
+  unsigned char w[8];
+  if(hs > 0 && hs < eof && gxdFPTRReadAt(fp, w, sizeof(w), hs) == (__ULWORD__)sizeof(w)) {
+    unsigned long long cw = gxd_get(w, 4), hi = gxd_get(w + 4, 4);
+    if(cw == (unsigned long long)(__ULWORD__)gxDatabase::gxInternalCheckWord && hi != 0) set_layout(4);
+  }
+  else layout_guessed = 1;
+#else
+  if(memcmp(b + 32, gxDatabase::gxSignature, gxSignatureSize - 1) != 0 &&
+     memcmp(b + 16, gxDatabase::gxSignature, gxSignatureSize - 1) == 0) set_layout(4);
+#endif
+  return gxd_error = gxDBASE_NO_ERROR;
+}
+
+gxDatabaseError gxDatabase::ReadFileHdrRaw(gxFileHeader &fh)
+{
+  if(raw_ok) return Read(&fh, sizeof(gxFileHeader), gxStartOfFile);
+  unsigned char b[64];
+  size_t n = DiskFileHdrSize();
+  if(Read(b, (__ULWORD__)n, gxStartOfFile) != gxDBASE_NO_ERROR) return gxd_error;
+  fh.gxd_fs_fptr = (FAU)UnpackFAU(b);
+  fh.gxd_eof = (FAU)UnpackFAU(b + disk_fau);
+  fh.gxd_hs_fptr = (FAU)UnpackFAU(b + 2 * disk_fau);
+  fh.gxd_hb_fptr = (FAU)UnpackFAU(b + 3 * disk_fau);
+  memcpy(fh.gxd_sig, b + 4 * disk_fau, gxSignatureSize);
+  fh.gxd_ver = (FAU)UnpackFAU(b + n - disk_fau);
+  return gxd_error = gxDBASE_NO_ERROR;
+}
+
+gxDatabaseError gxDatabase::WriteFileHdrRaw(const gxFileHeader &fh)
+{
+  if(raw_ok) return Write(&fh, sizeof(gxFileHeader), gxStartOfFile);
+  unsigned char b[64];
+  size_t n = DiskFileHdrSize();
+  memset(b, 0, sizeof(b));
+  PackFAU(b, (FAU_t)fh.gxd_fs_fptr);
+  PackFAU(b + disk_fau, (FAU_t)fh.gxd_eof);
+  PackFAU(b + 2 * disk_fau, (FAU_t)fh.gxd_hs_fptr);
+  PackFAU(b + 3 * disk_fau, (FAU_t)fh.gxd_hb_fptr);
+  memcpy(b + 4 * disk_fau, fh.gxd_sig, gxSignatureSize);
+  PackFAU(b + n - disk_fau, (FAU_t)fh.gxd_ver);
+  return Write(b, (__ULWORD__)n, gxStartOfFile);
+}
+
+gxDatabaseError gxDatabase::ReadBlockHdrRaw(gxBlockHeader &hdr, FAU_t block_address)
+{
+  if(raw_ok) return Read(&hdr, sizeof(gxBlockHeader), block_address);
+  unsigned char b[32];
+  size_t n = DiskBlockHdrSize();
+  if(Read(b, (__ULWORD__)n, block_address) != gxDBASE_NO_ERROR) return gxd_error;
+  hdr.block_check_word = (gxUINT32)UnpackLong(b);
+  hdr.block_length = (gxUINT32)UnpackLong(b + disk_long);
+  hdr.block_status = (gxUINT32)UnpackLong(b + 2 * disk_long);
+  hdr.block_nd_fptr = (FAU)UnpackFAU(b + n - disk_fau);
+  return gxd_error = gxDBASE_NO_ERROR;
+}
+
+gxDatabaseError gxDatabase::WriteBlockHdrRaw(const gxBlockHeader &hdr, FAU_t block_address)
+{
+  if(raw_ok) return Write(&hdr, sizeof(gxBlockHeader), block_address);
+  unsigned char b[32];
+  size_t n = DiskBlockHdrSize();
+  memset(b, 0, sizeof(b));
+  PackLong(b, (__ULWORD__)hdr.block_check_word);
+  PackLong(b + disk_long, (__ULWORD__)hdr.block_length);
+  PackLong(b + 2 * disk_long, (__ULWORD__)hdr.block_status);
+  PackFAU(b + n - disk_fau, (FAU_t)hdr.block_nd_fptr);
+  return Write(b, (__ULWORD__)n, block_address);
+}
+
+gxDatabaseError gxDatabase::ReadLock3(gxUINT32 &a, gxUINT32 &b3, gxUINT32 &c, FAU_t file_address)
+{
+  unsigned char b[24];
+  if(Read(b, (__ULWORD__)DiskLockHdrSize(), file_address) != gxDBASE_NO_ERROR) return gxd_error;
+  a = (gxUINT32)UnpackLong(b);
+  b3 = (gxUINT32)UnpackLong(b + disk_long);
+  c = (gxUINT32)UnpackLong(b + 2 * disk_long);
+  return gxd_error = gxDBASE_NO_ERROR;
+}
+
+gxDatabaseError gxDatabase::WriteLock3(const gxUINT32 &a, const gxUINT32 &b3, const gxUINT32 &c, FAU_t file_address)
+{
+  unsigned char b[24];
+  memset(b, 0, sizeof(b));
+  PackLong(b, (__ULWORD__)a);
+  PackLong(b + disk_long, (__ULWORD__)b3);
+  PackLong(b + 2 * disk_long, (__ULWORD__)c);
+  return Write(b, (__ULWORD__)DiskLockHdrSize(), file_address);
+}
+
+gxDatabaseError gxDatabase::ReadDiskLong(__ULWORD__ &v, FAU_t file_address)
+{
+  unsigned char b[8];
+  if(Read(b, (__ULWORD__)disk_long, file_address) != gxDBASE_NO_ERROR) return gxd_error;
+  v = UnpackLong(b);
+  return gxd_error = gxDBASE_NO_ERROR;
+}
+
+gxDatabaseError gxDatabase::WriteDiskLong(__ULWORD__ v, FAU_t file_address)
+{
+  unsigned char b[8];
+  memset(b, 0, sizeof(b));
+  PackLong(b, v);
+  return Write(b, (__ULWORD__)disk_long, file_address);
+}
+
 gxDatabaseError gxDatabase::ReadBlockHdr(gxBlockHeader &hdr, 
 					 FAU_t block_address)
 // Reads a block header and tests the block's checkword to ensure
 // that this is a valid block. Returns a non-zero value to indicate
 // an error condition or zero if successful.
 {
-  if(Read(&hdr, sizeof(gxBlockHeader), block_address) != gxDBASE_NO_ERROR)
+  if(ReadBlockHdrRaw(hdr, block_address) != gxDBASE_NO_ERROR)
     return gxd_error;
   if(!TestBlockHeader(hdr)) { 
     gxd_error = gxDBASE_SYNC_ERROR;
@@ -845,7 +1031,7 @@ gxDatabaseError gxDatabase::WriteBlockHdr(const gxBlockHeader &hdr,
 // successful.
 {
   NoteGuard ng_(this); // 11/14/2026: not an object note
-  return Write(&hdr, sizeof(gxBlockHeader), block_address);
+  return WriteBlockHdrRaw(hdr, block_address);
 }
 
 gxDatabaseError gxDatabase::ReadFileHdr()
@@ -854,8 +1040,7 @@ gxDatabaseError gxDatabase::ReadFileHdr()
 // function will set the revision letter each time the file
 // header is read.
 {
-  if(Read(&file_header, sizeof(gxFileHeader), gxStartOfFile) != 
-     gxDBASE_NO_ERROR) {
+  if(ReadFileHdrRaw(file_header) != gxDBASE_NO_ERROR) {
     return gxd_error;
   }
 
@@ -880,8 +1065,7 @@ gxDatabaseError gxDatabase::WriteFileHdr()
 // indicate an error condition or zero if successful.
 {
   NoteGuard ng_(this); // 11/14/2026: not an object note
-  if(Write(&file_header, sizeof(gxFileHeader), gxStartOfFile) != 
-     gxDBASE_NO_ERROR) {
+  if(WriteFileHdrRaw(file_header) != gxDBASE_NO_ERROR) {
     return gxd_error;
   }
   switch(rev_letter) {
@@ -918,7 +1102,7 @@ FAU_t gxDatabase::Alloc(__ULWORD__ bytes, gxDatabaseReclaimMethod method)
 	break;
       default:
 	bytes += BlockHeaderSize();
-	bytes += sizeof(gxChecksum); // Rev 'A', 'B', 'C', and 'D'
+	bytes += DiskChecksumSize(); // Rev 'A', 'B', 'C', and 'D'
 	break;
     }
 
@@ -971,7 +1155,7 @@ FAU_t gxDatabase::Alloc(__ULWORD__ bytes, gxDatabaseReclaimMethod method)
     // Write a new record lock header (Revision C and higher)
     switch(rev_letter) {
       case 'c' : case 'C' : case 'd' : case 'D' :
-	if(Write(&rlh, sizeof(gxRecordLockHeader)) != gxDBASE_NO_ERROR)
+	if(WriteLock3(rlh.record_lock_protect, rlh.record_read_lock, rlh.record_write_lock, gxCurrAddress) != gxDBASE_NO_ERROR)
 	  return (FAU_t)0;
 	break;
       default: // Rev '\0', 'A', 'B', and 'E'
@@ -1003,7 +1187,7 @@ gxUINT32 gxDatabase::object_capacity(const gxBlockHeader &blk) const
     case '\0' : case ' ' : case 'e' : case 'E' :
       break;
     default:
-      overhead += (__ULWORD__)sizeof(gxChecksum);
+      overhead += (__ULWORD__)DiskChecksumSize();
       break;
   }
   if(blk.block_length < overhead) return 0;
@@ -1156,7 +1340,7 @@ FAU_t gxDatabase::TotalBlocks()
 
   while(block_address) { // Until a block of a valid size is found
     if(block_address >= file_header.gxd_eof) break;
-    if(Read(&blk_hdr, sizeof(gxBlockHeader)) != gxDBASE_NO_ERROR)
+    if(ReadBlockHdrRaw(blk_hdr) != gxDBASE_NO_ERROR)
       break; // Return the number counted if an error occurs;
 
     if(!IsOK()) break;
@@ -1235,7 +1419,7 @@ FAU_t gxDatabase::DeletedBlocks(FAU_t *d, FAU_t *r)
   SeekTo(block_address);
 
   while(block_address) { // Until a block of a valid size is found
-    if(Read(&blk_hdr, sizeof(gxBlockHeader)) != gxDBASE_NO_ERROR)
+    if(ReadBlockHdrRaw(blk_hdr) != gxDBASE_NO_ERROR)
       break; // Return the number counted if an error occurs
 
     if(!IsOK()) break;
@@ -1325,10 +1509,10 @@ __ULWORD__ gxDatabase::ObjectLength(FAU_t object_address)
       len = blk_hdr.block_length - BlockHeaderSize();    
       break;
     default: // Rev 'A', 'B', 'C', and 'D'
-      overhead += (__ULWORD__)sizeof(gxChecksum);
+      overhead += (__ULWORD__)DiskChecksumSize();
       if(blk_hdr.block_length < overhead) return 0;
       len = blk_hdr.block_length - BlockHeaderSize();
-      len -= sizeof(gxChecksum);
+      len -= DiskChecksumSize();
       break;
   }
 
@@ -1382,7 +1566,7 @@ int gxDatabase::UnDelete(FAU_t object_address)
 
   // Loop until the block is found in the free space list
   while(addr) { 
-    if(Read(&blk_hdr, sizeof(gxBlockHeader), addr) != gxDBASE_NO_ERROR)
+    if(ReadBlockHdrRaw(blk_hdr, addr) != gxDBASE_NO_ERROR)
       return 0;
 
     if(!IsOK()) break;
@@ -1470,7 +1654,7 @@ int gxDatabase::UnDelete(FAU_t object_address)
 FAU gxDatabase::GetDatabaseFreeSpace() 
 {
   gxFileHeader fh;
-  Read(&fh, sizeof(gxFileHeader), gxStartOfFile);
+  ReadFileHdrRaw(fh);
 
   // Ensure the in memory copy and the disk copy are the same
   if(fh.gxd_fs_fptr != file_header.gxd_fs_fptr) { 
@@ -1483,7 +1667,7 @@ FAU gxDatabase::GetDatabaseFreeSpace()
 FAU gxDatabase::GetEOF() 
 {
   gxFileHeader fh;
-  Read(&fh, sizeof(gxFileHeader), gxStartOfFile);
+  ReadFileHdrRaw(fh);
 
   // Ensure the in memory copy and the disk copy are the same
   if(fh.gxd_eof != file_header.gxd_eof) { 
@@ -1496,7 +1680,7 @@ FAU gxDatabase::GetEOF()
 FAU gxDatabase::GetHeapStart() 
 {
   gxFileHeader fh;
-  Read(&fh, sizeof(gxFileHeader), gxStartOfFile);
+  ReadFileHdrRaw(fh);
 
   // Ensure the in memory copy and the disk copy are the same
   if(fh.gxd_hs_fptr != file_header.gxd_hs_fptr) { 
@@ -1509,7 +1693,7 @@ FAU gxDatabase::GetHeapStart()
 FAU gxDatabase::GetHighestBlock()
 {
   gxFileHeader fh;
-  Read(&fh, sizeof(gxFileHeader), gxStartOfFile);
+  ReadFileHdrRaw(fh);
 
   // Ensure the in memory copy and the disk copy are the same
   if(fh.gxd_hb_fptr != file_header.gxd_hb_fptr) { 
@@ -1522,7 +1706,7 @@ FAU gxDatabase::GetHighestBlock()
 FAU_t gxDatabase::StaticArea()
 {
   gxFileHeader fh;
-  Read(&fh, sizeof(gxFileHeader), gxStartOfFile);
+  ReadFileHdrRaw(fh);
 
   // Ensure the in memory copy and the disk copy are the same
   if(fh.gxd_hs_fptr != file_header.gxd_hs_fptr) { 
@@ -1540,7 +1724,7 @@ int gxDatabase::TestFileHeader()
   gxFileHeader fh;
   int errors = 0;
   
-  Read(&fh, sizeof(gxFileHeader), gxStartOfFile);
+  ReadFileHdrRaw(fh);
 
   if(fh.gxd_fs_fptr != file_header.gxd_fs_fptr) { 
     errors++;
@@ -1724,7 +1908,7 @@ FAU_t gxDatabase::ReclaimBestFit(__ULWORD__ bytes)
   // Search the entire free space list until an exact-fit 
   // or a best-fit block is found.
   while(addr) { 
-    if(Read(&blk_hdr, sizeof(gxBlockHeader)) != gxDBASE_NO_ERROR) 
+    if(ReadBlockHdrRaw(blk_hdr) != gxDBASE_NO_ERROR) 
       return (FAU_t)0;
     if(!IsOK()) break;
     
@@ -1778,7 +1962,7 @@ FAU_t gxDatabase::ReclaimBestFit(__ULWORD__ bytes)
 	break;
       default: // Rev 'A', 'B', 'C', and 'D'
         total_len += BlockHeaderSize();
-	total_len += sizeof(gxChecksum);
+	total_len += DiskChecksumSize();
 	break;
     }
 
@@ -1921,7 +2105,7 @@ FAU_t gxDatabase::ReclaimFirstFit(__ULWORD__ bytes)
 
   // Search the free space list until a first-fit is found
   while(addr) { 
-    if(Read(&blk_hdr, sizeof(gxBlockHeader)) != gxDBASE_NO_ERROR)
+    if(ReadBlockHdrRaw(blk_hdr) != gxDBASE_NO_ERROR)
       return (FAU_t)0;
 
     if(!IsOK()) break;
@@ -1976,7 +2160,7 @@ FAU_t gxDatabase::ReclaimFirstFit(__ULWORD__ bytes)
 	break;
       default: // Rev 'A', 'B', 'C', and 'D'
 	total_len += BlockHeaderSize();
-	total_len += sizeof(gxChecksum);
+	total_len += DiskChecksumSize();
 	break;
     }
 
@@ -2069,9 +2253,9 @@ FAU_t gxDatabase::ReclaimFirstFit(__ULWORD__ bytes)
 // ==============================================================
 size_t gxDatabase::FileHeaderSize() const
 {
-  size_t fh = sizeof(gxFileHeader);
-  size_t flh = sizeof(gxFileLockHeader);
-  size_t fsh = sizeof(gxFileStatsHeader);
+  size_t fh = DiskFileHdrSize();       // 11/15/2026: the file's layout
+  size_t flh = DiskLockHdrSize();
+  size_t fsh = DiskStatsHdrSize();
 
   // Perform operation according to the revision letter
   switch(rev_letter) {
@@ -2087,9 +2271,9 @@ size_t gxDatabase::FileHeaderSize() const
 
 size_t gxDatabase::FileHeaderSize()
 {
-  size_t fh = sizeof(gxFileHeader);
-  size_t flh = sizeof(gxFileLockHeader);
-  size_t fsh = sizeof(gxFileStatsHeader);
+  size_t fh = DiskFileHdrSize();       // 11/15/2026: the file's layout
+  size_t flh = DiskLockHdrSize();
+  size_t fsh = DiskStatsHdrSize();
 
   // Perform operation according to the revision letter
   switch(rev_letter) {
@@ -2105,8 +2289,8 @@ size_t gxDatabase::FileHeaderSize()
 
 size_t gxDatabase::BlockHeaderSize() const 
 {
-  size_t bh = sizeof(gxBlockHeader);
-  size_t blh = sizeof(gxRecordLockHeader);
+  size_t bh = DiskBlockHdrSize();      // 11/15/2026: the file's layout
+  size_t blh = DiskLockHdrSize();
   
   // Perform operation according to the revision letter
   switch(rev_letter) {
@@ -2120,8 +2304,8 @@ size_t gxDatabase::BlockHeaderSize() const
 
 size_t gxDatabase::BlockHeaderSize()
 {
-  size_t bh = sizeof(gxBlockHeader);
-  size_t blh = sizeof(gxRecordLockHeader);
+  size_t bh = DiskBlockHdrSize();      // 11/15/2026: the file's layout
+  size_t blh = DiskLockHdrSize();
   
   // Perform operation according to the revision letter
   switch(rev_letter) {
@@ -2170,7 +2354,7 @@ FAU_t gxDatabase::FindFirstBlock(FAU_t offset)
     if((FAU_t)(file_address + BlockHeaderSize()) >= file_header.gxd_eof ||
        !IsOK()) return (FAU_t)0;
 
-    if(Read(&blk_hdr, sizeof(gxBlockHeader), file_address) != gxDBASE_NO_ERROR)
+    if(ReadBlockHdrRaw(blk_hdr, file_address) != gxDBASE_NO_ERROR)
       return (FAU_t)0;
     if(!TestBlockHeader(blk_hdr)) {
       file_address ++; // Find the next checkword
@@ -2191,7 +2375,7 @@ static int gxd_valid_block(gxDatabase &db, FAU_t address, FAU_t eof)
   if(address <= (FAU_t)0 || 
      (FAU_t)(address + db.BlockHeaderSize()) > eof) return 0;
   gxBlockHeader hdr;
-  if(db.Read(&hdr, sizeof(gxBlockHeader), address) != gxDBASE_NO_ERROR) {
+  if(db.ReadBlockHdrRaw(hdr, address) != gxDBASE_NO_ERROR) {
     return 0;
   }
   return db.TestBlockHeader(hdr);
@@ -2370,7 +2554,7 @@ gxDatabaseError gxDatabase::WriteFileLockHdr(const gxFileLockHeader &hdr)
       return gxd_error = gxDBASE_NO_ERROR;
   }
 
-  return Write(&hdr, sizeof(gxFileLockHeader), sizeof(gxFileHeader));
+  return WriteLock3(hdr.file_lock_protect, hdr.file_read_lock, hdr.file_write_lock, (FAU_t)DiskFileHdrSize());
 }
 
 gxDatabaseError gxDatabase::ReadFileLockHdr(gxFileLockHeader &hdr)
@@ -2387,7 +2571,7 @@ gxDatabaseError gxDatabase::ReadFileLockHdr(gxFileLockHeader &hdr)
       return gxd_error = gxDBASE_NO_ERROR;
   }
 
-  return Read(&hdr, sizeof(gxFileLockHeader), sizeof(gxFileHeader));
+  return ReadLock3(hdr.file_lock_protect, hdr.file_read_lock, hdr.file_write_lock, (FAU_t)DiskFileHdrSize());
 }
 
 int gxDatabase::LockFile(gxDatabaseLockType l_type) 
@@ -2432,19 +2616,17 @@ int gxDatabase::LockFile(gxDatabaseLockType l_type)
       }
 
       lock_header.file_lock_protect = 1;
-      if(Write(&lock_header.file_lock_protect, sizeof(gxUINT32),
-	       sizeof(gxFileHeader)) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.file_lock_protect, (FAU_t)DiskFileHdrSize()) != gxDBASE_NO_ERROR)
 	return gxd_error;
 
       // Skip over the read lock member
-      SeekTo(sizeof(gxFileHeader)+ (sizeof(gxUINT32) * 2));
-      if(Write(&lock_header.file_write_lock, sizeof(gxUINT32)) !=
+      SeekTo((FAU_t)DiskFileHdrSize() + (FAU_t)disk_long * 2);
+      if(WriteDiskLong(lock_header.file_write_lock) !=
 	 gxDBASE_NO_ERROR)
 	return gxd_error;
 
       lock_header.file_lock_protect = (gxUINT32)0;
-      if(Write(&lock_header.file_lock_protect, sizeof(gxUINT32),
-	       sizeof(gxFileHeader)) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.file_lock_protect, (FAU_t)DiskFileHdrSize()) != gxDBASE_NO_ERROR)
 	return gxd_error;
       break;
 
@@ -2465,17 +2647,15 @@ int gxDatabase::LockFile(gxDatabaseLockType l_type)
       }
       
       lock_header.file_lock_protect = 1;
-      if(Write(&lock_header.file_lock_protect, sizeof(gxUINT32),
-	       sizeof(gxFileHeader)) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.file_lock_protect, (FAU_t)DiskFileHdrSize()) != gxDBASE_NO_ERROR)
 	return gxd_error;
       
-      if(Write(&lock_header.file_read_lock, sizeof(gxUINT32)) !=
+      if(WriteDiskLong(lock_header.file_read_lock) !=
 	 gxDBASE_NO_ERROR)
 	return gxd_error; 
       
       lock_header.file_lock_protect = (gxUINT32)0;
-      if(Write(&lock_header.file_lock_protect, sizeof(gxUINT32),
-	       sizeof(gxFileHeader)) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.file_lock_protect, (FAU_t)DiskFileHdrSize()) != gxDBASE_NO_ERROR)
 	return gxd_error;
       break;
       
@@ -2522,19 +2702,17 @@ int gxDatabase::UnlockFile(gxDatabaseLockType l_type)
 	lock_header.file_write_lock = (gxUINT32)0;
       
       lock_header.file_lock_protect = 1;
-      if(Write(&lock_header.file_lock_protect, sizeof(gxUINT32),
-	       sizeof(gxFileHeader)) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.file_lock_protect, (FAU_t)DiskFileHdrSize()) != gxDBASE_NO_ERROR)
 	return gxd_error;
 
       // Skip over the read lock member
-      SeekTo(sizeof(gxFileHeader)+ (sizeof(gxUINT32) * 2));
-      if(Write(&lock_header.file_write_lock, sizeof(gxUINT32)) !=
+      SeekTo((FAU_t)DiskFileHdrSize() + (FAU_t)disk_long * 2);
+      if(WriteDiskLong(lock_header.file_write_lock) !=
 	 gxDBASE_NO_ERROR)
 	return gxd_error;
 
       lock_header.file_lock_protect = (gxUINT32)0;
-      if(Write(&lock_header.file_lock_protect, sizeof(gxUINT32),
-	       sizeof(gxFileHeader)) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.file_lock_protect, (FAU_t)DiskFileHdrSize()) != gxDBASE_NO_ERROR)
 	return gxd_error;
       break;
 
@@ -2547,17 +2725,15 @@ int gxDatabase::UnlockFile(gxDatabaseLockType l_type)
 	lock_header.file_read_lock = (gxUINT32)0;
       
       lock_header.file_lock_protect = 1;
-      if(Write(&lock_header.file_lock_protect, sizeof(gxUINT32),
-	       sizeof(gxFileHeader)) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.file_lock_protect, (FAU_t)DiskFileHdrSize()) != gxDBASE_NO_ERROR)
 	return gxd_error;
 
-      if(Write(&lock_header.file_read_lock, sizeof(gxUINT32)) !=
+      if(WriteDiskLong(lock_header.file_read_lock) !=
 	 gxDBASE_NO_ERROR)
 	return gxd_error; 
 
       lock_header.file_lock_protect = (gxUINT32)0;
-      if(Write(&lock_header.file_lock_protect, sizeof(gxUINT32),
-	       sizeof(gxFileHeader)) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.file_lock_protect, (FAU_t)DiskFileHdrSize()) != gxDBASE_NO_ERROR)
 	return gxd_error;
       break;
 
@@ -2622,7 +2798,7 @@ gxDatabaseError gxDatabase::ReadRecordLockHdr(gxRecordLockHeader &hdr,
     return gxd_error;
 
   // Read the record lock directly following the block header 
-  return Read(&hdr, sizeof(gxRecordLockHeader));
+  return ReadLock3(hdr.record_lock_protect, hdr.record_read_lock, hdr.record_write_lock, gxCurrAddress);
 }
 
 gxDatabaseError gxDatabase::WriteRecordLockHdr(const gxRecordLockHeader &hdr, 
@@ -2643,7 +2819,7 @@ gxDatabaseError gxDatabase::WriteRecordLockHdr(const gxRecordLockHeader &hdr,
   if(ReadBlockHdr(block_header, block_address) != gxDBASE_NO_ERROR)
     return gxd_error;
 
-  return Write(&hdr, sizeof(gxRecordLockHeader));
+  return WriteLock3(hdr.record_lock_protect, hdr.record_read_lock, hdr.record_write_lock, gxCurrAddress);
 }
 
 int gxDatabase::LockRecord(gxDatabaseLockType l_type, FAU_t block_address)
@@ -2674,7 +2850,7 @@ int gxDatabase::LockRecord(gxDatabaseLockType l_type, FAU_t block_address)
   }
   
   if(block_address == gxCurrAddress) block_address = FilePosition();
-  FAU_t header_address = block_address+sizeof(gxBlockHeader);
+  FAU_t header_address = block_address+(FAU_t)DiskBlockHdrSize();
 
   switch(l_type) {
     case gxDBASE_WRITELOCK :
@@ -2694,19 +2870,17 @@ int gxDatabase::LockRecord(gxDatabaseLockType l_type, FAU_t block_address)
       }
       
       lock_header.record_lock_protect = 1;
-      if(Write(&lock_header.record_lock_protect, sizeof(gxUINT32),
-	       header_address) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.record_lock_protect, header_address) != gxDBASE_NO_ERROR)
 	return gxd_error;
 
       // Skip over the read lock member
-      SeekTo(header_address + (sizeof(gxUINT32) * 2));
-      if(Write(&lock_header.record_write_lock, sizeof(gxUINT32)) !=
+      SeekTo(header_address + (FAU_t)disk_long * 2);
+      if(WriteDiskLong(lock_header.record_write_lock) !=
 	 gxDBASE_NO_ERROR)
 	return gxd_error;
 
       lock_header.record_lock_protect = (gxUINT32)0;
-      if(Write(&lock_header.record_lock_protect, sizeof(gxUINT32),
-	       header_address) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.record_lock_protect, header_address) != gxDBASE_NO_ERROR)
 	return gxd_error;
       break;
 
@@ -2727,17 +2901,15 @@ int gxDatabase::LockRecord(gxDatabaseLockType l_type, FAU_t block_address)
       }
       
       lock_header.record_lock_protect = 1;
-      if(Write(&lock_header.record_lock_protect, sizeof(gxUINT32),
-	       header_address) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.record_lock_protect, header_address) != gxDBASE_NO_ERROR)
 	return gxd_error;
 
-      if(Write(&lock_header.record_read_lock, sizeof(gxUINT32)) != 
+      if(WriteDiskLong(lock_header.record_read_lock) != 
 	 gxDBASE_NO_ERROR)
 	return gxd_error; 
 
       lock_header.record_lock_protect = (gxUINT32)0;
-      if(Write(&lock_header.record_lock_protect, sizeof(gxUINT32),
-	       header_address) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.record_lock_protect, header_address) != gxDBASE_NO_ERROR)
 	return gxd_error;
       break;
 
@@ -2777,7 +2949,7 @@ int gxDatabase::UnlockRecord(gxDatabaseLockType l_type, FAU_t block_address)
   }
   
   if(block_address == gxCurrAddress) block_address = FilePosition();
-  FAU_t header_address = block_address+sizeof(gxBlockHeader);
+  FAU_t header_address = block_address+(FAU_t)DiskBlockHdrSize();
 
   switch(l_type) {
     case gxDBASE_WRITELOCK :
@@ -2787,19 +2959,17 @@ int gxDatabase::UnlockRecord(gxDatabaseLockType l_type, FAU_t block_address)
 	lock_header.record_write_lock = (gxUINT32)0;
       
       lock_header.record_lock_protect = 1;   
-      if(Write(&lock_header.record_lock_protect, sizeof(gxUINT32),
-	       header_address) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.record_lock_protect, header_address) != gxDBASE_NO_ERROR)
 	return gxd_error;
 
       // Skip over the read lock member
-      SeekTo(header_address + (sizeof(gxUINT32) * 2));
-      if(Write(&lock_header.record_write_lock, sizeof(gxUINT32)) !=
+      SeekTo(header_address + (FAU_t)disk_long * 2);
+      if(WriteDiskLong(lock_header.record_write_lock) !=
 	 gxDBASE_NO_ERROR)
 	return gxd_error;
 
       lock_header.record_lock_protect = (gxUINT32)0;
-      if(Write(&lock_header.record_lock_protect, sizeof(gxUINT32),
-	       header_address) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.record_lock_protect, header_address) != gxDBASE_NO_ERROR)
 	return gxd_error;
       break;
 
@@ -2812,17 +2982,15 @@ int gxDatabase::UnlockRecord(gxDatabaseLockType l_type, FAU_t block_address)
 	lock_header.record_read_lock = (gxUINT32)0;
       
       lock_header.record_lock_protect = 1;
-      if(Write(&lock_header.record_lock_protect, sizeof(gxUINT32),
-	       header_address) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.record_lock_protect, header_address) != gxDBASE_NO_ERROR)
 	return gxd_error;
 
-      if(Write(&lock_header.record_read_lock, sizeof(gxUINT32)) != 
+      if(WriteDiskLong(lock_header.record_read_lock) != 
 	 gxDBASE_NO_ERROR)
 	return gxd_error; 
 
       lock_header.record_lock_protect = (gxUINT32)0;
-      if(Write(&lock_header.record_lock_protect, sizeof(gxUINT32),
-	       header_address) != gxDBASE_NO_ERROR)
+      if(WriteDiskLong(lock_header.record_lock_protect, header_address) != gxDBASE_NO_ERROR)
 	return gxd_error;
       break;
 
@@ -2879,8 +3047,12 @@ gxDatabaseError gxDatabase::WriteFileStatsHdr(const gxFileStatsHeader &hdr)
       return gxd_error = gxDBASE_NO_ERROR;
   }
 
-  return Write(&hdr, sizeof(gxFileStatsHeader), 
-	       (sizeof(gxFileHeader)+sizeof(gxFileLockHeader)));
+  if(raw_ok) return Write(&hdr, sizeof(gxFileStatsHeader), (FAU_t)(DiskFileHdrSize() + DiskLockHdrSize()));
+  unsigned char b[24];                           // 11/15/2026: three FAUs of the file's layout
+  PackFAU(b, (FAU_t)hdr.num_blocks);
+  PackFAU(b + disk_fau, (FAU_t)hdr.deleted_blocks);
+  PackFAU(b + 2 * disk_fau, (FAU_t)hdr.removed_blocks);
+  return Write(b, (__ULWORD__)DiskStatsHdrSize(), (FAU_t)(DiskFileHdrSize() + DiskLockHdrSize()));
 }
 
 gxDatabaseError gxDatabase::ReadFileStatsHdr(gxFileStatsHeader &hdr)
@@ -2895,8 +3067,14 @@ gxDatabaseError gxDatabase::ReadFileStatsHdr(gxFileStatsHeader &hdr)
       return gxd_error = gxDBASE_NO_ERROR;
   }
 
-  return Read(&hdr, sizeof(gxFileStatsHeader),
-	      (sizeof(gxFileHeader)+sizeof(gxFileLockHeader)));
+  if(raw_ok) return Read(&hdr, sizeof(gxFileStatsHeader), (FAU_t)(DiskFileHdrSize() + DiskLockHdrSize()));
+  unsigned char b[24];                           // 11/15/2026: three FAUs of the file's layout
+  if(Read(b, (__ULWORD__)DiskStatsHdrSize(), (FAU_t)(DiskFileHdrSize() + DiskLockHdrSize())) != gxDBASE_NO_ERROR)
+    return gxd_error;
+  hdr.num_blocks = (FAU)UnpackFAU(b);
+  hdr.deleted_blocks = (FAU)UnpackFAU(b + disk_fau);
+  hdr.removed_blocks = (FAU)UnpackFAU(b + 2 * disk_fau);
+  return gxd_error = gxDBASE_NO_ERROR;
 }
 // ==============================================================
 // Database File Stat Functions (END HERE)
