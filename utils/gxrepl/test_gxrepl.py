@@ -4674,6 +4674,53 @@ def test_incremental_old_client_verify_keeps_the_hold():
         env.stop()
 
 
+def test_incremental_hold_shown_and_unreadable_hold_cleared():
+    """11/16/2026 (beta4 review L1): a stream's hold shows in "gxrepl derived status" (and status.json's "holds"); a
+    hold that cannot be read is still cleared by the stream's next verify that compares files (before, an unreadable
+    hold stayed for good and the stream never went object by object again)"""
+    env, ws, aws, w = _recgap_env("incr_hold_status")
+    try:
+        d1 = os.path.join(ws, "d1")
+        vw = os.path.join(env.dir, "verify_go")
+        env.kill("client")
+        env.start_client({"GXREPL_TEST_VERIFY_WAIT": vw})
+        a = _objects_writer(d1, "--commits", 1, "--per", 3, "--commit-block", "--ship-root", ws, "--seed", 641,
+                            "--adds-only", "--size-max", 64, extra_env={"GXDJRNL_TEST_KILL_BEFORE_SHIP": "1"})
+        assert a.returncode == 9, a.stdout
+        b = _adds(d1, ws, 642)
+        assert b.wait(timeout=120) == 0, b.stdout.read()
+        end = time.time() + 60
+        while time.time() < end and not _holds(aws):
+            time.sleep(0.5)
+        holds = _holds(aws)
+        assert holds, "no hold after B's open record\n" + env.logs()
+        st = run([os.path.join(BIN, "gxrepl"), "derived", "status", "--config", env.srv_conf])
+        assert "HOLD stream" in st.stdout and "an open or gap record at" in st.stdout, st.stdout
+        put(holds[0], b"garbage\n")
+        st = run([os.path.join(BIN, "gxrepl"), "derived", "status", "--config", env.srv_conf])
+        assert "an unreadable hold" in st.stdout, st.stdout
+        put(vw, b"go\n")
+        end = time.time() + 120
+        while time.time() < end and _holds(aws):
+            time.sleep(0.5)
+        assert not _holds(aws), "the unreadable hold stayed after the verify\n" + env.logs()
+        _recgap_index_ok(env, ws, aws)
+        end = time.time() + 75                         # status.json's derived part is cached for 30 s
+        while time.time() < end:
+            try:
+                d = json.load(open(env.srv_status))["sets"]["db"]["derived"]
+                if "holds" in d and d["holds"] == []:
+                    break
+            except Exception:
+                pass
+            time.sleep(1)
+        else:
+            raise AssertionError("status.json has no empty \"holds\"\n" + open(env.srv_status).read())
+    finally:
+        if w.poll() is None: w.kill(); w.wait()
+        env.stop()
+
+
 def test_incremental_fresh_log_recovered_open_is_indexed():
     """11/16/2026 (beta4 review H1 and M1, from the reviewer's reproducer): a fresh ship log (the log folder purged, as
     a late pass does) lists no file until its first commit. Writer A opens it and dies between its journal sync and

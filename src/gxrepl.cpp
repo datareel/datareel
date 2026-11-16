@@ -2085,13 +2085,14 @@ int gxReplLocal::SetState(const std::string &set, const gxReplStreamState &st,
 	       s->sc.name.c_str(), st.name.c_str(), st.verified_files < 0 ? "the same position without a verify's count "
 	       "(an older client)" : "a verify that compared no file", hl == ULLONG_MAX ? "?" : std::to_string(hl).c_str());
       }
-      if(held && st.verified_files > 0 && hl != ULLONG_MAX && (hid != st.log_id || st.lsn >= hl)) {
+      // 11/16/2026 (beta4 review L1): an unreadable hold ("?") goes with any verify that compared files
+      if(held && st.verified_files > 0 && (hl == ULLONG_MAX || hid != st.log_id || st.lsn >= hl)) {
 	int lk = open((s->root + "/.gxrepl/apply.jnl").c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
 	if(lk >= 0 && lock_apply_bounded(lk) == 0) {          // under the apply lock, as the hold is written
 	  if(unlink(hold_path(s->sc, st.name).c_str()) == 0) {
 	    sync_dir(derived_dir(s->sc));
-	    glog("set %s: stream %s verified past its open or gap record at %llu: object by object again",
-		 s->sc.name.c_str(), st.name.c_str(), hl);
+	    glog("set %s: stream %s verified past its open or gap record at %s: object by object again",
+		 s->sc.name.c_str(), st.name.c_str(), hl == ULLONG_MAX ? "? (an unreadable hold)" : std::to_string(hl).c_str());
 	  }
 	  flock(lk, LOCK_UN);
 	}
@@ -2718,6 +2719,31 @@ static bool read_hold(const gxReplSetConfig &sc, const std::string &stream, std:
   fclose(f);
   log_id = id;
   return true;
+}
+// 11/16/2026 (beta4 review L1): the set's holds, for the derived status: each stream, its log id and record ("?"
+// when the hold cannot be read) and whether the stream still has a position on the copy (a stream purged from the
+// copy leaves its hold behind: reported, cleared by "gxrepl derived rebuild")
+struct HoldInfo { std::string stream, log_id; unsigned long long lsn = 0; bool unreadable = false, orphan = false; };
+static std::vector<HoldInfo> list_holds(const gxReplSetConfig &sc)
+{
+  std::vector<HoldInfo> out;
+  DIR *d = opendir(derived_dir(sc).c_str());
+  if(!d) return out;
+  while(struct dirent *e = readdir(d)) {
+    std::string n = e->d_name;
+    if(n.compare(0, 5, "hold_") != 0) continue;
+    HoldInfo h;
+    h.stream = n.substr(5);
+    for(auto &c : h.stream) if(c == '#') c = '/';
+    if(!read_hold(sc, h.stream, h.log_id, h.lsn)) continue;
+    h.unreadable = h.lsn == ULLONG_MAX;
+    struct stat st;
+    h.orphan = stat((sc.root + "/.gxrepl/state/" + h.stream + ".state").c_str(), &st) != 0;
+    out.push_back(h);
+  }
+  closedir(d);
+  std::sort(out.begin(), out.end(), [](const HoldInfo &a, const HoldInfo &b) { return a.stream < b.stream; });
+  return out;
 }
 // 11/15/2026 (review 5): the folders whose seals name this stream ("log G L STREAM C"), from the seals folder (no
 // walk of the set's tree under the apply lock)
@@ -4639,6 +4665,18 @@ static std::string derived_status_json(const gxReplSetConfig &sc)
   return c.second;
 }
 
+// 11/16/2026 (beta4 review L1): [{"stream": S, "log_id": L, "lsn": N or null, "orphan": B}, ...]
+static std::string holds_json(const gxReplSetConfig &sc)
+{
+  std::string j = "[";
+  for(auto &h : list_holds(sc)) {
+    if(j.size() > 1) j += ", ";
+    j += "{\"stream\": " + json_str(h.stream) + ", \"log_id\": " + json_str(h.log_id) + ", \"lsn\": " +
+      (h.unreadable ? std::string("null") : std::to_string(h.lsn)) + ", \"orphan\": " + (h.orphan ? "true" : "false") + "}";
+  }
+  return j + "]";
+}
+
 static std::string derived_status_json_uncached(const gxReplSetConfig &sc)
 {
   std::vector<std::string> folders;
@@ -4673,7 +4711,8 @@ static std::string derived_status_json_uncached(const gxReplSetConfig &sc)
   return std::string(", \"derived\": {\"mode\": ") + json_str(sc.derived_apply) + ", \"folders\": " +
     std::to_string(folders.size()) + ", \"failed\": " + std::to_string(failed) + ", \"not_built\": " +
     std::to_string(behind) + ", \"rebuild_needed\": " + std::to_string(unstamped) + ", \"breaker\": " +
-    (brk ? "true" : "false") + ", \"crashes_1h\": " + std::to_string(crashes) + ", \"warn\": " + json_str(warn) + "}";
+    (brk ? "true" : "false") + ", \"crashes_1h\": " + std::to_string(crashes) + ", \"holds\": " + holds_json(sc) +
+    ", \"warn\": " + json_str(warn) + "}";
 }
 
 void gxReplServer::write_status()
@@ -6426,6 +6465,10 @@ int gxReplDerivedStatus(const gxReplSetConfig &sc, std::vector<std::string> &lin
   }
   if(FILE *f = fopen(try_path(sc).c_str(), "r")) { char b[128] = {0}; if(fgets(b, sizeof(b), f)) {} fclose(f);
     std::string t(b); while(!t.empty() && t.back() == '\n') t.pop_back(); lines.push_back("  index step in progress or stopped: " + t); }
+  for(auto &h : list_holds(sc))                      // 11/16/2026 (beta4 review L1)
+    lines.push_back("  HOLD stream " + h.stream + ": waits for its verify (" + (h.unreadable ? std::string("an unreadable hold") :
+		    "an open or gap record at " + std::to_string(h.lsn) + " of log " + h.log_id) + ")" +
+		    (h.orphan ? "; the stream has no position on the copy (purged): gxrepl derived rebuild clears it" : ""));
   if(sc.derived.empty()) return 0;
   std::vector<std::string> folders;
   derived_folders(sc, "", folders);
@@ -6469,6 +6512,9 @@ int gxReplDerivedReset(const gxReplSetConfig &sc, const std::string &folder, std
     drop_stamps(sc, rel, "", false);
     unlink(derived_state_path(sc, rel).c_str());
   }
+  // 11/16/2026 (beta4 review L1): the hold of a stream with no position on the copy (purged) goes too: nothing
+  // would ever verify it, and every folder it named is rebuilt now
+  for(auto &h : list_holds(sc)) if(h.orphan) unlink(hold_path(sc, h.stream).c_str());
   flock(lk, LOCK_UN);
   close(lk);
   return 0;
