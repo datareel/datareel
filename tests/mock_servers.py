@@ -8,8 +8,12 @@ usage: mock_servers.py cert.pem key.pem workdir base_port
   base_port+4  FTPS, implicit TLS      base_port+5  FTPS, AUTH TLS
   base_port+6  SMTP without STARTTLS (the client must refuse it)
   base_port+7  FTPS passive data port (one transfer at a time)
+  base_port+8  IMAP, implicit TLS      base_port+9  IMAP, STARTTLS (LOGINDISABLED
+                                                    until TLS starts)
+  base_port+10 IMAP, plain text
 Received mail is written to workdir/mail.txt; FTP files live in
-workdir/ftp. User "test", password "secret".
+workdir/ftp. User "test", password "secret" (IMAP also accepts the 8-bit
+user "t\u00ebst" with password "s\u00ebcret", sent as literals).
 """
 import os, socket, socketserver, ssl, sys, threading, base64
 
@@ -26,6 +30,12 @@ class Conn:
         self.f = sock.makefile('rb')
     def send(self, line):
         self.sock.sendall((line + '\r\n').encode())
+    def read(self, n):
+        b = self.f.read(n)
+        if len(b) != n: raise EOFError
+        return b
+    def sendraw(self, b):
+        self.sock.sendall(b)
     def readline(self):
         l = self.f.readline()
         if not l: raise EOFError
@@ -187,9 +197,119 @@ def ftps(c, secure):
         else:
             c.send('502 not implemented')
 
+# 11/16/2026 (7.4): IMAP for gxsIMAPClient. The bodies hold the text that
+# cut the 2007 client's reads short: "NO" and "BAD" words, a "}" and a
+# line that looks like a tagged reply.
+IMAP_MSGS = [
+    ('17-Apr-2007 12:00:00 -0400', 'Tue, 17 Apr 2007 11:59:00 -0400', 'one (report)',
+     'Subject: one (report)\r\nFrom: a@example.com\r\n\r\n',
+     'First message\r\nNO problems, nothing BAD here }\r\nA0006 OK not a reply\r\nEnd\r\n'),
+    ('18-Apr-2007 08:30:00 -0400', 'Wed, 18 Apr 2007 08:29:00 -0400', 'two',
+     'Subject: two\r\n\r\n', 'Second\r\n'),
+]
+
+def imap_astrings(c, rest, n):
+    """Read n astrings (quoted, literal or atom) from rest, asking for literals"""
+    out = []
+    while len(out) < n:
+        rest = rest.lstrip(' ')
+        if rest.startswith('"'):
+            i, v = 1, ''
+            while rest[i] != '"':
+                if rest[i] == '\\': i += 1
+                v += rest[i]; i += 1
+            out.append(v); rest = rest[i + 1:]
+        elif rest.startswith('{') and rest.endswith('}'):
+            size = int(rest[1:-1])
+            c.send('+ go ahead')
+            out.append(c.read(size).decode('utf-8'))
+            rest = c.readline()
+        else:
+            v = rest.split(' ', 1)
+            out.append(v[0]); rest = v[1] if len(v) > 1 else ''
+    return out
+
+def imap(c, secure, starttls_port=False):
+    def caps():
+        cap = 'IMAP4rev1'
+        if starttls_port and not secure: cap += ' STARTTLS LOGINDISABLED'
+        return cap
+    c.send('* OK [CAPABILITY %s] mock IMAP' % caps())
+    selected = False
+    while True:
+        l = c.readline()
+        tag, _, rest = l.partition(' ')
+        cmd, _, args = rest.partition(' ')
+        u = cmd.upper()
+        if u == 'CAPABILITY':
+            c.send('* CAPABILITY ' + caps()); c.send(tag + ' OK done')
+        elif u == 'STARTTLS' and starttls_port and not secure:
+            c.send(tag + ' OK begin TLS'); c.tls(); secure = True
+        elif u == 'LOGIN':
+            user, pw = imap_astrings(c, args, 2)
+            if starttls_port and not secure:
+                c.send(tag + ' NO LOGIN is disabled before TLS')
+            elif (user, pw) in (('test', 'secret'), ('tëst', 'sëcret')):
+                c.send(tag + ' OK logged in')
+            else:
+                c.send(tag + ' NO [AUTHENTICATIONFAILED] wrong user or password')
+        elif u in ('SELECT', 'EXAMINE'):
+            name = imap_astrings(c, args, 1)[0]
+            if name.upper() != 'INBOX':
+                c.send(tag + ' NO no such mailbox'); continue
+            c.send('* FLAGS (\\Seen \\Deleted)')
+            c.send('* %d EXISTS' % len(IMAP_MSGS)); c.send('* 0 RECENT')
+            selected = True
+            c.send(tag + ' OK [READ-WRITE] selected')
+        elif u == 'LIST':
+            c.send('* LIST (\\HasNoChildren) "/" INBOX')
+            c.send('* LIST (\\HasNoChildren) "/" "Sent Items"')
+            c.send(tag + ' OK listed')
+        elif u == 'SEARCH' and selected:
+            a = args.upper()
+            if a.startswith('SUBJECT '):
+                want = args[8:].strip('"').lower()
+                hits = [i + 1 for i, m in enumerate(IMAP_MSGS) if want in m[2].lower()]
+            else:
+                hits = list(range(1, len(IMAP_MSGS) + 1))
+            c.send('* SEARCH' + ''.join(' %d' % h for h in hits)); c.send(tag + ' OK searched')
+        elif u == 'FETCH' and selected:
+            num, _, items = args.partition(' ')
+            n = int(num)
+            if n < 1 or n > len(IMAP_MSGS):
+                c.send(tag + ' BAD no such message'); continue
+            idate, edate, subj, hdr, body = IMAP_MSGS[n - 1]
+            c.send('* %d FETCH (FLAGS (\\Recent))' % n) # unsolicited, before the reply
+            out = b'* %d FETCH (' % n
+            parts = []
+            for it in items.strip('()').upper().split():
+                if it == 'INTERNALDATE':
+                    parts.append(b'INTERNALDATE "' + idate.encode() + b'"')
+                elif it == 'ENVELOPE':
+                    parts.append(('ENVELOPE ("%s" "%s" NIL NIL NIL NIL NIL NIL NIL "<%d@mock>")' % (edate, subj, n)).encode())
+                elif it.startswith('BODY.PEEK['):
+                    sect = it[10:-1]
+                    data = {'HEADER': hdr, 'TEXT': body, '': hdr + body}[sect]
+                    if n == 2 and sect == 'TEXT': # a quoted string, not a literal
+                        parts.append(b'BODY[TEXT] "Second\\r\\n"'.replace(b'\\r\\n', b''))
+                        continue
+                    d = data.encode()
+                    parts.append(b'BODY[' + sect.encode() + b'] {%d}\r\n' % len(d) + d)
+            out += b' '.join(parts) + b')\r\n'
+            c.sendraw(out)
+            c.send(tag + ' OK fetched')
+        elif u in ('STORE', 'EXPUNGE', 'NOOP'):
+            c.send(tag + ' OK done')
+        elif u == 'LOGOUT':
+            c.send('* BYE logging out'); c.send(tag + ' OK bye'); return
+        else:
+            c.send(tag + ' BAD unknown command')
+
 servers = [(0, smtp, True), (1, smtp, False), (2, pop3, True), (3, pop3, False),
            (4, ftps, True), (5, ftps, False),
-           (6, lambda c, s: smtp(c, s, offer_starttls=False), False)]
+           (6, lambda c, s: smtp(c, s, offer_starttls=False), False),
+           (8, imap, True), (9, lambda c, s: imap(c, s, starttls_port=True), False),
+           (10, imap, False)]
 for off, h, implicit in servers:
     srv = Server(('::', BASE + off), make(h, implicit))
     threading.Thread(target=srv.serve_forever, daemon=True).start()

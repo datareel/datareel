@@ -208,6 +208,13 @@ check https_get sh -c "$E/https_get https://localhost:$P2/ --ca ca.pem | grep -q
 check https_download sh -c "$E/https_get https://localhost:$P2/sub/data.bin data.out --ca ca.pem && cmp data.out www/sub/data.bin"
 check https_traversal_refused sh -c "$E/https_get 'https://localhost:$P2/%2e%2e/%2e%2e/etc/passwd' --ca ca.pem | head -1 | grep -q 403"
 check http_refused sh -c "! $E/https_get http://localhost:$P2/"
+# 11/16/2026 (7.4): https_check (examples/tls/https_check.cpp) against the same server
+check https_check_ok sh -c "$E/https_check https://localhost:$P2/ https://localhost:$P2/sub/data.bin --ca ca.pem --count 3 > hc1.out && [ \$(grep -c '^200 ' hc1.out) -eq 2 ] && grep -q ' bytes  https://localhost:$P2/sub/data.bin' hc1.out"
+check https_check_404_fails sh -c "! $E/https_check https://localhost:$P2/missing.html --ca ca.pem > hc2.out && grep -q '^404 ' hc2.out"
+check https_check_headers sh -c "$E/https_check --head --headers https://localhost:$P2/ --ca ca.pem | grep -q '^  Content-Length: '"
+check https_check_untrusted_refused sh -c "! $E/https_check https://localhost:$P2/ > hc3.out && grep -q '^ERR ' hc3.out"
+printf '# sites\nhttps://localhost:%s/\n\n' $P2 > hc_list.txt
+check https_check_list sh -c "$E/https_check --list hc_list.txt --ca ca.pem | grep -q '^200 '"
 check ai_https_fetch sh -c "$E/ai_https_fetch https://localhost:$P2/ ca.pem | grep -q 'POST -> 405'"
 
 # gxStream database blocks over TLS, with client certificates
@@ -245,6 +252,33 @@ head -c 150000 /dev/urandom > upload.bin
 check ftps_put sh -c "$E/ftps_client localhost $((P4+5)) test secret put upload.bin up.bin --ca ca.pem"
 check ftps_list sh -c "$E/ftps_client localhost $((P4+5)) test secret list --ca ca.pem | grep -q up.bin"
 check ftps_get sh -c "$E/ftps_client localhost $((P4+4)) test secret get up.bin down.bin --implicit --ca ca.pem && cmp down.bin upload.bin"
+
+# 11/16/2026 (7.4): IMAP (gxsIMAPClient, examples/tls/imap_fetch.cpp) against the mock server: implicit TLS,
+# STARTTLS, plain text, literals, a quoted body, the 2007 client's cut-short bodies, LOGINDISABLED, the spool
+wait_port $((P4+10))
+IM="$E/imap_fetch localhost"
+printf 'First message\r\nNO problems, nothing BAD here }\r\nA0006 OK not a reply\r\nEnd\r\n' > imap_body1.txt
+check imap_implicit_tls sh -c "$IM $((P4+8)) test secret --ca ca.pem -r 1 > imap1.out && grep -q '2 messages' imap1.out && grep -q '(TLS)' imap1.out && grep -q '^A0006 OK not a reply' imap1.out && grep -q '^End' imap1.out"
+check imap_dates sh -c "$IM $((P4+8)) test secret --ca ca.pem | grep -q 'received 17-Apr-2007 12:00:00 -0400, sent Tue, 17 Apr 2007 11:59:00 -0400'"
+check imap_starttls sh -c "$IM $((P4+9)) test secret --starttls --ca ca.pem | grep -q '(TLS)'"
+check imap_plain sh -c "$IM $((P4+10)) test secret --plain | grep -q '(plain text)'"
+check imap_logindisabled_refused sh -c "! $IM $((P4+9)) test secret --plain > imapld.out 2>&1 && grep -q LOGINDISABLED imapld.out"
+check imap_no_starttls_refused sh -c "! $IM $((P4+10)) test secret --starttls --ca ca.pem > imapns.out 2>&1 && grep -q 'does not accept STARTTLS' imapns.out"
+check imap_bad_password_refused sh -c "! $IM $((P4+8)) test wrong --ca ca.pem > imapbp.out 2>&1 && grep -q 'Login refused' imapbp.out"
+check imap_8bit_login_literals sh -c "$IM $((P4+8)) $(printf 't\303\253st') $(printf 's\303\253cret') --ca ca.pem --debug > imap8.out && grep -q 'server->+ go ahead' imap8.out && grep -q 'LOGIN xxxxxxxx' imap8.out && ! grep -q 'cret' imap8.out"
+check imap_session_masks_password sh -c "$IM $((P4+8)) test secret --ca ca.pem --debug > imapdbg.out && grep -q 'LOGIN xxxxxxxx' imapdbg.out && ! grep -q secret imapdbg.out"
+check imap_search sh -c "$IM $((P4+8)) test secret --ca ca.pem --search 'SUBJECT \"two\"' | grep -q '^1 match'"
+rm -rf imap_spool; mkdir imap_spool
+check imap_spool sh -c "$IM $((P4+8)) test secret --ca ca.pem --spool imap_spool > /dev/null && cmp imap_spool/17-Apr-2007_12_00_00_-0400_1.txt imap_body1.txt && [ \"\$(cat imap_spool/18-Apr-2007_08_30_00_-0400_2.txt)\" = Second ] && $IM $((P4+8)) test secret --ca ca.pem --spool imap_spool | grep -c 'already in the spool' | grep -q 2"
+# A real IMAP server (Dovecot) in a rootless container on 127.0.0.1, removed after the test
+check imap_container "$SRC/tests/imap_container_check.sh" "$E" "$WORK/imap_container" "$WORK/ca.pem" "$WORK/server.pem" "$WORK/server.key"
+
+# 11/16/2026 (7.4): plain UDP broadcast and multicast on this host (127.255.255.255, and the group 239.255.0.1
+# on the 127.0.0.1 interface). No loopback multicast on the host is a FAIL, not a skip.
+U=$((PORT+21))
+check udp_broadcast_loopback sh -c "$E/udp_broadcast recv $U --count 3 --timeout 10 > ub.out 2>&1 & r=\$!; for i in \$(seq 50); do grep -q receiving ub.out && break; sleep 0.1; done; $E/udp_broadcast send 127.255.255.255 $U --count 3 --interval 50 hello && wait \$r && grep -q 'hello 3' ub.out && grep -q '3 datagrams received' ub.out"
+check udp_multicast_loopback sh -c "$E/udp_multicast recv 239.255.0.1 $((U+1)) --count 3 --timeout 10 --interface 127.0.0.1 > um.out 2>&1 & r=\$!; for i in \$(seq 50); do grep -q joined um.out && break; sleep 0.1; done; $E/udp_multicast send 239.255.0.1 $((U+1)) --count 3 --interval 50 --interface 127.0.0.1 && wait \$r && grep -q 'multicast 3' um.out && grep -q '3 datagrams received' um.out"
+check udp_recv_timeout_fails sh -c "! $E/udp_broadcast recv $((U+2)) --count 1 --timeout 1"
 
 echo "$PASS passed, $FAIL failed"
 [ $FAIL -eq 0 ]

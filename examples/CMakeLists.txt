@@ -55,8 +55,12 @@ datareel_example(tls_echo_server   tls/tls_echo_server.cpp)
 datareel_example(tls_echo_client   tls/tls_echo_client.cpp)
 datareel_example(https_get         tls/https_get.cpp)
 datareel_example(https_server      tls/https_server.cpp)
+# 11/16/2026 (7.4): web site checks, based on the 2007 http_ping and http_header_util programs
+datareel_example(https_check       tls/https_check.cpp)
 datareel_example(smtp_send         tls/smtp_send.cpp)
 datareel_example(pop3_list         tls/pop3_list.cpp)
+# 11/16/2026 (7.4): IMAP, based on the 2007 IMAP client program
+datareel_example(imap_fetch        tls/imap_fetch.cpp)
 datareel_example(ftps_client       tls/ftps_client.cpp)
 datareel_example(stream_server     tls/stream_server.cpp)
 datareel_example(stream_client     tls/stream_client.cpp)
@@ -71,6 +75,10 @@ datareel_example(string_utils      general/string_utils.cpp)
 # Plain text diagnostics (ICMP and telnet cannot use TLS)
 datareel_example(ping              diagnostics/ping.cpp)
 datareel_example(telnet_client     diagnostics/telnet_client.cpp)
+# 11/16/2026 (7.4): plain UDP broadcast and multicast (trusted local networks only), based on the 2001
+# broadcast and multicast programs
+datareel_example(udp_broadcast     diagnostics/udp_broadcast.cpp)
+datareel_example(udp_multicast     diagnostics/udp_multicast.cpp)
 
 # Sample programs from the AI guides in docs/ai, built so they stay correct
 foreach(sample tls_client tls_server https_fetch send_mail 
