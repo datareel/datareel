@@ -1038,7 +1038,9 @@ static int recover_journal_locked(const std::string &root)
   struct stat jb;
   if(stat(jname.c_str(), &jb) != 0 || jb.st_size == 0) return 0;
   unsigned long n = 0;
-  if(gxdJournal::Recover(jname.c_str(), &n) != gxDBASE_NO_ERROR) return -1;
+  // 11/16/2026 (beta4 re-review L-d): mark 0: gxrepl's own apply.jnl has no ship log, so no open record would ever
+  // take a ".recovered" marker (and a marker that cannot be written must not stop gxrepl from starting)
+  if(gxdJournal::Recover(jname.c_str(), &n, 0) != gxDBASE_NO_ERROR) return -1;
   if(truncate(jname.c_str(), 0) != 0) { }
   return 0;
 }
@@ -1165,7 +1167,7 @@ static int stage_begin(const gxReplSetConfig &sc, const std::string &root, const
     struct stat jb;
     if(stat(jname.c_str(), &jb) == 0 && jb.st_size > 0) {
       unsigned long n = 0;
-      if(gxdJournal::Recover(jname.c_str(), &n) != gxDBASE_NO_ERROR) {
+      if(gxdJournal::Recover(jname.c_str(), &n, 0) != gxDBASE_NO_ERROR) {
 	why = "the apply journal holds a batch that cannot be applied yet (" + jname + "): the stage is kept, "
 	      "tried again next pass";
 	return -1;
@@ -4084,7 +4086,7 @@ int gxReplLocal::RecoverAll(std::string &err)
     std::string j = sc.root + "/.gxrepl/apply.jnl";
     if(access(j.c_str(), F_OK) != 0) continue;
     unsigned long n = 0;
-    if(gxdJournal::Recover(j.c_str(), &n) != gxDBASE_NO_ERROR) {
+    if(gxdJournal::Recover(j.c_str(), &n, 0) != gxDBASE_NO_ERROR) {
       err = "cannot recover " + j; return -1;
     }
     if(n) glog("set %s: finished %lu unfinished apply batch(es)", sc.name.c_str(), n);
@@ -6664,7 +6666,7 @@ int gxReplPromote(const gxReplSetConfig &sc, bool apply, std::vector<std::string
     }
     if(stat(jname.c_str(), &jb) == 0 && jb.st_size > 0) {
       unsigned long n = 0;
-      if(gxdJournal::Recover(jname.c_str(), &n) != gxDBASE_NO_ERROR) {
+      if(gxdJournal::Recover(jname.c_str(), &n, 0) != gxDBASE_NO_ERROR) {
 	flock(lk, LOCK_UN); close(lk); err = "cannot recover " + jname; return -1;
       }
       if(n) lines.push_back("set " + sc.name + ": finished " + std::to_string(n) + " unfinished apply batch(es)");

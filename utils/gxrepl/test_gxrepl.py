@@ -3429,6 +3429,32 @@ def test_staged_fill_promote_after_a_crash_with_a_committed_batch():
         env.stop()
 
 
+def test_apply_journal_recovers_without_a_marker():
+    """11/16/2026 (beta4 re-review L-d): gxrepl's own apply.jnl has no ship log, so its recovery writes no
+    ".recovered" marker. The server dies inside an apply with its batch committed to apply.jnl, and the marker's
+    temporary name is taken (a folder): the server must still start, finish the batch and leave no marker (before the
+    fix the recovery refused, as a writer's does, and gxrepl would not start). Needs GXREPL_TEST_HOOKS."""
+    env, ws, aws = _staged_env("apply_jnl_nomarker", slow=False)
+    try:
+        env.stop()
+        env.start_server(extra_env={"GXREPL_TEST_APPLY_CRASH": "1"})
+        assert writer(ws, "--commits", 3, "--big", 8 * 1024 * 1024, "--no-ship", "--commit-block", "--seed", 53).returncode == 0
+        env.start_client()
+        _server_dies(env)
+        jnl = os.path.join(aws, ".gxrepl", "apply.jnl")
+        assert os.path.getsize(jnl) > 0, "no committed batch left in the journal"
+        os.mkdir(jnl + ".recovered.tmp")
+        env.start_server()                                # raises when it does not start
+        env.start_client()
+        wait_same(env, "db", 120)
+        assert not os.path.exists(jnl + ".recovered"), "gxrepl's apply journal left a marker"
+        t = torn(env)
+        assert t.returncode == 0, t.stdout
+        check_db(aws)
+    finally:
+        env.stop()
+
+
 def _hashes(root):
     return run([os.path.join(BIN, "gxrepl_testwriter"), "hashes", root]).stdout.split()
 
