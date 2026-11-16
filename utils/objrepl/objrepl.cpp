@@ -82,6 +82,7 @@ Usage:
 #include <vector>
 #include <algorithm>
 #include <tuple>
+#include <set>
 #include "gxdbase.h"
 #include "gxbtree.h"
 #include "gxdjrnl.h"
@@ -90,7 +91,14 @@ Usage:
 using namespace datareel;
 
 // ---------- records ----------
-struct ObjHead { uint64_t id; uint32_t version; uint32_t len; };
+// 11/16/2026: a record is a head and its bytes, padded to the record's capacity (its block). flags: TOMB = the object
+// was removed (or is not known yet): the record keeps the object's id and address so links to it still resolve and
+// the address is never reused; STUB = a forwarding stub left where an object had to move on this node only (fwd =
+// the object's address now), followed in one hop by a read
+struct ObjHead { uint64_t id; uint32_t version; uint32_t len; uint32_t flags; uint32_t reason; uint64_t seen_seq; uint64_t fwd; };
+enum { OF_TOMB = 1, OF_STUB = 2 };
+enum { TR_REMOVED = 1, TR_UNKNOWN_TARGET = 2, TR_UNKNOWN_REMOVE = 3 };   // why a tombstone exists
+const uint32_t PLACEHOLDER_RESERVE = 512;   // the capacity of a tombstone made for an object not known yet
 const uint32_t STATE_MAGIC = 0x3350524fu;   // "ORP3"
 enum { ROLE_NONE = 0, ROLE_PRIMARY = 1, ROLE_COPY = 2 };
 // The running digest: a hash chained over every commit frame in order (the primary when it records a commit, the
@@ -104,9 +112,7 @@ struct State {
   uint64_t acked_digest;    // primary: after acked_seq
   uint64_t applied_digest;  // copy: after applied_seq
 };
-enum { OP_ADD = 1, OP_UPDATE = 2, OP_REMOVE = 3 };
-const uint64_t DANGLING_ID = ~0ULL;     // a link to an object that is gone, on the wire
-const uint64_t DANGLING_ADDR = 1;       // and in a database: inside the file header, never an object
+enum { OP_ADD = 1, OP_UPDATE = 2, OP_REMOVE = 3, OP_PURGE = 4 };   // every op names (database, object id)
 enum { F_COMMIT = 1, F_SNAP_BEGIN = 2, F_SNAP_BATCH = 3, F_SNAP_END = 4 };
 const size_t SNAP_BATCH_BYTES = 1u << 20;
 
@@ -200,8 +206,10 @@ struct Db {
   gxDatabase db;
   IdKey type;
   gxBtree bt{type, ORDER};
-  std::map<uint64_t, FAU_t> where;        // id -> address, this database's own (rebuilt at open)
-  std::map<FAU_t, uint64_t> who;          // address -> id
+  std::map<uint64_t, FAU_t> where;        // id -> the record's address (a live object or a tombstone)
+  std::map<FAU_t, uint64_t> who;          // address -> id (records and forwarding stubs)
+  std::set<uint64_t> tombs;               // ids whose record is a tombstone
+  std::map<FAU_t, uint64_t> stubs;        // forwarding stubs: address -> id
 
   bool open(const std::string &root) {
     std::string g = root + "/" + name + ".gxd", x = root + "/" + name + ".id.btx";
@@ -209,43 +217,110 @@ struct Db {
     if(bt.Open(x.c_str()) != gxDBASE_NO_ERROR && bt.Create(x.c_str()) != gxDBASE_NO_ERROR) return false;
     for(FAU_t a = db.FindFirstObject(); a != (FAU_t)0; a = db.FindNextObject(a)) {
       ObjHead h;
-      if(db.Read(&h, sizeof(h), a) == gxDBASE_NO_ERROR) { where[h.id] = a; who[a] = h.id; }
+      if(db.Read(&h, sizeof(h), a) != gxDBASE_NO_ERROR) continue;
+      who[a] = h.id;
+      if(h.flags & OF_STUB) { stubs[a] = h.id; continue; }
+      where[h.id] = a;
+      if(h.flags & OF_TOMB) tombs.insert(h.id);
     }
     return true;
   }
   void close() { bt.Close(); db.Close(); }
-  bool put(uint64_t id, uint32_t ver, const unsigned char *p, uint32_t n) {
-    std::vector<unsigned char> rec(sizeof(ObjHead) + n);
-    ObjHead h; memset(&h, 0, sizeof(h)); h.id = id; h.version = ver; h.len = n;
+  bool live(uint64_t id) const { return where.count(id) && !tombs.count(id); }
+  __ULWORD__ capacity(uint64_t id) { auto it = where.find(id); return it == where.end() ? 0 : db.ObjectLength(it->second); }
+  bool write_at(FAU_t a, const ObjHead &h, const unsigned char *p, uint32_t n, __ULWORD__ cap) {
+    std::vector<unsigned char> rec(cap, 0);
     memcpy(rec.data(), &h, sizeof(h)); if(n) memcpy(rec.data() + sizeof(h), p, n);
-    auto old = where.find(id);
-    if(old != where.end()) {                        // the same size: in place, so links to it stay right
-      if(db.ObjectLength(old->second) == (__ULWORD__)rec.size())
-	return db.Write(rec.data(), (__ULWORD__)rec.size(), old->second) == gxDBASE_NO_ERROR;
-      if(!remove(id)) return false;
-    }
-    FAU_t a = db.Alloc((__ULWORD__)rec.size());
-    if(!a || db.Write(rec.data(), (__ULWORD__)rec.size(), a) != gxDBASE_NO_ERROR) return false;
+    return db.Write(rec.data(), cap, a) == gxDBASE_NO_ERROR;
+  }
+  FAU_t alloc_at(uint64_t id, const ObjHead &h, const unsigned char *p, uint32_t n, __ULWORD__ cap) {
+    FAU_t a = db.Alloc(cap);
+    if(!a || !write_at(a, h, p, n, cap)) return 0;
     IdKey k(id, a), c;
-    if(!bt.Insert(k, c)) return false;
+    if(!bt.Insert(k, c)) return 0;
     where[id] = a; who[a] = id;
+    return a;
+  }
+  // an add or an update (also of a tombstone: the object comes back at its address). In place when the bytes fit
+  // the record and force_move is off; otherwise the object moves, with capacity want_cap (on a copy: the primary's).
+  // free_old: the old block is freed (the primary; a copy mirroring a move the primary made); otherwise a forwarding
+  // stub stays at the old address so links to it stay right (a move on this copy only). moved: this call moved it.
+  bool put(uint64_t id, uint32_t ver, const unsigned char *p, uint32_t n, __ULWORD__ want_cap, bool force_move,
+	   bool free_old, bool &moved) {
+    moved = false;
+    ObjHead h; memset(&h, 0, sizeof(h)); h.id = id; h.version = ver; h.len = n;
+    __ULWORD__ need = (__ULWORD__)(sizeof(ObjHead) + n), cap = std::max(need, want_cap);
+    auto old = where.find(id);
+    if(old == where.end()) return alloc_at(id, h, p, n, cap) != 0;
+    FAU_t oa = old->second;
+    __ULWORD__ ocap = db.ObjectLength(oa);
+    if(need <= ocap && !force_move) {                        // in place
+      if(!write_at(oa, h, p, n, ocap)) return false;
+      tombs.erase(id);
+      return true;
+    }
+    IdKey ok(id, oa), c;                                     // the move
+    bt.Delete(ok, c);
+    where.erase(id); tombs.erase(id);
+    FAU_t na = alloc_at(id, h, p, n, cap);
+    if(!na) return false;
+    for(auto &st : stubs) if(st.second == id) {             // older stubs of this id: straight to the new address
+      ObjHead sh; memset(&sh, 0, sizeof(sh)); sh.id = id; sh.flags = OF_STUB; sh.fwd = (uint64_t)na;
+      if(!write_at(st.first, sh, 0, 0, db.ObjectLength(st.first))) return false;
+    }
+    if(free_old) { who.erase(oa); if(!db.Delete(oa)) return false; }
+    else {                                                   // this node only: a stub names the new address
+      ObjHead sh; memset(&sh, 0, sizeof(sh)); sh.id = id; sh.flags = OF_STUB; sh.fwd = (uint64_t)na;
+      if(!write_at(oa, sh, 0, 0, ocap)) return false;
+      stubs[oa] = id; who[oa] = id;
+    }
+    moved = true;
     return true;
   }
-  bool remove(uint64_t id) {
+  // a remove: the record becomes a tombstone at the same address (an unknown id gets a new one)
+  bool tombstone(uint64_t id, uint32_t reason, uint64_t seq, __ULWORD__ cap = 0) {
+    ObjHead h; memset(&h, 0, sizeof(h)); h.id = id; h.flags = OF_TOMB; h.reason = reason; h.seen_seq = seq;
     auto it = where.find(id);
-    if(it == where.end()) return true;              // already gone: removes are idempotent
+    if(it != where.end()) {
+      if(tombs.count(id)) return true;                       // already one
+      if(!write_at(it->second, h, 0, 0, db.ObjectLength(it->second))) return false;
+      tombs.insert(id);
+      return true;
+    }
+    if(!alloc_at(id, h, 0, 0, std::max((__ULWORD__)sizeof(ObjHead), cap))) return false;
+    tombs.insert(id);
+    return true;
+  }
+  // a purge: a tombstone (and stubs naming its id) freed for good; a live object is never purged
+  bool purge(uint64_t id) {
+    auto it = where.find(id);
+    if(it == where.end() || !tombs.count(id)) return true;
     IdKey k(id, it->second), c;
     bt.Delete(k, c);
     if(!db.Delete(it->second)) return false;
-    who.erase(it->second);
-    where.erase(it);
+    who.erase(it->second); where.erase(it); tombs.erase(id);
+    for(auto st = stubs.begin(); st != stubs.end();) {
+      if(st->second == id) { db.Delete(st->first); who.erase(st->first); st = stubs.erase(st); } else ++st;
+    }
     return true;
   }
-  bool clear() {                                    // every object and key (a snapshot starts from empty)
-    std::vector<uint64_t> ids;
-    for(auto &w : where) ids.push_back(w.first);
-    for(auto id : ids) if(!remove(id)) return false;
+  bool clear() {                                    // every record and stub (a full send starts from empty)
+    for(auto &w : where) { IdKey k(w.first, w.second), c; bt.Delete(k, c); if(!db.Delete(w.second)) return false; }
+    for(auto &st : stubs) if(!db.Delete(st.first)) return false;
+    where.clear(); who.clear(); tombs.clear(); stubs.clear();
     return true;
+  }
+  // read a record by address, following a forwarding stub once
+  bool read(FAU_t a, std::vector<unsigned char> &rec, ObjHead &h) {
+    for(int hop = 0; hop < 2; hop++) {
+      __ULWORD__ n = db.ObjectLength(a);
+      rec.resize(n);
+      if(n < sizeof(ObjHead) || db.Read(rec.data(), n, a) != gxDBASE_NO_ERROR) return false;
+      memcpy(&h, rec.data(), sizeof(h));
+      if(!(h.flags & OF_STUB)) return true;
+      a = (FAU_t)h.fwd;
+    }
+    return false;
   }
 };
 
@@ -303,21 +378,31 @@ struct Node {
   void close() { j.Close(); for(auto &d : dbs) d.second->close(); if(primary) ob.Close(); sdb.Close(); }
   // the state lives in state.gxd's static area, right after the file header (StaticArea() is its size)
   bool put_state() { return sdb.Write(&st, sizeof(st), (FAU_t)sdb.FileHeaderSize()) == gxDBASE_NO_ERROR; }
-  // link fields of DB's object bytes: to ids (to_ids) or to this node's addresses. A link whose target is gone
-  // (removed: a dangling link) travels as DANGLING_ID and is stored as DANGLING_ADDR, an address inside the file
-  // header that is never an object: dangling on both sides alike, never re-mapped
-  void translate(const std::string &db, unsigned char *p, uint32_t n, bool to_ids) {
+  // link fields of DB's object bytes: to ids (to_ids) or to this node's addresses. A removed target is a
+  // tombstone, so its address still names its id. An id this node does not hold yet gets a placeholder tombstone
+  // (inside the open transaction), so a link is never dangling or 0; a later add of that id replaces it in place
+  uint64_t seen_seq = 0;            // the commit being applied (placeholders record it)
+  bool translate(const std::string &db, unsigned char *p, uint32_t n, bool to_ids) {
     for(auto &d : links) {
       if(d.db != db || (size_t)d.off + 8 > n) continue;
       uint64_t v; memcpy(&v, p + d.off, 8);
       uint64_t out = 0;
       Db *t = get(d.target);
-      if(v && t) {
-	if(to_ids) { auto it = t->who.find((FAU_t)v); out = it == t->who.end() ? DANGLING_ID : it->second; }
-	else { auto it = t->where.find(v); out = it == t->where.end() ? DANGLING_ADDR : (uint64_t)it->second; }
-      } else if(v) out = to_ids ? DANGLING_ID : DANGLING_ADDR;
+      if(v && !t) return false;
+      if(v && to_ids) { auto it = t->who.find((FAU_t)v); if(it == t->who.end()) return false; out = it->second; }
+      else if(v) {
+	auto it = t->where.find(v);
+	if(it == t->where.end()) {
+	  if(!j.InTransaction() || !t->tombstone(v, TR_UNKNOWN_TARGET, seen_seq, PLACEHOLDER_RESERVE)) return false;
+	  fprintf(stderr, "objrepl: placeholder tombstone %s id %llu (a link at seq %llu names an id not here yet)\n",
+		  t->name.c_str(), (unsigned long long)v, (unsigned long long)seen_seq);
+	  it = t->where.find(v);
+	}
+	out = (uint64_t)it->second;
+      }
       memcpy(p + d.off, &out, 8);
     }
+    return true;
   }
 };
 
@@ -446,13 +531,14 @@ static bool snapshot(Node &s, Link &L)
     return true;
   };
   for(auto &d : s.dbs) {
-    for(auto &w : d.second->where) {
+    for(auto &w : d.second->where) {                         // live objects and tombstones (never stubs)
       __ULWORD__ n = d.second->db.ObjectLength(w.second);
       std::vector<unsigned char> rec(n);
       if(d.second->db.Read(rec.data(), n, w.second) != gxDBASE_NO_ERROR || n < sizeof(ObjHead)) return false;
       ObjHead h; memcpy(&h, rec.data(), sizeof(h));
-      s.translate(d.first, rec.data() + sizeof(h), h.len, true);
-      f.str(d.first); f.u64(h.id); f.u32(h.version); f.u32(h.len); f.raw(rec.data() + sizeof(h), h.len);
+      if(!(h.flags & OF_TOMB) && !s.translate(d.first, rec.data() + sizeof(h), h.len, true)) return false;
+      f.str(d.first); f.u64(h.id); f.u32(h.version); f.u32(h.flags); f.u32(h.reason); f.u64(h.seen_seq); f.u32((uint32_t)n);
+      f.u32(h.len); f.raw(rec.data() + sizeof(h), h.len);
       nobj++;
       if(f.b.size() >= SNAP_BATCH_BYTES && !flush()) return false;
     }
@@ -498,7 +584,53 @@ static bool pump(Node &s, Link &L, const std::string &copy, bool trim)
   return true;
 }
 
-static long drop_linked = 0;   // 11/16/2026 (test): one last commit that removes this many objects that links point to
+static long drop_linked = 0;    // 11/16/2026 (test): one commit that removes this many objects that links point to
+static long unknown_removes = 0; // (test): one commit that removes this many ids that never existed
+static bool purge_unlinked = false;   // a commit that purges every tombstone no link points to
+static bool defer_target = false;     // (test): a link target's add is held back to the next commit (an unknown id)
+
+typedef std::tuple<uint8_t, std::string, uint64_t> Touch;
+
+// one commit's record from the objects' final bytes (links as ids), its outbox entry and its state, in the open
+// transaction, then Commit(). moved: the (database, id) pairs this primary moved in the commit.
+static bool record_commit(Node &s, const std::vector<Touch> &touched, const std::set<std::pair<std::string, uint64_t>> &moved)
+{
+  Buf f; uint64_t seq = s.st.next_seq;
+  f.u8(F_COMMIT); f.u64(seq); f.u64(s.st.epoch);
+  Buf ops; uint32_t nops = 0;
+  for(auto &t : touched) {
+    uint8_t op = std::get<0>(t); const std::string &dn = std::get<1>(t); uint64_t id = std::get<2>(t);
+    Db *d = s.get(dn);
+    ops.u8(op); ops.str(dn); ops.u64(id); nops++;
+    if(op == OP_REMOVE || op == OP_PURGE) continue;
+    auto w = d->where.find(id);
+    std::vector<unsigned char> rec; ObjHead h; memset(&h, 0, sizeof(h));
+    if(w == d->where.end() || !d->read(w->second, rec, h) || (h.flags & OF_TOMB)) {
+      ops.u32(0); ops.u8(0); ops.u32(0);                       // changed, then removed in this commit: the remove follows
+      continue;
+    }
+    if(!s.translate(dn, rec.data() + sizeof(h), h.len, true)) { fprintf(stderr, "objrepl primary: a link in %s %llu names no object\n", dn.c_str(), (unsigned long long)id); return false; }
+    ops.u32((uint32_t)d->db.ObjectLength(w->second)); ops.u8(moved.count({dn, id}) ? 1 : 0);
+    ops.u32(h.len); ops.raw(rec.data() + sizeof(h), h.len);
+  }
+  f.u32(nops); f.raw(ops.b.data(), ops.b.size());
+  s.st.cur_digest = fnv(f.b.data(), f.b.size(), s.st.cur_digest);
+  f.u64(s.st.cur_digest);                                      // the outbox entry: the frame, then the digest after it
+  FAU_t oa = s.ob.Alloc((__ULWORD__)f.b.size());
+  if(!oa || s.ob.Write(f.b.data(), (__ULWORD__)f.b.size(), oa) != gxDBASE_NO_ERROR) { fprintf(stderr, "outbox write failed\n"); return false; }
+  s.st.next_seq = seq + 1;
+  s.put_state();
+  if(s.j.Commit() != gxDBASE_NO_ERROR) { fprintf(stderr, "commit failed\n"); return false; }
+  return true;
+}
+
+// the live ids of a database
+static std::vector<uint64_t> live_ids(Db *d)
+{
+  std::vector<uint64_t> v;
+  for(auto &w : d->where) if(!d->tombs.count(w.first)) v.push_back(w.first);
+  return v;
+}
 
 static int run_primary(const std::string &root, const std::string &copy, long commits, long per, long ndbs, long sleep_ms,
 		       bool drain, bool trim)
@@ -509,122 +641,138 @@ static int run_primary(const std::string &root, const std::string &copy, long co
   if(s.st.role == ROLE_COPY) { alarm_say(root + " is a copy: run takeover before it writes"); s.close(); return 4; }
   if(s.st.role != ROLE_PRIMARY) { s.j.Begin(); s.st.role = ROLE_PRIMARY; s.put_state(); s.j.Commit(); }
   for(long i = 0; i < ndbs; i++) if(!s.get("db" + std::to_string(i))) { fprintf(stderr, "cannot open db%ld\n", i); return 1; }
+  for(auto &l : links) if(!s.get(l.db) || !s.get(l.target)) return 1;   // opened outside a transaction
   Link L;
   uint64_t next_id = 1;
   for(auto &d : s.dbs) for(auto &w : d.second->where) next_id = std::max(next_id, w.first + 1);
+  std::vector<Touch> held;                                     // defer_target: an add held back to the next commit
   for(long c = 0; !drain && c < commits; c++) {
-    // one commit: objects in several databases and their outbox entry, in one transaction
-    Buf f; uint64_t seq = s.st.next_seq;
-    f.u8(F_COMMIT); f.u64(seq); f.u64(s.st.epoch);
-    // the objects change first; the commit's frame is made from their final bytes at the end, so a link to an
+    // the objects change first; the commit's record is made from their final bytes at the end, so a link to an
     // object added later in the same commit (or a cycle of links) is turned into ids once every target exists
-    std::vector<std::tuple<uint8_t, std::string, uint64_t>> touched;
-    // databases are opened (and attached to the journal) outside a transaction
+    std::vector<Touch> touched;
+    std::set<std::pair<std::string, uint64_t>> moved;
     Db *lk = links.empty() ? 0 : s.get(links[0].db);
-    for(auto &l : links) if(!s.get(l.db) || !s.get(l.target)) return 1;
     s.j.Begin();
+    for(auto &h : held) touched.push_back(h);
+    held.clear();
+    bool held_one = false;
     for(long k = 0; k < per; k++) {
       unsigned r = rnd() % 10;
+      bool mv = false;
       if(lk && r == 0) {                                       // link objects (32 bytes; the link fields from the map)
 	const LinkDef *cyc = 0, *fw = 0;                       // cyc: a field into lk itself; fw: into another database
 	for(auto &l : links) if(l.db == lk->name) { if(l.target == lk->name) cyc = &l; else fw = &l; }
 	uint64_t a = next_id++, b = next_id++;
 	unsigned char z[32]; memset(z, 0, sizeof(z));
-	if(!lk->put(a, 1, z, 32)) return 1;
-	if(cyc && (!fw || rnd() % 2)) {                        // c: a cycle in one commit, a -> b and b -> a
-	  if(!lk->put(b, 1, z, 32)) return 1;
+	if(!lk->put(a, 1, z, 32, 0, false, false, mv)) return 1;
+	if(cyc && (!fw || rnd() % 2)) {                        // a cycle in one commit, a -> b and b -> a
+	  if(!lk->put(b, 1, z, 32, 0, false, false, mv)) return 1;
 	  uint64_t la = (uint64_t)lk->where[b], lb = (uint64_t)lk->where[a];
 	  unsigned char x[32]; memset(x, 0, 32); memcpy(x + cyc->off, &la, 8); x[24] = 1;
 	  unsigned char y[32]; memset(y, 0, 32); memcpy(y + cyc->off, &lb, 8); y[24] = 2;
-	  if(!lk->put(a, 2, x, 32) || !lk->put(b, 2, y, 32)) return 1;
-	  touched.push_back({OP_ADD, lk->name, a}); touched.push_back({OP_ADD, lk->name, b});
-	} else if(fw) {                                        // a: a -> c, c added after a in the same commit
+	  if(!lk->put(a, 2, x, 32, 0, false, false, mv) || !lk->put(b, 2, y, 32, 0, false, false, mv)) return 1;
+	  touched.push_back(Touch(OP_ADD, lk->name, a)); touched.push_back(Touch(OP_ADD, lk->name, b));
+	} else if(fw) {                                        // a -> c, c added after a in the same commit
 	  Db *t = s.get(fw->target);
 	  uint32_t n = 40 + rnd() % 400; std::vector<unsigned char> cb(n); for(auto &q : cb) q = (unsigned char)rnd();
-	  if(!t || !t->put(b, 1, cb.data(), n)) return 1;
+	  if(!t || !t->put(b, 1, cb.data(), n, 0, false, false, mv)) return 1;
 	  uint64_t lc = (uint64_t)t->where[b];
 	  unsigned char x[32]; memset(x, 0, 32); memcpy(x + fw->off, &lc, 8); x[24] = 3;
-	  if(!lk->put(a, 2, x, 32)) return 1;
-	  touched.push_back({OP_ADD, lk->name, a}); touched.push_back({OP_ADD, t->name, b});
+	  if(!lk->put(a, 2, x, 32, 0, false, false, mv)) return 1;
+	  touched.push_back(Touch(OP_ADD, lk->name, a));
+	  // defer_target (test): c's add goes in the NEXT commit, so the copy meets a link to an id it does not hold
+	  if(defer_target && !held_one) { held.push_back(Touch(OP_ADD, t->name, b)); held_one = true; }
+	  else touched.push_back(Touch(OP_ADD, t->name, b));
 	}
 	continue;
       }
       Db *d = s.dbs["db" + std::to_string(rnd() % ndbs)].get();
-      bool target = false;
-      for(auto &l : links) if(l.target == d->name) target = true;
-      if(r < 6 || d->where.empty()) {                            // add
+      std::vector<uint64_t> lv = live_ids(d);
+      if(r < 6 || lv.empty()) {                                  // add
 	uint32_t n = 40 + rnd() % 400; std::vector<unsigned char> b(n);
 	for(auto &x : b) x = (unsigned char)rnd();
 	uint64_t id = next_id++;
-	if(!d->put(id, 1, b.data(), n)) { fprintf(stderr, "add failed\n"); return 1; }
-	touched.push_back({OP_ADD, d->name, id});
+	if(!d->put(id, 1, b.data(), n, 0, false, false, mv)) { fprintf(stderr, "add failed\n"); return 1; }
+	touched.push_back(Touch(OP_ADD, d->name, id));
       } else {
-	auto it = d->where.begin(); std::advance(it, rnd() % d->where.size()); uint64_t id = it->first;
-	if(r < 9 || target) {                                   // update: new bytes (a link target keeps its size,
-	  uint32_t n = target ? (uint32_t)(d->db.ObjectLength(it->second) - sizeof(ObjHead))   // so it stays in place)
-			      : 40 + rnd() % 400;
-	  std::vector<unsigned char> b(n);
+	uint64_t id = lv[rnd() % lv.size()];
+	if(r < 9) {                                             // update: new bytes, a new size (in place when it fits)
+	  uint32_t n = 40 + rnd() % 400; std::vector<unsigned char> b(n);
 	  for(auto &x : b) x = (unsigned char)rnd();
-	  if(!d->put(id, 2, b.data(), n)) { fprintf(stderr, "update failed\n"); return 1; }
-	  touched.push_back({OP_UPDATE, d->name, id});
-	} else {                                                // remove
-	  if(!d->remove(id)) { fprintf(stderr, "remove failed\n"); return 1; }
-	  touched.push_back({OP_REMOVE, d->name, id});
+	  if(!d->put(id, 2, b.data(), n, 0, false, false, mv)) { fprintf(stderr, "update failed\n"); return 1; }
+	  if(mv) moved.insert({d->name, id});
+	  touched.push_back(Touch(OP_UPDATE, d->name, id));
+	} else {                                                // remove: a tombstone at the object's address
+	  if(!d->tombstone(id, TR_REMOVED, s.st.next_seq)) { fprintf(stderr, "remove failed\n"); return 1; }
+	  touched.push_back(Touch(OP_REMOVE, d->name, id));
 	}
       }
     }
-    Buf ops; uint32_t nops = 0;
-    for(auto &t : touched) {
-      uint8_t op = std::get<0>(t); const std::string &dn = std::get<1>(t); uint64_t id = std::get<2>(t);
-      Db *d = s.get(dn);
-      if(op == OP_REMOVE) { ops.u8(OP_REMOVE); ops.str(dn); ops.u64(id); ops.u32(0); nops++; continue; }
-      auto w = d->where.find(id);
-      if(w == d->where.end()) continue;                        // added or changed, then removed in this commit
-      __ULWORD__ n = d->db.ObjectLength(w->second);
-      std::vector<unsigned char> rec(n);
-      if(n < sizeof(ObjHead) || d->db.Read(rec.data(), n, w->second) != gxDBASE_NO_ERROR) return 1;
-      ObjHead h; memcpy(&h, rec.data(), sizeof(h));
-      s.translate(dn, rec.data() + sizeof(h), h.len, true);
-      ops.u8(op); ops.str(dn); ops.u64(id); ops.u32(h.len); ops.raw(rec.data() + sizeof(h), h.len); nops++;
-    }
-    f.u32(nops); f.raw(ops.b.data(), ops.b.size());
-    s.st.cur_digest = fnv(f.b.data(), f.b.size(), s.st.cur_digest);
-    f.u64(s.st.cur_digest);                                    // the outbox entry: the frame, then the digest after it
-    FAU_t oa = s.ob.Alloc((__ULWORD__)f.b.size());
-    if(!oa || s.ob.Write(f.b.data(), (__ULWORD__)f.b.size(), oa) != gxDBASE_NO_ERROR) { fprintf(stderr, "outbox write failed\n"); return 1; }
-    s.st.next_seq = seq + 1;
-    s.put_state();
-    if(s.j.Commit() != gxDBASE_NO_ERROR) { fprintf(stderr, "commit failed\n"); return 1; }
+    if(!record_commit(s, touched, moved)) return 1;
     pump(s, L, copy, trim);                                    // best effort: a copy that is away catches up later
     if(L.refused) { s.close(); return 3; }
     if(sleep_ms) usleep((useconds_t)sleep_ms * 1000);
   }
+  if(!held.empty()) {                                          // a held-back add still owed: its own commit
+    s.j.Begin();
+    if(!record_commit(s, held, {})) return 1;
+    held.clear();
+  }
   if(drop_linked > 0 && !links.empty()) {
-    // case b: remove targets of links, leaving the links dangling on the primary; the copy must agree (links to a
-    // gone object compare as 0, and both digests count them)
-    std::vector<std::pair<std::string, uint64_t>> victims;
+    // removes of objects that links point to: the targets become tombstones, the links keep naming them (by id
+    // on the wire, by address on each side) on the primary and the copy alike
+    std::vector<Touch> touched;
     for(auto &l : links) {
       Db *src = s.get(l.db), *tgt = s.get(l.target);
       if(!src || !tgt || l.target == l.db) continue;
       for(auto &w : src->where) {
-	if((long)victims.size() >= drop_linked) break;
-	__ULWORD__ n = src->db.ObjectLength(w.second); std::vector<unsigned char> rec(n);
-	if(n < sizeof(ObjHead) + l.off + 8 || src->db.Read(rec.data(), n, w.second) != gxDBASE_NO_ERROR) continue;
+	if((long)touched.size() >= drop_linked) break;
+	std::vector<unsigned char> rec; ObjHead h;
+	if(!src->read(w.second, rec, h) || (h.flags & OF_TOMB) || h.len < l.off + 8) continue;
 	uint64_t v; memcpy(&v, rec.data() + sizeof(ObjHead) + l.off, 8);
 	auto it = tgt->who.find((FAU_t)v);
-	if(v && it != tgt->who.end()) victims.push_back({l.target, it->second});
+	if(v && it != tgt->who.end() && tgt->live(it->second)) touched.push_back(Touch(OP_REMOVE, l.target, it->second));
       }
     }
-    std::sort(victims.begin(), victims.end()); victims.erase(std::unique(victims.begin(), victims.end()), victims.end());
-    Buf f; uint64_t seq = s.st.next_seq; f.u8(F_COMMIT); f.u64(seq); f.u64(s.st.epoch); f.u32((uint32_t)victims.size());
+    std::sort(touched.begin(), touched.end()); touched.erase(std::unique(touched.begin(), touched.end()), touched.end());
     s.j.Begin();
-    for(auto &v : victims) { if(!s.get(v.first)->remove(v.second)) return 1; f.u8(OP_REMOVE); f.str(v.first); f.u64(v.second); f.u32(0); }
-    s.st.cur_digest = fnv(f.b.data(), f.b.size(), s.st.cur_digest); f.u64(s.st.cur_digest);
-    FAU_t oa = s.ob.Alloc((__ULWORD__)f.b.size());
-    if(!oa || s.ob.Write(f.b.data(), (__ULWORD__)f.b.size(), oa) != gxDBASE_NO_ERROR) return 1;
-    s.st.next_seq = seq + 1; s.put_state();
-    if(s.j.Commit() != gxDBASE_NO_ERROR) return 1;
-    printf("objrepl primary: removed %zu linked object(s): their links now dangle\n", victims.size());
+    for(auto &t : touched) if(!s.get(std::get<1>(t))->tombstone(std::get<2>(t), TR_REMOVED, s.st.next_seq)) return 1;
+    if(!record_commit(s, touched, {})) return 1;
+    printf("objrepl primary: removed %zu linked object(s): links now name their tombstones\n", touched.size());
+  }
+  if(unknown_removes > 0 && !s.dbs.empty()) {
+    // removes of ids that never existed: a tombstone on each side
+    std::vector<Touch> touched;
+    Db *d = s.dbs.begin()->second.get();
+    s.j.Begin();
+    for(long i = 0; i < unknown_removes; i++) {
+      uint64_t id = (1ULL << 40) + next_id++;
+      if(!d->tombstone(id, TR_UNKNOWN_REMOVE, s.st.next_seq)) return 1;
+      touched.push_back(Touch(OP_REMOVE, d->name, id));
+    }
+    if(!record_commit(s, touched, {})) return 1;
+    printf("objrepl primary: removed %ld unknown id(s)\n", unknown_removes);
+  }
+  if(purge_unlinked) {
+    // a purge: every tombstone that no link points to is freed (a scan of the link fields, no reverse index)
+    std::set<std::pair<std::string, uint64_t>> linked;
+    for(auto &l : links) {
+      Db *src = s.get(l.db), *tgt = s.get(l.target);
+      if(!src || !tgt) continue;
+      for(auto &w : src->where) {
+	std::vector<unsigned char> rec; ObjHead h;
+	if(!src->read(w.second, rec, h) || (h.flags & OF_TOMB) || h.len < l.off + 8) continue;
+	uint64_t v; memcpy(&v, rec.data() + sizeof(ObjHead) + l.off, 8);
+	auto it = tgt->who.find((FAU_t)v);
+	if(v && it != tgt->who.end()) linked.insert({l.target, it->second});
+      }
+    }
+    std::vector<Touch> touched;
+    for(auto &d : s.dbs) for(auto id : d.second->tombs) if(!linked.count({d.first, id})) touched.push_back(Touch(OP_PURGE, d.first, id));
+    s.j.Begin();
+    for(auto &t : touched) if(!s.get(std::get<1>(t))->purge(std::get<2>(t))) return 1;
+    if(!record_commit(s, touched, {})) return 1;
+    printf("objrepl primary: purged %zu tombstone(s), %zu kept (links point to them)\n", touched.size(), linked.size());
   }
   for(int tries = 0; tries < 600; tries++) {                   // drain: until the copy has every commit
     if(pump(s, L, copy, trim) && L.copy_applied + 1 >= s.st.next_seq) break;
@@ -649,12 +797,13 @@ static bool open_named(Node &s, const unsigned char *p, size_t n, bool snapshot_
   Rd r(p, n);
   uint32_t k = r.u32();
   for(uint32_t i = 0; i < k && r.ok; i++) {
-    if(!snapshot_batch) r.u8();
+    uint8_t op = snapshot_batch ? OP_ADD : r.u8();
     std::string name = r.str(); r.u64();
-    if(snapshot_batch) r.u32();
-    uint32_t len = r.u32(); r.raw(len);
+    if(snapshot_batch) { r.u32(); r.u32(); r.u32(); r.u64(); }   // version, flags, reason, seen_seq
+    if(op == OP_ADD || op == OP_UPDATE) { r.u32(); if(!snapshot_batch) r.u8(); uint32_t len = r.u32(); r.raw(len); }
     if(!r.ok || !good_name(name) || !s.get(name)) return false;
   }
+  for(auto &l : links) if(!s.get(l.db) || !s.get(l.target)) return false;   // link targets too (placeholders)
   return r.ok;
 }
 
@@ -699,6 +848,7 @@ static int run_copy(const std::string &root, int port)
     rep.str(my_name); rep.u8(ROLE_COPY); rep.u64(s.st.applied_digest); rep.str(why);
     send_frame(st, rep.b);
     if(!ok) { st.Close(); continue; }
+    for(auto &l : links) { s.get(l.db); s.get(l.target); }   // outside any transaction: placeholders may go there
     if(pep > s.st.epoch) { s.j.Begin(); s.st.epoch = pep; s.put_state(); s.j.Commit(); }
     long frames = 0, drop_every = getenv("OBJREPL_TEST_DROP_EVERY") ? atol(getenv("OBJREPL_TEST_DROP_EVERY")) : 0;
     while(!stopping && recv_frame(st, b)) {
@@ -717,12 +867,19 @@ static int run_copy(const std::string &root, int port)
 	// pass 1: every object as sent (its links are still ids); pass 2: the links of the objects this commit
 	// wrote, to this copy's addresses, once every target of the commit exists (a later add, a cycle)
 	std::vector<std::pair<std::string, uint64_t>> wrote;
+	s.seen_seq = seq;
 	for(uint32_t i = 0; i < nops && good; i++) {
-	  uint8_t op = r.u8(); std::string name = r.str(); uint64_t id = r.u64(); uint32_t n = r.u32(); const unsigned char *p = r.raw(n);
-	  if(!r.ok) { good = false; break; }
+	  uint8_t op = r.u8(); std::string name = r.str(); uint64_t id = r.u64();
 	  Db *d = s.get(name);
-	  good = d && (op == OP_REMOVE ? d->remove(id) : d->put(id, op == OP_ADD ? 1 : 2, p, n));
-	  if(good && op != OP_REMOVE) wrote.push_back({name, id});
+	  if(!r.ok || !d) { good = false; break; }
+	  if(op == OP_REMOVE) { good = d->tombstone(id, d->where.count(id) ? TR_REMOVED : TR_UNKNOWN_REMOVE, seq); continue; }
+	  if(op == OP_PURGE) { good = d->purge(id); continue; }
+	  uint32_t cap = r.u32(); uint8_t pmoved = r.u8(); uint32_t n = r.u32(); const unsigned char *p = r.raw(n);
+	  if(!r.ok || (op != OP_ADD && op != OP_UPDATE)) { good = false; break; }
+	  if(!cap) continue;                                   // changed then removed in the commit: the remove follows
+	  bool mv = false;    // a move never frees the old block: a stub there keeps every link to it right
+	  good = d->put(id, op == OP_ADD ? 1 : 2, p, n, cap, pmoved != 0, false, mv);
+	  if(good) wrote.push_back({name, id});
 	}
 	std::sort(wrote.begin(), wrote.end()); wrote.erase(std::unique(wrote.begin(), wrote.end()), wrote.end());   // each once
 	for(auto &w : wrote) {
@@ -732,13 +889,13 @@ static int run_copy(const std::string &root, int port)
 	  if(!has) continue;
 	  Db *d = s.get(w.first);
 	  auto it = d->where.find(w.second);
-	  if(it == d->where.end()) continue;
+	  if(it == d->where.end() || d->tombs.count(w.second)) continue;
 	  __ULWORD__ n = d->db.ObjectLength(it->second);
 	  std::vector<unsigned char> rec(n);
 	  if(n < sizeof(ObjHead) || d->db.Read(rec.data(), n, it->second) != gxDBASE_NO_ERROR) { good = false; break; }
 	  ObjHead oh; memcpy(&oh, rec.data(), sizeof(oh));
-	  s.translate(w.first, rec.data() + sizeof(oh), oh.len, false);
-	  good = d->db.Write(rec.data(), n, it->second) == gxDBASE_NO_ERROR;
+	  good = s.translate(w.first, rec.data() + sizeof(oh), oh.len, false) &&
+		 d->db.Write(rec.data(), n, it->second) == gxDBASE_NO_ERROR;
 	}
 	if(!good) { s.j.Rollback(); fprintf(stderr, "objrepl copy: commit %llu did not apply\n", (unsigned long long)seq); break; }
 	s.st.applied_seq = seq;
@@ -762,10 +919,12 @@ static int run_copy(const std::string &root, int port)
 	uint32_t nobj = r.u32();
 	s.j.Begin();
 	for(uint32_t i = 0; i < nobj && good; i++) {
-	  std::string name = r.str(); uint64_t id = r.u64(); uint32_t ver = r.u32(); uint32_t n = r.u32(); const unsigned char *p = r.raw(n);
-	  if(!r.ok) { good = false; break; }
+	  std::string name = r.str(); uint64_t id = r.u64(); uint32_t ver = r.u32(), flags = r.u32(), reason = r.u32();
+	  uint64_t seen = r.u64(); uint32_t cap = r.u32(); uint32_t n = r.u32(); const unsigned char *p = r.raw(n);
 	  Db *d = s.get(name);
-	  good = d && d->put(id, ver, p, n);
+	  if(!r.ok || !d) { good = false; break; }
+	  bool mv = false;
+	  good = (flags & OF_TOMB) ? d->tombstone(id, reason, seen, cap) : d->put(id, ver, p, n, cap, false, true, mv);
 	}
 	if(!good) { s.j.Rollback(); break; }
 	if(s.j.Commit() != gxDBASE_NO_ERROR) break;
@@ -775,17 +934,20 @@ static int run_copy(const std::string &root, int port)
 	uint64_t base = r.u64(), sdig = r.u64();
 	if(!r.ok || !s.st.in_snapshot || base != s.st.snapshot_base) break;
 	s.j.Begin();
+	s.seen_seq = base;
 	// the links came as ids (targets may have arrived later in the snapshot): now each to this copy's address
 	for(auto &d : s.dbs) {
 	  bool has = false;
 	  for(auto &l : links) if(l.db == d.first) has = true;
 	  if(!has) continue;
-	  for(auto &w : d.second->where) {
+	  std::vector<std::pair<uint64_t, FAU_t>> recs(d.second->where.begin(), d.second->where.end());   // placeholders may be added
+	  for(auto &w : recs) {
+	    if(d.second->tombs.count(w.first)) continue;
 	    __ULWORD__ n = d.second->db.ObjectLength(w.second);
 	    std::vector<unsigned char> rec(n);
 	    if(n < sizeof(ObjHead) || d.second->db.Read(rec.data(), n, w.second) != gxDBASE_NO_ERROR) { good = false; break; }
 	    ObjHead oh; memcpy(&oh, rec.data(), sizeof(oh));
-	    s.translate(d.first, rec.data() + sizeof(oh), oh.len, false);
+	    if(!s.translate(d.first, rec.data() + sizeof(oh), oh.len, false)) { good = false; break; }
 	    if(d.second->db.Write(rec.data(), n, w.second) != gxDBASE_NO_ERROR) { good = false; break; }
 	    if(getenv("OBJREPL_TEST_KILL_IN_FIXUP")) _exit(9);   // test only: killed inside the link fix-up's transaction
 	  }
@@ -818,14 +980,14 @@ static int run_digest(const std::string &root)
       gxDatabase db;
       if(db.Open((root + "/" + n).c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) continue;
       for(FAU_t a = db.FindFirstObject(); a != (FAU_t)0; a = db.FindNextObject(a)) {
-	ObjHead oh; if(db.Read(&oh, sizeof(oh), a) == gxDBASE_NO_ERROR) ids[nm][a] = oh.id;
+	ObjHead oh; if(db.Read(&oh, sizeof(oh), a) == gxDBASE_NO_ERROR) ids[nm][a] = oh.id;   // records and stubs
       }
       db.Close();
     }
     closedir(d);
   }
   std::map<std::string, std::map<uint64_t, uint64_t>> all;
-  size_t dangling = 0;   // 11/16/2026: links (set, not 0) whose target is not an object: reported, compared as 0
+  size_t dangling = 0, tombs = 0, stubs = 0;   // dangling: a link to no record at all (never expected now)
   if(DIR *d = opendir(root.c_str())) {
     while(struct dirent *e = readdir(d)) {
       std::string n = e->d_name;
@@ -840,15 +1002,17 @@ static int run_digest(const std::string &root)
 	std::vector<unsigned char> b(len);
 	if(db.Read(b.data(), len, a) != gxDBASE_NO_ERROR || len < sizeof(ObjHead)) continue;
 	ObjHead oh; memcpy(&oh, b.data(), sizeof(oh));
+	if(oh.flags & OF_STUB) { stubs++; continue; }          // this node's own forwarding stubs: not compared
 	if(h.count(oh.id)) { printf("DUPLICATE id %llu in %s\n", (unsigned long long)oh.id, nm.c_str()); closedir(d); return 1; }
 	for(auto &l : links) {
 	  if(l.db != nm || (size_t)l.off + 8 > oh.len) continue;
 	  uint64_t v; memcpy(&v, b.data() + sizeof(oh) + l.off, 8);
 	  auto &m = ids[l.target]; auto it = m.find((FAU_t)v);
 	  uint64_t idv = v && it != m.end() ? it->second : 0;
-	  if(v && it == m.end()) dangling++;                   // a link to an object that is gone: the application's job
+	  if(v && it == m.end()) dangling++;
 	  memcpy(b.data() + sizeof(oh) + l.off, &idv, 8);
 	}
+	if(oh.flags & OF_TOMB) { tombs++; static const char T[] = "TOMB"; h[oh.id] = fnv(T, 4, fnv(&oh.flags, 4)); continue; }
 	h[oh.id] = fnv(b.data() + sizeof(oh), oh.len, fnv(&oh.len, 4));
       }
       db.Close();
@@ -861,8 +1025,8 @@ static int run_digest(const std::string &root)
     x = fnv(d.first.data(), d.first.size(), x);
     for(auto &e : d.second) { x = fnv(&e.first, 8, x); x = fnv(&e.second, 8, x); count++; }
   }
-  printf("objects %zu digest %016llx\n", count, (unsigned long long)x);
-  if(dangling) fprintf(stderr, "objrepl digest: %zu dangling link(s) (a link to an object that is gone)\n", dangling);
+  printf("objects %zu digest %016llx\n", count - tombs, (unsigned long long)x);
+  fprintf(stderr, "objrepl digest: %zu tombstone(s) %zu stub(s) %zu dangling\n", tombs, stubs, dangling);
   return 0;
 }
 
@@ -912,6 +1076,9 @@ int main(int argc, char **argv)
     else if(a == "--drain") drain = true;
     else if(a == "--no-trim") trim = false;
     else if(a == "--drop-linked") drop_linked = atol(val().c_str());
+    else if(a == "--unknown-removes") unknown_removes = atol(val().c_str());
+    else if(a == "--purge") purge_unlinked = true;
+    else if(a == "--defer-target") defer_target = true;
     else if(a == "--ca") tls.ca = val();
     else if(a == "--cert") tls.cert = val();
     else if(a == "--key") tls.key = val();

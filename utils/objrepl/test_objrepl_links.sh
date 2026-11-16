@@ -65,15 +65,16 @@ stop_copy
 dp=$(dig p); dc=$(dig c); st=$("$X" status "$T/c")
 [ $rc -eq 0 ] && [ "$dp" == "$dc" ] && [ "$(echo "$st" | awk '{print $10}')" == "0" ] && ok "d: after the restart a new full send finished it; copy C = primary ($dp)" || bad "d restart" "rc $rc primary [$dp] copy [$dc] [$st]"
 
-# b: targets of links removed in a later commit (the links dangle): the copy agrees, and both report them
+# b: targets of links removed in a later commit: each becomes a tombstone (the link names it); copy and primary agree
 start_copy a $PA
 "$X" primary "$T/p" --copy 127.0.0.1:$PA "${PTLS[@]}" "${LINKS[@]}" --dbs 3 --drop-linked 5 --drain > "$T/p5.log" 2>&1; rc=$?
 stop_copy
 dp=$("$X" digest "$T/p" "${LINKS[@]}" 2> "$T/dg_p.err"); da=$("$X" digest "$T/a" "${LINKS[@]}" 2> "$T/dg_a.err")
-np=$(grep -o "[0-9]* dangling" "$T/dg_p.err" | awk '{print $1}'); na=$(grep -o "[0-9]* dangling" "$T/dg_a.err" | awk '{print $1}')
-[ $rc -eq 0 ] && [ "$dp" == "$da" ] && grep -q "removed 5 linked" "$T/p5.log" && [ "${np:-0}" -ge 5 ] && [ "${np:-0}" == "${na:-x}" ] \
-  && ok "b: 5 link targets removed later: copy = primary ($dp), $np dangling link(s) reported on both" \
-  || bad "b" "rc $rc primary [$dp] (${np:-0} dangling) copy [$da] (${na:-0} dangling)"
+np=$(grep -o "[0-9]* tombstone" "$T/dg_p.err" | awk '{print $1}'); na=$(grep -o "[0-9]* tombstone" "$T/dg_a.err" | awk '{print $1}')
+dgp=$(grep -o "[0-9]* dangling" "$T/dg_p.err" | awk '{print $1}'); dga=$(grep -o "[0-9]* dangling" "$T/dg_a.err" | awk '{print $1}')
+[ $rc -eq 0 ] && [ "$dp" == "$da" ] && grep -q "removed 5 linked" "$T/p5.log" && [ "${np:-0}" -ge 5 ] && [ "${np:-0}" == "${na:-x}" ] && [ "$dgp$dga" == "00" ] \
+  && ok "b: 5 link targets removed later: copy = primary ($dp), $np tombstones on both, 0 dangling" \
+  || bad "b" "rc $rc primary [$dp] (${np:-0} tombs, ${dgp:-?} dangling) copy [$da] (${na:-0} tombs, ${dga:-?} dangling)"
 
 # b, live: 5 more link targets removed while copy A is connected and current (the removes stream as ordinary ops)
 start_copy a $PA
@@ -81,9 +82,10 @@ start_copy a $PA
 stop_copy
 snaps=$(grep -o "[0-9]* snapshot" "$T/p6.log" | awk '{print $1}')
 dp=$("$X" digest "$T/p" "${LINKS[@]}" 2> "$T/dg_p.err"); da=$("$X" digest "$T/a" "${LINKS[@]}" 2> "$T/dg_a.err")
-np=$(grep -o "[0-9]* dangling" "$T/dg_p.err" | awk '{print $1}'); na=$(grep -o "[0-9]* dangling" "$T/dg_a.err" | awk '{print $1}')
-[ $rc -eq 0 ] && [ "${snaps:-0}" == "0" ] && [ "$dp" == "$da" ] && [ "${np:-0}" -ge 10 ] && [ "${np:-0}" == "${na:-x}" ] \
-  && ok "b live: 5 more removed while the copy followed live (no full send): copy = primary, $np dangling on both" \
+np=$(grep -o "[0-9]* tombstone" "$T/dg_p.err" | awk '{print $1}'); na=$(grep -o "[0-9]* tombstone" "$T/dg_a.err" | awk '{print $1}')
+dgp=$(grep -o "[0-9]* dangling" "$T/dg_p.err" | awk '{print $1}'); dga=$(grep -o "[0-9]* dangling" "$T/dg_a.err" | awk '{print $1}')
+[ $rc -eq 0 ] && [ "${snaps:-0}" == "0" ] && [ "$dp" == "$da" ] && [ "${np:-0}" -ge 10 ] && [ "${np:-0}" == "${na:-x}" ] && [ "$dgp$dga" == "00" ] \
+  && ok "b live: 5 more removed while the copy followed live (no full send): copy = primary, $np tombstones on both, 0 dangling" \
   || bad "b live" "rc $rc snaps ${snaps:-0} primary [$dp] (${np:-0}) copy [$da] (${na:-0})"
 
 echo "$PASS passed, $FAIL failed"
