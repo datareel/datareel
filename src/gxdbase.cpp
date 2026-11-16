@@ -336,6 +336,23 @@ gxDatabaseError gxDatabase::Open(const char *fname,
     if(detect_layout() != gxDBASE_NO_ERROR) return gxd_error;   // 11/15/2026
     if(ReadFileHdr()!= gxDBASE_NO_ERROR) return gxd_error;
 
+    // 11/16/2026: the other engine's file first. "GXDBASE" (32-bit file addresses) is the start of "GXDBASE64"
+    // (64-bit), and both signatures sit at the same offset on 64-bit Linux, so the 32-bit engine's compare of its 7
+    // letters accepted a 64-bit file. The signature is compared whole: the letters after "GXDBASE" are this engine's
+    // ("64", or the revision letter, never a digit), and a file of the other engine is refused as such.
+    {
+      const char *fs = (const char *)file_header.gxd_sig;
+#if defined (__64_BIT_DATABASE_ENGINE__)
+      bool other = memcmp(fs, "GXDBASE", 7) == 0 && memcmp(fs, "GXDBASE64", 9) != 0;
+#else
+      bool other = memcmp(fs, "GXDBASE", 7) == 0 && fs[7] >= '0' && fs[7] <= '9';
+#endif
+      if(other) {
+	gxd_error = gxDBASE_FILE_ENGINE_ERROR;
+	is_ok = 0;
+	return gxd_error;
+      }
+    }
     // Test the file type without checking the revision letter
     if(memcmp(file_header.gxd_sig, gxDatabase::gxSignature,
 	      (gxSignatureSize-1))) { 

@@ -54,7 +54,7 @@ namespace datareel {
 
 // NOTE: This array must contain the same number of exceptions as the
 // gxDatabaseError enumeration. 
-const int gxdMaxExceptionMessages = 90;
+const int gxdMaxExceptionMessages = 91;
 const char *gxdExceptionMessages[gxdMaxExceptionMessages] = {
   "Database exception: No exception reported",               // None
   "Database exception: Invalid error code reported",         // Invalid
@@ -153,7 +153,10 @@ const char *gxdExceptionMessages[gxdMaxExceptionMessages] = {
   "Database exception: Bad index file number", // BAD_INDEX_NUMBER
   "Database exception: Bad index file name",   // BAD_INDEX_NAME
   "Database exception: Error renaming file",   // FILE_RENAME_ERROR
-  "Database exception: Error deleting file"    // FILE_DELETE_ERROR 
+  "Database exception: Error deleting file",   // FILE_DELETE_ERROR 
+
+  // 11/16/2026 (7.4)
+  "Database exception: The file was written by the other database engine (32-bit or 64-bit file addresses)" // FILE_ENGINE_ERROR
 };
 
 // NOTE: This array must contain the same number of status messages
