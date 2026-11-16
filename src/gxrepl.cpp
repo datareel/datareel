@@ -3008,7 +3008,9 @@ static void incremental_apply(const gxReplSetConfig &sc, const std::string &root
     unsigned long long og = 0;
     std::string ogwhy;
     for(auto &r : recs)
-      if(r.type == gxdShipOpen || r.type == gxdShipGap) {
+      // 11/15/2026 (hardening): an open record whose payload says its journal recovered nothing is a clean restart:
+      // no pages without records, so no rebuild and no hold (an open with no payload, an older writer's, still is)
+      if((r.type == gxdShipOpen && !gxdShipOpenIsClean(r.payload, r.len)) || r.type == gxdShipGap) {
 	og = r.lsn;
 	ogwhy = r.type == gxdShipOpen ? "a writer's open record (its journal may have recovered a batch with no record)"
 				      : "a gap record (records lost)";
@@ -3567,7 +3569,8 @@ int gxReplLocal::ApplyFiles(const std::string &set,
     for(auto &fr : file_recs) {
       std::vector<gxdShipRecordView> rv;
       if(gxdParseShipRecords(fr.records->data(), fr.records->size(), rv) != 0) return ok;
-      for(auto &r : rv) if(r.type == gxdShipOpen || r.type == gxdShipGap) return ok;
+      for(auto &r : rv)
+	if((r.type == gxdShipOpen && !gxdShipOpenIsClean(r.payload, r.len)) || r.type == gxdShipGap) return ok;
     }
     std::set<std::string> noted;                 // folders whose derived source pieces were noted page by page
     for(auto &fs : fill_sizes) noted.insert(dir_of(v[fs.i].path));

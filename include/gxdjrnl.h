@@ -150,8 +150,11 @@ public:
   // their database files and empty the journal. Call it before the
   // database files are opened. Sets "recovered" to the number of
   // transactions written.
+  // 11/15/2026: mark (the default): a replay of N > 0 batches leaves "<jname>.recovered" (written before the
+  // replay, kept until the next EnableShipLog() says so in its open record), so a recovery done here, before
+  // the writer's Open(), is never invisible to a replicated copy. gxrepl's apply journals pass 0.
   static gxDatabaseError Recover(const char *jname,
-				 unsigned long *recovered = 0);
+				 unsigned long *recovered = 0, int mark = 1);
 
   gxDatabaseError Open(const char *jname); // Recover, then open
   gxDatabaseError Close(); // Rollback or checkpoint, then close

@@ -116,6 +116,22 @@ struct gxdPage;
 const uint32_t gxdShipCommit = 1;
 const uint32_t gxdShipOpen   = 2;
 const uint32_t gxdShipGap    = 3;
+// 11/15/2026: an open record's payload (older writers' open records have none): u32 magic "GXRO", u32 format (1),
+// u64 batches the writer's journal recovered before it (Open() and a static Recover()), u32 flags (0). A copy
+// takes an open record as clean only with this payload and 0 recovered.
+const uint32_t gxdShipOpenMagic = 0x4f525847u;
+const uint32_t gxdShipOpenFormat = 1;
+const size_t gxdShipOpenPayloadSize = 20;
+// 1: a clean open (format 1 or later, nothing recovered); 0: anything else (no payload, recovered, unreadable)
+inline int gxdShipOpenIsClean(const unsigned char *p, uint32_t len)
+{
+  if(!p || len < gxdShipOpenPayloadSize) return 0;
+  uint32_t m = (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+  uint32_t f = (uint32_t)p[4] | (uint32_t)p[5] << 8 | (uint32_t)p[6] << 16 | (uint32_t)p[7] << 24;
+  unsigned long long r = 0;
+  for(int i = 7; i >= 0; i--) r = (r << 8) | p[8 + i];
+  return m == gxdShipOpenMagic && f >= 1 && r == 0;
+}
 // 11/10/2026: a commit record whose payload is compressed: u32 raw length,
 // then a zlib stream of the gxdShipCommit payload. The writer uses it when
 // the library has zlib and it is smaller (GXDSHIP_COMPRESS=0 turns it off);
@@ -158,6 +174,8 @@ public:
   // Open (or make) the stream's log and write an open record. "jname"
   // is the full path of the journal. Returns 0 if successful.
   int Open(const char *set_root, const char *stream, const char *jname);
+  // 11/15/2026: the open record's payload (format 1, gxdShipOpenPayload): batches this writer's journal recovered
+  void SetOpenRecovered(unsigned long long n) { open_recovered = n; }
   void Close();
   int IsOpen() const { return fd >= 0; }
   int AppendCommit(const std::vector<gxdShipFile> &files);
@@ -238,6 +256,7 @@ private:
   // 1 writes only the objects record of the next commit (a crash between),
   // 2 the same and the process ends there (_exit(9))
   int test_split_pair = 0;
+  unsigned long long open_recovered = 0;   // 11/15/2026: SetOpenRecovered()
   friend struct gxdShipLogTest;
 };
 
