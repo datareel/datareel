@@ -5187,7 +5187,15 @@ def test_notes_off_output_is_unchanged():
         assert a == n, f + " differs from the old writer's"
     ro, rn = _log_records(outs["old"]), _log_records(outs["new"])
     assert len(ro) == len(rn) and len(ro) > 12, (len(ro), len(rn))
+    # 11/16/2026: since 7.4 beta 4 (hardening) a writer's open record carries what its journal recovered: the old
+    # writer's has no payload, the new one exactly the clean payload ("GXRO", format 1, 0 recovered, flags 0)
+    import struct
+    clean_open = struct.pack("<IIQI", 0x4f525847, 1, 0, 0)
     for x, y in zip(ro, rn):
+        if x[1] == 2 and y[1] == 2:
+            assert x[:3] == y[:3] and x[3] == b"" and y[3] == clean_open, \
+                f"open record {x[2]}: old payload {x[3]!r}, new {y[3]!r} (want the clean open payload)"
+            continue
         assert x == y, f"record {x[2]} differs (type {x[1]} / {y[1]})"
     assert not any(r[1] == 5 for r in rn), "an objects record with notes off"
 
@@ -6480,7 +6488,10 @@ def test_open_without_a_commit_still_seals():
     """11/15/2026 (review F1): the stream's log made again by a writer that opens and closes without a commit (a day
     reopened by the late pass and archived again with no late line: the log holds only an open record, no commit
     block): the verify takes the copy's own block (Diff's "gone" for a block the log does not carry) and the unit
-    stays sealed: torn rc 0 within 20 s, no endless verify"""
+    stays sealed: torn rc 0 within 20 s, no endless verify.
+    11/16/2026: since the late-pass seal fix (f7661c1) a log that lists no file while its folder has files waits for
+    its files instead of being verified with none ("lists no file yet", said once): either is right here, as long
+    as the unit stays sealed, nothing loops and the data is the source's"""
     env = Env("open_no_commit", {"db": CB_OPTS})
     ws, aws = env.roots["db"]
     d1 = os.path.join(ws, "d1")
@@ -6498,7 +6509,8 @@ def test_open_without_a_commit_still_seals():
         ok = False
         while time.time() < end:
             t = torn(env)
-            if t.returncode == 0 and "verified (" in open(os.path.join(env.dir, "client.log")).read()[n:]:
+            cl = open(os.path.join(env.dir, "client.log")).read()[n:]
+            if t.returncode == 0 and ("verified (" in cl or "lists no file yet" in cl):
                 ok = True
                 break
             time.sleep(0.5)
@@ -6506,6 +6518,7 @@ def test_open_without_a_commit_still_seals():
         time.sleep(3)
         log = open(os.path.join(env.dir, "client.log")).read()[n:]
         assert log.count("verified (") <= 2, log            # no endless verify
+        assert log.count("lists no file yet") <= 1, log     # said once, not every pass
         assert _same_file(os.path.join(d1, "data.gxd"), os.path.join(aws, "d1", "data.gxd")), env.logs()
     finally:
         env.stop()
