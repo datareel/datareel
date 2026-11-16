@@ -190,6 +190,17 @@ char *gxPersistent::ReadString(FAU_t file_address)
     return 0;
   }
 
+  // 11/16/2026 (6.4 beta 2, from DataReel 7.0): The length comes from
+  // the file. Reject one that runs past the end of the file before
+  // allocating memory for it.
+  FAU_t pos = pod->OpenDataFile()->FilePosition();
+  FAU_t eof = pod->OpenDataFile()->GetEOF();
+  if((pos < (FAU_t)0) || (pos > eof) ||
+     ((unsigned long long)(__ULWORD__)len > (unsigned long long)(eof - pos))) {
+    pod->SetDataFileError(gxDBASE_BAD_OBJECT_ADDRESS);
+    return 0;
+  }
+
   char *sbuf = new char[len +1]; // Account for the null terminator
 
   if(!sbuf) { // Could not allocate memory for the string

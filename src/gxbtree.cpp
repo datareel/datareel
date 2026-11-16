@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 08/22/2000 
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 11/16/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -2252,7 +2252,11 @@ gxDatabaseError gxBtree::InsertDatabaseKey(DatabaseKeyB &key,
   int num_splits = 0;
 
   // Walk to the leaf where the key will be inserted and look duplicate keys
+  unsigned walk1 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
   while((FAU_t)curr_node != (FAU_t)0) {
+    if(++walk1 > gxBtreeMaxNodeReads) {
+      return f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+    }
     if(!node_stack.Push((FAU_t)curr_node)) {
       f->SetDatabaseError(gxDBASE_MEM_ALLOC_ERROR);
 #ifdef __CPP_EXCEPTIONS__
@@ -2546,7 +2550,12 @@ int gxBtree::Find(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 #endif
   }
   
+  unsigned walk2 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
   while((FAU_t)curr_node != (FAU_t)0) {
+    if(++walk2 > gxBtreeMaxNodeReads) {
+      f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+      return 0;
+    }
     if(curr_node->FindKeyLocation(key, compare_key, key_location) == 0) {
       // Load the key data in the event that this is a partial look up
       curr_node->LoadKey(key, key_location); 
@@ -2588,7 +2597,12 @@ int gxBtree::FindFirst(DatabaseKeyB &key, BtreeCacheNode &curr_node)
 #endif
   }
 
+  unsigned walk3 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
   while(curr_node->left_child != (FAU_t)0) {
+    if(++walk3 > gxBtreeMaxNodeReads) {
+      f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+      return 0;
+    }
     curr_node = curr_node->left_child;
     if((FAU_t)curr_node == (FAU_t)0) { 
       // Could not acquire a cache bucket
@@ -2663,7 +2677,12 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 	  return 0;
 #endif
 	}
+	unsigned walk16 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
 	while(curr_node->left_child != (FAU_t)0) { // Get left most node
+	  if(++walk16 > gxBtreeMaxNodeReads) {
+	    f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+	    return 0;
+	  }
           curr_node = curr_node->left_child;
 	  if((FAU_t)curr_node == (FAU_t)0) { 
 	    // Could not acquire a cache bucket
@@ -2708,7 +2727,12 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   BtreeKeyLocation_t sav_location = (BtreeKeyLocation_t)0;
   BtreeCacheNode parent_node(curr_node);
    
+  unsigned walk4 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
   while((FAU_t)curr_node != (FAU_t)0) { 
+    if(++walk4 > gxBtreeMaxNodeReads) {
+      f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+      return 0;
+    }
     rv = curr_node->FindKeyLocation(key, compare_key, key_location);
     if(rv == 0) { // Found matching key, search for the next key in sort order
       if(curr_node->GetBranch(key_location) != (FAU_t)0) {
@@ -2722,7 +2746,12 @@ int gxBtree::FindNext(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 	    return 0;
 #endif
 	  }
+	unsigned walk17 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
 	while(curr_node->left_child != (FAU_t)0) { // Get left most node
+	  if(++walk17 > gxBtreeMaxNodeReads) {
+	    f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+	    return 0;
+	  }
           curr_node = curr_node->left_child;
 	  if((FAU_t)curr_node == (FAU_t)0) { 
 	    // Could not acquire a cache bucket
@@ -2829,7 +2858,12 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   if(curr_node->key_count > (BtreeKeyLocation_t)0) {
     if(curr_node->FindKeyLocation(key, compare_key, key_location) == 0) {
       if(--key_location >= (BtreeKeyLocation_t)0) {
+        unsigned walk5 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
         while(curr_node->GetBranch(key_location) != (FAU_t)0) {
+          if(++walk5 > gxBtreeMaxNodeReads) {
+            f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+            return 0;
+          }
           curr_node = curr_node->GetBranch(key_location);
 	  if((FAU_t)curr_node == (FAU_t)0) { 
 	    // Could not acquire a cache bucket
@@ -2857,7 +2891,12 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 #endif
 	}
         key_location = curr_node->key_count-1;
+        unsigned walk6 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
         while(curr_node->GetBranch(key_location) != (FAU_t)0) {
+          if(++walk6 > gxBtreeMaxNodeReads) {
+            f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+            return 0;
+          }
           curr_node = curr_node->GetBranch(key_location);
 	  if((FAU_t)curr_node == (FAU_t)0) { 
 	    // Could not acquire a cache bucket
@@ -2893,12 +2932,22 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   int rv;
   BtreeKeyLocation_t sav_location = -1;
 
+  unsigned walk7 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
   while((FAU_t)curr_node != (FAU_t)0) {
+    if(++walk7 > gxBtreeMaxNodeReads) {
+      f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+      return 0;
+    }
     rv = curr_node->FindKeyLocation(key, compare_key, key_location);
     if(rv == 0) {
       // Found matching key, search for the previous key in sort order 
       if (--key_location >= (BtreeKeyLocation_t)0) {
+        unsigned walk8 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
         while(curr_node->GetBranch(key_location) != (FAU_t)0) {
+          if(++walk8 > gxBtreeMaxNodeReads) {
+            f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+            return 0;
+          }
           curr_node = curr_node->GetBranch(key_location);
 	  if((FAU_t)curr_node == (FAU_t)0) { 
 	    // Could not acquire a cache bucket
@@ -2926,7 +2975,12 @@ int gxBtree::FindPrev(DatabaseKeyB &key, DatabaseKeyB &compare_key,
 #endif
 	}
         key_location = curr_node->key_count-1;
+        unsigned walk9 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
         while(curr_node->GetBranch(key_location) != (FAU_t)0) {
+          if(++walk9 > gxBtreeMaxNodeReads) {
+            f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+            return 0;
+          }
           curr_node = curr_node->GetBranch(key_location);
 	  if((FAU_t)curr_node == (FAU_t)0) { 
 	    // Could not acquire a cache bucket
@@ -2999,7 +3053,12 @@ int gxBtree::FindLast(DatabaseKeyB &key, BtreeCacheNode &curr_node)
 #endif
   }
 
+  unsigned walk10 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
   while(curr_node->GetBranch((BtreeKeyLocation_t)curr_node->key_count-1)) {
+    if(++walk10 > gxBtreeMaxNodeReads) {
+      f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+      return 0;
+    }
     curr_node = \
       curr_node->GetBranch((BtreeKeyLocation_t)curr_node->key_count-1);
     if((FAU_t)curr_node == (FAU_t)0) { 
@@ -3056,7 +3115,12 @@ int gxBtree::PartialFind(DatabaseKeyB &key, DatabaseKeyB &compare_key,
   BtreeKeyLocation_t key_location = (BtreeKeyLocation_t)0;
   BtreeKeyLocation_t sav_location = (BtreeKeyLocation_t)0;
   
+  unsigned walk11 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
   while((FAU_t)curr_node != (FAU_t)0) {
+    if(++walk11 > gxBtreeMaxNodeReads) {
+      f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+      return 0;
+    }
     if(curr_node->FindKeyLocation(key, compare_key, key_location) == 0) {
       // Found an exact match, so load the key and return 
       curr_node->LoadKey(key, key_location); 
@@ -3101,7 +3165,12 @@ int gxBtree::PartialFind(DatabaseKeyB &key, DatabaseKeyB &compare_key,
       return 0;
 #endif
     }
+    unsigned walk18 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
     while(search_node->left_child != (FAU_t)0) { // Get left most node
+      if(++walk18 > gxBtreeMaxNodeReads) {
+        f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+        return 0;
+      }
       search_node = search_node->left_child;
       if((FAU_t)search_node == (FAU_t)0) { 
 	// Could not acquire a cache bucket
@@ -3222,7 +3291,11 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
   }
   
   // Search the B-tree for the specified key
+  unsigned walk12 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
   while((FAU_t)curr_node != (FAU_t)0) {
+    if(++walk12 > gxBtreeMaxNodeReads) {
+      return f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+    }
     if(curr_node->FindKeyLocation(key, compare_key, key_location) == 0) {
       // Do not check for error here
       sibling_node = curr_node->GetBranch(key_location);  
@@ -3269,7 +3342,11 @@ gxDatabaseError gxBtree::DeleteDatabaseKey(DatabaseKeyB &key,
     }
     
     // Follow the siblings to the parent node's left most child
+    unsigned walk13 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
     while(sibling_node->left_child != (FAU_t)0) {
+      if(++walk13 > gxBtreeMaxNodeReads) {
+        return f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+      }
 
       // Push all parent and grandparent nodes
       if(!node_stack.Push((FAU_t)sibling_node)) {
@@ -3741,7 +3818,11 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
 #endif
   }
 
+  unsigned walk14 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
   while((FAU_t)parent_node != (FAU_t)0) {
+    if(++walk14 > gxBtreeMaxNodeReads) {
+      return f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+    }
     if(parent_node->FindKeyLocation(key, compare_key, key_location) == 0) {
       // Do not check for bucket errors here
       sibling_node = (FAU_t)parent_node->GetBranch(key_location);  
@@ -3797,7 +3878,11 @@ gxDatabaseError gxBtree::FastDeleteDatabaseKey(DatabaseKeyB &key,
     }
     
     // Follow the siblings to the parent node's left most child
+    unsigned walk15 = 0; // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Stop a walk that loops in a damaged file
     while(sibling_node->left_child != (FAU_t)0) {
+      if(++walk15 > gxBtreeMaxNodeReads) {
+        return f->SetDatabaseError(gxDBASE_BADBLOCK_ERROR);
+      }
       sibling_node = sibling_node->left_child;
       if((FAU_t)sibling_node == (FAU_t)0) { 
 	// Could not acquire a cache bucket

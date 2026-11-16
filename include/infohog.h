@@ -535,7 +535,10 @@ gxDatabaseError InfoHog<TYPE>::Read(FAU object_address)
     if(pod->OpenDataFile()->Read(&len, sizeof(gxUINT32)) != gxDBASE_NO_ERROR) {
       return pod->GetDataFileError();
     }
-    if((FAU_t)len > file_eof) {
+    // 11/16/2026 (6.4 beta 2, from DataReel 7.0): Compare without the
+    // FAU_t cast, which made large lengths negative and let them through
+    if((file_eof < (FAU_t)0) ||
+       ((unsigned long long)(__ULWORD__)len > (unsigned long long)file_eof)) {
       return pod->SetDataFileError(gxDBASE_BAD_OBJECT_ADDRESS);
     }
     if(len > (__ULWORD__)0) {
