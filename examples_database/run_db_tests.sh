@@ -42,6 +42,10 @@ for t in examples_general/support_security examples_socket/comm_security \
   (cd "$HERE/../$t" && make >/dev/null 2>&1)
   (cd "$d" && "$HERE/../$t/testprog" > $n.log 2>&1); result $? "$n"
 done
+# 11/16/2026: block reuse, best fit and first fit (ReclaimBestFit() reused only exact fits)
+(cd "$HERE/reclaim" && make >/dev/null 2>&1); result $? "build reclaim"
+d="$W/reclaim"; mkdir -p "$d"
+(cd "$d" && "$HERE/reclaim/testprog" "$d" > reclaim.log 2>&1); result $? "reclaim (best fit and first fit reuse freed blocks)"
 for m in 0 1; do
   d="$W/journal_map$m"; mkdir -p "$d"
   (cd "$d" && "$HERE/journal/testprog" 20 7 $m > journal.log 2>&1); result $? "journal tests (memory-mapped reads $m)"
