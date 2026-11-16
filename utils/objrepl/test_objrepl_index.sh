@@ -32,7 +32,11 @@ LINKS=(--links "lk:0:db0,lk:8:lk")
 IX="k0:db0:B:0:8,v0:db0:V:8:8,v1:db1:V:0:16"
 CIX="$IX,k1:db1:B:4:4"
 CPID=""
-start_copy() { local d=$1 port=$2 ix=$3; shift 3; "$X" copy "$T/$d" --listen $port "${CTLS[@]}" --index "$ix" "$@" >> "$T/copy_$d.log" 2>&1 & CPID=$!; sleep 0.5; }
+# started = listening (index builds done): its status file names its pid with state listening (60 s at most)
+start_copy() { local d=$1 port=$2 ix=$3; shift 3; "$X" copy "$T/$d" --listen $port "${CTLS[@]}" --index "$ix" "$@" >> "$T/copy_$d.log" 2>&1 & CPID=$!
+               for i in $(seq 1 300); do
+                 [ "$(awk '$1 == "pid" { print $2 }' "$T/$d/objrepl.status" 2>/dev/null)" == "$CPID" ] && grep -q "^state listening" "$T/$d/objrepl.status" && break
+                 kill -0 $CPID 2>/dev/null || break; sleep 0.2; done; }
 stop_copy() { [ -n "$CPID" ] || return 0; kill -TERM $CPID 2>/dev/null
               for i in $(seq 1 25); do kill -0 $CPID 2>/dev/null || break; sleep 0.2; done
               kill -KILL $CPID 2>/dev/null; wait $CPID 2>/dev/null; CPID=""; }

@@ -17,10 +17,10 @@ FAIL=0; PASS=0
 ok()  { echo "PASS $1"; PASS=$((PASS + 1)); }
 bad() { echo "FAIL $1: $2"; FAIL=$((FAIL + 1)); }
 K="$T/pki"; mkdir -p "$K"
-openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=objrepl-test-ca" -keyout "$K/ca.key" -out "$K/ca.pem" 2>/dev/null
+openssl req -x509 -newkey rsa:2048 -nodes -days 400 -subj "/CN=objrepl-test-ca" -keyout "$K/ca.key" -out "$K/ca.pem" 2>/dev/null
 mk() { openssl req -newkey rsa:2048 -nodes -subj "/CN=$2" -keyout "$K/$1.key" -out "$K/$1.csr" 2>/dev/null
        if [ -n "${3:-}" ]; then printf 'subjectAltName=%s\n' "$3" > "$K/$1.ext"; else : > "$K/$1.ext"; fi
-       openssl x509 -req -in "$K/$1.csr" -CA "$K/ca.pem" -CAkey "$K/ca.key" -CAcreateserial -days 2 -extfile "$K/$1.ext" -out "$K/$1.pem" 2>/dev/null; }
+       openssl x509 -req -in "$K/$1.csr" -CA "$K/ca.pem" -CAkey "$K/ca.key" -CAcreateserial -days 400 -extfile "$K/$1.ext" -out "$K/$1.pem" 2>/dev/null; }
 mk copy objrepl-copy "IP:127.0.0.1,DNS:localhost"; mk primary objrepl-primary
 CTLS=(--ca "$K/ca.pem" --cert "$K/copy.pem" --key "$K/copy.key" --allow-cn objrepl-primary)
 PTLS=(--ca "$K/ca.pem" --cert "$K/primary.pem" --key "$K/primary.key")

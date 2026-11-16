@@ -58,10 +58,16 @@ Usage:
   objrepl primary ROOT --copy HOST:PORT --ca CA --cert CERT --key KEY
                   [--commits N] [--per N] [--dbs N] [--sleep MS]
                   [--seed N] [--drain] [--no-trim]
-  objrepl copy ROOT --listen PORT --ca CA --cert CERT --key KEY
+  objrepl copy ROOT --listen [ADDR:]PORT --ca CA --cert CERT --key KEY
                   --allow-cn CN
   objrepl digest ROOT       every database: ids and content hashes
+  objrepl ixcheck ROOT --index ...   each index against the objects
+  objrepl check ROOT        OK / WARN / FAIL (exit 0 / 1 / 2)
+  objrepl clear-alarm ROOT
   objrepl status ROOT
+  Any option may come from ROOT/objrepl.conf (or --config FILE), one
+  "key value" line each (the option without "--"); the command line wins.
+  Certificates: utils/objrepl/objrepl_certs.sh.
   objrepl takeover ROOT     a copy becomes primary: epoch + 1
 */
 // ----------------------------------------------------------- //
@@ -71,6 +77,7 @@ Usage:
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <ctype.h>
 #include <errno.h>
 #include <signal.h>
 #include <unistd.h>
@@ -88,6 +95,9 @@ Usage:
 #include "gxdjrnl.h"
 #include "gxstream.h"
 #include "gxvindex.h"
+#include <openssl/pem.h>
+#include <openssl/x509.h>
+#include <openssl/x509_vfy.h>
 #include <sys/stat.h>
 
 using namespace datareel;
@@ -214,6 +224,7 @@ struct IxDef { std::string name, db; char kind; uint32_t off, len; };
 static std::vector<IxDef> ixdefs;
 static bool parse_ix(const std::string &spec)
 {
+  ixdefs.clear();                                     // the last --index wins (the command line over the config)
   size_t i = 0;
   while(i < spec.size()) {
     size_t j = spec.find(',', i); if(j == std::string::npos) j = spec.size();
@@ -612,6 +623,46 @@ static bool recv_frame(gxStream &st, std::vector<unsigned char> &b)
   if(st.ReadHeader(gx) != 0) return false;
   return st.ReadBlock(b, gx) == 0;
 }
+// ---------- certificates ----------
+// 11/16/2026: checked when a primary or copy starts, so a bad setup stops there with a plain reason instead of a
+// TLS handshake failing later: the CA, certificate and key are set and readable; the key is not readable by group
+// or others; the certificate is within its dates, signed by the CA, and matches the key. The days left go in the
+// status file; objrepl check says WARN below --min-cert-days (30).
+static std::string listen_addr = "127.0.0.1";
+static long cert_days_left = -1;
+static bool check_tls(std::string &why)
+{
+  if(tls.ca.empty() || tls.cert.empty() || tls.key.empty()) { why = "ca, cert and key are required"; return false; }
+  for(auto *f : {&tls.ca, &tls.cert, &tls.key}) if(access(f->c_str(), R_OK) != 0) { why = "cannot read " + *f; return false; }
+  struct stat sb;
+  if(stat(tls.key.c_str(), &sb) != 0 || (sb.st_mode & 077)) { why = "the key " + tls.key + " is readable by group or others (chmod 600)"; return false; }
+  X509 *cert = 0, *ca = 0; EVP_PKEY *key = 0; X509_STORE *store = 0; X509_STORE_CTX *ctx = 0;
+  bool ok = false;
+  do {
+    FILE *f = fopen(tls.cert.c_str(), "r"); if(f) { cert = PEM_read_X509(f, 0, 0, 0); fclose(f); }
+    if(!cert) { why = "no certificate in " + tls.cert; break; }
+    f = fopen(tls.ca.c_str(), "r"); if(f) { ca = PEM_read_X509(f, 0, 0, 0); fclose(f); }
+    if(!ca) { why = "no CA certificate in " + tls.ca; break; }
+    f = fopen(tls.key.c_str(), "r"); if(f) { key = PEM_read_PrivateKey(f, 0, 0, 0); fclose(f); }
+    if(!key) { why = "no private key in " + tls.key + " (or it has a passphrase)"; break; }
+    if(X509_cmp_current_time(X509_get0_notBefore(cert)) > 0) { why = tls.cert + " is not valid yet"; break; }
+    if(X509_cmp_current_time(X509_get0_notAfter(cert)) < 0) { why = tls.cert + " has expired"; break; }
+    int days = 0, secs = 0;
+    if(ASN1_TIME_diff(&days, &secs, 0, X509_get0_notAfter(cert))) cert_days_left = days;
+    if(X509_check_private_key(cert, key) != 1) { why = "the key " + tls.key + " does not match " + tls.cert; break; }
+    store = X509_STORE_new(); ctx = X509_STORE_CTX_new();
+    if(!store || !ctx || X509_STORE_add_cert(store, ca) != 1 || X509_STORE_CTX_init(ctx, store, cert, 0) != 1) { why = "cannot check the certificate"; break; }
+    if(X509_verify_cert(ctx) != 1) { why = tls.cert + " is not signed by the CA " + tls.ca + " (" + X509_verify_cert_error_string(X509_STORE_CTX_get_error(ctx)) + ")"; break; }
+    ok = true;
+  } while(false);
+  if(ctx) X509_STORE_CTX_free(ctx);
+  if(store) X509_STORE_free(store);
+  if(key) EVP_PKEY_free(key);
+  if(ca) X509_free(ca);
+  if(cert) X509_free(cert);
+  return ok;
+}
+
 static bool connect_to(gxStream &st, const std::string &hostport)
 {
   size_t c = hostport.rfind(':');
@@ -753,7 +804,7 @@ static void primary_status(Node &s, Link &L, bool force, const std::string &stat
   mon.set("last_seq", (unsigned long long)last); mon.set("copy_applied", (unsigned long long)L.copy_applied);
   mon.set("lag_seq", (unsigned long long)lag); mon.set("behind_secs", (unsigned long long)(mon.behind_since ? now - mon.behind_since : 0));
   mon.set("outbox_entries", (unsigned long long)n); mon.set("outbox_bytes", bytes);
-  mon.set("snapshots", (unsigned long long)L.snapshots);
+  mon.set("snapshots", (unsigned long long)L.snapshots); mon.set("cert_days_left", std::to_string(cert_days_left));
   mon.write(force);
 }
 // send everything past the copy's applied seq (or a snapshot); trim the outbox up to what the copy has
@@ -867,6 +918,7 @@ static int run_primary(const std::string &root, const std::string &copy, long co
   alarm_root = root;
   if(!s.open(root, true)) return 1;
   if(s.st.role == ROLE_COPY) { alarm_say(root + " is a copy: run takeover before it writes"); s.close(); return 4; }
+  { std::string why; if(!check_tls(why)) { fprintf(stderr, "objrepl primary: %s\n", why.c_str()); s.close(); return 64; } }
   if(s.st.role != ROLE_PRIMARY) { s.j.Begin(); s.st.role = ROLE_PRIMARY; s.put_state(); s.j.Commit(); }
   for(long i = 0; i < ndbs; i++) if(!s.get("db" + std::to_string(i))) { fprintf(stderr, "cannot open db%ld\n", i); return 1; }
   for(auto &l : links) if(!s.get(l.db) || !s.get(l.target)) return 1;   // opened outside a transaction
@@ -1048,14 +1100,15 @@ static int run_copy(const std::string &root, int port)
   alarm_root = root;
   if(!s.open(root, false)) return 1;
   if(s.st.role == ROLE_PRIMARY) { alarm_say(root + " is a primary: it will not run as a copy (two primaries)"); s.close(); return 4; }
+  { std::string why; if(!check_tls(why)) { fprintf(stderr, "objrepl copy: %s\n", why.c_str()); s.close(); return 64; } }
   if(s.st.role != ROLE_COPY) { s.j.Begin(); s.st.role = ROLE_COPY; s.put_state(); s.j.Commit(); }
   struct sigaction sa_t; memset(&sa_t, 0, sizeof(sa_t)); sa_t.sa_handler = on_term;   // no SA_RESTART
   sigaction(SIGTERM, &sa_t, 0); sigaction(SIGINT, &sa_t, 0); signal(SIGPIPE, SIG_IGN);
   gxStreamServer srv;
   srv.SetClientCAFile(tls.ca);
   if(srv.AllowClientCN(tls.allow_cn) != 0) { fprintf(stderr, "objrepl copy: --allow-cn is required\n"); return 1; }
-  if(srv.Listen(port, tls.cert, tls.key, std::string(), "127.0.0.1") != 0) { fprintf(stderr, "objrepl copy: cannot listen on %d\n", port); return 1; }
-  printf("objrepl copy: listening on 127.0.0.1:%d (gxStream, TLS, client CN %s), applied %llu, epoch %llu%s\n", port,
+  if(srv.Listen(port, tls.cert, tls.key, std::string(), listen_addr) != 0) { fprintf(stderr, "objrepl copy: cannot listen on %s:%d\n", listen_addr.c_str(), port); return 1; }
+  printf("objrepl copy: listening on %s:%d (gxStream, TLS, client CN %s), applied %llu, epoch %llu%s\n", listen_addr.c_str(), port,
 	 tls.allow_cn.c_str(), (unsigned long long)s.st.applied_seq, (unsigned long long)s.st.epoch,
 	 s.st.in_snapshot ? ", a snapshot was cut" : "");
   fflush(stdout);
@@ -1072,7 +1125,7 @@ static int run_copy(const std::string &root, int port)
     mon.set("frames", frames_total); mon.set("last_frame", (unsigned long long)last_frame);
     mon.set("rollbacks", rollbacks); mon.set("refusals", refusals); mon.set("last_contact", (unsigned long long)last_frame);
     unsigned long long tombs = 0; for(auto &d : s.dbs) tombs += d.second->tombs.size();
-    mon.set("tombstones", tombs);
+    mon.set("tombstones", tombs); mon.set("cert_days_left", std::to_string(cert_days_left));
     mon.write(force);
   };
   status(true, "listening", false);
@@ -1298,6 +1351,11 @@ static int run_ixcheck(const std::string &root)
 {
   int rc = 0;
   for(auto &def : ixdefs) {
+    { Ix t; t.def = def; struct stat sb;
+      if(stat((t.file(root) + ".building").c_str(), &sb) == 0) {
+	printf("index %s %s %c UNFINISHED BUILD (stopped in the middle; the next start builds it again)\n", def.name.c_str(), def.db.c_str(), def.kind);
+	rc = 5; continue;
+      } }
     gxDatabase db;
     std::string g = root + "/" + def.db + ".gxd";
     if(db.Open(g.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { printf("index %s: no database %s\n", def.name.c_str(), def.db.c_str()); rc = 5; continue; }
@@ -1346,7 +1404,7 @@ static int run_ixcheck(const std::string &root)
 // not yet cleared (objrepl clear-alarm ROOT).
 // WARN: the node is not running; a primary's copy is more than max_lag commits behind for more than max_behind
 // seconds, or away that long; a copy inside a full send for more than max_behind seconds
-static int run_monitor(const std::string &root, unsigned long long max_lag, unsigned long long max_behind)
+static int run_monitor(const std::string &root, unsigned long long max_lag, unsigned long long max_behind, long min_cert_days)
 {
   std::map<std::string, std::string> v;
   if(FILE *f = fopen((root + "/objrepl.status").c_str(), "r")) {
@@ -1381,12 +1439,15 @@ static int run_monitor(const std::string &root, unsigned long long max_lag, unsi
   what += running ? "" : " (not running, status " + std::to_string(age) + "s old)";
   if(alarms) { printf("FAIL %s: %s; %llu alarm(s), last: %s\n", who.c_str(), what.c_str(), alarms, last_alarm.c_str()); return 2; }
   unsigned long long contact = num("last_contact");
-  std::string warn;
-  if(!running) warn = "not running";
-  else if(v["role"] == "primary" && !num("connected") && num("behind_secs") > max_behind) warn = "the copy is away";
-  else if(v["role"] == "primary" && num("lag_seq") > max_lag && num("behind_secs") > max_behind) warn = "the copy is behind";
-  else if(v["role"] == "primary" && num("lag_seq") && num("oldest_unacked_secs") > max_behind) warn = "the oldest unacknowledged commit is old";
-  else if(v["role"] == "copy" && num("in_snapshot") && num("snapshot_secs") > max_behind) warn = "a full send is taking long";
+  std::string warn;                                            // every reason, not just the first
+  auto add = [&](const std::string &w) { warn += (warn.empty() ? "" : ", ") + w; };
+  if(!running) add("not running");
+  else if(v["role"] == "primary" && !num("connected") && num("behind_secs") > max_behind) add("the copy is away");
+  else if(v["role"] == "primary" && num("lag_seq") > max_lag && num("behind_secs") > max_behind) add("the copy is behind");
+  else if(v["role"] == "primary" && num("lag_seq") && num("oldest_unacked_secs") > max_behind) add("the oldest unacknowledged commit is old");
+  if(running && v["role"] == "copy" && num("in_snapshot") && num("snapshot_secs") > max_behind) add("a full send is taking long");
+  if(v.count("cert_days_left") && atol(v["cert_days_left"].c_str()) >= 0 && atol(v["cert_days_left"].c_str()) < min_cert_days)
+    add("the certificate expires in " + v["cert_days_left"] + " day(s)");
   if(!warn.empty()) { printf("WARN %s: %s; %s\n", who.c_str(), warn.c_str(), what.c_str()); return 1; }
   printf("OK %s: %s; last contact %s\n", who.c_str(), what.c_str(),
 	 contact ? (std::to_string((unsigned long long)time(0) - contact) + "s ago").c_str() : "never");
@@ -1440,18 +1501,49 @@ int main(int argc, char **argv)
 {
   if(argc < 3) { fprintf(stderr, "usage: objrepl primary|copy|digest|ixcheck|status|check|clear-alarm|takeover ROOT [options]\n"); return 64; }
   std::string cmd = argv[1], root = argv[2], copy;
-  long commits = 100, per = 10, ndbs = 3, sleep_ms = 0, port = 0; bool drain = false, trim = true;
+  long commits = 100, per = 10, ndbs = 3, sleep_ms = 0, port = 0, min_cert_days = 30; bool drain = false, trim = true;
   unsigned long long max_lag = 100, max_behind = 60;
-  for(int i = 3; i < argc; i++) {
-    std::string a = argv[i];
-    auto val = [&]() { return i + 1 < argc ? std::string(argv[++i]) : std::string(); };
+  // 11/16/2026: the config, ROOT/objrepl.conf or --config FILE: "key value" lines (# comments), each key an option
+  // without its "--" (name, peer-name, copy, listen, ca, cert, key, allow-cn, links, index, max-lag, max-behind,
+  // min-cert-days). The command line comes after it, so it wins
+  std::vector<std::string> args;
+  std::string conf = root + "/objrepl.conf"; bool conf_given = false;
+  for(int i = 3; i + 1 < argc; i++) if(std::string(argv[i]) == "--config") { conf = argv[i + 1]; conf_given = true; }
+  if(FILE *f = fopen(conf.c_str(), "r")) {
+    char line[4096]; int ln = 0;
+    while(fgets(line, sizeof(line), f)) {
+      ln++;
+      std::string l(line);
+      size_t h = l.find('#'); if(h != std::string::npos) l.resize(h);
+      while(!l.empty() && isspace((unsigned char)l.back())) l.pop_back();
+      size_t b = l.find_first_not_of(" \t"); if(b == std::string::npos) continue;
+      l = l.substr(b);
+      size_t sp = l.find_first_of(" \t");
+      std::string k = l.substr(0, sp), v = sp == std::string::npos ? "" : l.substr(l.find_first_not_of(" \t", sp));
+      static const std::set<std::string> keys = {"name", "peer-name", "copy", "listen", "ca", "cert", "key", "allow-cn",
+						 "links", "index", "max-lag", "max-behind", "min-cert-days"};
+      if(!keys.count(k) || v.empty()) { fprintf(stderr, "%s:%d: unknown key or no value: %s\n", conf.c_str(), ln, k.c_str()); fclose(f); return 64; }
+      args.push_back("--" + k); args.push_back(v);
+    }
+    fclose(f);
+  } else if(conf_given) { fprintf(stderr, "cannot read the config %s\n", conf.c_str()); return 64; }
+  for(int i = 3; i < argc; i++) args.push_back(argv[i]);
+  for(size_t i = 0; i < args.size(); i++) {
+    std::string a = args[i];
+    auto val = [&]() { return i + 1 < args.size() ? args[++i] : std::string(); };
     if(a == "--copy") copy = val();
     else if(a == "--commits") commits = atol(val().c_str());
     else if(a == "--per") per = atol(val().c_str());
     else if(a == "--dbs") ndbs = std::max(1L, atol(val().c_str()));
     else if(a == "--sleep") sleep_ms = atol(val().c_str());
     else if(a == "--seed") rng = (unsigned)atol(val().c_str());
-    else if(a == "--listen") port = atol(val().c_str());
+    else if(a == "--listen") {                           // PORT or ADDRESS:PORT (default address 127.0.0.1)
+      std::string v = val(); size_t c = v.rfind(':');
+      if(c != std::string::npos) { listen_addr = v.substr(0, c); v = v.substr(c + 1); }
+      port = atol(v.c_str());
+    }
+    else if(a == "--config") val();
+    else if(a == "--min-cert-days") min_cert_days = atol(val().c_str());
     else if(a == "--drain") drain = true;
     else if(a == "--no-trim") trim = false;
     else if(a == "--drop-linked") drop_linked = atol(val().c_str());
@@ -1478,7 +1570,7 @@ int main(int argc, char **argv)
     }
   if(cmd == "digest") return run_digest(root);
   if(cmd == "ixcheck") return run_ixcheck(root);
-  if(cmd == "check" || cmd == "monitor") return run_monitor(root, max_lag, max_behind);
+  if(cmd == "check" || cmd == "monitor") return run_monitor(root, max_lag, max_behind, min_cert_days);
   if(cmd == "clear-alarm") return run_clear_alarm(root);
   if(cmd == "status") return run_status(root);
   if(cmd == "takeover") return run_takeover(root);
