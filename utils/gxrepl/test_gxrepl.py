@@ -4571,11 +4571,22 @@ def test_derived_vix_incremental_recovered_commit_is_indexed():
 
 
 def _recgap_env(name):
-    """11/15/2026: an incremental set's folder d1 stamped, its adds-only writer finished (small objects at the tail)"""
+    """11/15/2026: an incremental set's folder d1 stamped, its adds-only writer finished (small objects at the tail)
+    11/16/2026: and quiet: _finish's writer leaves an open record, whose verify and hold must be over before a test
+    restarts the client with a held verify (else the test finds that open's hold, cleared by its verify, and takes it
+    for its own writer's: seen under suite load)"""
     env, ws, aws, w = _stamped(name, commits=20, writer_args=("--adds-only", "--size-max", "64"))
     w.wait(120)
     _finish(env, ws, aws, w)
     _wait_stamped(env, aws, "d1")
+    end = time.time() + 120
+    while time.time() < end:
+        cl = open(os.path.join(env.dir, "client.log")).read()
+        quiet = cl.rfind("needs a verify") < cl.rfind("verified (") and not glob.glob(
+            os.path.join(aws, ".gxrepl", "derived", "hold_*"))
+        if quiet:
+            break
+        time.sleep(0.5)
     time.sleep(2)
     return env, ws, aws, w
 
@@ -4644,8 +4655,10 @@ def test_incremental_lone_open_then_commit_is_indexed():
         # 11/16/2026 (beta4 review L3): the race needs the open's verify held until now; a gxrepl without the hook
         # (5e07237 itself) verifies at once and the test would pass there for the wrong reason
         cl = open(os.path.join(env.dir, "client.log")).read()[c0:]
-        assert "needs a verify (a writer's open record)" in cl and "verified (" not in cl.split(
-            "needs a verify (a writer's open record)", 1)[1], "the open's verify was not held (no hook?)\n" + env.logs()
+        # (the open record is said as "a writer's open record" or, when it came inside a file update, "... in a file
+        # update")
+        k = cl.find("needs a verify (a writer's open record")
+        assert k >= 0 and "verified (" not in cl[k:], "the open's verify was not held (no hook?)\n" + env.logs()
         put(vw, b"go\n")
         _recgap_index_ok(env, ws, aws)
     finally:
