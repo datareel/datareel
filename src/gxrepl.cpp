@@ -5098,11 +5098,10 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
       // Every file of the stream is resynced (the stream verify), not only the
       // one a sync_file() had in hand: the first file's pieces move the copy's
       // position past the big record for all of them
-      auto &vl = verify_streams[set];
-      if(std::find(vl.begin(), vl.end(), s.name) == vl.end()) {
-	glog("set %s: stream %s needs a verify (a record bigger than max_message)", set.c_str(), s.name.c_str());
-	vl.push_back(s.name);
-      }
+      // 11/15/2026 (F3): through note_verify(), always (ULLONG_MAX), as status 1: during the stream's own verify the
+      // stream was already on the list and no second verify was asked for; and the caller's flag_lsn is set
+      if(flag_lsn) *flag_lsn = ULLONG_MAX;
+      if(!test_off("GXREPL_TEST_NO_DRAIN_VERIFY")) note_verify(set, s.name, "a record bigger than max_message", ULLONG_MAX);
       return 0;
     }
     if(out.empty()) return 0;
@@ -5141,6 +5140,9 @@ int gxReplClient::drain(gxReplSource &src, gxReplTarget &tgt, const std::string 
 // generation.
 // A stream already on the list and being verified right now (a drain inside its own verify's file syncs) is
 // verified once more after this one: files compared earlier in this verify may predate the recovery.
+// 11/15/2026 (F3): ULLONG_MAX as an lsn means "always" (a verify whatever its position): said so in log lines
+static std::string lsn_text(unsigned long long l) { return l == ULLONG_MAX ? std::string("always") : std::to_string(l); }
+
 void gxReplClient::note_verify(const std::string &set, const std::string &stream, const char *why,
 			       unsigned long long lsn, const std::string &log_id)
 {
@@ -5155,7 +5157,8 @@ void gxReplClient::note_verify(const std::string &set, const std::string &stream
   else if(verifying[set] == stream &&
 	  (lsn == 0 || log_id.empty() || log_id != verify_log_id[set] || lsn > verify_from[set]) &&
 	  verify_again[set].insert(stream).second)
-    glog("set %s: stream %s needs a verify again after this one (%s at record %llu)", set.c_str(), stream.c_str(), why, lsn);
+    glog("set %s: stream %s needs a verify again after this one (%s at record %s)", set.c_str(), stream.c_str(), why,
+	 lsn_text(lsn).c_str());
 }
 
 int gxReplClient::sync_file(gxReplSource &src, gxReplTarget &tgt, const std::string &set,
