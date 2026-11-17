@@ -426,13 +426,16 @@ int gxStream::WriteHeader(gxsSocket_t s, gxBlockHeader &gx)
 // Write a database block header to the specified socket.
 // returns zero if no errors occur.
 {
-  // Write the block header
-  if(stream_send(s, (char *)&gx, sizeof(gxBlockHeader)) < 0)
+  // 11/16/2026: Write the block header in the canonical wire form
+  // (gxheader.h), the same bytes as DataReel 7.4
+  unsigned char wb[gxWireBlockHeaderSize];
+  gxWirePackBlockHeader(gx, wb);
+  if(stream_send(s, (char *)wb, (int)gxWireBlockHeaderSize) < 0)
     return socket_error;
 
   // If the bytes sent do not equal the bytes moved then
   // the transmitter and receiver are no longer synchronized.
-  if(bytes_moved != sizeof(gxBlockHeader)) 
+  if(bytes_moved != (int)gxWireBlockHeaderSize) 
     return socket_error = gxSOCKET_BLOCKHEADER_ERROR;
 
   return socket_error = gxSOCKET_NO_ERROR;
@@ -476,13 +479,23 @@ int gxStream::ReadHeader(gxsSocket_t s, gxBlockHeader &gx,
 // corresponding to a value defined in the gxSocketError
 // enumeration.
 {
-  if(stream_recv(s, (char *)&gx, sizeof(gxBlockHeader), seconds, useconds) < 0)
+  // 11/16/2026: the canonical wire form (gxheader.h). A peer that sends
+  // 4-byte words (a 64-bit Windows or 32-bit build before this change)
+  // is refused as such (PeerOldHeader()), not misread
+  unsigned char wb[gxWireBlockHeaderSize];
+  peer_old_header = 0;
+  if(stream_recv(s, (char *)wb, (int)gxWireBlockHeaderSize, seconds, useconds) < 0)
     return socket_error;
 
   // If the bytes read do not equal the bytes received then
   // the transmitter and receiver are no longer synchronized.
-  if(bytes_read != sizeof(gxBlockHeader)) 
+  if(bytes_read != (int)gxWireBlockHeaderSize) 
     return socket_error = gxSOCKET_BLOCKHEADER_ERROR;
+  if(!gxWireBlockHeaderIsCanonical(wb)) {
+    peer_old_header = 1;
+    return socket_error = gxSOCKET_BLOCKHEADER_ERROR;
+  }
+  gxWireUnpackBlockHeader(wb, gx);
       
   if(gx.block_check_word != gxCheckWord) 
     return socket_error = gxSOCKET_BLOCKSYNC_ERROR;

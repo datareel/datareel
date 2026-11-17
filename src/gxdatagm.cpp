@@ -172,13 +172,16 @@ int gxDatagram::WriteHeader(gxsSocket_t s, gxsSocketAddress *sa,
 // Write a database block header to the specified socket.
 // returns zero if no errors occur.
 {
-  // Write the block header
-  if(SendTo(s, sa, (char *)&gx, sizeof(gxBlockHeader)) < 0)
+  // Write the block header. 11/16/2026: the canonical wire form
+  // (gxheader.h), the same bytes as gxStream and DataReel 7.4
+  unsigned char wb[gxWireBlockHeaderSize];
+  gxWirePackBlockHeader(gx, wb);
+  if(SendTo(s, sa, (char *)wb, (int)gxWireBlockHeaderSize) < 0)
     return socket_error;
 
   // If the bytes sent do not equal the bytes moved then
   // the transmitter and receiver are no longer synchronized.
-  if(bytes_moved != sizeof(gxBlockHeader)) 
+  if(bytes_moved != (int)gxWireBlockHeaderSize) 
     return socket_error = gxSOCKET_BLOCKHEADER_ERROR;
 
   return socket_error = gxSOCKET_NO_ERROR;
@@ -222,13 +225,20 @@ int gxDatagram::ReadHeader(gxsSocket_t s, gxsSocketAddress *sa,
 // corresponding to a value defined in the gxSocketError
 // enumeration.
 {
-  if(RecvFrom(s, sa, (char *)&gx, sizeof(gxBlockHeader)) < 0)
+  // 11/16/2026: the canonical wire form (gxheader.h). A datagram with
+  // the old 24 or 16 byte header is refused by its size; one of 32
+  // bytes with 4-byte words by gxWireBlockHeaderIsCanonical()
+  unsigned char wb[gxWireBlockHeaderSize];
+  if(RecvFrom(s, sa, (char *)wb, (int)gxWireBlockHeaderSize) < 0)
     return socket_error;
 
   // If the bytes read do not equal the bytes received then
   // the transmitter and receiver are no longer synchronized.
-  if(bytes_read != sizeof(gxBlockHeader)) 
+  if(bytes_read != (int)gxWireBlockHeaderSize) 
     return socket_error = gxSOCKET_BLOCKHEADER_ERROR;
+  if(!gxWireBlockHeaderIsCanonical(wb))
+    return socket_error = gxSOCKET_BLOCKHEADER_ERROR;
+  gxWireUnpackBlockHeader(wb, gx);
       
   if(gx.block_check_word != gxCheckWord) 
     return socket_error = gxSOCKET_BLOCKSYNC_ERROR;

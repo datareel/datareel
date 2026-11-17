@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/31/2026
-// Date Last Modified: 10/31/2026
+// Date Last Modified: 11/16/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -232,6 +232,68 @@ static int test_negative()
   return 0;
 }
 
+// 11/16/2026: the block header on the wire is the canonical 32-byte form
+// of DataReel 7.4 (gxheader.h): on 64-bit Linux the struct's own bytes,
+// and unpacked as packed (lengths and negative FAUs included)
+static int test_wire_canonical()
+{
+  __ULWORD__ lens[4];
+  lens[0] = 0; lens[1] = 300; lens[2] = (__ULWORD__)0xffffffffUL;
+  lens[3] = (__ULWORD__)0x7ffffff0;
+  if(sizeof(__ULWORD__) >= 8) lens[3] = (__ULWORD__)(((__ULWORD__)1) << 40);
+  FAU_t fps[4] = { 0, 4096, -1, (FAU_t)0x7fffffff };
+  for(int i = 0; i < 4; i++) for(int j = 0; j < 4; j++) {
+    gxBlockHeader h, g;
+    h.block_length = (gxUINT32)lens[i]; h.block_nd_fptr = (FAU)fps[j];
+    h.block_status = (gxUINT32)('N' | ('R' << 8));
+    unsigned char w[32];
+    gxWirePackBlockHeader(h, w);
+    if(w[0] != 0xfe || w[1] != 0xfe || w[2] || w[3]) return 1;
+    if(!gxWireBlockHeaderIsCanonical(w)) return 1;
+    if(sizeof(gxBlockHeader) == 32 && memcmp(w, &h, 32) != 0) {
+      printf("  the wire form differs from the 64-bit Linux struct\n");
+      return 1;
+    }
+    gxWireUnpackBlockHeader(w, g);
+    if(g.block_check_word != h.block_check_word ||
+       g.block_length != h.block_length ||
+       g.block_status != h.block_status ||
+       (FAU_t)g.block_nd_fptr != (FAU_t)h.block_nd_fptr) return 1;
+  }
+  return 0;
+}
+
+// 11/16/2026: a peer that sends the header with 4-byte words (a 64-bit
+// Windows or 32-bit build before the canonical form) is refused as such,
+// not misread
+static int test_stream_old_header()
+{
+  int sv[2];
+  if(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return 2;
+  unsigned char old[24 + 64];
+  memset(old, 0, sizeof(old));
+  old[0] = 0xfe; old[1] = 0xfe;           // check word (4 bytes)
+  old[4] = 64;                             // length (4 bytes)
+  old[8] = 'N'; old[9] = 'S';              // status (4 bytes), 4 padding, FAU
+  if(write(sv[1], old, sizeof(old)) != (ssize_t)sizeof(old)) return 2;
+  gxStream st;
+  gxBlockHeader gx;
+  if(st.ReadHeader(sv[0], gx, 2, 0) == 0) return 1;
+  if(st.GetSocketError() != gxSOCKET_BLOCKHEADER_ERROR || !st.PeerOldHeader()) {
+    printf("  error %d old %d\n", (int)st.GetSocketError(), st.PeerOldHeader());
+    return 1;
+  }
+  // A canonical header on the same kind of connection is read
+  gxStream peer, st2;
+  int sv2[2];
+  if(socketpair(AF_UNIX, SOCK_STREAM, 0, sv2) != 0) return 2;
+  gxBlockHeader h;
+  make_header(peer, h, gxSendBlock, 64);
+  if(peer.WriteHeader(sv2[1], h) != 0) return 2;
+  if(st2.ReadHeader(sv2[0], gx, 2, 0) != 0 || st2.PeerOldHeader()) return 1;
+  return gx.block_length == 64 ? 0 : 1;
+}
+
 // 11/14/2026: gxDatagram checks over two UDP sockets on 127.0.0.1
 static int udp_socket(gxsSocketAddress &sa)
 {
@@ -275,6 +337,34 @@ static int test_dgram_request()
     return 1;
   }
   return 0;
+}
+
+// 11/16/2026: gxDatagram sends the canonical header; one with 4-byte
+// words (24 bytes from a 64-bit Windows build before it) is refused
+static int test_dgram_wire()
+{
+  gxsSocketAddress a, b;
+  int sa = udp_socket(a), sb = udp_socket(b);
+  if(sa < 0 || sb < 0) return 2;
+  gxDatagram peer, me;
+  gxBlockHeader h, got;
+  peer.SetBlockStatus(h, gxSendBlock);
+  h.block_length = 100;
+  if(peer.WriteHeader(sb, &a, h) != 0) return 2;
+  unsigned char raw[64];
+  ssize_t n = recv(sa, raw, sizeof(raw), MSG_PEEK);
+  if(n != 32) { printf("  datagram of %d bytes\n", (int)n); return 1; }
+  gxsSocketAddress from;
+  if(me.ReadHeader(sa, &from, got) != 0 || got.block_length != 100) return 1;
+  unsigned char old[24];
+  memset(old, 0, sizeof(old));
+  old[0] = 0xfe; old[1] = 0xfe; old[4] = 100; old[8] = 'N'; old[9] = 'S';
+  if(sendto(sb, old, sizeof(old), 0, (struct sockaddr *)&a, sizeof(a)) != 24) return 2;
+  unsigned char body[100];
+  memset(body, 'x', sizeof(body));
+  if(sendto(sb, body, sizeof(body), 0, (struct sockaddr *)&a, sizeof(a)) != 100) return 2;
+  if(me.ReadHeader(sa, &from, got) == 0) return 1;
+  return me.GetSocketError() == gxSOCKET_BLOCKHEADER_ERROR ? 0 : 1;
 }
 
 static int test_dgram_sized()
@@ -698,8 +788,14 @@ int main(int argc, char **argv)
       test_maxblock);
   run("negative: WriteBlock() with a negative length", test_negative);
   run("result64: 64-bit result blocks", test_result64);
+  run("wire: the canonical 32-byte block header (DataReel 7.4)",
+      test_wire_canonical);
+  run("old_header: a header with 4-byte words is refused (PeerOldHeader())",
+      test_stream_old_header);
   run("dgram_request: gxDatagram RequestBlock() refuses a huge block length",
       test_dgram_request);
+  run("dgram_wire: gxDatagram sends the canonical header, refuses 4-byte words",
+      test_dgram_wire);
   run("dgram_sized: gxDatagram ReadBlock() with a buffer size",
       test_dgram_sized);
   run("dgram_maxblock: gxDatagram ReadBlock() refuses lengths over "
