@@ -4,6 +4,7 @@
 #
 #   utils/objrepl/test_objrepl_api.sh BIN      (BIN: the objrepl tool; test_gxobjrepl_api is built next to it)
 set -u
+. "$(dirname "$0")/objrepl_proc.sh"   # 11/17/2026: objrepl_stop, objrepl_pid (Windows)
 X=${1:?usage: test_objrepl_api.sh BIN}
 # 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's), unless
 # OBJREPL_ALLOW_32BIT=1 says a 32-bit run is meant (the run makes its own folders, so no engine reads the other's files)

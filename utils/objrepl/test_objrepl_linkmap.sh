@@ -5,6 +5,7 @@
 #
 #   utils/objrepl/test_objrepl_linkmap.sh BIN
 set -u
+. "$(dirname "$0")/objrepl_proc.sh"   # 11/17/2026: objrepl_stop, objrepl_pid (Windows)
 X=${1:?usage: test_objrepl_linkmap.sh BIN}
 # 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's), unless
 # OBJREPL_ALLOW_32BIT=1 says a 32-bit run is meant (the run makes its own folders, so no engine reads the other's files)
@@ -25,9 +26,9 @@ start_copy() {  # start_copy DIR PORT [COPY OPTIONS...]
   local d=$1 port=$2; shift 2
   "$X" copy "$T/$d" --listen $port "${CTLS[@]}" "$@" >> "$T/copy_$d.log" 2>&1 & CPID=$!
   for i in $(seq 1 100); do grep -qE "^state (listening|streaming)" "$T/$d/objrepl.status" 2>/dev/null && \
-    [ "$(awk '$1=="pid"{print $2}' "$T/$d/objrepl.status")" == "$CPID" ] && return 0; kill -0 $CPID 2>/dev/null || return 1; sleep 0.1; done; return 1
+    [ "$(awk '$1=="pid"{print $2}' "$T/$d/objrepl.status")" == "$(objrepl_pid $CPID)" ] && return 0; kill -0 $CPID 2>/dev/null || return 1; sleep 0.1; done; return 1
 }
-stop_copy() { [ -n "$CPID" ] || return 0; kill -TERM $CPID 2>/dev/null
+stop_copy() { [ -n "$CPID" ] || return 0; objrepl_stop $CPID
 	      for i in $(seq 1 50); do kill -0 $CPID 2>/dev/null || break; sleep 0.2; done
 	      kill -KILL $CPID 2>/dev/null; wait $CPID 2>/dev/null; CPID=""; }
 trap 'stop_copy; [ "${KEEP:-0}" == 1 ] && echo "kept $T" || rm -rf "$T"' EXIT

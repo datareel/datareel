@@ -11,6 +11,7 @@
 #   purge           every tombstone no link points to is purged (replicated); linked tombstones stay; copy = primary
 #   full send       a new copy gets the tombstones in the full send: copy = primary
 set -u
+. "$(dirname "$0")/objrepl_proc.sh"   # 11/17/2026: objrepl_stop, objrepl_pid (Windows)
 X=${1:?usage: test_objrepl_tombs.sh BIN}
 # 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's), unless
 # OBJREPL_ALLOW_32BIT=1 says a 32-bit run is meant (the run makes its own folders, so no engine reads the other's files)
@@ -31,7 +32,7 @@ PTLS=(--ca "$K/ca.pem" --cert "$K/primary.pem" --key "$K/primary.key")
 LINKS=(--links "lk:0:db0,lk:8:lk")
 CPID=""
 start_copy() { "$X" copy "$T/$1" --listen $2 "${CTLS[@]}" >> "$T/copy_$1.log" 2>&1 & CPID=$!; sleep 0.4; }
-stop_copy() { [ -n "$CPID" ] || return 0; kill -TERM $CPID 2>/dev/null
+stop_copy() { [ -n "$CPID" ] || return 0; objrepl_stop $CPID
               for i in $(seq 1 25); do kill -0 $CPID 2>/dev/null || break; sleep 0.2; done
               kill -KILL $CPID 2>/dev/null; wait $CPID 2>/dev/null; CPID=""; }
 trap 'stop_copy; rm -rf "$T"' EXIT

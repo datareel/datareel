@@ -9,6 +9,7 @@
 # addresses) with applied_seq = the primary's last seq. Then a takeover: the copy moves to epoch 2 and must refuse
 # the old primary. Exit 0 when every check passes.
 set -u
+. "$(dirname "$0")/objrepl_proc.sh"   # 11/17/2026: objrepl_stop, objrepl_pid (Windows)
 X=${1:?usage: test_objrepl.sh BIN [ROUNDS]}
 # 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's), unless
 # OBJREPL_ALLOW_32BIT=1 says a 32-bit run is meant (the run makes its own folders, so no engine reads the other's files)
@@ -24,7 +25,7 @@ CPID=""
 start_copy() { "$X" copy "$T/c" --listen $PORT "${CTLS[@]}" >> "$T/copy.log" 2>&1 & CPID=$!; sleep 0.3; }
 stop_copy()  {  # TERM, then KILL after 5 s if the copy is still in its accept or handshake
     [ -n "$CPID" ] || return 0
-    kill -TERM $CPID 2>/dev/null
+    objrepl_stop $CPID
     for i in $(seq 1 25); do kill -0 $CPID 2>/dev/null || break; sleep 0.2; done
     kill -0 $CPID 2>/dev/null && { echo "note: the copy did not stop on TERM within 5 s; KILL" >> "$T/copy.log"; kill -KILL $CPID 2>/dev/null; }
     wait $CPID 2>/dev/null; CPID=""

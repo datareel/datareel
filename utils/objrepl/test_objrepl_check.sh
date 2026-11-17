@@ -12,6 +12,7 @@
 #   stopping   a clean stop ends "stopped" (close_secs); "stopping" over 10 s is WARN; gone while closing is WARN
 #   killed     the copy SIGKILLed: WARN (not running)
 set -u
+. "$(dirname "$0")/objrepl_proc.sh"   # 11/17/2026: objrepl_stop, objrepl_pid (Windows)
 X=${1:?usage: test_objrepl_check.sh BIN}
 # 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's), unless
 # OBJREPL_ALLOW_32BIT=1 says a 32-bit run is meant (the run makes its own folders, so no engine reads the other's files)
@@ -31,7 +32,7 @@ CTLS=(--ca "$K/ca.pem" --cert "$K/copy.pem" --key "$K/copy.key" --allow-cn objre
 PTLS=(--ca "$K/ca.pem" --cert "$K/primary.pem" --key "$K/primary.key")
 CPID=""; PPID2=""
 start_copy() { local d=$1 port=$2; shift 2; "$X" copy "$T/$d" --listen $port "${CTLS[@]}" "$@" >> "$T/copy_$d.log" 2>&1 & CPID=$!; sleep 0.5; }
-stop_copy() { [ -n "$CPID" ] || return 0; kill -TERM $CPID 2>/dev/null
+stop_copy() { [ -n "$CPID" ] || return 0; objrepl_stop $CPID
               for i in $(seq 1 25); do kill -0 $CPID 2>/dev/null || break; sleep 0.2; done
               kill -KILL $CPID 2>/dev/null; wait $CPID 2>/dev/null; CPID=""; }
 trap 'stop_copy; [ -n "$PPID2" ] && kill -TERM $PPID2 2>/dev/null; rm -rf "$T"' EXIT
