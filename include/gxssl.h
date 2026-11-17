@@ -360,6 +360,11 @@ public: // Socket functions
   int RecvSSLSocket(void *buf, int bytes, int seconds, int useconds);
   int RecvSSLSocket(void *buf, int bytes, int useTimeout, int seconds,
 		    int useconds);
+  // 11/16/2026: Returns the decrypted bytes available, up to bytes,
+  // waiting up to the timeout for the first one. Returns the number of
+  // bytes read, 0 if the connection has closed, or -1 for an error or a
+  // timeout (gxSSL_REQUEST_TIMEOUT).
+  int RecvSomeSSLSocket(void *buf, int bytes, int seconds, int useconds);
   int CloseSSLSocket(int destroy_ssl = 1);
   int IsServer() { return is_server == 1; }
   int IsClient() { return is_client == 1; }

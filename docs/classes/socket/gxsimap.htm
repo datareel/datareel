@@ -1,0 +1,176 @@
+<!doctype html>
+<!-- ******************************* -->
+<!-- ******** Start of Page ******** -->
+<!-- ******************************* -->
+<!-- *********************************************************** -->
+<!-- HTML Page -->
+<!-- Designed For: FireFox, Chrome, Safari -->
+<!-- Published By: DataReel Software Development -->
+<!-- Content Last Modified: 11/16/2026 -->
+<!-- File Creation Date: 11/16/2026 -->
+<!-- *** -->
+<!-- Package version: 12.3.10 -->
+<!-- *** -->
+<!-- Copyright (c) 1999-2026 DataReel Software Development -->
+<!-- *********************************************************** -->
+<!-- *********** HTML Page Description and Details ************* -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- START OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- This HTML page and its derivatives are copyright (c) 1999-2024, by -->
+<!-- DataReel Software Development. This HTML page and any derivative Web -->
+<!-- objects are published on the Internet for public viewing only. -->
+<!-- Reproduction of any HTML page and/or Web objects published on -->
+<!-- this Website is prohibited unless authorized in writing by -->
+<!-- DataReel Software Development or authorized reseller. Reproduction of any -->
+<!-- third party code used to produce pages on this Website is subject to -->
+<!-- the third party licensing and distribution agreement. -->
+<!-- *** -->
+<!-- THIS SOFTWARE IS PROVIDED AS IS WITHOUT WARRANTY OF ANY KIND. THE -->
+<!-- ENTIRE RISK OF THE QUALITY AND PERFORMANCE OF THIS SOFTWARE IS WITH -->
+<!-- YOU. SHOULD ANY ELEMENT OF THIS SOFTWARE PROVE DEFECTIVE, YOU WILL -->
+<!-- ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR, OR CORRECTION. -->
+<!-- *** -->
+<!-- *********************************************************** -->
+<!-- *************** THIRD PARTY ACKNOWLEDGMENT **************** -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- NONE -->
+<!-- *** -->
+<!-- END OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- HTML Internet page -->
+<!-- *********************************************************** -->
+<!-- PAGE CONTENT STARTS BELOW -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>gxsimap class</title>
+<link rel="stylesheet" href="../../css/datareel.css">
+<link rel="icon" href="../../images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="../../images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="../../images/datareel_icon_apple_touch.png">
+<script src="../../js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="../../index.html"><img class="dr-logo-light" src="../../images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="../../images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="../../index.html">Readme</a><a href="../../classes/classes.htm" aria-current="page">Library</a><a href="../../examples/examples.htm">Examples</a><a href="../../utils/utils.htm">Utilities</a><a href="../../drcm.html">Cluster Manager</a><a href="../../code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<!-- HTML file written for DataReel 6.4 -->
+<H1>Embedded IMAP Client</H1>
+
+<div class="dr-toc-title">Contents</div>
+<P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
+<A HREF="#Example">Example</A><BR>
+<A HREF="#Interface74">The DataReel 7.4 interface</A><BR>
+<A HREF="#Functions">Functions</A></P>
+
+<h2 id="Overview">Overview</h2>
+<P>The embedded IMAP (Internet Message Access Protocol) client, new in DataReel 6.4, reads and manages email on an IMAP server, the IMAP counterpart of the <A HREF="gxspop3.htm">POP3 client</A>. The gxsIMAPClient class is derived from the <A HREF="gxsocket.htm">gxSocket</A> class and conforms to RFC 3501 (IMAP4rev1) and RFC 2595 (STARTTLS). It is based on the IMAP client written by Douglas Gaer in 2007 to automate the receipt of email messages.</P>
+<P>Connections use TLS from the start (IMAPS, port 993) or plain text followed by StartTLS() (port 143). TLS needs a library built with __USE_GX_SSL_EXTENSIONS__ (OpenSSL, or Schannel on Windows); the TLS settings are in the public <A HREF="gxssl.htm">gxSSL</A> member <B>openssl</B> (SetCAList(), RequireVerifyCert(), SetHostName()). By default Login() refuses to send a password over a connection without TLS.</P>
+<P>Each command has its own tag (A0001, A0002, ...) and its reply is read up to the line that starts with that tag. Only an OK status is success; NO and BAD replies return gxSOCKET_IMAP_ERROR with the server's text in IMAPExceptionMessage(). Literals ({n} and n bytes) are read by count, so message text cannot end a reply early. Message numbers are sequence numbers in the selected mailbox.</P>
+
+<h2 id="Example">Example</h2>
+<PRE>gxsIMAPClient imap;
+imap.openssl.RequireVerifyCert(); // Check the server certificate
+if(imap.ConnectClient("imap.example.com") != 0) { /* imap.IMAPExceptionMessage() */ }
+imap.Login(user, password);
+int count;
+imap.SelectMailbox("INBOX", count, 1); // Read only
+gxString unseen, header;
+imap.Search("UNSEEN", unseen);
+imap.FetchHeader(1, header);
+imap.Logout();</PRE>
+<P>See examples_socket/imap_client for a command line program.</P>
+
+<h2 id="Interface74">The DataReel 7.4 interface</h2>
+<P>6.4 also has the DataReel 7.4 gxsIMAPClient calls, which keep the 2007 work client's calls, so a program builds against either version. They use std::string and std::vector and return 0 if successful or -1, with the reason in Error():</P>
+<PRE>int Connect(const std::string &amp;host, int port = 993, gxsMailSecurity security = gxsMAIL_IMPLICIT_TLS); // or gxsMAIL_STARTTLS
+int ConnectPlain(const std::string &amp;host, int port = 143);   // Plain text, password included
+int ConnectClient(const std::string &amp;host, int port = 993); // 2007
+int Login(const std::string &amp;user, const std::string &amp;passwd);
+int Login(const std::string &amp;host, int port, const std::string &amp;user, const std::string &amp;passwd); // 2007
+int Logout(int close_sockets = 1);   void Close();   bool IsConnected();   bool IsSecure();
+int Capability(std::vector&lt;std::string&gt; &amp;caps);   bool HasCapability(const std::string &amp;cap) const;
+int SelectMailbox(const std::string &amp;mailbox, int &amp;num_messages);
+int SelectMailbox(const std::string &amp;mailbox, std::string &amp;rxbuf, int &amp;num_messages); // 2007
+int Examine(const std::string &amp;mailbox, int &amp;num_messages);
+int ListMailboxes(std::vector&lt;std::string&gt; &amp;names, const std::string &amp;pattern = "*");
+int Search(const std::string &amp;criteria, std::vector&lt;unsigned&gt; &amp;numbers);
+int FetchHeader(int n, std::string &amp;header);
+int FetchHeader(int n, std::string &amp;header, std::string &amp;datetime, std::string &amp;sent_datetime); // 2007
+int FetchBody(int n, std::string &amp;body);   int FetchMessage(int n, std::string &amp;message);
+int FetchInternalDate(int n, std::string &amp;datetime);   int Delete(int n);   int Expunge();
+int Command(const std::string &amp;cmd);   const std::vector&lt;gxsIMAPUntagged&gt; &amp;Untagged() const;
+const std::string &amp;LastReply() const;   std::string Error() const;
+int SendCommand(const std::string &amp;command, std::string &amp;tag);   // 2007
+int RecvBuffer(const std::string &amp;tag, std::string &amp;buf);          // 2007
+static int ParseResponse(...);   static int FetchItem(const gxsIMAPUntagged &amp;u, const std::string &amp;item, std::string &amp;value);
+static bool Quote(const std::string &amp;s, std::string &amp;quoted);
+void SetTimeout(int seconds);   void SetCAFile(const std::string &amp;fname);   void SetVerifyPeer(bool on);
+void SetMaxSize(std::size_t n);   void SetRecordProto(bool on);   std::string ProtoString() const;</PRE>
+<P>gxsIMAPUntagged holds one untagged reply: its text, with each literal replaced by a NUL, the literal's index and a NUL, and the literals' bytes.</P>
+
+<h2 id="Functions">Functions</h2>
+<P class="dr-fnlist"><A HREF="#ConnectClient">gxsIMAPClient::ConnectClient()</A><BR>
+<A HREF="#StartTLS">gxsIMAPClient::StartTLS()</A><BR>
+<A HREF="#Login">gxsIMAPClient::Login()</A><BR>
+<A HREF="#Logout">gxsIMAPClient::Logout()</A><BR>
+<A HREF="#CloseClient">gxsIMAPClient::CloseClient()</A><BR>
+<A HREF="#AllowPlainLogin">gxsIMAPClient::AllowPlainLogin()</A><BR>
+<A HREF="#SelectMailbox">gxsIMAPClient::SelectMailbox()</A><BR>
+<A HREF="#ListMailboxes">gxsIMAPClient::ListMailboxes()</A><BR>
+<A HREF="#Search">gxsIMAPClient::Search()</A><BR>
+<A HREF="#FetchHeader">gxsIMAPClient::FetchHeader()</A><BR>
+<A HREF="#FetchBody">gxsIMAPClient::FetchBody()</A><BR>
+<A HREF="#FetchMessage">gxsIMAPClient::FetchMessage()</A><BR>
+<A HREF="#FetchDates">gxsIMAPClient::FetchDates()</A><BR>
+<A HREF="#StoreFlags">gxsIMAPClient::StoreFlags()</A><BR>
+<A HREF="#Expunge">gxsIMAPClient::Expunge()</A><BR>
+<A HREF="#Noop">gxsIMAPClient::Noop()</A><BR>
+<A HREF="#Capability">gxsIMAPClient::Capability()</A><BR>
+<A HREF="#SendCommand">gxsIMAPClient::SendCommand()</A><BR>
+<A HREF="#Quote">gxsIMAPClient::Quote()</A><BR>
+<A HREF="#LastLiteral">gxsIMAPClient::LastLiteral()</A><BR>
+<A HREF="#IMAPExceptionMessage">gxsIMAPClient::IMAPExceptionMessage()</A><BR>
+<A HREF="#SetTimeOut">gxsIMAPClient::SetTimeOut()</A><BR>
+<A HREF="#SetMaxReply">gxsIMAPClient::SetMaxReply()</A><BR>
+<A HREF="#RecordSession">gxsIMAPClient::RecordSession()</A></P>
+<div class="dr-fn" id="ConnectClient"><code class="dr-sig">gxSocketError gxsIMAPClient::ConnectClient(const char *host, int port = gxSOCKET_SIMAP_PORT, int use_tls = 1)</code><p class="dr-desc">Connects to the server and reads its greeting. With use_tls the TLS handshake is made first (IMAPS, port 993); with use_tls 0 the connection is plain text (port 143, follow with StartTLS()). The host name is sent as the server name (SNI) and checked when openssl.RequireVerifyCert() is set. A greeting other than "* OK" or "* PREAUTH" is an error. Returns zero if no errors occur.</p></div>
+<div class="dr-fn" id="StartTLS"><code class="dr-sig">gxSocketError gxsIMAPClient::StartTLS()</code><p class="dr-desc">Sends STARTTLS on a plain text connection and makes the TLS handshake. Data the server sends after its OK and before the handshake is refused, so it cannot be read as if it came over TLS. Returns zero if no errors occur.</p></div>
+<div class="dr-fn" id="Login"><code class="dr-sig">gxSocketError gxsIMAPClient::Login(const char *username, const char *password)</code><p class="dr-desc">Sends LOGIN. The user name and password are quoted, or sent as literals if they have 8-bit characters. Refused on a connection without TLS unless AllowPlainLogin() is set. Returns zero if the server replies OK.</p></div>
+<div class="dr-fn" id="Logout"><code class="dr-sig">gxSocketError gxsIMAPClient::Logout()</code><p class="dr-desc">Sends LOGOUT and closes the connection.</p></div>
+<div class="dr-fn" id="CloseClient"><code class="dr-sig">void gxsIMAPClient::CloseClient()</code><p class="dr-desc">Closes the TLS session and the socket without a LOGOUT.</p></div>
+<div class="dr-fn" id="AllowPlainLogin"><code class="dr-sig">void gxsIMAPClient::AllowPlainLogin(int allow = 1)</code><p class="dr-desc">Allows Login() over a connection without TLS (the password is sent in plain text). Off by default.</p></div>
+<div class="dr-fn" id="SelectMailbox"><code class="dr-sig">gxSocketError gxsIMAPClient::SelectMailbox(const char *mailbox, int &amp;num_messages, int read_only = 0)</code><p class="dr-desc">Sends SELECT, or EXAMINE if read_only is set, and passes back the number of messages (EXISTS). Mailbox names that are not ASCII must be in modified UTF-7 (RFC 3501 5.1.3). Returns zero if no errors occur.</p></div>
+<div class="dr-fn" id="ListMailboxes"><code class="dr-sig">gxSocketError gxsIMAPClient::ListMailboxes(gxString &amp;names, const char *pattern = "*")</code><p class="dr-desc">Sends LIST and passes back the mailbox names, one per line.</p></div>
+<div class="dr-fn" id="Search"><code class="dr-sig">gxSocketError gxsIMAPClient::Search(const char *criteria, gxString &amp;message_numbers)</code><p class="dr-desc">Sends SEARCH with criteria such as "ALL", "UNSEEN" or "SINCE 1-Nov-2026" and passes back the message numbers separated by spaces.</p></div>
+<div class="dr-fn" id="FetchHeader"><code class="dr-sig">gxSocketError gxsIMAPClient::FetchHeader(int message_number, gxString &amp;header)</code><p class="dr-desc">Fetches the header of a message (BODY.PEEK[HEADER]). The fetch functions do not set the \Seen flag.</p></div>
+<div class="dr-fn" id="FetchBody"><code class="dr-sig">gxSocketError gxsIMAPClient::FetchBody(int message_number, gxString &amp;body)</code><p class="dr-desc">Fetches the body of a message (BODY.PEEK[TEXT]).</p></div>
+<div class="dr-fn" id="FetchMessage"><code class="dr-sig">gxSocketError gxsIMAPClient::FetchMessage(int message_number, gxString &amp;message)</code><p class="dr-desc">Fetches the whole message, header and body (BODY.PEEK[]).</p></div>
+<div class="dr-fn" id="FetchDates"><code class="dr-sig">gxSocketError gxsIMAPClient::FetchDates(int message_number, gxString &amp;received_date, gxString &amp;sent_date)</code><p class="dr-desc">Passes back the date the server received the message (INTERNALDATE) and the message's Date: header.</p></div>
+<div class="dr-fn" id="StoreFlags"><code class="dr-sig">gxSocketError gxsIMAPClient::StoreFlags(int message_number, const char *flags, int add = 1)</code><p class="dr-desc">Adds (or removes, with add set to 0) flags such as "\Seen" or "\Deleted". MarkSeen() and MarkDeleted() call it.</p></div>
+<div class="dr-fn" id="Expunge"><code class="dr-sig">gxSocketError gxsIMAPClient::Expunge()</code><p class="dr-desc">Removes the messages marked \Deleted from the selected mailbox.</p></div>
+<div class="dr-fn" id="Noop"><code class="dr-sig">gxSocketError gxsIMAPClient::Noop()</code><p class="dr-desc">Sends NOOP (keeps the connection open and reads new message counts).</p></div>
+<div class="dr-fn" id="Capability"><code class="dr-sig">gxSocketError gxsIMAPClient::Capability(gxString &amp;capabilities)</code><p class="dr-desc">Passes back the server's capability list.</p></div>
+<div class="dr-fn" id="SendCommand"><code class="dr-sig">gxSocketError gxsIMAPClient::SendCommand(const char *command, gxString &amp;reply)</code><p class="dr-desc">Sends any command (without the tag) and passes back the whole reply: the untagged lines, literals and the tagged status line. Commands with CR or LF are refused. Returns zero if the status is OK.</p></div>
+<div class="dr-fn" id="Quote"><code class="dr-sig">static gxString gxsIMAPClient::Quote(const char *s)</code><p class="dr-desc">Returns s as an IMAP quoted string, or an empty string if s has CR, LF, NUL or 8-bit characters.</p></div>
+<div class="dr-fn" id="LastLiteral"><code class="dr-sig">const gxString &amp;gxsIMAPClient::LastLiteral()</code><p class="dr-desc">The first literal in the last reply.</p></div>
+<div class="dr-fn" id="IMAPExceptionMessage"><code class="dr-sig">const char *gxsIMAPClient::IMAPExceptionMessage()</code><p class="dr-desc">The last error, with the server's text for NO and BAD replies.</p></div>
+<div class="dr-fn" id="SetTimeOut"><code class="dr-sig">void gxsIMAPClient::SetTimeOut(int seconds, int useconds = 0)</code><p class="dr-desc">Seconds to wait for data from the server (60 by default).</p></div>
+<div class="dr-fn" id="SetMaxReply"><code class="dr-sig">void gxsIMAPClient::SetMaxReply(unsigned bytes)</code><p class="dr-desc">Largest reply read for one command (64 MB by default). A larger reply or literal is an error (gxSOCKET_BUFOVER_ERROR).</p></div>
+<div class="dr-fn" id="RecordSession"><code class="dr-sig">void gxsIMAPClient::RecordSession(int record = 1)</code><p class="dr-desc">Keeps a copy of the session in ProtoLog(). LOGIN commands are recorded without their arguments.</p></div>
+</main>
+<footer class="dr-footer">DataReel 6.4 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
+</html>
+<!-- PAGE CONTENT ENDS ABOVE -->
+<!-- *********************************************************** -->
+<!-- ******************************* -->
+<!-- ********* End of Page ********* -->
+<!-- ******************************* -->

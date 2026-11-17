@@ -299,6 +299,10 @@ $(OUTDIR)\gxspop3$(OBJ_EXT):	$(GLIB_SRC_PATH)gxspop3.cpp $(GXSPOP3_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxspop3.cpp
 
+$(OUTDIR)\gxsimap$(OBJ_EXT):	$(GLIB_SRC_PATH)gxsimap.cpp $(GXSIMAP_DEP)
+	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
+	$(GLIB_SRC_PATH)gxsimap.cpp
+
 $(OUTDIR)\gxstream$(OBJ_EXT):	$(GLIB_SRC_PATH)gxstream.cpp $(GXSTREAM_DEP)
 	$(CPP) $(COMPILE_ONLY) $(COMPILE_FLAGS) \
 	$(GLIB_SRC_PATH)gxstream.cpp
@@ -457,6 +461,7 @@ GLIB_SOCKET_EX_OBJECTS = $(OUTDIR)\gxshttp$(OBJ_EXT) \
 	$(OUTDIR)\gxsmtp$(OBJ_EXT) \
 	$(OUTDIR)\gxsping$(OBJ_EXT) \
 	$(OUTDIR)\gxspop3$(OBJ_EXT) \
+	$(OUTDIR)\gxsimap$(OBJ_EXT) \
 	$(OUTDIR)\gxsftp$(OBJ_EXT) \
 	$(OUTDIR)\gxshtml$(OBJ_EXT) \
 	$(OUTDIR)\gxsurl$(OBJ_EXT) \

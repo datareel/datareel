@@ -842,6 +842,44 @@ int gxSSL::RecvSSLSocket(void *buf, int bytes, int seconds, int useconds)
 }
 
 // 07/31/2021: Include support for openssl 1.0.1
+int gxSSL::RecvSomeSSLSocket(void *buf, int bytes, int seconds, int useconds)
+// 11/16/2026: Returns the decrypted bytes available, up to bytes,
+// waiting up to the timeout for the first one. Used by line based
+// protocols (gxsIMAPClient) that cannot ask for an exact byte count.
+// Returns the number of bytes read, 0 if the connection has closed,
+// or -1 if an error occurs or the timeout is exceeded.
+{
+  bytes_read = 0;
+  if(is_ssl_null()) return -1;
+  if(bytes <= 0) return 0;
+  gxSocket gxsocket_object;
+  int open_socket = (int)gxssl_get_fd(ssl);
+  for(;;) {
+    // OpenSSL may already hold decrypted bytes the socket does not show
+    if((SSL_pending(ssl) <= 0) &&
+       (!gxsocket_object.ReadSelect(open_socket, seconds, useconds))) {
+      ssl_error = gxSSL_REQUEST_TIMEOUT;
+      return -1;
+    }
+    int rv = SSL_read(ssl, buf, bytes);
+    if(rv > 0) {
+      bytes_read = rv;
+      ssl_error = gxSSL_NO_ERROR;
+      return rv;
+    }
+    int err = check_ssl_error(rv);
+    if(err == SSL_ERROR_ZERO_RETURN) return 0;
+    // A record that held no application data, such as a TLS 1.3
+    // session ticket: wait for more
+    if(err == SSL_ERROR_WANT_READ) continue;
+    if(err == SSL_ERROR_SYSCALL && rv == 0) {
+      ssl_error = gxSSL_DISCONNECTED_ERROR;
+      return 0;
+    }
+    return -1;
+  }
+}
+
 int gxSSL::RecvSSLSocket(void *buf, int bytes, int useTimeout, int seconds,
 			 int useconds)
 // Receive a block of data from a specified socket and do not return
