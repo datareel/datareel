@@ -2,11 +2,11 @@
 // -------- Start of File -------- //
 // ------------------------------- //
 // ----------------------------------------------------------- //
-// C++ Source Code File Name: replication_extractor_so.cpp
-// Compiler Used: GCC
+// C++ Source Code File Name: dr_digest.cpp
+// Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
-// File Creation Date: 11/15/2026
-// Date Last Modified: 11/15/2026
+// File Creation Date: 11/16/2026
+// Date Last Modified: 11/16/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -26,27 +26,33 @@ You should have received a copy of the GNU Lesser General Public
 License along with this library. If not, see
 <https://www.gnu.org/licenses/>.
 
-The replication example's extractor (replication_records.h) as a shared
-library, for an unchanged gxrepl (DataReel 7.4, gxrextract.h): a set's
-"derived_extractor = /path/to/example_records.so" makes gxrepl dlopen it
-and call gxr_extractor() for the table of calls. The library is built
-without DataReel (CMake MODULE, no link): it uses gxrepl's own copy of the
-library, which gxrepl exports to it (ENABLE_EXPORTS), so the index pages it
-writes go through gxrepl's staged scope like a built-in extractor's.
+What a database file holds (gxddigest.h), printed as
+"HASH COUNT FILE": the live objects of a .gxd, the keys of a .btx in
+order, or the bytes. The same as "gxrepl digest" of the 7.4 betas.
 
-The same records and indexes as the replication example; the walkthrough
-runs with it as:
-  EXTRACTOR=BUILD/examples/example_records.so GXREPL=BUILD/utils/gxrepl \
-    examples/oodb/replication_walkthrough.sh BUILD/examples
-POSIX only.
+Usage: dr_digest FILE [--kind btree|bytes|objects]
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
-#include "replication_records.h"
 
-extern "C" const gxrExtractorOps *gxr_extractor(void)
+#include <stdio.h>
+#include <string>
+#include "gxddigest.h"
+
+int main(int argc, char **argv)
 {
-  return example::extractor();
+  if(argc != 2 && !(argc == 4 && std::string(argv[2]) == "--kind")) {
+    fprintf(stderr, "Usage: dr_digest FILE [--kind btree|bytes|objects]\n");
+    return 2;
+  }
+  uint64_t h = 0, n = 0;
+  std::string err;
+  if(datareel::gxDatabaseDigest(argv[1], argc == 4 ? argv[3] : "", h, n, err) != 0) {
+    fprintf(stderr, "dr_digest: %s\n", err.c_str());
+    return 1;
+  }
+  printf("%016llx %llu %s\n", (unsigned long long)h, (unsigned long long)n, argv[1]);
+  return 0;
 }
 // ----------------------------------------------------------- //
 // ------------------------------- //

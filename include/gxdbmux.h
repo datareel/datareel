@@ -52,8 +52,8 @@ other threads only touch queues and wake the I/O thread.
 Wire: each frame is one gxStream block (gxBlockHeader with net status
 'S', then the body). Body: u8 'M', u8 kind, u32 channel, u64 seq, u32
 flags, payload (native byte order). The leading 'M' keeps multiplex
-sessions apart from gxrepl protocol 2 messages, whose first byte is an
-op code (1 to 101). Payload of each kind:
+sessions apart from other services' messages, whose first byte is an
+op code (1 to 101; gxrepl protocol 2 in the 7.3/7.4 betas). Payload of each kind:
   HELLO     str "GXDBMUX", u32 version
   OPEN      str service, str name, str mode, u64 credit (the opener's queue)
   OPENED    u64 credit (the accepter's queue), bytes extra (service data)

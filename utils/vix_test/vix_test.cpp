@@ -1251,28 +1251,28 @@ static void test_member_extractor()
     addr.push_back(a);
   }
   probe.Close();
-  // the extractor, object by object (as an incremental copy would), then deletes
-  const gxrExtractorOps *ops = gxvMemberExtractor();
-  CHECK(ops && ops->abi_version == GXR_EXTRACTOR_ABI, "extractor ops");
-  char e[256];
+  // the members, object by object (11/16/2026: through gxVectorIndex::InsertMember(), as gxrepl's "gxvmember"
+  // extractor did before it went with gxrepl), then deletes
   std::string cfg = "member=offset:8 tags=-,-,offset:" + std::to_string(8 + msz) + ",-";
-  void *h = ops->Open(ixa.c_str(), dataf.c_str(), cfg.c_str(), e, sizeof(e));
-  CHECK(h != 0, "extractor open: %s", e);
-  if(!h) return;
+  gxVectorIndex ix;
+  CHECK(ix.Open(ixa.c_str()) == gxv_NO_ERROR, "open a for the members");
   std::vector<unsigned char> b;
   for(FAU_t a : addr) {
     unsigned n = db.ObjectLength(a); b.resize(n); db.Read(b.data(), n, a);
-    CHECK(ops->Insert(h, (uint64_t)a, b.data(), n, e, sizeof(e)) == 0, "insert: %s", e);
+    unsigned day; memcpy(&day, b.data() + 8 + msz, 4);
+    unsigned t[gxvTagCount] = { 0, 0, day, 0 };
+    gxvError e = ix.InsertMember((long long)a, b.data() + 8, msz, t);
+    CHECK(e == gxv_NO_ERROR || e == gxv_BAD_ARG || e == gxv_NOT_FINITE, "insert: %s", gxVectorIndex::ErrorMessage(e));
   }
-  CHECK(ops->Count(h) == 108, "12 records without a member are left out (%llu)", (unsigned long long)ops->Count(h));
+  CHECK(ix.Count() == 108, "12 records without a member are left out (%llu)", (unsigned long long)ix.Count());
   for(size_t i = 0; i < addr.size(); i += 5) {
-    unsigned n = db.ObjectLength(addr[i]); b.resize(n); db.Read(b.data(), n, addr[i]);
-    CHECK(ops->Remove(h, (uint64_t)addr[i], b.data(), n, e, sizeof(e)) == 0, "remove: %s", e);
+    gxvError e = ix.Delete((long long)addr[i]);
+    CHECK(e == gxv_NO_ERROR || e == gxv_ID_NOT_FOUND, "remove: %s", gxVectorIndex::ErrorMessage(e));
     db.Delete(addr[i]);
   }
-  CHECK(ops->Remove(h, 999999, 0, 0, e, sizeof(e)) == 0, "removing a node that is not there is not an error");
-  CHECK(ops->Flush(h, 1, e, sizeof(e)) == 0, "flush");
-  ops->Close(h);
+  CHECK(ix.Delete(999999) == gxv_ID_NOT_FOUND, "removing a node that is not there");
+  CHECK(ix.Flush() == gxv_NO_ERROR, "flush");
+  ix.Close();
   db.Close();
   // a rebuild from the same records: the same live nodes, and two rebuilds are the same bytes
   gxVectorIndex like;
@@ -1286,7 +1286,7 @@ static void test_member_extractor()
   like.Close();
   gxVectorIndex rb;
   CHECK(rb.Open(ixb.c_str(), gxDBASE_READONLY) == gxv_NO_ERROR, "open b");
-  CHECK(rb.LogicalDigest(&nb) == da && nb == na && na > 0, "rebuild = extractor (logical; %llu nodes)", na);
+  CHECK(rb.LogicalDigest(&nb) == da && nb == na && na > 0, "rebuild = the members inserted (logical; %llu nodes)", na);
   CHECK(recs == na && (rb.FeaturesOptional() & gxvOptFromMembers), "records and the members flag");
   unsigned lo, hi;
   CHECK(rb.TagRange(2, lo, hi) && lo == 20261101 && hi == 20261107, "day range");

@@ -23,7 +23,7 @@ datareel_example(db_infohog        database/infohog/infohog.cpp)
 datareel_example(typed_objects     oodb/typed_objects.cpp)
 datareel_example(day_events        oodb/day_events.cpp)
 # 11/14/2026 (7.4): a database folder copied by a plain file copy and checked with digests, with the index
-# rebuild fallback: the replication example that also builds on Windows (gxrepl is POSIX only)
+# rebuild fallback, on Linux and Windows (11/16/2026: the gxrepl examples went with gxrepl)
 datareel_example(replication_copy  oodb/replication_copy.cpp)
 # 11/15/2026 (7.4): the vector index, records with vector members, a vector set across day files
 datareel_example(vector_basics     oodb/vector_basics.cpp)
@@ -31,23 +31,8 @@ datareel_example(vector_records    oodb/vector_records.cpp)
 datareel_example(vector_days       oodb/vector_days.cpp)
 if(NOT WIN32)
   datareel_example(journal_recovery oodb/journal_recovery.cpp)
-  # 11/14/2026 (7.4): replication with gxrepl, object by object: the writer / rebuild / digest program, and the
-  # example's own gxrepl with its extractor built in (POSIX only, like gxrepl)
   # 11/15/2026 (7.4): vector searches through the object server (POSIX only, like the object server)
   datareel_example(vector_search_service oodb/vector_search_service.cpp)
-  datareel_example(replication     oodb/replication.cpp)
-  add_executable(replication_gxrepl ${CMAKE_CURRENT_SOURCE_DIR}/../utils/gxrepl/gxrepl.cpp oodb/replication_gxrepl.cpp)
-  target_include_directories(replication_gxrepl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/oodb)
-  target_compile_definitions(replication_gxrepl PRIVATE GXREPL_EXTRA_EXTRACTORS=1)
-  target_link_libraries(replication_gxrepl PRIVATE DataReel::datareel)
-  set_target_properties(replication_gxrepl PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/examples")
-  # 11/15/2026 (7.4): the same extractor as a shared library for an unchanged gxrepl (derived_extractor = .so):
-  # built without DataReel, which gxrepl exports to it
-  add_library(example_records MODULE oodb/replication_extractor_so.cpp)
-  target_include_directories(example_records PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/oodb
-    $<TARGET_PROPERTY:DataReel::datareel,INTERFACE_INCLUDE_DIRECTORIES>)
-  target_compile_definitions(example_records PRIVATE $<TARGET_PROPERTY:DataReel::datareel,INTERFACE_COMPILE_DEFINITIONS>)
-  set_target_properties(example_records PROPERTIES PREFIX "" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/examples")
 endif()
 
 # TLS networking

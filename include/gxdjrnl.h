@@ -87,10 +87,15 @@ Rules:
 Changes:
 ==============================================================
 10/31/2026: New in DataReel 7.2.
-11/07/2026: DataReel 7.3 replication. EnableShipLog() also appends
-each commit to a ship log (gxdrepl.h) that gxrepl sends to another
-node, and ApplyPages() writes a batch of received pages to the files
+11/07/2026: DataReel 7.3 replication. EnableShipLog() also appended
+each commit to a ship log (gxdrepl.h) that gxrepl sent to another
+node, and ApplyPages() wrote a batch of received pages to the files
 as one transaction through this journal's recovery code.
+11/16/2026: DataReel 7.4 drops the gxrepl page-shipping replication
+(7.4 replication is gxObjRepl, gxobjrepl.h): EnableShipLog(),
+DisableShipLog(), ShipLog(), EnableObjectNotes(), ApplyPages() and the
+"<journal>.recovered" marker are gone. Recover()'s "mark" argument is
+kept and ignored.
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -108,17 +113,8 @@ namespace datareel {
 
 class gxBtree;     // Forward class declarations
 class BtreeCache;
-class gxdShipLog;
 struct gxdPage;
 
-// 11/07/2026: One file of a batch written by gxdJournal::ApplyPages().
-// "pages" maps page numbers (file offset / gxdPageSize) to page images
-// of gxdPageSize bytes that the caller keeps valid during the call.
-struct gxdApplyFile {
-  std::string path;   // Full path of the file, created if missing
-  unsigned long long size; // File size after the batch
-  std::map<unsigned long long, const unsigned char *> pages;
-};
 
 const size_t gxdDefaultCheckpointSize = 8 * 1024 * 1024;
 const size_t gxdDefaultWriteBackCheckpointSize = 64 * 1024 * 1024;
@@ -150,13 +146,10 @@ public:
   // their database files and empty the journal. Call it before the
   // database files are opened. Sets "recovered" to the number of
   // transactions written.
-  // 11/15/2026: mark (the default): a replay of N > 0 batches leaves "<jname>.recovered" (written before the
-  // replay, kept until the next EnableShipLog() says so in its open record), so a recovery done here, before
-  // the writer's Open(), is never invisible to a replicated copy. gxrepl's apply journals pass 0.
+  // 11/16/2026: mark is ignored (7.4 dropped the ship log and its "<jname>.recovered" marker).
   static gxDatabaseError Recover(const char *jname,
 				 unsigned long *recovered = 0, int mark = 1);
-  // 11/16/2026: why this thread's last Recover() refused to replay (its marker could not be written: the step,
-  // the path and the error), or "" when it did not refuse for that reason
+  // 11/16/2026: kept for callers (gxObjRepl): the reason of this thread's last Recover() failure, or ""
   static const char *RecoverError();
 
   gxDatabaseError Open(const char *jname); // Recover, then open
@@ -206,38 +199,6 @@ public:
   unsigned long Recovered() const { return recovered; } // Set by Open()
   gxDatabaseError GetJournalError() const { return jerror; }
 
-public: // 11/07/2026: Replication (DataReel 7.3, gxdrepl.h and gxrepl.h)
-  // Append every commit to the ship log of "stream" under the
-  // replication set folder "set_root" (<set_root>/.gxrepl/log/<stream>).
-  // Every attached file must be inside set_root. With no stream name
-  // the journal's path relative to set_root names it. Turns on the
-  // write lock (SetWriteLock(1)) so gxrepl can read a whole batch, and
-  // needs the write-through mode. A failed append never fails the
-  // commit: the ship log records a gap and gxrepl verifies the files.
-  gxDatabaseError EnableShipLog(const char *set_root, 
-				const char *stream = 0);
-  void DisableShipLog();
-  gxdShipLog *ShipLog() { return ship; }
-  // 11/14/2026: Object notes (gxdonote.h, DataReel 7.4): each commit
-  // record of the ship log is preceded by an objects record that lists
-  // the objects the transaction added, changed and removed per file, so
-  // a copy can update its derived indexes object by object. Off by
-  // default; EnableShipLog() turns it on when the environment has
-  // GXDSHIP_OBJECTS=1. Not inside a transaction.
-  gxDatabaseError EnableObjectNotes(int on = 1);
-  int ObjectNotesEnabled() const { return onotes_on; }
-
-  // Write a batch of pages to their files as one transaction: the pages
-  // and the final sizes go to the journal file "jname" (which must not
-  // be the journal of an open gxdJournal), the journal is synced, and
-  // Recover() writes them to the files, sets each file's size, syncs
-  // the files and empties the journal. A crash in between leaves the
-  // batch in the journal for the next Recover() of "jname". Sets
-  // "pages_written" to the number of pages in the batch.
-  static gxDatabaseError ApplyPages(const char *jname, 
-				    const std::vector<gxdApplyFile> &files,
-				    unsigned long long *pages_written = 0);
-
 public: // Statistics
   unsigned long commits;
   unsigned long checkpoints;
@@ -250,14 +211,9 @@ private:
     gxBtree *btx;
     std::string path;
     int written; // Pages written to the file since the last checkpoint
-    gxdObjectNotes *notes; // 11/14/2026: owned, 0 when notes are off
   };
-  void notes_attach(JFile &jf);
-  void notes_detach(JFile &jf);
-  void notes_clear();
   gxDatabaseError WriteHeader();
   size_t CheckpointSize() const;
-  void ship_commit(const std::vector< std::vector<gxdPage *> > &v);
 
 private:
   gxdFPTR *jfp;
@@ -279,8 +235,6 @@ private:
   size_t ckpt_size;
   gxDatabaseError jerror;
   std::vector<unsigned char> out; // Commit record buffer, kept between commits
-  gxdShipLog *ship; // 11/07/2026: Replication ship log, owned
-  int onotes_on;    // 11/14/2026: EnableObjectNotes()
 };
 
 class GXDLCODE_API gxdJournalReadLock

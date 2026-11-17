@@ -144,47 +144,19 @@ comment gives the request and reply layouts.
 
   examples/oodb/vector_search_walkthrough.sh BUILD/examples
 
-Replication (examples/oodb/replication.cpp)
--------------------------------------------
-Database replication with gxrepl (utils/gxrepl/README.md and
-docs/replication_admin_guide.md), object by object (DataReel 7.4).
-A primary writes records and keeps two indexes made from them, a
-B-tree of names and a vector index (replication_records.h). gxrepl
-copies the committed pages of the records to a copy and never sends
-the indexes: the copy keeps its own, updated object by object from the
-records each commit changed (derived_apply = incremental), with the
-example's extractor "example_records" built into the copy's gxrepl
-(replication_gxrepl, from replication_gxrepl.cpp and gxrepl's own
-source). When the copy cannot be sure of an index (a damaged stamp, a
-gap in the ship log, an extractor error) it rebuilds that folder's
-indexes in full on its own (replication rebuild), says so in its log,
-and goes back to object by object. A full rebuild on every change is
-still a set's own choice: derived_apply = rebuild.
-
-  examples/oodb/replication_walkthrough.sh BUILD/examples
-
-The walkthrough (POSIX, the openssl command for throwaway
-certificates) runs a primary and a copy on throwaway folders over
-127.0.0.1: writes, then the derived status, a simulated fault (the
-copy's vector index stamp damaged), the log lines of the rebuild, the
-way back to object by object, and the two indexes' digests, the same
-on both nodes. It exits 0 when every check passes.
-
-  replication write DIR [--commits N] [--per N] [--sleep MS] [--seed N]
-  replication rebuild DIR [LSN]
-  replication digest DIR
-
-gxrepl, and so replication.cpp and its walkthrough, run on Linux and
-other POSIX systems only. On Windows see the folder copy example below.
+Replication
+-----------
+11/16/2026: DataReel 7.4 replication is gxObjRepl (gxobjrepl.h). The
+gxrepl page-shipping example (replication.cpp, its walkthrough and its
+extractor) went with gxrepl; the gxObjRepl examples come with it.
 
 
 Folder copy (examples/oodb/replication_copy.cpp, Windows and Linux)
 --------------------------------------------------------------------
-The Windows replication example (DataReel 7.4). Live replication with
-gxrepl is POSIX only; on Windows, and anywhere a copy minutes old is
-fine, a database folder is copied with a plain file copy while its
-writer is stopped, and checked with digests. The records and their two
-indexes are the replication example's (replication_records.h). The
+A database folder copied with a plain file copy while its writer is
+stopped, and checked with digests (DataReel 7.4), on Windows and
+anywhere a copy minutes old is fine. The records and their two indexes
+are in replication_records.h. The
 writer changes all three files in one gxdJournal transaction per commit
 and closes the journal (a checkpoint) when it stops, so the files hold
 every commit. The digest prints the records (address and bytes), the

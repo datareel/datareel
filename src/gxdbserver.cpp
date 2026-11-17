@@ -61,7 +61,7 @@ void gxDatabaseServerLog(const char *fmt, ...)
   vsnprintf(msg, sizeof(msg), fmt, ap);
   va_end(ap);
   std::lock_guard<std::mutex> g(srv_log_lock);
-  fprintf(stderr, "%s gxrepl: %s\n", tb, msg);
+  fprintf(stderr, "%s dbserver: %s\n", tb, msg);
   fflush(stderr);
 }
 

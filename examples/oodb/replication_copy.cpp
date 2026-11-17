@@ -27,15 +27,12 @@ License along with this library. If not, see
 <https://www.gnu.org/licenses/>.
 
 A copy of a database folder by a plain file copy, on any platform
-(DataReel 7.4). This is the Windows replication example: gxrepl, live
-replication with a ship log (replication.cpp), runs on Linux and other
-POSIX systems only. On Windows, and anywhere a copy minutes old is
-fine, the writer stops (or finishes its job), the folder is copied with
+(DataReel 7.4), Windows and Linux. Where a copy minutes old is fine,
+the writer stops (or finishes its job), the folder is copied with
 the usual file copy tool (robocopy on Windows, rsync or cp elsewhere),
 and the digests say the copy holds what the primary holds.
 
-The records and their two indexes are the replication example's
-(replication_records.h): a name, a day and a vector member in
+The records and their two indexes are in replication_records.h: a name, a day and a vector member in
 data.gxd, a B-tree of names (by_name.btx) and a vector index
 (vectors.vix). The writer changes all three in one gxdJournal
 transaction per commit, so a writer that stops at any point leaves the

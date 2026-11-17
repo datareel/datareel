@@ -417,47 +417,34 @@ static void test_torn_journal(std::mt19937 &rng, int rounds)
   std::cout << "PASS torn_journal (" << mode_name() << ", " << rounds << " rounds)\n";
 }
 
-// 11/16/2026 (DataReel 7.4, beta4 review M2/M3): the static Recover() leaves "<journal>.recovered" (the number of
-// batches it replayed) before it writes a page, on every platform, and refuses to replay when the marker cannot be
-// written (the journal is kept for another try)
-static void test_recovered_marker()
+// 11/16/2026 (DataReel 7.4 beta5): the static Recover(jname, &n) replays the committed batches a dead program left,
+// says how many, and writes nothing beside the journal (the "<journal>.recovered" marker existed only for the gxrepl
+// ship log, removed in beta5; the mark argument is ignored)
+static void test_static_recover()
 {
-  std::string dir = fresh_dir("marker"), image = dir + "_image";
+  std::string dir = fresh_dir("srecover"), image = dir + "_image";
   {
     TestDb t(dir);
-    CHECK(t.Open(true, 1), "marker open");
+    CHECK(t.Open(true, 1), "static recover open");
     t.j.SetCheckpointSize(64 * 1024 * 1024); // No checkpoint
-    CHECK(t.j.Begin() == gxDBASE_NO_ERROR, "marker begin");
-    for(int i = 0; i < BATCH; i++) CHECK(t.Insert(i), "marker insert");
-    CHECK(t.j.Commit(1) == gxDBASE_NO_ERROR, "marker commit");
+    CHECK(t.j.Begin() == gxDBASE_NO_ERROR, "static recover begin");
+    for(int i = 0; i < BATCH; i++) CHECK(t.Insert(i), "static recover insert");
+    CHECK(t.j.Commit(1) == gxDBASE_NO_ERROR, "static recover commit");
     copy_files(dir, image); // The program dies here, before a checkpoint
     t.Close();
   }
   restore_files(image, dir);
   std::string jnl = dir + "/data.jnl", mk = jnl + ".recovered";
-  std::vector<char> data0 = read_file(dir + "/data.gxd"), jnl0 = read_file(jnl);
-  // The marker's temporary name taken by a folder: no marker can be written, so no replay
-  fs::create_directory(mk + ".tmp");
-  unsigned long n = 99;
-  CHECK(gxdJournal::Recover(jnl.c_str(), &n) != gxDBASE_NO_ERROR, "marker: replayed without its marker");
-  CHECK(n == 0, "marker: a refused replay says " + std::to_string(n));
-  CHECK(std::string(gxdJournal::RecoverError()).find("cannot create") == 0, std::string("marker: no cause given: ") +
-	gxdJournal::RecoverError());
-  CHECK(!fs::exists(mk), "marker: a marker after a refused replay");
-  CHECK(read_file(dir + "/data.gxd") == data0, "marker: the data file changed in a refused replay");
-  CHECK(read_file(jnl) == jnl0, "marker: the journal changed in a refused replay");
-  fs::remove(mk + ".tmp");
-  CHECK(gxdJournal::Recover(jnl.c_str(), &n) == gxDBASE_NO_ERROR && n >= 1, "marker: the kept journal did not replay");
-  std::vector<char> m = fs::exists(mk) ? read_file(mk) : std::vector<char>();
-  CHECK(!m.empty() && atol(std::string(m.begin(), m.end()).c_str()) == (long)n,
-	"marker: no marker, or not the replayed count, after Recover()");
-  CHECK(!fs::exists(mk + ".tmp"), "marker: the temporary marker stayed");
+  unsigned long n = 0;
+  CHECK(gxdJournal::Recover(jnl.c_str(), &n, 1) == gxDBASE_NO_ERROR && n >= 1,
+	std::string("static recover: the journal did not replay: ") + gxdJournal::RecoverError());
+  CHECK(!fs::exists(mk) && !fs::exists(mk + ".tmp"), "static recover: a marker file was written");
   {
     TestDb t(dir);
-    CHECK(t.Open(false, 0), "marker reopen");
-    CHECK(t.Verify() == BATCH, "marker: the replayed records");
+    CHECK(t.Open(false, 0), "static recover reopen");
+    CHECK(t.Verify() == BATCH, "static recover: the replayed records");
   }
-  std::cout << "PASS recovered_marker\n";
+  std::cout << "PASS static_recover\n";
 }
 
 static void test_torn_checkpoint(std::mt19937 &rng, int rounds)
@@ -683,7 +670,7 @@ int main(int argc, char **argv)
   g_mode = gxdJOURNAL_WRITE_THROUGH;
   test_reader();
   test_security_fixes();
-  test_recovered_marker();
+  test_static_recover();
   if(failures) {
     std::cout << failures << " journal tests failed\n";
     return 1;

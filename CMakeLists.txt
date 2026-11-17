@@ -61,8 +61,9 @@ option(DATAREEL_NATIVE_TYPES
   "Use native integer and float types instead of the portable gxINT/gxFLOAT classes" ON)
 option(DATAREEL_BUILD_EXAMPLES "Build the examples and utilities"
   ${PROJECT_IS_TOP_LEVEL})
-# 11/13/2026: gxrepl's crash test hooks (GXREPL_TEST_SWAP_CRASH): the test builds only, never a production build
-option(GXREPL_TEST_HOOKS "Build gxrepl's test-only crash hooks" OFF)
+# 11/13/2026: test-only crash and fault hooks (the name is from the 7.3/7.4 betas' gxrepl; 7.4 uses them for
+# gxObjRepl's tests and the object server): the test builds only, never a production build
+option(GXREPL_TEST_HOOKS "Build the test-only crash and fault hooks" OFF)
 
 # Every source file except the Schannel code, which gxssl.cpp includes
 file(GLOB DATAREEL_SOURCES CONFIGURE_DEPENDS
@@ -143,7 +144,8 @@ else()
   message(FATAL_ERROR "DATAREEL_SSL must be OPENSSL or SCHANNEL, not '${DATAREEL_SSL}'")
 endif()
 
-# 11/07/2026: zlib compresses gxrepl replication messages (gxrepl.h).
+# 11/07/2026: zlib compressed gxrepl replication messages. 11/16/2026: nothing in 7.4 uses it since gxrepl went
+# (the option and the exported config stay for builds that pass it).
 # Optional: without it messages travel uncompressed, and the hello
 # tells the other node so it never sends compressed ones.
 option(DATAREEL_ZLIB "Compress replication messages with zlib if found" ON)

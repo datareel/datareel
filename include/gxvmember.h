@@ -30,12 +30,11 @@ Vector indexes derived from record members (DataReel 7.4, phase D).
 A data file whose records keep their vectors as vector members
 (gxVectorIndex::MakeMember(): "GXVM", element type, dimension, spec CRC
 and the stored code) can have its .vix rebuilt from the records alone,
-so a replicated copy never needs the .vix bytes: the set names the .vix
-"derived" and the copy rebuilds it (gxrepl derived_rebuild running
-vix_rebuild, or object by object with the "gxvmember" extractor of
-gxrextract.h).
+so a copy of the data never needs the .vix bytes: it rebuilds the
+index (gxvRebuildFromMembers, or the tool vix_rebuild). (11/16/2026:
+the "gxvmember" extractor for gxrepl went with gxrepl.)
 
-Where the member is (the extractor's config, space separated):
+Where the member is (the rebuild's config, space separated):
   member=infohog:N   InfoHog member N (from 0) of the record
   member=offset:N    a fixed field at byte N of the record (POD records)
   tags=A,B,C,D       where tags 0-3 come from: infohog:N or offset:N (a
@@ -59,7 +58,6 @@ Changes:
 
 #include <string>
 #include "gxvindex.h"
-#include "gxrextract.h"
 
 namespace datareel {
 
@@ -81,8 +79,6 @@ struct GXDLCODE_API gxvMemberSpec {
   void SetLayout(const gxDatabase &db) { ih_word = (unsigned)db.DiskLongSize(); ih_ohdr = 2u * (unsigned)db.DiskFAUSize(); }
 };
 
-// The "gxvmember" extractor (gxrextract.h)
-GXDLCODE_API const gxrExtractorOps *gxvMemberExtractor();
 
 // Rebuild "index_path" from every record of "data_path" in ascending
 // address order (into index_path + ".rebuild", then renamed over it). The

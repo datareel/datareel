@@ -29,10 +29,10 @@ for t in proto support; do
     "$SRC/tests/fuzz/fuzz_$t.cpp" "$OUT/lib/libdatareel.a" -lssl -lcrypto -lz -lpthread -ldl \
     -o "$OUT/fuzz_$t"
 done
-# 11/14/2026: 7.4 scan target: ship log records (incl. type 5 objects records), the gxrepl config, .vixset
-# manifests, .vix files, the object server's vector ops 7/8, stamps and derived state
-clang++ -std=c++17 $SAN -fsanitize=fuzzer $DEFS -I"$SRC/include" "$SRC/tests/fuzz/fuzz_repl.cpp" \
-  "$OUT/lib/libdatareel.a" -lssl -lcrypto -lz -lpthread -ldl -o "$OUT/fuzz_repl"
+# 11/14/2026: 7.4 scan target: .vixset manifests, .vix files, the object server's vector ops 7/8 (11/16/2026:
+# fuzz_vector, was fuzz_repl; its gxrepl parts went with gxrepl)
+clang++ -std=c++17 $SAN -fsanitize=fuzzer $DEFS -I"$SRC/include" "$SRC/tests/fuzz/fuzz_vector.cpp" \
+  "$OUT/lib/libdatareel.a" -lssl -lcrypto -lz -lpthread -ldl -o "$OUT/fuzz_vector"
 clang++ -std=c++17 $SAN $DEFS -I"$SRC/include" "$SRC/tests/fuzz/gen_seeds.cpp" \
   "$OUT/lib/libdatareel.a" -lssl -lcrypto -lz -lpthread -ldl -o "$OUT/gen_seeds"
-echo "built $OUT/fuzz_gxd $OUT/fuzz_btx $OUT/fuzz_jnl $OUT/fuzz_stream $OUT/fuzz_proto $OUT/fuzz_support $OUT/fuzz_repl $OUT/gen_seeds"
+echo "built $OUT/fuzz_gxd $OUT/fuzz_btx $OUT/fuzz_jnl $OUT/fuzz_stream $OUT/fuzz_proto $OUT/fuzz_support $OUT/fuzz_vector $OUT/gen_seeds"

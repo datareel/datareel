@@ -26,16 +26,15 @@ You should have received a copy of the GNU Lesser General Public
 License along with this library. If not, see
 <https://www.gnu.org/licenses/>.
 
-The replication example's records and their derived indexes
-(examples/oodb/replication.cpp, and replication_copy.cpp, the folder
-copy example that also builds on Windows): one record type, two indexes made from
-it, and the "example_records" extractor that keeps both on a copy,
-object by object (gxrextract.h).
+The folder copy example's records and their derived indexes
+(examples/oodb/replication_copy.cpp, Linux and Windows): one record
+type and two indexes made from it. 11/16/2026: the "example_records"
+extractor of the gxrepl example went with gxrepl (7.4 replication is
+gxObjRepl).
 
 A record is a fixed block in data.gxd: a 24-byte name, the day
 (yyyymmdd) and a vector member (gxvindex.h, dimension 8, float32). From
-the records come two indexes, which a copy never receives but keeps
-itself:
+the records come two indexes, which a copy rebuilds from its records:
   by_name.btx   a B-tree of (name, record address)
   vectors.vix   a vector index: id = the record's address, tag 2 = the day
 */
@@ -55,7 +54,6 @@ itself:
 #include "gxdbase.h"
 #include "gxbtree.h"
 #include "gxvindex.h"
-#include "gxrextract.h"
 
 namespace example {
 
@@ -99,95 +97,10 @@ const BtreeNodeOrder_t ORDER = 16;
 
 inline bool is_btx(const std::string &p) { return p.size() > 4 && p.compare(p.size() - 4, 4, ".btx") == 0; }
 
-// ---------------- The "example_records" extractor ----------------
-// One extractor for both indexes: Open() looks at the index's name.
-
-struct Handle {
-  bool btx = false;
-  NameKey type;
-  gxBtree *bt = 0;
-  gxVectorIndex vix;
-  ~Handle() { if(bt) { bt->Close(); delete bt; } }
-};
-
-inline void say(char *err, size_t n, const std::string &m) { if(err && n) snprintf(err, n, "%s", m.c_str()); }
-
+// A record in an object's bytes, or 0 if the object is too short
 inline const Record *as_record(const unsigned char *b, uint32_t len)
 {
   return len >= sizeof(Record) ? (const Record *)b : 0;
-}
-
-inline const char *x_version() { return "example_records 1"; }
-
-inline void *x_open(const char *index_path, const char *, const char *, char *err, size_t n)
-{
-  Handle *h = new Handle;
-  h->btx = is_btx(index_path);
-  if(h->btx) {
-    h->bt = new gxBtree(h->type, ORDER);
-    if(h->bt->Open(index_path) != gxDBASE_NO_ERROR) { say(err, n, std::string("cannot open ") + index_path); delete h; return 0; }
-  }
-  else if(h->vix.Open(index_path) != gxv_NO_ERROR) { say(err, n, std::string("cannot open ") + index_path); delete h; return 0; }
-  return h;
-}
-
-inline int x_remove(void *hv, uint64_t addr, const unsigned char *b, uint32_t len, char *err, size_t n)
-{
-  Handle *h = (Handle *)hv;
-  const Record *r = as_record(b, len);
-  if(!r) return 0;                                  // not one of ours: never in the indexes
-  if(h->btx) {
-    NameKey k(r->name, (FAU_t)addr), c;
-    h->bt->Delete(k, c);                            // not there: not an error
-    return 0;
-  }
-  gxvError e = h->vix.Delete((long long)addr);
-  if(e == gxv_NO_ERROR || e == gxv_ID_NOT_FOUND) return 0;
-  say(err, n, gxVectorIndex::ErrorMessage(e));
-  return -1;
-}
-
-inline int x_insert(void *hv, uint64_t addr, const unsigned char *b, uint32_t len, char *err, size_t n)
-{
-  Handle *h = (Handle *)hv;
-  const Record *r = as_record(b, len);
-  if(!r) return 0;
-  if(h->btx) {
-    NameKey k(r->name, (FAU_t)addr), c;
-    if(!h->bt->Insert(k, c)) { say(err, n, "cannot insert the key"); return -1; }
-    return 0;
-  }
-  unsigned t[gxvTagCount] = { 0, 0, r->day, 0 };
-  gxvError e = h->vix.InsertMember((long long)addr, r->vec, (unsigned)MEMBER, t);
-  if(e == gxv_NO_ERROR || e == gxv_BAD_ARG || e == gxv_NOT_FINITE) return 0;   // no valid vector: not indexed
-  say(err, n, gxVectorIndex::ErrorMessage(e));
-  return -1;
-}
-
-inline int x_flush(void *hv, uint64_t, char *err, size_t n)
-{
-  Handle *h = (Handle *)hv;
-  if(h->btx) {
-    if(h->bt->WriteBtreeHeader() != gxDBASE_NO_ERROR || h->bt->gxDatabasePtr()->WriteFileHdr() != gxDBASE_NO_ERROR) {
-      say(err, n, "cannot write the B-tree header"); return -1;
-    }
-    return 0;
-  }
-  return h->vix.Flush() == gxv_NO_ERROR ? 0 : (say(err, n, "cannot flush the vector index"), -1);
-}
-
-inline uint64_t x_count(void *hv)
-{
-  Handle *h = (Handle *)hv;
-  return h->btx ? (uint64_t)h->bt->NumKeys() : (uint64_t)h->vix.Count();
-}
-
-inline void x_close(void *hv) { delete (Handle *)hv; }
-
-inline const gxrExtractorOps *extractor()
-{
-  static const gxrExtractorOps ops = { GXR_EXTRACTOR_ABI, x_version, x_open, x_remove, x_insert, x_flush, x_count, x_close };
-  return &ops;
 }
 
 // A file renamed over another: rename() on POSIX; on Windows rename()

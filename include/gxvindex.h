@@ -33,8 +33,7 @@ application's own id), up to four 32-bit tags, the vector and the
 neighbor slots of the graph index. Because the file is an ordinary
 gxDatabase file it is attached to the same gxdJournal as its data file
 and B-tree indexes, so one commit carries an object, its keys and its
-vector together, a crash leaves all or none of them, and gxrepl ships
-the .vix like any other database file.
+vector together, and a crash leaves all or none of them.
 
   gxdJournal j;
   j.Open("events.jnl");

@@ -1,7 +1,7 @@
 @echo off
 rem replication_copy_walkthrough.cmd - 11/14/2026 (DataReel 7.4): the Windows replication example.
-rem gxrepl (live replication) runs on Linux and other POSIX systems only. On Windows a copy of a
-rem database folder is a plain file copy made while the writer is stopped, checked with digests:
+rem A copy of a database folder by a plain file copy made while the writer is stopped, checked with
+rem digests:
 rem   1. the primary's writer writes records with their two indexes and stops; robocopy copies the
 rem      folder; the digests of the records, the B-tree and the vector index are the same on both;
 rem   2. the writer writes more and stops; robocopy copies the changed files; the digests agree again;

@@ -28,7 +28,7 @@ License along with this library. If not, see
 
 The DataReel database object server: one gxStream TLS listener on the
 database port (gxsDATA_PORT, 2073) shared by several services, such as
-remote access to database objects and database replication (gxrepl).
+remote access to database objects (gxdbobject.h) and vector searches.
 See docs/DATABASE_OBJECT_SERVER_DESIGN.md.
 
 The server owns what every service needs the same way:
@@ -51,7 +51,9 @@ that block. A block no service claims closes the session.
 Changes:
 ==============================================================
 11/08/2026: New in DataReel 7.3.1 (database object server, phase 2
-step 1). gxReplServer is its first service.
+step 1). gxReplServer was its first service.
+11/16/2026: 7.4 has no gxrepl (replication is gxObjRepl); the object
+service and its vector searches remain.
 ==============================================================
 */
 // ----------------------------------------------------------- //

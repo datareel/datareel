@@ -91,27 +91,19 @@ for p in trading_sessions string_utils day_events; do
 done
 mkdir -p "$WORK/run_typed_objects" && cd "$WORK/run_typed_objects" &&
   check typed_objects $E/typed_objects "$WORK/server.pem" "$WORK/server.key" --ca "$WORK/ca.pem"
-# 11/14/2026 (7.4): replication with gxrepl, object by object, a simulated fault and the automatic folder rebuild
-mkdir -p "$WORK/run_replication" && cd "$WORK/run_replication" &&
-  check replication_walkthrough "$SRC/examples/oodb/replication_walkthrough.sh" "$E" "$WORK/run_replication/w"
-# 11/15/2026 (7.4): the same with an unchanged gxrepl and the extractor as a .so (derived_extractor = path.so)
-mkdir -p "$WORK/run_replication_so" && cd "$WORK/run_replication_so" &&
-  check replication_walkthrough_so env EXTRACTOR="$E/example_records.so" GXREPL="$BUILD/utils/gxrepl" \
-    "$SRC/examples/oodb/replication_walkthrough.sh" "$E" "$WORK/run_replication_so/w"
-# 11/15/2026 (7.4): gxrepl digest --kind btree on keys whose names repeat (two writer runs with the same seed: the
-# address breaks the tie). The digest walked with FindNext() and a raw byte compare and skipped keys; it must count
-# one key per live record and match the same B-tree rebuilt from the records.
+# 11/15/2026 (7.4): the B-tree digest on keys whose names repeat (two writer runs with the same seed: the address
+# breaks the tie). The digest walked with FindNext() and a raw byte compare and skipped keys; it must count one key
+# per live record and match the same B-tree rebuilt from the records. 11/16/2026: with the folder copy example and
+# dr_digest (the gxrepl example and "gxrepl digest" went with gxrepl)
 mkdir -p "$WORK/run_digest_repeat" && cd "$WORK/run_digest_repeat" &&
-  check gxrepl_digest_repeated_names sh -c "set -e; mkdir -p p; R='$E/replication'
+  check digest_repeated_names sh -c "set -e; mkdir -p p; R='$E/replication_copy'
     \$R write p --commits 60 --per 8 > /dev/null; LIVE=\$(\$R write p --commits 80 --per 8 | sed -n 's/.*, \([0-9]*\) live records\$/\1/p')
     \$R digest p > p.d; grep -q \"btree [0-9a-f]* \$LIVE keys\$\" p.d
-    mkdir r; cp -a p/data.gxd p/by_name.btx p/vectors.vix p/commit.bin r/; \$R rebuild r > /dev/null; \$R digest r > r.d; cmp p.d r.d
-    '$BUILD/utils/gxrepl' digest p/by_name.btx | grep -q \" \$LIVE \""
-# 11/15/2026 (7.4, review of c59a264): gxrepl digest walks B-trees of node order 3 (made 5: 4 keys a node) and 16
-mkdir -p "$WORK/run_digest_orders" && cd "$WORK/run_digest_orders" &&
-  check gxrepl_digest_node_orders sh -c "set -e; for o in 3 16; do mkdir -p o\$o
-    '$BUILD/utils/gxrepl_testwriter' btree o\$o \$o 1000 > /dev/null
-    '$BUILD/utils/gxrepl' digest o\$o/keys.btx | grep -q ' 1000 '; done"
+    mkdir r; cp -a p/data.gxd p/by_name.btx p/vectors.vix r/; \$R rebuild r > /dev/null; \$R digest r > r.d; cmp p.d r.d
+    '$BUILD/utils/dr_digest' p/by_name.btx | grep -q \" \$LIVE \""
+# 11/15/2026 (7.4, review of c59a264): the digest walks B-trees of node order 3 (made 5: 4 keys a node) and 16, and the
+# objects and bytes digests (tests/digest_test.cpp, 11/16/2026)
+mkdir -p "$WORK/run_digest" && cd "$WORK/run_digest" && check digest_test "$BUILD/tests/digest_test" .
 # 11/15/2026 (7.4): the old 4-byte layout (gxdbase.h). tests/data/old_layout: files written by the 64-bit and 32-bit
 # FAU Windows builds of 7.4 beta 3 (replication_copy write --commits 40 --per 6). This build reads them as Windows
 # did (the digests Windows printed), writes them byte for byte with GXD_CREATE_LAYOUT=4, keeps an old file in its
@@ -132,8 +124,8 @@ if grep -q "DATAREEL_64BIT_DATABASE:BOOL=ON" "$BUILD/CMakeCache.txt" 2>/dev/null
 else
   mkdir -p "$WORK/run_old_layout" && cd "$WORK/run_old_layout" &&
     check old_layout_read sh -c "set -e; cp -r '$OL/win32' w
-      '$BUILD/utils/gxrepl' digest w/data.gxd --kind objects | grep -q '^cfb8e9e470ce02d7 155 '
-      '$BUILD/utils/gxrepl' digest w/by_name.btx --kind btree | grep -q '^67917c9acb47dd07 155 '
+      '$BUILD/utils/dr_digest' w/data.gxd --kind objects | grep -q '^cfb8e9e470ce02d7 155 '
+      '$BUILD/utils/dr_digest' w/by_name.btx --kind btree | grep -q '^67917c9acb47dd07 155 '
       '$BUILD/utils/vix_rebuild' --digest w/vectors.vix | grep -q '^logical bcd02d0e141e67e8 155 '"
 fi
 # 11/16/2026 (7.4): the other engine's file refused (gxDBASE_FILE_ENGINE_ERROR), a damaged first block never taken for
@@ -144,7 +136,7 @@ mkdir -p "$WORK/run_layout_detect" && cd "$WORK/run_layout_detect" &&
 mkdir -p "$WORK/run_old_layout_upgrade" && cd "$WORK/run_old_layout_upgrade" &&
   check old_layout_upgrade sh -c "set -e; W='$OL/win64'; grep -q 'DATAREEL_64BIT_DATABASE:BOOL=ON' '$BUILD/CMakeCache.txt' || W='$OL/win32'
     cp -r \$W w; '$BUILD/utils/gxd_upgrade' w/data.gxd up.gxd | grep -q 'byte check ok'
-    a=\$('$BUILD/utils/gxrepl' digest w/data.gxd --kind objects | cut -d' ' -f1-2); b=\$('$BUILD/utils/gxrepl' digest up.gxd --kind objects | cut -d' ' -f1-2)
+    a=\$('$BUILD/utils/dr_digest' w/data.gxd --kind objects | cut -d' ' -f1-2); b=\$('$BUILD/utils/dr_digest' up.gxd --kind objects | cut -d' ' -f1-2)
     [ \"\$a\" = \"\$b\" ]; test -s up.gxd.map
     if '$BUILD/utils/gxd_upgrade' w/by_name.btx x.btx; then exit 1; fi
     '$BUILD/utils/gxd_upgrade' up.gxd again.gxd | grep -q 'canonical layout already'; test ! -e again.gxd"
@@ -182,8 +174,6 @@ mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" &&
 # Merge, Repair, concurrent searches and 20 crash rounds
 mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" &&
   check vix_test "$BUILD/utils/vix_test"
-mkdir -p "$WORK/run_derived_apply" && cd "$WORK/run_derived_apply" &&
-  check derived_apply_test "$BUILD/tests/derived_apply_test"
 for t in stream_security_test proto_security_test support_security_test; do
   mkdir -p "$WORK/run_$t" && cd "$WORK/run_$t" && check $t "$BUILD/tests/$t"
 done

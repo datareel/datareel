@@ -419,7 +419,7 @@ protected:
 };
 
 // 11/15/2026: the B-tree header on disk in a layout (gxdbase.h): its size, and a read from a file opened as a
-// gxDatabase (gxrepl digest)
+// gxDatabase (the btree digest, gxddigest.h)
 GXDLCODE_API size_t gxBtreeDiskHeaderSize(int long_size, int fau_size);
 GXDLCODE_API gxDatabaseError gxBtreeReadHeaderDisk(gxDatabase *f, gxBtreeHeader &h, FAU_t header_address);
 

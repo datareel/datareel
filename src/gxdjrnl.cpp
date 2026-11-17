@@ -72,12 +72,6 @@ number; records left in the file after that have an old salt.
 #include <stdio.h>
 #include <errno.h>
 #include "gxdlcode.h"
-#if defined(_WIN32)
-#ifndef NOMINMAX
-#define NOMINMAX                  // std::numeric_limits<>::max() below
-#endif
-#include <windows.h>              // 11/16/2026: the recovered marker (FlushFileBuffers, MoveFileEx)
-#endif
 
 #include <string.h>
 #include <stdlib.h>
@@ -88,17 +82,11 @@ number; records left in the file after that have an old salt.
 #include <limits>
 #include <map>
 #include "gxdjrnl.h"
-#include "gxdrepl.h"
 #include "gxbtree.h"
 #include "btcache.h"
 
 namespace datareel {
 
-#if defined(GXREPL_TEST_HOOKS) && !defined(_WIN32)
-// 11/14/2026 (test builds only): set by gxrepl's GXREPL_TEST_CRASH_IN_APPLY hook: the next ApplyPages() ends the
-// process once its batch is committed to the journal, before its pages reach the files
-GXDLCODE_API std::atomic<int> gxdJournalTestCrashNext(0);
-#endif
 
 static const char gxdJournalMagic[8] = { 'G','X','D','W','A','L','0','1' };
 static const uint32_t gxdJournalVersion = 1;
@@ -225,69 +213,16 @@ gxdJournal::gxdJournal()
   jerror = gxDBASE_NO_ERROR;
   commits = checkpoints = 0;
   pages_logged = pages_written = 0;
-  ship = 0;
-  onotes_on = 0;
 }
 
 gxdJournal::~gxdJournal()
 {
   Close();
-  DisableShipLog();
 }
 
-// 11/15/2026: the marker a replay leaves for the next EnableShipLog() (see Recover())
-static std::string recovered_marker(const char *jname) { return std::string(jname) + ".recovered"; }
-
-// 11/16/2026 (beta4 review M2, M3): "<n>\n" written to a temporary file, flushed to the disk, renamed over the marker
-// and (POSIX) the folder synced. Returns 0, or -1 if any step failed (nothing is left behind then).
-// 11/16/2026 (beta4 re-review L-c): why the last marker in this thread could not be written (gxdJournal::RecoverError())
+// 11/16/2026: why this thread's last Recover() failed (gxdJournal::RecoverError()); the replay's own errors only
+// since 7.4 dropped the ship log and its "recovered" marker
 static thread_local std::string g_recover_error;
-static int marker_fail(const char *step, const std::string &path, int code)
-{
-#ifdef _WIN32
-  g_recover_error = std::string("cannot ") + step + " " + path + ": Windows error " + std::to_string(code) +
-    "; the replay was refused and the journal kept";
-#else
-  g_recover_error = std::string("cannot ") + step + " " + path + ": " + strerror(code) + " (errno " +
-    std::to_string(code) + "); the replay was refused and the journal kept";
-#endif
-  return -1;
-}
-
-static int write_recovered_marker(const std::string &mk, unsigned long n)
-{
-  std::string tmp = mk + ".tmp", body = std::to_string(n) + "\n";
-#ifdef _WIN32
-  HANDLE h = CreateFileA(tmp.c_str(), GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
-  if(h == INVALID_HANDLE_VALUE) return marker_fail("create", tmp, (int)GetLastError());
-  DWORD wrote = 0;
-  if(!WriteFile(h, body.data(), (DWORD)body.size(), &wrote, 0) || wrote != (DWORD)body.size()) {
-    int e = (int)GetLastError(); CloseHandle(h); DeleteFileA(tmp.c_str()); return marker_fail("write", tmp, e);
-  }
-  if(!FlushFileBuffers(h)) { int e = (int)GetLastError(); CloseHandle(h); DeleteFileA(tmp.c_str()); return marker_fail("flush", tmp, e); }
-  CloseHandle(h);
-  if(!MoveFileExA(tmp.c_str(), mk.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-    int e = (int)GetLastError(); DeleteFileA(tmp.c_str()); return marker_fail("rename", tmp, e);
-  }
-  return 0;
-#else
-  int mf = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0640);
-  if(mf < 0) return marker_fail("create", tmp, errno);
-  if(write(mf, body.data(), body.size()) != (ssize_t)body.size()) {
-    int e = errno ? errno : EIO; close(mf); unlink(tmp.c_str()); return marker_fail("write", tmp, e);
-  }
-  if(fsync(mf) != 0) { int e = errno; close(mf); unlink(tmp.c_str()); return marker_fail("fsync", tmp, e); }
-  close(mf);
-  if(rename(tmp.c_str(), mk.c_str()) != 0) { int e = errno; unlink(tmp.c_str()); return marker_fail("rename", tmp, e); }
-  std::string::size_type sl = mk.find_last_of('/');
-  std::string d = sl == std::string::npos ? std::string(".") : (sl == 0 ? std::string("/") : mk.substr(0, sl));
-  int df = open(d.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-  if(df < 0) return marker_fail("open the folder", d, errno);
-  int rc = fsync(df), e = errno;
-  close(df);
-  return rc == 0 ? 0 : marker_fail("fsync the folder", d, e);
-#endif
-}
 
 const char *gxdJournal::RecoverError()
 {
@@ -394,15 +329,7 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
   }
 
   gxDatabaseError err = gxDBASE_NO_ERROR;
-  // 11/15/2026 (hardening): the marker, durably, before the first page is replayed: a crash in the middle of the
-  // replay still leaves it
-  // 11/16/2026 (beta4 review M2, M3): a marker that cannot be made durable refuses the replay (the journal is kept for
-  // another try): a replay without it would reach the files with no record and no open record saying so. Windows
-  // writes it too (FlushFileBuffers), so a folder copied from Windows carries it to the next writer that ships.
-  if(ncommits && mark && write_recovered_marker(recovered_marker(jname), ncommits) != 0) {
-    gxdFPTRClose(jfp);
-    return gxDBASE_FILE_WRITE_ERROR;
-  }
+  (void)mark;   // 11/16/2026: no marker since 7.4 dropped the ship log (the argument stays for source compatibility)
   if(ncommits) {
     std::vector<gxdFPTR *> fps(paths.size(), (gxdFPTR *)0);
     for(size_t i = 0; i < paths.size(); i++) {
@@ -410,16 +337,6 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
       fps[i] = gxdFPTROpen(paths[i].c_str(), gxDBASE_READWRITE);
       if(!fps[i]) { err = gxDBASE_FILE_OPEN_ERROR; break; }
     }
-#if defined(GXREPL_TEST_HOOKS) && !defined(_WIN32)
-    // 11/13/2026 test hook (test builds only): GXREPL_TEST_APPLY_FAIL=N makes the first N recoveries of a batch
-    // into a gxrepl stage fail before any page is written (an ENOSPC): the journal is kept for another try
-    if(err == gxDBASE_NO_ERROR && getenv("GXREPL_TEST_APPLY_FAIL")) {
-      static std::atomic<int> failed{0};
-      bool staged = false;
-      for(size_t i = 0; i < paths.size(); i++) if(paths[i].find("/.gxrepl/stage/") != std::string::npos) staged = true;
-      if(staged && failed.fetch_add(1) < atoi(getenv("GXREPL_TEST_APPLY_FAIL"))) err = gxDBASE_FILE_WRITE_ERROR;
-    }
-#endif
     for(auto &e : committed) {
       if(err != gxDBASE_NO_ERROR) break;
       // 10/31/2026: A page past the file's committed size is cut off by
@@ -473,7 +390,6 @@ gxDatabaseError gxdJournal::Close()
   gxDatabaseError err = gxDBASE_NO_ERROR;
   if(in_txn) Rollback();
   if(jfp) err = Detach();
-  for(size_t i = 0; i < files.size(); i++) notes_detach(files[i]);
   files.clear();
   caches.clear();
   // After a clean checkpoint the journal holds nothing to recover
@@ -505,8 +421,6 @@ gxDatabaseError gxdJournal::Attach(gxDatabase *f, size_t cache_bytes)
   jf.btx = 0;
   jf.path = jfull_path(f->DatabaseName());
   jf.written = 0;
-  jf.notes = 0;
-  if(onotes_on) notes_attach(jf);
   files.push_back(jf);
   return jerror = gxDBASE_NO_ERROR;
 }
@@ -537,7 +451,6 @@ gxDatabaseError gxdJournal::Detach()
 {
   if(in_txn) return jerror = gxDBASE_FILE_NOT_READY;
   if(Checkpoint() != gxDBASE_NO_ERROR) return jerror;
-  for(size_t i = 0; i < files.size(); i++) notes_detach(files[i]);
   files.clear();
   caches.clear();
   return jerror = gxDBASE_NO_ERROR;
@@ -554,10 +467,6 @@ gxDatabaseError gxdJournal::Begin()
   }
   for(size_t i = 0; i < files.size(); i++)
     files[i].f->PageCache()->BeginTxn();
-  // 11/14/2026: notes made outside a transaction: their pages may go
-  // with this commit, so this commit's notes for the file are incomplete
-  for(size_t i = 0; i < files.size(); i++)
-    if(files[i].notes && !files[i].notes->notes.empty()) files[i].notes->Incomplete();
   in_txn = 1;
   return jerror = gxDBASE_NO_ERROR;
 }
@@ -611,10 +520,6 @@ gxDatabaseError gxdJournal::Commit(int durable)
   for(size_t i = 0; i < files.size(); i++)
     dirty += files[i].f->PageCache()->DirtyPages();
 
-  // 11/07/2026: The pages of each file, kept for the ship log
-  std::vector< std::vector<gxdPage *> > shipped;
-  if(ship && dirty) shipped.resize(files.size());
-
   if(dirty) {
     if(!header_written) {
       if(WriteHeader() != gxDBASE_NO_ERROR)
@@ -625,7 +530,6 @@ gxDatabaseError gxdJournal::Commit(int durable)
     std::vector<gxdPage *> v;
     for(size_t i = 0; i < files.size(); i++) {
       files[i].f->PageCache()->GetDirtyPages(v);
-      if(ship) shipped[i] = v;
       for(size_t k = 0; k < v.size(); k++) {
 	size_t start = out.size();
 	jput32(out, gxdJournalPageMagic);
@@ -677,15 +581,6 @@ gxDatabaseError gxdJournal::Commit(int durable)
     // Write the batch to the files now. The journal holds it, so a
     // crash part way through is repaired by recovery.
     if(dirty && write_lock) gxdFPTRLock(jfp, 1);
-    // 11/07/2026: The commit is in the journal. Append it to the ship
-    // log under the write lock, before its pages reach the files, so a
-    // reader holding gxdJournalReadLock sees files that match the log.
-#if defined(GXREPL_TEST_HOOKS) && !defined(_WIN32)
-    // 11/14/2026: test builds: GXDJRNL_TEST_KILL_BEFORE_SHIP: stop the writer with its batch committed in the
-    // journal but not yet in the ship log (the next writer's recovery replays it: the drain-verify test)
-    if(ship && dirty && getenv("GXDJRNL_TEST_KILL_BEFORE_SHIP")) _exit(9);
-#endif
-    if(ship && dirty) ship_commit(shipped);
     for(size_t i = 0; i < files.size(); i++) {
       gxdPageCache *pc = files[i].f->PageCache();
       pc->CommitTxn();
@@ -698,18 +593,11 @@ gxDatabaseError gxdJournal::Commit(int durable)
     if(dirty && write_lock) gxdFPTRUnlock(jfp);
   }
   else {
-#if defined(GXREPL_TEST_HOOKS) && !defined(_WIN32)
-    // 11/14/2026: test builds: GXDJRNL_TEST_KILL_BEFORE_SHIP: stop the writer with its batch committed in the
-    // journal but not yet in the ship log (the next writer's recovery replays it: the drain-verify test)
-    if(ship && dirty && getenv("GXDJRNL_TEST_KILL_BEFORE_SHIP")) _exit(9);
-#endif
-    if(ship && dirty) ship_commit(shipped);
     for(size_t i = 0; i < files.size(); i++)
       files[i].f->PageCache()->CommitTxn();
   }
   in_txn = 0;
   commits++;
-  notes_clear(); // 11/14/2026: the objects record went with the commit
   if(err != gxDBASE_NO_ERROR) return jerror = err;
 
   // Checkpoint when the journal is large or the committed pages pinned
@@ -778,7 +666,6 @@ gxDatabaseError gxdJournal::Rollback()
   for(size_t i = 0; i < files.size(); i++)
     files[i].f->PageCache()->RollbackTxn();
   in_txn = 0;
-  notes_clear(); // 11/14/2026
 
   // Reload the in-memory headers from the committed pages
   for(size_t i = 0; i < files.size(); i++) {
@@ -789,205 +676,6 @@ gxDatabaseError gxdJournal::Rollback()
   return jerror = gxDBASE_NO_ERROR;
 }
 
-void gxdJournal::ship_commit(const std::vector< std::vector<gxdPage *> > &v)
-// 11/07/2026: Append a commit to the ship log. A failure is kept in
-// the ship log (it writes a gap record with its next record) and never
-// fails the commit.
-{
-  std::vector<gxdShipFile> sf(files.size());
-  for(size_t i = 0; i < files.size(); i++) {
-    sf[i].path = files[i].path;
-    sf[i].size = (unsigned long long)files[i].f->PageCache()->FileSize();
-    if(i < v.size()) sf[i].pages = &v[i];
-    sf[i].notes = files[i].notes; // 11/14/2026: 0 when object notes are off
-  }
-  // 11/08/2026: Power-off safety: the record is synced before the pages
-  // reach the files (unless the journal itself does not sync)
-  ship->SetSync(sync_level != gxdJOURNAL_SYNC_OFF ? 1 : 0);
-  ship->AppendCommit(sf);
-}
-
-gxDatabaseError gxdJournal::EnableShipLog(const char *set_root, 
-					  const char *stream)
-{
-  if(!set_root || !*set_root) return jerror = gxDBASE_NULL_PTR;
-  if(!jfp) return jerror = gxDBASE_FILE_NOT_READY;
-  if(in_txn) return jerror = gxDBASE_FILE_NOT_READY;
-  if(write_mode != gxdJOURNAL_WRITE_THROUGH) 
-    return jerror = gxDBASE_FILE_NOT_READY;
-  DisableShipLog();
-  gxdShipLog *log = new gxdShipLog;
-  // 11/15/2026 (hardening): the open record says what this writer's journal recovered: Open()'s replay and a
-  // static Recover()'s marker. A copy keeps its derived indexes object by object only across an open that says 0.
-  unsigned long long rec = recovered;
-  std::string mk;
-  mk = recovered_marker(jname.c_str());       // 11/16/2026 (M3): on every platform
-  {
-    FILE *mf = fopen(mk.c_str(), "r");
-    if(mf) { unsigned long long n = 0; if(fscanf(mf, "%llu", &n) != 1 || n == 0) n = 1; rec += n; fclose(mf); }
-  }
-  log->SetOpenRecovered(rec);
-  if(log->Open(set_root, stream, jfull_path(jname.c_str()).c_str()) != 0) {
-    delete log;
-    return jerror = gxDBASE_FILE_OPEN_ERROR;
-  }
-  if(!mk.empty()) remove(mk.c_str());                    // said in the open record (synced by the ship log)
-  ship = log;
-  write_lock = 1;
-  // 11/14/2026: object notes from the environment (EnableObjectNotes())
-  const char *on = getenv("GXDSHIP_OBJECTS");
-  if(on && atoi(on) > 0) EnableObjectNotes(1);
-  return jerror = gxDBASE_NO_ERROR;
-}
-
-gxDatabaseError gxdJournal::EnableObjectNotes(int on)
-{
-  if(in_txn) return jerror = gxDBASE_FILE_NOT_READY;
-  onotes_on = on ? 1 : 0;
-  for(size_t i = 0; i < files.size(); i++) {
-    if(onotes_on) notes_attach(files[i]);
-    else notes_detach(files[i]);
-  }
-  return jerror = gxDBASE_NO_ERROR;
-}
-
-void gxdJournal::notes_attach(JFile &jf)
-{
-  if(jf.notes) return;
-  jf.notes = new gxdObjectNotes;
-  jf.f->SetObjectNotes(jf.notes);
-}
-
-void gxdJournal::notes_detach(JFile &jf)
-{
-  if(!jf.notes) return;
-  if(jf.f && jf.f->ObjectNotes() == jf.notes) jf.f->SetObjectNotes(0);
-  delete jf.notes;
-  jf.notes = 0;
-}
-
-void gxdJournal::notes_clear()
-{
-  for(size_t i = 0; i < files.size(); i++)
-    if(files[i].notes) files[i].notes->Clear();
-}
-
-void gxdJournal::DisableShipLog()
-{
-  if(ship) {
-    ship->Close();
-    delete ship;
-    ship = 0;
-  }
-}
-
-gxDatabaseError gxdJournal::ApplyPages(const char *jname,
-				       const std::vector<gxdApplyFile> &af,
-				       unsigned long long *pages_written)
-{
-  if(pages_written) *pages_written = 0;
-  if(!jname) return gxDBASE_NULL_PTR;
-  if(af.empty()) return gxDBASE_NO_ERROR;
-  if(af.size() > gxdJournalMaxFiles) return gxDBASE_BAD_REFERENCE;
-
-  // Finish a batch an earlier call left in the journal
-  gxDatabaseError err = Recover(jname, 0, 0);
-  if(err != gxDBASE_NO_ERROR) return err;
-
-  // Every file must exist before Recover() opens it
-  for(size_t i = 0; i < af.size(); i++) {
-    if(af[i].path.empty() || af[i].path.size() > 4096) 
-      return gxDBASE_BAD_REFERENCE;
-    if(af[i].size > (unsigned long long)std::numeric_limits<FAU_t>::max())
-      return gxDBASE_BAD_REFERENCE;
-    if(!gxdFPTRExists(af[i].path.c_str())) {
-      gxdFPTR *f = gxdFPTRCreate(af[i].path.c_str());
-      if(!f) return gxDBASE_FILE_CREATION_ERROR;
-      gxdFPTRClose(f);
-    }
-  }
-
-  gxdFPTR *jfp = gxdFPTRExists(jname) ? 
-    gxdFPTROpen(jname, gxDBASE_READWRITE) : gxdFPTRCreate(jname);
-  if(!jfp) return gxDBASE_FILE_OPEN_ERROR;
-
-  // 11/08/2026: atomic, several replication channels apply at once
-  static std::atomic<unsigned> counter{0};
-  uint32_t salt = (uint32_t)(((unsigned)time(0) * 2654435761u) ^
-			     ((counter.fetch_add(1) + 1) * 40503u) ^ 0x5A17u);
-  if(salt == 0) salt = 1;
-  std::vector<unsigned char> h(gxdJournalMagic, gxdJournalMagic + 8);
-  jput32(h, gxdJournalVersion);
-  jput32(h, salt);
-  jput32(h, (uint32_t)af.size());
-  jput32(h, (uint32_t)gxdPageSize);
-  for(size_t i = 0; i < af.size(); i++) {
-    jput32(h, (uint32_t)af[i].path.size());
-    h.insert(h.end(), af[i].path.begin(), af[i].path.end());
-  }
-  jput32(h, jcheck(h.data(), h.size()));
-
-  // The header goes in last, after every record is synced, so a crash
-  // part way leaves nothing that Recover() would replay.
-  std::vector<unsigned char> out;
-  out.reserve(1024 * 1024 + gxdJournalPageHdrSize + gxdPageSize);
-  FAU_t pos = (FAU_t)h.size();
-  unsigned long long npages = 0;
-  int ok = 1;
-  if(gxdFPTRTruncate(jfp, (FAU_t)0) != 0) ok = 0;
-  for(size_t i = 0; ok && i < af.size(); i++) {
-    for(auto &e : af[i].pages) {
-      if(!e.second) { ok = 0; break; }
-      size_t start = out.size();
-      jput32(out, gxdJournalPageMagic);
-      jput32(out, salt);
-      jput32(out, (uint32_t)i);
-      jput32(out, 1);
-      jput64(out, (uint64_t)e.first);
-      jput32(out, jcheck(out.data() + start + 4, 20, e.second, gxdPageSize));
-      out.insert(out.end(), e.second, e.second + gxdPageSize);
-      npages++;
-      if(out.size() >= 1024 * 1024) {
-	if(gxdFPTRWriteAt(jfp, out.data(), (__ULWORD__)out.size(), pos) !=
-	   out.size()) { ok = 0; break; }
-	pos += (FAU_t)out.size();
-	out.clear();
-      }
-    }
-  }
-  if(ok) {
-    size_t start = out.size();
-    jput32(out, gxdJournalCommitMagic);
-    jput32(out, salt);
-    jput32(out, 1);
-    jput32(out, (uint32_t)af.size());
-    for(size_t i = 0; i < af.size(); i++) jput64(out, (uint64_t)af[i].size);
-    jput32(out, jcheck(out.data() + start + 4, out.size() - start - 4));
-    if(gxdFPTRWriteAt(jfp, out.data(), (__ULWORD__)out.size(), pos) !=
-       out.size()) ok = 0;
-  }
-  if(ok && gxdFPTRSync(jfp, 0) != 0) ok = 0;
-  if(ok && (gxdFPTRWriteAt(jfp, h.data(), (__ULWORD__)h.size(), (FAU_t)0) !=
-	    h.size() || gxdFPTRSync(jfp, 0) != 0)) ok = 0;
-  gxdFPTRClose(jfp);
-  if(!ok) return gxDBASE_FILE_WRITE_ERROR;
-#if defined(GXREPL_TEST_HOOKS) && !defined(_WIN32)
-  // 11/13/2026 test hook (test builds only): GXREPL_TEST_APPLY_CRASH=1 ends the process once a batch writing into
-  // a gxrepl stage is committed to the journal and before its pages reach the files (a crash inside an apply)
-  if(getenv("GXREPL_TEST_APPLY_CRASH"))
-    for(size_t i = 0; i < af.size(); i++)
-      if(af[i].path.find("/.gxrepl/stage/") != std::string::npos) _exit(9);
-  // 11/14/2026: gxrepl's GXREPL_TEST_CRASH_IN_APPLY (the drain-verify variants) asks for this batch
-  if(gxdJournalTestCrashNext.exchange(0)) _exit(9);
-#endif
-
-  unsigned long n = 0;
-  err = Recover(jname, &n, 0);
-  if(err != gxDBASE_NO_ERROR) return err;
-  if(n != 1) return gxDBASE_FILE_WRITE_ERROR;
-  if(pages_written) *pages_written = npages;
-  return gxDBASE_NO_ERROR;
-}
 
 gxDatabaseError gxdJournalReadLock::Lock(const char *jname)
 {
