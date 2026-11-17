@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel 6.4.1 Release Notes</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>DataReel 6.4.1 Release Notes</h1>
+<h2 id="Top">DataReel 6.4.1 Release Notes, 11/17/2026</h2>
+<p>DataReel version 6.4.1 (was 6.4) DataReel Copyright (c) 2001-2026 DataReel Software Development</p>
+<p>DataReel 6.4.1 is a bug-fix release of DataReel 6.4: socket and thread fixes only. The API, the database file format and the gxStream wire format are the same as 6.4, and everything in RELEASE_NOTES_6.4.txt is included. Version 6 is the legacy line: it gets bug fixes and security updates, but no new features. The shared library (Linux makefiles) is built as libdatareel.so.6.4.1. See the <a href="release_notes_6_4.html">DataReel 6.4 Release Notes</a>.</p>
+<h2>Fixes</h2>
+<ul>
+<li>gxSocket: close-on-exec sockets: gxSocket::Socket() and both gxSocket::Accept() calls set FD_CLOEXEC (POSIX). A program that forks and runs other programs used to pass them its sockets; a child that kept a server's listening socket held the port open, so a restarted server could not bind it. (DRCM 1.46 carried this change in its own copy of gxsocket.cpp.) Test: examples_socket/socket_security, the "cloexec" check.</li>
+<li>Threads: state set before the thread starts: apiCreateThread() (POSIX) sets the thread state to RUNNING before pthread_create(). The new thread used to set it itself, so a caller could see NEW right after CreateThread() and take the thread for one that never ran, and a cancel made before the thread ran had CANCELED overwritten with RUNNING.</li>
+<li>Threads: monotonic timed waits: On Linux, condition variables use CLOCK_MONOTONIC and gxThreadConditionTimedWait() computes its deadline on it. A change to the system time (an NTP step, date -s) used to make timed waits end early or last hours longer.</li>
+<li>Threads: sleep functions: api_nSleep(), api_uSleep() and api_mSleep() locked a mutex, never unlocked it and destroyed it locked on every call, and uSleep() overflowed on 32-bit systems. They now use nanosleep() (POSIX) or Sleep() (Windows). Test: examples_threads/thread_security (state, cancel, sleep, timedwait).</li>
+</ul>
+</main>
+<footer class="dr-footer">DataReel 6.4.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
+</html>

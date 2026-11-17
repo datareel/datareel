@@ -1,4 +1,4 @@
-DataReel 6.4 Readme File
+DataReel 6.4.1 Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -253,6 +253,15 @@ DOCUMENTATION
 -------------
 All documentation is included in the docs sub directory in an HTML
 format, viewable in any Web browser. 
+
+VERSION 6.4.1
+-------------
+DataReel 6.4.1, 11/17/2026, is a bug-fix release of 6.4: gxSocket sets
+close-on-exec on its sockets, a new thread's state is RUNNING before it
+starts, Linux timed waits use the monotonic clock, and the sleep
+functions no longer leak a locked mutex. The API and the file and wire
+formats are the same as 6.4. See RELEASE_NOTES_6.4.1.txt. The shared
+library is built as libdatareel.so.6.4.1.
 
 VERSION 6.4
 -----------
