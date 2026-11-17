@@ -382,6 +382,10 @@
 <li>New examples and tools:
 <ul>
 <li>serial_read: read a serial port as binary or hex, with limits and hangup handling (pty test on Linux). On Windows reads return within 100 ms (--seconds and Ctrl+C on time), standard output is binary, and COM10 and up open as \\.\COMn (tested on a real COM port).</li>
+</ul>
+</li>
+<li>gxSerialComm on Windows: software flow control (scommSOFT_FLOW and scommXON_XOFF) now turns XON/XOFF on (DC1/DC3); every other flow setting turns it off. Before, &quot;soft&quot; flow control on Windows was none: DC1/DC3 arrived as data and nothing was held.
+<ul>
 <li>dir_upload: watch a folder and upload new files over FTPS (a settle time, a .part name renamed when complete, a size check).</li>
 <li>hexdump, ffind and txfilter, the 6.x file utilities for 7.x.</li>
 <li>dr_bench section 6: TLS handshakes and throughput over the loopback.</li>
