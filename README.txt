@@ -43,14 +43,15 @@ rest:
 The library has no dependencies except the system TLS library
 (OpenSSL on Linux, Schannel or OpenSSL on Windows).
 
-DataReel 7.4 is a beta release: beta 5 (11/16/2026) follows beta 4
-(tag 7.4-beta4) and adds object replication between Windows and
-Linux (gxObjRepl).
-DataReel 6.2 remains the stable release for production use until
-DataReel 7 is final.
+DataReel 7.4 is the stable DataReel release (7.4 final in progress;
+7.4-beta5, released 11/17/2026, follows beta 4 and adds object
+replication between Windows and Linux, gxObjRepl). DataReel 6.4 is
+the stable legacy version (6.4.1 in progress). Online documentation:
+https://datareel.com/clib7/ (Version 7) and https://datareel.com/clib/
+(Version 6, legacy).
 
 README.md is a short overview of DataReel and its two release tracks:
-DataReel 7.x and the planned DataReel 6.4 legacy bridge release.
+DataReel 7.x and the DataReel 6.4 stable legacy version.
 
 The DataReel development package was produced by independent work and
 contract work released to the public through non-exclusive license

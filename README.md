@@ -8,8 +8,10 @@ There are two release tracks:
 
 | Track | For | API |
 |---|---|---|
-| **DataReel 7.x** (current: 7.4 beta) | New projects, modern C++ pipelines, AI-assisted development | Database, vector index, sockets, replication, on standard C++ (`std::`) |
-| **DataReel 6.4** (legacy bridge, planned) | Existing 6.x systems where moving to 7.x is too large a rewrite | The full 6.x API plus the vector index and replication, backported |
+| **DataReel 7.x** (7.4: the stable release; 7.4 final in progress, 7.4-beta5 released 11/17/2026) | New projects, modern C++ pipelines, AI-assisted development | Database, vector index, sockets, replication, on standard C++ (`std::`) |
+| **DataReel 6.4** (the stable legacy version; 6.4.1 in progress) | Existing 6.x systems where moving to 7.x is too large a rewrite | The full 6.x API plus the vector index and replication, backported |
+
+Online documentation: [Version 7](https://datareel.com/clib7/) and [Version 6 (legacy)](https://datareel.com/clib/).
 
 ## DataReel 7.x
 
@@ -102,7 +104,7 @@ and [README.txt](README.txt) has the complete release notes index.
 - **7.5 alpha:** a Python module, published as the `datareel` pip package, built from this
   repository.
 
-## DataReel 6.4: the legacy bridge release
+## DataReel 6.4: the stable legacy version
 
 ### Why
 
@@ -110,7 +112,7 @@ DataReel 7.x is the way forward for new projects, but several mature production 
 depend on the 6.x utility classes, containers and threading model. Rewriting them to
 remove those dependencies would be a large job with real regression risk.
 
-### What it will deliver
+### What it delivers
 
 DataReel 6.4 keeps the full 6.x API and adds the main 7.x data features:
 

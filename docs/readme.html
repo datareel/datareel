@@ -24,10 +24,11 @@
 <table>
 <thead><tr><th>Track</th><th>For</th><th>API</th></tr></thead>
 <tbody>
-<tr><td><strong>DataReel 7.x</strong> (current: 7.4 beta)</td><td>New projects, modern C++ pipelines, AI-assisted development</td><td>Database, vector index, sockets, replication, on standard C++ (<code>std::</code>)</td></tr>
-<tr><td><strong>DataReel 6.4</strong> (legacy bridge, planned)</td><td>Existing 6.x systems where moving to 7.x is too large a rewrite</td><td>The full 6.x API plus the vector index and replication, backported</td></tr>
+<tr><td><strong>DataReel 7.x</strong> (7.4: the stable release; 7.4 final in progress, 7.4-beta5 released 11/17/2026)</td><td>New projects, modern C++ pipelines, AI-assisted development</td><td>Database, vector index, sockets, replication, on standard C++ (<code>std::</code>)</td></tr>
+<tr><td><strong>DataReel 6.4</strong> (the stable legacy version; 6.4.1 in progress)</td><td>Existing 6.x systems where moving to 7.x is too large a rewrite</td><td>The full 6.x API plus the vector index and replication, backported</td></tr>
 </tbody>
 </table>
+<p>Online documentation: <a href="https://datareel.com/clib7/">Version 7</a> and <a href="https://datareel.com/clib/">Version 6 (legacy)</a>.</p>
 <h2 id="Datareel7X">DataReel 7.x</h2>
 <h3 id="WhatItIs">What it is</h3>
 <p>DataReel 7.x is no longer a general-purpose C++ utility toolkit. It is an object database and networking engine:</p>
@@ -75,10 +76,10 @@ tests/run_tests.sh</pre>
 <ul>
 <li><strong>7.5 alpha:</strong> a Python module, published as the <code>datareel</code> pip package, built from this repository.</li>
 </ul>
-<h2 id="Datareel64TheLegacyBridgeRelease">DataReel 6.4: the legacy bridge release</h2>
+<h2 id="Datareel64TheStableLegacyVersion">DataReel 6.4: the stable legacy version</h2>
 <h3 id="Why">Why</h3>
 <p>DataReel 7.x is the way forward for new projects, but several mature production systems depend on the 6.x utility classes, containers and threading model. Rewriting them to remove those dependencies would be a large job with real regression risk.</p>
-<h3 id="WhatItWillDeliver">What it will deliver</h3>
+<h3 id="WhatItDelivers">What it delivers</h3>
 <p>DataReel 6.4 keeps the full 6.x API and adds the main 7.x data features:</p>
 <ul>
 <li><strong>The vector index</strong>, built on the 6.x classes, so existing applications can add similarity search without changing their data structures.</li>
