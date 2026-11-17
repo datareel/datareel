@@ -15,6 +15,7 @@
 #              applied seq. planned: drained first, then the same switch; 0 lost. Then a compare
 # Stops at the first failed compare and keeps the folders. Prints one line per cycle and a summary.
 set -u
+. "$(dirname "$0")/objrepl_proc.sh"   # 11/17/2026: objrepl_stop, objrepl_pid (Windows)
 X=${1:?usage: drill_objrepl.sh BIN [MINUTES]}
 # 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's), unless
 # OBJREPL_ALLOW_32BIT=1 says a 32-bit run is meant (the run makes its own folders, so no engine reads the other's files)
@@ -34,19 +35,19 @@ P=n1; C=n2                      # the roles now
 CPID=""; PPID2=""
 mkdir -p "$T/n1" "$T/n2"
 log() { echo "$(date +%H:%M:%S) $*"; }
-cleanup() { [ -n "$PPID2" ] && kill -KILL $PPID2 2>/dev/null; [ -n "$CPID" ] && kill -TERM $CPID 2>/dev/null; wait 2>/dev/null; }
+cleanup() { [ -n "$PPID2" ] && kill -KILL $PPID2 2>/dev/null; [ -n "$CPID" ] && objrepl_stop $CPID; wait 2>/dev/null; }
 trap cleanup EXIT
 field() { awk -v k="$2" '$1 == k { print $2 }' "$T/$1/objrepl.status" 2>/dev/null; }
 start_copy() {  # start_copy [ENV=VAL]: the copy C, waits until it says listening (60 s)
   env ${1:-} "$X" copy "$T/$C" --listen $PORT "${CTLS[@]}" --name $C --links "$LINKS" --index "$IX" >> "$T/copy_$C.log" 2>&1 & CPID=$!
   for i in $(seq 1 300); do
-    [ "$(field $C pid)" == "$CPID" ] && grep -qE "^state (listening|streaming)" "$T/$C/objrepl.status" 2>/dev/null && return 0   # up (a primary may be on it already)
+    [ "$(field $C pid)" == "$(objrepl_pid $CPID)" ] && grep -qE "^state (listening|streaming)" "$T/$C/objrepl.status" 2>/dev/null && return 0   # up (a primary may be on it already)
     kill -0 $CPID 2>/dev/null || { CPID=""; return 1; }
     sleep 0.2
   done
   return 1
 }
-stop_copy() { [ -n "$CPID" ] || return 0; kill -TERM $CPID 2>/dev/null
+stop_copy() { [ -n "$CPID" ] || return 0; objrepl_stop $CPID
               for i in $(seq 1 50); do kill -0 $CPID 2>/dev/null || break; sleep 0.2; done
               if kill -0 $CPID 2>/dev/null; then
                 log "WARN copy pid $CPID did not stop on TERM in 10 s: its stacks in $T/stuck_$CPID.txt, then KILL"

@@ -16,6 +16,7 @@
 #   bad conf   an unknown key in objrepl.conf: refused (exit 64)
 #   wrong CN   a primary whose client certificate CN is not the copy's allow-cn: never gets a stream
 set -u
+. "$(dirname "$0")/objrepl_proc.sh"   # 11/17/2026: objrepl_stop, objrepl_pid (Windows)
 X=${1:?usage: test_objrepl_config.sh BIN}
 # 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's), unless
 # OBJREPL_ALLOW_32BIT=1 says a 32-bit run is meant (the run makes its own folders, so no engine reads the other's files)
@@ -27,7 +28,7 @@ FAIL=0; PASS=0
 ok()  { echo "PASS $1"; PASS=$((PASS + 1)); }
 bad() { echo "FAIL $1: $2"; FAIL=$((FAIL + 1)); }
 CPID=""
-stop_copy() { [ -n "$CPID" ] || return 0; kill -TERM $CPID 2>/dev/null
+stop_copy() { [ -n "$CPID" ] || return 0; objrepl_stop $CPID
               for i in $(seq 1 25); do kill -0 $CPID 2>/dev/null || break; sleep 0.2; done
               kill -KILL $CPID 2>/dev/null; wait $CPID 2>/dev/null; CPID=""; }
 trap 'stop_copy; rm -rf "$T"' EXIT

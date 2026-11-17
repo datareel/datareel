@@ -15,6 +15,7 @@
 #   dropped    an index left out of a node's config once is dropped (it would go stale), and rebuilt when configured
 #   checker    a stale index file put back is reported by ixcheck (MISMATCH, rc 5)
 set -u
+. "$(dirname "$0")/objrepl_proc.sh"   # 11/17/2026: objrepl_stop, objrepl_pid (Windows)
 X=${1:?usage: test_objrepl_index.sh BIN}
 # 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's), unless
 # OBJREPL_ALLOW_32BIT=1 says a 32-bit run is meant (the run makes its own folders, so no engine reads the other's files)
@@ -39,9 +40,9 @@ CPID=""
 # started = listening (index builds done): its status file names its pid with state listening (60 s at most)
 start_copy() { local d=$1 port=$2 ix=$3; shift 3; "$X" copy "$T/$d" --listen $port "${CTLS[@]}" --index "$ix" "$@" >> "$T/copy_$d.log" 2>&1 & CPID=$!
                for i in $(seq 1 300); do
-                 [ "$(awk '$1 == "pid" { print $2 }' "$T/$d/objrepl.status" 2>/dev/null)" == "$CPID" ] && grep -q "^state listening" "$T/$d/objrepl.status" && break
+                 [ "$(awk '$1 == "pid" { print $2 }' "$T/$d/objrepl.status" 2>/dev/null)" == "$(objrepl_pid $CPID)" ] && grep -q "^state listening" "$T/$d/objrepl.status" && break
                  kill -0 $CPID 2>/dev/null || break; sleep 0.2; done; }
-stop_copy() { [ -n "$CPID" ] || return 0; kill -TERM $CPID 2>/dev/null
+stop_copy() { [ -n "$CPID" ] || return 0; objrepl_stop $CPID
               for i in $(seq 1 25); do kill -0 $CPID 2>/dev/null || break; sleep 0.2; done
               kill -KILL $CPID 2>/dev/null; wait $CPID 2>/dev/null; CPID=""; }
 kill_copy() { kill -KILL $CPID 2>/dev/null; wait $CPID 2>/dev/null; CPID=""; }

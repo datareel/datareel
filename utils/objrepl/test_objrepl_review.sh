@@ -16,6 +16,7 @@
 #   rejoin       a copy made to wait for a full send gets one and equals the primary
 #   alarm        the same refusal three times: one alarm line
 set -u
+. "$(dirname "$0")/objrepl_proc.sh"   # 11/17/2026: objrepl_stop, objrepl_pid (Windows)
 X=${1:?usage: test_objrepl_review.sh BIN}
 # 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's), unless
 # OBJREPL_ALLOW_32BIT=1 says a 32-bit run is meant (the run makes its own folders, so no engine reads the other's files)
@@ -33,8 +34,8 @@ PTLS=(--ca "$K/ca.pem" --cert "$K/primary.pem" --key "$K/primary.key")
 CPID=""; BG=""
 start_copy() { local d=$1 port=$2; shift 2; "$X" copy "$T/$d" --listen $port "${CTLS[@]}" "$@" >> "$T/copy_$d.log" 2>&1 & CPID=$!
 	       for i in $(seq 1 100); do grep -qE "^state (listening|streaming)" "$T/$d/objrepl.status" 2>/dev/null && \
-		 [ "$(awk '$1=="pid"{print $2}' "$T/$d/objrepl.status")" == "$CPID" ] && return 0; sleep 0.1; done; return 1; }
-stop_copy() { [ -n "$CPID" ] || return 0; kill -TERM $CPID 2>/dev/null
+		 [ "$(awk '$1=="pid"{print $2}' "$T/$d/objrepl.status")" == "$(objrepl_pid $CPID)" ] && return 0; sleep 0.1; done; return 1; }
+stop_copy() { [ -n "$CPID" ] || return 0; objrepl_stop $CPID
 	      for i in $(seq 1 50); do kill -0 $CPID 2>/dev/null || break; sleep 0.2; done
 	      kill -KILL $CPID 2>/dev/null; wait $CPID 2>/dev/null; CPID=""; }
 trap 'stop_copy; [ -n "$BG" ] && { kill -CONT $BG; kill -KILL $BG; } 2>/dev/null; rm -rf "$T"' EXIT
