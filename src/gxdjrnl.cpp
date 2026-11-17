@@ -743,6 +743,63 @@ gxDatabaseError gxdJournal::Commit(int durable)
   return jerror = gxDBASE_NO_ERROR;
 }
 
+gxDatabaseError gxdJournal::WriteCommitted()
+// 11/16/2026: Write-back mode: the committed pages to their files, no
+// sync, the journal kept (see the header)
+{
+  if(in_txn) return jerror = gxDBASE_FILE_NOT_READY;
+  gxDatabaseError err = gxDBASE_NO_ERROR;
+  for(size_t i = 0; i < files.size(); i++) {
+    gxdPageCache *pc = files[i].f->PageCache();
+    size_t n = pc->LoggedPages();
+    if(n == 0) continue;
+    if(pc->WriteLoggedPages() != 0) err = gxDBASE_FILE_WRITE_ERROR;
+    files[i].written = 1;
+    pages_written += n;
+  }
+  return jerror = err;
+}
+
+gxDatabaseError gxdJournal::CheckpointBegin(std::vector<std::string> &paths,
+					    unsigned long &commit_count)
+// 11/16/2026: The first step of a checkpoint whose files the caller
+// syncs (see the header)
+{
+  paths.clear();
+  commit_count = commits;
+  if(in_txn) return jerror = gxDBASE_FILE_NOT_READY;
+  if(WriteCommitted() != gxDBASE_NO_ERROR) return jerror;
+  for(size_t i = 0; i < files.size(); i++) paths.push_back(files[i].path);
+  return jerror = gxDBASE_NO_ERROR;
+}
+
+gxDatabaseError gxdJournal::CheckpointEnd(unsigned long commit_count)
+// 11/16/2026: The second step: the journal emptied if no commit came
+// since CheckpointBegin() and the caller synced every file
+{
+  if(in_txn || commits != commit_count) return jerror = gxDBASE_FILE_NOT_READY;
+  if(!jfp || !header_written) return jerror = gxDBASE_NO_ERROR;
+  for(size_t i = 0; i < files.size(); i++)
+    if(files[i].f->PageCache()->LoggedPages()) return jerror = gxDBASE_FILE_NOT_READY;
+  // The journal itself: synced as a checkpoint would (Commit(0) batches)
+  int sync = (sync_level != gxdJOURNAL_SYNC_OFF) || durable_logged;
+  if(sync && unsynced) {
+    if(gxdFPTRSync(jfp, 0) != 0) return jerror = gxDBASE_FILE_WRITE_ERROR;
+  }
+  unsynced = 0;
+  for(size_t i = 0; i < files.size(); i++) files[i].written = 0;
+  if(jclear(jfp, 0) != 0) return jerror = gxDBASE_FILE_WRITE_ERROR;
+  header_written = 0;
+  durable_logged = 0;
+  jsize = (FAU_t)0;
+  seq = 0;
+  checkpoints++;
+  if(jalloc > (FAU_t)(2 * CheckpointSize() + gxdJournalGrowBy)) {
+    if(gxdFPTRTruncate(jfp, (FAU_t)0) == 0) jalloc = (FAU_t)0;
+  }
+  return jerror = gxDBASE_NO_ERROR;
+}
+
 size_t gxdJournal::CheckpointSize() const
 {
   if(ckpt_size) return ckpt_size;

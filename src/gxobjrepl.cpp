@@ -57,6 +57,7 @@ the frame.
 #include <string.h>
 #include <stdint.h>
 #include <ctype.h>
+#include <errno.h>
 #include <time.h>
 #include <map>
 #include <set>
@@ -143,6 +144,9 @@ enum { F_COMMIT = 1, F_SNAP_BEGIN = 2, F_SNAP_BATCH = 3, F_SNAP_END = 4, F_EPOCH
 const uint64_t DLOG_KEEP = 1000000;
 const uint32_t DLOG_BATCH = 65536;                              // entries per F_SNAP_DLOG frame
 const size_t SNAP_BATCH_BYTES = 1u << 20;
+// the journal is checkpointed once it holds CKPT_SOFT bytes, with the database files synced before the node's lock
+// is taken for it (gxObjRepl::Impl::checkpoint_soon()); a commit checkpoints it in the lock only at CKPT_HARD
+const size_t CKPT_SOFT = 8u * 1024 * 1024, CKPT_HARD = 64u * 1024 * 1024;
 const BtreeNodeOrder_t ORDER = 16;
 
 struct IdKeyData { uint64_t id; FAU addr; };
@@ -329,6 +333,58 @@ struct Ix {
   void close() { if(def.kind == 'B') bt.Close(); else vx.Close(); }
 };
 
+// the node's lock: a recursive mutex that knows how deep its owner holds it (Once(): held once, by the calling thread,
+// so it can be given up for a while: the network I/O of Pump(), a file sync before a checkpoint). A test build
+// (GXREPL_TEST_HOOKS) with OBJREPL_TEST_HOLD_MS=N set says every hold of N ms or more on stderr, by phase (at() names
+// the phase from there on), so the waits readers see can be traced to what held the lock (11/16/2026: reader latency)
+class ObjMutex {
+public:
+  void lock() { m.lock(); if(depth++ == 0) begin_hold(); }
+  bool try_lock() { if(!m.try_lock()) return false; if(depth++ == 0) begin_hold(); return true; }
+  void unlock() { if(--depth == 0) end_hold(); m.unlock(); }
+  bool Once() const { return depth == 1; }  // only meaningful to the thread that holds it
+  std::atomic<int> windows{0};              // threads inside an Unlocked window (the lock given up for a while)
+#ifdef GXREPL_TEST_HOOKS
+  void at(const char *s) { if(depth <= 0) return; seg_end(); site = s; seg0 = clk::now(); }
+  static long thresh() { static long t = getenv("OBJREPL_TEST_HOLD_MS") ? atol(getenv("OBJREPL_TEST_HOLD_MS")) : -1; return t; }
+  static void note(const char *what, double ms) {
+    if(thresh() >= 0 && ms >= thresh()) { fprintf(stderr, "objrepl hold: %s %.1f ms\n", what, ms); fflush(stderr); }
+  }
+private:
+  typedef std::chrono::steady_clock clk;
+  clk::time_point t0, seg0; const char *site = 0, *first = 0;
+  void begin_hold() { t0 = seg0 = clk::now(); site = first = 0; }
+  void seg_end() {
+    if(!first) first = site;
+    if(thresh() < 0 || !site) return;
+    note(site, std::chrono::duration<double, std::milli>(clk::now() - seg0).count());
+  }
+  void end_hold() {
+    if(thresh() < 0) return;
+    seg_end();
+    double ms = std::chrono::duration<double, std::milli>(clk::now() - t0).count();
+    if(ms >= thresh()) { std::string w = std::string("total (from ") + (first ? first : "?") + ")"; note(w.c_str(), ms); }
+  }
+#else
+  void at(const char *) {}
+  static void note(const char *, double) {}
+private:
+  void begin_hold() {}
+  void end_hold() {}
+#endif
+  int depth = 0;                    // changed only by the owner, with m held
+  std::recursive_mutex m;
+};
+// the lock given up for a scope by a thread that holds it once (see ObjMutex::Once()), and taken again
+struct Unlocked {
+  ObjMutex &m; bool did;
+  Unlocked(ObjMutex &x) : m(x), did(x.Once()) { if(did) { m.windows++; m.unlock(); } }
+  ~Unlocked() { if(did) { m.lock(); m.windows--; } }
+};
+
+bool sync_files(const std::vector<std::string> &paths);   // below: sync by path
+int sync_path(const std::string &f, bool data_only);
+
 // ---------- one database: NAME.gxd + NAME.id.btx ----------
 struct Db {
   std::string name;
@@ -511,6 +567,7 @@ struct Node {
   int lock_fd = -1;
 #endif
   const std::vector<LinkDef> *links = 0;
+  std::set<std::string> opening;          // OpenDatabase(): databases being prepared without the lock (11/16/2026)
   const std::vector<IxDef> *ixdefs = 0;
   std::function<void(const std::string &)> log;
   uint64_t seen_seq = 0;            // the commit being applied (placeholders record it)
@@ -546,13 +603,31 @@ struct Node {
   }
   bool begin() { if(j.Begin() != gxDBASE_NO_ERROR) return fail("cannot begin a transaction"); return true; }
   // a commit that failed leaves the transaction open: it is rolled back (the caller reopens the node)
-  bool commit() { if(j.Commit() == gxDBASE_NO_ERROR) return true; if(j.InTransaction()) j.Rollback(); return fail("a commit failed"); }
+  bool commit() {
+#ifdef GXREPL_TEST_HOOKS
+    auto t0 = std::chrono::steady_clock::now(); unsigned long ck = j.checkpoints;
+    gxDatabaseError e = j.Commit();
+    if(e == gxDBASE_NO_ERROR) e = j.WriteCommitted();
+    ObjMutex::note(j.checkpoints != ck ? "journal commit with a checkpoint" : "journal commit",
+		   std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+    if(e == gxDBASE_NO_ERROR) return true;
+#else
+    // durable, then the pages to the files (write-back mode: as a write-through commit)
+    if(j.Commit() == gxDBASE_NO_ERROR && j.WriteCommitted() == gxDBASE_NO_ERROR) return true;
+#endif
+    if(j.InTransaction()) j.Rollback(); return fail("a commit failed");
+  }
   // have_lock: the caller holds ROOT/objrepl.lock already (a reopen keeps it, so nothing can change the node between)
+  unsigned long opens = 0;          // open() calls: a reopen changes it
   bool open(const std::string &r, bool prim, bool have_lock = false) {
-    root = r; primary = prim;
+    root = r; primary = prim; opens++;
     std::error_code ec; fs::create_directories(root, ec);
     if(!have_lock && !lock()) return false;
     if(j.Open(path(root, "node.jnl").c_str()) != gxDBASE_NO_ERROR) { unlock(); return fail(std::string("cannot open the journal: ") + gxdJournal::RecoverError()); }
+    j.SetCheckpointSize(CKPT_HARD);                            // the checkpoints come at CKPT_SOFT (checkpoint_soon())
+    // write-back: a commit's pages reach the files when commit() (or gxObjRepl::Impl::jcommit()) writes them, after
+    // the journal is synced, so a commit can be synced without the node's lock (11/16/2026)
+    j.SetWriteMode(gxdJOURNAL_WRITE_BACK);
     is_open = true;                                            // from here close() undoes what was opened
     // an interrupted set-aside (review 4): the files still here are originals not moved yet; they go into prev.tmp
     // (never over a file already there) and prev.tmp becomes prev, before this open makes any node file
@@ -604,7 +679,13 @@ struct Node {
       if(!commit()) return fail("cannot write the state");
     }
     for(auto &n : list_dir(root))                              // the databases already here
-      if(ends_with(n, ".gxd")) { std::string nm = n.substr(0, n.size() - 4); if(good_name(nm) && !get(nm)) return false; }
+      if(ends_with(n, ".gxd")) {
+	std::string nm = n.substr(0, n.size() - 4);
+	// one OpenDatabase() is preparing without the lock (a reopen() from another thread meanwhile): it attaches it
+	// (review: a reopen built the same index over the preparer's)
+	if(opening.count(nm)) continue;
+	if(good_name(nm) && !get(nm)) return false;
+      }
     // old data kept from a full send that has ended (the removal failed or was cut short): it goes now (review 4)
     if(!st.in_snapshot && (exists(path(root, "prev")) || exists(path(root, "prev.tmp")))) drop_aside();
     return true;
@@ -620,17 +701,18 @@ struct Node {
     return true;
   }
   // the database NAME, opened (or created) and attached; never inside a transaction
-  Db *get(const std::string &name) {
+  // READY: NAME's files opened and scanned already (prepare_db(), without the node's lock), or 0 to open them here
+  Db *get(const std::string &name, std::unique_ptr<Db> ready = nullptr) {
     auto it = dbs.find(name);
-    if(it != dbs.end()) return it->second.get();
-    if(!good_name(name)) { err = "a bad database name: " + name; return 0; }
-    if(j.InTransaction()) { err = "the database " + name + " is not open (open it before Begin())"; return 0; }
+    if(it != dbs.end()) { if(ready) ready->close(); return it->second.get(); }
+    if(!good_name(name)) { if(ready) ready->close(); err = "a bad database name: " + name; return 0; }
+    if(j.InTransaction()) { if(ready) ready->close(); err = "the database " + name + " is not open (open it before Begin())"; return 0; }
     // a database whose open failed keeps its objects attached until close: it is not opened a second time over them
     // (review 3: the dead objects' stale headers were written at close and emptied an index)
-    for(auto &d : dead_dbs) if(d->name == name) { err = "the database " + name + " failed to open earlier: Close() and Open() again"; return 0; }
-    std::unique_ptr<Db> d(new Db);
+    for(auto &d : dead_dbs) if(d->name == name) { if(ready) ready->close(); err = "the database " + name + " failed to open earlier: Close() and Open() again"; return 0; }
+    std::unique_ptr<Db> d(ready ? std::move(ready) : std::unique_ptr<Db>(new Db));
     d->name = name;
-    if(!d->open(root)) { d->close(); err = "cannot open the database " + name; return 0; }
+    if(!d->db.IsOpen() && !d->open(root)) { d->close(); err = "cannot open the database " + name; return 0; }
     if(j.Attach(&d->db) != gxDBASE_NO_ERROR || j.Attach(&d->bt) != gxDBASE_NO_ERROR) {
       dead_dbs.push_back(std::move(d)); err = "cannot attach " + name; return 0;   // the journal may hold one of them
     }
@@ -663,6 +745,64 @@ struct Node {
     return p;
   }
   void say(const std::string &m) { if(log) log(m); }
+  // 11/16/2026 (lock holds): OpenDatabase() on a primary opens NAME's files, reads its objects' headers and builds any
+  // index that must be built (new, unfinished or of another definition) here, WITHOUT the node's lock, so readers do
+  // not wait for it (a new primary held the lock 74 s building indexes). Nobody else can reach NAME meanwhile: it is
+  // not in dbs (Put() and the other writers need it there, readers find nothing) and OpenDatabase() lets one caller
+  // prepare it at a time. The index is built outside the journal: ROOT/<index file>.building marks it unfinished (a
+  // crash in the middle builds it again at the next open, as before), the files are synced before the .def is written
+  // and the mark removed. get() under the lock then finds the index ready (opened and attached, not built again).
+  // DEFS, ROOT: copies taken under the lock. STOP: Close() has begun (the build gives up)
+  static bool prepare_db(const std::string &root, const std::string &name, const std::vector<IxDef> &defs,
+			 std::unique_ptr<Db> &out, std::string &e, std::function<bool()> stop, std::function<void(const std::string &)> log) {
+    std::unique_ptr<Db> d(new Db);
+    d->name = name;
+    bool was = exists(path(root, name + ".gxd"));
+    if(!d->open(root)) { d->close(); e = "cannot open the database " + name; return false; }
+    // a new database's files and their directory entries are durable before the journal holds pages for them
+    // (review: after a power loss Recover() could not open them and the node did not open)
+    if(!was && (!sync_files({path(root, name + ".gxd"), path(root, name + ".id.btx")}) || sync_path(root, false) == 0)) {
+      d->close(); e = "cannot sync the new database " + name; return false;
+    }
+    for(auto &def : defs) {
+      if(def.db != name) continue;
+      Ix x; x.def = def;
+      std::string f = x.file(root), mark = f + ".building", deff = f + ".def";
+      std::string want = std::string(1, def.kind) + ":" + std::to_string(def.off) + ":" + std::to_string(def.len) + "\n";
+      bool fresh = !exists(f) || exists(mark) || read_file(deff) != want;
+      if(!fresh) {
+	bool ok = def.kind == 'B' ? x.bt.Open(f.c_str()) == gxDBASE_NO_ERROR : x.vx.Open(f.c_str(), gxDBASE_READWRITE, x.spec().c_str()) == gxv_NO_ERROR;
+	if(ok) { x.close(); continue; }                        // ready: get() opens and attaches it
+	fresh = true;                                          // one that will not open is built again
+      }
+      if(FILE *m = fopen(mark.c_str(), "w")) fclose(m); else { d->close(); e = "cannot write " + mark; return false; }
+      remove_file(f); remove_file(deff);
+      Ix b; b.def = def;
+      if(def.kind == 'B' ? b.bt.Create(f.c_str()) != gxDBASE_NO_ERROR
+			 : b.vx.Create(f.c_str(), def.len, gxvFLOAT32, gxvL2, 16, b.spec().c_str()) != gxv_NO_ERROR) { d->close(); e = "cannot create " + f; return false; }
+      size_t built = 0;
+      for(auto &w : d->where) {
+	if(d->tombs.count(w.first)) continue;
+	std::vector<unsigned char> rec; ObjHead h;
+	if(!d->read(w.second, rec, h) || !b.add(w.first, rec.data() + sizeof(h), h.len)) { b.close(); d->close(); e = "cannot build " + f; return false; }
+	if(++built % 1024 == 0 && stop()) { b.close(); d->close(); e = "the node was closed while " + name + " was opened"; return false; }
+#ifdef GXREPL_TEST_HOOKS
+	if(built == 50 && getenv("OBJREPL_TEST_KILL_IN_IXBUILD")) _exit(9);   // test only: killed inside the build
+#endif
+      }
+      b.close();
+      // durable before it is marked finished: a crash after the mark is gone must find a whole index
+      if(!sync_files({f})) { d->close(); e = "cannot sync " + f; return false; }
+      FILE *df = fopen(deff.c_str(), "wb");
+      if(!df || fputs(want.c_str(), df) < 0 || fclose(df) != 0) { d->close(); e = "cannot write " + deff; return false; }
+      if(!sync_files({deff})) { d->close(); e = "cannot sync " + deff; return false; }
+      remove_file(mark);
+      sync_files({root});
+      if(built) log("index " + def.name + " on " + def.db + " built from " + std::to_string(built) + " object(s) (without the lock)");
+    }
+    out = std::move(d);
+    return true;
+  }
   // an index of D: opened, or created and built from the objects already here (in one transaction)
   // ROOT/<index file>.def holds the definition the file was built for: another offset, length or kind under the same
   // name rebuilds it (11/16/2026, review: a changed definition was reopened as it was and every write then failed)
@@ -800,6 +940,50 @@ void settle(const std::string &root)
   if(!n.lock(0)) return;                                      // running (or another settle): read as it is
   gxdJournal::Recover(path(root, "node.jnl").c_str(), 0, 0);
   n.unlock();
+}
+
+// one file synced to disk by name, by its own handle (nothing of an open node is used, so it runs without the node's
+// lock): 1 synced, 0 failed, -1 gone, 2 (Windows) not opened for the sync (another handle denies write sharing) (the node was closed or set aside meanwhile: the caller checks that). DATA_ONLY:
+// fdatasync where there is one. Windows (11/16/2026): a second handle with write access (DataReel opens its files
+// sharing read and write) and FlushFileBuffers, which flushes the file whichever handle wrote it; a directory needs
+// no flush there (NTFS logs its metadata) and counts as synced
+int sync_path(const std::string &f, bool data_only)
+{
+#if !defined(_WIN32)
+  int fd = ::open(f.c_str(), O_RDONLY | O_CLOEXEC);
+  if(fd < 0) return errno == ENOENT ? -1 : 0;
+#if defined(__linux__)
+  int r = data_only ? fdatasync(fd) : fsync(fd);
+#else
+  (void)data_only; int r = fsync(fd);
+#endif
+  ::close(fd);
+  return r == 0 ? 1 : 0;
+#else
+  (void)data_only;
+  DWORD at = GetFileAttributesA(f.c_str());
+  if(at == INVALID_FILE_ATTRIBUTES) { DWORD e = GetLastError(); return e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND ? -1 : 0; }
+  if(at & FILE_ATTRIBUTE_DIRECTORY) return 1;
+  HANDLE h = CreateFileA(f.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, OPEN_EXISTING,
+			 FILE_ATTRIBUTE_NORMAL, 0);
+  if(h == INVALID_HANDLE_VALUE) {
+    DWORD e = GetLastError();
+    if(e == ERROR_SHARING_VIOLATION) return 2;               // another program's handle denies write sharing: not synced,
+    return e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND ? -1 : 0;   // nothing failed (the caller syncs another way)
+  }
+  BOOL ok = FlushFileBuffers(h);
+  CloseHandle(h);
+  return ok ? 1 : 0;
+#endif
+}
+
+// files synced to disk by name (see sync_path()). Returns false if one cannot be synced (one that is gone meanwhile
+// counts as synced: the node was closed or set aside, and the caller checks that)
+bool sync_files(const std::vector<std::string> &paths)
+{
+  bool ok = true;
+  for(auto &f : paths) { int r = sync_path(f, false); if(r == 0 || r == 2) ok = false; }
+  return ok;
 }
 
 // ---------- the wire: one gxStream block per frame ----------
@@ -967,6 +1151,15 @@ bool gxObjReplConfig::Load(const std::string &fname, std::string *why)
 }
 
 // ---------- the node ----------
+// the last error: its own small lock, so a reader can say why it failed without the node's lock (a copy in a full send)
+struct ErrStr {
+  mutable std::mutex m; std::string s;
+  ErrStr &operator=(const std::string &v) { std::lock_guard<std::mutex> g(m); s = v; return *this; }
+  operator std::string() const { std::lock_guard<std::mutex> g(m); return s; }
+  bool empty() const { std::lock_guard<std::mutex> g(m); return s.empty(); }
+  void clear() { std::lock_guard<std::mutex> g(m); s.clear(); }
+};
+
 struct gxObjRepl::Impl {
   gxObjReplConfig cfg;
   Node s;
@@ -975,31 +1168,32 @@ struct gxObjRepl::Impl {
   std::vector<LinkDef> links;
   std::vector<LinkDef> links_own;      // copy: the map this node was configured with (the hello must match it)
   std::vector<IxDef> ixdefs;
-  std::string err;
+  ErrStr err;
+  // a copy in a full send (s.st.in_snapshot), as of the last time the node's lock was given up: reads fail at once
+  // then, without waiting for the batch being applied (11/16/2026)
+  std::atomic<int> snapflag{0};
+  std::atomic<int> opening_n{0};
+  std::set<std::string> failed_dbs;       // OpenDatabase(): prepared without success (refused until Close()/Open())
+  void sync_snapflag() { snapflag = role == COPY && s.is_open && s.st.in_snapshot ? 1 : 0; }
   Role role = PRIMARY;
   long cert_days = -1;
   std::atomic<int> stop{0};
   // every public call takes it; Serve() holds it only while it handles a hello or a frame, never while it waits, so
   // reader threads (Get, FindKey, Nearest ...) run between frames (11/16/2026)
-  std::recursive_mutex mu;
+  ObjMutex mu;
   std::atomic<int> serving{0};       // Serve() is running (Close() stops it and waits)
-  std::atomic<int> waiting{0};       // readers waiting for the lock: Serve() and Pump() step aside between frames
-  // a long run of frames (a catch-up, a full send) gives the lock up between frames when a reader waits: the mutex
-  // is not fair, so without this a reader could wait for the whole run (sim day: reader p99 near 50 s)
-  // review 4: while the lock is given up, nothing that pump1() relies on may change: Pump()/Drain() are serialized
-  // (pumpmu), Close() and Open() wait for a running Pump() (pumping) and raise closing first, and the generation
-  // counter changes at every Open()/Close(). step_aside() returns false when any of that happened
+  std::atomic<int> waiting{0};       // readers waiting for the lock: Serve() lets them in before it applies a frame
+  // Pump() gives the lock up while a frame travels and the copy applies it (11/16/2026: before, it held it through
+  // each round trip and gave it up only between frames when a reader waited; the sim day's readers still waited
+  // seconds). While the lock is given up, nothing that pump1() relies on may change: Pump()/Drain() are serialized
+  // (pumpmu), Close() and Open() wait for a running Pump() (pumping) and raise closing first (Open() before it takes
+  // the lock), and the generation counter changes at every Open()/Close(). io() fails when any of that happened.
+  // What the application may do meanwhile (commit, roll back) is safe: the outbox only grows (Pump() alone trims
+  // it), a catch-up holds addresses of outbox entries only, and a full send keeps what it has not sent yet as it was
+  // at its base (snap_keep())
   std::mutex pumpmu;
   std::atomic<int> pumping{0}, closing{0};
   std::atomic<unsigned long> gen{0};
-  bool step_aside() {
-    if(waiting > 0 && !closing) {
-      unsigned long g = gen;
-      mu.unlock(); std::this_thread::sleep_for(std::chrono::microseconds(300)); mu.lock();
-      if(closing || g != gen || !s.is_open || !L.st) { err = "the node was closed while pumping"; return false; }
-    }
-    return true;
-  }
   std::vector<LinkDef> pending_links; // copy: the link map of a primary not yet accepted (F_EPOCH adopts it)
   // primary: the open transaction's ops, and the moves
   std::vector<Touch> touched;
@@ -1035,6 +1229,84 @@ struct gxObjRepl::Impl {
   }
   int fail(const std::string &w) { err = w; return -1; }
 
+  // a commit whose journal sync runs without the node's lock (11/16/2026: the sync, once per commit, was made with the
+  // lock held: tens of ms, seconds on a busy disk, and every reader waited). With the lock held once: Commit(0) puts
+  // the batch in the journal (and makes it visible here), the journal file is synced by its own descriptor with the
+  // lock given up, then the batch's pages are written to the files with it held again (write-back mode: the files
+  // change only after their batch is durable, as in a write-through commit; with another thread's transaction open
+  // by then they wait for the next commit or checkpoint). durable_seq: the commits made durable (Pump() sends no
+  // other). Otherwise (held deeper, Windows) the plain commit. Returns false (s.err) when the commit failed
+  uint64_t durable_seq = 0;
+  // 11/16/2026 (review of the unlocked sync): commits whose journal sync is running without the lock. Pages reach the
+  // files only when none is (WriteCommitted() writes every committed page, a later commit's too: its record must be
+  // durable first, and it is once its own committer is back), a soft checkpoint waits for none, Close() and Begin()
+  // wait for none. jcommit_gen_ok: the node was not closed or opened again while the last jcommit() was unlocked
+  std::atomic<int> commits_inflight{0};
+  bool jcommit_gen_ok = true;
+  bool said_sharing = false;              // the sharing-violation fallback was logged (once a node)
+  // with the lock held once: wait (lock given up) until no commit's sync is running
+  void wait_commits() { while(commits_inflight && mu.Once()) { Unlocked u(mu); std::this_thread::sleep_for(std::chrono::microseconds(200)); } }
+  bool jcommit() {
+    jcommit_gen_ok = true;
+    if(mu.Once()) {
+#ifdef GXREPL_TEST_HOOKS
+      auto t0 = std::chrono::steady_clock::now();
+#endif
+      if(s.j.Commit(0) != gxDBASE_NO_ERROR) { if(s.j.InTransaction()) s.j.Rollback(); return s.fail("a commit failed"); }
+      unsigned long g = gen; std::string jn = path(s.root, "node.jnl");
+      bool synced = false; int sr = 0;
+      commits_inflight++;
+      { Unlocked u(mu); sr = sync_path(jn, true); synced = sr == 1; }
+      commits_inflight--;
+#ifdef GXREPL_TEST_HOOKS
+      ObjMutex::note("journal sync (unlocked)", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+#endif
+      mu.at("commit: the pages to the files");
+      if(g != gen || !s.is_open) { jcommit_gen_ok = false; return true; }   // closed meanwhile: the close checkpointed the batch
+      // Windows: the journal could not be opened a second time (another program's handle denies write sharing): its own
+      // handle syncs it, with the lock held, as before (a first sync, not a retry)
+      if(sr == 2 && !said_sharing) { said_sharing = true; say("the journal could not be opened again for its sync (another program's handle denies write sharing): synced through its own handle, with the lock held"); }
+      if(sr == 2) { if(s.j.InTransaction() || commits_inflight || s.j.Checkpoint() != gxDBASE_NO_ERROR) return s.fail("the journal sync failed"); return true; }
+      // a failed sync fails the commit and the caller reopens the node. The close syncs the journal once more through
+      // its own descriptor, which still reports the earlier error (Linux), so the journal is not emptied, and the
+      // recovery at the open replays what is in it: the commit the application was told failed may still be there
+      // and then reaches the copy (review: documented, not "dropped")
+      if(!synced) return s.fail("the journal sync failed");
+      if(!commits_inflight && !s.j.InTransaction() && s.j.WriteCommitted() != gxDBASE_NO_ERROR) return s.fail("a commit's pages cannot be written");
+      return true;
+    }
+    return s.commit();
+  }
+
+  // the journal's bytes since its last checkpoint (about: the pages logged since)
+  unsigned long ck_seen = ~0UL; unsigned long long ck_pages = 0;
+  size_t journal_bytes() {
+    if(s.j.checkpoints != ck_seen || s.j.pages_logged < ck_pages) { ck_seen = s.j.checkpoints; ck_pages = s.j.pages_logged; }
+    return (size_t)(s.j.pages_logged - ck_pages) * (size_t)gxdPageSize;
+  }
+  // a checkpoint once the journal holds CKPT_SOFT bytes, with the files synced while the lock is given up (11/16/2026:
+  // the checkpoint synced about 30 files with the lock held, seconds on a busy disk): CheckpointBegin() writes the
+  // committed pages to the files, they are synced by name without the lock, and CheckpointEnd() empties the journal
+  // if no commit came meanwhile (else the next try does it; the journal's own limit, CKPT_HARD, checkpoints inside a
+  // commit if the soft one never gets its turn). Called with the lock held once, between transactions
+  void checkpoint_soon() {
+    if(!s.is_open || s.j.InTransaction() || commits_inflight || journal_bytes() < CKPT_SOFT || !mu.Once()) return;
+    checkpoint_unlocked();
+  }
+  // the checkpoint with the files synced while the lock is given up: true if the journal was emptied
+  bool checkpoint_unlocked() {
+    if(!s.is_open || s.j.InTransaction() || commits_inflight || !mu.Once()) return false;
+    std::vector<std::string> paths; unsigned long c0 = 0;
+    if(s.j.CheckpointBegin(paths, c0) != gxDBASE_NO_ERROR) return false;
+    unsigned long g = gen, o = s.opens;
+    bool synced;
+    { Unlocked u(mu); synced = sync_files(paths); }
+    mu.at("checkpoint");
+    if(!synced || g != gen || o != s.opens || !s.is_open) return false;
+    return s.j.CheckpointEnd(c0) == gxDBASE_NO_ERROR;
+  }
+
+
   std::vector<std::pair<uint64_t, FAU_t>> outbox_entries() {
     std::vector<std::pair<uint64_t, FAU_t>> v;
     for(FAU_t a = s.ob.FindFirstObject(); a != (FAU_t)0; a = s.ob.FindNextObject(a)) {
@@ -1061,6 +1333,7 @@ struct gxObjRepl::Impl {
   }
   bool hello() {
     // a connection idle past the idle limit may be gone (the copy drops it then): a fresh one, with the check
+    mu.at("hello");
     if(L.st && !L.fresh && cfg.idle_timeout > 0 && time(0) - L.last_contact > cfg.idle_timeout / 2) L.drop();
     if(L.st && !L.fresh) return true;
     L.refused = false;                                         // each connect is judged afresh
@@ -1071,11 +1344,11 @@ struct gxObjRepl::Impl {
     Buf h; h.u32(STATE_MAGIC); h.u64(s.st.epoch); h.str(links_spec(links));
     h.str(cfg.name); h.u8(ROLE_PRIMARY); h.u64(s.st.next_seq - 1); h.u64(s.st.cur_digest);
     std::vector<unsigned char> rep;
-    if(!send_frame(*L.st, h.b) || !recv_frame(*L.st, rep)) {
-      if(L.st->PeerOldHeader()) { alarm("the copy sends the gxStream block header with 4-byte words (DataReel before 7.4 beta 5 on Windows or a 32-bit build): refused"); L.refused = true; }
-      else say("the copy closed the connection without answering the hello (a DataReel before 7.4 beta 5 on Windows or a "
-	       "32-bit build, which cannot read this gxStream header, or a copy that stopped)");   // not an alarm: a restarting copy looks the same
-      L.drop(); return false;
+    if(!io(h.b, rep)) {
+      if(io_net_failed && io_old_header) { alarm("the copy sends the gxStream block header with 4-byte words (DataReel before 7.4 beta 5 on Windows or a 32-bit build): refused"); L.refused = true; }
+      else if(io_net_failed) say("the copy closed the connection without answering the hello (a DataReel before 7.4 beta 5 on Windows or a "
+				 "32-bit build, which cannot read this gxStream header, or a copy that stopped)");   // not an alarm: a restarting copy looks the same
+      return false;
     }
     Rd r(rep.data(), rep.size());
     uint8_t ok = r.u8(); uint64_t applied = r.u64(), cep = r.u64(); uint8_t snap = r.u8();
@@ -1118,58 +1391,161 @@ struct gxObjRepl::Impl {
     if(!exchange(e.b, a)) return false;
     return true;
   }
-  bool exchange(const std::vector<unsigned char> &f, uint64_t &acked) {
+  // a frame out and its answer in, with the node's lock given up meanwhile (11/16/2026: readers waited for every
+  // round trip, and for the copy's apply of each frame): Pump() holds it once here. L.st belongs to the pumping
+  // thread: Close() and Open() wait for a running Pump() before they touch it, so it stays valid without the lock.
+  // hold: keep the lock (a full send whose kept records passed their memory cap). Returns false (L dropped) when the
+  // exchange failed, or (err set) when Close() or Open() is waiting for this Pump()
+  bool io(const std::vector<unsigned char> &f, std::vector<unsigned char> &in, bool hold = false) {
+    gxStream *st = L.st;
+    unsigned long g = gen;
+    bool ok;
+    io_net_failed = false; io_old_header = false;
+    if(hold) ok = send_frame(*st, f) && recv_frame(*st, in);
+    else { Unlocked u(mu); ok = send_frame(*st, f) && recv_frame(*st, in); }
+    mu.at("pump");
+    if(closing || g != gen || !s.is_open) { err = "the node was closed while pumping"; return false; }
+    if(!ok) { io_net_failed = true; io_old_header = st->PeerOldHeader() != 0; L.drop(); return false; }
+    return true;
+  }
+  bool io_net_failed = false, io_old_header = false;   // the last io(): the connection failed, the peer's header was old
+  bool exchange(const std::vector<unsigned char> &f, uint64_t &acked, bool hold = false) {
     std::vector<unsigned char> ack;
-    if(!send_frame(*L.st, f) || !recv_frame(*L.st, ack) || ack.size() < 8) { L.drop(); return false; }
+    if(!io(f, ack, hold)) return false;
+    if(ack.size() < 8) { L.drop(); return false; }
     L.last_contact = time(0); L.exchanges++;
     Rd r(ack.data(), ack.size()); acked = r.u64();
     return true;
   }
-  // every object and tombstone of every database as of the last commit, then the copy's applied seq = that commit
+  // ---------- the full send ----------
+  // Every object and tombstone of every database as of the last commit (the base), then the copy's applied seq = the
+  // base. 11/16/2026 (reader latency): it no longer holds the node's lock for the whole send. It goes in batches, in
+  // (database, id) order: the lock is held while a batch is read, never while it travels. Meanwhile the application
+  // may commit: before a change to an object the full send has not reached yet (Put, Remove, Purge), the object as
+  // it was at the base is kept (snap_keep(): its full-send record, links already as ids, or "absent" for an id the
+  // base did not have), and the full send sends that instead. So what the copy gets is the base exactly; the commits
+  // after it follow from the outbox (the outbox is trimmed only by Pump(), so they are there).
+  struct Kept { bool absent = false; std::vector<unsigned char> rec; };
+  struct FullSend {
+    bool active = false;
+    // sent so far: the databases before db, and in db (once in_db) the ids up to id (has_id); all: every object
+    std::string db; bool in_db = false, has_id = false, all = false; uint64_t id = 0;
+    std::map<std::pair<std::string, uint64_t>, Kept> kept;
+    size_t bytes = 0;                                         // kept records' bytes
+    bool hold = false;                                        // past FULLSEND_KEEP_MAX: the rest with the lock held
+    bool bad = false; std::string why;                        // a record that could not be kept
+  } fs;
+  static const size_t FULLSEND_KEEP_MAX = 256u * 1024 * 1024;
+  static const uint32_t DLOG_STEP = 8192;
+  static const size_t TRIM_STEP = 256;                         // outbox entries (and digest log entries) trimmed a Pump()                     // digest log entries a frame (at most DLOG_BATCH)
+  bool fs_sent(const std::string &db, uint64_t id) const {
+    return fs.all || db < fs.db || (db == fs.db && fs.in_db && fs.has_id && id <= fs.id);
+  }
+  // one full-send record (database, id, version, flags, reason, seen seq, capacity, the bytes with links as ids)
+  bool snap_entry(Db *d, FAU_t a, Buf &f) {
+    __ULWORD__ n = d->db.ObjectLength(a);
+    std::vector<unsigned char> rec; ObjHead h;
+    if(!d->read(a, rec, h)) return false;
+    if(!(h.flags & OF_TOMB) && !s.translate(d->name, rec.data() + sizeof(h), h.len, true)) return false;
+    f.str(d->name); f.u64(h.id); f.u32(h.version); f.u32(h.flags); f.u32(h.reason); f.u64(h.seen_seq); f.u32((uint32_t)n);
+    f.u32(h.len); f.raw(rec.data() + sizeof(h), h.len);
+    return true;
+  }
+  // before the application changes (D, ID): kept as it is now if a full send is under way and has not sent it yet
+  void snap_keep(Db *d, uint64_t id) {
+    if(!fs.active || fs_sent(d->name, id)) return;
+    auto key = std::make_pair(d->name, id);
+    if(fs.kept.count(key)) return;                            // kept already: that is the base
+    Kept k;
+    auto w = d->where.find(id);
+    if(w == d->where.end()) k.absent = true;
+    else {
+      Buf b;
+      if(!snap_entry(d, w->second, b)) { fs.bad = true; fs.why = "cannot keep " + d->name + " " + std::to_string(id) + " for the full send"; }
+      k.rec.swap(b.b);
+    }
+    fs.bytes += k.rec.size() + 64;
+    if(fs.bytes > FULLSEND_KEEP_MAX) fs.hold = true;
+    fs.kept[key] = std::move(k);
+  }
+  struct FsActive { FullSend &f; ~FsActive() { f = FullSend(); } };
+  bool fs_waits = false;            // snapshot() did not start: a transaction stayed open
   bool snapshot() {
-    uint64_t base = s.st.next_seq - 1, acked = 0;
+    mu.at("full send");
+    fs_waits = false;
+    // the base must be a commit: a transaction another thread has open is waited for (its changes are in the files
+    // already and would be sent as if committed); still open after 2 s: the full send waits for the next Pump()
+    for(int i = 0; s.j.InTransaction() || durable_seq + 1 < s.st.next_seq; i++) {
+      if(i >= 2000 || !mu.Once()) { err = "a transaction stays open: the full send waits"; fs_waits = true; return false; }
+      unsigned long g = gen;
+      { Unlocked u(mu); std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
+      if(closing || g != gen || !s.is_open) { err = "the node was closed while pumping"; return false; }
+    }
+    uint64_t base = s.st.next_seq - 1, base_digest = s.st.cur_digest, acked = 0;
     uint64_t scount = 0, shash = DIGEST0;                      // what this full send carries, checked by the copy
+    fs = FullSend(); fs.active = true;
+    FsActive fa{fs};                                           // ended (and the kept records freed) on every return
     Buf b0; b0.u8(F_SNAP_BEGIN); b0.u64(base); b0.u64(s.st.epoch);
-    if(!exchange(b0.b, acked)) return false;
-    Buf f; f.u8(F_SNAP_BATCH); uint32_t nobj = 0; size_t cnt_at = f.b.size(); f.u32(0);
-    auto flush = [&]() -> bool {
-      if(!nobj) return true;
-      for(int i = 0; i < 4; i++) f.b[cnt_at + i] = (unsigned char)(nobj >> (8 * i));
-      if(!exchange(f.b, acked)) return false;
-      f.b.resize(cnt_at + 4); nobj = 0; for(int i = 0; i < 4; i++) f.b[cnt_at + i] = 0;
-      return true;
-    };
-    for(auto &d : s.dbs) {
-      for(auto &w : d.second->where) {
-	__ULWORD__ n = d.second->db.ObjectLength(w.second);
-	std::vector<unsigned char> rec; ObjHead h;
-	if(!d.second->read(w.second, rec, h)) return false;
-	if(!(h.flags & OF_TOMB) && !s.translate(d.first, rec.data() + sizeof(h), h.len, true)) return false;
+    if(!exchange(b0.b, acked, fs.hold)) return false;
+    Buf f;
+    for(;;) {
+      // one batch, read with the lock held: from where the last one stopped (the maps may have changed since; the
+      // ids changed since the base come from fs.kept)
+      f.b.clear(); f.u8(F_SNAP_BATCH); size_t cnt_at = f.b.size(); f.u32(0); uint32_t nobj = 0;
+      bool done = false;
+      while(f.b.size() < SNAP_BATCH_BYTES) {
+	if(fs.bad) { err = fs.why; return false; }
+	auto di = fs.in_db ? s.dbs.find(fs.db) : s.dbs.lower_bound(fs.db);
+	if(di == s.dbs.end()) { done = true; break; }
+	if(!fs.in_db) { fs.db = di->first; fs.in_db = true; fs.has_id = false; fs.id = 0; }
+	Db *d = di->second.get();
+	// the next id: live here (unchanged since the base unless kept) or kept
+	auto w = fs.has_id ? d->where.upper_bound(fs.id) : d->where.begin();
+	auto k = fs.has_id ? fs.kept.upper_bound(std::make_pair(fs.db, fs.id)) : fs.kept.lower_bound(std::make_pair(fs.db, (uint64_t)0));
+	bool has_w = w != d->where.end(), has_k = k != fs.kept.end() && k->first.first == fs.db;
+	if(!has_w && !has_k) {                                 // this database is sent: the next one
+	  auto nx = s.dbs.upper_bound(fs.db);
+	  if(nx == s.dbs.end()) { done = true; break; }
+	  fs.db = nx->first; fs.in_db = false; fs.has_id = false; fs.id = 0;
+	  continue;
+	}
+	uint64_t id = has_w && (!has_k || w->first <= k->first.second) ? w->first : k->first.second;
 	size_t at0 = f.b.size();
-	f.str(d.first); f.u64(h.id); f.u32(h.version); f.u32(h.flags); f.u32(h.reason); f.u64(h.seen_seq); f.u32((uint32_t)n);
-	f.u32(h.len); f.raw(rec.data() + sizeof(h), h.len);
-	shash = fnv(f.b.data() + at0, f.b.size() - at0, shash); scount++;
-	nobj++;
-	if(f.b.size() >= SNAP_BATCH_BYTES && !flush()) return false;
+	auto kk = fs.kept.find(std::make_pair(fs.db, id));
+	if(kk != fs.kept.end()) {
+	  if(!kk->second.absent) f.raw(kk->second.rec.data(), kk->second.rec.size());
+	  fs.bytes -= std::min(fs.bytes, kk->second.rec.size() + 64);
+	  fs.kept.erase(kk);
+	} else if(!snap_entry(d, w->second, f)) { err = "cannot read " + fs.db + " " + std::to_string(id) + " for the full send"; return false; }
+	fs.id = id; fs.has_id = true;
+	if(f.b.size() > at0) { shash = fnv(f.b.data() + at0, f.b.size() - at0, shash); scount++; nobj++; }
       }
+      if(nobj) {
+	for(int i = 0; i < 4; i++) f.b[cnt_at + i] = (unsigned char)(nobj >> (8 * i));
+	if(!exchange(f.b, acked, fs.hold)) return false;
+      }
+      if(done) { fs.all = true; break; }
     }
-    if(!flush()) return false;
-    // the digest log up to the base, so the copy (if it ever takes over) can check other copies' histories (review 2)
+    // the digest log up to the base, so the copy (if it ever takes over) can check other copies' histories (review 2);
+    // read in batches too (entries up to the base do not change: only Pump() trims the log)
     {
-      Buf g; uint32_t n = 0; size_t at = 0;
-      auto start = [&]() { g.b.clear(); g.u8(F_SNAP_DLOG); at = g.b.size(); g.u32(0); n = 0; };
-      auto send = [&]() -> bool { if(!n) return true; for(int i = 0; i < 4; i++) g.b[at + i] = (unsigned char)(n >> (8 * i)); return exchange(g.b, acked); };
-      start();
-      DKey k, c;
-      for(int ok = s.dlog.FindFirst(k); ok && k.k.seq <= base; ok = s.dlog.FindNext(k, c)) {
-	g.u64(k.k.seq); g.u64(k.k.digest); n++;
-	shash = fnv(g.b.data() + g.b.size() - 16, 16, shash); scount++;
-	if(n == DLOG_BATCH) { if(!send()) return false; start(); }
+      uint64_t next = 0;
+      for(;;) {
+	Buf g; g.u8(F_SNAP_DLOG); size_t at = g.b.size(); g.u32(0); uint32_t n = 0;
+	DKey k(next), c;
+	for(int ok = s.dlog.PartialFind(k, c); ok && k.k.seq <= base; ok = s.dlog.FindNext(k, c)) {
+	  g.u64(k.k.seq); g.u64(k.k.digest); n++; next = k.k.seq + 1;
+	  shash = fnv(g.b.data() + g.b.size() - 16, 16, shash); scount++;
+	  if(n == DLOG_STEP) break;
+	}
+	if(!n) break;
+	for(int i = 0; i < 4; i++) g.b[at + i] = (unsigned char)(n >> (8 * i));
+	if(!exchange(g.b, acked, fs.hold)) return false;
+	if(n < DLOG_STEP) break;
       }
-      if(!send()) return false;
     }
-    Buf e; e.u8(F_SNAP_END); e.u64(base); e.u64(s.st.cur_digest); e.u64(scount); e.u64(shash);
-    if(!exchange(e.b, acked) || acked != base) return false;
+    Buf e; e.u8(F_SNAP_END); e.u64(base); e.u64(base_digest); e.u64(scount); e.u64(shash);
+    if(!exchange(e.b, acked, fs.hold) || acked != base) return false;
     L.copy_applied = base; L.copy_in_snapshot = false; L.snapshots++;
     return true;
   }
@@ -1180,6 +1556,7 @@ struct gxObjRepl::Impl {
     time_t now = time(0);
     if(!lag) mon.behind_since = 0; else if(!mon.behind_since) mon.behind_since = now;
     if(!force && now == mon.last_write) return;                // at most once a second (the outbox scan is not free)
+    mu.at("primary status");
     size_t n = 0; unsigned long long bytes = 0, oldest = 0, tombs = 0;
     for(auto &e : outbox_entries()) {
       __ULWORD__ len = s.ob.ObjectLength(e.second);
@@ -1203,9 +1580,17 @@ struct gxObjRepl::Impl {
     auto v = outbox_entries();
     bool need_snap = L.copy_in_snapshot || (L.copy_applied + 1 < s.st.next_seq &&
 					    (v.empty() || v.front().first > L.copy_applied + 1));
-    if(need_snap && !snapshot()) return false;
+    if(need_snap) {
+      if(!snapshot()) return fs_waits;                         // a transaction stayed open: the next Pump() sends it
+      v = outbox_entries();                                    // the commits made while it was sent follow
+#ifdef GXREPL_TEST_HOOKS
+      if(getenv("OBJREPL_TEST_ONLY_FULL_SEND")) return true;   // test only: the copy stays at the full send's base
+#endif
+    }
+    mu.at("catch-up");
     for(auto &e : v) {
       if(e.first <= L.copy_applied) continue;
+      if(e.first > durable_seq) break;                         // its journal sync is still running (jcommit())
       __ULWORD__ n = s.ob.ObjectLength(e.second);
       std::vector<unsigned char> b(n);
       if(n < 16 || s.ob.Read(b.data(), n, e.second) != gxDBASE_NO_ERROR) return false;
@@ -1213,23 +1598,30 @@ struct gxObjRepl::Impl {
       uint64_t acked = 0;
       if(!exchange(b, acked)) return false;
       L.copy_applied = acked;
-      if(!step_aside()) return false;
     }
     // the copy's acknowledgement is recorded (acked_seq and its digest) with or without trimming (review 2: with trim
     // off the rejoin count was wrong); trimming drops the outbox entries it has, and the digest log keeps a window
-    if(L.copy_applied > s.st.acked_seq && !s.j.InTransaction()) {
+    // (in steps of TRIM_STEP entries a Pump(): one transaction for a whole backlog held the lock for 200 ms)
+    bool more = cfg.trim && !v.empty() && v.front().first <= L.copy_applied;
+    if((L.copy_applied > s.st.acked_seq || more) && !s.j.InTransaction()) {
+      mu.at("trim");
+      wait_commits();                                          // no transaction of its own while a commit syncs
+      if(closing || !s.is_open) { err = "the node was closed while pumping"; return false; }
+      if(s.j.InTransaction()) return true;                     // the application's Begin() came first: trim next time
       if(!s.begin()) { err = s.err; return false; }
       uint64_t d = 0;
       if(L.copy_applied == s.st.next_seq - 1) s.st.acked_digest = s.st.cur_digest;
       else if(s.digest_at(L.copy_applied, d)) s.st.acked_digest = d;
       bool dok = true;
-      if(cfg.trim) for(auto &e : v) if(e.first <= L.copy_applied && !s.ob.Delete(e.second)) dok = false;
+      size_t del = 0;
+      if(cfg.trim) for(auto &e : v) if(e.first <= L.copy_applied && del++ < TRIM_STEP && !s.ob.Delete(e.second)) dok = false;
       if(!dok) { s.j.Rollback(); err = "cannot trim the outbox"; reopen(); return false; }
-      if(s.st.next_seq > DLOG_KEEP && !s.trim_digests(std::min(s.st.next_seq - DLOG_KEEP, L.copy_applied))) { s.j.Rollback(); err = "cannot trim the digest log"; reopen(); return false; }
+      if(s.st.next_seq > DLOG_KEEP && !s.trim_digests(std::min(s.st.next_seq - DLOG_KEEP, L.copy_applied), TRIM_STEP)) { s.j.Rollback(); err = "cannot trim the digest log"; reopen(); return false; }
       uint64_t keep_seq = s.st.acked_seq, keep_dig = s.st.acked_digest;
       s.st.acked_seq = L.copy_applied;
       s.put_state();
-      if(!s.commit()) { s.st.acked_seq = keep_seq; s.st.acked_digest = keep_dig; err = s.err; reopen(); return false; }
+      if(!jcommit()) { s.st.acked_seq = keep_seq; s.st.acked_digest = keep_dig; err = s.err; reopen(); return false; }
+      checkpoint_soon();
     }
     return true;
   }
@@ -1269,7 +1661,9 @@ struct gxObjRepl::Impl {
     if(!oa || s.ob.Write(f.b.data(), (__ULWORD__)f.b.size(), oa) != gxDBASE_NO_ERROR) { err = "the outbox write failed"; return false; }
     s.st.next_seq = seq + 1;
     s.put_state();
-    if(!s.commit()) { err = "the commit failed"; return false; }
+    mu.at("Commit journal");
+    if(!jcommit()) { err = "the commit failed"; return false; }
+    if(jcommit_gen_ok) durable_seq = std::max(durable_seq, seq);   // not the old node's seq on a node opened since
     return true;
   }
   // every (database, id) a link field of a live object names (a scan; no reverse index)
@@ -1307,6 +1701,8 @@ struct gxObjRepl::Impl {
     if(!s.open(root, prim, true)) { err = s.err; s.close(); return false; }
     uint32_t want = role == PRIMARY ? ROLE_PRIMARY : ROLE_COPY;
     if(s.st.role != want) { err = root + ": the role changed underneath this process"; s.close(); return false; }
+    durable_seq = s.st.next_seq - 1;                           // the close checkpointed (synced) the journal
+    sync_snapflag();
     return true;
   }
 
@@ -1330,15 +1726,21 @@ struct gxObjRepl::Impl {
 
 gxObjRepl::gxObjRepl() : p(new Impl) { }
 gxObjRepl::~gxObjRepl() { Close(); delete p; }
-std::string gxObjRepl::Error() const { std::lock_guard<std::recursive_mutex> g_(p->mu); return p->err; }
-int gxObjRepl::IsOpen() const { std::lock_guard<std::recursive_mutex> g_(p->mu); return p->s.is_open; }
+std::string gxObjRepl::Error() const { return p->err; }   // its own lock (ErrStr)
+int gxObjRepl::IsOpen() const { std::lock_guard<ObjMutex> g_(p->mu); return p->s.is_open; }
 
 int gxObjRepl::Open(const std::string &root, const gxObjReplConfig &cfg, Role role)
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  // closed first, before the lock is taken: Close() waits for a Pump() running in another thread, which takes the
+  // lock again after each frame it sends (11/16/2026)
   Close();
+  std::lock_guard<ObjMutex> g_(p->mu);
+  p->mu.at("Open");
+  // another thread's Open() got here first (review: a second Open() reset the first one's state, then failed on the
+  // lock file): not opened twice
+  if(p->s.is_open) return p->fail("another Open() of this object is running: Close() it first");
   p->cfg = cfg; p->role = role; p->err.clear(); p->stop = 0;
-  p->L = Link(); p->mon = Mon(); p->touched.clear(); p->moved.clear(); p->held.clear();
+  p->L = Link(); p->mon = Mon(); p->failed_dbs.clear(); p->touched.clear(); p->moved.clear(); p->held.clear();
   p->next_id = 1; p->linked_valid = false; p->last_alarm.clear(); p->gen++;
   if(!parse_links(cfg.links, p->links)) return p->fail("bad links (DB:OFFSET:TARGET,...)");
   p->links_own = p->links;
@@ -1354,6 +1756,8 @@ int gxObjRepl::Open(const std::string &root, const gxObjReplConfig &cfg, Role ro
   p->s.log = [this](const std::string &m) { p->say(m); };
   if(!p->s.open(root, role == PRIMARY)) { std::string e = p->s.err; p->s.close(); return p->fail(e); }
   p->mon.root = root;
+  p->durable_seq = p->s.st.next_seq - 1;
+  p->sync_snapflag();
   if(role == PRIMARY && p->s.st.role == ROLE_COPY) { p->alarm(root + " is a copy: run takeover before it writes"); p->s.close(); p->err = "a copy (takeover first)"; return 4; }
   if(role == COPY && p->s.st.role == ROLE_PRIMARY) { p->alarm(root + " is a primary: it will not run as a copy (two primaries)"); p->s.close(); p->err = "a primary (two primaries)"; return 4; }
   uint32_t want = role == PRIMARY ? ROLE_PRIMARY : ROLE_COPY;
@@ -1381,9 +1785,13 @@ void gxObjRepl::Close()
   if(p->serving) { p->stop = 1; while(p->serving) std::this_thread::sleep_for(std::chrono::milliseconds(10)); }
   // a Pump() running in another thread is told to stop and waited for (review 4)
   p->closing = 1;
-  while(p->pumping) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  while(p->pumping || p->opening_n || p->commits_inflight) std::this_thread::sleep_for(std::chrono::milliseconds(5));   // and OpenDatabase(), a commit's sync
   struct Unclose { std::atomic<int> &f; ~Unclose() { f = 0; } } uc{p->closing};
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  std::lock_guard<ObjMutex> g_(p->mu);
+  p->mu.at("Close");
+  // a thread that gave the lock up for a while (a commit's sync, a checkpoint's, an OpenDatabase() prepare or wait)
+  // takes it back before the node is closed (review: such a thread took a freed lock after ~gxObjRepl)
+  while(p->mu.windows > 0 && p->mu.Once()) { p->mu.unlock(); std::this_thread::sleep_for(std::chrono::milliseconds(2)); p->mu.lock(); }
   p->gen++;
   if(!p->s.is_open) return;
   if(p->role == PRIMARY) {
@@ -1393,36 +1801,81 @@ void gxObjRepl::Close()
   }
   p->L.drop();
   p->s.close();
+  p->sync_snapflag();
 }
 
 int gxObjRepl::OpenDatabase(const std::string &db)
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  std::unique_lock<ObjMutex> g_(p->mu);
+  p->mu.at("OpenDatabase");
   if(!p->s.is_open || p->role != PRIMARY) return p->fail("not an open primary (a copy opens databases as they arrive)");
-  return p->s.get(db) ? 0 : p->fail(p->s.err);
+  if(p->closing) return p->fail("the node is closing");
+  // 11/16/2026 (lock holds): the files are opened and the indexes built without the lock (see Node::prepare_db());
+  // only the attach to the journal is done with it. One caller prepares a database at a time; Close() waits for it
+  for(;;) {
+    if(p->s.dbs.count(db)) return 0;
+    if(!p->s.opening.count(db)) break;
+    { Unlocked u(p->mu); std::this_thread::sleep_for(std::chrono::milliseconds(5)); }
+    if(p->closing || !p->s.is_open) return p->fail("the node was closed while " + db + " was opened");
+  }
+  if(!good_name(db)) return p->fail("a bad database name: " + db);
+  if(p->s.j.InTransaction()) return p->fail("the database " + db + " is not open (open it before Begin())");
+  for(auto &d : p->s.dead_dbs) if(d->name == db) return p->fail("the database " + db + " failed to open earlier: Close() and Open() again");
+  if(p->failed_dbs.count(db)) return p->fail("the database " + db + " failed to open earlier: Close() and Open() again");
+  std::vector<IxDef> defs = p->ixdefs; std::string root = p->s.root;
+  unsigned long g0 = p->gen;
+  p->s.opening.insert(db); p->opening_n++;
+  std::unique_ptr<Db> pre; std::string e; bool ok;
+  {
+    Unlocked u(p->mu);
+    gxObjRepl::Impl *q = p;
+    ok = Node::prepare_db(root, db, defs, pre, e, [q]() { return q->closing != 0; }, [q](const std::string &m) { q->say(m); });
+  }
+  p->mu.at("OpenDatabase attach");
+  p->s.opening.erase(db); p->opening_n--;
+  if(p->closing || g0 != p->gen || !p->s.is_open) { if(pre) pre->close(); return p->fail("the node was closed while " + db + " was opened"); }
+  if(!ok) { p->failed_dbs.insert(db); return p->fail(e); }
+  // gxdJournal::Attach() checkpoints the journal, with the lock held: the journal is emptied first with the files
+  // synced without the lock, so that checkpoint has little or nothing left (a new primary held the lock 74 s here)
+  for(int i = 0; i < 3; i++) {
+    p->wait_commits();
+    if(p->closing || g0 != p->gen || !p->s.is_open) { pre->close(); return p->fail("the node was closed while " + db + " was opened"); }
+    if(p->checkpoint_unlocked()) break;
+  }
+  p->mu.at("OpenDatabase attach");
+  if(p->s.j.InTransaction()) { pre->close(); return p->fail("the database " + db + " is not open (open it before Begin())"); }
+  return p->s.get(db, std::move(pre)) ? 0 : p->fail(p->s.err);
 }
 
 int gxObjRepl::Begin()
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  std::lock_guard<ObjMutex> g_(p->mu);
+  p->mu.at("Begin");
   if(!p->s.is_open || p->role != PRIMARY) return p->fail("not an open primary");
+  // a transaction begins once no commit's sync is running (review: a Begin() during another thread's unlocked sync
+  // had its touched list cleared by that Commit() when it took the lock back, and its operations left out of the
+  // outbox frame)
+  p->wait_commits();
+  if(!p->s.is_open) return p->fail("not an open primary");
   if(p->s.j.InTransaction()) return p->fail("a transaction is open");
   if(!p->s.begin()) return p->fail(p->s.err);
   p->touched = p->held; p->held.clear(); p->moved.clear(); p->linked_valid = false;
   return 0;
 }
 
-uint64_t gxObjRepl::NewId() { std::lock_guard<std::recursive_mutex> g_(p->mu); return p->next_id++; }
+uint64_t gxObjRepl::NewId() { std::lock_guard<ObjMutex> g_(p->mu); return p->next_id++; }
 
 int gxObjRepl::Put(const std::string &db, uint64_t id, const void *bytes, uint32_t n)
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  std::lock_guard<ObjMutex> g_(p->mu);
+  p->mu.at("Put");
   if(!p->s.j.InTransaction() || p->role != PRIMARY) return p->fail("Put() outside a transaction");
   if(!id) return p->fail("id 0 is not an object id");
   if(n > MAX_OBJECT) return p->fail("an object is at most " + std::to_string(MAX_OBJECT) + " bytes");
   Db *d = p->s.get(db);
   if(!d) return p->fail(p->s.err);
   bool was = d->live(id), mv = false;
+  p->snap_keep(d, id);                                         // a full send under way keeps it as it was
   uint32_t ver = d->versions.count(id) ? d->versions[id] + 1 : 1;
   if(!d->put(id, ver, (const unsigned char *)bytes, n, 0, false, false, mv)) return p->fail("cannot write " + db + " " + std::to_string(id));
   if(mv) p->moved.insert({db, id});
@@ -1435,10 +1888,12 @@ int gxObjRepl::Put(const std::string &db, uint64_t id, const void *bytes, uint32
 
 int gxObjRepl::Remove(const std::string &db, uint64_t id)
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  std::lock_guard<ObjMutex> g_(p->mu);
+  p->mu.at("Remove");
   if(!p->s.j.InTransaction() || p->role != PRIMARY) return p->fail("Remove() outside a transaction");
   Db *d = p->s.get(db);
   if(!d) return p->fail(p->s.err);
+  p->snap_keep(d, id);
   if(!d->tombstone(id, d->where.count(id) ? TR_REMOVED : TR_UNKNOWN_REMOVE, p->s.st.next_seq)) return p->fail("cannot remove " + db + " " + std::to_string(id));
   p->touch(OP_REMOVE, db, id);
   p->linked_valid = false;
@@ -1447,7 +1902,8 @@ int gxObjRepl::Remove(const std::string &db, uint64_t id)
 
 int gxObjRepl::Purge(const std::string &db, uint64_t id)
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  std::lock_guard<ObjMutex> g_(p->mu);
+  p->mu.at("Purge");
   if(!p->s.j.InTransaction() || p->role != PRIMARY) return p->fail("Purge() outside a transaction");
   Db *d = p->s.get(db);
   if(!d) return p->fail(p->s.err);
@@ -1456,6 +1912,7 @@ int gxObjRepl::Purge(const std::string &db, uint64_t id)
     if(!p->linked_valid) p->build_linked();
     if(p->linked.count({db, id})) return p->fail(db + " " + std::to_string(id) + " is still named by a link: purge refused");
   }
+  p->snap_keep(d, id);
   if(!d->purge(id)) return p->fail("cannot purge " + db + " " + std::to_string(id));
   p->touch(OP_PURGE, db, id);
   return 0;
@@ -1463,17 +1920,20 @@ int gxObjRepl::Purge(const std::string &db, uint64_t id)
 
 int gxObjRepl::Commit()
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  std::lock_guard<ObjMutex> g_(p->mu);
+  p->mu.at("Commit");
   if(!p->s.j.InTransaction() || p->role != PRIMARY) return p->fail("Commit() outside a transaction");
   bool ok = p->record_commit();
   p->touched.clear(); p->moved.clear();
   if(!ok) { if(p->s.j.InTransaction()) p->s.j.Rollback(); std::string e = p->err; p->reopen(); return p->fail(e); }
+  p->checkpoint_soon();
   return 0;
 }
 
 int gxObjRepl::Rollback()
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  std::lock_guard<ObjMutex> g_(p->mu);
+  p->mu.at("Rollback");
   if(!p->s.j.InTransaction()) return 0;
   p->s.j.Rollback();
   p->touched.clear(); p->moved.clear();
@@ -1482,7 +1942,7 @@ int gxObjRepl::Rollback()
 
 void gxObjRepl::TestHoldAdd(const std::string &db, uint64_t id)
 {
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
+  std::lock_guard<ObjMutex> g_(p->mu);
   for(auto it = p->touched.begin(); it != p->touched.end(); ++it)
     if(std::get<0>(*it) == OP_ADD && std::get<1>(*it) == db && std::get<2>(*it) == id) {
       p->held.push_back(*it); p->touched.erase(it); return;
@@ -1499,7 +1959,8 @@ int gxObjRepl::Pump()
   // that did not answer); the hello and everything after it run with it
   bool connect = false;
   {
-    std::lock_guard<std::recursive_mutex> g_(p->mu);
+    std::lock_guard<ObjMutex> g_(p->mu);
+    p->mu.at("Pump start");
     if(!p->s.is_open || p->role != PRIMARY) return p->fail("not an open primary");
     if(p->s.j.InTransaction()) return p->fail("Pump() inside a transaction");
     if(L.st && !L.fresh && p->cfg.idle_timeout > 0 && time(0) - L.last_contact > p->cfg.idle_timeout / 2) L.drop();
@@ -1507,8 +1968,9 @@ int gxObjRepl::Pump()
   }
   gxStream *ns = 0;
   if(connect) { ns = new gxStream; if(!p->connect_to(*ns)) { ns->Close(); delete ns; ns = 0; } }
-  std::lock_guard<std::recursive_mutex> g_(p->mu);
-  if(!p->s.is_open) { if(ns) { ns->Close(); delete ns; } return p->fail("closed"); }
+  std::lock_guard<ObjMutex> g_(p->mu);
+  p->mu.at("Pump");
+  if(!p->s.is_open || p->closing) { if(ns) { ns->Close(); delete ns; } return p->fail("closed"); }   // review: Close() waited a hello
   if(connect && !ns) { p->primary_status(true, "copy away"); return 1; }
   if(ns) { L.drop(); L.st = ns; L.fresh = true; }
   bool was = !connect;
@@ -1542,7 +2004,7 @@ void gxObjRepl::Stop() { p->stop = 1; }
 int gxObjRepl::Serve()
 {
   {
-    std::lock_guard<std::recursive_mutex> g_(p->mu);
+    std::lock_guard<ObjMutex> g_(p->mu);
     if(!p->s.is_open || p->role != COPY) return p->fail("not an open copy");
     p->stop = 0;                                               // a Stop() before this Serve() is spent (review 3)
     p->serving = 1;
@@ -1559,9 +2021,13 @@ int gxObjRepl::Impl::serve()
   if(srv.AllowClientCN(cfg.allow_cn) != 0) return fail("allow-cn is required");
   if(srv.Listen(cfg.listen_port, cfg.cert, cfg.key, std::string(), cfg.listen_addr) != 0)
     return fail("cannot listen on " + cfg.listen_addr + ":" + std::to_string(cfg.listen_port) + ": " + srv.Error());
-  std::unique_lock<std::recursive_mutex> sl(mu);             // the start: said and the status written with the node held
+  std::unique_lock<ObjMutex> sl(mu);             // the start: said and the status written with the node held
   say("copy listening on " + cfg.listen_addr + ":" + std::to_string(cfg.listen_port) + " (gxStream, TLS, client CN " + cfg.allow_cn +
       "), applied " + std::to_string(s.st.applied_seq) + ", epoch " + std::to_string(s.st.epoch) + (s.st.in_snapshot ? ", a snapshot was cut" : ""));
+  // ROOT/prev, the data set aside for a full send that has ended: removed without the node held (only this thread
+  // sets data aside; one that stays is removed at the next open or full send)
+  std::string sroot = s.root;
+  auto s_drop_aside = [](const std::string &r) { std::error_code ec; fs::remove_all(path(r, "prev"), ec); fs::remove_all(path(r, "prev.tmp"), ec); };
   bool rolled = false;      // a rolled-back apply: the maps and index memory are stale, the node is opened again
   unsigned long long frames_total = 0, rollbacks = 0, refusals = 0;
   time_t last_frame = 0, snap_since = 0;
@@ -1605,11 +2071,12 @@ int gxObjRepl::Impl::serve()
     st.Connection().Socket().SetNoDelay(true);                // the acks go out at once (see connect_to)
     std::vector<unsigned char> b;
     if(!recv_frame(st, b)) {
-      if(st.PeerOldHeader()) { std::lock_guard<std::recursive_mutex> al(mu); alarm("a primary that sends the gxStream block header with 4-byte words (DataReel before 7.4 beta 5 on Windows or a 32-bit build) was refused"); }
+      if(st.PeerOldHeader()) { std::lock_guard<ObjMutex> al(mu); alarm("a primary that sends the gxStream block header with 4-byte words (DataReel before 7.4 beta 5 on Windows or a 32-bit build) was refused"); }
       st.Close(); continue;
     }
     st.SetTimeOut(cfg.idle_timeout > 0 ? cfg.idle_timeout : 3600);   // a frame that stops half way: dropped too
-    std::unique_lock<std::recursive_mutex> hl(mu);           // the hello: the node is held while it is answered
+    std::unique_lock<ObjMutex> hl(mu);           // the hello: the node is held while it is answered
+    mu.at("copy hello");
     Rd h(b.data(), b.size()); uint32_t magic = h.u32(); uint64_t pep = h.u64(); std::string lspec = h.str();
     std::string pname = h.str(); uint8_t prole = h.u8(); uint64_t plast = h.u64(); h.u64();
     std::string why;
@@ -1637,19 +2104,30 @@ int gxObjRepl::Impl::serve()
     Buf rep;
     rep.u8(ok ? 1 : 0); rep.u64(s.st.applied_seq); rep.u64(s.st.epoch); rep.u8(s.st.in_snapshot ? 1 : 0);
     rep.str(cfg.name); rep.u8(ROLE_COPY); rep.u64(s.st.applied_digest); rep.str(why);
+    hl.unlock();                                               // the answer goes out without the node held
     send_frame(st, rep.b);
     if(!ok) { st.Close(); continue; }
     // the primary's epoch is saved with the first frame applied from it, never at the hello: a primary that then
     // refuses this copy must not fence out the real one (11/16/2026, review)
     long frames = 0;
     bool accepted = false;                                     // F_EPOCH seen on this connection
-    hl.unlock();
     while(!stop) {
       int w = wait(st.Connection().Socket(), cfg.idle_timeout);
       if(w == -2) { say("copy: no frame from " + pname + " in " + std::to_string(cfg.idle_timeout) + " s: connection dropped"); break; }
       if(w <= 0 || !recv_frame(st, b)) break;
       if(waiting > 0) std::this_thread::sleep_for(std::chrono::microseconds(300));   // readers first (see step_aside)
-      std::lock_guard<std::recursive_mutex> fl(mu);          // the frame: applied with the node held
+      std::unique_lock<ObjMutex> fl(mu);         // the frame: applied with the node held
+      // the ack goes out after the lock is given up (11/16/2026: readers waited for the socket write too)
+      bool aside = false;                                      // the full send ended: ROOT/prev goes (unlocked)
+      auto ack = [&](const Buf &a) -> bool {
+	sync_snapflag();
+	fl.unlock();
+	bool sent = send_frame(st, a.b);
+	if(aside) s_drop_aside(sroot);
+	if(sent && !rolled) { fl.lock(); checkpoint_soon(); fl.unlock(); }
+	return sent;
+      };
+      mu.at("copy frame");
       if(drop_every && ++frames % drop_every == 0) break;      // test only: the connection drops (no restart)
       frames_total++; last_frame = time(0);
       status(false, "streaming", true);
@@ -1660,9 +2138,10 @@ int gxObjRepl::Impl::serve()
       // commits ahead of F_EPOCH were applied with no link map)
       if(kind != F_EPOCH && !accepted) { alarm("a frame (kind " + std::to_string(kind) + ") from " + pname + " before it accepted this copy: refused"); break; }
       if(kind == F_COMMIT) {
+	mu.at("copy F_COMMIT");
 	uint64_t seq = r.u64(), ep = r.u64();
 	if(!r.ok || ep < s.st.epoch || s.st.in_snapshot) { alarm("a commit from " + pname + " that cannot apply here (malformed, an older epoch, or during a full send): refused"); break; }
-	if(seq <= s.st.applied_seq) { Buf a; a.u64(s.st.applied_seq); send_frame(st, a.b); continue; }   // a resend
+	if(seq <= s.st.applied_seq) { Buf a; a.u64(s.st.applied_seq); ack(a); continue; }   // a resend
 	if(seq != s.st.applied_seq + 1) { alarm("commit " + std::to_string(seq) + " from " + pname + " after " + std::to_string(s.st.applied_seq) + ": a gap: refused"); break; }
 	if(!open_named(b.data() + r.o, b.size() - r.o, false)) { alarm("commit " + std::to_string(seq) + " from " + pname + ": malformed or a bad database name: refused"); break; }
 	uint32_t nops = r.u32();
@@ -1696,6 +2175,7 @@ int gxObjRepl::Impl::serve()
 	  if(good) wrote.push_back({name, id});
 	}
 	std::sort(wrote.begin(), wrote.end()); wrote.erase(std::unique(wrote.begin(), wrote.end()), wrote.end());
+	mu.at("copy F_COMMIT links");
 	for(auto &w : wrote) {
 	  if(!good) break;
 	  bool has = false;
@@ -1721,6 +2201,7 @@ int gxObjRepl::Impl::serve()
 	    }
 	  } }
 #endif
+	mu.at("copy F_COMMIT read back");
 	// read back: every object as stored now, its links turned back into ids, must be what was sent (11/16/2026,
 	// design review: the copy checks what it holds, not only what it received)
 	for(auto &w : want) {
@@ -1746,10 +2227,12 @@ int gxObjRepl::Impl::serve()
 	}
 	// not applied, or the commit failed: rolled back, the node reopened from the files, and no ack (review)
 	if(!good) { s.j.Rollback(); rolled = true; say("copy: commit " + std::to_string(seq) + " did not apply"); break; }
-	if(!s.commit()) { rolled = true; say("copy: commit " + std::to_string(seq) + " failed: " + s.err); break; }
+	mu.at("copy F_COMMIT journal");
+	if(!jcommit()) { rolled = true; say("copy: commit " + std::to_string(seq) + " failed: " + s.err); break; }
 	Buf a; a.u64(seq);
-	if(!send_frame(st, a.b)) break;
+	if(!ack(a)) break;
       } else if(kind == F_EPOCH) {
+	mu.at("copy F_EPOCH");
 	uint64_t ep = r.u64();
 	if(!r.ok || ep < s.st.epoch) { alarm("an epoch frame from " + pname + " older than this copy's: refused"); break; }
 	accepted = true;
@@ -1757,14 +2240,16 @@ int gxObjRepl::Impl::serve()
 	// placeholders may go there) (review 3: they were made at the hello, before the primary's checks)
 	links = pending_links;
 	for(auto &l : links) { s.get(l.db); s.get(l.target); }
+	mu.at("copy F_EPOCH state");
 	if(ep > s.st.epoch) {
 	  if(!s.begin()) break;
 	  s.st.epoch = ep; s.put_state();
-	  if(!s.commit()) { rolled = true; break; }
+	  if(!jcommit()) { rolled = true; break; }
 	}
 	Buf a; a.u64(s.st.applied_seq);
-	if(!send_frame(st, a.b)) break;
+	if(!ack(a)) break;
       } else if(kind == F_SNAP_DLOG) {
+	mu.at("copy F_SNAP_DLOG");
 	uint32_t n = r.u32();
 	if(!r.ok || !s.st.in_snapshot || n > DLOG_BATCH || (size_t)n * 16 > b.size() - r.o) break;
 	if(!s.begin()) break;
@@ -1776,10 +2261,11 @@ int gxObjRepl::Impl::serve()
 	}
 	if(good) s.put_state();
 	if(!good) { s.j.Rollback(); rolled = true; break; }
-	if(!s.commit()) { rolled = true; break; }
+	if(!jcommit()) { rolled = true; break; }
 	Buf a; a.u64(0);
-	if(!send_frame(st, a.b)) break;
+	if(!ack(a)) break;
       } else if(kind == F_SNAP_BEGIN) {
+	mu.at("copy F_SNAP_BEGIN");
 	uint64_t base = r.u64(), ep = r.u64();
 	if(!r.ok || ep < s.st.epoch) break;
 	// first the state says a full send is under way (the old data still here), then the old data goes aside and the
@@ -1793,12 +2279,16 @@ int gxObjRepl::Impl::serve()
 	s.st.in_snapshot = 1; s.st.snapshot_base = base; s.st.applied_seq = 0; s.st.applied_digest = DIGEST0;
 	s.st.snap_count = 0; s.st.snap_hash = DIGEST0;
 	s.put_state();
-	if(!s.commit()) { rolled = true; break; }
+	if(!jcommit()) { rolled = true; break; }
+	// readers fail at once from here (a full send is under way) instead of waiting for the lock through the set-aside
+	// and reopen below (11/16/2026: a copy reader waited out a 40 s SNAP_BEGIN)
+	snapflag = 1;
 	if(!s.set_aside()) { say("copy: " + s.err); s.close(); return fail(s.err); }
 	for(auto &l : links) { s.get(l.db); s.get(l.target); }   // the link databases again (empty)
 	Buf a; a.u64(0);
-	if(!send_frame(st, a.b)) break;
+	if(!ack(a)) break;
       } else if(kind == F_SNAP_BATCH) {
+	mu.at("copy F_SNAP_BATCH");
 	if(!s.st.in_snapshot || !open_named(b.data() + r.o, b.size() - r.o, true)) break;
 	uint32_t nobj = r.u32();
 	if(!s.begin()) break;
@@ -1816,10 +2306,11 @@ int gxObjRepl::Impl::serve()
 	}
 	if(good) s.put_state();
 	if(!good) { s.j.Rollback(); rolled = true; break; }
-	if(!s.commit()) { rolled = true; break; }
+	if(!jcommit()) { rolled = true; break; }
 	Buf a; a.u64(0);
-	if(!send_frame(st, a.b)) break;
+	if(!ack(a)) break;
       } else if(kind == F_SNAP_END) {
+	mu.at("copy F_SNAP_END");
 	uint64_t base = r.u64(), sdig = r.u64(), scount = r.u64(), shash = r.u64();
 	if(!r.ok || !s.st.in_snapshot || base != s.st.snapshot_base) { alarm("a full-send end that does not match the full send under way: refused"); break; }
 	// what arrived must be what was sent (fuzz: a lost, repeated or changed batch ended a full send that looked whole)
@@ -1853,18 +2344,20 @@ int gxObjRepl::Impl::serve()
 	if(!good) { s.j.Rollback(); rolled = true; break; }
 	s.st.in_snapshot = 0; s.st.applied_seq = base; s.st.applied_digest = sdig;
 	s.put_state();
-	if(!s.commit()) { rolled = true; break; }
-	s.drop_aside();                                        // the full send is whole: the old data goes
+	if(!jcommit()) { rolled = true; break; }
+	aside = true;                                          // the full send is whole: the old data goes (after the ack)
 	Buf a; a.u64(base);
-	if(!send_frame(st, a.b)) break;
+	if(!ack(a)) break;
       } else { alarm("an unknown frame (kind " + std::to_string(kind) + ") from " + pname + ": refused"); break; }
     }
     st.Close();
-    std::lock_guard<std::recursive_mutex> el(mu);
-    if(rolled) { rollbacks++; if(!reopen()) return -1; rolled = false; }
+    std::lock_guard<ObjMutex> el(mu);
+    mu.at("copy end of connection");
+    if(rolled) { rollbacks++; if(!reopen()) { sync_snapflag(); return -1; } rolled = false; }
+    sync_snapflag();
     status(true, "listening", false);
   }
-  std::lock_guard<std::recursive_mutex> el(mu);
+  std::lock_guard<ObjMutex> el(mu);
   status(true, "stopped", false);
   return 0;
 }
@@ -1872,15 +2365,28 @@ int gxObjRepl::Impl::serve()
 // ---------- reads ----------
 // a reader's lock: counted while it waits, so Serve() and Pump() step aside for it
 struct RLock {
-  gxObjRepl::Impl *p; std::unique_lock<std::recursive_mutex> l;
-  RLock(gxObjRepl::Impl *q) : p(q) { p->waiting++; l = std::unique_lock<std::recursive_mutex>(p->mu); p->waiting--; }
+  gxObjRepl::Impl *p; std::unique_lock<ObjMutex> l;
+  RLock(gxObjRepl::Impl *q) : p(q) {
+#ifdef GXREPL_TEST_HOOKS
+    auto t0 = std::chrono::steady_clock::now();
+#endif
+    p->waiting++; l = std::unique_lock<ObjMutex>(p->mu); p->waiting--;
+#ifdef GXREPL_TEST_HOOKS
+    ObjMutex::note("reader wait", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+#endif
+    p->mu.at("read");
+  }
 };
 // a copy in the middle of a full send holds a part of the data, with links not yet translated: reads wait for it to
 // end (review 3: readers saw links naming nothing)
 #define GXOBJREPL_NO_READS_IN_FULL_SEND(ret) if(p->role == COPY && p->s.is_open && p->s.st.in_snapshot) { p->err = "a full send is under way"; return ret; }
-int gxObjRepl::InSnapshot() { RLock g_(p); return p->s.is_open && p->s.st.in_snapshot; }
+// the same before the lock is taken: a copy in a full send holds the lock for each batch it applies (11/16/2026)
+#define GXOBJREPL_FULL_SEND_FAST(ret) if(p->snapflag) { p->err = "a full send is under way"; return ret; }
+int gxObjRepl::InSnapshot() { if(p->snapflag) return 1; RLock g_(p); return p->s.is_open && p->s.st.in_snapshot; }
 int gxObjRepl::Get(const std::string &db, uint64_t id, std::vector<unsigned char> &bytes)
 {
+  bytes.clear();
+  GXOBJREPL_FULL_SEND_FAST(-1)
   RLock g_(p);
   bytes.clear();
   GXOBJREPL_NO_READS_IN_FULL_SEND(-1)
@@ -1893,6 +2399,7 @@ int gxObjRepl::Get(const std::string &db, uint64_t id, std::vector<unsigned char
 }
 int gxObjRepl::IsLive(const std::string &db, uint64_t id)
 {
+  GXOBJREPL_FULL_SEND_FAST(0)
   RLock g_(p);
   GXOBJREPL_NO_READS_IN_FULL_SEND(0)
   auto it = p->s.dbs.find(db);
@@ -1900,6 +2407,7 @@ int gxObjRepl::IsLive(const std::string &db, uint64_t id)
 }
 FAU_t gxObjRepl::AddressOf(const std::string &db, uint64_t id)
 {
+  GXOBJREPL_FULL_SEND_FAST((FAU_t)0)
   RLock g_(p);
   GXOBJREPL_NO_READS_IN_FULL_SEND((FAU_t)0)
   auto it = p->s.dbs.find(db);
@@ -1909,6 +2417,7 @@ FAU_t gxObjRepl::AddressOf(const std::string &db, uint64_t id)
 }
 uint64_t gxObjRepl::IdAt(const std::string &db, FAU_t a)
 {
+  GXOBJREPL_FULL_SEND_FAST(0)
   RLock g_(p);
   GXOBJREPL_NO_READS_IN_FULL_SEND(0)
   auto it = p->s.dbs.find(db);
@@ -1918,6 +2427,7 @@ uint64_t gxObjRepl::IdAt(const std::string &db, FAU_t a)
 }
 std::vector<uint64_t> gxObjRepl::Ids(const std::string &db, Which which)
 {
+  GXOBJREPL_FULL_SEND_FAST(std::vector<uint64_t>())
   RLock g_(p);
   GXOBJREPL_NO_READS_IN_FULL_SEND(std::vector<uint64_t>())
   std::vector<uint64_t> v;
@@ -1936,15 +2446,20 @@ std::vector<std::string> gxObjRepl::Databases()
 }
 int gxObjRepl::FindKey(const std::string &index, const void *key, unsigned n, std::vector<uint64_t> &ids)
 {
+  ids.clear();
+  GXOBJREPL_FULL_SEND_FAST(-1)
   RLock g_(p);
   GXOBJREPL_NO_READS_IN_FULL_SEND(-1)
   ids.clear();
   for(auto &x : p->s.ixs) {
     if(x->def.name != index || x->def.kind != 'B') continue;
     if(n > x->def.len) return p->fail("the key is longer than the index's");
-    // in key order from the first key: the entries that start with KEY, up to the first key past it
+    // in key order from the first entry at or past KEY (zero padded, id 0: the smallest key that starts with KEY), up
+    // to the first key past it (11/16/2026: it scanned from the first key of the index, half the index on average,
+    // tens of ms with the node's lock held)
     IxKey k, c;
-    for(int ok = x->bt.FindFirst(k); ok; ok = x->bt.FindNext(k, c)) {
+    memcpy(k.d.k, key, n); k.d.id = 0;
+    for(int ok = x->bt.PartialFind(k, c); ok; ok = x->bt.FindNext(k, c)) {
       int cmp = memcmp(k.d.k, key, n);
       if(cmp > 0) break;
       if(cmp == 0) ids.push_back(k.d.id);
@@ -1955,6 +2470,8 @@ int gxObjRepl::FindKey(const std::string &index, const void *key, unsigned n, st
 }
 int gxObjRepl::Nearest(const std::string &index, const float *q, unsigned k, std::vector<gxObjReplHit> &hits)
 {
+  hits.clear();
+  GXOBJREPL_FULL_SEND_FAST(-1)
   RLock g_(p);
   GXOBJREPL_NO_READS_IN_FULL_SEND(-1)
   hits.clear();
@@ -1968,11 +2485,11 @@ int gxObjRepl::Nearest(const std::string &index, const float *q, unsigned k, std
   return p->fail("no vector index " + index);
 }
 
-uint64_t gxObjRepl::Epoch() const { std::lock_guard<std::recursive_mutex> g_(p->mu); return p->s.st.epoch; }
-uint64_t gxObjRepl::LastSeq() const { std::lock_guard<std::recursive_mutex> g_(p->mu); return p->s.st.next_seq - 1; }
-uint64_t gxObjRepl::AppliedSeq() const { std::lock_guard<std::recursive_mutex> g_(p->mu); return p->s.st.applied_seq; }
-uint64_t gxObjRepl::CopyApplied() const { std::lock_guard<std::recursive_mutex> g_(p->mu); return p->L.copy_applied; }
-long gxObjRepl::Snapshots() const { std::lock_guard<std::recursive_mutex> g_(p->mu); return p->L.snapshots; }
+uint64_t gxObjRepl::Epoch() const { std::lock_guard<ObjMutex> g_(p->mu); return p->s.st.epoch; }
+uint64_t gxObjRepl::LastSeq() const { std::lock_guard<ObjMutex> g_(p->mu); return p->s.st.next_seq - 1; }
+uint64_t gxObjRepl::AppliedSeq() const { std::lock_guard<ObjMutex> g_(p->mu); return p->s.st.applied_seq; }
+uint64_t gxObjRepl::CopyApplied() const { std::lock_guard<ObjMutex> g_(p->mu); return p->L.copy_applied; }
+long gxObjRepl::Snapshots() const { std::lock_guard<ObjMutex> g_(p->mu); return p->L.snapshots; }
 
 // ---------- folders ----------
 int gxObjRepl::Digest(const std::string &root, const std::string &lspec, std::string &line, std::string *detail)
