@@ -58,11 +58,13 @@ one file. Every sample program in them is built and run by
   `CompareKey()` (the CMake build defines `__USE_SINGLE_COMPARE__`).
   Also define `operator==` and `operator>` so the class works without
   that macro.
-- File layout depends on two build settings: `DATAREEL_64BIT_DATABASE`
-  and `DATAREEL_NATIVE_TYPES`. A program must use the settings the
-  files were created with. Linux and Windows native builds write
-  different layouts (64-bit Linux `long` is 8 bytes); use
-  `DATAREEL_NATIVE_TYPES=OFF` on both to share files.
+- File layout depends on `DATAREEL_64BIT_DATABASE` (32-bit and 64-bit
+  engine files are not interchangeable). `DATAREEL_NATIVE_TYPES=OFF`
+  changes only the in-memory types of the gx integer and float
+  classes: the library's files and the wire use the same canonical
+  layout with ON or OFF, on Linux and Windows (7.4). Records you
+  write as raw bytes that hold gx types differ in size between ON and
+  OFF builds; use `int32_t` and the other fixed-size types in them.
 - `gxDatabase` objects are not copyable and one object must not be
   used from several threads at once without your own mutex.
 - Object addresses (`FAU_t`) returned by `Alloc()` stay valid until
@@ -92,8 +94,10 @@ one file. Every sample program in them is built and run by
 cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
 cmake --build cmake-build -j
 tests/run_tests.sh cmake-build                    # 40 checks
-CMAKE_OPTS="-DDATAREEL_64BIT_DATABASE=ON -DDATAREEL_NATIVE_TYPES=OFF" \
-  tests/run_tests.sh /tmp/dr-b64                   # the other layouts
+# the test matrix (7.4): 64-bit ON (above), 64-bit OFF with the objrepl
+# suites, 32-bit ON and OFF build with 0 warnings plus run_tests
+cmake -S . -B /tmp/dr-off -DDATAREEL_64BIT_DATABASE=ON -DDATAREEL_NATIVE_TYPES=OFF -DGXREPL_TEST_HOOKS=ON
+cmake --build /tmp/dr-off -j && tests/run_tests.sh /tmp/dr-off
 ```
 
 - Windows: `cmake -S . -B cmake-build -G "Visual Studio 17 2022" -A x64`

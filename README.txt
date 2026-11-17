@@ -276,12 +276,16 @@ the files it opens:
 
 - DATAREEL_64BIT_DATABASE (makefile: LARGEFILES=1) selects 64-bit file
   addresses. 32-bit and 64-bit engine files are not interchangeable.
-- DATAREEL_NATIVE_TYPES (default ON) stores gxINT32 and the other
-  fixed types as the native C++ types. On 64-bit Linux "long" is 8
-  bytes and on Windows it is 4, so native builds on the two systems
-  write different layouts. To share files between Linux and Windows
-  build both with DATAREEL_NATIVE_TYPES=OFF, which uses the portable
-  byte-order classes.
+- DATAREEL_NATIVE_TYPES (default ON) makes gxINT32 and the other gx
+  integer and float types the native C++ types; OFF makes them the
+  portable byte-order classes. 7.4: OFF changes only the in-memory
+  types of the gx integer and float classes. The library's files
+  (block headers, B-tree nodes, journals) and the wire use the same
+  canonical layout either way, so ON and OFF builds, Linux and
+  Windows, share files and talk to each other. Your own records are
+  raw bytes: a record that holds gx types has the size those types
+  have in the build, so keep the setting the same for programs that
+  share such records (or use fixed-size types such as int32_t).
 
 EXAMPLE PROGRAMS AND TESTS
 --------------------------
