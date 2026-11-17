@@ -187,6 +187,8 @@ mkdir -p "$WORK/run_salt" && check journal_salt_test "$BUILD/tests/journal_salt_
 mkdir -p "$WORK/run_reclaim" && check reclaim_test "$BUILD/tests/reclaim_test" "$WORK/run_reclaim"
 # 11/17/2026: serial_read (gxSerialComm) on a pseudo terminal: every byte value, --hex, limits, hangup, SIGTERM
 mkdir -p "$WORK/run_serial_read" && check serial_read_test "$BUILD/tests/serial_read_test" "$E/serial_read" "$WORK/run_serial_read"
+# 11/17/2026: terminal control sequences out of text (strutil.h strip_ansi, AnsiStripper)
+check ansi_strip_test "$BUILD/tests/ansi_strip_test"
 # Vector index (gxvindex.h, 7.4): kernels, exact and graph search,
 # Merge, Repair, concurrent searches and 20 crash rounds
 mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" &&

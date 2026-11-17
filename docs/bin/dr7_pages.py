@@ -832,6 +832,11 @@ page(file='classes/general/strutil.htm', title='String Utilities',
   ('std::size_t copy_to(char *dest, std::size_t dest_size, std::string_view s)', 'Copies into a fixed buffer, always null terminated.'),
   ('std::size_t bounded_length(const char *s, std::size_t max)', 'Length of a fixed buffer that may not be null terminated.'),
  ]),
+ ('AnsiFunctions', 'Terminal Control Sequences', [
+  ('std::string strip_ansi(std::string_view s, const AnsiStripOptions &o = AnsiStripOptions())', 'Text without ECMA-48 control sequences (VT100, VT220, xterm): CSI (ESC [ ..., colours and cursor moves), OSC (ESC ] ... ended by BEL or ESC \\, titles and links), DCS, SOS, PM and APC strings (to ESC \\), ESC with one final character (ESC 7, ESC c, ESC ( B), and C0 control characters. UTF-8 text passes through unchanged.'),
+  ('class AnsiStripper: Feed(std::string_view s, std::string &out), Finish(std::string &out), Reset(), Removed()', 'The same for text that arrives in pieces (a serial port, a socket): a sequence split between two Feed() calls is still removed. Finish() drops a sequence left unfinished. Removed() counts the sequences and controls taken out.'),
+  ('struct AnsiStripOptions', 'keep_tab and keep_newline (on); cr_to_newline (a lone CR or CR LF becomes one newline); cursor_to_newline (cursor positions, cursor down and NEL become line breaks, for text a terminal laid out by moving the cursor); c1_8bit (bytes 0x80-0x9F are the 8-bit C1 controls: only for 8-bit text, never UTF-8); keep_del.'),
+ ]),
  ])
 
 page(file='classes/general/systime.htm', title='Time Stamp Functions',
@@ -1468,7 +1473,7 @@ All samples match
   'strutil.h, base 64 and CRC-32: the small helpers most programs need around a database, each checked against a known answer.', [
   ('Shows', 'What It Shows', """
 <UL>
-<LI><A HREF="../classes/general/strutil.htm">strutil.h</A>: trim, split, case changes, case-blind compare and find, starts_with and ends_with, replace_all, cutting around a marker, printf-style format(), number conversion that never throws, copy_to() into fixed char fields and natural ordering ("run2" before "run10").</LI>
+<LI><A HREF="../classes/general/strutil.htm">strutil.h</A>: trim, split, case changes, case-blind compare and find, starts_with and ends_with, replace_all, cutting around a marker, printf-style format(), number conversion that never throws, copy_to() into fixed char fields, natural ordering ("run2" before "run10") and strip_ansi() for terminal control sequences.</LI>
 <LI><A HREF="../classes/socket/gxs_b64.htm">gxs_b64.h</A>: base 64 (RFC 4648) for binary data in text, with line breaks ignored and bad input refused, and HTTP basic authentication.</LI>
 <LI><A HREF="../classes/database/gxcrc32.htm">gxcrc32.h</A>: CRC-32 of a buffer and of a file, computed in one call and block by block.</LI>
 </UL>
