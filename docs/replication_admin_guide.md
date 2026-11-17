@@ -30,7 +30,8 @@ first. **Test status:** each block marked **(tested)** was run as printed, in or
 - **The application is the primary.** A program writes through the gxObjRepl API (`Begin()`, `Put()`, `Remove()`,
   `Commit()`) and sends with `Pump()` or `Drain()`. The copy runs `objrepl copy` or the program's own `Serve()`.
   `objrepl primary` is a test data generator: it writes test commits and sends them. This guide uses it as the
-  demo's writer.
+  demo's writer. The example program `examples/oodb/object_replication.cpp`
+  ([its page](docs/examples/object_replication.htm)) shows the API side: a primary and a copy, commits, a planned switch.
 - **32-bit and 64-bit.** With the 32-bit engine each database file is limited to 2 GB (FAU_t); 1M-object stores
   need the 64-bit engine. Mixed 32/64-bit nodes replicate. Not tested: a 32-bit Windows build.
 
@@ -220,6 +221,8 @@ how many of its commits the copy never had (`dropped_at_rejoin`). Then start it 
 - Index fields may not overlap link fields.
 - With the 32-bit engine each database file is limited to 2 GB (FAU_t); 1M-object stores need the 64-bit engine.
   Mixed 32/64-bit nodes replicate. Not tested: a 32-bit Windows build.
+- The property test (`prop_objrepl`) and the wire fuzzer (`fuzz_objrepl`) are POSIX only; the API test, the
+  `objrepl` tool and its test scripts run on Windows and Linux.
 
 ## 8. The journal and the lock
 

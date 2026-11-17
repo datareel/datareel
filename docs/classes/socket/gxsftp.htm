@@ -45,7 +45,7 @@ ftp.Quit();</PRE>
 <div class="dr-fn" id="List"><code class="dr-sig">int gxsFTPClient::List(const std::string &amp;path, std::string &amp;listing, bool full = true)</code><p class="dr-desc">LIST (full) or NLST.</p></div>
 <div class="dr-fn" id="Get"><code class="dr-sig">int gxsFTPClient::Get(const std::string &amp;remote, const std::string &amp;local_fname, long long &amp;bytes)</code><p class="dr-desc">Downloads a file.</p></div>
 <div class="dr-fn" id="Put"><code class="dr-sig">int gxsFTPClient::Put(const std::string &amp;local_fname, const std::string &amp;remote, long long &amp;bytes)</code><p class="dr-desc">Uploads a file.</p></div>
-<div class="dr-fn" id="GetString"><code class="dr-sig">int gxsFTPClient::GetString(const std::string &amp;remote, std::string &amp;data) / PutString(...)</code><p class="dr-desc">Transfers to and from memory.</p></div>
+<div class="dr-fn" id="GetString"><span id="PutString"></span><code class="dr-sig">int gxsFTPClient::GetString(const std::string &amp;remote, std::string &amp;data) / PutString(...)</code><p class="dr-desc">Transfers to and from memory.</p></div>
 <div class="dr-fn" id="int_gxsFTPClient_ChDir_MkDir_RmDir_PWD_S"><code class="dr-sig">int gxsFTPClient::ChDir / MkDir / RmDir / PWD / Size / Delete / Rename</code><p class="dr-desc">Directory and file commands.</p></div>
 <div class="dr-fn" id="Type"><code class="dr-sig">int gxsFTPClient::Type(char type = &#x27;I&#x27;)</code><p class="dr-desc">Binary (I) or ASCII (A) mode.</p></div>
 <div class="dr-fn" id="Command"><code class="dr-sig">int gxsFTPClient::Command(const std::string &amp;cmd, const std::string &amp;expect)</code><p class="dr-desc">Sends any command.</p></div>

@@ -25,6 +25,8 @@ datareel_example(day_events        oodb/day_events.cpp)
 # 11/14/2026 (7.4): a database folder copied by a plain file copy and checked with digests, with the index
 # rebuild fallback, on Linux and Windows (11/16/2026: the gxrepl examples went with gxrepl)
 datareel_example(replication_copy  oodb/replication_copy.cpp)
+# 11/17/2026: gxObjRepl, a primary and a copy, then a planned switch (Linux and Windows)
+datareel_example(object_replication oodb/object_replication.cpp)
 # 11/15/2026 (7.4): the vector index, records with vector members, a vector set across day files
 datareel_example(vector_basics     oodb/vector_basics.cpp)
 datareel_example(vector_records    oodb/vector_records.cpp)

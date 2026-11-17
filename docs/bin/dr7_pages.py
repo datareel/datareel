@@ -84,8 +84,16 @@ def render(p):
             i = fn_id(sig); base = i; n = 2
             while i in used: i = '%s%d' % (base, n); n += 1
             used.add(i)
-            out.append('<div class="dr-fn" id="%s"><code class="dr-sig">%s</code>'
-                       '<p class="dr-desc">%s</p></div>\n' % (i, html.escape(sig), desc))
+            # 11/17/2026: each further function of a combined signature ("Begin() / Commit() / Rollback()") gets
+            # its own anchor, so links such as #Commit resolve
+            extra = ''
+            for part in sig.split(' / ')[1:]:
+                if '(' not in part: continue
+                j = fn_id(part)
+                if j and j not in used and re.match(r'^\w+$', j):
+                    used.add(j); extra += '<span id="%s"></span>' % j
+            out.append('<div class="dr-fn" id="%s">%s<code class="dr-sig">%s</code>'
+                       '<p class="dr-desc">%s</p></div>\n' % (i, extra, html.escape(sig), desc))
         out.append('\n')
     out.append(FOOT.format(version=VERSION))
     return ''.join(out)
@@ -293,6 +301,7 @@ c.Serve();                                   // until Stop() (signal-safe) or Cl
 <LI><B>Full send</B>: a copy's SNAP_BEGIN still holds the lock while it sets the old data aside, but readers fail at once ("a full send is under way") rather than wait for it.</LI>
 <LI>A commit that fails on a journal sync error may still survive recovery: after such an error, read the object back before counting on either outcome.</LI>
 <LI>With the 32-bit engine each database file is limited to 2 GB (FAU_t); 1M-object stores need the 64-bit engine. Mixed 32/64-bit nodes replicate. Not tested: a 32-bit Windows build.</LI>
+<LI>The property test (prop_objrepl) and the wire fuzzer (fuzz_objrepl) are POSIX only (fork); the API test, the objrepl tool and the test scripts run on Windows and Linux.</LI>
 <LI>Index fields may not overlap link fields.</LI>
 <LI>Platforms: see <A HREF="#Platforms">Windows and Linux</A>.</LI>
 </UL>
@@ -930,6 +939,7 @@ EXAMPLES = [
   ('oodb/vector_records.cpp', 'vector_records', 'Records that carry their own vectors (vector members): record and node in one transaction, records read back by address, Verify() with a resolver, the index rebuilt from the records alone.'),
   ('oodb/vector_days.cpp', 'vector_days', 'One vector index per day searched as one through a .vixset manifest: threads, a day range that skips files, an archived day, a live writer attached.'),
   ('oodb/vector_search_service.cpp', 'vector_search_service', 'Vector searches through the database object server (VECTOR_INFO, VECTOR_SEARCH) over mutual TLS, with a day range. POSIX only.'),
+  ('oodb/object_replication.cpp', 'object_replication', 'gxObjRepl: a primary and a copy, a few commits read back on the copy, then a planned switch (takeover and rejoin) and more commits, with the digests equal on both nodes. Windows and Linux.'),
   ('oodb/replication_copy.cpp', 'replication_copy', 'A database folder copied with robocopy or cp while its writer is stopped, checked with digests, and the copy\'s indexes rebuilt from its records after a fault. Windows and Linux.'),
  ]),
  ('TLS networking', [
@@ -1371,6 +1381,43 @@ VECTOR_SEARCH days 20261113..20261113: 5 result(s), 2 file(s) skipped by their d
 
 OK: VECTOR_INFO, a search of every day and a search of one day (two files skipped)
 ''') + '<P>From a 64-bit Linux build, after the certificate step (it prints nothing). The port is random; the data comes from fixed seeds.</P>\n'),
+ ]),
+ 'object_replication': ('oodb/object_replication.cpp', 'Object Replication Example',
+  'gxObjRepl replicates objects from a primary to a copy; a planned switch makes the copy the primary, and the old primary its copy. Windows and Linux.', [
+  ('Shows', 'What It Shows', """
+<P>Object replication with <A HREF="../classes/database/gxobjrepl.htm">gxObjRepl</A> (DataReel 7.4), between Windows and Linux nodes in both directions. Two nodes, the folders WORK/a and WORK/b, run in this one program; the copy serves in a thread, so the same program runs on both platforms:</P>
+<OL>
+<LI>a is the primary and b the copy. a commits three transactions of notes (<CODE>Begin()</CODE>, <CODE>NewId()</CODE>, <CODE>Put()</CODE>, <CODE>Commit()</CODE>) and <CODE>Drain()</CODE>s them to b, which reads the newest one back with <CODE>Get()</CODE>.</LI>
+<LI>Both stop. <CODE>gxObjRepl::Digest()</CODE> of each folder: the same objects.</LI>
+<LI>A planned switch: <CODE>Takeover()</CODE> makes b the primary at epoch 2, and <CODE>Rejoin()</CODE> makes a its copy. a's copy had every commit, so no full send is needed.</LI>
+<LI>b commits two more transactions and drains them to a; the digests agree again.</LI>
+</OL>
+<P>The nodes use mutual TLS: the copy listens with the server certificate and allows the primary's client certificate by its CN. Each node keeps its own file addresses and indexes; only objects travel. The administrator's view of the same steps, with the objrepl tool, is in the <A HREF="../replication_admin_guide.html">replication administrator's guide</A>.</P>
+"""),
+  ('Running', 'Running It', '<P>Make the certificates once, then run it on an empty folder (Linux shown; on Windows the same with the Release folder):</P>\n' + code("""
+utils/objrepl/objrepl_certs.sh pki --copy-host 127.0.0.1 --apply
+mkdir work
+BUILD/examples/object_replication pki work        # PORT 24750 and 24751 by default
+""")),
+  ('Output', 'Sample Output', code("""
+1. a is the primary, b the copy: three commits
+  primary: last commit 3, the copy has 3
+  the copy reads its newest note: "note 3.1"
+2. both stopped: the same objects?
+  a: objects 6 digest 583f8ee882c4cbce
+  b: objects 6 digest 583f8ee882c4cbce
+3. a planned switch: b takes over, a rejoins as its copy
+  work/b is primary at epoch 2 (applied 3)
+  work/a is a copy at epoch 1, following on from seq 3 (its copy had every commit: no full send)
+4. b is the primary, a the copy: two more commits
+  b is the primary at epoch 2
+  primary: last commit 5, the copy has 5
+  the copy reads its newest note: "note 5.1"
+  a: objects 10 digest ebdadaf76f634365
+  b: objects 10 digest ebdadaf76f634365
+OK: 10 notes replicated, then a switch, the same objects on both nodes
+""") + """<P>The digests change with the ids, which carry the epoch and a counter; they are always equal between a and b. The exit code is 0 when every step worked. tests/run_tests.sh runs it (object_replication). Back to the <A HREF="examples.htm">example programs</A>.</P>
+"""),
  ]),
  'replication_copy': ('oodb/replication_copy.cpp', 'Folder Copy Example',
   'A database folder copied by a plain file copy while its writer is stopped, checked with digests, with the index rebuild as the fallback. Windows and Linux.', [

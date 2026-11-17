@@ -45,8 +45,8 @@ pop3.Quit();</PRE>
 <div class="dr-fn" id="List"><code class="dr-sig">int gxsPOP3Client::List(std::string &amp;listing)</code><p class="dr-desc">"number size" lines.</p></div>
 <div class="dr-fn" id="Retr"><code class="dr-sig">int gxsPOP3Client::Retr(int message_number, std::string &amp;message)</code><p class="dr-desc">Whole message.</p></div>
 <div class="dr-fn" id="Top"><code class="dr-sig">int gxsPOP3Client::Top(int message_number, int lines, std::string &amp;message)</code><p class="dr-desc">Headers and the first lines of the body.</p></div>
-<div class="dr-fn" id="Delete"><code class="dr-sig">int gxsPOP3Client::Delete(int message_number) / Reset() / Quit()</code><p class="dr-desc">DELE, RSET and QUIT.</p></div>
-<div class="dr-fn" id="Error"><code class="dr-sig">const std::string &amp;gxsPOP3Client::Error() const / LastReply() const</code><p class="dr-desc">Last failure and reply.</p></div>
+<div class="dr-fn" id="Delete"><span id="Reset"></span><span id="Quit"></span><code class="dr-sig">int gxsPOP3Client::Delete(int message_number) / Reset() / Quit()</code><p class="dr-desc">DELE, RSET and QUIT.</p></div>
+<div class="dr-fn" id="Error"><span id="LastReply"></span><code class="dr-sig">const std::string &amp;gxsPOP3Client::Error() const / LastReply() const</code><p class="dr-desc">Last failure and reply.</p></div>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

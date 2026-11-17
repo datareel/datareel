@@ -37,8 +37,8 @@
 <div class="dr-fn" id="CDate"><code class="dr-sig">CDate::CDate(__UBYTE__ month, __UBYTE__ day, gxUINT16 year)</code><p class="dr-desc">Constructs a date.</p></div>
 <div class="dr-fn" id="CDate2"><code class="dr-sig">explicit CDate::CDate(std::string_view date, char delimiter = &#x27;/&#x27;)</code><p class="dr-desc">Parses M/D/YYYY.</p></div>
 <div class="dr-fn" id="SetDate"><code class="dr-sig">bool CDate::SetDate(std::string_view date, char delimiter = &#x27;/&#x27;)</code><p class="dr-desc">Parses M/D/YYYY. Returns false, leaving 0/0/0, for text that is not a valid date.</p></div>
-<div class="dr-fn" id="str"><code class="dr-sig">std::string CDate::str() const / month_str() / day_str() / year_str()</code><p class="dr-desc">Text forms (they replace the 6.x c_str() functions, which leaked memory).</p></div>
-<div class="dr-fn" id="GetDay"><code class="dr-sig">GetDay() / GetMonth() / GetYear() / SetDay() / SetMonth() / SetYear()</code><p class="dr-desc">Field access.</p></div>
+<div class="dr-fn" id="str"><span id="month_str"></span><span id="day_str"></span><span id="year_str"></span><code class="dr-sig">std::string CDate::str() const / month_str() / day_str() / year_str()</code><p class="dr-desc">Text forms (they replace the 6.x c_str() functions, which leaked memory).</p></div>
+<div class="dr-fn" id="GetDay"><span id="GetMonth"></span><span id="GetYear"></span><span id="SetDay"></span><span id="SetMonth"></span><span id="SetYear"></span><code class="dr-sig">GetDay() / GetMonth() / GetYear() / SetDay() / SetMonth() / SetYear()</code><p class="dr-desc">Field access.</p></div>
 <div class="dr-fn" id="operator_and_operator_"><code class="dr-sig">operator== != &lt; &gt; and operator&lt;&lt;</code><p class="dr-desc">Comparison and stream output.</p></div>
 
 </main>

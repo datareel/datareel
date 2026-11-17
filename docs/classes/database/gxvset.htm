@@ -46,15 +46,15 @@ file 2026/11/11/vectors.vix nodes=500 deleted=0 tag2=20261111..20261111 crc=1a2b
 
 <h2 id="Manifest">The Manifest</h2>
 <div class="dr-fn" id="Create"><code class="dr-sig">gxvError Create(const char *path, const char *name, unsigned dim, gxvElementType type = gxvFLOAT32, gxvMetric metric = gxvL2, const char *spec = 0)</code><p class="dr-desc">A new, empty set: the manifest is written.</p></div>
-<div class="dr-fn" id="Open"><code class="dr-sig">gxvError Open(const char *path, const char *spec = 0, unsigned max_open = 16) / gxvError OpenFile(const char *vix_path, const char *spec = 0) / void Close()</code><p class="dr-desc">Reads a manifest (a spec, when given, must be the set's); or one .vix file as a set of one.</p></div>
-<div class="dr-fn" id="AddFile"><code class="dr-sig">gxvError AddFile(const char *rel_path) / RemoveFile(const char *rel_path)</code><p class="dr-desc">Lists or removes a file (it is opened and checked against the set). Writes the manifest (to .tmp, synced, renamed).</p></div>
+<div class="dr-fn" id="Open"><span id="OpenFile"></span><span id="Close"></span><code class="dr-sig">gxvError Open(const char *path, const char *spec = 0, unsigned max_open = 16) / gxvError OpenFile(const char *vix_path, const char *spec = 0) / void Close()</code><p class="dr-desc">Reads a manifest (a spec, when given, must be the set's); or one .vix file as a set of one.</p></div>
+<div class="dr-fn" id="AddFile"><span id="RemoveFile"></span><code class="dr-sig">gxvError AddFile(const char *rel_path) / RemoveFile(const char *rel_path)</code><p class="dr-desc">Lists or removes a file (it is opened and checked against the set). Writes the manifest (to .tmp, synced, renamed).</p></div>
 <div class="dr-fn" id="Refresh"><code class="dr-sig">gxvError Refresh()</code><p class="dr-desc">Copies every file's counts and tag 2 range from its header again; a file that no longer matches its CRC is an error.</p></div>
 <div class="dr-fn" id="SafeRelPath"><code class="dr-sig">static int SafeRelPath(const std::string &amp;rel)</code><p class="dr-desc">1 if a path may be in a manifest: relative, no "..", no empty or "." parts, no backslash or control characters.</p></div>
 
 <h2 id="Search">Searches</h2>
 <div class="dr-fn" id="Search"><code class="dr-sig">gxvError Search(const float *query, const gxvSetSearch &amp;opt, std::vector&lt;gxvSetResult&gt; &amp;results, gxvSetStats *stats = 0) const</code><p class="dr-desc">Searches the files. gxvSetSearch: k, ef, filter, day_range with day_lo/day_hi, threads, strict. Each gxvSetResult names its file (an index into Files()).</p></div>
 <div class="dr-fn" id="AttachOpen"><code class="dr-sig">gxvError AttachOpen(const char *rel_path, gxVectorIndex *vix)</code><p class="dr-desc">A writer's own open index for a listed file: searched as it is, never reopened or evicted; 0 detaches it.</p></div>
-<div class="dr-fn" id="Skipped"><code class="dr-sig">unsigned long long Skipped() / Opened() / Missing() / Reloaded() const; const std::string &amp;Error() const</code><p class="dr-desc">What the last search did; gxvSetStats gives the same per search for callers searching from several threads.</p></div>
+<div class="dr-fn" id="Skipped"><span id="Opened"></span><span id="Missing"></span><span id="Reloaded"></span><code class="dr-sig">unsigned long long Skipped() / Opened() / Missing() / Reloaded() const; const std::string &amp;Error() const</code><p class="dr-desc">What the last search did; gxvSetStats gives the same per search for callers searching from several threads.</p></div>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

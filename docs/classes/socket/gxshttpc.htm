@@ -46,11 +46,11 @@ else
 <div class="dr-fn" id="Request"><code class="dr-sig">int gxsHTTPClient::Request(const std::string &amp;method, const std::string &amp;url, const std::string &amp;body, const std::string &amp;content_type, gxsHTTPMessage &amp;response)</code><p class="dr-desc">Any request method.</p></div>
 <div class="dr-fn" id="Download"><code class="dr-sig">int gxsHTTPClient::Download(const std::string &amp;url, const std::string &amp;fname, gxsHTTPMessage &amp;response)</code><p class="dr-desc">GET url and write the body to fname. Returns 0 if the status was 2xx and the file was written.</p></div>
 <div class="dr-fn" id="SetTimeout"><code class="dr-sig">void gxsHTTPClient::SetTimeout(int seconds)</code><p class="dr-desc">Connect and read timeout (60 seconds by default).</p></div>
-<div class="dr-fn" id="SetCAFile"><code class="dr-sig">void gxsHTTPClient::SetCAFile(const std::string &amp;fname) / SetVerifyPeer(bool on)</code><p class="dr-desc">Certificate checking, as for gxsTLSConnection.</p></div>
+<div class="dr-fn" id="SetCAFile"><span id="SetVerifyPeer"></span><code class="dr-sig">void gxsHTTPClient::SetCAFile(const std::string &amp;fname) / SetVerifyPeer(bool on)</code><p class="dr-desc">Certificate checking, as for gxsTLSConnection.</p></div>
 <div class="dr-fn" id="SetUserAgent"><code class="dr-sig">void gxsHTTPClient::SetUserAgent(const std::string &amp;s)</code><p class="dr-desc">User-Agent header (DataReel/7 by default).</p></div>
 <div class="dr-fn" id="SetBasicAuth"><code class="dr-sig">void gxsHTTPClient::SetBasicAuth(const std::string &amp;user, const std::string &amp;passwd)</code><p class="dr-desc">Basic authentication for every request.</p></div>
 <div class="dr-fn" id="AddHeader"><code class="dr-sig">void gxsHTTPClient::AddHeader(const std::string &amp;name, const std::string &amp;value)</code><p class="dr-desc">Extra header sent with every request.</p></div>
-<div class="dr-fn" id="SetMaxRedirects"><code class="dr-sig">void gxsHTTPClient::SetMaxRedirects(int n) / SetMaxBodySize(std::size_t n)</code><p class="dr-desc">Limits.</p></div>
+<div class="dr-fn" id="SetMaxRedirects"><span id="SetMaxBodySize"></span><code class="dr-sig">void gxsHTTPClient::SetMaxRedirects(int n) / SetMaxBodySize(std::size_t n)</code><p class="dr-desc">Limits.</p></div>
 <div class="dr-fn" id="Error"><code class="dr-sig">const std::string &amp;gxsHTTPClient::Error() const</code><p class="dr-desc">Describes the last failure. FinalURL() gives the URL after redirects.</p></div>
 
 </main>

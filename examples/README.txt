@@ -150,11 +150,20 @@ Replication
 object replication between Windows and Linux nodes in both directions,
 with takeover and rejoin. The gxrepl page-shipping example
 (replication.cpp, its walkthrough and its extractor) went with gxrepl.
-The worked example is the objrepl tool (utils/objrepl/objrepl.cpp): a
-copy (objrepl copy), a test writer (objrepl primary), status, check,
-digest, takeover and rejoin. docs/replication_admin_guide.md runs it
-step by step on two local folders; the class page is
-docs/classes/database/gxobjrepl.htm.
+examples/oodb/object_replication.cpp (Windows and Linux): a primary and
+a copy in one program, three commits read back on the copy, a planned
+switch (Takeover(), Rejoin()) and two more commits, with the digests
+equal on both nodes:
+
+  utils/objrepl/objrepl_certs.sh pki --copy-host 127.0.0.1 --apply
+  mkdir work
+  BUILD/examples/object_replication pki work
+
+The objrepl tool (utils/objrepl/objrepl.cpp) does the same from the
+command line: a copy (objrepl copy), a test writer (objrepl primary),
+status, check, digest, takeover and rejoin.
+docs/replication_admin_guide.md runs it step by step on two local
+folders; the class page is docs/classes/database/gxobjrepl.htm.
 
 
 Folder copy (examples/oodb/replication_copy.cpp, Windows and Linux)

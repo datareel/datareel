@@ -34,7 +34,7 @@
 <P>Use std::chrono for time arithmetic; these functions format the current time for logs and protocols.</P>
 
 <h2 id="Functions">Functions</h2>
-<div class="dr-fn" id="local_tm"><code class="dr-sig">std::tm local_tm(std::time_t t) / utc_tm(std::time_t t)</code><p class="dr-desc">Thread-safe localtime() and gmtime().</p></div>
+<div class="dr-fn" id="local_tm"><span id="utc_tm"></span><code class="dr-sig">std::tm local_tm(std::time_t t) / utc_tm(std::time_t t)</code><p class="dr-desc">Thread-safe localtime() and gmtime().</p></div>
 <div class="dr-fn" id="time_string"><code class="dr-sig">std::string time_string(const char *fmt, bool utc = false)</code><p class="dr-desc">Formats the current time with strftime() codes. Another overload takes a time_t.</p></div>
 <div class="dr-fn" id="date_time_string"><code class="dr-sig">std::string date_time_string(bool full_month_name = false)</code><p class="dr-desc">Oct 26, 2026 14:05:09 (used by LogFile).</p></div>
 <div class="dr-fn" id="syslog_time"><code class="dr-sig">std::string syslog_time()</code><p class="dr-desc">Oct 26 14:05:09</p></div>

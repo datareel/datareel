@@ -37,13 +37,13 @@
 <div class="dr-fn" id="Connect"><code class="dr-sig">int gxStream::Connect(const std::string &amp;host, int port = gxsDATA_PORT)</code><p class="dr-desc">Connects to a server over TLS. Returns 0 (gxSOCKET_NO_ERROR) if successful.</p></div>
 <div class="dr-fn" id="Connection"><code class="dr-sig">gxsTLSConnection &amp;gxStream::Connection()</code><p class="dr-desc">The connection, for certificate settings and for servers to accept into.</p></div>
 <div class="dr-fn" id="WriteBlock"><code class="dr-sig">int gxStream::WriteBlock(const void *buf, int bytes)</code><p class="dr-desc">Sends a gxSendBlock.</p></div>
-<div class="dr-fn" id="ReadHeader"><code class="dr-sig">int gxStream::ReadHeader(gxBlockHeader &amp;gx) / ReadBlock(std::vector&lt;unsigned char&gt; &amp;buf, const gxBlockHeader &amp;gx)</code><p class="dr-desc">Reads the next header and its block.</p></div>
+<div class="dr-fn" id="ReadHeader"><span id="ReadBlock"></span><code class="dr-sig">int gxStream::ReadHeader(gxBlockHeader &amp;gx) / ReadBlock(std::vector&lt;unsigned char&gt; &amp;buf, const gxBlockHeader &amp;gx)</code><p class="dr-desc">Reads the next header and its block.</p></div>
 <div class="dr-fn" id="BlockStatus"><code class="dr-sig">static __SBYTE__ gxStream::BlockStatus(const gxBlockHeader &amp;gx)</code><p class="dr-desc">The status byte of a header.</p></div>
 <div class="dr-fn" id="RequestBlock"><code class="dr-sig">int gxStream::RequestBlock(const void *request, gxBlockHeader &amp;request_header, gxBlockHeader &amp;reply_header, std::vector&lt;unsigned char&gt; &amp;reply)</code><p class="dr-desc">Sends a request and reads the block sent back.</p></div>
 <div class="dr-fn" id="int_gxStream_AddBlock_ChangeBlock_Delete"><code class="dr-sig">int gxStream::AddBlock / ChangeBlock / DeleteBlock</code><p class="dr-desc">Remote database requests.</p></div>
-<div class="dr-fn" id="WriteAckBlock"><code class="dr-sig">int gxStream::WriteAckBlock() / ReadAckBlock() / WriteResultBlock(int) / ReadResultBlock(int &amp;)</code><p class="dr-desc">Acknowledgments and result codes.</p></div>
-<div class="dr-fn" id="CloseConnection"><code class="dr-sig">int gxStream::CloseConnection() / TerminateConnection() / RestartConnection()</code><p class="dr-desc">Session control blocks.</p></div>
-<div class="dr-fn" id="SetTimeOut"><code class="dr-sig">void gxStream::SetTimeOut(int seconds) / SetMaxBlockSize(gxUINT32 bytes)</code><p class="dr-desc">Settings.</p></div>
+<div class="dr-fn" id="WriteAckBlock"><span id="ReadAckBlock"></span><span id="WriteResultBlock"></span><span id="ReadResultBlock"></span><code class="dr-sig">int gxStream::WriteAckBlock() / ReadAckBlock() / WriteResultBlock(int) / ReadResultBlock(int &amp;)</code><p class="dr-desc">Acknowledgments and result codes.</p></div>
+<div class="dr-fn" id="CloseConnection"><span id="TerminateConnection"></span><span id="RestartConnection"></span><code class="dr-sig">int gxStream::CloseConnection() / TerminateConnection() / RestartConnection()</code><p class="dr-desc">Session control blocks.</p></div>
+<div class="dr-fn" id="SetTimeOut"><span id="SetMaxBlockSize"></span><code class="dr-sig">void gxStream::SetTimeOut(int seconds) / SetMaxBlockSize(gxUINT32 bytes)</code><p class="dr-desc">Settings.</p></div>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

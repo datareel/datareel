@@ -42,7 +42,7 @@ pool.Wait();                              // All queued tasks finished</PRE>
 <div class="dr-fn" id="DestructorThreadPool"><code class="dr-sig">ThreadPool::~ThreadPool()</code><p class="dr-desc">Finishes every queued task, then joins the workers.</p></div>
 <div class="dr-fn" id="Submit"><code class="dr-sig">std::future&lt;R&gt; ThreadPool::Submit(F &amp;&amp;f, Args &amp;&amp;...args)</code><p class="dr-desc">Queues a task. The future holds its result or exception.</p></div>
 <div class="dr-fn" id="Wait"><code class="dr-sig">void ThreadPool::Wait()</code><p class="dr-desc">Blocks until the queue is empty and no task is running.</p></div>
-<div class="dr-fn" id="Size"><code class="dr-sig">std::size_t ThreadPool::Size() const / Pending()</code><p class="dr-desc">Worker count and queued task count.</p></div>
+<div class="dr-fn" id="Size"><span id="Pending"></span><code class="dr-sig">std::size_t ThreadPool::Size() const / Pending()</code><p class="dr-desc">Worker count and queued task count.</p></div>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

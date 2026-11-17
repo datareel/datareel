@@ -44,13 +44,13 @@ smtp.Quit();</PRE>
 <div class="dr-fn" id="Connect"><code class="dr-sig">int gxsSMTPClient::Connect(const std::string &amp;host, int port = gxSOCKET_SMTPS_PORT, gxsMailSecurity security = gxsMAIL_IMPLICIT_TLS)</code><p class="dr-desc">Connects and starts TLS. Returns 0 if successful.</p></div>
 <div class="dr-fn" id="Login"><code class="dr-sig">int gxsSMTPClient::Login(const std::string &amp;user, const std::string &amp;passwd)</code><p class="dr-desc">Authenticates.</p></div>
 <div class="dr-fn" id="SendMessage"><code class="dr-sig">int gxsSMTPClient::SendMessage(const std::string &amp;from, const std::vector&lt;std::string&gt; &amp;to, const std::string &amp;subject, const std::string &amp;body)</code><p class="dr-desc">Sends one plain text message.</p></div>
-<div class="dr-fn" id="MailFrom"><code class="dr-sig">int gxsSMTPClient::MailFrom(const std::string &amp;address) / RcptTo(const std::string &amp;address)</code><p class="dr-desc">Envelope sender and recipients.</p></div>
+<div class="dr-fn" id="MailFrom"><span id="RcptTo"></span><code class="dr-sig">int gxsSMTPClient::MailFrom(const std::string &amp;address) / RcptTo(const std::string &amp;address)</code><p class="dr-desc">Envelope sender and recipients.</p></div>
 <div class="dr-fn" id="Data"><code class="dr-sig">int gxsSMTPClient::Data(const std::string &amp;message)</code><p class="dr-desc">Sends a complete message (headers and body).</p></div>
-<div class="dr-fn" id="Reset"><code class="dr-sig">int gxsSMTPClient::Reset() / Quit()</code><p class="dr-desc">RSET and QUIT.</p></div>
+<div class="dr-fn" id="Reset"><span id="Quit"></span><code class="dr-sig">int gxsSMTPClient::Reset() / Quit()</code><p class="dr-desc">RSET and QUIT.</p></div>
 <div class="dr-fn" id="Command"><code class="dr-sig">int gxsSMTPClient::Command(const std::string &amp;cmd, const std::string &amp;expect)</code><p class="dr-desc">Sends any command; returns 0 if the reply code starts with expect.</p></div>
 <div class="dr-fn" id="HasExtension"><code class="dr-sig">bool gxsSMTPClient::HasExtension(const std::string &amp;name) const</code><p class="dr-desc">True if the EHLO reply listed the extension.</p></div>
-<div class="dr-fn" id="LastCode"><code class="dr-sig">int gxsSMTPClient::LastCode() const / const std::string &amp;LastReply() const</code><p class="dr-desc">Last reply code and text (all lines).</p></div>
-<div class="dr-fn" id="SetTimeout"><code class="dr-sig">void gxsSMTPClient::SetTimeout(int s) / SetCAFile(...) / SetVerifyPeer(bool) / SetClientName(...)</code><p class="dr-desc">Settings used before Connect().</p></div>
+<div class="dr-fn" id="LastCode"><span id="LastReply"></span><code class="dr-sig">int gxsSMTPClient::LastCode() const / const std::string &amp;LastReply() const</code><p class="dr-desc">Last reply code and text (all lines).</p></div>
+<div class="dr-fn" id="SetTimeout"><span id="SetCAFile"></span><span id="SetVerifyPeer"></span><span id="SetClientName"></span><code class="dr-sig">void gxsSMTPClient::SetTimeout(int s) / SetCAFile(...) / SetVerifyPeer(bool) / SetClientName(...)</code><p class="dr-desc">Settings used before Connect().</p></div>
 <div class="dr-fn" id="Error"><code class="dr-sig">const std::string &amp;gxsSMTPClient::Error() const</code><p class="dr-desc">Describes the last failure.</p></div>
 
 </main>

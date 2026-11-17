@@ -39,7 +39,7 @@ std::string dir = cfg.GetString(&quot;data_dir&quot;, &quot;/var/lib/myapp&quot;
 cfg.ChangeConfigValue(&quot;port&quot;, 8443);        // Changes the file and the loaded values</PRE>
 
 <h2 id="Functions">Functions</h2>
-<div class="dr-fn" id="Load"><code class="dr-sig">bool gxConfig::Load() / Load(const std::string &amp;fname) / ReLoad()</code><p class="dr-desc">Reads the file. Returns true if successful.</p></div>
+<div class="dr-fn" id="Load"><span id="ReLoad"></span><code class="dr-sig">bool gxConfig::Load() / Load(const std::string &amp;fname) / ReLoad()</code><p class="dr-desc">Reads the file. Returns true if successful.</p></div>
 <div class="dr-fn" id="GetStrValue"><code class="dr-sig">const char *gxConfig::GetStrValue(std::string_view name, bool full_name = true) const</code><p class="dr-desc">Value or a null pointer.</p></div>
 <div class="dr-fn" id="GetString"><code class="dr-sig">std::string gxConfig::GetString(std::string_view name, const std::string &amp;default_value = &quot;&quot;, bool full_name = true) const</code><p class="dr-desc">Value or the default.</p></div>
 <div class="dr-fn" id="GetFloatValue"><code class="dr-sig">int GetIntValue / long GetLongValue / double GetFloatValue (std::string_view name, bool full_name = true) const</code><p class="dr-desc">Numeric values; 0 if not found.</p></div>
@@ -47,7 +47,7 @@ cfg.ChangeConfigValue(&quot;port&quot;, 8443);        // Changes the file and th
 <div class="dr-fn" id="Entries"><code class="dr-sig">const std::vector&lt;std::pair&lt;std::string, std::string&gt;&gt; &amp;gxConfig::Entries() const</code><p class="dr-desc">Every name/value pair in file order.</p></div>
 <div class="dr-fn" id="ChangeConfigValue"><code class="dr-sig">int gxConfig::ChangeConfigValue(std::string_view parm, value)</code><p class="dr-desc">Changes the parameter in the file (or appends it). value can be a string or a number. Returns the number of lines changed, 1 for an append, 0 on error.</p></div>
 <div class="dr-fn" id="bool_gxConfig_WriteConfigLine_WriteComme"><code class="dr-sig">bool gxConfig::WriteConfigLine / WriteCommentLine / WriteLine</code><p class="dr-desc">Append lines to the file.</p></div>
-<div class="dr-fn" id="SetParmID"><code class="dr-sig">void SetParmID(const std::string &amp;s) / SetCommentChar(char c) / FilterComments() / ReadComments()</code><p class="dr-desc">Format settings.</p></div>
+<div class="dr-fn" id="SetParmID"><span id="SetCommentChar"></span><span id="FilterComments"></span><span id="ReadComments"></span><code class="dr-sig">void SetParmID(const std::string &amp;s) / SetCommentChar(char c) / FilterComments() / ReadComments()</code><p class="dr-desc">Format settings.</p></div>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

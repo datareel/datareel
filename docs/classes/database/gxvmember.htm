@@ -36,7 +36,7 @@
 
 <h2 id="Functions">Functions</h2>
 <div class="dr-fn" id="gxvRebuildFromMembers"><code class="dr-sig">int gxvRebuildFromMembers(const std::string &amp;data_path, const std::string &amp;index_path, const gxVectorIndex &amp;like, const std::string &amp;config, unsigned long long &amp;records, std::string &amp;why)</code><p class="dr-desc">Rebuilds index_path from every record of data_path (into index_path.rebuild, then renamed over it); the header comes from "like". records gets the number of records with a member. 0, or -1 with why.</p></div>
-<div class="dr-fn" id="Parse"><code class="dr-sig">struct gxvMemberSpec: int Parse(const std::string &amp;config, std::string &amp;why) / int Extract(const unsigned char *rec, unsigned len, const unsigned char *&amp;member, unsigned &amp;mlen, unsigned tags[gxvTagCount]) const</code><p class="dr-desc">Parses the config; finds a record's member and tags (1 found, 0 none).</p></div>
+<div class="dr-fn" id="Parse"><span id="Extract"></span><code class="dr-sig">struct gxvMemberSpec: int Parse(const std::string &amp;config, std::string &amp;why) / int Extract(const unsigned char *rec, unsigned len, const unsigned char *&amp;member, unsigned &amp;mlen, unsigned tags[gxvTagCount]) const</code><p class="dr-desc">Parses the config; finds a record's member and tags (1 found, 0 none).</p></div>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

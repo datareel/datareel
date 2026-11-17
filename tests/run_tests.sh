@@ -149,6 +149,11 @@ mkdir -p "$WORK/run_replication_copy" && cd "$WORK/run_replication_copy" &&
     \$R digest p > p.d; \$R digest c > c.d; cmp p.d c.d
     rm c/by_name.btx c/vectors.vix; if \$R digest c > /dev/null; then exit 1; fi; \$R rebuild c > /dev/null
     \$R digest c > c.d; cmp p.d c.d"
+# 11/17/2026 (7.4): the object replication example (gxObjRepl): a primary and a copy, a planned switch, equal digests
+mkdir -p "$WORK/run_object_replication" && cd "$WORK/run_object_replication" &&
+  check object_replication sh -c "set -e; '$SRC/utils/objrepl/objrepl_certs.sh' pki --copy-host 127.0.0.1 --apply > /dev/null
+    mkdir work; '$E/object_replication' pki work \$((20000 + \$\$ % 9000)) > out.txt
+    grep -q 'no full send' out.txt; grep -q '^OK: 10 notes replicated' out.txt"
 # 11/15/2026 (7.4): the vector examples
 for p in vector_basics vector_records vector_days; do
   mkdir -p "$WORK/run_$p" && cd "$WORK/run_$p" && check $p "$E/$p" "$WORK/run_$p/w"
