@@ -700,6 +700,18 @@ NEW IN 7.4 (AFTER BETA 5)
   Windows (Connect, Listen, Accept, OpenDatagram and gxsPing), so a
   child process no longer holds a server's port open (the 6.4.1 fix).
   Test: socket_cloexec_test.
+- The database object server tools on Windows: object_server and
+  object_client build and run on Windows as on Linux. The multiplex
+  (gxdbmux) runs over Winsock (WSAPoll, with a loopback pair for
+  wake-ups) and non-blocking Schannel; gxdbserver and gxdbobject are
+  portable; object_server takes --stop-file. Tested Linux and Windows
+  in all four client/server combinations; gxdbmux_test adds a large
+  two-way run over TLS and --peer-serve/--peer-connect for two
+  machines.
+- The build without native types (DATAREEL_NATIVE_TYPES=OFF) is tested
+  (the 64-bit suites, a 32-bit build and run_tests) and kept. OFF
+  changes only the in-memory gx integer and float types: the library's
+  files and the wire keep the canonical layout.
 - gxObjRepl: while a node closes, its status says "stopping" (with
   stopping_since), then "stopped" with close_secs; objrepl check warns
   about a long stop.
@@ -712,7 +724,10 @@ NEW IN 7.4 (AFTER BETA 5)
     control sequences out of text, such as captured device output.
 - New examples and tools:
   - serial_read: read a serial port as binary or hex, with limits and
-    hangup handling (pty test on Linux).
+    hangup handling (pty test on Linux). On Windows reads return
+    within 100 ms (--seconds and Ctrl+C on time), standard output is
+    binary, and COM10 and up open as \\.\COMn (tested on a real COM
+    port).
   - dir_upload: watch a folder and upload new files over FTPS (a
     settle time, a .part name renamed when complete, a size check).
   - hexdump, ffind and txfilter, the 6.x file utilities for 7.x.
