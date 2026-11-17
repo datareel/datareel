@@ -31,7 +31,7 @@
 <A HREF="#Service">gxObjectService</A></P>
 
 <h2 id="Overview">Overview</h2>
-<P>A gxObjectService serves named databases over multiplex channels (<CODE>gxdbmux.h</CODE>) on a gxStream server with mutual TLS. In 7.4 a database's config may name its vectors, a .vixset manifest or one .vix file (<CODE>gxObjectDbConfig::vectors</CODE>, <CODE>vectors =</CODE> in a gxrepl config's [db NAME] section). Two requests read them:</P>
+<P>A gxObjectService serves named databases over multiplex channels (<CODE>gxdbmux.h</CODE>) on a gxStream server with mutual TLS. In 7.4 a database's config may name its vectors, a .vixset manifest or one .vix file (<CODE>gxObjectDbConfig::vectors</CODE>). Two requests read them:</P>
 <UL>
 <LI><B>VECTOR_INFO</B> (gxOBJ_VECTOR_INFO = 8): no body. Reply: u32 version, dimension, element type, metric, number of files, u64 nodes, deleted, then u32 length and the spec.</LI>
 <LI><B>VECTOR_SEARCH</B> (gxOBJ_VECTOR_SEARCH = 7): u32 version, k (1 to gxObjVectorMaxK), ef (0: 64, at most gxObjVectorMaxEf), dimension (must be the index's), flags (bit 0: day range, bit 1: strict), tag mask (4 bits), u32 lo[4], hi[4], day_lo, day_hi, then the query as dim float32 values (finite). Reply: u32 version, n, skipped, missing, n results of (u64 id, f32 distance, u32 tags[4], u32 file), then the paths of the files named.</LI>

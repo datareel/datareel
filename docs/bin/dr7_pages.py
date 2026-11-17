@@ -190,24 +190,23 @@ file 2026/11/11/vectors.vix nodes=500 deleted=0 tag2=20261111..20261111 crc=1a2b
  ])
 
 page(file='classes/database/gxvmember.htm', title='Vector Members and Rebuilds',
- lead='Vector indexes made from the vector members of records: the gxvmember extractor and gxvRebuildFromMembers() (DataReel 7.4).',
+ lead='Vector indexes made from the vector members of records: gxvRebuildFromMembers() (DataReel 7.4).',
  sections=[('Overview', 'Overview', '''
-<P>A data file whose records keep their vectors as vector members (<A HREF="gxvindex.htm#MakeMember">MakeMember()</A>) can have its .vix made again from the records alone, so a replicated copy never needs the .vix bytes: the set names the .vix "derived" and the copy rebuilds it, in full (<A HREF="../../utils/vix_rebuild.htm">vix_rebuild</A>) or object by object (the "gxvmember" extractor of <A HREF="gxrextract.htm">gxrextract.h</A>).</P>
+<P>A data file whose records keep their vectors as vector members (<A HREF="gxvindex.htm#MakeMember">MakeMember()</A>) can have its .vix made again from the records alone, so a replicated copy never needs the .vix bytes: the copy rebuilds it from its own records (<A HREF="../../utils/vix_rebuild.htm">vix_rebuild</A>).</P>
 <P>Where the member is, as a config string (space separated): <CODE>member=infohog:N</CODE> (InfoHog member N) or <CODE>member=offset:N</CODE> (a fixed field at byte N of a POD record), and <CODE>tags=A,B,C,D</CODE> where each tag comes from <CODE>infohog:N</CODE>, <CODE>offset:N</CODE> (a 4-byte value) or <CODE>-</CODE> (0). The node id is the record's address. Rebuilt in ascending address order, the index is the same file, byte for byte, on every node. The example: <A HREF="../../examples/vector_records.htm">vector_records</A>.</P>
 ''')],
  functions=[
  ('Functions', 'Functions', [
   ('int gxvRebuildFromMembers(const std::string &data_path, const std::string &index_path, const gxVectorIndex &like, const std::string &config, unsigned long long &records, std::string &why)', 'Rebuilds index_path from every record of data_path (into index_path.rebuild, then renamed over it); the header comes from "like". records gets the number of records with a member. 0, or -1 with why.'),
   ('struct gxvMemberSpec: int Parse(const std::string &config, std::string &why) / int Extract(const unsigned char *rec, unsigned len, const unsigned char *&member, unsigned &mlen, unsigned tags[gxvTagCount]) const', 'Parses the config; finds a record\'s member and tags (1 found, 0 none).'),
-  ('const gxrExtractorOps *gxvMemberExtractor()', 'The "gxvmember" extractor for gxrepl\'s derived_apply = incremental.'),
  ]),
  ])
 
 page(file='classes/database/gxdjrnl.htm', title='Journal (Transactions) Class',
- lead='gxdJournal makes writes to several database files all or nothing, and in 7.3 and 7.4 feeds replication through its ship log.',
+ lead='gxdJournal makes writes to several database files all or nothing, and finishes the committed ones after a crash.',
  sections=[('Overview', 'Overview', '''
 <P>Attach every file a transaction writes (gxDatabase files, gxBtree indexes, a gxVectorIndex's <CODE>Database()</CODE>), then <A HREF="#Begin">Begin()</A>, write, and <A HREF="#Commit">Commit()</A> or <A HREF="#Rollback">Rollback()</A>. The journal records each batch of pages and its commit before the pages reach the files, so after a crash the next <A HREF="#Open">Open()</A> (or <A HREF="#Recover">Recover()</A>) finishes every committed batch and drops the rest. Open the journal before the files.</P>
-<P><B>Replication</B> (gxrepl): <A HREF="#EnableShipLog">EnableShipLog()</A> appends each commit's pages to the set's ship log, and an open record when the writer starts; <A HREF="#EnableObjectNotes">EnableObjectNotes()</A> adds which records each commit added, changed and removed (for derived_apply = incremental). Readers in another process take a <CODE>gxdJournalReadLock</CODE> to see whole batches only. See the <A HREF="../../replication_admin_guide.html">replication administrator's guide</A>. The examples: <A HREF="../../examples/journal_recovery.htm">journal_recovery</A>, <A HREF="../../examples/replication.htm">replication</A>.</P>
+<P><B>Replication</B>: 7.4 replicates objects with gxObjRepl (gxobjrepl.h), which uses the journal's <A HREF="#Open">Open()</A>, <A HREF="#Recover">Recover()</A> and RecoverError(). The 7.3 ship log (EnableShipLog(), EnableObjectNotes()) was removed in 7.4 beta 5 with gxrepl page shipping: a program that called it drops the call. Readers in another process take a <CODE>gxdJournalReadLock</CODE> to see whole batches only. The example: <A HREF="../../examples/journal_recovery.htm">journal_recovery</A>.</P>
 ''')],
  functions=[
  ('Transactions', 'Transactions', [
@@ -215,19 +214,16 @@ page(file='classes/database/gxdjrnl.htm', title='Journal (Transactions) Class',
   ('gxDatabaseError Attach(gxDatabase *f) / Attach(gxBtree *btx) / Attach(BtreeCache *cache)', 'Adds a file to the journal\'s transactions.'),
   ('gxDatabaseError Begin() / Commit(int durable = 1) / Rollback()', 'Starts a batch, commits it (synced when durable), or undoes it (a gxVectorIndex then needs Reload()).'),
   ('gxDatabaseError Checkpoint()', 'Writes the committed pages to the files and empties the journal.'),
-  ('static gxDatabaseError Recover(const char *jname, unsigned long *recovered = 0) / unsigned long Recovered() const', 'Finishes the committed batches a stopped writer left; the count of batches replayed by Open().'),
+  ('static gxDatabaseError Recover(const char *jname, unsigned long *recovered = 0, int mark = 1) / unsigned long Recovered() const', 'Finishes the committed batches a stopped writer left; the count of batches replayed by Open(). mark is ignored since 7.4 beta 5.'),
+  ('static const char *RecoverError()', 'Why this thread\'s last Recover() failed, or "".'),
   ('void SetWriteMode(gxdJournalWriteMode mode) / void SetWriteLock(int lock)', 'When committed pages reach the files (write through or write back); the write lock that gxdJournalReadLock readers wait for.'),
- ]),
- ('Replication', 'Replication (7.3, 7.4)', [
-  ('gxDatabaseError EnableShipLog(const char *set_root, const char *stream = 0) / void DisableShipLog() / gxdShipLog *ShipLog()', 'Appends each commit to the set\'s ship log (an open record first); the log, for SetExclude() (derived indexes) and SetCommitBlock().'),
-  ('gxDatabaseError EnableObjectNotes(int on = 1)', 'Adds an objects record before each commit record: which records it added, changed and removed (off by default; GXDSHIP_OBJECTS=1 turns it on).'),
  ]),
  ])
 
 page(file='classes/database/gxdbobject.htm', title='Object Server Vector Searches',
  lead='The database object server (gxdbobject.h) answers vector searches on a database whose config names its vectors (DataReel 7.4).',
  sections=[('Overview', 'Overview', '''
-<P>A gxObjectService serves named databases over multiplex channels (<CODE>gxdbmux.h</CODE>) on a gxStream server with mutual TLS. In 7.4 a database's config may name its vectors, a .vixset manifest or one .vix file (<CODE>gxObjectDbConfig::vectors</CODE>, <CODE>vectors =</CODE> in a gxrepl config's [db NAME] section). Two requests read them:</P>
+<P>A gxObjectService serves named databases over multiplex channels (<CODE>gxdbmux.h</CODE>) on a gxStream server with mutual TLS. In 7.4 a database's config may name its vectors, a .vixset manifest or one .vix file (<CODE>gxObjectDbConfig::vectors</CODE>). Two requests read them:</P>
 <UL>
 <LI><B>VECTOR_INFO</B> (gxOBJ_VECTOR_INFO = 8): no body. Reply: u32 version, dimension, element type, metric, number of files, u64 nodes, deleted, then u32 length and the spec.</LI>
 <LI><B>VECTOR_SEARCH</B> (gxOBJ_VECTOR_SEARCH = 7): u32 version, k (1 to gxObjVectorMaxK), ef (0: 64, at most gxObjVectorMaxEf), dimension (must be the index's), flags (bit 0: day range, bit 1: strict), tag mask (4 bits), u32 lo[4], hi[4], day_lo, day_hi, then the query as dim float32 values (finite). Reply: u32 version, n, skipped, missing, n results of (u64 id, f32 distance, u32 tags[4], u32 file), then the paths of the files named.</LI>
@@ -241,20 +237,6 @@ page(file='classes/database/gxdbobject.htm', title='Object Server Vector Searche
   ('int Request(const std::string &name, bool write, uint8_t op, const std::vector<unsigned char> &body, std::vector<unsigned char> &reply, std::string &err)', 'One request (ADD, CHANGE, DELETE, REQUEST, the vector ops); 0 or -1 with err.'),
   ('void ServeChannel(gxdMuxSession &mux, uint32_t ch, const std::string &name, const std::string &mode, std::atomic<bool> &stop)', 'Serves one open channel until it closes or stop is set.'),
   ('void ProtectRoot(const std::string &root, const std::string &apply_journal)', 'Databases and vectors under a replicated copy\'s root are read only and read under its apply lock.'),
- ]),
- ])
-
-page(file='classes/database/gxrextract.htm', title='Derived Index Extractors and Stamps',
- lead='How a replicated copy keeps its own indexes object by object: extractors (gxrextract.h) and index stamps (gxdstamp.h), DataReel 7.4.',
- sections=[('Overview', 'Overview', '''
-<P>gxrepl never sends a set's derived indexes (<CODE>derived = by_*.btx, vectors.vix</CODE>): the copy keeps them itself. With <CODE>derived_apply = incremental</CODE> it updates each index object by object, in the same atomic batch as the data, from the objects records the writer adds to the ship log (<A HREF="gxdjrnl.htm#EnableObjectNotes">EnableObjectNotes()</A>). An <B>extractor</B> turns a record into its index entries; anything it cannot be sure of (a gap, an error, a crash, a damaged stamp) puts that folder back on a full rebuild ("rebuild needed"). Per-object apply is off by default and in 7.4 not yet for production use.</P>
-<P>An extractor is a table of C functions (<CODE>gxrExtractorOps</CODE>, ABI GXR_EXTRACTOR_ABI): <CODE>version</CODE>, <CODE>open(index_path, config, source, err, n)</CODE>, <CODE>remove(handle, addr, bytes, len, ...)</CODE> and <CODE>insert(...)</CODE> for each changed record (its old and new bytes), <CODE>flush</CODE>, <CODE>count</CODE> and <CODE>close</CODE>. It is either built into gxrepl (<A HREF="#gxrRegisterExtractor">gxrRegisterExtractor()</A>, as the replication example's <CODE>example_records</CODE> with GXREPL_EXTRA_EXTRACTORS) or loaded from a .so named by <CODE>derived_extractor</CODE> (the program must export DataReel's symbols to it: one copy of the library). The built-in <CODE>gxvmember</CODE> extractor keeps a vector index from record members (<A HREF="gxvmember.htm">gxvmember.h</A>).</P>
-<P>Each index has a <B>stamp</B> (<CODE>&lt;index&gt;.stamp</CODE>): the log id, the record position and the entry count it is at, and the folder a derived.stamp. A copy that finds an index whose stamp does not match its position rebuilds the folder. The administrator's view: <CODE>gxrepl derived status|rebuild</CODE> (<A HREF="../../utils/gxrepl.htm">gxrepl</A>).</P>
-''')],
- functions=[
- ('Extractors', 'Extractors', [
-  ('int gxrRegisterExtractor(const char *name, const gxrExtractorOps *ops)', 'Registers a built-in extractor under a name for derived_extractor.'),
-  ('struct gxrExtractorOps { uint32_t abi; const char *(*version)(); void *(*open)(...); int (*remove)(...); int (*insert)(...); int (*flush)(...); uint64_t (*count)(void *); void (*close)(void *); }', 'The functions an extractor provides; each returns 0, or -1 with a message (an error means "rebuild needed").'),
  ]),
  ])
 
@@ -844,12 +826,11 @@ EXAMPLES = [
   ('oodb/typed_objects.cpp', 'typed_objects', 'A typed class sent over gxStream, stored in a gxDatabase, exported to plain text and imported back.'),
   ('oodb/journal_recovery.cpp', 'journal_recovery', 'gxdJournal transactions: a writer killed mid-transaction, Recover(), a consistency check and Rollback(). POSIX only.'),
   ('oodb/day_events.cpp', 'day_events', 'One database file per YYYY/MM/DD folder and a time-range query across days.'),
-  ('oodb/replication.cpp', 'replication', 'gxrepl, object by object: a copy keeps its own B-tree and vector index, rebuilds a folder by itself after a fault, and matches the primary. Linux and POSIX only.'),
   ('oodb/vector_basics.cpp', 'vector_basics', 'The vector index: float32, float16 and int8 files, exact against graph search (recall), the l2/cosine/ip metrics, tags and filters, update, delete, repair, a rolled back transaction and the format fields.'),
   ('oodb/vector_records.cpp', 'vector_records', 'Records that carry their own vectors (vector members): record and node in one transaction, records read back by address, Verify() with a resolver, the index rebuilt from the records alone.'),
   ('oodb/vector_days.cpp', 'vector_days', 'One vector index per day searched as one through a .vixset manifest: threads, a day range that skips files, an archived day, a live writer attached.'),
   ('oodb/vector_search_service.cpp', 'vector_search_service', 'Vector searches through the database object server (VECTOR_INFO, VECTOR_SEARCH) over mutual TLS, with a day range. POSIX only.'),
-  ('oodb/replication_copy.cpp', 'replication_copy', 'The Windows replication example: a database folder copied with robocopy while its writer is stopped, checked with digests, and the copy\'s indexes rebuilt from its records after a fault. Windows and Linux.'),
+  ('oodb/replication_copy.cpp', 'replication_copy', 'A database folder copied with robocopy or cp while its writer is stopped, checked with digests, and the copy\'s indexes rebuilt from its records after a fault. Windows and Linux.'),
  ]),
  ('TLS networking', [
   ('tls/tls_echo_server.cpp', 'tls_echo_server', 'TLS server using gxsTLSServer and a ThreadPool. Usage: tls_echo_server port cert.pem key.pem'),
@@ -974,72 +955,6 @@ Query 2026-11-10 16:00 to 2026-11-13 15:00 UTC: 23 events from 3 day files (Nov 
   ...
 The query matches the events written
 """)),
- ]),
- 'replication': ('oodb/replication.cpp', 'Replication Example',
-  'gxrepl copies a primary\'s records to a copy, which keeps its own B-tree and vector index object by object, rebuilds a folder on its own after a fault, and goes on.', [
-  ('Shows', 'What It Shows', '''
-<P>Database replication with gxrepl (<A HREF="../replication_admin_guide.html">the administrator's guide</A>), object by object:</P>
-<OL>
-<LI>The primary writes records (a name, a day and a vector member) and keeps two indexes made from them in the same <A HREF="../classes/database/gxdjrnl.htm">gxdJournal</A> transaction: a <A HREF="../classes/database/gxbtree.htm">B-tree</A> of names and a vector index. Its journal's ship log carries each commit's pages and, with the object notes on, which records the commit added, changed and removed. The two indexes are left out of the ship log.</LI>
-<LI>gxrepl sends the commits to the copy over gxStream (mutual TLS). The copy never receives the indexes: it keeps its own, updated object by object from the records each commit changed (<CODE>derived_apply = incremental</CODE>), with the example's extractor <CODE>example_records</CODE> (replication_records.h). The extractor turns a record into its B-tree key and its vector. It is built into the copy's gxrepl (replication_gxrepl), the way an application builds its own.</LI>
-<LI>When the copy cannot be sure of an index (a damaged stamp, a gap in the log, an extractor error), gxrepl says "rebuild needed", rebuilds that one folder in full on its own (<CODE>replication rebuild</CODE>, the set's <CODE>derived_rebuild</CODE>), and goes back to object by object. A full rebuild on every change is still a set's own choice: <CODE>derived_apply = rebuild</CODE>.</LI>
-<LI><CODE>replication digest</CODE> prints what each index holds, whatever its layout: the B-tree's keys in order and the vector index's live nodes. The primary and the copy print the same.</LI>
-</OL>
-<P>gxrepl, and so this example, runs on Linux and other POSIX systems only. On Windows, a database folder is copied by a plain file copy while its writer is stopped: see the <A HREF="replication_copy.htm">folder copy example</A>.</P>
-'''),
-  ('Running', 'Running It', '<P>The walkthrough runs it all on throwaway folders of this machine (127.0.0.1), with throwaway certificates made by the openssl command (POSIX only):</P>\n' + code('''
-examples/oodb/replication_walkthrough.sh BUILD/examples
-''') + '''<P>It starts the copy (<CODE>replication_gxrepl serve</CODE>), the primary's replicator (<CODE>replication_gxrepl run</CODE>) and the writer (<CODE>replication write</CODE>), then: (1) waits for the copy to follow object by object; (2) damages the copy's vector index stamp, and shows gxrepl's "rebuild needed" line, the folder rebuild and the way back to object by object; (3) compares the digests on both nodes. It exits with 0 when every check passes. KEEP=1 keeps its work folder, with both configs and both logs.</P>
-<P>The same with an unchanged gxrepl and the extractor as a shared library (<CODE>derived_extractor = /path/example_records.so</CODE>, built from replication_extractor_so.cpp without DataReel, which gxrepl exports to it; gxrepl calls its <CODE>gxr_extractor()</CODE>):</P>
-''' + code('''
-EXTRACTOR=BUILD/examples/example_records.so GXREPL=BUILD/utils/gxrepl \\
-  examples/oodb/replication_walkthrough.sh BUILD/examples
-''') + '''<P>Its output (a 64-bit Linux build; parts left out): the extractor line names the .so, and the digests agree as with the built in extractor.</P>
-''' + code('''
-derived_extractor = BUILD/examples/example_records.so
-...
-== 1. The copy follows object by object
-derived state: 60 ok incremental lsn 61
-  set records: derived_apply incremental, extractor BUILD/examples/example_records.so, source data.gxd, max 256 MB
-    .: sealed at record 61 generation 60, state 60 ok incremental lsn 61
-      by_name.btx: stamped at record 61 of log dfdaf9a990ea404b, 155 entries
-      vectors.vix: stamped at record 61 of log dfdaf9a990ea404b, 155 entries
-full rebuilds so far: 1 (the first one makes the stamped indexes the copy goes on from)
-...
-== 3. The writer finishes; both nodes hold the same indexes
-wrote 400 commits, 1910 live records
-primary:
-  by_name.btx btree b0ef7403bb0ac024 1910 keys
-  vectors.vix logical 4443ea5b9f5b681e 1910 nodes
-copy:
-  by_name.btx btree b0ef7403bb0ac024 1910 keys
-  vectors.vix logical 4443ea5b9f5b681e 1910 nodes
-  status.json: "derived": {"mode": "incremental", "folders": 1, "failed": 0, "not_built": 0, "rebuild_needed": 0, "breaker": false, "crashes_1h": 0, "warn": ""}
-  set records: 1 folder(s) checked, 0 torn
-
-OK: object by object, one automatic folder rebuild after the fault, and the same indexes on both nodes
-''') + '''
-'''),
-  ('Output', 'Sample Output', code('''
-== 1. The copy follows object by object
-derived state: 66 ok incremental lsn 34
-  set records: derived_apply incremental, extractor example_records, source data.gxd ...
-== 2. A simulated fault: the copy's vectors.vix.stamp damaged
-  log: ... set records: .: derived indexes: rebuild needed: vectors.vix has a damaged stamp
-  log: ... set records: .: derived indexes rebuilt for generation 142 (busy: never quiet)
-derived state: 158 ok incremental lsn 80
-== 3. The writer finishes; both nodes hold the same indexes
-primary:
-  by_name.btx btree 3f0c... 2314 keys
-  vectors.vix logical 9a51... 2314 nodes
-copy:
-  by_name.btx btree 3f0c... 2314 keys
-  vectors.vix logical 9a51... 2314 nodes
-OK: object by object, one automatic folder rebuild after the fault, and the same indexes on both nodes
-''') + '<P>(The numbers differ from run to run; the two digests always agree.)</P>\n'),
-  ('Files', 'Files', '''
-<P>examples/oodb/replication.cpp (the writer, the rebuild and the digest), replication_records.h (the record, the key and the extractor), replication_gxrepl.cpp (the example's gxrepl: gxrepl's own source built with GXREPL_EXTRA_EXTRACTORS, plus this file registering the extractor) and replication_walkthrough.sh, built by examples/CMakeLists.txt and run by tests/run_tests.sh. Back to the <A HREF="examples.htm">example programs</A>.</P>
-'''),
  ]),
  'imap_fetch': ('tls/imap_fetch.cpp', 'IMAP Mailbox Example',
   'Read a mailbox with gxsIMAPClient (DataReel 7.4): log in over TLS, search, list the messages newest first and save each message\'s text to a spool folder once.', [
@@ -1357,10 +1272,10 @@ VECTOR_SEARCH days 20261113..20261113: 5 result(s), 2 file(s) skipped by their d
 OK: VECTOR_INFO, a search of every day and a search of one day (two files skipped)
 ''') + '<P>From a 64-bit Linux build, after the certificate step (it prints nothing). The port is random; the data comes from fixed seeds.</P>\n'),
  ]),
- 'replication_copy': ('oodb/replication_copy.cpp', 'Folder Copy Example (Windows Replication)',
-  'A database folder copied by a plain file copy while its writer is stopped, checked with digests, with the index rebuild as the fallback. The replication example for Windows.', [
+ 'replication_copy': ('oodb/replication_copy.cpp', 'Folder Copy Example',
+  'A database folder copied by a plain file copy while its writer is stopped, checked with digests, with the index rebuild as the fallback. Windows and Linux.', [
   ('Shows', 'What It Shows', '''
-<P>Live replication with gxrepl (the <A HREF="replication.htm">replication example</A>) runs on Linux and other POSIX systems only. On Windows, and anywhere a copy minutes old is fine, a database folder is copied with the usual file copy tool while its writer is stopped (<A HREF="../replication_admin_guide.html">the administrator's guide</A>, "When a plain file copy is enough"):</P>
+<P>Live replication in 7.4 is gxObjRepl (gxobjrepl.h), object by object between Windows and Linux nodes in both directions. Anywhere a copy minutes old is fine, a database folder is copied with the usual file copy tool while its writer is stopped (<A HREF="../replication_admin_guide.html">the administrator's guide</A>, "When a plain file copy is enough"):</P>
 <OL>
 <LI>The writer (<CODE>replication_copy write</CODE>) adds, changes and removes the replication example's records (replication_records.h) and keeps their two indexes, a <A HREF="../classes/database/gxbtree.htm">B-tree</A> of names and a vector index, in one <A HREF="../classes/database/gxdjrnl.htm">gxdJournal</A> transaction per commit. When it stops it closes the journal (a checkpoint), so the three files hold every commit.</LI>
 <LI>robocopy copies the folder, leaving the journal out.</LI>
@@ -1459,7 +1374,7 @@ page(file='utils/utils.htm', title='Utility Programs',
 <LI><A HREF="db_debug.htm">db_debug</A>: analyze, dump and rebuild gxDatabase files.</LI>
 <LI><A HREF="ix_debug.htm">ix_debug</A>: analyze and check gxBtree index files.</LI>
 <LI><A HREF="vix_rebuild.htm">vix_rebuild</A> (7.4): rebuild a vector index from the vector members of records; digests of vector indexes.</LI>
-<LI><A HREF="gxrepl.htm">gxrepl</A> (7.3, 7.4): database replication over gxStream (Linux and POSIX).</LI>
+<LI>dr_digest (7.4): what a database, B-tree or file holds, as one 64-bit digest, whatever its layout (<CODE>dr_digest FILE [--kind btree|bytes|objects]</CODE>).</LI>
 <LI><A HREF="object_server.htm">object_server and object_client</A>: the database object server and its client, with vector searches (POSIX).</LI>
 </UL>
 <P>Both are built by CMake into cmake-build/utils and installed with the library. The 6.x hexdump, ffind and txfilter programs were removed; use your system's tools (xxd, find, sed, PowerShell Format-Hex) instead.</P>
@@ -1477,26 +1392,6 @@ vix_rebuild --digest FILE.vix [--digest-kind logical|bytes]
 <P><CODE>--digest</CODE> prints "logical HASH NODES FILE": a hash of the live nodes in id order (id, stored code, tags), the same for two indexes that hold the same nodes whatever their graphs; <CODE>--digest-kind bytes</CODE> hashes the file's bytes (for rebuild against rebuild). The example <A HREF="../examples/vector_records.htm">vector_records</A> calls the same rebuild from code.</P>
 ''')])
 
-page(file='utils/gxrepl.htm', title='gxrepl',
- lead='Database replication over gxStream with mutual TLS: committed pages from a ship log, files by a scan, derived indexes kept by the copy (Linux and POSIX).',
- sections=[('Commands', 'Commands', code('''
-gxrepl serve  --config FILE [--key-fd N]          the server (listens, TCP 2073)
-gxrepl run    --config FILE [--key-fd N]          the client (dials, replicates until stopped)
-gxrepl once   --config FILE [--set NAME]           one pass with a full verify; exit 0 = every set the same
-gxrepl status --config FILE                        the status file (JSON)
-gxrepl check  --config FILE                        certificates, sets and folders
-gxrepl torn   --config FILE [--set NAME]           promote-check: is every copy whole and sealed
-gxrepl promote --config FILE [--set NAME] [--apply] before a take over
-gxrepl digest FILE [--kind btree|bytes|objects]    what a database or index holds, whatever its layout
-gxrepl derived status|rebuild --config FILE [--set NAME] [--folder REL]
-gxrepl shiplog DIR [--from LSN]                    list a ship log's records
-gxrepl fingerprint CERT.pem / gxrepl version
-''')), ('Notes', 'What It Does', '''
-<P>A writer that commits through a <A HREF="../classes/database/gxdjrnl.htm">gxdJournal</A> with the ship log on appends each commit's pages; gxrepl sends those records to the copy, which applies them through its own journal, so the copy is always one whole commit. Files without a ship log go by a scan. Folders with a commit block are copied and sealed as one unit; <CODE>gxrepl torn</CODE> says whether every copy is whole. Derived indexes are never sent: the copy rebuilds them (<CODE>derived_apply = rebuild</CODE>, the default) or keeps them object by object (<CODE>incremental</CODE>, with an <A HREF="../classes/database/gxrextract.htm">extractor</A>; not yet for production use).</P>
-<P>In 7.4 every writer open or gap record gets its verify (also when it comes inside a file sync), a stream's log made again is seen, and a folder's commit block is applied only when its stream needs no other verify: while it waits, the set's status says <CODE>"waiting": "waiting for verify: STREAM"</CODE>. The status file's <CODE>"derived"</CODE> object gives each derived set's mode, folders, failed, not built, rebuild needed, breaker and crashes in the last hour.</P>
-<P>The design and every config key: utils/gxrepl/README.md; setup, watching, failover and failback: the <A HREF="../replication_admin_guide.html">administrator's guide</A>; examples: <A HREF="../examples/replication.htm">replication</A>, and on Windows <A HREF="../examples/replication_copy.htm">replication_copy</A>.</P>
-''')])
-
 page(file='utils/object_server.htm', title='object_server and object_client',
  lead='The database object server example tools: store and read objects, and ask for vector searches (POSIX).',
  sections=[('Usage', 'Usage', code('''
@@ -1505,7 +1400,7 @@ object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME "text"
 object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME --vinfo
 object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME --vsearch K   < query (whitespace separated floats)
 ''') + '''
-<P>object_server serves one database with mutual TLS (only CLIENT_CN may connect). object_client stores a text object and reads it back, or with --vinfo / --vsearch asks a server whose database names its vectors (gxrepl serve with a [db NAME] section and <CODE>vectors =</CODE>) for the index's description or the K nearest to the query on stdin. The requests: <A HREF="../classes/database/gxdbobject.htm">Object Server Vector Searches</A>; a complete program: <A HREF="../examples/vector_search_service.htm">vector_search_service</A>.</P>
+<P>object_server serves one database with mutual TLS (only CLIENT_CN may connect). object_client stores a text object and reads it back, or with --vinfo / --vsearch asks a server whose database names its vectors (a gxObjectDbConfig with <CODE>vectors</CODE>) for the index's description or the K nearest to the query on stdin. The requests: <A HREF="../classes/database/gxdbobject.htm">Object Server Vector Searches</A>; a complete program: <A HREF="../examples/vector_search_service.htm">vector_search_service</A>.</P>
 ''')])
 
 def main():

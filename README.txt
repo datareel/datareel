@@ -1,4 +1,4 @@
-DataReel 7.4 Beta 2 Readme File
+DataReel 7.4 Beta 5 Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -35,14 +35,17 @@ rest:
 - TLS networking: IPv4 and IPv6 sockets, TLS 1.2 and 1.3 with
   certificate checking, and HTTPS, SMTP, POP3, FTPS and database block
   clients and servers.
+- Object replication between Windows and Linux nodes, in both
+  directions, with takeover and rejoin (7.4).
 - Stable, portable file formats: files written by DataReel releases
   going back to 2001 still open, byte for byte.
 
 The library has no dependencies except the system TLS library
 (OpenSSL on Linux, Schannel or OpenSSL on Windows).
 
-DataReel 7.4 is a beta release: beta 3 (tag 7.4-beta3, 11/14/2026)
-follows beta 2 (7.4-beta2) and the 11/12/2026 7.4-beta preview.
+DataReel 7.4 is a beta release: beta 5 (11/16/2026) follows beta 4
+(tag 7.4-beta4) and adds object replication between Windows and
+Linux (gxObjRepl).
 DataReel 6.2 remains the stable release for production use until
 DataReel 7 is final.
 
@@ -62,6 +65,8 @@ https://datareel.com/contact.php
 WHAT DATAREEL IS GOOD FOR
 -------------------------
 Object database
+ gxObjRepl         Object replication between Windows and Linux nodes,
+                   both ways, with takeover and rejoin (7.4)
  gxDatabase        32/64-bit block file engine: allocate, write, read,
                    delete and reuse variable size blocks, per-block CRC,
                    file and record locking, large files
@@ -81,6 +86,7 @@ TLS networking
  gxsHTTPMessage    HTTP/1.1 messages for clients and servers
  gxsSMTPClient     Mail over implicit TLS (465) or STARTTLS (587)
  gxsPOP3Client     Mail over implicit TLS (995) or STLS (110)
+ gxsIMAPClient     Mailboxes over implicit TLS (993) or STARTTLS (143)
  gxsFTPClient      FTPS with encrypted data connections
  gxStream          Database blocks between client and server over TLS
  gxSocket          IPv4/IPv6 TCP and UDP socket under all of the above
@@ -157,6 +163,11 @@ and RELEASE_NOTES_7.4.txt for the changes in 7.1 to 7.4. In short:
   object server, and vector indexes that a replicated copy rebuilds
   from its records (RELEASE_NOTES_7.4.txt). Existing file formats are
   unchanged.
+- 7.4 beta 5: object replication between Windows and Linux (gxObjRepl):
+  nodes on either platform replicate objects both ways, with the
+  primary on either side, and takeover and rejoin work across them.
+  One database file layout and one 32-byte stream header on every
+  platform. gxrepl page-shipping replication is removed.
 
 LICENSE
 -------
@@ -309,7 +320,13 @@ written for AI coding assistants but useful to anyone.
 
 RELEASE HISTORY
 ---------------
- 7.4   11/14/2026 Beta 3 (tag 7.4-beta3): gxrepl drain-verify fixes (no
+ 7.4   11/16/2026 Beta 5: object replication between Windows and Linux
+                  (gxObjRepl), one file layout and one stream header on
+                  every platform, the IMAP client and examples; gxrepl
+                  page shipping removed (RELEASE_NOTES_7.4.txt).
+       11/16/2026 Beta 4 (tag 7.4-beta4): gxrepl recovery gap fixes,
+                  stamp-keeping fill.
+       11/14/2026 Beta 3 (tag 7.4-beta3): gxrepl drain-verify fixes (no
                   verify cascade, position gone, a log made again,
                   ReadLogOf), per-object apply fixes A1-A3, scan fixes
                   S2/S3; security scan clean.

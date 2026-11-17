@@ -34,7 +34,7 @@
 <LI><A HREF="db_debug.htm">db_debug</A>: analyze, dump and rebuild gxDatabase files.</LI>
 <LI><A HREF="ix_debug.htm">ix_debug</A>: analyze and check gxBtree index files.</LI>
 <LI><A HREF="vix_rebuild.htm">vix_rebuild</A> (7.4): rebuild a vector index from the vector members of records; digests of vector indexes.</LI>
-<LI><A HREF="gxrepl.htm">gxrepl</A> (7.3, 7.4): database replication over gxStream (Linux and POSIX).</LI>
+<LI>dr_digest (7.4): what a database, B-tree or file holds, as one 64-bit digest, whatever its layout (<CODE>dr_digest FILE [--kind btree|bytes|objects]</CODE>).</LI>
 <LI><A HREF="object_server.htm">object_server and object_client</A>: the database object server and its client, with vector searches (POSIX).</LI>
 </UL>
 <P>Both are built by CMake into cmake-build/utils and installed with the library. The 6.x hexdump, ffind and txfilter programs were removed; use your system's tools (xxd, find, sed, PowerShell Format-Hex) instead.</P>

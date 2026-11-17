@@ -26,9 +26,12 @@ and networking engine:
   searches, and a replicated copy rebuilds its vector indexes from the records.
 - **Database sockets:** gxStream client/server sockets with TLS, including mutual
   (client certificate) TLS since 7.3.1, and an object server.
-- **Replication (7.3.1):** gxrepl ships database changes from a primary to replicas. The
-  [replication administrator's guide](docs/replication_admin_guide.md) covers setup, watching, failover and
-  failback, upgrades, and when a plain file copy is enough.
+- **Windows and Linux object replication (7.4):** gxObjRepl replicates objects between
+  Windows and Linux nodes in both directions, with the primary on either side, and takeover
+  and rejoin work across the platforms. It replaces gxrepl page shipping (7.3.1 to the 7.4
+  betas), removed in 7.4 beta 5. The
+  [replication administrator's guide](docs/replication_admin_guide.md) still describes gxrepl
+  and is being rewritten for gxObjRepl.
 
 ### Legacy utility classes removed
 

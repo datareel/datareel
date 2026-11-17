@@ -25,27 +25,23 @@
 </header>
 <main class="dr-main">
 <H1>Journal (Transactions) Class</H1>
-<p class="dr-lead">gxdJournal makes writes to several database files all or nothing, and in 7.3 and 7.4 feeds replication through its ship log.</p>
+<p class="dr-lead">gxdJournal makes writes to several database files all or nothing, and finishes the committed ones after a crash.</p>
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
-<A HREF="#Transactions">Transactions</A><BR>
-<A HREF="#Replication">Replication (7.3, 7.4)</A></P>
+<A HREF="#Transactions">Transactions</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>Attach every file a transaction writes (gxDatabase files, gxBtree indexes, a gxVectorIndex's <CODE>Database()</CODE>), then <A HREF="#Begin">Begin()</A>, write, and <A HREF="#Commit">Commit()</A> or <A HREF="#Rollback">Rollback()</A>. The journal records each batch of pages and its commit before the pages reach the files, so after a crash the next <A HREF="#Open">Open()</A> (or <A HREF="#Recover">Recover()</A>) finishes every committed batch and drops the rest. Open the journal before the files.</P>
-<P><B>Replication</B> (gxrepl): <A HREF="#EnableShipLog">EnableShipLog()</A> appends each commit's pages to the set's ship log, and an open record when the writer starts; <A HREF="#EnableObjectNotes">EnableObjectNotes()</A> adds which records each commit added, changed and removed (for derived_apply = incremental). Readers in another process take a <CODE>gxdJournalReadLock</CODE> to see whole batches only. See the <A HREF="../../replication_admin_guide.html">replication administrator's guide</A>. The examples: <A HREF="../../examples/journal_recovery.htm">journal_recovery</A>, <A HREF="../../examples/replication.htm">replication</A>.</P>
+<P><B>Replication</B>: 7.4 replicates objects with gxObjRepl (gxobjrepl.h), which uses the journal's <A HREF="#Open">Open()</A>, <A HREF="#Recover">Recover()</A> and RecoverError(). The 7.3 ship log (EnableShipLog(), EnableObjectNotes()) was removed in 7.4 beta 5 with gxrepl page shipping: a program that called it drops the call. Readers in another process take a <CODE>gxdJournalReadLock</CODE> to see whole batches only. The example: <A HREF="../../examples/journal_recovery.htm">journal_recovery</A>.</P>
 
 <h2 id="Transactions">Transactions</h2>
 <div class="dr-fn" id="Open"><code class="dr-sig">gxDatabaseError Open(const char *jname) / Close()</code><p class="dr-desc">Recovers, then opens the journal; Close() rolls back an open batch or checkpoints, and truncates the journal file.</p></div>
 <div class="dr-fn" id="Attach"><code class="dr-sig">gxDatabaseError Attach(gxDatabase *f) / Attach(gxBtree *btx) / Attach(BtreeCache *cache)</code><p class="dr-desc">Adds a file to the journal's transactions.</p></div>
 <div class="dr-fn" id="Begin"><code class="dr-sig">gxDatabaseError Begin() / Commit(int durable = 1) / Rollback()</code><p class="dr-desc">Starts a batch, commits it (synced when durable), or undoes it (a gxVectorIndex then needs Reload()).</p></div>
 <div class="dr-fn" id="Checkpoint"><code class="dr-sig">gxDatabaseError Checkpoint()</code><p class="dr-desc">Writes the committed pages to the files and empties the journal.</p></div>
-<div class="dr-fn" id="Recover"><code class="dr-sig">static gxDatabaseError Recover(const char *jname, unsigned long *recovered = 0) / unsigned long Recovered() const</code><p class="dr-desc">Finishes the committed batches a stopped writer left; the count of batches replayed by Open().</p></div>
+<div class="dr-fn" id="Recover"><code class="dr-sig">static gxDatabaseError Recover(const char *jname, unsigned long *recovered = 0, int mark = 1) / unsigned long Recovered() const</code><p class="dr-desc">Finishes the committed batches a stopped writer left; the count of batches replayed by Open(). mark is ignored since 7.4 beta 5.</p></div>
+<div class="dr-fn" id="RecoverError"><code class="dr-sig">static const char *RecoverError()</code><p class="dr-desc">Why this thread's last Recover() failed, or "".</p></div>
 <div class="dr-fn" id="SetWriteMode"><code class="dr-sig">void SetWriteMode(gxdJournalWriteMode mode) / void SetWriteLock(int lock)</code><p class="dr-desc">When committed pages reach the files (write through or write back); the write lock that gxdJournalReadLock readers wait for.</p></div>
-
-<h2 id="Replication">Replication (7.3, 7.4)</h2>
-<div class="dr-fn" id="EnableShipLog"><code class="dr-sig">gxDatabaseError EnableShipLog(const char *set_root, const char *stream = 0) / void DisableShipLog() / gxdShipLog *ShipLog()</code><p class="dr-desc">Appends each commit to the set's ship log (an open record first); the log, for SetExclude() (derived indexes) and SetCommitBlock().</p></div>
-<div class="dr-fn" id="EnableObjectNotes"><code class="dr-sig">gxDatabaseError EnableObjectNotes(int on = 1)</code><p class="dr-desc">Adds an objects record before each commit record: which records it added, changed and removed (off by default; GXDSHIP_OBJECTS=1 turns it on).</p></div>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

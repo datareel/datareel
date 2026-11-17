@@ -25,19 +25,18 @@
 </header>
 <main class="dr-main">
 <H1>Vector Members and Rebuilds</H1>
-<p class="dr-lead">Vector indexes made from the vector members of records: the gxvmember extractor and gxvRebuildFromMembers() (DataReel 7.4).</p>
+<p class="dr-lead">Vector indexes made from the vector members of records: gxvRebuildFromMembers() (DataReel 7.4).</p>
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Overview">Overview</A><BR>
 <A HREF="#Functions">Functions</A></P>
 
 <h2 id="Overview">Overview</h2>
-<P>A data file whose records keep their vectors as vector members (<A HREF="gxvindex.htm#MakeMember">MakeMember()</A>) can have its .vix made again from the records alone, so a replicated copy never needs the .vix bytes: the set names the .vix "derived" and the copy rebuilds it, in full (<A HREF="../../utils/vix_rebuild.htm">vix_rebuild</A>) or object by object (the "gxvmember" extractor of <A HREF="gxrextract.htm">gxrextract.h</A>).</P>
+<P>A data file whose records keep their vectors as vector members (<A HREF="gxvindex.htm#MakeMember">MakeMember()</A>) can have its .vix made again from the records alone, so a replicated copy never needs the .vix bytes: the copy rebuilds it from its own records (<A HREF="../../utils/vix_rebuild.htm">vix_rebuild</A>).</P>
 <P>Where the member is, as a config string (space separated): <CODE>member=infohog:N</CODE> (InfoHog member N) or <CODE>member=offset:N</CODE> (a fixed field at byte N of a POD record), and <CODE>tags=A,B,C,D</CODE> where each tag comes from <CODE>infohog:N</CODE>, <CODE>offset:N</CODE> (a 4-byte value) or <CODE>-</CODE> (0). The node id is the record's address. Rebuilt in ascending address order, the index is the same file, byte for byte, on every node. The example: <A HREF="../../examples/vector_records.htm">vector_records</A>.</P>
 
 <h2 id="Functions">Functions</h2>
 <div class="dr-fn" id="gxvRebuildFromMembers"><code class="dr-sig">int gxvRebuildFromMembers(const std::string &amp;data_path, const std::string &amp;index_path, const gxVectorIndex &amp;like, const std::string &amp;config, unsigned long long &amp;records, std::string &amp;why)</code><p class="dr-desc">Rebuilds index_path from every record of data_path (into index_path.rebuild, then renamed over it); the header comes from "like". records gets the number of records with a member. 0, or -1 with why.</p></div>
 <div class="dr-fn" id="Parse"><code class="dr-sig">struct gxvMemberSpec: int Parse(const std::string &amp;config, std::string &amp;why) / int Extract(const unsigned char *rec, unsigned len, const unsigned char *&amp;member, unsigned &amp;mlen, unsigned tags[gxvTagCount]) const</code><p class="dr-desc">Parses the config; finds a record's member and tags (1 found, 0 none).</p></div>
-<div class="dr-fn" id="gxvMemberExtractor"><code class="dr-sig">const gxrExtractorOps *gxvMemberExtractor()</code><p class="dr-desc">The "gxvmember" extractor for gxrepl's derived_apply = incremental.</p></div>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

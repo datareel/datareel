@@ -1174,11 +1174,11 @@ request and reply layouts; `utils/dbserver/object_client --vinfo` and
 
 ### Replicated copies
 
-gxrepl never sends a set's derived indexes: the copy rebuilds them
-(`derived_apply = rebuild`, running `vix_rebuild`) or keeps them object
-by object (`incremental`, with the `gxvmember` extractor; not yet for
-production use). See `utils/gxrepl/README.md` and
-`docs/replication_admin_guide.md`.
+7.4 replicates objects with gxObjRepl (`gxobjrepl.h`), between Windows
+and Linux nodes in both directions. gxrepl page shipping, its derived
+index extractors and the journal's ship log were removed in 7.4 beta 5.
+A copy that loses a vector index makes it again from its own records
+(`vix_rebuild`, `gxvRebuildFromMembers()`).
 
 ## Checking and repairing files
 

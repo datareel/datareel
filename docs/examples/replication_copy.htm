@@ -11,7 +11,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>Folder Copy Example (Windows Replication)</title>
+<title>Folder Copy Example</title>
 <link rel="stylesheet" href="../css/datareel.css">
 <link rel="icon" href="../images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="../images/datareel_icon_192.png">
@@ -24,15 +24,15 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="../index.html">Readme</a><a href="../classes/classes.htm">Library</a><a href="../examples/examples.htm" aria-current="page">Examples</a><a href="../utils/utils.htm">Utilities</a><a href="../drcm.html">Cluster Manager</a><a href="../code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<H1>Folder Copy Example (Windows Replication)</H1>
-<p class="dr-lead">A database folder copied by a plain file copy while its writer is stopped, checked with digests, with the index rebuild as the fallback. The replication example for Windows.</p>
+<H1>Folder Copy Example</H1>
+<p class="dr-lead">A database folder copied by a plain file copy while its writer is stopped, checked with digests, with the index rebuild as the fallback. Windows and Linux.</p>
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Shows">What It Shows</A><BR>
 <A HREF="#Running">Running It</A><BR>
 <A HREF="#Source">Source</A></P>
 
 <h2 id="Shows">What It Shows</h2>
-<P>Live replication with gxrepl (the <A HREF="replication.htm">replication example</A>) runs on Linux and other POSIX systems only. On Windows, and anywhere a copy minutes old is fine, a database folder is copied with the usual file copy tool while its writer is stopped (<A HREF="../replication_admin_guide.html">the administrator's guide</A>, "When a plain file copy is enough"):</P>
+<P>Live replication in 7.4 is gxObjRepl (gxobjrepl.h), object by object between Windows and Linux nodes in both directions. Anywhere a copy minutes old is fine, a database folder is copied with the usual file copy tool while its writer is stopped (<A HREF="../replication_admin_guide.html">the administrator's guide</A>, "When a plain file copy is enough"):</P>
 <OL>
 <LI>The writer (<CODE>replication_copy write</CODE>) adds, changes and removes the replication example's records (replication_records.h) and keeps their two indexes, a <A HREF="../classes/database/gxbtree.htm">B-tree</A> of names and a vector index, in one <A HREF="../classes/database/gxdjrnl.htm">gxdJournal</A> transaction per commit. When it stops it closes the journal (a checkpoint), so the three files hold every commit.</LI>
 <LI>robocopy copies the folder, leaving the journal out.</LI>

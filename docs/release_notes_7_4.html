@@ -20,7 +20,8 @@
 <main class="dr-main">
 <h1>DataReel 7.4 Beta 5 Release Notes</h1>
 <div class="dr-toc-title">Contents</div>
-<p class="dr-toc"><a href="#PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</a><br>
+<p class="dr-toc"><a href="#HighlightsOf74">Highlights of 7.4</a><br>
+<a href="#PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</a><br>
 <a href="#PhaseB11122026HnswGraphSearchMergeRepair">Phase b (11/12/2026): hnsw graph search, merge, repair</a><br>
 <a href="#PhaseC11122026Float16AndInt8VectorsVectorMembers">Phase c (11/12/2026): float16 and int8 vectors, vector members</a><br>
 <a href="#PhaseD11142026SpeedGrowthSetsVectorSearchServiceVectorsUnderGxrepl">Phase d (11/14/2026): speed, growth, sets, vector search service, vectors under gxrepl</a><br>
@@ -32,9 +33,18 @@
 <a href="#Beta411162026">Beta 4 (11/16/2026)</a><br>
 <a href="#OneFileLayoutOnEveryPlatform11152026Beta5">ONE FILE LAYOUT ON EVERY PLATFORM (11/15/2026, beta 5)</a><br>
 <a href="#NewInBeta511162026">New in beta 5 (11/16/2026)</a><br>
+<a href="#UpgradingTo74Beta5">Upgrading to 7.4 beta 5</a><br>
 <a href="#PlannedForTheNextRelease75">Planned for the next release (7.5)</a></p>
 <p>DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the replication fixes and the security scan below (BETA 3). Beta 2:</p>
 <p>DataReel 7.4 beta 2 (tag 7.4-beta2, 11/14/2026): the OODB with AI extensions. It follows the 11/12/2026 7.4-beta preview (tag 7.4-beta, 171a3f2: vector phases A and B) and adds vector phases C and D (below), the gxrepl fixes F4, F6 and F7, the DataReel 7.3.2 replication fixes and the later ones of rel-7.3.2-next3 (the seal per folder, a stream naming new files verified again, promote-check reading each unit under a shared apply lock, GXREPL_TORN_LOCK_WAIT 15 s), and the gxrepl per-object derived apply (derived_apply = incremental, with object notes and index stamps; off by default: rebuild stays the default and the ship log is unchanged while object notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md). derived_apply = incremental is not yet for production use; fixes land in the next 7.4 build. The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
+<h2 id="HighlightsOf74">Highlights of 7.4</h2>
+<ul>
+<li>Object replication between Windows and Linux (gxObjRepl, gxobjrepl.h, beta 5): Windows and Linux nodes replicate objects in both directions, with the primary on either side, and takeover and rejoin work across the two platforms. See NEW IN BETA 5.</li>
+<li>The vector index (gxvindex.h): exact and graph search, float32, float16 and int8 vectors, vector members of records, day sets and vector searches through the database object server (phases A to D).</li>
+<li>One database file layout on every platform (beta 5): files and record addresses move between Windows, Linux, 32-bit and 64-bit builds, and files of the old 4-byte layout keep working.</li>
+<li>Network classes and examples: an IMAP client (gxsIMAPClient), https_check, and UDP broadcast and multicast.</li>
+<li>Removed in beta 5: gxrepl page-shipping replication (see NEW IN BETA 5).</li>
+</ul>
 <h2 id="PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</h2>
 <p>New headers gxvindex.h (gxVectorIndex, gxvFilter, gxvResult) and gxvkern.h (distance kernels); sources src/gxvindex.cpp and src/gxvkern.cpp; test program utils/vix_test.</p>
 <p>1. gxVectorIndex keeps vectors in a &quot;.vix&quot; file, which is an ordinary</p>
@@ -244,12 +254,26 @@
 <li>An apply waits for apply.jnl at most GXREPL_APPLY_LOCK_WAIT (5 s, non-blocking tries) and answers &quot;busy&quot;, so a long derived index rebuild no longer holds back the other applies; the client retries on its next pass.</li>
 <li>The derived rebuild and the ssh tunnel children run with only stdio open (close_range): they no longer inherit gxrepl.lock or ship-log state descriptors.</li>
 <li>An older reader race (not from the stall fixes): the applied position is now written inside the apply lock with the pages and the seal, and the torn check re-reads a seal mismatch for up to GXREPL_TORN_RECHECK_SEC (10 s), so a promote-check no longer sees a seal ahead of the copy while an apply is in flight (test test_seal_and_position_never_split).</li>
-<li>Staged unit copies: a unit&#x27;s files are copied into a reflinked stage (.gxrepl/stage/&lt;unit&gt;/) and swapped in, commit block last, when its commit block arrives, so a link lost mid-unit leaves the copy whole at its last sealed commit; &quot;gxrepl promote [--apply]&quot; recovers the apply journal, finishes a begun swap and reports what was lost. Crash test hooks only with -DGXREPL_TEST_HOOKS=ON (test builds). Upgrade notes: - Every long-lived reader of a replicated folder (an application that keeps a copy&#x27;s commit.bin or any of its data files open across a staged swap) must reopen the file when its inode changes: the swap replaces the file, so an old handle keeps reading the previous copy. - Failover and failback scripts should run &quot;gxrepl promote --apply&quot; before a node takes over, so stages left by a cut link do not block the failback. - Set max_message to 16 MB on both ends (gxrepl.conf). For derived sets that change all day, consider derived_delay and derived_busy_rebuild at 1800. - Build releases with GXREPL_TEST_HOOKS OFF (the default); only the test builds turn it on.</li>
+<li>Staged unit copies: a unit&#x27;s files are copied into a reflinked stage (.gxrepl/stage/&lt;unit&gt;/) and swapped in, commit block last, when its commit block arrives, so a link lost mid-unit leaves the copy whole at its last sealed commit; &quot;gxrepl promote [--apply]&quot; recovers the apply journal, finishes a begun swap and reports what was lost. Crash test hooks only with -DGXREPL_TEST_HOOKS=ON (test builds). Upgrade notes:
+<ul>
+<li>Every long-lived reader of a replicated folder (an application that keeps a copy&#x27;s commit.bin or any of its data files open across a staged swap) must reopen the file when its inode changes: the swap replaces the file, so an old handle keeps reading the previous copy.</li>
+<li>Failover and failback scripts should run &quot;gxrepl promote --apply&quot; before a node takes over, so stages left by a cut link do not block the failback.</li>
+<li>Set max_message to 16 MB on both ends (gxrepl.conf). For derived sets that change all day, consider derived_delay and derived_busy_rebuild at 1800.</li>
+<li>Build releases with GXREPL_TEST_HOOKS OFF (the default); only the test builds turn it on.</li>
+</ul>
+</li>
 <li>Tests: test_late_reply_never_desyncs_a_channel (the server stopped past the client timeout; the old build stays on &quot;bad reply&quot;) and test_slow_rebuild_never_stalls_the_other_sets (another set copies during a 20 s rebuild, gxrepl&#x27;s own shared holds are never reported as a local writer, the rebuild child inherits nothing of gxrepl&#x27;s).</li>
 </ul>
 <h2 id="Beta311142026">Beta 3 (11/14/2026)</h2>
 <ul>
-<li>gxrepl drain-verify, reviewed (the beta 2 fix below, plus): - no verify cascade: during a stream&#x27;s verify, the open, gap and unreadable records it catches up on (at or below the position it started from, of its own log) never queue it again; one later open does, once; - an lsn that is not known, and &quot;the copy&#x27;s position is gone&quot;, always queue a verify; - the copy&#x27;s position gone from the log resets it to resync, so the file sync goes on by pieces (before: &quot;gave up after 6 tries&quot; pass after pass); - a stream&#x27;s log made again (purged and reopened under the same name, as osa_ingest&#x27;s late pass does) is seen: the source&#x27;s cached readers reopen on a new log.id, a verify running on the old log runs again, and a drain reads only the log the copy&#x27;s position is on (gxReplLocal::ReadLogOf; pull mode later). Every writer open gets its verify (the protocol&#x27;s rule); one restart costs at most one verify and one derived rebuild.</li>
+<li>gxrepl drain-verify, reviewed (the beta 2 fix below, plus): Every writer open gets its verify (the protocol&#x27;s rule); one restart costs at most one verify and one derived rebuild.
+<ul>
+<li>no verify cascade: during a stream&#x27;s verify, the open, gap and unreadable records it catches up on (at or below the position it started from, of its own log) never queue it again; one later open does, once;</li>
+<li>an lsn that is not known, and &quot;the copy&#x27;s position is gone&quot;, always queue a verify;</li>
+<li>the copy&#x27;s position gone from the log resets it to resync, so the file sync goes on by pieces (before: &quot;gave up after 6 tries&quot; pass after pass);</li>
+<li>a stream&#x27;s log made again (purged and reopened under the same name, as osa_ingest&#x27;s late pass does) is seen: the source&#x27;s cached readers reopen on a new log.id, a verify running on the old log runs again, and a drain reads only the log the copy&#x27;s position is on (gxReplLocal::ReadLogOf; pull mode later).</li>
+</ul>
+</li>
 <li>gxrepl: a day folder archived and reopened during a verify (osa_ingest&#x27;s late pass) never seals stale data. A file update that would move the copy&#x27;s position to another log queues the stream&#x27;s verify again, and the seal guard applies a folder&#x27;s commit block only when its stream needs no other verify (and never one of another log than the verify started on); a data file gone during its sync fails it; the source&#x27;s reader reopens on log.id&#x27;s content. Before, the copy could be sealed and &quot;in step&quot; at the source&#x27;s generation with a stale data file (in the night-1 test 17 of 50 on the 7.3.x code of the .53 install).</li>
 <li>gxrepl per-object derived apply (still not for production use): A1 one guarded index step (crash guard and breaker) for ApplyLog and ApplyFiles, A2, A3.</li>
 <li>Security scan fixes: S2 a vector search takes its search slot before the replicated copy&#x27;s apply lock (a burst of searches no longer keeps the copy&#x27;s applies busy); S3 the .vixset duplicate check is O(log n).</li>
@@ -287,16 +311,35 @@
 <p>Before 7.4 beta 5 the database file headers held gxUINT32/gxINT32 fields (unsigned long, long), 8 bytes on 64-bit Linux and 4 on 64-bit Windows and in 32-bit builds, so .gxd, .btx and .vix files (and record addresses) did not move between them. Now:</p>
 <ul>
 <li>Every platform writes one layout, the canonical one: the 64-bit Linux layout. Linux files are byte for byte what 7.x and 6.x write (the files of a 7.4 beta 3 build and a beta 5 build with the same writer are identical; OSA&#x27;s data files read the same). The header fields are packed explicitly (gxdbase.h: DiskLongSize(), DiskFAUSize()); the structs in memory are unchanged.</li>
-<li>Files in the old 4-byte layout (written by 64-bit Windows and 32-bit builds before beta 5) are found when opened and then read AND written in that layout, so their object addresses never move: the file header, block headers, file and record locks, stats, checksums, B-tree headers and nodes, InfoHog records (object header, member count and lengths), gxPersistent strings and object headers, and the gxvmember extractor&#x27;s InfoHog members. A file with no block (64-bit FAU builds) cannot show its layout: canonical is taken (LayoutGuessed()); gxVectorIndex then looks for its header in the old place as well, and SetOpenLayout(4) opens one in the old layout.</li>
+<li>Files in the old 4-byte layout (written by 64-bit Windows and 32-bit builds before beta 5) are found when opened and then read AND written in that layout, so their object addresses never move: the file header, block headers, file and record locks, stats, checksums, B-tree headers and nodes, InfoHog records (object header, member count and lengths), gxPersistent strings and object headers, and the InfoHog members of vector records. A file with no block (64-bit FAU builds) cannot show its layout: canonical is taken (LayoutGuessed()); gxVectorIndex then looks for its header in the old place as well, and SetOpenLayout(4) opens one in the old layout.</li>
 <li>gxd_upgrade IN.gxd OUT.gxd [--map MAP] [--records raw|infohog]: an old-layout data file rewritten as a new canonical file, only when it is run. Object addresses change (MAP lists OLD NEW), every object is read back and compared, B-tree and vector index files are refused (rebuild them from the upgraded data file).</li>
 <li>SetCreateLayout(4) (or GXD_CREATE_LAYOUT=4) creates a file in the old layout, for readers older than beta 5 only.</li>
-<li>gxrepl copies bytes and never rewrites a header: a folder replicates in the layout it has (test_old_layout_folder_replicates_byte_for_byte).</li>
+<li>A database folder copied as files (the replication_copy example) keeps the layout it has.</li>
 <li>vix_test&#x27;s phase C files (made on 64-bit Linux) are compared on every platform again.</li>
 <li>tests/data/old_layout: files written by the 64-bit and 32-bit FAU Windows builds of beta 3; run_tests reads them with the digests Windows printed, writes them byte for byte with GXD_CREATE_LAYOUT=4, writes more to an old file (it stays old, its indexes equal a rebuild) and upgrades one.</li>
 </ul>
 <p>Still per platform: the application&#x27;s own record and key types. A native gx type (gxUINT32, gxINT32) or, in a 32-bit FAU build, a FAU in a record or key keeps its platform&#x27;s size; use fixed-width types (uint32_t, int64_t) in records that move between platforms. The gxStream and object server message framing is one form on every platform too (see NEW IN BETA 5).</p>
 <h2 id="NewInBeta511162026">New in beta 5 (11/16/2026)</h2>
 <ul>
+<li>Object replication between Windows and Linux (gxObjRepl, gxobjrepl.h). The unique feature of 7.4:
+<ul>
+<li>Mixed Windows and Linux nodes replicate objects both ways, with the primary on either side. Takeover and rejoin work across the platforms.</li>
+<li>One canonical 32-byte gxStream block header on every platform (the form 64-bit Linux always sent).</li>
+<li>A peer that sends the old header with 4-byte words (Windows and 32-bit builds before beta 5) is refused with gxSOCKET_BLOCKHEADER_ERROR (PeerOldHeader()), and gxObjRepl raises an alarm.</li>
+<li>Mutual TLS with each platform&#x27;s own TLS library through gxSSL: OpenSSL on Linux, the Windows Schannel library on Windows.</li>
+<li>From DataReel 6.4, programs built with the matching stream header can talk to 7.4 replication.</li>
+<li>Tested Linux to Windows and Windows to Linux: takeover and rejoin with identical digests and index digests in every run, a 2,500-commit stress run each way, and old Windows builds refused both ways.</li>
+<li>Upgrade: every node must run a 7.4 beta 5 build (see UPGRADING TO 7.4 BETA 5).</li>
+</ul>
+</li>
+<li>gxrepl page-shipping replication is removed. 7.4 replication is gxObjRepl.
+<ul>
+<li>A gxrepl binary installed from a 7.4 beta keeps working as it is, but it is not part of 7.4 and is no longer built.</li>
+<li>The journal&#x27;s ship log is gone: EnableShipLog(), DisableShipLog(), ShipLog(), EnableObjectNotes(), ApplyPages() and the &quot;&lt;journal&gt;.recovered&quot; marker. A program that called EnableShipLog() drops the call. gxdJournal::Recover() keeps its signature (its mark argument is ignored), and RecoverError() stays.</li>
+<li>Also gone: gxrepl.h, gxdrepl.h, gxdstage.h, gxdstamp.h, gxrextract.h, the replication example and its pages.</li>
+<li>The database digest stays, as gxDatabaseDigest() and gxDatabaseHash() (gxddigest.h) and the dr_digest tool. The values are the same as gxrepl&#x27;s digest printed.</li>
+</ul>
+</li>
 <li>Known issue of beta 4, fixed here: the library&#x27;s version string (DATAREEL_VERSION_STRING, include/gxdlcode.h) still said &quot;7.4 beta3&quot;, so beta 4&#x27;s gxrepl reports 7.4 beta3. It says &quot;7.4 beta5&quot; now, and tools/check_release_version.sh TAG (also a run_tests check without a tag) fails when the version string, version.txt and the release notes title do not match the release.</li>
 <li>gxsIMAPClient (gxsimap.h): an IMAP4rev1 mail client, based on the IMAP client class of a 2007 program that downloads report messages to a spool folder, released under the LGPL. Implicit TLS (port 993), STARTTLS (port 143), or plain text (port 143) only when asked for by name with ConnectPlain(). Login, select and examine, list mailboxes, search, fetch the header, text or whole message and the arrival time, delete and expunge, any other command, and a recorded session with the password masked. Replies are read to their own tagged completion and message data as literals, so a message can hold any text; the 2007 client&#x27;s calls are kept. A server that announces LOGINDISABLED is never sent a password, and Login() on a plain text connection is refused, with nothing sent, unless the program calls AllowPlainLogin() first.</li>
 <li>Example imap_fetch: search a mailbox, list the matches newest first and save each message&#x27;s text to a spool folder once (from cron). Spool file names keep only letters, digits, &quot;-&quot;, &quot;_&quot; and &quot;+&quot; of the server&#x27;s arrival date, so they never leave the folder. --plain is the opt-in for a plain text login.</li>
@@ -305,17 +348,23 @@
 <li>A file of the other database engine (written with 32-bit file addresses, or with 64-bit ones) is refused with gxDBASE_FILE_ENGINE_ERROR. Before, a build with 32-bit file addresses opened a 64-bit engine&#x27;s file without an error (its check compared only &quot;GXDBASE&quot;, the start of &quot;GXDBASE64&quot;).</li>
 <li>The layout detection reads the first block&#x27;s length both ways and takes the old 4-byte layout only when that length fits the file and the canonical one does not: a damaged first block is never taken for the old layout (tests/layout_detect_test).</li>
 <li>The header documentation (Database Headers) explains the on-disk layout and byte order: every header field is written little endian, field by field, on every machine.</li>
-<li>Tests: the IMAP client against a mock server (TLS, STARTTLS, plain text, 8-bit logins, LOGINDISABLED, message bodies that look like replies) and against a local IMAP server in a container; https_check against the example HTTPS server; broadcast and multicast on this host.</li>
+<li>Tests: the IMAP client against a mock server (TLS, STARTTLS, plain text, a plain text login without the opt-in, 8-bit logins, LOGINDISABLED, message bodies that look like replies, spool names from a hostile arrival date) and against a local IMAP server in a container; gxdbmux_test (the multiplex and wire frames) in run_tests; https_check against the example HTTPS server; broadcast and multicast on this host.</li>
+</ul>
+<h2 id="UpgradingTo74Beta5">Upgrading to 7.4 beta 5</h2>
+<ul>
+<li>Never set GXD_CREATE_LAYOUT in production. It makes new files in the old 4-byte layout, for readers older than beta 5 only (tests and a move away from old readers).</li>
+<li>Build every binary from one tree: the library, its tools and every program that links it. A program built from an older beta tree writes the old stream header.</li>
+<li>Old-header peers are refused. Upgrade every node of a replicated set and every object server client to a beta 5 build.</li>
+<li>A program that called the journal&#x27;s EnableShipLog() or EnableObjectNotes() drops the call (see NEW IN BETA 5).</li>
 </ul>
 <h2 id="PlannedForTheNextRelease75">Planned for the next release (7.5)</h2>
 <p>These are planned features, not part of 7.4:</p>
 <ul>
 <li>The Python module as a package that installs with pip.</li>
-<li>Replication on Windows: live database replication and the database object server on Windows, not only the folder copy of 7.4 (7.4&#x27;s one file layout on every platform is the base for it).</li>
+<li>The database object server tools (object_server, object_client) on Windows; 7.4 builds them on Linux and POSIX only.</li>
 <li>The 6.x version with the legacy classes, carrying the 7.x features.</li>
 <li>TLS servers on Windows without an interactive sign-in, so a server can load its PEM certificate and key when started over a key-based remote login or as a Windows service.</li>
 <li>A decision on the build without native types (DATAREEL_NATIVE_TYPES=OFF): a fixed-width file header for it, or retiring that build.</li>
-<li>Per-object index upkeep on a replicated copy (derived_apply = incremental) as the default, once measurements show it; rebuild stays the default until then.</li>
 <li>A serial port example for gxSerialComm.</li>
 <li>A string function that strips terminal control sequences (VT220 and ANSI escapes) from text such as captured device output or logs.</li>
 <li>A CSV reader and writer class, with an example that merges spreadsheets exported as CSV.</li>
@@ -324,6 +373,7 @@
 <li>A direct I/O (unbuffered, aligned) test for the journal and replication.</li>
 <li>File utilities: hexdump, file find and text filter programs for 7.x.</li>
 <li>A TLS throughput section in the dr_bench benchmarks.</li>
+<li>Replication test leftovers: test_gxobjrepl_api runs on Linux only; the check test&#x27;s &quot;away&quot; case needs a longer connect timeout on Windows (about 2 s).</li>
 </ul>
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

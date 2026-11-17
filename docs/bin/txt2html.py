@@ -113,13 +113,20 @@ def convert(lines, title):
             i += 1
             continue
         if l.startswith('- '):
+            # Items, each [text, sub-items]; "  - " inside an item starts a sub-item (11/16/2026)
             items = []
             while i < n and (lines[i].startswith('- ') or
                              (lines[i].startswith('  ') and items)):
-                if lines[i].startswith('- '): items.append(lines[i][2:].strip())
-                else: items[-1] = join_lines([items[-1], lines[i]])
+                l2 = lines[i]
+                if l2.startswith('- '): items.append([l2[2:].strip(), []])
+                elif l2.startswith('  - '): items[-1][1].append(l2[4:].strip())
+                elif items[-1][1] and l2.startswith('    '): items[-1][1][-1] = join_lines([items[-1][1][-1], l2])
+                else: items[-1][0] = join_lines([items[-1][0], l2])
                 i += 1
-            body.append('<ul>\n' + ''.join('<li>%s</li>\n' % inline(x) for x in items) + '</ul>\n')
+            def li(x):
+                sub = ''.join('<li>%s</li>\n' % inline(y) for y in x[1])
+                return '<li>%s%s</li>\n' % (inline(x[0]), '\n<ul>\n' + sub + '</ul>\n' if sub else '')
+            body.append('<ul>\n' + ''.join(li(x) for x in items) + '</ul>\n')
             continue
         if l.startswith(' '):
             block = []

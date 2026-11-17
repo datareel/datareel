@@ -1,5 +1,11 @@
 # DataReel Replication Administrator's Guide (gxrepl)
 
+> **Marked for a rewrite (7.4 beta 5, 11/16/2026).** gxrepl page-shipping replication was removed in 7.4
+> beta 5. Replication in 7.4 is gxObjRepl (`gxobjrepl.h`): object replication between Windows and Linux nodes
+> in both directions, with takeover and rejoin. This guide describes gxrepl as it was in 7.3 and the 7.4 betas
+> 1 to 4, and is being rewritten for gxObjRepl. A gxrepl binary installed from a 7.4 beta keeps working, but
+> it is not part of 7.4.
+
 This guide is for the person who runs database replication on two nodes: setting it up, watching it, taking
 over when the primary fails, and getting back. It covers gxrepl as shipped in DataReel 7.4 beta 3. The design
 and every config key are in `utils/gxrepl/README.md`, `include/gxrepl.h` and `RELEASE_NOTES_7.4.txt`.

@@ -34,7 +34,7 @@
 object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME &quot;text&quot;
 object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME --vinfo
 object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME --vsearch K   &lt; query (whitespace separated floats)</PRE>
-<P>object_server serves one database with mutual TLS (only CLIENT_CN may connect). object_client stores a text object and reads it back, or with --vinfo / --vsearch asks a server whose database names its vectors (gxrepl serve with a [db NAME] section and <CODE>vectors =</CODE>) for the index's description or the K nearest to the query on stdin. The requests: <A HREF="../classes/database/gxdbobject.htm">Object Server Vector Searches</A>; a complete program: <A HREF="../examples/vector_search_service.htm">vector_search_service</A>.</P>
+<P>object_server serves one database with mutual TLS (only CLIENT_CN may connect). object_client stores a text object and reads it back, or with --vinfo / --vsearch asks a server whose database names its vectors (a gxObjectDbConfig with <CODE>vectors</CODE>) for the index's description or the K nearest to the query on stdin. The requests: <A HREF="../classes/database/gxdbobject.htm">Object Server Vector Searches</A>; a complete program: <A HREF="../examples/vector_search_service.htm">vector_search_service</A>.</P>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
