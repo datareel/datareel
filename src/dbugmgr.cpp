@@ -162,6 +162,18 @@ gxDatabaseError gxDatabaseDebugManager::BlindOpen(const char *fname,
   return gxd_error = gxDBASE_NO_ERROR;
 }
 
+// 11/17/2026 (7.4 beta5): a block header from bytes in the file's layout, as gxDatabase::ReadBlockHdrRaw() reads one
+static void unpack_block_hdr(const gxDatabase &d, const unsigned char *b, gxBlockHeader &hdr)
+{
+  if(d.RawLayout()) { memcpy((void *)&hdr, b, sizeof(gxBlockHeader)); return; }
+  size_t n = d.DiskBlockHdrSize();
+  int dl = d.DiskLongSize();
+  hdr.block_check_word = (gxUINT32)d.UnpackLong(b);
+  hdr.block_length = (gxUINT32)d.UnpackLong(b + dl);
+  hdr.block_status = (gxUINT32)d.UnpackLong(b + 2 * dl);
+  hdr.block_nd_fptr = (FAU)d.UnpackFAU(b + n - d.DiskFAUSize());
+}
+
 FAU_t gxDatabaseDebugManager::BlockSearch(FAU_t offset)
 // Search through the database file until a valid block is found.
 // The search starts at the beginning of the file or the
@@ -208,7 +220,11 @@ FAU_t gxDatabaseDebugManager::BlockSearch(FAU_t offset)
       if((FAU_t)(file_address + i + hdr_size) >= StaticEOF) {
 	return (FAU_t)0;
       }
-      memcpy((void *)&blk, chunk.data() + i, hdr_size);
+      // 11/17/2026 (7.4 beta5): unpacked from the file's layout. It copied hdr_size (the disk size) bytes into the
+      // struct: on Windows (and in 32-bit builds) the struct is smaller than a canonical header, so this overran blk on
+      // the stack and misread every field, and no block was ever found (the beta5 Windows run of
+      // support_security_test's db_walk)
+      unpack_block_hdr(*this, (const unsigned char *)chunk.data() + i, blk);
       if(TestBlockHeader(blk)) {
 	return (FAU_t)(file_address + i); // Found valid block
       }
