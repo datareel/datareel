@@ -7,7 +7,7 @@
 #   PROG:      the vector_client program
 #   WORK_DIR:  a new folder for the test (default: a temporary one)
 # 11/17/2026: the server is vector_server (the 7.x object server with a
-# vector set, dr7features/inner); DataReel 7.4 beta 5 removed gxrepl.
+# vector set, dr7features/inner); DataReel 7.4 removed gxrepl.
 # Linux only (the 7.x object server is POSIX only). Uses
 # 127.0.0.1 and throwaway certificates made with the openssl program.
 set -u

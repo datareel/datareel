@@ -150,13 +150,13 @@ BETA 3 (11/17/2026): FIXES AND THE WIRE HEADER FROM DATAREEL 7.4
   process id, a counter and the object's address. The journal format
   is unchanged. Test: examples_database/journal_salt.
 - The gxStream block header on the wire (gxStream, gxDatagram,
-  gxSerialCommServer): DataReel 7.4 beta 5's canonical 32-byte form,
+  gxSerialCommServer): DataReel 7.4's canonical 32-byte form,
   the bytes 64-bit Linux always sent, on every platform. A sender with
   4-byte words (a Windows or 32-bit build before this change) is
   refused (gxStream::PeerOldHeader()).
   COMPATIBILITY: a 6.4 gxStream, gxDatagram or gxSerialCommServer peer
   does not talk to a 6.3 or older peer built on Windows or for 32 bits.
-  Upgrade both ends together. 6.4 talks to DataReel 7.4 beta 5 and
+  Upgrade both ends together. 6.4 talks to DataReel 7.4 and
   later.
 - Object replication for 6.x programs (gxv7ObjRepl, the 7.x features
   build): see OBJECT REPLICATION below.
@@ -180,7 +180,7 @@ THE 7.x FEATURES BUILD (CMake only)
   objrepl, objrepl_sim and test_gxobjrepl_api (object replication),
   vix_rebuild, and on POSIX object_server, object_client and the 6.4
   vector_server (the object server with a vector set).
-- 11/17/2026: the 7.x tree must be DataReel 7.4 beta 5 or later
+- 11/17/2026: the 7.x tree must be DataReel 7.4 or later
   (gxObjRepl, the canonical gxStream block header, no gxrepl). The
   build checks for these features, not a version or commit, and stops
   with a message for an older tree.
@@ -239,13 +239,13 @@ pages; each node keeps its own file addresses, free space and indexes.
 - The configuration is the objrepl.conf keys (SetConfig(),
   LoadConfig()), as for the 7.4 objrepl tool.
 - A 6.x program and a DataReel 7.4 program (or the 7.4 objrepl tool)
-  replicate to each other, on Linux and Windows: 7.4 beta 5 sends
+  replicate to each other, on Linux and Windows: 7.4 sends
   gxStream's block header in one canonical 32-byte form, and so does
   6.4 (gxstream-wire-6x).
 - The node files are the 7.x files of the build's database engine; a
   32-bit engine node and a 64-bit engine node never share a folder.
 - The 7.x gxrepl (page-shipping replication) is gone: DataReel 7.4
-  beta 5 removed it. The replication_6x example is rewritten on
+  removed it. The replication_6x example is rewritten on
   gxv7ObjRepl: repl6_writer is a primary, repl6_check a copy, and
   either replicates with the 7.4 objrepl tool.
 Example and how-to: examples_database/replication_6x (README.txt). See
@@ -254,7 +254,7 @@ also the DataReel 7.4 gxObjRepl reference and administrator's guide.
 TESTED PLATFORMS
 ----------------
 Beta 3, 6.4-dev c11c74b, 11/17/2026. The 7.x features build used
-DataReel 7.4 beta 5 (the 7.4 tree at 41b6e15).
+DataReel 7.4.
 
 On RHEL 10.2 (GCC), 32-bit and 64-bit database engines:
 - examples_database/run_db_tests.sh: 39 of 39 on both engines (the

@@ -16,7 +16,7 @@ be these 6.x programs, a DataReel 7.4 program or the 7.4 objrepl tool,
 on Linux or Windows.
 
 Before 11/17/2026 this example was a 6.x gxDatabase folder copied by
-the 7.x gxrepl (page shipping). DataReel 7.4 beta 5 removed gxrepl;
+the 7.x gxrepl (page shipping). DataReel 7.4 removed gxrepl;
 replication is gxObjRepl, and the 6.x programs here use it directly.
 
   repl6_writer.cpp       the primary: "primary ROOT CONF RECORDS" writes
@@ -36,7 +36,7 @@ replication is gxObjRepl, and the 6.x programs here use it directly.
                          (utils/objrepl/xver: wirecmp, xmatrix, hook64)
                          built against this 6.4 library (Linux)
 
-Build (DataReel 7.4 beta 5 or later, which has gxObjRepl and the
+Build (DataReel 7.4 or later, which has gxObjRepl and the
 canonical gxStream block header; the build stops with a message for
 an older tree):
 

@@ -3,7 +3,7 @@
 # 6.x programs (repl6_writer, repl6_check: gxv7ObjRepl) and the DataReel
 # 7.4 objrepl tool replicating to each other, both ways. 11/17/2026: on
 # the 7.x gxObjRepl (object replication); before, the 7.x gxrepl copied
-# a 6.x database folder (gxrepl went from DataReel 7.4 beta 5).
+# a 6.x database folder (gxrepl went from DataReel 7.4).
 #   TOOLS_DIR: the folder with the 7.4 objrepl tool (the 6.x CMake build
 #              with DATAREEL7_FEATURES_DIR: <build>/dr7inner/tools)
 #   BIN_DIR:   the folder with repl6_writer and repl6_check (the CMake

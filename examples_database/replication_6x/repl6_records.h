@@ -31,7 +31,7 @@ DataReel 6.4 replication example: the records repl6_writer writes and
 repl6_check reads back. 11/17/2026: one record is one object of the
 "readings" database of a gxv7ObjRepl node (the DataReel 7.x gxObjRepl);
 the 7.x gxrepl, which copied a 6.x gxDatabase folder, went from
-DataReel 7.4 beta 5.
+DataReel 7.4.
 */
 // ----------------------------------------------------------- //
 #ifndef __REPL6_RECORDS_H__
