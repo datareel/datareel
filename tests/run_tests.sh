@@ -174,6 +174,10 @@ mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" &&
 # Merge, Repair, concurrent searches and 20 crash rounds
 mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" &&
   check vix_test "$BUILD/utils/vix_test"
+# The object server's multiplex and the 32-byte wire frames (gxdbmux.h,
+# gxstream.h). 11/16/2026: run here since the gxrepl kit that ran it is gone
+mkdir -p "$WORK/run_gxdbmux" && cd "$WORK/run_gxdbmux" &&
+  check gxdbmux_test "$BUILD/utils/gxdbmux_test"
 for t in stream_security_test proto_security_test support_security_test; do
   mkdir -p "$WORK/run_$t" && cd "$WORK/run_$t" && check $t "$BUILD/tests/$t"
 done
