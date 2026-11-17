@@ -1595,8 +1595,50 @@ page(file='utils/utils.htm', title='Utility Programs',
 <LI><A HREF="vix_rebuild.htm">vix_rebuild</A> (7.4): rebuild a vector index from the vector members of records; digests of vector indexes.</LI>
 <LI>dr_digest (7.4): what a database, B-tree or file holds, as one 64-bit digest, whatever its layout (<CODE>dr_digest FILE [--kind btree|bytes|objects]</CODE>).</LI>
 <LI><A HREF="object_server.htm">object_server and object_client</A>: the database object server and its client, with vector searches (POSIX).</LI>
+<LI><A HREF="hexdump.htm">hexdump</A> (back in 7.4): a file in hex, decimal or as a C array, a binary file rebuilt from its hex dump, CRC-32 and CRC-16 checksums.</LI>
+<LI><A HREF="ffind.htm">ffind</A> (back in 7.4): find, replace and insert strings in text files, or replace a whole section.</LI>
+<LI><A HREF="txfilter.htm">txfilter</A> (back in 7.4): keep the printable (or alphabetic, alphanumeric, numeric) characters of a text file; UNIX or DOS line ends.</LI>
 </UL>
-<P>Both are built by CMake into cmake-build/utils and installed with the library. The 6.x hexdump, ffind and txfilter programs were removed; use your system's tools (xxd, find, sed, PowerShell Format-Hex) instead.</P>
+<P>They are built by CMake into cmake-build/utils and installed with the library.</P>
+''')])
+
+page(file='utils/hexdump.htm', title='hexdump',
+ lead='Hexadecimal file dump (back in DataReel 7.4, from 6.x): show a binary file, rebuild it from the dump, checksums and number conversions.',
+ sections=[('Usage', 'Usage', code('''
+hexdump [switches] infile [outfile]
+  -a     a C array          -d   decimal (8 bytes a line)    -s   no comments (the ; text column)
+  -c     CRC-32             -C   CRC-16 (ARC/XMODEM) and CCITT CRC-16
+  -p#    pause every # lines on the console
+  -r     rebuild a binary file from a hex dump: hexdump -r dump.txt out.bin (checked with a CRC-32)
+  -xHEX  -XHEX (signed)  -BHEX (binary)  -DDEC: number conversions
+''') + '''
+<P>The dump: 16 bytes a line as two hex digits each, then a tab, "; " and the printable bytes ("." for the others). The formats and the switches are the 6.x ones, so a dump made by the 6.x hexdump rebuilds with this one and the reverse; the checksums are the 6.x values.</P>
+''')])
+
+page(file='utils/ffind.htm', title='ffind',
+ lead='Text search and replace (back in DataReel 7.4, from 6.x).',
+ sections=[('Usage', 'Usage', code('''
+ffind [switches] file...
+  -f"text"  the first match on each line, with its line number     -F"text"  count every match
+  -R"text" -W"new"   replace every occurrence          -i   case-insensitive
+  -L"text" -W"new"   replace the rest of the line after the text
+  -I"text" -W"new"   insert after the text              -c   print the file   -a   no backslash line joining
+  --infile=FILE (the -W text from a file)  --ReplaceSection=FILE (replace that multi-line text)  --ReplaceOnce
+  --SurroundBy=Quotes|SingleQuotes|TEXT  --TerminateWith=TEXT  --TrimLeading=CHARS  --TrimTrailing=CHARS  --NoEscapeSeq
+''') + '''
+<P>\\n, \\r, \\t and %20 in the strings are converted unless --NoEscapeSeq. The exit code is the number of matches, replacements or insertions (at most 255), as in 6.x. A file that changes is written through a temporary file and a rename. Names with * and ? are expanded by ffind itself, so wildcards work on Windows too. Lines ending in a backslash are joined before the search (-a turns that off).</P>
+''')])
+
+page(file='utils/txfilter.htm', title='txfilter',
+ lead='Text filter (back in DataReel 7.4, from 6.x).',
+ sections=[('Usage', 'Usage', code('''
+txfilter [switches] file...
+  -P  printable characters only (default)   -A  alphabetic   -M  alphanumeric   -N  numeric
+  -t  remove tabs   -s  remove spaces   -n  no filtering
+  -u  UNIX line ends (default)   -d  DOS (CR LF)   -D  none
+  -o  write the result over the file (default: standard output)
+''') + '''
+<P>Lines may be of any length. -P keeps bytes 0x80 and up, so UTF-8 text survives. -o writes through a temporary file and a rename.</P>
 ''')])
 
 page(file='utils/vix_rebuild.htm', title='vix_rebuild',
