@@ -42,7 +42,10 @@ Pick a layer:
   platform writes the 64-bit Linux layout, and reads and writes an
   old 4-byte layout file as it is (`gxd_upgrade` converts one).
   With `DATAREEL_NATIVE_TYPES=OFF` the gx types are fixed-size
-  byte-order classes (a different file format for records).
+  byte-order classes: only their in-memory types change (the library's
+  files and the wire keep the canonical layout), but a record of yours
+  that holds them has a different size, so prefer `int32_t` and the
+  other fixed-size types in records.
 - `gxDatabase`, `gxBtree` and `POD` are not copyable. Use
   one object per file per thread, or guard it with a `std::mutex`.
   `LockFile()`/`LockRecord()` coordinate several processes.
