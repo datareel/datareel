@@ -722,16 +722,16 @@ NEW IN 7.4 (AFTER BETA 5)
     service_example (a daemon on POSIX, a Windows service).
   - strip_ansi() and AnsiStripper (strutil.h): VT220/ANSI terminal
     control sequences out of text, such as captured device output.
+- gxSerialComm on Windows: software flow control (scommSOFT_FLOW and
+  scommXON_XOFF) now turns XON/XOFF on (DC1/DC3); every other flow
+  setting turns it off. Before, "soft" flow control on Windows was
+  none: DC1/DC3 arrived as data and nothing was held.
 - New examples and tools:
   - serial_read: read a serial port as binary or hex, with limits and
     hangup handling (pty test on Linux). On Windows reads return
     within 100 ms (--seconds and Ctrl+C on time), standard output is
     binary, and COM10 and up open as \\.\COMn (tested on a real COM
     port).
-- gxSerialComm on Windows: software flow control (scommSOFT_FLOW and
-  scommXON_XOFF) now turns XON/XOFF on (DC1/DC3); every other flow
-  setting turns it off. Before, "soft" flow control on Windows was
-  none: DC1/DC3 arrived as data and nothing was held.
   - dir_upload: watch a folder and upload new files over FTPS (a
     settle time, a .part name renamed when complete, a size check).
   - hexdump, ffind and txfilter, the 6.x file utilities for 7.x.
