@@ -310,6 +310,73 @@ struct GXDLCODE_API gxBlockHeader // Marks each data block
 // required in the platform interoperable locking scheme because file lock 
 // headers operate independently of the I/O subsystem and are manipulated
 // by the database engine in the same manner as database blocks.
+// 11/16/2026 (6.4): a gxBlockHeader on the wire (gxStream, the serial
+// comm server): the canonical form of DataReel 7.4 beta 5, byte for byte.
+// The check word, the length and the status as 8-byte little endian
+// words (each the value's own width, 8 bytes on 64-bit Linux), then the next
+// deleted block's FAU as 8 bytes (sign extended). 32 bytes: what a 64-bit
+// Linux build always sent, now sent by every platform. A 64-bit Windows
+// peer (24 bytes) or a 32-bit build (16 bytes) before this change sends
+// 4-byte words and is refused (gxStream::PeerOldHeader()).
+const unsigned gxWireBlockHeaderSize = 32;
+#if defined (__64_BIT_DATABASE_ENGINE__)
+typedef __ULLWORD__ gxWireFAU_u; // FAU_t as unsigned, for the byte shifts
+#else
+typedef __ULWORD__ gxWireFAU_u;
+#endif
+inline void gxWirePutWord(unsigned char *p, __ULWORD__ v)
+{
+  // the value's own width (8 bytes on 64-bit Linux, 4 on Windows), then 0
+  for(int i = 0; i < 8; i++) {
+    p[i] = (unsigned char)(i < (int)sizeof(__ULWORD__) ? (v & 0xFF) : 0);
+    if(i < (int)sizeof(__ULWORD__) - 1) v >>= 8;
+  }
+}
+inline __ULWORD__ gxWireGetWord(const unsigned char *p)
+{
+  __ULWORD__ v = 0;
+  for(int i = (int)sizeof(__ULWORD__) - 1; i >= 0; i--) {
+    v = (__ULWORD__)((v << 8) | (__ULWORD__)p[i]);
+  }
+  return v;
+}
+inline void gxWirePackBlockHeader(const gxBlockHeader &h, unsigned char *p)
+{
+  gxWirePutWord(p, (__ULWORD__)h.block_check_word);
+  gxWirePutWord(p + 8, (__ULWORD__)h.block_length);
+  gxWirePutWord(p + 16, (__ULWORD__)h.block_status);
+  FAU_t f = (FAU_t)h.block_nd_fptr;
+  gxWireFAU_u u = (gxWireFAU_u)f;
+  unsigned char fill = (unsigned char)(f < 0 ? 0xFF : 0);
+  for(int i = 0; i < 8; i++) {
+    if(i < (int)sizeof(FAU_t)) { p[24 + i] = (unsigned char)(u & 0xFF); u >>= 8; }
+    else p[24 + i] = fill;
+  }
+}
+// The check word and the status hold 32-bit values, so the high 4 bytes
+// of their 8-byte words are 0 in the canonical form. A sender with 4-byte
+// words puts the length (24 and 16 bytes) and the next deleted FAU or the
+// block data there. The length word is not checked here: a length over
+// 32 bits is a block size error, as before.
+inline int gxWireBlockHeaderIsCanonical(const unsigned char *p)
+{
+  for(int k = 0; k < 3; k += 2) {
+    if(p[8 * k + 4] | p[8 * k + 5] | p[8 * k + 6] | p[8 * k + 7]) return 0;
+  }
+  return 1;
+}
+inline void gxWireUnpackBlockHeader(const unsigned char *p, gxBlockHeader &h)
+{
+  h.block_check_word = (gxUINT32)gxWireGetWord(p);
+  h.block_length = (gxUINT32)gxWireGetWord(p + 8);
+  h.block_status = (gxUINT32)gxWireGetWord(p + 16);
+  gxWireFAU_u u = 0;
+  for(int i = (int)sizeof(FAU_t) - 1; i >= 0; i--) {
+    u = (gxWireFAU_u)((u << 8) | (gxWireFAU_u)p[24 + i]);
+  }
+  h.block_nd_fptr = (FAU)(FAU_t)u;
+}
+
 struct GXDLCODE_API gxFileLockHeader
 {
   gxFileLockHeader() {

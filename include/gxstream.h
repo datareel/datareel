@@ -85,6 +85,7 @@ public:
     time_out_usec = 0;
     max_block = gxSTREAM_DEF_MAX_BLOCK; // 10/31/2026
     tls = 0; // 10/31/2026: Made when a TLS setting is first used
+    peer_old_header = 0; // 11/16/2026
   }
   ~gxStream(); // 10/31/2026: Closes TLS connections
 
@@ -252,6 +253,10 @@ public: // 10/31/2026: Limits
   // The default is gxSTREAM_DEF_MAX_BLOCK. At most INT_MAX is used.
   void SetMaxBlockSize(gxUINT32 bytes) { max_block = bytes; }
   gxUINT32 MaxBlockSize() { return max_block; }
+  // 11/16/2026: the last ReadHeader() met a peer that sends the block
+  // header with 4-byte words (a 64-bit Windows or 32-bit build before
+  // the canonical wire header) instead of the canonical form (gxheader.h)
+  int PeerOldHeader() { return peer_old_header; }
 
 public:
   int time_out_sec;  // Number of seconds before a blocking timeout
@@ -259,6 +264,7 @@ public:
 
 protected:
   gxUINT32 max_block; // 10/31/2026: See SetMaxBlockSize()
+  int peer_old_header; // 11/16/2026: See PeerOldHeader()
   int check_block_length(const gxBlockHeader &gx, int buf_size = -1);
 
 protected: // 10/31/2026: TLS internals
