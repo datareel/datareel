@@ -17,6 +17,7 @@ What the DataReel 7.4 database and vector index cost on one Linux machine, measu
 
 ```
 dr_bench [WORK_FOLDER] [--quick]          # --quick: a tenth of the sizes, for a smoke test
+dr_bench [WORK_FOLDER] --tls PKI_DIR [--tls-only]   # adds section 6 (TLS); --tls-only runs it alone
 ```
 
 ## 1. Records (gxDatabase)
@@ -97,6 +98,28 @@ A day range is answered from the manifest first: each listed file keeps the rang
 other days are skipped without being opened. Searching the set with several threads splits the files between
 them.
 
+## 6. TLS over the loopback (gxsTLSServer, gxsTLSConnection)
+
+A server thread and a client in one process over 127.0.0.1, with the certificates `utils/objrepl/objrepl_certs.sh
+PKI_DIR --copy-host 127.0.0.1` makes (RSA 3072, a CA and a server and a client certificate), 100 handshakes each
+way and 512 MB sent in each write size. Measured 11/17/2026 on the same machine with OpenSSL 3.5.8, outside a
+container, at a 1-minute load of 6 to 9 (other builds running), so treat these as a floor.
+
+| Handshake | Rate | p50 | p99 |
+|---|---|---|---|
+| Server certificate | 112 a second | 5.74 ms | 42.2 ms |
+| Server and client certificates | 94 a second | 9.34 ms | 16.7 ms |
+
+| Send() size | Throughput, to the server's ack |
+|---|---|
+| 4 KB | 465 MB/s |
+| 64 KB | 923 MB/s |
+| 1 MB | 1,050 MB/s |
+
+A handshake is mostly the RSA signature, so a long-lived connection (what gxObjRepl and object_server keep) pays it
+once. Small writes cost more because each Send() is at least one TLS record with its own header and tag; writes
+of 64 KB and more fill 16 KB records. On Windows the same section runs over Schannel.
+
 ## The techniques behind the numbers
 
 - **Fixed records at known addresses.** A gxDatabase record is found by its file address, so the common read is a
@@ -123,6 +146,8 @@ replicated copy, see the [replication administrator's guide](docs/replication_ad
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target dr_bench
 build/utils/dr_bench /path/on/the/disk/to/measure
+utils/objrepl/objrepl_certs.sh pki --copy-host 127.0.0.1 --apply
+build/utils/dr_bench /path/on/the/disk/to/measure --tls pki       # with section 6
 ```
 
 Give it a folder on the disk you want measured: a durable commit's time is that disk's sync time. The work folder
