@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 11/01/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -510,6 +510,11 @@ int gxSerialComm::InitSerialPort(int ignore_brk)
   // NOTE: The Win32 API does not support non-binary mode transfers
   dcb.fBinary = binary_mode;
 
+  // 11/17/2026 (7.4): XON/XOFF is on only for scommSOFT_FLOW and scommXON_XOFF. Neither ever set fOutX/fInX, so
+  // "soft" flow control on Windows was really none (DC1/DC3 arrived as data and nothing was held)
+  dcb.fOutX = 0;
+  dcb.fInX = 0;
+
   switch(flow_control) {
     case scommHARD_FLOW :
       dcb.fRtsControl  = RTS_CONTROL_ENABLE;
@@ -529,13 +534,22 @@ int gxSerialComm::InitSerialPort(int ignore_brk)
       dcb.fOutxCtsFlow = 0;
       dcb.fRtsControl = RTS_CONTROL_DISABLE;
       dcb.fOutxDsrFlow = 0;
+      dcb.fOutX = 1;   // 11/17/2026: hold output on XOFF from the other end, resume on XON
+      dcb.fInX = 1;    // 11/17/2026: send XOFF when the input buffer nears full, XON when it drains
     }
     break;
     case scommSOFT_FLOW :
+      // 11/17/2026 (7.4): software flow control is XON/XOFF (DC1 0x11, DC3 0x13)
+      dcb.XonChar = 0x11;
+      dcb.XoffChar = 0x13;
+      dcb.XonLim = 1024;   // send XON when the input buffer has drained to 1024 bytes
+      dcb.XoffLim = 1024;  // send XOFF when 1024 bytes of room are left
       dcb.fDtrControl = DTR_CONTROL_DISABLE;
       dcb.fOutxCtsFlow = 0;
       dcb.fRtsControl = RTS_CONTROL_DISABLE;
       dcb.fOutxDsrFlow = 0;
+      dcb.fOutX = 1;
+      dcb.fInX = 1;
       break;
     case scommNO_FLOW_CONTROL :
       dcb.fDtrControl = DTR_CONTROL_DISABLE;
