@@ -407,6 +407,7 @@ page(file='classes/socket/gxsocket.htm', title='Socket Class',
  sections=[('Overview', 'Overview', '''
 <P>gxSocket owns one socket handle and closes it when it is destroyed. It can be moved but not copied. Client sockets are opened with <A HREF="#Connect">Connect()</A>, which resolves the host name with getaddrinfo() and tries each address in turn with a connection timeout. Server sockets are opened with <A HREF="#Listen">Listen()</A>; with no bind address it listens on one dual-stack IPv6 socket that also accepts IPv4 clients. <A HREF="#Accept">Accept()</A> returns each client as a new gxSocket.</P>
 <P>Most applications should use <A HREF="gxstls.htm">gxsTLSConnection</A>, which adds TLS. Use gxSocket directly only for protocols that cannot be encrypted. On Windows, Winsock 2 is started the first time a socket is created. On Linux, sends use MSG_NOSIGNAL so a closed peer returns an error instead of raising SIGPIPE.</P>
+<P>7.4: every socket Connect(), Listen(), Accept() and OpenDatagram() opens is close-on-exec on POSIX (FD_CLOEXEC) and not inheritable on Windows, so programs this process starts (fork and exec, CreateProcess) do not get it; a child holding a server's listening port used to stop a restarted server from binding it (from DataReel 6.4.1). tests/socket_cloexec_test checks it.</P>
 <P>Functions that return int return 0 (gxSOCKET_NO_ERROR) on success, or a gxSocketError code. <A HREF="#SocketExceptionMessage">SocketExceptionMessage()</A> describes the last error and <A HREF="#SystemError">SystemError()</A> gives the errno or WSAGetLastError() value behind it.</P>
 ''' + code('''
 gxSocket server;
@@ -464,6 +465,7 @@ page(file='classes/socket/gxstls.htm', title='TLS Connection Classes',
  lead='gxsTLSConnection is the encrypted connection used by every DataReel protocol. gxsTLSServer accepts TLS clients.',
  sections=[('Overview', 'Overview', '''
 <P>A gxsTLSConnection is a TCP connection plus a <A HREF="gxssl.htm">gxSSL</A> object. Clients either start TLS at once (<A HREF="#Connect">Connect()</A> with implicit_tls true, as for HTTPS or SMTP on port 465) or connect in plain text and call <A HREF="#StartTLS">StartTLS()</A> after the protocol's STARTTLS, STLS or AUTH TLS command. After the handshake the server's certificate chain and host name are checked unless SetVerifyPeer(false) was called.</P>
+<P>7.4, Windows (Schannel): a PEM or DER key works from a console, over a key-based SSH logon and in a service under LocalService. It is kept in the user key store, else in memory, else the machine key store (<A HREF="gxssl.htm#KeyStorage">gxSSL::KeyStorage()</A> names which), under a name unique to the process, so two servers with one certificate never delete each other's key.</P>
 <P>Data is read through an internal buffer, so text protocols can mix <A HREF="#ReadLine">ReadLine()</A> with block reads. Every read waits at most the timeout set with SetTimeout() (60 seconds by default). Functions that return int return 0 on success and -1 on failure; <A HREF="#Error">Error()</A> describes the failure.</P>
 <P>gxsTLSServer loads a certificate and key, listens on a port (IPv6 and IPv4), and runs the TLS handshake for each accepted client. Each accepted connection can be handed to a thread, for example with <A HREF="../general/thrpool.htm">ThreadPool</A>.</P>
 ''' + code('''
@@ -537,6 +539,7 @@ page(file='classes/socket/gxssl.htm', title='SSL/TLS Class',
   ('void gxSSL::SetCAList(const char *s)', 'Trusted CA certificate file. When not set the system store is used.'),
   ('int gxSSL::MakeClient() / int gxSSL::MakeServer()', 'Selects the client or server side.'),
   ('void gxSSL::SetCTX(gxSSL_CTX_t *p)', 'Uses a context owned by another gxSSL object.'),
+  ('const char *gxSSL::KeyStorage()', '7.4, Schannel: where this context\'s PEM or DER private key is kept: "user key store", "in memory" or "machine key store", the first of them (in that order) that Schannel accepted; "" with OpenSSL (always in memory), with no key, or with a PFX file. A named key is unique to the process and deleted with the context. See Schannel Private Keys in <A HREF="../../README_windows_setup.html">README_windows_setup</A>.'),
  ]),
  ('ConnectionFunctions', 'Connection Functions', [
   ('int gxSSL::OpenSSLSocket(gxsSocket_t s)', 'Creates the TLS connection object on a connected socket.'),
@@ -1020,7 +1023,7 @@ EXAMPLES = [
   ('tls/pop3_list.cpp', 'pop3_list', 'List and read a POP3 mailbox over TLS.'),
   ('tls/imap_fetch.cpp', 'imap_fetch', 'Read an IMAP mailbox over TLS (or STARTTLS, or plain text for a local server): search, list newest first, save each message once to a spool folder (7.4).'),
   ('tls/ftps_client.cpp', 'ftps_client', 'List, download and upload with FTPS.'),
-  ('tls/dir_upload.cpp', 'dir_upload', 'gxsFTPClient: watch a folder and upload each settled file by FTPS (as NAME.part, renamed, size-checked), then delete it or move it to a done folder. The password comes from DR_FTP_PASSWORD or a mode-600 file, never the command line. Usage: dir_upload --dir DIR --host HOST --user USER [--password-file FILE] [--ca FILE] [--implicit] [--remote-dir DIR] [--pattern GLOB] [--settle S] [--interval S] [--done DIR] [--once] [--log FILE]'),
+  ('tls/dir_upload.cpp', 'dir_upload', 'gxsFTPClient: watch a folder and upload each settled file by FTPS (as NAME.part, renamed, size-checked), then delete it or move it to a done folder. The password comes from DR_FTP_PASSWORD or a mode-600 file, never the command line. Usage: dir_upload --dir DIR --host HOST [--port N] --user USER [--password-file FILE] [--ca FILE] [--implicit] [--remote-dir DIR] [--pattern GLOB] [--settle S] [--interval S] [--done DIR] [--once] [--log FILE]'),
   ('tls/stream_server.cpp', 'stream_server', 'gxStream server that stores client blocks in a gxDatabase file.'),
   ('tls/stream_client.cpp', 'stream_client', 'gxStream client that stores and reads back blocks over TLS.'),
  ]),
@@ -1030,13 +1033,13 @@ EXAMPLES = [
   ('general/thread_pool.cpp', 'thread_pool', 'ThreadPool tasks, results and exceptions.'),
   ('general/trading_sessions.cpp', 'trading_sessions', 'CDate and systime.h: US market sessions, holidays, trading days.'),
   ('general/string_utils.cpp', 'string_utils', 'strutil.h, base 64 and CRC-32, each checked against a known answer.'),
-  ('general/service_example.cpp', 'service_example', 'gxProcessLock and the frame of a long-running program: one instance, work every few seconds, a clean stop on SIGTERM, Ctrl+C, a stop file or the Windows service manager; --daemon on POSIX, --install/--service/--uninstall on Windows (demand start, LocalService). Exit 2 if another instance runs.'),
+  ('general/service_example.cpp', 'service_example', 'gxProcessLock and the frame of a long-running program: one instance, work every few seconds, a clean stop on SIGTERM, Ctrl+C, a stop file or the Windows service manager; --daemon on POSIX, --install/--service/--uninstall on Windows (demand start, LocalService). Exit 2 if another instance runs. Usage: service_example [--name NAME] --lock FILE --log FILE [--stop-file FILE] [--interval S] [--run-for S] [--daemon]; service_example --service ... (started by the service manager); service_example --install ... / --uninstall [--name NAME] (as administrator).'),
   ('general/csv_merge.cpp', 'csv_merge', 'gxCSVReader and gxCSVWriter: merge two spreadsheets exported as CSV on a key column. Usage: csv_merge [--inner] [--delimiter C] KEY A.csv B.csv [OUT.csv]'),
  ]),
  ('Plain text diagnostics', [
   ('diagnostics/ping.cpp', 'ping', 'ICMP and ICMPv6 echo. Usage: ping host [count] [-4|-6]'),
   ('diagnostics/telnet_client.cpp', 'telnet_client', 'Telnet login and command (plain text; trusted networks only).'),
-  ('diagnostics/serial_read.cpp', 'serial_read', 'gxSerialComm: read a serial port (Linux /dev/ttyS0, /dev/ttyUSB0 or a pty; Windows COM1...) to standard output or a capture file flushed after every read. Usage: serial_read DEVICE [--baud N] [--parity N|E|O] [--bits 7|8] [--stop 1|2] [--flow none|hard|soft] [--out FILE] [--hex] [--seconds N] [--bytes N]'),
+  ('diagnostics/serial_read.cpp', 'serial_read', 'gxSerialComm: read a serial port (Linux /dev/ttyS0, /dev/ttyUSB0 or a pty; Windows COM1...) to standard output or a capture file flushed after every read. Usage: serial_read DEVICE [--baud N] [--parity N|E|O] [--bits 7|8] [--stop 1|2] [--flow none|hard|soft] [--out FILE] [--hex] [--seconds N] [--bytes N] [--quiet]. Windows: COM10 and up are opened as \\\\.\\COMn, reads end within 100 ms (the time limit and Ctrl+C are seen at once), standard output is binary; a serial line has no hangup there, so the read runs to Ctrl+C, --seconds or --bytes.'),
   ('diagnostics/udp_broadcast.cpp', 'udp_broadcast', 'Send and receive UDP broadcast datagrams with gxSocket (plain text; trusted local networks only) (7.4).'),
   ('diagnostics/udp_multicast.cpp', 'udp_multicast', 'Send and receive IPv4 or IPv6 multicast datagrams, join a group (plain text; trusted local networks only) (7.4).'),
  ]),

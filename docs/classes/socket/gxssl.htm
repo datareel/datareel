@@ -53,6 +53,7 @@
 <div class="dr-fn" id="SetCAList"><code class="dr-sig">void gxSSL::SetCAList(const char *s)</code><p class="dr-desc">Trusted CA certificate file. When not set the system store is used.</p></div>
 <div class="dr-fn" id="MakeClient"><span id="MakeServer"></span><code class="dr-sig">int gxSSL::MakeClient() / int gxSSL::MakeServer()</code><p class="dr-desc">Selects the client or server side.</p></div>
 <div class="dr-fn" id="SetCTX"><code class="dr-sig">void gxSSL::SetCTX(gxSSL_CTX_t *p)</code><p class="dr-desc">Uses a context owned by another gxSSL object.</p></div>
+<div class="dr-fn" id="KeyStorage"><code class="dr-sig">const char *gxSSL::KeyStorage()</code><p class="dr-desc">7.4, Schannel: where this context's PEM or DER private key is kept: "user key store", "in memory" or "machine key store", the first of them (in that order) that Schannel accepted; "" with OpenSSL (always in memory), with no key, or with a PFX file. A named key is unique to the process and deleted with the context. See Schannel Private Keys in <A HREF="../../README_windows_setup.html">README_windows_setup</A>.</p></div>
 
 <h2 id="ConnectionFunctions">Connection Functions</h2>
 <div class="dr-fn" id="OpenSSLSocket"><code class="dr-sig">int gxSSL::OpenSSLSocket(gxsSocket_t s)</code><p class="dr-desc">Creates the TLS connection object on a connected socket.</p></div>

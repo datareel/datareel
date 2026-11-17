@@ -35,6 +35,7 @@
 
 <h2 id="Overview">Overview</h2>
 <P>A gxsTLSConnection is a TCP connection plus a <A HREF="gxssl.htm">gxSSL</A> object. Clients either start TLS at once (<A HREF="#Connect">Connect()</A> with implicit_tls true, as for HTTPS or SMTP on port 465) or connect in plain text and call <A HREF="#StartTLS">StartTLS()</A> after the protocol's STARTTLS, STLS or AUTH TLS command. After the handshake the server's certificate chain and host name are checked unless SetVerifyPeer(false) was called.</P>
+<P>7.4, Windows (Schannel): a PEM or DER key works from a console, over a key-based SSH logon and in a service under LocalService. It is kept in the user key store, else in memory, else the machine key store (<A HREF="gxssl.htm#KeyStorage">gxSSL::KeyStorage()</A> names which), under a name unique to the process, so two servers with one certificate never delete each other's key.</P>
 <P>Data is read through an internal buffer, so text protocols can mix <A HREF="#ReadLine">ReadLine()</A> with block reads. Every read waits at most the timeout set with SetTimeout() (60 seconds by default). Functions that return int return 0 on success and -1 on failure; <A HREF="#Error">Error()</A> describes the failure.</P>
 <P>gxsTLSServer loads a certificate and key, listens on a port (IPv6 and IPv4), and runs the TLS handshake for each accepted client. Each accepted connection can be handed to a thread, for example with <A HREF="../general/thrpool.htm">ThreadPool</A>.</P>
 <PRE>gxsTLSServer server;
