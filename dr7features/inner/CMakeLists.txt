@@ -19,6 +19,19 @@ if(_dr7_version VERSION_LESS "7.4")
   message(FATAL_ERROR "DataReel ${_dr7_version} in ${DATAREEL7_DIR}: "
     "DataReel 7.4 or later is required")
 endif()
+# 11/17/2026: object replication (gxv7ObjRepl) needs a 7.4 or later tree
+# with gxObjRepl and the canonical gxStream block header (7.4 beta 5 and
+# later): gxobjrepl.h and no gxrepl. Feature checks only, no version or
+# commit pin (dougg 11/17), so any later 7.x release that keeps gxObjRepl
+# builds.
+set(_dr7_min "DataReel 7.4 beta 5 or later (gxObjRepl, without gxrepl) is required")
+if(NOT EXISTS "${DATAREEL7_DIR}/include/gxobjrepl.h" OR
+   NOT EXISTS "${DATAREEL7_DIR}/src/gxobjrepl.cpp")
+  message(FATAL_ERROR "${DATAREEL7_DIR} has no gxObjRepl (gxobjrepl.h): ${_dr7_min}")
+endif()
+if(EXISTS "${DATAREEL7_DIR}/utils/gxrepl")
+  message(FATAL_ERROR "${DATAREEL7_DIR} still has gxrepl (a 7.4 beta before beta 5): ${_dr7_min}")
+endif()
 message(STATUS "DataReel 7.x features from ${DATAREEL7_DIR} (DataReel ${_dr7_version})")
 
 set(DATAREEL_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -30,29 +43,35 @@ target_link_libraries(dr7inner PRIVATE DataReel::datareel)
 set_target_properties(dr7inner PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # The DataReel 7.x programs a 6.x installation uses as separate
-# processes (DR7_TOOLS, on by default): gxrepl (database replication)
-# and the database object server and client on POSIX, vix_rebuild
-# everywhere. They are the 7.x programs, built from the 7.x tree as the
-# 7.x build makes them, into <build>/dr7inner/tools.
-option(DR7_TOOLS "Build the DataReel 7.x tools (gxrepl, object server)" ON)
+# processes (DR7_TOOLS, on by default), built from the 7.x tree as the
+# 7.x build makes them, into <build>/dr7inner/tools:
+#   objrepl, objrepl_sim, test_gxobjrepl_api  object replication (gxObjRepl), every platform
+#   vix_rebuild                               every platform
+#   object_server, object_client              the database object server (POSIX)
+#   vector_server                             6.4: the object server with a vector set (POSIX, below)
+# 11/17/2026: gxrepl went from DataReel 7.4 (beta 5): replication is gxObjRepl.
+option(DR7_TOOLS "Build the DataReel 7.x tools (objrepl, object server)" ON)
 if(DR7_TOOLS)
   set(_u "${DATAREEL7_DIR}/utils")
   add_executable(vix_rebuild "${_u}/vix_rebuild/vix_rebuild.cpp")
-  target_link_libraries(vix_rebuild PRIVATE DataReel::datareel)
-  set(_dr7_tools vix_rebuild)
-  if(NOT WIN32)
-    add_executable(gxrepl "${_u}/gxrepl/gxrepl.cpp")
-    target_link_libraries(gxrepl PRIVATE DataReel::datareel)
-    set_target_properties(gxrepl PROPERTIES ENABLE_EXPORTS ON)
-    include("${_u}/gxrepl/gxrepl_version.cmake")
-    gxrepl_stamp(gxrepl)
+  add_executable(objrepl "${_u}/objrepl/objrepl.cpp")
+  add_executable(objrepl_sim "${_u}/objrepl/objrepl_sim.cpp")
+  add_executable(test_gxobjrepl_api "${_u}/objrepl/test_gxobjrepl_api.cpp")
+  set(_dr7_tools vix_rebuild objrepl objrepl_sim test_gxobjrepl_api)
+  if(WIN32)
+    target_link_libraries(test_gxobjrepl_api PRIVATE ws2_32)
+  else()
     add_executable(object_server "${_u}/dbserver/object_server.cpp")
-    target_link_libraries(object_server PRIVATE DataReel::datareel)
     add_executable(object_client "${_u}/dbserver/object_client.cpp")
-    target_link_libraries(object_client PRIVATE DataReel::datareel)
-    list(APPEND _dr7_tools gxrepl object_server object_client)
+    # The 7.4 object_server serves one database without vectors; the
+    # 6.x vector_client test (examples_socket/vector_client) needs one
+    # with a vector set: vector_server.cpp (7.x headers only)
+    add_executable(vector_server vector_server.cpp)
+    list(APPEND _dr7_tools object_server object_client vector_server)
   endif()
+  foreach(_t ${_dr7_tools})
+    target_link_libraries(${_t} PRIVATE DataReel::datareel)
+  endforeach()
   set_target_properties(${_dr7_tools} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools")
 endif()
-

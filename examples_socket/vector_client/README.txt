@@ -6,13 +6,14 @@ object server serves, with the gxv7ObjectClient class
 (dr7features/include/dr7features.h): op 7 VECTOR_SEARCH and op 8
 VECTOR_INFO over mutual TLS.
 
-The server is the DataReel 7.x database object server (for example
-"gxrepl serve"), whose config gives a database a vector index or set:
+The server is the DataReel 7.x database object server, whose config
+(gxObjectDbConfig) gives a database a vector index or set: path, access
+read, vectors = a .vixset manifest or one .vix. 11/17/2026: DataReel
+7.4 beta 5 removed gxrepl (whose "serve" command was the server
+before); the 6.4 build makes vector_server (dr7features/inner), the
+7.x object server for one database with its vectors:
 
-  [db news]
-  path = /data/news/news.gxd
-  access = read
-  vectors = /data/news/news.vixset     # a .vixset manifest or one .vix
+  vector_server PORT CERT KEY CA CLIENT_CN DB_NAME DB_FILE VECTORS
 
 The client connects with its certificate, checks the server's
 certificate against the CA and the server name, and opens one channel
@@ -39,13 +40,13 @@ client) on POSIX systems only, so on Windows gxv7ObjectClient::Connect()
 returns -1 and the CMake build does not build this program.
 
 Build: the 6.x CMake build with DATAREEL7_FEATURES_DIR (it builds this
-program as vector_client and the 7.x gxrepl). Test (Linux; the 7.x
-object server runs in gxrepl, which is POSIX only):
+program as vector_client and vector_server). Test (Linux; the 7.x
+object server is POSIX only):
 
   ./run_vector_client.sh build/dr7inner/tools build/vector_client [WORK_FOLDER]
 
 It makes throwaway certificates, a 3-day vector set (the program's
-"make" mode), starts "gxrepl serve" with [db news], and checks:
+"make" mode), starts vector_server with the news database, and checks:
 - VECTOR_INFO describes the set;
 - 6 searches, a day range search and a tag filter search: the server's
   answers equal a local gxv7VectorSet search of the same files (ids,

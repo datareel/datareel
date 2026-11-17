@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/15/2026
-// Date Last Modified: 11/15/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ---------- Include File Description and Details  ---------- //
@@ -152,7 +152,7 @@ int dr7s_search(const dr7s_set *h, const float *query, unsigned k,
 const char *dr7s_error(const dr7s_set *h);
 
 // Client of the DataReel 7.x database object server (gxdbobject.h,
-// served by "gxrepl serve" for a [db NAME] with "vectors = ..."):
+// a database with "vectors = ...", e.g. the 6.4 vector_server tool):
 // mutual TLS (the 7.x gxStream), one multiplex channel to database
 // db_name, read mode, op 7 VECTOR_SEARCH and op 8 VECTOR_INFO.
 typedef struct dr7c_client_s dr7c_client;
@@ -187,6 +187,87 @@ int dr7c_vector_search(dr7c_client *h, const float *query, unsigned dim,
 unsigned dr7c_file_name(const dr7c_client *h, unsigned file, char *buf,
 			unsigned buf_size);
 const char *dr7c_error(const dr7c_client *h);
+
+// 11/17/2026: object replication, the DataReel 7.x gxObjRepl
+// (gxobjrepl.h, DataReel 7.4 beta 5 or later): objects travel between
+// two independent object databases over gxStream with mutual TLS, on
+// Linux and Windows. Ids are 64-bit and shared by both nodes. Returns 0
+// if no errors occur, else -1 (dr7r_error()), unless noted.
+#define DR7R_PRIMARY 1
+#define DR7R_COPY 2
+typedef struct dr7r_node_s dr7r_node;
+typedef struct dr7r_hit_s {
+  unsigned long long id;
+  float distance;
+} dr7r_hit;
+dr7r_node *dr7r_new(void);
+void dr7r_free(dr7r_node *h);
+// The configuration (gxObjReplConfig) used by the next dr7r_open():
+// one "key value" setting (the objrepl.conf keys: name, peer-name,
+// copy, listen, ca, cert, key, allow-cn, links, index, max-lag,
+// max-behind, min-cert-days, idle-timeout, trim), or a whole file.
+int dr7r_config_set(dr7r_node *h, const char *key, const char *value);
+int dr7r_config_load(dr7r_node *h, const char *fname);
+void dr7r_config_clear(dr7r_node *h);
+int dr7r_open(dr7r_node *h, const char *root, int role);
+void dr7r_close(dr7r_node *h);
+int dr7r_is_open(const dr7r_node *h);
+const char *dr7r_error(const dr7r_node *h);
+// Primary: changes, committed together
+int dr7r_open_database(dr7r_node *h, const char *db);
+int dr7r_begin(dr7r_node *h);
+unsigned long long dr7r_new_id(dr7r_node *h); // 0 on an error
+int dr7r_put(dr7r_node *h, const char *db, unsigned long long id,
+	     const void *bytes, unsigned n);
+int dr7r_remove(dr7r_node *h, const char *db, unsigned long long id);
+int dr7r_purge(dr7r_node *h, const char *db, unsigned long long id);
+int dr7r_commit(dr7r_node *h);
+int dr7r_rollback(dr7r_node *h);
+// Replication: dr7r_pump() 0 when the copy has every commit;
+// dr7r_serve() (copy) until dr7r_stop() (any thread, or a signal)
+int dr7r_pump(dr7r_node *h);
+int dr7r_drain(dr7r_node *h, int seconds);
+int dr7r_serve(dr7r_node *h);
+void dr7r_stop(dr7r_node *h);
+// Reads (either role). dr7r_get(): *n is the object's size; the bytes
+// are copied when it fits in buf_size (-1 and *n set when it does not).
+int dr7r_get(dr7r_node *h, const char *db, unsigned long long id,
+	     void *buf, unsigned buf_size, unsigned *n);
+int dr7r_is_live(dr7r_node *h, const char *db, unsigned long long id);
+// Live ids (tombstones = 1: removed ids): the count; up to max are
+// copied to ids when not null
+unsigned long dr7r_ids(dr7r_node *h, const char *db, int tombstones,
+		       unsigned long long *ids, unsigned long max);
+// Databases, one name a line (buf_size bytes, null terminated); the
+// full length is returned
+unsigned dr7r_databases(dr7r_node *h, char *buf, unsigned buf_size);
+// Index lookups (gxObjReplConfig index): *count ids/hits found, at
+// most max copied
+int dr7r_find_key(dr7r_node *h, const char *index, const void *key,
+		  unsigned n, unsigned long long *ids, unsigned max,
+		  unsigned *count);
+int dr7r_nearest(dr7r_node *h, const char *index, const float *query,
+		 unsigned k, dr7r_hit *hits, unsigned *count);
+int dr7r_in_snapshot(dr7r_node *h);
+unsigned long long dr7r_epoch(const dr7r_node *h);
+unsigned long long dr7r_last_seq(const dr7r_node *h);
+unsigned long long dr7r_applied_seq(const dr7r_node *h);
+unsigned long long dr7r_copy_applied(const dr7r_node *h);
+long dr7r_snapshots(const dr7r_node *h);
+// Folders, without an open node: the result line or message is copied
+// to buf (buf_size bytes, null terminated). dr7r_digest(), dr7r_status(),
+// dr7r_takeover(), dr7r_rejoin(), dr7r_clear_alarm(): 0 or -1;
+// dr7r_check(): 0 OK, 1 WARN, 2 FAIL (gxObjRepl::Check()).
+int dr7r_digest(const char *root, const char *links, char *buf,
+		unsigned buf_size);
+int dr7r_status(const char *root, char *buf, unsigned buf_size);
+int dr7r_check(const char *root, dr7r_node *cfg, char *buf,
+	       unsigned buf_size);
+int dr7r_takeover(const char *root, char *buf, unsigned buf_size);
+int dr7r_rejoin(const char *root, char *buf, unsigned buf_size);
+int dr7r_clear_alarm(const char *root, char *buf, unsigned buf_size);
+// 1 if the 7.x library uses the 64-bit database engine, else 0
+int dr7_engine_64(void);
 
 #ifdef __cplusplus
 }

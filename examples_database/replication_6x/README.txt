@@ -1,98 +1,90 @@
-DataReel 6.4 example: replicating a DataReel 6.x database with gxrepl
-=====================================================================
+DataReel 6.4 example: replicating a DataReel 6.x program's records
+===================================================================
 
-DataReel 6.4 has no replication code of its own. A DataReel 6.x
-program's database folder is replicated by the DataReel 7.x gxrepl
-program, running next to the 6.x program as a separate process. The
-6.x program is not changed and does not link any 7.x code.
+11/17/2026. DataReel 6.x programs replicate their records with the
+DataReel 7.x object replication (gxObjRepl), through the 6.x class
+gxv7ObjRepl (dr7features/include/dr7features.h). DataReel 6.4 has no
+replication code of its own: the class calls the 7.x gxObjRepl, built
+from a DataReel 7.4 source tree by the 6.x CMake build.
 
-  repl6_writer      a plain 6.x program: writes FOLDER/data.gxd, each
-                    commit (records + the header that counts them) in
-                    one gxdJournal transaction with the write lock on
-  repl6_check       a plain 6.x program: reads a copy and checks it is
-                    one whole commit (no half commit, nothing missing)
-  run_repl6_cross.sh  the test: gxrepl copies the writer's folder to
-                    another folder, while the writer is quiet and while
-                    it writes, and the checker reads the copy
+Two nodes, each a folder of object databases. The primary commits
+objects (bytes under a 64-bit id both nodes share) and sends them to
+its copy as gxStream blocks over TLS with certificates on both sides.
+Only objects travel, never file pages: each node keeps its own file
+addresses, free space and indexes. The primary and the copy can each
+be these 6.x programs, a DataReel 7.4 program or the 7.4 objrepl tool,
+on Linux or Windows.
 
-Build (Linux; gxrepl is POSIX only):
+Before 11/17/2026 this example was a 6.x gxDatabase folder copied by
+the 7.x gxrepl (page shipping). DataReel 7.4 beta 5 removed gxrepl;
+replication is gxObjRepl, and the 6.x programs here use it directly.
 
-  # the 6.x programs (6.x makefiles, or the 6.x CMake build)
-  cd examples_database/replication_6x && make
-  # gxrepl, from a DataReel 7.4 or later source tree, with the 6.x
-  # CMake build (or build it in the 7.x tree itself)
-  cmake -S datareel-6.4 -B build -DDATAREEL7_FEATURES_DIR=/path/to/datareel-7.4
-  cmake --build build -j2            # gxrepl is in build/dr7inner/tools
+  repl6_writer.cpp       the primary: "primary ROOT CONF RECORDS" writes
+                         station readings (a plain 6.x struct with a
+                         CRC, repl6_records.h), commits them 25 at a
+                         time and drains them to the copy
+  repl6_check.cpp        the copy: "copy ROOT CONF [--check]" serves
+                         until TERM/INT, Ctrl+C or ROOT/objrepl.stop and
+                         with --check reads every live record back and
+                         checks its CRC. Both programs also have
+                         "digest ROOT", "status ROOT" and "engine"
+  run_repl6_cross.sh     the test: 6.4 primary -> 7.4 copy, 7.4 primary
+                         -> 6.4 copy, 6.4 -> 6.4, a copy that starts late,
+                         a second run on the same folder, a refused
+                         certificate, a 7.4 takeover of a 6.4 copy folder
+  run_repl6_xver.sh      the 7.4 tree's 6.4<->7.4 wire tests
+                         (utils/objrepl/xver: wirecmp, xmatrix, hook64)
+                         built against this 6.4 library (Linux)
 
-  ./run_repl6_cross.sh build/dr7inner/tools . [WORK_FOLDER]
+Build (DataReel 7.4 beta 5 or later, which has gxObjRepl and the
+canonical gxStream block header; the build stops with a message for
+an older tree):
 
-What the test checks:
-- a database written by a 6.x program, copied while the program is
-  quiet: gxrepl once reports every set the same, the copy is
-  byte-identical, the checker finds the copy whole;
-- a 6.x database written without a journal: the same;
-- the writer's journal (data.jnl) is never copied;
-- copied live while the 6.x program writes 300 more commits (gxrepl
-  run): every sample of the copy the checker reads is a whole commit
-  and the copy never goes back; the copy catches up, and after the run
-  it is byte-identical to the primary.
+  cmake -S datareel-6.4 -B build -DCMAKE_BUILD_TYPE=Release \
+        -DDATAREEL7_FEATURES_DIR=/path/to/datareel-7.4 \
+        -DDATAREEL_64BIT_DATABASE=ON
+  cmake --build build -j2
+  # build/repl6_writer, build/repl6_check, and the 7.4 objrepl tool
+  # in build/dr7inner/tools
 
-How it works, and what a 6.x program must do
---------------------------------------------
-gxrepl copies a folder without a ship log by a scan: changed files are
-compared in 64 KB pieces and only the pieces that differ are sent. A
-live writer's files are read under the shared lock of the journal in
-the same folder (gxdJournalReadLock on the folder's .jnl file), and
-the copy applies each update through its own journal
-(<root>/.gxrepl/apply.jnl), so the copy is always one whole commit.
+Tests:
 
-The DataReel 6.3/6.4 journal (gxdJournal, gxdJournalReadLock) uses the
-same lock as the 7.x journal: a shared or exclusive flock() on the
-journal file (LockFileEx on Windows). So:
+  ./run_repl6_cross.sh build/dr7inner/tools build [WORK]
+  ./run_repl6_xver.sh /path/to/datareel-7.4 build [WORK]
 
-- A 6.x program that writes through gxdJournal with SetWriteLock(1)
-  holds its journal file locked while it changes the database files,
-  and gxrepl waits for it: copies taken while it writes are whole.
-  Keep the journal in the same folder as the database files.
-- A 6.x program that writes without a journal can be copied while it is
-  quiet (between runs, or a folder it no longer writes). Copies taken
-  while it writes may hold half a write: gxrepl's next pass corrects
-  them, but a node must not take over from such a copy.
-- A 6.x program reading a live copy holds the shared lock of the
-  copy's apply journal (repl6_check does: gxdJournalReadLock on
-  <copy>/.gxrepl/apply.jnl), the lock gxrepl holds while it applies.
+A 32-bit engine build (DATAREEL_64BIT_DATABASE=OFF) runs them with
+OBJREPL_ALLOW_32BIT=1, as the 7.4 objrepl tests: the run makes its own
+folders, so no engine reads the other's files. Never point a 32-bit
+engine node and a 64-bit engine node at the same folder.
 
-Commit blocks, derived indexes (vector indexes and B-trees the copy
-rebuilds itself), failover and failback, archived folders and the
-monitoring are as in the DataReel 7.x replication administrator's
-guide (DataReel 7.4: docs/replication_admin_guide.md). The ship log
-(the commit-by-commit replication of a writer that calls
-gxdJournal::EnableShipLog()) needs the 7.x journal: a 6.x program's
-folders always go by the scan described above.
+Configuration: an objrepl.conf file, one "key value" line each (the
+7.4 utils/objrepl/objrepl_certs.sh makes a CA, the two certificates
+and sample files):
 
-gxrepl configs used by the test (one set per database folder):
+  # the primary                     # the copy
+  name primary1                     name copy1
+  peer-name copy1                   peer-name primary1
+  copy copyhost:24600               listen 0.0.0.0:24600
+  ca ca.pem                         ca ca.pem
+  cert primary.pem                  cert copy.pem
+  key primary.key                   key copy.key
+                                    allow-cn objrepl-primary
 
-  # primary.conf (the 6.x program's node, client, pushes)
-  node = primary
-  role = client
-  connect = 127.0.0.1:PORT
-  server_name = copy
-  cert = pki/primary.pem
-  key = pki/primary.key
-  ca = pki/ca.pem
-  [set db]
-  root = /path/to/the/6.x/database/folder
-  direction = push
-  scan_interval = 1
+In a program:
 
-  # copy.conf (the other node, server)
-  node = copy
-  role = server
-  listen = 127.0.0.1:PORT
-  allow_cn = primary
-  cert = pki/copy.pem
-  key = pki/copy.key
-  ca = pki/ca.pem
-  [set db]
-  root = /path/to/the/copy
-  accept = target
+  gxv7ObjRepl p;
+  p.LoadConfig("primary.conf");
+  if(p.Open("primary", gxv7ObjRepl::PRIMARY) != 0) ... p.Error()
+  p.OpenDatabase("readings");
+  p.Begin();
+  unsigned long long id = p.NewId();
+  p.Put("readings", id, &rec, sizeof(rec));
+  p.Commit();      // durable on the primary, in its outbox
+  p.Pump();        // 0: the copy has every commit (or Drain(seconds))
+
+Replication is asynchronous: if the primary is lost, the commits the
+copy does not have are lost with it (the status shows them as lag_seq).
+Takeover() makes the copy the primary at the next epoch, and the old
+primary is fenced off until Rejoin(). See the DataReel 7.4 gxObjRepl
+reference and administrator's guide for failover, monitoring (Check(),
+the status file and the alarm file), indexes and links.

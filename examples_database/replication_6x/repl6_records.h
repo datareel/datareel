@@ -6,10 +6,10 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/15/2026
-// Date Last Modified: 11/15/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
-// ---------- Include File Description and Details  ---------- //
+// ------------- Program Description and Details ------------- //
 // ----------------------------------------------------------- //
 /*
 This library is free software; you can redistribute it and/or
@@ -28,54 +28,50 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
 DataReel 6.4 replication example: the records repl6_writer writes and
-repl6_check reads. The first object of data.gxd is the header; the
-records follow in the order they were written.
+repl6_check reads back. 11/17/2026: one record is one object of the
+"readings" database of a gxv7ObjRepl node (the DataReel 7.x gxObjRepl);
+the 7.x gxrepl, which copied a 6.x gxDatabase folder, went from
+DataReel 7.4 beta 5.
 */
 // ----------------------------------------------------------- //
 #ifndef __REPL6_RECORDS_H__
 #define __REPL6_RECORDS_H__
 
-#include <stdio.h>
 #include <string.h>
+#include "gxstring.h"
 #include "gxcrc32.h"
+#include "membuf.h"
 
-#define REPL6_MAGIC "REPL6DB1"
-
-struct ReplHeader {
-  char magic[8];
-  unsigned long count;    // Records written by whole commits
-  unsigned long commits;
-  unsigned long crc;      // Running CRC-32 of every record, in order
+// One station reading, a plain 6.x record. The CRC covers the bytes
+// before it.
+struct Reading {
+  char station[16];
+  long long seq;
+  double value;
+  unsigned int day;
+  unsigned int crc;
 };
 
-struct ReplRecord {
-  unsigned long seq;      // 0, 1, 2 ... in write order
-  char text[48];
-  unsigned long crc;      // CRC-32 of seq and text
-};
+static const char *REPL6_DB = "readings";
 
-inline unsigned long RecordSelfCRC(const ReplRecord &r)
-{
-  char buf[sizeof(r.seq) + sizeof(r.text)];
-  memcpy(buf, &r.seq, sizeof(r.seq));
-  memcpy(buf + sizeof(r.seq), r.text, sizeof(r.text));
-  return calcCRC32(buf, (unsigned)sizeof(buf));
-}
-
-inline void MakeRecord(ReplRecord &r, unsigned long seq)
+static inline void make_reading(Reading &r, long long seq, int version)
 {
   memset(&r, 0, sizeof(r));
+  gxString s;
+  s << "KST" << (int)(seq % 97);
+  strncpy(r.station, s.c_str(), sizeof(r.station) - 1);
   r.seq = seq;
-  sprintf(r.text, "record %lu written by a DataReel 6.x program", seq);
-  r.crc = RecordSelfCRC(r);
+  r.value = (double)seq * 0.25 + version;
+  r.day = 20261117 + (unsigned)(seq % 3);
+  r.crc = (unsigned int)calcCRC32((const char *)&r, (unsigned)((char *)&r.crc - (char *)&r));
 }
 
-// The header's running checksum after one more record
-inline unsigned long RecordCRC(unsigned long crc, const ReplRecord &r)
+static inline int reading_ok(const MemoryBuffer &b)
 {
-  const unsigned char *p = (const unsigned char *)&r;
-  for(unsigned i = 0; i < sizeof(r); i++) crc = calcCRC32(p[i], crc);
-  return crc;
+  if(b.length() != sizeof(Reading)) return 0;
+  Reading r;
+  memcpy(&r, b.m_buf(), sizeof(r));
+  return r.crc == (unsigned int)calcCRC32((const char *)&r, (unsigned)((char *)&r.crc - (char *)&r));
 }
 
 #endif // __REPL6_RECORDS_H__

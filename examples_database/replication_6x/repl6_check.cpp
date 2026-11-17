@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/15/2026
-// Date Last Modified: 11/15/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -27,24 +27,23 @@ License along with this library; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 USA
 
-DataReel 6.4 replication example, the checker: reads a copy of the
-database repl6_writer writes (read only, DataReel 6.x) and checks it
-is a whole commit:
+DataReel 6.4 replication example: a DataReel 6.x program serving as
+the copy of a DataReel 7.x object replication pair (gxv7ObjRepl,
+dr7features.h). The primary can be repl6_writer, a DataReel 7.4
+program or the 7.4 objrepl tool, on Linux or Windows.
 
-  repl6_check FOLDER [MIN_RECORDS]
+  repl6_check copy ROOT CONF [--check] serve until TERM or INT (Ctrl+C on
+                                       Windows) or until ROOT/objrepl.stop
+                                       appears. --check: then read every
+                                       live record back and check its
+                                       CRC (records repl6_writer wrote);
+                                       with "index station:readings:B:0:16"
+                                       in CONF, find each one by station
+                                       with FindKey()
+  repl6_check digest ROOT | status ROOT | engine   as repl6_writer
 
-- the header and every record read without errors;
-- the records are exactly the header's count, in order (seq 0, 1, ...),
-  each with a good checksum;
-- the running checksum of the records equals the header's.
-On a live copy the checker holds the shared lock of the copy's apply
-journal (FOLDER/.gxrepl/apply.jnl, gxdJournalReadLock), the lock the
-DataReel 7.x gxrepl holds exclusively while it applies a commit: the
-DataReel 6.x lock and the 7.x lock are the same file lock.
-A copy taken in the middle of a commit (records without the header
-that counts them, or a header without its records) fails. Prints
-"WHOLE <records> <commits>" and returns 0 if the copy is whole and
-holds at least MIN_RECORDS records, 1 otherwise.
+CONF is an objrepl.conf file: the copy needs listen ([ADDR:]PORT), ca,
+cert, key and allow-cn (the primary's certificate CN). See README.txt.
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -52,74 +51,122 @@ holds at least MIN_RECORDS records, 1 otherwise.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "gxdbase.h"
-#include "gxdjrnl.h"
-#include "futils.h"
-#include "gxstring.h"
+#include <signal.h>
+#include <atomic>
+#include <chrono>
+#include <thread>
+#if defined(__WIN32__) || defined(_WIN32)
+#include <windows.h>
+#include <io.h>
+#define access _access
+#define F_OK 0
+#else
+#include <unistd.h>
+#endif
+#include "dr7features.h"
 #include "repl6_records.h"
+
+// digest ROOT, status ROOT, engine: the same in both programs (-1: none of them)
+static int folder_cmd(int argc, char **argv)
+{
+  gxString line;
+  if(argc == 2 && strcmp(argv[1], "engine") == 0) {
+    printf("engine %s\n", gxv7ObjRepl::Engine64() ? "64-bit" : "32-bit");
+    return gxv7ObjRepl::Engine64() ? 0 : 1;
+  }
+  if(argc == 3 && strcmp(argv[1], "digest") == 0) {
+    int rc = gxv7ObjRepl::Digest(argv[2], line);
+    printf("%s\n", line.c_str());
+    return rc == 0 ? 0 : 1;
+  }
+  if(argc == 3 && strcmp(argv[1], "status") == 0) {
+    int rc = gxv7ObjRepl::Status(argv[2], line);
+    printf("%s\n", line.c_str());
+    return rc == 0 ? 0 : 1;
+  }
+  return -1;
+}
+
+static gxv7ObjRepl *serving = 0;
+static void on_signal(int) { if(serving) serving->Stop(); }
+#if defined(__WIN32__) || defined(_WIN32)
+static BOOL WINAPI on_ctrl(DWORD) { if(serving) serving->Stop(); return TRUE; }
+#endif
+
+static int copy(const char *root, const char *conf, int check)
+{
+  gxv7ObjRepl c;
+  if(c.LoadConfig(conf) != 0 || c.Open(root, gxv7ObjRepl::COPY) != 0) {
+    printf("repl6_check: %s\n", c.Error().c_str());
+    return 1;
+  }
+  serving = &c;
+  signal(SIGINT, on_signal);
+  signal(SIGTERM, on_signal);
+#if defined(__WIN32__) || defined(_WIN32)
+  SetConsoleCtrlHandler(on_ctrl, TRUE);
+#endif
+  // ROOT/objrepl.stop (any platform): stop within a second
+  gxString stopf(root);
+  stopf << "/objrepl.stop";
+  remove(stopf.c_str());
+  std::atomic<int> done(0);
+  std::thread watch([&]() {
+    while(!done) {
+      if(access(stopf.c_str(), F_OK) == 0) { c.Stop(); remove(stopf.c_str()); break; }
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+  });
+  printf("repl6_check: serving %s\n", root);
+  fflush(stdout);
+  int rc = c.Serve();
+  done = 1;
+  watch.join();
+  serving = 0;
+  if(rc != 0) printf("repl6_check: %s\n", c.Error().c_str());
+  printf("repl6_check: applied_seq %llu epoch %llu\n", c.AppliedSeq(), c.Epoch());
+  if(check) {
+    unsigned long long *ids = 0;
+    unsigned long n = 0, bad = 0;
+    if(c.Ids(REPL6_DB, ids, n) != 0) { printf("repl6_check: Ids: %s\n", c.Error().c_str()); rc = -1; }
+    // With a "station" index in CONF (index station:readings:B:0:16, the
+    // copy's own B-tree on the station name): each record is found by
+    // its station with FindKey()
+    unsigned long found = 0, missed = 0;
+    int have_index = 0;
+    for(unsigned long i = 0; i < n; i++) {
+      MemoryBuffer b;
+      if(c.Get(REPL6_DB, ids[i], b) != 0 || !reading_ok(b)) { bad++; continue; }
+      Reading r;
+      memcpy(&r, b.m_buf(), sizeof(r));
+      unsigned long long hits[256];
+      unsigned count = 0;
+      if(c.FindKey("station", r.station, sizeof(r.station), hits, 256, count) != 0) continue;
+      have_index = 1;
+      int in = 0;
+      for(unsigned k = 0; k < count && k < 256; k++) if(hits[k] == ids[i]) in = 1;
+      if(in) found++; else missed++;
+    }
+    delete[] ids;
+    printf("repl6_check: %lu live records, %lu with a bad CRC or unreadable\n", n, bad);
+    if(have_index) {
+      printf("repl6_check: station index: %lu records found by FindKey(), %lu not found\n", found, missed);
+      if(missed) bad++;
+    }
+    if(bad) rc = -1;
+  }
+  c.Close();
+  return rc == 0 ? 0 : 1;
+}
 
 int main(int argc, char **argv)
 {
-  if(argc < 2) {
-    printf("Usage: %s FOLDER [MIN_RECORDS]\n", argv[0]);
-    return 2;
-  }
-  gxString dname = argv[1];
-  dname << "/data.gxd";
-  unsigned long min_records = argc > 2 ? strtoul(argv[2], 0, 10) : 0;
-
-  gxString aname = argv[1];
-  aname << "/.gxrepl/apply.jnl";
-  gxdJournalReadLock rl;
-  if(futils_exists(aname.c_str()) && rl.Lock(aname.c_str()) != gxDBASE_NO_ERROR) {
-    printf("TORN cannot lock %s\n", aname.c_str());
-    return 1;
-  }
-  gxDatabase db;
-  if(db.Open(dname.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) {
-    printf("TORN cannot open %s: %s\n", dname.c_str(), db.DatabaseExceptionMessage());
-    return 1;
-  }
-  ReplHeader hdr;
-  FAU_t a = db.FindFirstObject();
-  if(a == (FAU_t)0 || db.Read(&hdr, sizeof(hdr), a) != gxDBASE_NO_ERROR ||
-     memcmp(hdr.magic, REPL6_MAGIC, sizeof(hdr.magic)) != 0) {
-    printf("TORN no header\n");
-    return 1;
-  }
-  unsigned long n = 0, crc = 0;
-  // Walk the blocks in file order: the next block starts where this one
-  // ends (BlockLength() is the whole block, header included)
-  const FAU_t bh = (FAU_t)db.BlockHeaderSize();
-  FAU_t eof = (FAU_t)db.GetEOF();
-  for(;;) {
-    __ULWORD__ len = db.BlockLength(a);
-    if(len == 0) break;
-    FAU_t next = a - bh + (FAU_t)len;
-    if(next >= eof) break;
-    a = db.FindFirstObject(next);
-    if(a == (FAU_t)0) break;
-    ReplRecord rec;
-    if(db.Read(&rec, sizeof(rec), a) != gxDBASE_NO_ERROR) {
-      printf("TORN record %lu cannot be read\n", n);
-      return 1;
-    }
-    if(rec.seq != n || rec.crc != RecordSelfCRC(rec)) {
-      printf("TORN record %lu: seq %lu, checksum %s\n", n, rec.seq,
-	     rec.crc == RecordSelfCRC(rec) ? "good" : "bad");
-      return 1;
-    }
-    crc = RecordCRC(crc, rec);
-    n++;
-  }
-  if(n != hdr.count || crc != hdr.crc) {
-    printf("TORN %lu records, the header says %lu (checksum %s)\n", n, hdr.count,
-	   crc == hdr.crc ? "equal" : "different");
-    return 1;
-  }
-  printf("WHOLE %lu %lu\n", hdr.count, hdr.commits);
-  db.Close();
-  return n >= min_records ? 0 : 1;
+  int rc = folder_cmd(argc, argv);
+  if(rc >= 0) return rc;
+  if((argc == 4 || argc == 5) && strcmp(argv[1], "copy") == 0)
+    return copy(argv[2], argv[3], argc == 5 && strcmp(argv[4], "--check") == 0);
+  fprintf(stderr, "usage: repl6_check copy ROOT CONF [--check] | digest ROOT | status ROOT | engine\n");
+  return 64;
 }
 // ----------------------------------------------------------- //
 // ------------------------------- //

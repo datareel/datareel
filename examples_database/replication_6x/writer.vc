@@ -1,2 +1,0 @@
-PROJECT = repl6_writer
-!include ../../env/msvc.mak

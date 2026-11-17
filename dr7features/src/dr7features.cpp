@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/15/2026
-// Date Last Modified: 11/15/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -40,6 +40,7 @@ and dr7inner.h only: never include a DataReel 7.x header here.
 
 #define IDX ((dr7v_index *)h)
 #define SET ((dr7s_set *)h)
+#define NODE ((dr7r_node *)h)
 
 static void to_inner(const gxv7Filter *f, dr7v_filter &out)
 {
@@ -342,6 +343,153 @@ gxString gxv7ObjectClient::FileName(unsigned file) const
 }
 
 gxString gxv7ObjectClient::Error() const { return gxString(dr7c_error(CLI)); }
+// 11/17/2026: object replication
+gxv7ObjRepl::gxv7ObjRepl() { h = dr7r_new(); }
+gxv7ObjRepl::~gxv7ObjRepl() { dr7r_free(NODE); }
+
+int gxv7ObjRepl::SetConfig(const char *key, const char *value)
+{
+  return dr7r_config_set(NODE, key, value);
+}
+
+int gxv7ObjRepl::LoadConfig(const char *fname) { return dr7r_config_load(NODE, fname); }
+void gxv7ObjRepl::ClearConfig() { dr7r_config_clear(NODE); }
+
+int gxv7ObjRepl::Open(const char *root, Role role)
+{
+  return dr7r_open(NODE, root, role == PRIMARY ? DR7R_PRIMARY : DR7R_COPY);
+}
+
+void gxv7ObjRepl::Close() { dr7r_close(NODE); }
+int gxv7ObjRepl::IsOpen() const { return dr7r_is_open(NODE); }
+gxString gxv7ObjRepl::Error() const { return gxString(dr7r_error(NODE)); }
+int gxv7ObjRepl::OpenDatabase(const char *db) { return dr7r_open_database(NODE, db); }
+int gxv7ObjRepl::Begin() { return dr7r_begin(NODE); }
+unsigned long long gxv7ObjRepl::NewId() { return dr7r_new_id(NODE); }
+
+int gxv7ObjRepl::Put(const char *db, unsigned long long id, const void *bytes,
+		     unsigned n)
+{
+  return dr7r_put(NODE, db, id, bytes, n);
+}
+
+int gxv7ObjRepl::Remove(const char *db, unsigned long long id) { return dr7r_remove(NODE, db, id); }
+int gxv7ObjRepl::Purge(const char *db, unsigned long long id) { return dr7r_purge(NODE, db, id); }
+int gxv7ObjRepl::Commit() { return dr7r_commit(NODE); }
+int gxv7ObjRepl::Rollback() { return dr7r_rollback(NODE); }
+int gxv7ObjRepl::Pump() { return dr7r_pump(NODE); }
+int gxv7ObjRepl::Drain(int seconds) { return dr7r_drain(NODE, seconds); }
+int gxv7ObjRepl::Serve() { return dr7r_serve(NODE); }
+void gxv7ObjRepl::Stop() { dr7r_stop(NODE); }
+
+int gxv7ObjRepl::Get(const char *db, unsigned long long id, MemoryBuffer &bytes)
+{
+  unsigned n = 0;
+  bytes.Clear();
+  // The size first (a too small buffer gives the size), then the bytes
+  if(dr7r_get(NODE, db, id, 0, 0, &n) == 0) return 0;
+  if(n == 0) return -1;
+  char *buf = new char[n];
+  int rc = dr7r_get(NODE, db, id, buf, n, &n);
+  if(rc == 0) bytes.Load(buf, n);
+  delete[] buf;
+  return rc;
+}
+
+int gxv7ObjRepl::IsLive(const char *db, unsigned long long id) { return dr7r_is_live(NODE, db, id); }
+
+int gxv7ObjRepl::Ids(const char *db, unsigned long long *&ids,
+		     unsigned long &count, int tombstones)
+{
+  ids = 0;
+  count = dr7r_ids(NODE, db, tombstones, 0, 0);
+  if(count == 0) return dr7r_error(NODE)[0] ? -1 : 0;
+  ids = new unsigned long long[count];
+  unsigned long n = dr7r_ids(NODE, db, tombstones, ids, count);
+  if(n < count) count = n; // Changed in between (another thread)
+  return 0;
+}
+
+gxString gxv7ObjRepl::Databases()
+{
+  unsigned n = dr7r_databases(NODE, 0, 0);
+  if(n == 0) return gxString();
+  char *buf = new char[n + 1];
+  dr7r_databases(NODE, buf, n + 1);
+  gxString s(buf);
+  delete[] buf;
+  return s;
+}
+
+int gxv7ObjRepl::InSnapshot() { return dr7r_in_snapshot(NODE); }
+
+int gxv7ObjRepl::FindKey(const char *index, const void *key, unsigned n,
+			 unsigned long long *ids, unsigned max, unsigned &count)
+{
+  count = 0;
+  return dr7r_find_key(NODE, index, key, n, ids, max, &count);
+}
+
+int gxv7ObjRepl::Nearest(const char *index, const float *query, unsigned k,
+			 unsigned long long *ids, float *distances, unsigned &count)
+{
+  count = 0;
+  if(k == 0) return 0;
+  dr7r_hit *hits = new dr7r_hit[k];
+  int rc = dr7r_nearest(NODE, index, query, k, hits, &count);
+  for(unsigned i = 0; rc == 0 && i < count; i++) {
+    if(ids) ids[i] = hits[i].id;
+    if(distances) distances[i] = hits[i].distance;
+  }
+  delete[] hits;
+  return rc;
+}
+unsigned long long gxv7ObjRepl::Epoch() const { return dr7r_epoch(NODE); }
+unsigned long long gxv7ObjRepl::LastSeq() const { return dr7r_last_seq(NODE); }
+unsigned long long gxv7ObjRepl::AppliedSeq() const { return dr7r_applied_seq(NODE); }
+unsigned long long gxv7ObjRepl::CopyApplied() const { return dr7r_copy_applied(NODE); }
+
+static const unsigned objrepl_line_size = 64 * 1024;
+
+#define FOLDER_CALL(call, out) \
+  char *buf = new char[objrepl_line_size]; \
+  buf[0] = 0; \
+  int rc = call; \
+  out = buf; \
+  delete[] buf; \
+  return rc;
+
+int gxv7ObjRepl::Digest(const char *root, gxString &line, const char *links)
+{
+  FOLDER_CALL(dr7r_digest(root, links, buf, objrepl_line_size), line)
+}
+
+int gxv7ObjRepl::Status(const char *root, gxString &line)
+{
+  FOLDER_CALL(dr7r_status(root, buf, objrepl_line_size), line)
+}
+
+int gxv7ObjRepl::Check(const char *root, gxString &line, const gxv7ObjRepl *cfg)
+{
+  FOLDER_CALL(dr7r_check(root, cfg ? (dr7r_node *)cfg->h : 0, buf, objrepl_line_size), line)
+}
+
+int gxv7ObjRepl::Takeover(const char *root, gxString &msg)
+{
+  FOLDER_CALL(dr7r_takeover(root, buf, objrepl_line_size), msg)
+}
+
+int gxv7ObjRepl::Rejoin(const char *root, gxString &msg)
+{
+  FOLDER_CALL(dr7r_rejoin(root, buf, objrepl_line_size), msg)
+}
+
+int gxv7ObjRepl::ClearAlarm(const char *root, gxString &msg)
+{
+  FOLDER_CALL(dr7r_clear_alarm(root, buf, objrepl_line_size), msg)
+}
+
+int gxv7ObjRepl::Engine64() { return dr7_engine_64(); }
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //
