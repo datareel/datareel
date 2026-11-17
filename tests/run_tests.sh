@@ -179,6 +179,19 @@ mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" &&
 mkdir -p "$WORK/run_salt" && check journal_salt_test "$BUILD/tests/journal_salt_test" "$WORK/run_salt"
 # 11/16/2026: block reuse, best fit and first fit (ReclaimBestFit() reused only exact fits)
 mkdir -p "$WORK/run_reclaim" && check reclaim_test "$BUILD/tests/reclaim_test" "$WORK/run_reclaim"
+# 11/17/2026: hexdump, ffind and txfilter (back from 6.x): known CRC values, a dump rebuilt byte for byte, ffind's
+# counts (its exit code) and edits, txfilter's character sets and line ends
+U="$BUILD/utils"; DU="$WORK/run_dr_utils"; mkdir -p "$DU" && printf '123456789' > "$DU/check.txt" &&
+  head -c 5000 /dev/urandom > "$DU/blob.bin"
+check hexdump_crc sh -c "cd '$DU' && $U/hexdump -c check.txt | grep -q 'CRC-32 = 0xCBF43926' && $U/hexdump -C check.txt | grep -q 'CRC-16 = 0xBB3D' &&
+  $U/hexdump -C check.txt | grep -q 'CCITT CRC-16 = 0x906E'"
+check hexdump_rebuild sh -c "cd '$DU' && $U/hexdump blob.bin blob.txt 2>/dev/null && $U/hexdump -r blob.txt blob2.bin | grep -q '5000 bytes written' && cmp blob.bin blob2.bin &&
+  $U/hexdump -s blob.bin | head -1 | grep -qv ';' && $U/hexdump -xfefe | grep -q '0xFEFE = 65278'"
+check ffind_find_replace sh -c "cd '$DU' && printf 'alpha beta\\nBeta alpha alpha\\nend\\n' > t.txt; $U/ffind -Falpha t.txt > /dev/null; [ \$? -eq 3 ] &&
+  $U/ffind -i -Rbeta -WGAMMA t.txt > /dev/null; [ \$? -eq 2 ] && [ \"\$(cat t.txt)\" = \"\$(printf 'alpha GAMMA\\nGAMMA alpha alpha\\nend')\" ] &&
+  $U/ffind -Iend -W' (last)' t.txt > /dev/null; grep -q '^end (last)\$' t.txt && [ ! -e t.txt.ffind.tmp ]"
+check txfilter_sets sh -c "cd '$DU' && printf 'ab 12\\t\\001x!\\r\\nZ9\\n' > f.txt; [ \"\$($U/txfilter -N f.txt | od -An -c | tr -d ' ')\" = \"12\\t\\n9\\n\" ] &&
+  $U/txfilter -d f.txt | od -An -c | tr -d ' ' | grep -qF 'ab12\\tx!\\r\\nZ9\\r\\n'"
 # Vector index (gxvindex.h, 7.4): kernels, exact and graph search,
 # Merge, Repair, concurrent searches and 20 crash rounds
 mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" &&

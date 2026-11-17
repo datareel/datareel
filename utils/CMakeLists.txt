@@ -1,7 +1,8 @@
 # DataReel 7 database utilities
 
 # 11/16/2026: dr_digest (gxddigest.h), the database digests gxrepl's "digest" printed
-foreach(tool db_debug ix_debug vix_rebuild dr_digest)
+# 11/17/2026: hexdump, ffind and txfilter, back from 6.x
+foreach(tool db_debug ix_debug vix_rebuild dr_digest hexdump ffind txfilter)
   add_executable(${tool} ${tool}/${tool}.cpp)
   target_link_libraries(${tool} PRIVATE DataReel::datareel)
 endforeach()
