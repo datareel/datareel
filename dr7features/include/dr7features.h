@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/15/2026
-// Date Last Modified: 11/15/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ---------- Include File Description and Details  ---------- //
@@ -210,8 +210,8 @@ struct GXDLCODE_API gxv7VectorInfo {
 
 // Client of the DataReel 7.x database object server: op 7
 // VECTOR_SEARCH and op 8 VECTOR_INFO on a database the server's config
-// gives "vectors = <.vixset or .vix>" (for example "gxrepl serve" with
-// a [db NAME] section). The connection is mutual TLS: the client sends
+// gives "vectors = <.vixset or .vix>" (for example the 6.4 vector_server
+// tool, dr7features/inner). The connection is mutual TLS: the client sends
 // its certificate (cert, key) and checks the server's against the CA
 // and server_name. The searches are read only. Return values: 0 if no
 // errors occur, -1 otherwise (Error() says why). POSIX only, as the
@@ -248,6 +248,111 @@ public:
 
 private:
   void *h; // The 7.x client (dr7inner.h)
+};
+
+// 11/17/2026: object replication with the DataReel 7.x gxObjRepl
+// (DataReel 7.4 beta 5 or later: gxobjrepl.h). Two nodes, each a folder
+// with its own object databases: the primary commits objects (bytes
+// under a 64-bit id both nodes share) and sends them to its copy over
+// gxStream with TLS certificates on both sides; only objects travel,
+// never file pages, so each node keeps its own file addresses, free
+// space and indexes. A 6.x program and a DataReel 7.4 program (or the
+// 7.4 objrepl tool) replicate to each other, on Linux and Windows.
+// See docs/classes/database/dr7features.htm and
+// examples_database/objrepl_6x.
+//
+//   gxv7ObjRepl p;
+//   p.SetConfig("copy", "copyhost:7400"); // or LoadConfig("objrepl.conf")
+//   p.SetConfig("ca", "ca.pem"); p.SetConfig("cert", "primary.pem");
+//   p.SetConfig("key", "primary.key");
+//   if(p.Open("primary", gxv7ObjRepl::PRIMARY) != 0) ... p.Error()
+//   p.OpenDatabase("events");
+//   p.Begin();
+//   unsigned long long id = p.NewId();
+//   p.Put("events", id, &rec, sizeof(rec));
+//   p.Commit();    // durable, in the outbox
+//   p.Pump();      // 0: the copy has every commit
+//
+// The copy (another process): SetConfig("listen", "0.0.0.0:7400"),
+// "ca", "cert", "key", "allow-cn" (the primary's certificate CN), then
+// Open("copy", gxv7ObjRepl::COPY) and Serve() until Stop().
+// Return values: 0 if no errors occur, -1 otherwise (Error() says why),
+// unless noted.
+class GXDLCODE_API gxv7ObjRepl
+{
+public:
+  enum Role { PRIMARY = 1, COPY = 2 };
+
+public:
+  gxv7ObjRepl();
+  ~gxv7ObjRepl();
+
+private: // Disallow copying and assignment
+  gxv7ObjRepl(const gxv7ObjRepl &) { }
+  void operator=(const gxv7ObjRepl &) { }
+
+public: // The configuration the next Open() uses (objrepl.conf keys:
+	// name, peer-name, copy, listen, ca, cert, key, allow-cn, links,
+	// index, max-lag, max-behind, min-cert-days, idle-timeout, trim)
+  int SetConfig(const char *key, const char *value);
+  int LoadConfig(const char *fname);
+  void ClearConfig();
+
+public: // Open and close
+  int Open(const char *root, Role role);
+  void Close();
+  int IsOpen() const;
+  gxString Error() const;
+
+public: // Primary: changes, committed together
+  int OpenDatabase(const char *db);
+  int Begin();
+  unsigned long long NewId(); // 0 on an error
+  int Put(const char *db, unsigned long long id, const void *bytes,
+	  unsigned n);
+  int Remove(const char *db, unsigned long long id); // Leaves a tombstone
+  int Purge(const char *db, unsigned long long id);
+  int Commit();
+  int Rollback();
+
+public: // Replication
+  int Pump();               // 0: the copy has every commit
+  int Drain(int seconds);   // Pump until the copy has every commit
+  int Serve();              // Copy: until Stop()
+  void Stop();              // Any thread or a signal handler
+
+public: // Reads (either role)
+  int Get(const char *db, unsigned long long id, MemoryBuffer &bytes);
+  int IsLive(const char *db, unsigned long long id);
+  // The live ids (tombstones = 1: the removed ids); ids is set to a
+  // new array (delete[] it) holding count ids, or 0 when there are none
+  int Ids(const char *db, unsigned long long *&ids, unsigned long &count,
+	  int tombstones = 0);
+  gxString Databases(); // One name a line
+  int InSnapshot();     // A copy in the middle of a full send
+
+public: // State
+  unsigned long long Epoch() const;
+  unsigned long long LastSeq() const;     // Primary: the last commit
+  unsigned long long AppliedSeq() const;  // Copy: the last commit applied
+  unsigned long long CopyApplied() const; // Primary: the copy, as last heard
+
+public: // Folders, without an open node (line: the result or message)
+  static int Digest(const char *root, gxString &line,
+		    const char *links = "");
+  static int Status(const char *root, gxString &line);
+  // 0 OK, 1 WARN, 2 FAIL; cfg: the settings to check against (max-lag,
+  // max-behind, min-cert-days) or 0
+  static int Check(const char *root, gxString &line,
+		   const gxv7ObjRepl *cfg = 0);
+  static int Takeover(const char *root, gxString &msg);
+  static int Rejoin(const char *root, gxString &msg);
+  static int ClearAlarm(const char *root, gxString &msg);
+  // 1 if the 7.x library uses the 64-bit database engine, else 0
+  static int Engine64();
+
+private:
+  void *h; // The 7.x node (dr7inner.h)
 };
 
 #endif // __DR7_FEATURES_H__

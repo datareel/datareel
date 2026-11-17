@@ -267,10 +267,11 @@ the same as 6.3.1; 6.4 holds no copy of the 7.x vector or replication
 code.
 gxv7VectorIndex and gxv7VectorSet use the 7.x .vix/.vixset vector
 index, gxv7ObjectClient searches a 7.x object server's vectors, and
-the 7.x gxrepl replicates 6.x programs' database folders (the 6.x
-journal uses the same file lock as 7.x). See RELEASE_NOTES_6.4.txt
-and examples_database/vector_index, examples_database/replication_6x
-and examples_socket/vector_client. The shared library is built as
+gxv7ObjRepl (11/17/2026, DataReel 7.4 at or after 41b6e15) replicates
+a 6.x program's objects with the 7.x gxObjRepl, to and from DataReel
+7.4 programs, on Linux and Windows. See RELEASE_NOTES_6.4.txt and
+examples_database/vector_index, examples_database/objrepl_6x and
+examples_socket/vector_client. The shared library is built as
 libdatareel.so.6.4.
 
 VERSION 6.3.1
@@ -446,9 +447,10 @@ DATAREEL7_FEATURES_DIR  6.4: a DataReel 7.4 or later source tree; also
                         dr7features/include/dr7features.h). Empty
                         (default): off, the 6.3.1 library only
 DATAREEL7_TOOLS         6.4: with DATAREEL7_FEATURES_DIR, ON (default)
-                        to also build the 7.x gxrepl, object_server
-                        and object_client (POSIX) and vix_rebuild into
-                        <build>/dr7inner/tools
+                        to also build the 7.x objrepl, objrepl_sim,
+                        test_gxobjrepl_api and vix_rebuild, and on
+                        POSIX object_server, object_client and the
+                        6.4 vector_server into <build>/dr7inner/tools
 
 Other CMake projects can build and link the library directly:
 

@@ -159,6 +159,8 @@ endif()
 
 # 11/15/2026: DataReel 6.4: the DataReel 7.x vector database features
 # for 6.x programs, built from a DataReel 7.4 or later source tree.
+# 11/17/2026: and object replication (gxObjRepl): the 7.4 tree at or
+# after 41b6e15 (checked in dr7features/inner/CMakeLists.txt).
 # DataReel 6.4 has no copy of the 7.x code: this builds the 7.x library
 # (its names are in namespace datareel, so it links next to the 6.x
 # library), the plain interface dr7inner (dr7features/inner, 7.x headers
@@ -168,7 +170,7 @@ endif()
 set(DATAREEL7_FEATURES_DIR "" CACHE PATH
   "DataReel 7.4 or later source tree for the vector database features (empty: off)")
 option(DATAREEL7_TOOLS
-  "With DATAREEL7_FEATURES_DIR: also build the 7.x gxrepl, object server/client (POSIX) and vix_rebuild" ON)
+  "With DATAREEL7_FEATURES_DIR: also build the 7.x objrepl, object server/client (POSIX) and vix_rebuild" ON)
 if(DATAREEL7_FEATURES_DIR)
   include(ExternalProject)
   get_filename_component(_dr7_dir "${DATAREEL7_FEATURES_DIR}" ABSOLUTE)
@@ -254,15 +256,14 @@ if(DATAREEL7_FEATURES_DIR)
     add_executable(vector_client examples_socket/vector_client/testprog.cpp)
     target_link_libraries(vector_client PRIVATE DataReel::dr7features)
   endif()
-  # The replication example (examples_database/replication_6x): plain 6.x
-  # programs that the 7.x gxrepl (DATAREEL7_TOOLS) replicates
-  foreach(_p repl6_writer repl6_check)
-    add_executable(${_p} examples_database/replication_6x/${_p}.cpp)
-    target_link_libraries(${_p} PRIVATE datareel)
-  endforeach()
+  # 11/17/2026: object replication with the 7.x gxObjRepl (gxv7ObjRepl):
+  # examples_database/objrepl_6x, every platform. DataReel 7.4 beta 5
+  # removed gxrepl, so the replication_6x example went with it.
+  add_executable(objrepl6 examples_database/objrepl_6x/objrepl6.cpp)
+  target_link_libraries(objrepl6 PRIVATE DataReel::dr7features)
   message(STATUS "DataReel 7.x vector database features from ${_dr7_dir}")
   if(DATAREEL7_TOOLS)
-    message(STATUS "DataReel 7.x tools (gxrepl, object_server, object_client, vix_rebuild): ${_dr7_bin}/tools")
+    message(STATUS "DataReel 7.x tools (objrepl, object_server, vector_server, vix_rebuild): ${_dr7_bin}/tools")
   endif()
 endif()
 

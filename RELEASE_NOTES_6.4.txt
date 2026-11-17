@@ -142,8 +142,12 @@ THE 7.x FEATURES BUILD (CMake only)
   a C++17 compiler, the same one for both libraries.
 - DATAREEL7_TOOLS (default ON with DATAREEL7_FEATURES_DIR): also build
   the 7.x programs from the 7.x tree into <build>/dr7inner/tools:
-  gxrepl (database replication), object_server and object_client
-  (POSIX), vix_rebuild.
+  objrepl, objrepl_sim and test_gxobjrepl_api (object replication),
+  vix_rebuild, and on POSIX object_server, object_client and the 6.4
+  vector_server (the object server with a vector set).
+- 11/17/2026: the 7.x tree must be DataReel 7.4 at or after 41b6e15
+  (gxObjRepl, the canonical gxStream block header, no gxrepl). The
+  build stops with a message for an older tree.
 - The 7.x library is built with the same database engine as the 6.x
   library (DATAREEL_64BIT_DATABASE).
 - Do not include DataReel 7.x headers in a 6.x source file. The two
@@ -176,36 +180,38 @@ Example: examples_database/vector_index.
 VECTOR SEARCHES ON A 7.x OBJECT SERVER: gxv7ObjectClient
 --------------------------------------------------------
 A 6.x program sends op 7 VECTOR_SEARCH and op 8 VECTOR_INFO to a
-DataReel 7.x database object server (for example "gxrepl serve" with a
-[db NAME] section that names "vectors"). The connection uses mutual
+DataReel 7.x database object server (for example the 6.4 vector_server
+tool, which serves a database with "vectors"). The connection uses mutual
 TLS: the client's certificate, the CA, and the server name checked.
 The client uses the 7.x client classes, so the messages are the 7.x
 ones. POSIX only, as the DataReel 7.4 object client (its multiplex
 session is built on POSIX systems only): on Windows Connect() returns
 -1. Example: examples_socket/vector_client.
 
-REPLICATION OF 6.x DATABASES WITH THE 7.x gxrepl
-------------------------------------------------
-A 6.x program's database folder is replicated by the 7.x gxrepl,
-running next to it as a separate process. The 6.x program is not
-changed and links no 7.x code.
-- gxrepl copies a folder without a ship log by a scan of changed
-  64 KB pieces. It reads a live folder under the shared lock of the
-  folder's journal file.
-- The DataReel 6.3/6.4 gxdJournal and gxdJournalReadLock use the same
-  lock as 7.x: flock() on the journal file (LockFileEx on Windows).
-- A 6.x writer that uses gxdJournal with SetWriteLock(1), with the
-  journal in the database folder, can be copied while it writes: every
-  copy is a whole commit.
-- A writer without a journal can be copied while it is quiet.
-- A 6.x reader of a live copy takes gxdJournalReadLock on
-  <copy>/.gxrepl/apply.jnl.
-- The ship log (commit-by-commit replication of a writer that calls
-  gxdJournal::EnableShipLog()) needs the 7.x journal. A 6.x program's
-  folders always go by the scan.
-- gxrepl is POSIX only, as in DataReel 7.4.
-Example and how-to: examples_database/replication_6x (README.txt). See
-also the DataReel 7 replication administrator's guide.
+OBJECT REPLICATION: gxv7ObjRepl (11/17/2026)
+---------------------------------------------
+The 7.x gxObjRepl for 6.x programs: object replication between two
+independent object databases (node folders). Only objects travel
+(gxStream blocks over TLS with certificates on both sides), never file
+pages; each node keeps its own file addresses, free space and indexes.
+- A primary commits objects (bytes under a 64-bit id both nodes share)
+  with Begin(), Put(), Remove(), Purge(), Commit(); each commit is
+  durable with its outbox entry, and Pump() or Drain() sends it.
+- A copy serves with Serve() until Stop() and refuses application
+  writes. Takeover(), Rejoin(), Status(), Check(), Digest() and
+  ClearAlarm() work on a node folder.
+- The configuration is the objrepl.conf keys (SetConfig(),
+  LoadConfig()), as for the 7.4 objrepl tool.
+- A 6.x program and a DataReel 7.4 program (or the 7.4 objrepl tool)
+  replicate to each other, on Linux and Windows: 7.4 beta 5 sends
+  gxStream's block header in one canonical 32-byte form, and so does
+  6.4 (gxstream-wire-6x).
+- The node files are the 7.x files of the build's database engine; a
+  32-bit engine node and a 64-bit engine node never share a folder.
+- The 7.x gxrepl (page-shipping replication) and the replication_6x
+  example are gone: DataReel 7.4 beta 5 removed gxrepl.
+Example and how-to: examples_database/objrepl_6x (README.txt). See
+also the DataReel 7.4 gxObjRepl reference and administrator's guide.
 
 TESTED PLATFORMS
 ----------------
@@ -214,9 +220,8 @@ On RHEL 10.2 with DataReel 7.4 beta3 (tag 7.4-beta3), 32-bit and
 - vector_index: all checks pass. A 6.x program reading the DataReel
   7.4 phase C .vix files gets the 7.4 results: 28 of 28 result lines
   equal, on both engines.
-- replication_6x: 12 of 12, in three rounds on the 64-bit engine and
-  one on the 32-bit engine. The copy is byte-identical, every live
-  copy is a whole commit and never goes back.
+- replication_6x (the 7.x gxrepl, before 11/17/2026): 12 of 12, in
+  three rounds on the 64-bit engine and one on the 32-bit engine.
 - vector_client: 7 of 7. The server's answers equal local searches,
   and bad requests and certificates are refused.
 - The 6.x library with DATAREEL7_FEATURES_DIR off: the same objects
@@ -233,7 +238,7 @@ DATAREEL7_FEATURES_DIR:
   file it wrote, and the vectors are the same as the Linux build's
   (the same logical digests; the demo file's ids are record addresses,
   which differ by the header size).
-- gxrepl and gxv7ObjectClient are POSIX only, as in DataReel 7.4.
-  The phase C files are Linux files (see VECTOR DATABASE above).
+- gxv7ObjectClient is POSIX only, as in DataReel 7.4. The phase C
+  files are Linux files (see VECTOR DATABASE above).
 
 DataReel Copyright (c) 2001-2026 DataReel Software Development

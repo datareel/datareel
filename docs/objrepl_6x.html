@@ -1,0 +1,121 @@
+<!doctype html>
+<!-- ******************************* -->
+<!-- ******** Start of Page ******** -->
+<!-- ******************************* -->
+<!-- *********************************************************** -->
+<!-- HTML Page -->
+<!-- Designed For: FireFox, Chrome, Safari -->
+<!-- Published By: DataReel Software Development -->
+<!-- Content Last Modified: 01/15/2024 -->
+<!-- File Creation Date: 01/15/2024 20:45:35 EST -->
+<!-- *** -->
+<!-- Package version: 12.3.10 -->
+<!-- *** -->
+<!-- Copyright (c) 1999-2026 DataReel Software Development -->
+<!-- *********************************************************** -->
+<!-- *********** HTML Page Description and Details ************* -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- START OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- This HTML page and its derivatives are copyright (c) 1999-2024, by -->
+<!-- DataReel Software Development. This HTML page and any derivative Web -->
+<!-- objects are published on the Internet for public viewing only. -->
+<!-- Reproduction of any HTML page and/or Web objects published on -->
+<!-- this Website is prohibited unless authorized in writing by -->
+<!-- DataReel Software Development or authorized reseller. Reproduction of any -->
+<!-- third party code used to produce pages on this Website is subject to -->
+<!-- the third party licensing and distribution agreement. -->
+<!-- *** -->
+<!-- THIS SOFTWARE IS PROVIDED AS IS WITHOUT WARRANTY OF ANY KIND. THE -->
+<!-- ENTIRE RISK OF THE QUALITY AND PERFORMANCE OF THIS SOFTWARE IS WITH -->
+<!-- YOU. SHOULD ANY ELEMENT OF THIS SOFTWARE PROVE DEFECTIVE, YOU WILL -->
+<!-- ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR, OR CORRECTION. -->
+<!-- *** -->
+<!-- *********************************************************** -->
+<!-- *************** THIRD PARTY ACKNOWLEDGMENT **************** -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- NONE -->
+<!-- *** -->
+<!-- END OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- HTML Internet page -->
+<!-- *********************************************************** -->
+<!-- PAGE CONTENT STARTS BELOW -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>Object Replication for 6.x (DataReel 6.4)</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm" aria-current="page">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<H1>Object Replication for DataReel 6.x Programs (DataReel 6.4)</H1>
+<P>11/17/2026. A DataReel 6.x program replicates its records with the DataReel 7.x object replication (gxObjRepl), through the 6.x class gxv7ObjRepl (dr7features/include/dr7features.h). DataReel 6.4 has no replication code of its own: the class calls the 7.x gxObjRepl, built from a DataReel 7.4 source tree by the 6.x CMake build.</P>
+<P>Two nodes, each a folder of object databases. The primary commits objects (bytes under a 64-bit id both nodes share) and sends them to its copy as gxStream blocks over TLS with certificates on both sides. Only objects travel, never file pages: each node keeps its own file addresses, free space and indexes. The primary and the copy can each be this 6.x program, a DataReel 7.4 program or the 7.4 objrepl tool, on Linux or Windows.</P>
+<PRE>  objrepl6.cpp           the example: &quot;primary ROOT CONF RECORDS&quot; writes
+                         station readings (a plain 6.x struct with a
+                         CRC), commits them 25 at a time and drains
+                         them to the copy; &quot;copy ROOT CONF [--check]&quot;
+                         serves until TERM/INT, Ctrl+C or ROOT/objrepl.stop
+                         and with --check reads every live record back
+                         and checks its CRC; &quot;digest ROOT&quot;, &quot;status ROOT&quot;,
+                         &quot;engine&quot;
+  run_objrepl6_cross.sh  the test: 6.4 primary -&gt; 7.4 copy, 7.4 primary
+                         -&gt; 6.4 copy, 6.4 -&gt; 6.4, a copy that starts late,
+                         a second run on the same folder, a refused
+                         certificate, a 7.4 takeover of a 6.4 copy folder
+  run_objrepl6_xver.sh   the 7.4 tree&#x27;s 6.4&lt;-&gt;7.4 wire tests
+                         (utils/objrepl/xver: wirecmp, xmatrix, hook64)
+                         built against this 6.4 library (Linux)</PRE>
+<P>Build (DataReel 7.4 at or after 41b6e15, which has gxObjRepl and the canonical gxStream block header; the build stops with a message for an older tree):</P>
+<PRE>  cmake -S datareel-6.4 -B build -DCMAKE_BUILD_TYPE=Release \
+        -DDATAREEL7_FEATURES_DIR=/path/to/datareel-7.4 \
+        -DDATAREEL_64BIT_DATABASE=ON
+  cmake --build build -j2
+  # build/objrepl6, and the 7.4 objrepl tool in build/dr7inner/tools</PRE>
+<P>Tests:</P>
+<PRE>  ./run_objrepl6_cross.sh build/dr7inner/tools build/objrepl6 [WORK]
+  ./run_objrepl6_xver.sh /path/to/datareel-7.4 build [WORK]</PRE>
+<P>A 32-bit engine build (DATAREEL_64BIT_DATABASE=OFF) runs them with OBJREPL_ALLOW_32BIT=1, as the 7.4 objrepl tests: the run makes its own folders, so no engine reads the other&#x27;s files. Never point a 32-bit engine node and a 64-bit engine node at the same folder.</P>
+<P>Configuration: an objrepl.conf file, one &quot;key value&quot; line each (the 7.4 utils/objrepl/objrepl_certs.sh makes a CA, the two certificates and sample files):</P>
+<PRE>  # the primary                     # the copy
+  name primary1                     name copy1
+  peer-name copy1                   peer-name primary1
+  copy copyhost:24600               listen 0.0.0.0:24600
+  ca ca.pem                         ca ca.pem
+  cert primary.pem                  cert copy.pem
+  key primary.key                   key copy.key
+                                    allow-cn objrepl-primary</PRE>
+<P>In a program:</P>
+<PRE>  gxv7ObjRepl p;
+  p.LoadConfig(&quot;primary.conf&quot;);
+  if(p.Open(&quot;primary&quot;, gxv7ObjRepl::PRIMARY) != 0) ... p.Error()
+  p.OpenDatabase(&quot;readings&quot;);
+  p.Begin();
+  unsigned long long id = p.NewId();
+  p.Put(&quot;readings&quot;, id, &amp;rec, sizeof(rec));
+  p.Commit();      // durable on the primary, in its outbox
+  p.Pump();        // 0: the copy has every commit (or Drain(seconds))</PRE>
+<P>Replication is asynchronous: if the primary is lost, the commits the copy does not have are lost with it (the status shows them as lag_seq). Takeover() makes the copy the primary at the next epoch, and the old primary is fenced off until Rejoin(). See the DataReel 7.4 gxObjRepl reference and administrator&#x27;s guide for failover, monitoring (Check(), the status file and the alarm file), indexes and links. </P>
+<P>See <A HREF="classes/classes.htm#/database/dr7features.htm">dr7features (gxv7ObjRepl)</A> and the <A HREF="release_notes_6_4.html">DataReel 6.4 release notes</A>.</P>
+</main>
+<footer class="dr-footer">DataReel 6.4 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
+</html>
+<!-- PAGE CONTENT ENDS ABOVE -->
+<!-- *********************************************************** -->
+<!-- ******************************* -->
+<!-- ********* End of Page ********* -->
+<!-- ******************************* -->

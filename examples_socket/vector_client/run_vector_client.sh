@@ -2,14 +2,16 @@
 # run_vector_client.sh TOOLS_DIR PROG [WORK_DIR] - DataReel 6.4: a
 # DataReel 6.x program (PROG, examples_socket/vector_client) searching
 # the vectors the DataReel 7.x database object server serves.
-#   TOOLS_DIR: the folder with gxrepl (the 6.x CMake build with
+#   TOOLS_DIR: the folder with vector_server (the 6.x CMake build with
 #              DATAREEL7_FEATURES_DIR: <build>/dr7inner/tools)
 #   PROG:      the vector_client program
 #   WORK_DIR:  a new folder for the test (default: a temporary one)
-# Linux only (the 7.x object server runs in gxrepl, POSIX only). Uses
+# 11/17/2026: the server is vector_server (the 7.x object server with a
+# vector set, dr7features/inner); DataReel 7.4 beta 5 removed gxrepl.
+# Linux only (the 7.x object server is POSIX only). Uses
 # 127.0.0.1 and throwaway certificates made with the openssl program.
 set -u
-GX=$(cd "${1:?usage: run_vector_client.sh TOOLS_DIR PROG [WORK_DIR]}" && pwd)/gxrepl
+GX=$(cd "${1:?usage: run_vector_client.sh TOOLS_DIR PROG [WORK_DIR]}" && pwd)/vector_server
 PROG=$(cd "$(dirname "${2:?usage: run_vector_client.sh TOOLS_DIR PROG [WORK_DIR]}")" && pwd)/$(basename "$2")
 W=${3:-$(mktemp -d "${TMPDIR:-/tmp}/vecsrv.XXXXXX")}
 mkdir -p "$W" && W=$(cd "$W" && pwd)
@@ -37,27 +39,10 @@ cd "$W" || exit 2
 "$PROG" make "$W/vec" > make.log 2>&1
 result $? "6.x program made a vector set (3 day files) and news.gxd"
 
-cat > server.conf <<EOF
-node = vecserver
-role = server
-listen = 127.0.0.1:$PORT
-allow_cn = client6
-cert = $W/pki/server.pem
-key = $W/pki/server.key
-ca = $W/pki/ca.pem
-status_file = $W/server.status.json
-[db news]
-path = $W/vec/news.gxd
-access = read
-vectors = $W/vec/news.vixset
-[set dummy]
-root = $W/dummy
-accept = target
-EOF
-"$GX" serve --config server.conf > server.log 2>&1 & pids+=($!)
+"$GX" $PORT $W/pki/server.pem $W/pki/server.key $W/pki/ca.pem client6 news $W/vec/news.gxd $W/vec/news.vixset > server.log 2>&1 & pids+=($!)
 up=1
 for _ in $(seq 50); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && { up=0; break; }; sleep 0.1; done
-result $up "7.x object server (gxrepl serve) listening"
+result $up "7.x object server (vector_server) listening"
 
 C="$W/pki"
 "$PROG" check 127.0.0.1 $PORT vecserver $C/client6.pem $C/client6.key $C/ca.pem news "$W/vec" > check.log 2>&1

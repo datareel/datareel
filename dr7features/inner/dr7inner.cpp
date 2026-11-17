@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/15/2026
-// Date Last Modified: 11/15/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -44,8 +44,9 @@ this file. The 7.x names are used qualified (DATAREEL_NO_GLOBAL_NAMES).
 #include <stdint.h>
 #include "gxvindex.h"
 #include "gxvset.h"
+#include "gxobjrepl.h"
 // The 7.x multiplex session (gxdbmux.cpp) and so the object client are
-// POSIX only in DataReel 7.4 (as gxrepl): on Windows the dr7c_ calls
+// POSIX only in DataReel 7.4: on Windows the dr7c_ calls
 // below return an error.
 #if !defined(_WIN32)
 #define DR7_OBJECT_CLIENT 1
@@ -540,6 +541,249 @@ unsigned dr7c_file_name(const dr7c_client *h, unsigned file, char *buf,
 }
 
 const char *dr7c_error(const dr7c_client *h) { return h ? h->err.c_str() : ""; }
+
+// 11/17/2026: object replication (gxObjRepl)
+struct dr7r_node_s {
+  dr::gxObjReplConfig cfg;
+  dr::gxObjRepl node;
+  std::string err;
+};
+
+static int dr7r_fail(dr7r_node *h, const std::string &why)
+{
+  if(h) h->err = why;
+  return -1;
+}
+
+// The node's error after a call that failed
+static int dr7r_rc(dr7r_node *h, int rc)
+{
+  if(rc != 0) h->err = h->node.Error();
+  return rc == 0 ? 0 : -1;
+}
+
+static unsigned copy_out(const std::string &s, char *buf, unsigned buf_size)
+{
+  if(buf && buf_size) {
+    size_t n = s.size() < buf_size - 1 ? s.size() : buf_size - 1;
+    memcpy(buf, s.data(), n);
+    buf[n] = 0;
+  }
+  return (unsigned)s.size();
+}
+
+#define DR7R_TRY(h, expr) \
+  if(!h) return -1; \
+  h->err.clear(); \
+  try { expr } \
+  catch(const std::exception &e) { return dr7r_fail(h, e.what()); }
+
+dr7r_node *dr7r_new(void) { return new (std::nothrow) dr7r_node; }
+
+void dr7r_free(dr7r_node *h)
+{
+  if(!h) return;
+  try { h->node.Close(); } catch(...) { }
+  delete h;
+}
+
+int dr7r_config_set(dr7r_node *h, const char *key, const char *value)
+{
+  DR7R_TRY(h, {
+    std::string why;
+    if(!key || !value) return dr7r_fail(h, "a key and a value are needed");
+    if(!h->cfg.Set(key, value, &why)) return dr7r_fail(h, why);
+    return 0;
+  })
+}
+
+int dr7r_config_load(dr7r_node *h, const char *fname)
+{
+  DR7R_TRY(h, {
+    std::string why;
+    if(!fname) return dr7r_fail(h, "no file name");
+    if(!h->cfg.Load(fname, &why)) return dr7r_fail(h, why);
+    return 0;
+  })
+}
+
+void dr7r_config_clear(dr7r_node *h) { if(h) h->cfg = dr::gxObjReplConfig(); }
+
+int dr7r_open(dr7r_node *h, const char *root, int role)
+{
+  DR7R_TRY(h, {
+    if(!root) return dr7r_fail(h, "no node folder");
+    if(role != DR7R_PRIMARY && role != DR7R_COPY) return dr7r_fail(h, "the role is DR7R_PRIMARY or DR7R_COPY");
+    return dr7r_rc(h, h->node.Open(root, h->cfg, role == DR7R_PRIMARY ? dr::gxObjRepl::PRIMARY : dr::gxObjRepl::COPY));
+  })
+}
+
+void dr7r_close(dr7r_node *h) { if(h) { try { h->node.Close(); } catch(...) { } } }
+int dr7r_is_open(const dr7r_node *h) { return h && h->node.IsOpen(); }
+const char *dr7r_error(const dr7r_node *h) { return h ? h->err.c_str() : "no node (null handle)"; }
+
+int dr7r_open_database(dr7r_node *h, const char *db)
+{
+  DR7R_TRY(h, { return dr7r_rc(h, h->node.OpenDatabase(db ? db : "")); })
+}
+
+int dr7r_begin(dr7r_node *h) { DR7R_TRY(h, { return dr7r_rc(h, h->node.Begin()); }) }
+
+unsigned long long dr7r_new_id(dr7r_node *h)
+{
+  if(!h) return 0;
+  h->err.clear();
+  try {
+    uint64_t id = h->node.NewId();
+    if(id == 0) h->err = h->node.Error();
+    return id;
+  }
+  catch(const std::exception &e) { h->err = e.what(); return 0; }
+}
+
+int dr7r_put(dr7r_node *h, const char *db, unsigned long long id,
+	     const void *bytes, unsigned n)
+{
+  DR7R_TRY(h, {
+    if(!bytes && n) return dr7r_fail(h, "no object bytes");
+    return dr7r_rc(h, h->node.Put(db ? db : "", id, bytes, n));
+  })
+}
+
+int dr7r_remove(dr7r_node *h, const char *db, unsigned long long id)
+{
+  DR7R_TRY(h, { return dr7r_rc(h, h->node.Remove(db ? db : "", id)); })
+}
+
+int dr7r_purge(dr7r_node *h, const char *db, unsigned long long id)
+{
+  DR7R_TRY(h, { return dr7r_rc(h, h->node.Purge(db ? db : "", id)); })
+}
+
+int dr7r_commit(dr7r_node *h) { DR7R_TRY(h, { return dr7r_rc(h, h->node.Commit()); }) }
+int dr7r_rollback(dr7r_node *h) { DR7R_TRY(h, { return dr7r_rc(h, h->node.Rollback()); }) }
+int dr7r_pump(dr7r_node *h) { DR7R_TRY(h, { return dr7r_rc(h, h->node.Pump()); }) }
+int dr7r_drain(dr7r_node *h, int seconds) { DR7R_TRY(h, { return dr7r_rc(h, h->node.Drain(seconds)); }) }
+int dr7r_serve(dr7r_node *h) { DR7R_TRY(h, { return dr7r_rc(h, h->node.Serve()); }) }
+void dr7r_stop(dr7r_node *h) { if(h) h->node.Stop(); }
+
+int dr7r_get(dr7r_node *h, const char *db, unsigned long long id,
+	     void *buf, unsigned buf_size, unsigned *n)
+{
+  if(n) *n = 0;
+  DR7R_TRY(h, {
+    std::vector<unsigned char> b;
+    if(dr7r_rc(h, h->node.Get(db ? db : "", id, b)) != 0) return -1;
+    if(n) *n = (unsigned)b.size();
+    if(b.size() > buf_size || (!buf && !b.empty())) return dr7r_fail(h, "the buffer is too small for the object");
+    if(!b.empty()) memcpy(buf, b.data(), b.size());
+    return 0;
+  })
+}
+
+int dr7r_is_live(dr7r_node *h, const char *db, unsigned long long id)
+{
+  if(!h) return 0;
+  try { return h->node.IsLive(db ? db : "", id); } catch(...) { return 0; }
+}
+
+unsigned long dr7r_ids(dr7r_node *h, const char *db, int tombstones,
+		       unsigned long long *ids, unsigned long max)
+{
+  if(!h) return 0;
+  h->err.clear();
+  try {
+    std::vector<uint64_t> v = h->node.Ids(db ? db : "", tombstones ? dr::gxObjRepl::TOMBSTONES : dr::gxObjRepl::LIVE);
+    if(ids) for(unsigned long i = 0; i < v.size() && i < max; i++) ids[i] = v[i];
+    return (unsigned long)v.size();
+  }
+  catch(const std::exception &e) { h->err = e.what(); return 0; }
+}
+
+unsigned dr7r_databases(dr7r_node *h, char *buf, unsigned buf_size)
+{
+  if(buf && buf_size) buf[0] = 0;
+  if(!h) return 0;
+  try {
+    std::string all;
+    for(const std::string &d : h->node.Databases()) { all += d; all += '\n'; }
+    return copy_out(all, buf, buf_size);
+  }
+  catch(const std::exception &e) { h->err = e.what(); return 0; }
+}
+
+int dr7r_find_key(dr7r_node *h, const char *index, const void *key,
+		  unsigned n, unsigned long long *ids, unsigned max,
+		  unsigned *count)
+{
+  if(count) *count = 0;
+  DR7R_TRY(h, {
+    std::vector<uint64_t> v;
+    if(dr7r_rc(h, h->node.FindKey(index ? index : "", key, n, v)) != 0) return -1;
+    if(count) *count = (unsigned)v.size();
+    if(ids) for(unsigned i = 0; i < v.size() && i < max; i++) ids[i] = v[i];
+    return 0;
+  })
+}
+
+int dr7r_nearest(dr7r_node *h, const char *index, const float *query,
+		 unsigned k, dr7r_hit *hits, unsigned *count)
+{
+  if(count) *count = 0;
+  DR7R_TRY(h, {
+    std::vector<dr::gxObjReplHit> v;
+    if(!query) return dr7r_fail(h, "no query vector");
+    if(dr7r_rc(h, h->node.Nearest(index ? index : "", query, k, v)) != 0) return -1;
+    unsigned c = 0;
+    for(; c < v.size() && c < k; c++) if(hits) { hits[c].id = v[c].id; hits[c].distance = v[c].distance; }
+    if(count) *count = c;
+    return 0;
+  })
+}
+
+int dr7r_in_snapshot(dr7r_node *h) { return h ? h->node.InSnapshot() : 0; }
+unsigned long long dr7r_epoch(const dr7r_node *h) { return h ? h->node.Epoch() : 0; }
+unsigned long long dr7r_last_seq(const dr7r_node *h) { return h ? h->node.LastSeq() : 0; }
+unsigned long long dr7r_applied_seq(const dr7r_node *h) { return h ? h->node.AppliedSeq() : 0; }
+unsigned long long dr7r_copy_applied(const dr7r_node *h) { return h ? h->node.CopyApplied() : 0; }
+long dr7r_snapshots(const dr7r_node *h) { return h ? h->node.Snapshots() : 0; }
+
+// A static gxObjRepl call on a folder: its line or message to buf
+#define DR7R_FOLDER(call) \
+  std::string out; \
+  int rc; \
+  try { rc = call; } \
+  catch(const std::exception &e) { out = e.what(); rc = -1; } \
+  copy_out(out, buf, buf_size); \
+  return rc;
+
+int dr7r_digest(const char *root, const char *links, char *buf, unsigned buf_size)
+{
+  DR7R_FOLDER(dr::gxObjRepl::Digest(root ? root : "", links ? links : "", out))
+}
+int dr7r_status(const char *root, char *buf, unsigned buf_size)
+{
+  DR7R_FOLDER(dr::gxObjRepl::Status(root ? root : "", out))
+}
+int dr7r_check(const char *root, dr7r_node *cfg, char *buf, unsigned buf_size)
+{
+  dr::gxObjReplConfig none;
+  DR7R_FOLDER(dr::gxObjRepl::Check(root ? root : "", cfg ? cfg->cfg : none, out))
+}
+int dr7r_takeover(const char *root, char *buf, unsigned buf_size)
+{
+  DR7R_FOLDER(dr::gxObjRepl::Takeover(root ? root : "", out))
+}
+int dr7r_rejoin(const char *root, char *buf, unsigned buf_size)
+{
+  DR7R_FOLDER(dr::gxObjRepl::Rejoin(root ? root : "", out))
+}
+int dr7r_clear_alarm(const char *root, char *buf, unsigned buf_size)
+{
+  DR7R_FOLDER(dr::gxObjRepl::ClearAlarm(root ? root : "", out))
+}
+
+int dr7_engine_64(void) { return dr::gxSignatureSize == 10 ? 1 : 0; }
 
 } // extern "C"
 // ----------------------------------------------------------- //
