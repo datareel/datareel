@@ -17,6 +17,12 @@ if(NOT WIN32)
   # (utils/objrepl/test_objrepl*.sh) need a build with -DGXREPL_TEST_HOOKS=ON for their kill and drop cases
   add_executable(test_gxobjrepl_api objrepl/test_gxobjrepl_api.cpp)     # POSIX (fork, sockets)
   target_link_libraries(test_gxobjrepl_api PRIVATE DataReel::datareel)
+  # 11/16/2026: a randomized property test (two nodes, kills, drops, takeovers, rejoins) and a wire fuzzer for the copy
+  # (run_prop_objrepl.sh, run_fuzz_objrepl.sh; the fuzzer is meant for a -fsanitize=address,undefined build)
+  add_executable(prop_objrepl objrepl/prop_objrepl.cpp)
+  target_link_libraries(prop_objrepl PRIVATE DataReel::datareel)
+  add_executable(fuzz_objrepl objrepl/fuzz_objrepl.cpp)
+  target_link_libraries(fuzz_objrepl PRIVATE DataReel::datareel)
   add_executable(gxrepl gxrepl/gxrepl.cpp)
   target_link_libraries(gxrepl PRIVATE DataReel::datareel)
   # 11/14/2026: derived index extractors loaded from a .so take DataReel from gxrepl (one copy of the library, so
