@@ -339,6 +339,31 @@ static void test_scomserv()
   pass("scomserv_readblock");
 }
 
+static void test_scomserv_wire()
+// 11/16/2026: the serial block server reads the canonical 32-byte header
+// (gxWirePackBlockHeader) and refuses one with 4-byte words (a 64-bit
+// Windows or 32-bit build before 7.4 beta 5)
+{
+  int sv[2];
+  CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+  TestCommServer s;
+  s.Attach(sv[0]);
+  gxBlockHeader h, got;
+  s.SetBlockStatus(h, gxSendBlock);
+  h.block_length = 64;
+  unsigned char w[gxWireBlockHeaderSize];
+  gxWirePackBlockHeader(h, w);
+  CHECK(write(sv[1], w, sizeof(w)) == (ssize_t)sizeof(w));
+  CHECK(s.ReadHeader(got) == gxSerialComm::scomm_NO_ERROR && got.block_length == 64);
+  unsigned char old[24 + 32];
+  memset(old, 0, sizeof(old));
+  old[0] = 0xfe; old[1] = 0xfe; old[4] = 32; old[8] = 'N'; old[9] = 'S';
+  CHECK(write(sv[1], old, sizeof(old)) == (ssize_t)sizeof(old));
+  CHECK(s.ReadHeader(got) == gxSerialComm::scomm_BLOCKHEADER_ERROR);
+  close(sv[1]);
+  pass("scomserv_wire");
+}
+
 static void test_serial_pty_loopback()
 // 11/01/2026: gxSerialComm against a pseudo terminal (a serial loopback
 // with no hardware): bytes written on the master side arrive through
@@ -658,6 +683,7 @@ int main()
   test_telnet_deadline();
   test_telnet_iac();
   test_scomserv();
+  test_scomserv_wire();
   test_serial_pty_loopback();
 #else
   printf("SKIP telnet and serial tests (POSIX socket pairs)\n");
