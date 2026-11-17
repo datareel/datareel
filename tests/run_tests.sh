@@ -12,7 +12,7 @@ SRC=$(cd "$(dirname "$0")/.." && pwd)
 BUILD=${1:-$SRC/cmake-build}
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/datareel-tests.XXXXXX")
 # Below the Linux ephemeral port range (32768 and up)
-PORT=$((10000 + RANDOM % 20000))
+PORT=${DR_TEST_PORT:-$((10000 + RANDOM % 20000))}   # 11/17/2026: DR_TEST_PORT picks the base (runs side by side)
 PASS=0
 FAIL=0
 PIDS=()
@@ -158,6 +158,8 @@ mkdir -p "$WORK/run_object_replication" && cd "$WORK/run_object_replication" &&
 mkdir -p "$WORK/run_tls_key" && cd "$WORK/run_tls_key" &&
   "$SRC/utils/objrepl/objrepl_certs.sh" pki --copy-host 127.0.0.1 --apply > /dev/null &&
   check tls_key_test "$BUILD/tests/tls_key_test" pki $((PORT + 50))
+# 11/17/2026 (7.4, from 6.4.1): sockets close on exec; a child started by the server does not keep its port
+mkdir -p "$WORK/run_cloexec" && cd "$WORK/run_cloexec" && check socket_cloexec_test "$BUILD/tests/socket_cloexec_test" $((PORT + 60))
 # 11/15/2026 (7.4): the vector examples
 for p in vector_basics vector_records vector_days; do
   mkdir -p "$WORK/run_$p" && cd "$WORK/run_$p" && check $p "$E/$p" "$WORK/run_$p/w"

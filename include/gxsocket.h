@@ -83,6 +83,12 @@ dual-stack IPv6 socket that also accepts IPv4 clients. Accept()
 returns the client connection as a new gxSocket instead of 
 keeping it in remote_socket. Host names and addresses are 
 std::string. Windows builds use Winsock 2.
+
+11/17/2026 (7.4, from 6.4.1): every socket Connect(), Listen(),
+Accept() and OpenDatagram() opens is close-on-exec (POSIX) and not
+inherited (Windows), so programs this process runs do not get it. A
+child holding a server's listening port kept a restarted server from
+binding it.
 ==============================================================
 */
 // ----------------------------------------------------------- // 

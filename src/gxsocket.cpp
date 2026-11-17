@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 10/26/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -385,6 +385,22 @@ void gxSocket::ShutDown(int how)
   if(IsOpen()) shutdown(gxsocket, how);
 }
 
+// 11/17/2026 (7.4, from 6.4.1 d2e4c03): a socket is not passed to the programs this process runs. POSIX:
+// close on exec (a fork and exec, DRCM resource scripts for example, would otherwise hand the child the socket,
+// and a child still holding a listening port stops a restarted server from binding it). Windows: not inherited
+// by CreateProcess with handle inheritance on.
+static gxsSocket_t no_inherit(gxsSocket_t s)
+{
+  if(s == gxsINVALID_SOCKET) return s;
+#if defined (_WIN32)
+  SetHandleInformation((HANDLE)s, HANDLE_FLAG_INHERIT, 0);
+#elif defined (FD_CLOEXEC)
+  int fl = fcntl(s, F_GETFD, 0);
+  if(fl >= 0) fcntl(s, F_SETFD, fl | FD_CLOEXEC);
+#endif
+  return s;
+}
+
 static void set_blocking(gxsSocket_t s, bool blocking)
 {
 #if defined (_WIN32)
@@ -436,7 +452,7 @@ int gxSocket::Connect(const std::string &host, int port, int timeout_sec,
   }
 
   for(const gxsAddress &addr : addresses) {
-    gxsSocket_t s = socket(addr.Family(), SOCK_STREAM, IPPROTO_TCP);
+    gxsSocket_t s = no_inherit(socket(addr.Family(), SOCK_STREAM, IPPROTO_TCP));
     if(s == gxsINVALID_SOCKET) {
       set_error(gxSOCKET_INIT_ERROR);
       continue;
@@ -497,7 +513,7 @@ int gxSocket::Listen(int port, const std::string &bind_address,
   }
 
   for(const gxsAddress &addr : addresses) {
-    gxsSocket_t s = socket(addr.Family(), SOCK_STREAM, IPPROTO_TCP);
+    gxsSocket_t s = no_inherit(socket(addr.Family(), SOCK_STREAM, IPPROTO_TCP));
     if(s == gxsINVALID_SOCKET) {
       set_error(gxSOCKET_INIT_ERROR);
       continue;
@@ -538,7 +554,7 @@ gxSocket gxSocket::Accept()
   gxsSocketLength_t len = sizeof(ss);
   gxsSocket_t s;
   do {
-    s = accept(gxsocket, (sockaddr *)&ss, &len);
+    s = no_inherit(accept(gxsocket, (sockaddr *)&ss, &len));
 #if defined (_WIN32)
   } while(false);
 #else
@@ -559,7 +575,7 @@ int gxSocket::OpenDatagram(int family, int port,
 			   const std::string &bind_address)
 {
   Close();
-  gxsSocket_t s = socket(family, SOCK_DGRAM, IPPROTO_UDP);
+  gxsSocket_t s = no_inherit(socket(family, SOCK_DGRAM, IPPROTO_UDP));
   if(s == gxsINVALID_SOCKET) return set_error(gxSOCKET_INIT_ERROR);
   if(family == AF_INET6) {
     int off = 0;
