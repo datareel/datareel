@@ -10,6 +10,9 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <map>
+#include <set>
+#include <random>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
@@ -536,6 +539,128 @@ int main(int argc, char **argv)
       std::string da, db; R.stop();
       gxObjRepl::Digest(dir + "/r_c", "", da); gxObjRepl::Digest(dir + "/r_p", "", db);
       check(rc == 0 && sn == 0 && da == db, "fast rejoin: after a planned switchover the old primary followed on with no full send (snapshots " + std::to_string(sn) + "); equal [" + da + "]");
+    }
+    // r5-1 (11/16/2026, reader latency): a full send gives the lock up between its batches while a writer commits and
+    // a reader reads. The reader's worst wait stays short, and what the copy holds at the end of the full send is the
+    // primary exactly as it was at the full send's base: no later commit mixed in (the writer's history says what
+    // each object was at each seq), with links right; the commits made meanwhile follow from the outbox
+    {
+      int pf = base + 18;
+      gxObjReplConfig xc = pcfg(pf, true); xc.index = "k:ev:B:0:8"; xc.links = "lk:0:ev";
+      auto ccf = [&](const std::string &nm) { gxObjReplConfig c = ccfg(pf, nm); c.index = "k:ev:B:0:8"; return c; };
+      typedef std::pair<std::string, uint64_t> Key;
+      struct Ver { uint64_t seq; int kind; std::vector<unsigned char> b; };   // kind 1 live (links as ids), 2 removed, 3 purged
+      std::map<Key, std::vector<Ver>> hist;
+      std::mt19937_64 rng(5);
+      auto evrec = [&](uint64_t id, uint64_t seq) {
+	std::vector<unsigned char> b(1024);
+	for(size_t i = 0; i < b.size(); i++) b[i] = (unsigned char)rng();
+	uint64_t key = rng() % 50; memcpy(&b[0], &key, 8); memcpy(&b[8], &id, 8); memcpy(&b[16], &seq, 8);
+	return b;
+      };
+      Srv C1; C1.start(dir + "/fs_c1", ccf("FS1"));
+      gxObjRepl x; x.Open(dir + "/fs_p", xc, gxObjRepl::PRIMARY); x.OpenDatabase("ev"); x.OpenDatabase("lk");
+      std::vector<uint64_t> live, tomb, lks;
+      for(int k = 0; k < 20; k++) {                            // 40000 objects of 1 KB and 2000 links
+	x.Begin();
+	uint64_t seq = x.LastSeq() + 1;
+	for(int i = 0; i < 2000; i++) {
+	  uint64_t id = x.NewId(); auto b = evrec(id, seq); x.Put("ev", id, b.data(), (uint32_t)b.size());
+	  hist[{"ev", id}].push_back({seq, 1, b}); live.push_back(id);
+	}
+	for(int i = 0; i < 100; i++) {
+	  uint64_t id = x.NewId(), t = live[rng() % live.size()], a = (uint64_t)x.AddressOf("ev", t);
+	  unsigned char b[16]; memcpy(b, &a, 8); memcpy(b + 8, &seq, 8); x.Put("lk", id, b, 16);
+	  std::vector<unsigned char> w(16); memcpy(&w[0], &t, 8); memcpy(&w[8], &seq, 8);
+	  hist[{"lk", id}].push_back({seq, 1, w}); lks.push_back(id);
+	}
+	if(x.Commit() != 0) check(false, "r5-1 seed: " + x.Error());
+      }
+      int d1 = x.Drain(60);
+      for(int k = 0; k < 5; k++) x.Pump();                     // the outbox trimmed
+      C1.stop();
+      Srv C2; C2.start(dir + "/fs_c2", ccf("FS2"));            // an empty copy: it gets a full send
+      setenv("OBJREPL_TEST_ONLY_FULL_SEND", "1", 1);
+      std::atomic<int> stop{0}; std::atomic<long> reads{0}, commits{0}; std::atomic<double> worst{0};
+      std::string werr;
+      std::thread rd([&]() {
+	std::mt19937_64 r2(9); std::vector<unsigned char> b; std::vector<uint64_t> f;
+	while(!stop) {
+	  auto t0 = std::chrono::steady_clock::now();
+	  uint64_t key = r2() % 50;
+	  if(r2() % 2) x.Get("ev", 1 + r2() % 40000 + (1ULL << 40), b); else x.FindKey("k", &key, 8, f);
+	  double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+	  if(ms > worst) worst = ms;
+	  reads++;
+	  std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+      });
+      std::thread wr([&]() {
+	while(!stop) {
+	  if(x.Begin() != 0) { werr = x.Error(); break; }
+	  uint64_t seq = x.LastSeq() + 1;
+	  std::vector<std::pair<Key, Ver>> v;
+	  for(int i = 0; i < 4; i++) {                         // updates (some grow: the object moves)
+	    uint64_t id = live[rng() % live.size()]; auto b = evrec(id, seq);
+	    if(i == 0) b.resize(3000, 7);
+	    x.Put("ev", id, b.data(), (uint32_t)b.size()); v.push_back({{"ev", id}, {seq, 1, b}});
+	  }
+	  { uint64_t id = x.NewId(); auto b = evrec(id, seq); x.Put("ev", id, b.data(), (uint32_t)b.size()); v.push_back({{"ev", id}, {seq, 1, b}}); live.push_back(id); }
+	  { size_t k = rng() % live.size(); uint64_t id = live[k]; live[k] = live.back(); live.pop_back(); x.Remove("ev", id); v.push_back({{"ev", id}, {seq, 2, {}}}); tomb.push_back(id); }
+	  if(tomb.size() > 1 && rng() % 2) { size_t k = rng() % (tomb.size() - 1); uint64_t id = tomb[k];   // never the one removed in this commit
+	    if(x.Purge("ev", id) == 0) { tomb[k] = tomb[tomb.size() - 2]; tomb.erase(tomb.end() - 2); v.push_back({{"ev", id}, {seq, 3, {}}}); } }
+	  { uint64_t id = lks[rng() % lks.size()], t = live[rng() % live.size()], a = (uint64_t)x.AddressOf("ev", t);   // a link re-pointed
+	    unsigned char b[16]; memcpy(b, &a, 8); memcpy(b + 8, &seq, 8); x.Put("lk", id, b, 16);
+	    std::vector<unsigned char> w(16); memcpy(&w[0], &t, 8); memcpy(&w[8], &seq, 8); v.push_back({{"lk", id}, {seq, 1, w}}); }
+	  if(x.Commit() != 0) { werr = x.Error(); break; }
+	  if(x.LastSeq() != seq) { werr = "seq " + std::to_string(x.LastSeq()) + " != " + std::to_string(seq); break; }
+	  for(auto &e : v) hist[e.first].push_back(e.second);
+	  commits++;
+	  std::this_thread::sleep_for(std::chrono::milliseconds(2));
+	}
+      });
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      auto t0 = std::chrono::steady_clock::now();
+      int prc = 0; std::string perr;
+      for(int k = 0; k < 100 && x.Snapshots() == 0; k++) {     // the full send only (OBJREPL_TEST_ONLY_FULL_SEND)
+	prc = x.Pump();
+	if(x.Snapshots() == 0) { perr += " [" + std::to_string(prc) + ": " + x.Error() + "]"; std::this_thread::sleep_for(std::chrono::milliseconds(100)); }
+      }
+      double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+      long during = commits;
+      stop = 1; rd.join(); wr.join();
+      unsetenv("OBJREPL_TEST_ONLY_FULL_SEND");
+      uint64_t sbase = C2.r.AppliedSeq();
+      // the copy at the base: each object as the last commit up to the base left it
+      size_t bad = 0, checked = 0; std::string first_bad;
+      for(auto &h : hist) {
+	const Ver *at = 0;
+	for(auto &e : h.second) if(e.seq <= sbase) at = &e;
+	std::vector<unsigned char> b;
+	int g = C2.r.Get(h.first.first, h.first.second, b);
+	bool ok;
+	if(!at || at->kind == 3) ok = g != 0 && C2.r.AddressOf(h.first.first, h.first.second) == 0;
+	else if(at->kind == 2) ok = g != 0 && C2.r.AddressOf(h.first.first, h.first.second) != 0;
+	else {
+	  if(g == 0 && h.first.first == "lk" && b.size() == 16) { uint64_t a; memcpy(&a, &b[0], 8); uint64_t t = C2.r.IdAt("ev", (FAU_t)a); memcpy(&b[0], &t, 8); }
+	  ok = g == 0 && b == at->b;
+	}
+	checked++;
+	if(!ok && !bad++) first_bad = h.first.first + " " + std::to_string(h.first.second) + " (" + (at ? "kind " + std::to_string(at->kind) + " at seq " + std::to_string(at->seq) : std::string("not at the base")) + ")";
+      }
+      size_t want_live = 0; for(auto &h : hist) { const Ver *at = 0; for(auto &e : h.second) if(e.seq <= sbase) at = &e; if(at && at->kind == 1 && h.first.first == "ev") want_live++; }
+      size_t copy_live = C2.r.Ids("ev").size();
+      check(d1 == 0 && prc == 1 && x.Snapshots() == 1 && werr.empty() && during > 0 && sbase > 20 && sbase < x.LastSeq() && bad == 0 && copy_live == want_live,
+	    "r5-1: a full send in " + std::to_string(secs).substr(0, 5) + " s while " + std::to_string(during) + " commits and " + std::to_string((long)reads) +
+	    " reads ran: the copy is the primary at the base (seq " + std::to_string(sbase) + " of " + std::to_string(x.LastSeq()) + "): " + std::to_string(checked) +
+	    " objects checked, " + std::to_string(bad) + " differ" + (bad ? " [first " + first_bad + "]" : "") + ", " + std::to_string(copy_live) + " live (want " + std::to_string(want_live) + ")" +
+	    (werr.empty() ? "" : " writer: " + werr) + (perr.empty() ? "" : " pump:" + perr.substr(0, 300)));
+      check(worst < 1000, "r5-1: a reader's worst wait during the full send and the writer: " + std::to_string((double)worst).substr(0, 6) + " ms");
+      int d2 = x.Drain(60);
+      C2.stop(); x.Close();
+      std::string da, db; gxObjRepl::Digest(dir + "/fs_p", "lk:0:ev", da); gxObjRepl::Digest(dir + "/fs_c2", "lk:0:ev", db);
+      std::string ia, ib; int ra = gxObjRepl::IndexCheck(dir + "/fs_c2", "k:ev:B:0:8", ib);
+      check(d2 == 0 && da == db && ra == 0, "r5-1: the commits made during the full send followed from the outbox: equal [" + da + "], the copy's index consistent");
     }
   }
 
