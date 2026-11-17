@@ -46,9 +46,12 @@ Usage: layout_detect_test WORK_DIR [OLD_LAYOUT_DIR]
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <vector>
 #include "gxdbase.h"
+#include "dbugmgr.h"
+#include "../utils/db_debug/db_walk.h"
 
 using namespace datareel;
 
@@ -157,6 +160,37 @@ int main(int argc, char **argv)
     CHECK(ok, std::string("the old-layout file: ") + db.DatabaseExceptionMessage() + ", layout " +
 	  std::to_string(db.DiskLongSize()));
     std::cout << (ok ? "PASS" : "FAIL") << " old: " << f << ": layout " << db.DiskLongSize() << "\n";
+  }
+
+  // 4. 11/17/2026 (7.4 beta5): db_debug's block search and walk on the old-layout file. BlockSearch() copied
+  // DiskBlockHdrSize() bytes into the struct in memory: wrong whenever the two sizes differ (an old file on 64-bit
+  // Linux, a canonical file on Windows, where it overran the struct), so no block was found. A copy of the file,
+  // opened as db_debug opens it; every block must be found and good, as many as gxDatabase counts
+  if(argc > 2) {
+    std::string src = std::string(argv[2]) + "/data.gxd", f = work + "/layout_walk.gxd";
+    std::ifstream in(src, std::ios::binary);
+    std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    write_file(f, bytes);
+    FAU_t blocks = 0;
+    {
+      gxDatabase db;
+      if(db.Open(f.c_str(), gxDBASE_READONLY) == gxDBASE_NO_ERROR) blocks = db.TotalBlocks();
+    }
+    gxDatabaseDebugManager dm;
+    FAU_t first = 0, good = 0, bad = 0;
+    bool walked = false;
+    if(dm.BlindOpen(f.c_str()) == gxDBASE_NO_ERROR) {
+      first = dm.BlockSearch((FAU_t)0);
+      walked = gxdWalkBlocks(&dm, good, bad);
+    }
+    bool ok = blocks > 0 && first > 0 && walked && good == blocks && bad == 0;
+    CHECK(ok, "db_debug walk of the old-layout file: blocks " + std::to_string((long long)blocks) + ", first " +
+	  std::to_string((long long)first) + ", good " + std::to_string((long long)good) + ", bad " +
+	  std::to_string((long long)bad));
+    std::cout << (ok ? "PASS" : "FAIL") << " db_debug walk (old layout): " << (long long)good << " of "
+	      << (long long)blocks << " blocks\n";
+    dm.Close();
+    remove(f.c_str());
   }
 
   remove(base.c_str());
