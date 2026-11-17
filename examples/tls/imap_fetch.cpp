@@ -49,6 +49,7 @@ Usage: imap_fetch host port user password [--mailbox INBOX]
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -61,6 +62,16 @@ Usage: imap_fetch host port user password [--mailbox INBOX]
 
 using namespace datareel;
 
+// 11/17/2026: the first n characters of line equal name, ignoring case (strncasecmp is POSIX only: the Windows build
+// failed)
+static bool same_name(const std::string &line, const char *name, std::size_t n)
+{
+  for(std::size_t i = 0; i < n; i++) {
+    if(std::tolower((unsigned char)line[i]) != std::tolower((unsigned char)name[i])) return false;
+  }
+  return true;
+}
+
 static std::string header_field(const std::string &header, const char *name)
 {
   // The first "Name: value" line of a header (unfolded lines only)
@@ -71,8 +82,7 @@ static std::string header_field(const std::string &header, const char *name)
     if(eol == std::string::npos) eol = header.size();
     std::string line = header.substr(pos, eol - pos);
     if(!line.empty() && line.back() == '\r') line.pop_back();
-    if(line.size() > n && line[n] == ':' &&
-       strncasecmp(line.c_str(), name, n) == 0) {
+    if(line.size() > n && line[n] == ':' && same_name(line, name, n)) {
       std::size_t v = n + 1;
       while(v < line.size() && line[v] == ' ') v++;
       return line.substr(v);
