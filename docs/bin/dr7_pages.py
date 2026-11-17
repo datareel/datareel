@@ -965,6 +965,7 @@ EXAMPLES = [
  ('Plain text diagnostics', [
   ('diagnostics/ping.cpp', 'ping', 'ICMP and ICMPv6 echo. Usage: ping host [count] [-4|-6]'),
   ('diagnostics/telnet_client.cpp', 'telnet_client', 'Telnet login and command (plain text; trusted networks only).'),
+  ('diagnostics/serial_read.cpp', 'serial_read', 'gxSerialComm: read a serial port (Linux /dev/ttyS0, /dev/ttyUSB0 or a pty; Windows COM1...) to standard output or a capture file flushed after every read. Usage: serial_read DEVICE [--baud N] [--parity N|E|O] [--bits 7|8] [--stop 1|2] [--flow none|hard|soft] [--out FILE] [--hex] [--seconds N] [--bytes N]'),
   ('diagnostics/udp_broadcast.cpp', 'udp_broadcast', 'Send and receive UDP broadcast datagrams with gxSocket (plain text; trusted local networks only) (7.4).'),
   ('diagnostics/udp_multicast.cpp', 'udp_multicast', 'Send and receive IPv4 or IPv6 multicast datagrams, join a group (plain text; trusted local networks only) (7.4).'),
  ]),

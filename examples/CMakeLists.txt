@@ -62,6 +62,7 @@ datareel_example(string_utils      general/string_utils.cpp)
 # Plain text diagnostics (ICMP and telnet cannot use TLS)
 datareel_example(ping              diagnostics/ping.cpp)
 datareel_example(telnet_client     diagnostics/telnet_client.cpp)
+datareel_example(serial_read       diagnostics/serial_read.cpp)   # 11/17/2026: gxSerialComm (from ttycat)
 # 11/16/2026 (7.4): plain UDP broadcast and multicast (trusted local networks only), based on the 2001
 # broadcast and multicast programs
 datareel_example(udp_broadcast     diagnostics/udp_broadcast.cpp)
