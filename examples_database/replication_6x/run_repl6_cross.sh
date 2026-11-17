@@ -37,6 +37,8 @@ trap cleanup EXIT
 # primary's client certificate (CN objrepl-primary) and a client
 # certificate from the same CA with another CN (not in allow-cn: refused)
 mkdir -p "$W/pki" && cd "$W/pki" || exit 2
+# Git bash on Windows would turn "/CN=..." into a Windows path
+export MSYS2_ARG_CONV_EXCL="/CN="
 EC="-newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes"
 openssl req -x509 $EC -keyout ca.key -out ca.pem -days 2 -subj /CN=objrepl-ca 2>/dev/null
 openssl req $EC -keyout copy.key -out copy.csr -subj /CN=objrepl-copy 2>/dev/null
@@ -48,6 +50,7 @@ openssl x509 -req -in primary.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out 
 openssl req $EC -keyout other.key -out other.csr -subj /CN=objrepl-other 2>/dev/null
 openssl x509 -req -in other.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out other.pem -days 2 -extfile primary.ext 2>/dev/null
 chmod 600 *.key
+[ -s ca.pem ] && [ -s copy.pem ] && [ -s primary.pem ] && [ -s other.pem ] || { echo "FAIL certificates (openssl)"; echo "0 passed, 1 failed"; exit 1; }
 cd "$W" || exit 2
 # Windows (Git bash): the config files hold Windows paths for the programs
 winpath() { if command -v cygpath > /dev/null 2>&1; then cygpath -m "$1"; else echo "$1"; fi; }
@@ -69,7 +72,8 @@ stop_copy() { touch "$1/objrepl.stop"; for _ in $(seq 100); do kill -0 "$2" 2>/d
 # digest X ROOT: the digest line (stdout; the 7.4 tool also writes a
 # tombstone count line to stderr)
 digest() { "$1" digest "$2" 2>/dev/null; }
-same() { [ -n "$1" ] && [ "$1" == "$2" ]; }
+# same A B: two digest lines, equal and not of an empty node
+same() { [ -n "$1" ] && [ "$1" == "$2" ] && ! echo "$1" | grep -q "^objects 0 "; }
 
 # 1. 6.4 primary -> 7.4 copy
 P=$((PORT + 1)); mkdir -p r1p r1c

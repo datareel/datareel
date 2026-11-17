@@ -52,6 +52,7 @@ result $? "wirecmp: 6.4 and 7.4 pack the same 32-byte block header ($(wc -l < w6
 
 # Certificates as utils/objrepl/objrepl_certs.sh names them (pki/)
 mkdir -p pki && cd pki || exit 2
+export MSYS2_ARG_CONV_EXCL="/CN="
 EC="-newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes"
 openssl req -x509 $EC -keyout ca.key -out ca.pem -days 2 -subj /CN=objrepl-ca 2>/dev/null
 openssl req $EC -keyout copy.key -out copy.csr -subj /CN=objrepl-copy 2>/dev/null
