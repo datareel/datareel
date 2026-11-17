@@ -276,6 +276,12 @@ check imap_session_masks_password sh -c "$IM $((P4+8)) test secret --ca ca.pem -
 check imap_search sh -c "$IM $((P4+8)) test secret --ca ca.pem --search 'SUBJECT \"two\"' | grep -q '^1 match'"
 rm -rf imap_spool; mkdir imap_spool
 check imap_spool sh -c "$IM $((P4+8)) test secret --ca ca.pem --spool imap_spool > /dev/null && cmp imap_spool/17-Apr-2007_12_00_00_-0400_1.txt imap_body1.txt && [ \"\$(cat imap_spool/18-Apr-2007_08_30_00_-0400_2.txt)\" = Second ] && $IM $((P4+8)) test secret --ca ca.pem --spool imap_spool | grep -c 'already in the spool' | grep -q 2"
+# 11/16/2026 (beta5, G4-1): the server's arrival date names the spool file. One with "..", "/", "\", a control
+# character and 300 more characters gives one file, in the folder, named from [A-Za-z0-9_+-] and at most 80 long
+rm -rf imap_spool_evil; mkdir imap_spool_evil
+check imap_spool_names_safe sh -c "$IM $((P4+8)) evil secret --ca ca.pem --spool imap_spool_evil > imapev.out 2>&1 &&
+  [ \"\$(find imap_spool_evil -mindepth 1 | wc -l)\" = 1 ] && f=\$(ls imap_spool_evil) &&
+  echo \"\$f\" | LC_ALL=C grep -qE '^[A-Za-z0-9_+-]{1,76}\\.txt\$' && grep -q '^Evil body' imap_spool_evil/\$f"
 # A real IMAP server (Dovecot) in a rootless container on 127.0.0.1, removed after the test
 check imap_container "$SRC/tests/imap_container_check.sh" "$E" "$WORK/imap_container" "$WORK/ca.pem" "$WORK/server.pem" "$WORK/server.key"
 

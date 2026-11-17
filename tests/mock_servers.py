@@ -207,6 +207,14 @@ IMAP_MSGS = [
     ('18-Apr-2007 08:30:00 -0400', 'Wed, 18 Apr 2007 08:29:00 -0400', 'two',
      'Subject: two\r\n\r\n', 'Second\r\n'),
 ]
+# 11/16/2026 (7.4 beta5, G4-1): the user "evil" sees one message whose arrival
+# date (the server's text) holds "..", "/", "\\" (sent escaped), a control
+# character and a tab: imap_fetch --spool must name its file from safe
+# characters only, inside the spool folder.
+IMAP_EVIL_MSGS = [
+    ('../..\\\\x/..\x01\t' + 'A' * 300, 'Thu, 19 Apr 2007 09:00:00 -0400', 'evil',
+     'Subject: evil\r\n\r\n', 'Evil body\r\n'),
+]
 
 def imap_astrings(c, rest, n):
     """Read n astrings (quoted, literal or atom) from rest, asking for literals"""
@@ -236,6 +244,7 @@ def imap(c, secure, starttls_port=False):
         return cap
     c.send('* OK [CAPABILITY %s] mock IMAP' % caps())
     selected = False
+    msgs = IMAP_MSGS
     while True:
         l = c.readline()
         tag, _, rest = l.partition(' ')
@@ -249,7 +258,8 @@ def imap(c, secure, starttls_port=False):
             user, pw = imap_astrings(c, args, 2)
             if starttls_port and not secure:
                 c.send(tag + ' NO LOGIN is disabled before TLS')
-            elif (user, pw) in (('test', 'secret'), ('tëst', 'sëcret'), ('quote', 'a b"c\\d')):
+            elif (user, pw) in (('test', 'secret'), ('tëst', 'sëcret'), ('quote', 'a b"c\\d'), ('evil', 'secret')):
+                if user == 'evil': msgs = IMAP_EVIL_MSGS
                 c.send(tag + ' OK logged in')
             else:
                 c.send(tag + ' NO [AUTHENTICATIONFAILED] wrong user or password')
@@ -258,7 +268,7 @@ def imap(c, secure, starttls_port=False):
             if name.upper() != 'INBOX':
                 c.send(tag + ' NO no such mailbox'); continue
             c.send('* FLAGS (\\Seen \\Deleted)')
-            c.send('* %d EXISTS' % len(IMAP_MSGS)); c.send('* 0 RECENT')
+            c.send('* %d EXISTS' % len(msgs)); c.send('* 0 RECENT')
             selected = True
             c.send(tag + ' OK [READ-WRITE] selected')
         elif u == 'LIST':
@@ -269,16 +279,16 @@ def imap(c, secure, starttls_port=False):
             a = args.upper()
             if a.startswith('SUBJECT '):
                 want = args[8:].strip('"').lower()
-                hits = [i + 1 for i, m in enumerate(IMAP_MSGS) if want in m[2].lower()]
+                hits = [i + 1 for i, m in enumerate(msgs) if want in m[2].lower()]
             else:
-                hits = list(range(1, len(IMAP_MSGS) + 1))
+                hits = list(range(1, len(msgs) + 1))
             c.send('* SEARCH' + ''.join(' %d' % h for h in hits)); c.send(tag + ' OK searched')
         elif u == 'FETCH' and selected:
             num, _, items = args.partition(' ')
             n = int(num)
-            if n < 1 or n > len(IMAP_MSGS):
+            if n < 1 or n > len(msgs):
                 c.send(tag + ' BAD no such message'); continue
-            idate, edate, subj, hdr, body = IMAP_MSGS[n - 1]
+            idate, edate, subj, hdr, body = msgs[n - 1]
             c.send('* %d FETCH (FLAGS (\\Recent))' % n) # unsolicited, before the reply
             out = b'* %d FETCH (' % n
             parts = []

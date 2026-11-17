@@ -87,6 +87,22 @@ static bool file_has_data(const std::string &fname)
   return stat(fname.c_str(), &st) == 0 && st.st_size > 0;
 }
 
+// 11/16/2026 (beta5, G4-1): the spool file name, "<arrival date>_<number>.txt". The date is the server's text, so
+// only letters, digits, "-", "_" and "+" are kept (anything else, "/", "\", ".", ":", spaces and control
+// characters, becomes "_") and it is cut to 60 characters: the name can never leave the spool folder or be a
+// device or hidden name on any platform.
+static std::string spool_name(const std::string &datetime, int n)
+{
+  std::string s;
+  for(std::size_t i = 0; i < datetime.size() && s.size() < 60; i++) {
+    unsigned char c = (unsigned char)datetime[i];
+    bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+      c == '-' || c == '_' || c == '+';
+    s += ok ? (char)c : '_';
+  }
+  return s + "_" + std::to_string(n) + ".txt";
+}
+
 static int return_error(gxsIMAPClient &client, bool debug)
 {
   std::cerr << client.Error() << "\n";
@@ -152,11 +168,7 @@ int main(int argc, char **argv)
     if(spool_dir.empty()) continue;
 
     // The spool file is named by the arrival time and number
-    std::string fname = spool_dir + "/" + datetime + "_" + std::to_string(n);
-    for(std::size_t i = spool_dir.size() + 1; i < fname.size(); i++) {
-      if(fname[i] == ' ' || fname[i] == ':' || fname[i] == '/') fname[i] = '_';
-    }
-    fname += ".txt";
+    std::string fname = spool_dir + "/" + spool_name(datetime, n);
     if(file_has_data(fname)) {
       std::cout << "   already in the spool, skipped\n";
       continue;
