@@ -330,6 +330,15 @@ public: // Reads (either role)
 	  int tombstones = 0);
   gxString Databases(); // One name a line
   int InSnapshot();     // A copy in the middle of a full send
+  // Index lookups (the "index" setting: B-tree keys of up to 32 bytes at
+  // an offset, vector indexes on floats at an offset). FindKey(): the ids
+  // whose key equals key (n bytes), at most max copied to ids; count is
+  // the number found. Nearest(): the k nearest objects, closest first;
+  // ids and distances hold k entries.
+  int FindKey(const char *index, const void *key, unsigned n,
+	      unsigned long long *ids, unsigned max, unsigned &count);
+  int Nearest(const char *index, const float *query, unsigned k,
+	      unsigned long long *ids, float *distances, unsigned &count);
 
 public: // State
   unsigned long long Epoch() const;

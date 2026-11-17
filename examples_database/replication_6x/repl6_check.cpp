@@ -36,7 +36,10 @@ program or the 7.4 objrepl tool, on Linux or Windows.
                                        Windows) or until ROOT/objrepl.stop
                                        appears. --check: then read every
                                        live record back and check its
-                                       CRC (records repl6_writer wrote)
+                                       CRC (records repl6_writer wrote);
+                                       with "index station:readings:B:0:16"
+                                       in CONF, find each one by station
+                                       with FindKey()
   repl6_check digest ROOT | status ROOT | engine   as repl6_writer
 
 CONF is an objrepl.conf file: the copy needs listen ([ADDR:]PORT), ca,
@@ -126,12 +129,30 @@ static int copy(const char *root, const char *conf, int check)
     unsigned long long *ids = 0;
     unsigned long n = 0, bad = 0;
     if(c.Ids(REPL6_DB, ids, n) != 0) { printf("repl6_check: Ids: %s\n", c.Error().c_str()); rc = -1; }
+    // With a "station" index in CONF (index station:readings:B:0:16, the
+    // copy's own B-tree on the station name): each record is found by
+    // its station with FindKey()
+    unsigned long found = 0, missed = 0;
+    int have_index = 0;
     for(unsigned long i = 0; i < n; i++) {
       MemoryBuffer b;
-      if(c.Get(REPL6_DB, ids[i], b) != 0 || !reading_ok(b)) bad++;
+      if(c.Get(REPL6_DB, ids[i], b) != 0 || !reading_ok(b)) { bad++; continue; }
+      Reading r;
+      memcpy(&r, b.m_buf(), sizeof(r));
+      unsigned long long hits[256];
+      unsigned count = 0;
+      if(c.FindKey("station", r.station, sizeof(r.station), hits, 256, count) != 0) continue;
+      have_index = 1;
+      int in = 0;
+      for(unsigned k = 0; k < count && k < 256; k++) if(hits[k] == ids[i]) in = 1;
+      if(in) found++; else missed++;
     }
     delete[] ids;
     printf("repl6_check: %lu live records, %lu with a bad CRC or unreadable\n", n, bad);
+    if(have_index) {
+      printf("repl6_check: station index: %lu records found by FindKey(), %lu not found\n", found, missed);
+      if(missed) bad++;
+    }
     if(bad) rc = -1;
   }
   c.Close();

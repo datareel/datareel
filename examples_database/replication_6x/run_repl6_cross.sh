@@ -98,10 +98,12 @@ same "$d7" "$d6"; result $? "the 6.4 copy's digest equals the 7.4 primary's ($d7
 
 # 3. 6.4 primary -> 6.4 copy, the copy checks every record's CRC
 P=$((PORT + 3)); mkdir -p r3p r3c
-"$XC" copy r3c "$(conf copy3 primary3 copy $P)" --check > r3c.log 2>&1 & cp3=$!; pids+=($cp3)
+c3=$(conf copy3 primary3 copy $P); echo "index station:readings:B:0:16" >> "$c3"   # the copy's own B-tree index
+"$XC" copy r3c "$c3" --check > r3c.log 2>&1 & cp3=$!; pids+=($cp3)
 listening $P
 "$X6" primary r3p "$(conf primary3 copy3 primary $P)" 1000 > r3p.log 2>&1; result $? "6.4 primary -> 6.4 copy: 1000 records drained"
 stop_copy r3c $cp3; result $? "6.4 copy: every live record read back with a good CRC ($(grep 'live records' r3c.log))"
+grep -q "station index: [1-9][0-9]* records found by FindKey(), 0 not found" r3c.log; result $? "6.4 copy's own station index: $(grep -o 'station index.*' r3c.log)"
 same "$(digest "$X6" r3p)" "$(digest "$X6" r3c)"; result $? "6.4 copy's digest equals the 6.4 primary's"
 
 # 4. The copy away: the 6.4 primary commits, the 7.4 copy starts 5 s later and catches up

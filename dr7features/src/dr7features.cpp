@@ -422,6 +422,28 @@ gxString gxv7ObjRepl::Databases()
 }
 
 int gxv7ObjRepl::InSnapshot() { return dr7r_in_snapshot(NODE); }
+
+int gxv7ObjRepl::FindKey(const char *index, const void *key, unsigned n,
+			 unsigned long long *ids, unsigned max, unsigned &count)
+{
+  count = 0;
+  return dr7r_find_key(NODE, index, key, n, ids, max, &count);
+}
+
+int gxv7ObjRepl::Nearest(const char *index, const float *query, unsigned k,
+			 unsigned long long *ids, float *distances, unsigned &count)
+{
+  count = 0;
+  if(k == 0) return 0;
+  dr7r_hit *hits = new dr7r_hit[k];
+  int rc = dr7r_nearest(NODE, index, query, k, hits, &count);
+  for(unsigned i = 0; rc == 0 && i < count; i++) {
+    if(ids) ids[i] = hits[i].id;
+    if(distances) distances[i] = hits[i].distance;
+  }
+  delete[] hits;
+  return rc;
+}
 unsigned long long gxv7ObjRepl::Epoch() const { return dr7r_epoch(NODE); }
 unsigned long long gxv7ObjRepl::LastSeq() const { return dr7r_last_seq(NODE); }
 unsigned long long gxv7ObjRepl::AppliedSeq() const { return dr7r_applied_seq(NODE); }

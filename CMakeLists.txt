@@ -171,6 +171,11 @@ set(DATAREEL7_FEATURES_DIR "" CACHE PATH
   "DataReel 7.4 or later source tree for the vector database features (empty: off)")
 option(DATAREEL7_TOOLS
   "With DATAREEL7_FEATURES_DIR: also build the 7.x objrepl, object server/client (POSIX) and vix_rebuild" ON)
+# 11/17/2026: test builds only, never a production build: the 7.x
+# library's crash and fault hooks (GXREPL_TEST_HOOKS), which the 7.4
+# utils/objrepl test scripts need for their kill and drop cases
+option(DATAREEL7_TEST_HOOKS
+  "With DATAREEL7_FEATURES_DIR: build the 7.x test-only crash and fault hooks (test builds only)" OFF)
 if(DATAREEL7_FEATURES_DIR)
   include(ExternalProject)
   get_filename_component(_dr7_dir "${DATAREEL7_FEATURES_DIR}" ABSOLUTE)
@@ -190,7 +195,8 @@ if(DATAREEL7_FEATURES_DIR)
     -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
     -DDATAREEL_64BIT_DATABASE=${DATAREEL_64BIT_DATABASE}
-    -DDR7_TOOLS=${DATAREEL7_TOOLS})
+    -DDR7_TOOLS=${DATAREEL7_TOOLS}
+    -DGXREPL_TEST_HOOKS=${DATAREEL7_TEST_HOOKS})
   if(NOT DATAREEL_SSL STREQUAL "NONE")
     list(APPEND _dr7_args -DDATAREEL_SSL=${DATAREEL_SSL})
   endif()
