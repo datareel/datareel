@@ -655,9 +655,15 @@ static void test_db_walk()
     std::string base = read_file(f).substr(0, (size_t)hdrs[0]);
     std::ofstream o(junk, std::ios::binary);
     o << base;
-    gxBlockHeader h;
-    h.block_length = 0;
-    for(int i = 0; i < 2000; i++) o.write((const char *)&h, sizeof(h));
+    // 11/17/2026 (7.4 beta5): canonical headers, as the comment says: the check word, length 0, a normal block and
+    // no next pointer, each an 8-byte little-endian word. It wrote an uninitialized gxBlockHeader as raw struct bytes:
+    // only the length was set, and on Windows the 24-byte struct does not line up with the 32-byte canonical header,
+    // so no candidate was found (good 0, bad 0)
+    unsigned char h[32];
+    memset(h, 0, sizeof(h));
+    for(int k = 0; k < 4; k++) h[k] = (unsigned char)((unsigned long)gxCheckWord >> (8 * k));
+    h[16] = (unsigned char)gxNormalBlock;
+    for(int i = 0; i < 2000; i++) o.write((const char *)h, sizeof(h));
     o.close();
     gxDatabaseDebugManager dm;
     CHECK(dm.BlindOpen(junk.string().c_str()) == gxDBASE_NO_ERROR);
