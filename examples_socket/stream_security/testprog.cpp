@@ -339,6 +339,34 @@ static int test_dgram_request()
   return 0;
 }
 
+// 11/16/2026: gxDatagram sends the canonical header; one with 4-byte
+// words (24 bytes from a 64-bit Windows build before it) is refused
+static int test_dgram_wire()
+{
+  gxsSocketAddress a, b;
+  int sa = udp_socket(a), sb = udp_socket(b);
+  if(sa < 0 || sb < 0) return 2;
+  gxDatagram peer, me;
+  gxBlockHeader h, got;
+  peer.SetBlockStatus(h, gxSendBlock);
+  h.block_length = 100;
+  if(peer.WriteHeader(sb, &a, h) != 0) return 2;
+  unsigned char raw[64];
+  ssize_t n = recv(sa, raw, sizeof(raw), MSG_PEEK);
+  if(n != 32) { printf("  datagram of %d bytes\n", (int)n); return 1; }
+  gxsSocketAddress from;
+  if(me.ReadHeader(sa, &from, got) != 0 || got.block_length != 100) return 1;
+  unsigned char old[24];
+  memset(old, 0, sizeof(old));
+  old[0] = 0xfe; old[1] = 0xfe; old[4] = 100; old[8] = 'N'; old[9] = 'S';
+  if(sendto(sb, old, sizeof(old), 0, (struct sockaddr *)&a, sizeof(a)) != 24) return 2;
+  unsigned char body[100];
+  memset(body, 'x', sizeof(body));
+  if(sendto(sb, body, sizeof(body), 0, (struct sockaddr *)&a, sizeof(a)) != 100) return 2;
+  if(me.ReadHeader(sa, &from, got) == 0) return 1;
+  return me.GetSocketError() == gxSOCKET_BLOCKHEADER_ERROR ? 0 : 1;
+}
+
 static int test_dgram_sized()
 {
   gxsSocketAddress a, b;
@@ -766,6 +794,8 @@ int main(int argc, char **argv)
       test_stream_old_header);
   run("dgram_request: gxDatagram RequestBlock() refuses a huge block length",
       test_dgram_request);
+  run("dgram_wire: gxDatagram sends the canonical header, refuses 4-byte words",
+      test_dgram_wire);
   run("dgram_sized: gxDatagram ReadBlock() with a buffer size",
       test_dgram_sized);
   run("dgram_maxblock: gxDatagram ReadBlock() refuses lengths over "

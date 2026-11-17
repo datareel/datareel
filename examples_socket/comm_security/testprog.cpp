@@ -161,7 +161,10 @@ static void test_serial()
     memset(data, 'x', sizeof(data));
     gx.block_length = sizeof(data);
     limit("serial: block over the pty", 10);
-    if(write(master, &gx, sizeof(gx)) != (ssize_t)sizeof(gx) ||
+    // 11/16/2026: the header in its canonical wire form (gxheader.h)
+    unsigned char wgx[gxWireBlockHeaderSize];
+    gxWirePackBlockHeader(gx, wgx);
+    if(write(master, wgx, sizeof(wgx)) != (ssize_t)sizeof(wgx) ||
        write(master, data, sizeof(data)) != (ssize_t)sizeof(data)) {
       check(0, "serial: write to the pty master");
     }
@@ -177,6 +180,21 @@ static void test_serial()
     check(s.ReadBlock(big, sizeof(big), rx) == gxSerialComm::scomm_NO_ERROR &&
 	  memcmp(big, data, sizeof(data)) == 0, "serial: ReadBlock() into a buffer large enough");
 
+    // 11/16/2026: a header with 4-byte words (a 64-bit Windows or 32-bit
+    // build before the canonical form) is refused, not misread
+    {
+      unsigned char oldh[24 + 32];
+      memset(oldh, 0, sizeof(oldh));
+      oldh[0] = 0xfe; oldh[1] = 0xfe; oldh[4] = 32; oldh[8] = 'N'; oldh[9] = 'S';
+      limit("serial: a header with 4-byte words", 10);
+      if(write(master, oldh, sizeof(oldh)) != (ssize_t)sizeof(oldh)) check(0, "serial: write the old header");
+      usleep(100000);
+      gxBlockHeader orx;
+      check(s.ReadHeader(orx) == gxSerialComm::scomm_BLOCKHEADER_ERROR,
+	    "serial: a header with 4-byte words is refused");
+      alarm(0);
+      tcflush(s.DeviceHandle(), TCIOFLUSH);
+    }
     // The old overload refuses a length a small buffer cannot hold
     gxBlockHeader huge;
     s.SetBlockStatus(huge, gxSendBlock);
