@@ -256,11 +256,15 @@ if(DATAREEL7_FEATURES_DIR)
     add_executable(vector_client examples_socket/vector_client/testprog.cpp)
     target_link_libraries(vector_client PRIVATE DataReel::dr7features)
   endif()
-  # 11/17/2026: object replication with the 7.x gxObjRepl (gxv7ObjRepl):
-  # examples_database/objrepl_6x, every platform. DataReel 7.4 beta 5
-  # removed gxrepl, so the replication_6x example went with it.
-  add_executable(objrepl6 examples_database/objrepl_6x/objrepl6.cpp)
-  target_link_libraries(objrepl6 PRIVATE DataReel::dr7features)
+  # The replication example (examples_database/replication_6x), every
+  # platform. 11/17/2026: 6.x programs replicating with the 7.x
+  # gxObjRepl (gxv7ObjRepl): repl6_writer is a primary, repl6_check a
+  # copy, and either replicates with a DataReel 7.4 node (DataReel 7.4
+  # beta 5 removed gxrepl, which copied 6.x database folders)
+  foreach(_p repl6_writer repl6_check)
+    add_executable(${_p} examples_database/replication_6x/${_p}.cpp)
+    target_link_libraries(${_p} PRIVATE DataReel::dr7features)
+  endforeach()
   message(STATUS "DataReel 7.x vector database features from ${_dr7_dir}")
   if(DATAREEL7_TOOLS)
     message(STATUS "DataReel 7.x tools (objrepl, object_server, vector_server, vix_rebuild): ${_dr7_bin}/tools")

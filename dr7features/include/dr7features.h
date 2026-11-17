@@ -259,7 +259,7 @@ private:
 // space and indexes. A 6.x program and a DataReel 7.4 program (or the
 // 7.4 objrepl tool) replicate to each other, on Linux and Windows.
 // See docs/classes/database/dr7features.htm and
-// examples_database/objrepl_6x.
+// examples_database/replication_6x.
 //
 //   gxv7ObjRepl p;
 //   p.SetConfig("copy", "copyhost:7400"); // or LoadConfig("objrepl.conf")

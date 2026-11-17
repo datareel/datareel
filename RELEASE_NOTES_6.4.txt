@@ -208,9 +208,11 @@ pages; each node keeps its own file addresses, free space and indexes.
   6.4 (gxstream-wire-6x).
 - The node files are the 7.x files of the build's database engine; a
   32-bit engine node and a 64-bit engine node never share a folder.
-- The 7.x gxrepl (page-shipping replication) and the replication_6x
-  example are gone: DataReel 7.4 beta 5 removed gxrepl.
-Example and how-to: examples_database/objrepl_6x (README.txt). See
+- The 7.x gxrepl (page-shipping replication) is gone: DataReel 7.4
+  beta 5 removed it. The replication_6x example is rewritten on
+  gxv7ObjRepl: repl6_writer is a primary, repl6_check a copy, and
+  either replicates with the 7.4 objrepl tool.
+Example and how-to: examples_database/replication_6x (README.txt). See
 also the DataReel 7.4 gxObjRepl reference and administrator's guide.
 
 TESTED PLATFORMS

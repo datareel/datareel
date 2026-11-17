@@ -76,9 +76,9 @@
 <li>The configuration is the objrepl.conf keys (SetConfig(), LoadConfig()), as for the 7.4 objrepl tool.</li>
 <li>A 6.x program and a DataReel 7.4 program (or the 7.4 objrepl tool) replicate to each other, on Linux and Windows: 7.4 beta 5 sends gxStream&#x27;s block header in one canonical 32-byte form, and so does 6.4.</li>
 <li>The node files are the 7.x files of the build&#x27;s database engine; a 32-bit engine node and a 64-bit engine node never share a folder.</li>
-<li>The 7.x gxrepl (page-shipping replication) and the replication_6x example are gone: DataReel 7.4 beta 5 removed gxrepl.</li>
+<li>The 7.x gxrepl (page-shipping replication) is gone: DataReel 7.4 beta 5 removed it. The replication_6x example is rewritten on gxv7ObjRepl: repl6_writer is a primary, repl6_check a copy, and either replicates with the 7.4 objrepl tool.</li>
 </ul>
-<p>Example and how-to: examples_database/objrepl_6x (README.txt, <a href="objrepl_6x.html">Object replication for 6.x programs</a>). See also the DataReel 7.4 gxObjRepl reference and administrator&#x27;s guide.</p>
+<p>Example and how-to: examples_database/replication_6x (README.txt, <a href="replication_6x.html">Replicating 6.x programs&#x27; records</a>). See also the DataReel 7.4 gxObjRepl reference and administrator&#x27;s guide.</p>
 <h2>Tested Platforms</h2>
 <p>On RHEL 10.2 with DataReel 7.4 beta3 (tag 7.4-beta3), 32-bit and 64-bit database engines:</p>
 <ul>

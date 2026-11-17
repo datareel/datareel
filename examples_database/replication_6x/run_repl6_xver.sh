@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_objrepl6_xver.sh DR74_TREE BUILD_DIR [WORK_DIR] - DataReel 6.4: the
+# run_repl6_xver.sh DR74_TREE BUILD_DIR [WORK_DIR] - DataReel 6.4: the
 # DataReel 7.4 6.4<->7.4 wire tests (utils/objrepl/xver in the 7.4 tree)
 # built against this 6.4 library and the 7.4 library of the same 6.x
 # CMake build (11/17/2026). Linux.
@@ -18,10 +18,10 @@
 # Both libraries must use the same database engine; a 32-bit engine run
 # needs OBJREPL_ALLOW_32BIT=1.
 set -u
-D7=$(cd "${1:?usage: run_objrepl6_xver.sh DR74_TREE BUILD_DIR [WORK_DIR]}" && pwd)
-B=$(cd "${2:?usage: run_objrepl6_xver.sh DR74_TREE BUILD_DIR [WORK_DIR]}" && pwd)
+D7=$(cd "${1:?usage: run_repl6_xver.sh DR74_TREE BUILD_DIR [WORK_DIR]}" && pwd)
+B=$(cd "${2:?usage: run_repl6_xver.sh DR74_TREE BUILD_DIR [WORK_DIR]}" && pwd)
 HERE=$(cd "$(dirname "$0")/../.." && pwd)   # the 6.4 source tree
-W=${3:-$(mktemp -d "${TMPDIR:-/tmp}/objrepl6x.XXXXXX")}
+W=${3:-$(mktemp -d "${TMPDIR:-/tmp}/repl6x.XXXXXX")}
 mkdir -p "$W" && W=$(cd "$W" && pwd)
 XV=$D7/utils/objrepl/xver; X7=$B/dr7inner/tools/objrepl
 pass=0; fail=0; pids=()

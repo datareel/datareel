@@ -1,10 +1,13 @@
 #!/bin/bash
-# run_objrepl6_cross.sh TOOLS_DIR OBJREPL6 [WORK_DIR] - DataReel 6.4: a
-# DataReel 6.x program (objrepl6, gxv7ObjRepl) and the DataReel 7.4
-# objrepl tool replicating to each other, both ways (11/17/2026).
+# run_repl6_cross.sh TOOLS_DIR BIN_DIR [WORK_DIR] - DataReel 6.4: DataReel
+# 6.x programs (repl6_writer, repl6_check: gxv7ObjRepl) and the DataReel
+# 7.4 objrepl tool replicating to each other, both ways. 11/17/2026: on
+# the 7.x gxObjRepl (object replication); before, the 7.x gxrepl copied
+# a 6.x database folder (gxrepl went from DataReel 7.4 beta 5).
 #   TOOLS_DIR: the folder with the 7.4 objrepl tool (the 6.x CMake build
 #              with DATAREEL7_FEATURES_DIR: <build>/dr7inner/tools)
-#   OBJREPL6:  the objrepl6 program (examples_database/objrepl_6x)
+#   BIN_DIR:   the folder with repl6_writer and repl6_check (the CMake
+#              build folder, or its Release folder with Visual Studio)
 #   WORK_DIR:  a new folder for the test (default: a temporary one)
 # Linux (and Windows under a POSIX shell with openssl). Uses 127.0.0.1
 # and throwaway certificates made with the openssl program. A 32-bit
@@ -12,10 +15,13 @@
 # objrepl tests): the run makes its own folders, so no engine reads the
 # other's files.
 set -u
-T=$(cd "${1:?usage: run_objrepl6_cross.sh TOOLS_DIR OBJREPL6 [WORK_DIR]}" && pwd)
+T=$(cd "${1:?usage: run_repl6_cross.sh TOOLS_DIR BIN_DIR [WORK_DIR]}" && pwd)
 X7=$T/objrepl
-X6=$(cd "$(dirname "${2:?usage: run_objrepl6_cross.sh TOOLS_DIR OBJREPL6 [WORK_DIR]}")" && pwd)/$(basename "$2")
-W=${3:-$(mktemp -d "${TMPDIR:-/tmp}/objrepl6.XXXXXX")}
+BD=$(cd "${2:?usage: run_repl6_cross.sh TOOLS_DIR BIN_DIR [WORK_DIR]}" && pwd)
+XW=$BD/repl6_writer   # the 6.4 primary (and digest, status, engine)
+XC=$BD/repl6_check    # the 6.4 copy
+X6=$XW
+W=${3:-$(mktemp -d "${TMPDIR:-/tmp}/repl6.XXXXXX")}
 mkdir -p "$W" && W=$(cd "$W" && pwd)
 if [ "${OBJREPL_ALLOW_32BIT:-0}" != 1 ] && ! "$X6" engine > /dev/null 2>&1; then
   echo "$(basename "$0"): $X6 is a 32-bit engine build ($("$X6" engine)); set OBJREPL_ALLOW_32BIT=1 for a 32-bit run"; exit 64
@@ -70,7 +76,7 @@ P=$((PORT + 1)); mkdir -p r1p r1c
 "$X7" copy r1c --config "$(conf copy1 primary1 copy $P)" > r1c.log 2>&1 & cp1=$!; pids+=($cp1)
 listening $P; result $? "7.4 copy (objrepl tool) listening"
 "$X6" primary r1p "$(conf primary1 copy1 primary $P)" 2000 > r1p.log 2>&1
-result $? "6.4 primary (objrepl6) wrote 2000 records and drained to the 7.4 copy ($(tail -1 r1p.log))"
+result $? "6.4 primary (repl6_writer) wrote 2000 records and drained to the 7.4 copy ($(tail -1 r1p.log))"
 stop_copy r1c $cp1; result $? "7.4 copy stopped cleanly on objrepl.stop"
 d6=$(digest "$X6" r1p); d7=$(digest "$X7" r1c)
 same "$d6" "$d7"; result $? "the 7.4 copy's digest equals the 6.4 primary's ($d6)"
@@ -78,8 +84,8 @@ d7p=$(digest "$X7" r1p); same "$d6" "$d7p"; result $? "the 7.4 tool and the 6.4 
 
 # 2. 7.4 primary -> 6.4 copy
 P=$((PORT + 2)); mkdir -p r2p r2c
-"$X6" copy r2c "$(conf copy2 primary2 copy $P)" > r2c.log 2>&1 & cp2=$!; pids+=($cp2)
-listening $P; result $? "6.4 copy (objrepl6) listening"
+"$XC" copy r2c "$(conf copy2 primary2 copy $P)" > r2c.log 2>&1 & cp2=$!; pids+=($cp2)
+listening $P; result $? "6.4 copy (repl6_check) listening"
 "$X7" primary r2p --config "$(conf primary2 copy2 primary $P)" --commits 300 --per 8 --dbs 3 > r2p.log 2>&1
 result $? "7.4 primary (objrepl tool) wrote 300 commits to 3 databases and drained to the 6.4 copy"
 stop_copy r2c $cp2; result $? "6.4 copy stopped cleanly on objrepl.stop ($(grep applied_seq r2c.log))"
@@ -88,7 +94,7 @@ same "$d7" "$d6"; result $? "the 6.4 copy's digest equals the 7.4 primary's ($d7
 
 # 3. 6.4 primary -> 6.4 copy, the copy checks every record's CRC
 P=$((PORT + 3)); mkdir -p r3p r3c
-"$X6" copy r3c "$(conf copy3 primary3 copy $P)" --check > r3c.log 2>&1 & cp3=$!; pids+=($cp3)
+"$XC" copy r3c "$(conf copy3 primary3 copy $P)" --check > r3c.log 2>&1 & cp3=$!; pids+=($cp3)
 listening $P
 "$X6" primary r3p "$(conf primary3 copy3 primary $P)" 1000 > r3p.log 2>&1; result $? "6.4 primary -> 6.4 copy: 1000 records drained"
 stop_copy r3c $cp3; result $? "6.4 copy: every live record read back with a good CRC ($(grep 'live records' r3c.log))"
@@ -113,7 +119,7 @@ same "$(digest "$X6" r1p)" "$(digest "$X7" r1c)"; result $? "the 7.4 copy's dige
 
 # 6. A primary with a certificate the copy does not trust is refused (no data applied)
 P=$((PORT + 6)); mkdir -p r6p r6c
-"$X6" copy r6c "$(conf copy6 primary6 copy $P)" > r6c.log 2>&1 & cp6=$!; pids+=($cp6)
+"$XC" copy r6c "$(conf copy6 primary6 copy $P)" > r6c.log 2>&1 & cp6=$!; pids+=($cp6)
 listening $P
 "$X7" primary r6p --config "$(conf primary6 copy6 primary $P other)" --commits 5 > r6p.log 2>&1; r=$?
 [ $r -ne 0 ]; result $? "a primary certificate whose CN is not in allow-cn is refused by the 6.4 copy (7.4 primary exit $r)"
