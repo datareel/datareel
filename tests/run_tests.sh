@@ -225,6 +225,9 @@ check ffind_find_replace sh -c "cd '$DU' && printf 'alpha beta\\nBeta alpha alph
   $U/ffind -Iend -W' (last)' t.txt > /dev/null; grep -q '^end (last)\$' t.txt && [ ! -e t.txt.ffind.tmp ]"
 check txfilter_sets sh -c "cd '$DU' && printf 'ab 12\\t\\001x!\\r\\nZ9\\n' > f.txt; [ \"\$($U/txfilter -N f.txt | od -An -c | tr -d ' ')\" = \"12\\t\\n9\\n\" ] &&
   $U/txfilter -d f.txt | od -An -c | tr -d ' ' | grep -qF 'ab12\\tx!\\r\\nZ9\\r\\n'"
+# 11/17/2026: O_DIRECT reads of a closed gxObjRepl node (from direct_io): equal to plain reads, same digest
+mkdir -p "$WORK/run_odirect" && "$SRC/utils/objrepl/objrepl_certs.sh" "$WORK/run_odirect/pki" --copy-host 127.0.0.1 --days 30 --apply > /dev/null &&
+  check odirect_test env ODIRECT_PKI="$WORK/run_odirect/pki" "$BUILD/tests/odirect_test" "$WORK/run_odirect"
 # Vector index (gxvindex.h, 7.4): kernels, exact and graph search,
 # Merge, Repair, concurrent searches and 20 crash rounds
 mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" &&

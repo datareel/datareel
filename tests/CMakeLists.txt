@@ -85,5 +85,11 @@ if(NOT WIN32)
   add_executable(proclock_test proclock_test.cpp)
   target_link_libraries(proclock_test PRIVATE DataReel::datareel)
   set_target_properties(proclock_test PROPERTIES
+# 11/17/2026: a closed gxObjRepl node's files read past the page cache (O_DIRECT, Linux): equal to the plain reads,
+# and the bytes read that way give the same digest and consistent indexes
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  add_executable(odirect_test odirect_test.cpp)
+  target_link_libraries(odirect_test PRIVATE DataReel::datareel)
+  set_target_properties(odirect_test PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 endif()
