@@ -59,8 +59,11 @@ inline gxdWalkResult gxdWalkStep(gxDatabaseDebugManager *f, FAU_t addr,
 				 FAU_t eof, gxBlockHeader &blk, FAU_t &next)
 {
   next = (FAU_t)0;
-  if((FAU_t)(addr + sizeof(gxBlockHeader)) > eof) return gxdWALK_ERROR;
-  if(f->Read(&blk, sizeof(gxBlockHeader), addr) != gxDBASE_NO_ERROR) {
+  // 11/17/2026 (7.4 beta5): the header in the file's layout (DiskBlockHdrSize(), ReadBlockHdrRaw()), not the struct
+  // in memory: on Windows the struct has 4-byte words and the canonical file 8-byte ones, so the walk read every
+  // block as damaged there (support_security_test db_walk, found by the beta5 Windows run)
+  if((FAU_t)(addr + (FAU_t)f->DiskBlockHdrSize()) > eof) return gxdWALK_ERROR;
+  if(f->ReadBlockHdrRaw(blk, addr) != gxDBASE_NO_ERROR) {
     return gxdWALK_ERROR;
   }
   // 11/01/2026: Compare the length unsigned against the room left in

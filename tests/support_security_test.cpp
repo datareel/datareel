@@ -609,10 +609,14 @@ static void test_db_walk()
     CHECK(hdrs.size() == 10);
   }
   // Corrupt lengths: 0, huge, shorter than a header
-  auto set_len = [&](FAU_t at, gxUINT32 len) {
+  // 11/17/2026 (7.4 beta5): the length field of the canonical layout, 8 bytes little endian after the 8-byte check
+  // word (it wrote a gxUINT32 at +4: the check word's high half on Linux, so the "length" cases damaged the check word)
+  auto set_len = [&](FAU_t at, unsigned long long len) {
+    unsigned char b[8];
+    for(int k = 0; k < 8; k++) b[k] = (unsigned char)(len >> (8 * k));
     std::fstream io(fname, std::ios::in | std::ios::out | std::ios::binary);
-    io.seekp((std::streamoff)at + 4);
-    io.write((const char *)&len, sizeof(len));
+    io.seekp((std::streamoff)at + 8);
+    io.write((const char *)b, 8);
   };
   set_len(hdrs[2], 0);
   set_len(hdrs[5], 0xFFFFFFF0u);
