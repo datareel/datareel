@@ -83,6 +83,7 @@ struct gxSchannelCTX
     ca_store = 0;
     client_ca_store = 0; // 11/01/2026
     key = 0;
+    key_where = -1;
   }
 
   CredHandle cred;           // Schannel credentials handle
@@ -95,6 +96,7 @@ struct gxSchannelCTX
   // server context with this store asks clients for a certificate.
   HCERTSTORE client_ca_store;
   NCRYPT_KEY_HANDLE key;     // Imported private key, deleted with the CTX
+  int key_where;             // 11/17/2026: 0 in memory, 1 user, 2 machine
 };
 
 struct gxSchannelConn
@@ -411,7 +413,7 @@ static void gxsc_free_ctx(gxSchannelCTX *c)
   if(c->key) {
     // The key was imported for this context. NCryptDeleteKey also frees
     // the handle.
-    if(NCryptDeleteKey(c->key, 0) != ERROR_SUCCESS) {
+    if(c->key_where == 0 || NCryptDeleteKey(c->key, 0) != ERROR_SUCCESS) {
       NCryptFreeObject(c->key);
     }
     c->key = 0;
@@ -675,7 +677,8 @@ gxSSL_CTX_t *gxSSL::InitCTX()
   }
 
   int inbound = is_server || (!is_client && ctx->cert != 0);
-  if(sc_acquire_cred(inbound) != gxSSL_NO_ERROR) {
+  // 11/17/2026: sc_use_key() already got the credentials for a PEM or DER key
+  if(!ctx->has_cred && sc_acquire_cred(inbound) != gxSSL_NO_ERROR) {
     gxSSLError err = ssl_error;
     DestroyCTX();
     ssl_error = err;
@@ -917,22 +920,76 @@ supported, convert the key to PKCS#8 with openssl pkcs8 -topk8");
     }
   }
 
-  // Import the key into the current user's key store. Schannel needs a
-  // stored key, so the key is given a name made from the certificate
-  // thumbprint and deleted again by DestroyCTX().
-  BYTE thumb[20];
-  DWORD thumb_len = sizeof(thumb);
-  if(!CertGetCertificateContextProperty(ctx->cert, CERT_SHA1_HASH_PROP_ID,
-					thumb, &thumb_len)) {
-    sc_set_status((long)GetLastError());
-    return ssl_error = gxSSL_CERT_ERROR;
+  // 11/17/2026: Try the key stores in turn until Schannel accepts the
+  // credentials: see sc_use_key()
+  int inbound = is_server || !is_client;
+  int rv = sc_use_key(pkcs8, encrypted, inbound);
+  SecureZeroMemory(pkcs8.data(), pkcs8.size());
+  return rv;
+}
+
+// 11/17/2026: Where the imported private key is kept. Schannel does the
+// key's work in the LSA process, so it needs a key it can reach:
+//   user store - a named key in the current user's CNG store (the 7.3
+//                method). Tried first: on Windows 11 it works over a
+//                key-based SSH logon and in a service under LocalService
+//                (tests/tls_key_test.cpp, tests/tls_key_service.cmd)
+//   in memory  - an unnamed (ephemeral) CNG key handle on the certificate,
+//                nothing written to disk; for an account with no usable
+//                key store
+//   machine    - a named machine key; needs administrator rights
+// The named keys get the process id and a counter in their names, so two
+// processes (or two contexts) with the same certificate never overwrite or
+// delete each other's key, and they are deleted again by DestroyCTX().
+static const char *gxsc_key_where[3] = { "in memory", "user key store",
+					 "machine key store" };
+
+static void gxsc_drop_key(gxSchannelCTX *c)
+// Undo one attempt: the credentials, the certificate's key link and the key
+{
+  if(c->has_cred) FreeCredentialsHandle(&c->cred);
+  c->has_cred = 0;
+  if(c->cert) {
+    CertSetCertificateContextProperty(c->cert, CERT_NCRYPT_KEY_HANDLE_PROP_ID,
+				      0, 0);
+    CertSetCertificateContextProperty(c->cert, CERT_KEY_PROV_INFO_PROP_ID,
+				      0, 0);
   }
-  wchar_t key_name[64];
-  wcscpy(key_name, L"DataReel-gxSSL-");
-  for(DWORD i = 0; i < thumb_len; i++) {
-    wchar_t hex[3];
-    swprintf(hex, 3, L"%02X", (unsigned)thumb[i]);
-    wcscat(key_name, hex);
+  if(c->key) {
+    if(c->key_where == 0 || NCryptDeleteKey(c->key, 0) != ERROR_SUCCESS) {
+      NCryptFreeObject(c->key);
+    }
+    c->key = 0;
+  }
+  c->key_where = -1;
+}
+
+int gxSSL::sc_import_key(std::vector<unsigned char> &pkcs8, int encrypted,
+			 int where)
+// Import the PKCS#8 key into WHERE (0 in memory, 1 user store, 2
+// machine store) and link it to ctx->cert. Returns 0 if successful.
+{
+  static volatile LONG counter = 0;
+  wchar_t key_name[128];
+  key_name[0] = 0;
+  if(where != 0) {
+    BYTE thumb[20];
+    DWORD thumb_len = sizeof(thumb);
+    if(!CertGetCertificateContextProperty(ctx->cert, CERT_SHA1_HASH_PROP_ID,
+					  thumb, &thumb_len)) {
+      sc_set_status((long)GetLastError());
+      return ssl_error = gxSSL_CERT_ERROR;
+    }
+    wcscpy(key_name, L"DataReel-gxSSL-");
+    for(DWORD i = 0; i < thumb_len; i++) {
+      wchar_t hex[3];
+      swprintf(hex, 3, L"%02X", (unsigned)thumb[i]);
+      wcscat(key_name, hex);
+    }
+    wchar_t tail[40];
+    swprintf(tail, 40, L"-%lu-%ld", (unsigned long)GetCurrentProcessId(),
+	     (long)InterlockedIncrement(&counter));
+    wcscat(key_name, tail);
   }
 
   NCRYPT_PROV_HANDLE prov = 0;
@@ -945,10 +1002,12 @@ supported, convert the key to PKCS#8 with openssl pkcs8 -topk8");
   wchar_t *wpw = 0;
   NCryptBuffer nbufs[2];
   int num_bufs = 0;
-  nbufs[num_bufs].BufferType = NCRYPTBUFFER_PKCS_KEY_NAME;
-  nbufs[num_bufs].cbBuffer = (ULONG)((wcslen(key_name)+1) * sizeof(wchar_t));
-  nbufs[num_bufs].pvBuffer = key_name;
-  num_bufs++;
+  if(where != 0) {
+    nbufs[num_bufs].BufferType = NCRYPTBUFFER_PKCS_KEY_NAME;
+    nbufs[num_bufs].cbBuffer = (ULONG)((wcslen(key_name)+1) * sizeof(wchar_t));
+    nbufs[num_bufs].pvBuffer = key_name;
+    num_bufs++;
+  }
   if(encrypted) {
     wpw = gxsc_to_wide(passwd.c_str());
     if(!wpw) {
@@ -965,28 +1024,52 @@ supported, convert the key to PKCS#8 with openssl pkcs8 -topk8");
   ndesc.cBuffers = num_bufs;
   ndesc.pBuffers = nbufs;
 
+  DWORD flags = NCRYPT_DO_NOT_FINALIZE_FLAG;
+  if(where != 0) flags |= NCRYPT_OVERWRITE_KEY_FLAG; // a name left by a crash
+  if(where == 2) flags |= NCRYPT_MACHINE_KEY_FLAG;
   NCRYPT_KEY_HANDLE key = 0;
-  st = NCryptImportKey(prov, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB, &ndesc, &key,
-		       (PBYTE)pkcs8.data(), (DWORD)pkcs8.size(),
-		       NCRYPT_OVERWRITE_KEY_FLAG | NCRYPT_DO_NOT_FINALIZE_FLAG);
+  st = NCryptImportKey(prov, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB,
+		       num_bufs ? &ndesc : 0, &key,
+		       (PBYTE)pkcs8.data(), (DWORD)pkcs8.size(), flags);
   if(wpw) {
     SecureZeroMemory(wpw, wcslen(wpw) * sizeof(wchar_t));
     delete[] wpw;
   }
+  if(st == ERROR_SUCCESS && where == 0) {
+    // Schannel runs the key's operations in the LSA process and copies an
+    // in-memory key there: the key must be exportable. The key came from
+    // a plain or passphrase file this process could read, so this gives
+    // nothing away; it never leaves the machine.
+    DWORD policy = NCRYPT_ALLOW_EXPORT_FLAG | NCRYPT_ALLOW_PLAINTEXT_EXPORT_FLAG;
+    NCryptSetProperty(key, NCRYPT_EXPORT_POLICY_PROPERTY, (PBYTE)&policy,
+		      sizeof(policy), 0);
+  }
   if(st == ERROR_SUCCESS) {
     st = NCryptFinalizeKey(key, 0);
     if(st != ERROR_SUCCESS) {
-      NCryptDeleteKey(key, 0);
+      if(where != 0) NCryptDeleteKey(key, 0); else NCryptFreeObject(key);
       key = 0;
     }
   }
   NCryptFreeObject(prov);
-  SecureZeroMemory(pkcs8.data(), pkcs8.size());
   if(st != ERROR_SUCCESS) {
     sc_set_status((long)st);
     return ssl_error = encrypted ? gxSSL_PASSWD_ERROR : gxSSL_KEY_ERROR;
   }
   ctx->key = key;
+  ctx->key_where = where;
+
+  if(where == 0) {
+    // The handle stays owned by ctx (freed after the certificate)
+    if(!CertSetCertificateContextProperty(ctx->cert,
+					  CERT_NCRYPT_KEY_HANDLE_PROP_ID,
+					  CERT_SET_PROPERTY_INHIBIT_PERSIST_FLAG,
+					  &ctx->key)) {
+      sc_set_status((long)GetLastError());
+      return ssl_error = gxSSL_KEY_ERROR;
+    }
+    return ssl_error = gxSSL_NO_ERROR;
+  }
 
   // Link the certificate to the stored key
   CRYPT_KEY_PROV_INFO prov_info;
@@ -995,12 +1078,54 @@ supported, convert the key to PKCS#8 with openssl pkcs8 -topk8");
   prov_info.pwszProvName = (LPWSTR)MS_KEY_STORAGE_PROVIDER;
   prov_info.dwProvType = 0;
   prov_info.dwKeySpec = 0;
+  if(where == 2) prov_info.dwFlags = NCRYPT_MACHINE_KEY_FLAG;
   if(!CertSetCertificateContextProperty(ctx->cert, CERT_KEY_PROV_INFO_PROP_ID,
 					0, &prov_info)) {
     sc_set_status((long)GetLastError());
     return ssl_error = gxSSL_KEY_ERROR;
   }
   return ssl_error = gxSSL_NO_ERROR;
+}
+
+int gxSSL::sc_use_key(std::vector<unsigned char> &pkcs8, int encrypted,
+		      int inbound)
+// 11/17/2026: Import the key and get the credentials, in the user store
+// first, then in memory, then the machine store; the first one Schannel
+// accepts is kept (KeyStorage() names it). If none is accepted the error
+// names each place and its Windows status. Never logs the key or the
+// passphrase. Returns 0 if successful.
+{
+  std::string why;
+  int imported = 0;
+  static const int order[3] = { 1, 0, 2 };   // user store, in memory, machine
+  for(int k = 0; k < 3; k++) {
+    int where = order[k];
+    int rv = sc_import_key(pkcs8, encrypted, where);
+    if(rv == gxSSL_NO_ERROR) { imported = 1; rv = sc_acquire_cred(inbound); }
+    if(rv == gxSSL_NO_ERROR) return ssl_error = gxSSL_NO_ERROR;
+    gxSSLError err = ssl_error;
+    char num[32];
+    snprintf(num, sizeof(num), "0x%08lX", (unsigned long)(DWORD)gxSchannelLastStatus);
+    if(!why.empty()) why += ", ";
+    why += std::string(gxsc_key_where[where]) + " " + num;
+    gxsc_drop_key(ctx);
+    // A wrong passphrase fails the same way in every store; after one
+    // import worked, a failed import is about the store
+    if((err == gxSSL_PASSWD_ERROR && !imported) || err == gxSSL_CERT_ERROR) {
+      return ssl_error = err;
+    }
+  }
+  std::string msg = "SSL exception: Schannel could not use the private key in " + key_file +
+    " (" + why + "). Run as a user with a loaded profile, as a service, or as an administrator";
+  return SetAppError(msg.c_str());
+}
+
+const char *gxSSL::KeyStorage()
+// 11/17/2026: Where the private key of this context is kept, or "" if
+// the context has no imported PEM or DER key
+{
+  if(!ctx || ctx->key_where < 0) return "";
+  return gxsc_key_where[ctx->key_where];
 }
 
 void gxSSL::DestroyCTX()

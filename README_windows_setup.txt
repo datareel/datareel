@@ -219,6 +219,30 @@ E:\3plibs\zlib64-1.3.1>nmake -f win32\Makefile.msc
 For a 32-bit legacy build unpack a second copy to zlib32-1.3.1 and
 use vcvars32.bat instead of vcvars64.bat.
 
+-----------------------------------------
+Schannel Private Keys (PEM and DER files)
+-----------------------------------------
+A Schannel build reads a PEM or DER private key and gives it to
+Windows. Schannel uses the key in the LSA process, so DataReel 7.4
+tries three places and keeps the first one Schannel accepts:
+
+  1. the user key store: a named key in the current user's profile
+     (the DataReel 7.3 method). Tested on Windows 11 from a console,
+     over a key-based SSH logon and in a service under LocalService
+     (tests/tls_key_test.cpp and tests/tls_key_service.cmd)
+  2. in memory: an unnamed key on the certificate, nothing written to
+     disk, for an account whose key store cannot be used
+  3. the machine key store: a named machine key (needs an
+     administrator)
+
+A named key is deleted when the program closes the TLS context. A
+program killed before that leaves its key in the store under a name
+starting with DataReel-gxSSL- (with the process id and a counter, so
+two programs with the same certificate never share or delete each
+other's key); it is never used again. If none of the three is accepted, the error names each place
+and its Windows status code. A PFX (.pfx, .p12) file is imported into
+the user key store as before.
+
 ----------------------------
 OpenSSL Version Requirements
 ----------------------------

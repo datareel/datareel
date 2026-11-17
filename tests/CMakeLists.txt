@@ -55,3 +55,9 @@ add_executable(imap_login_test imap_login_test.cpp)
 target_link_libraries(imap_login_test PRIVATE DataReel::datareel)
 set_target_properties(imap_login_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+
+# 11/17/2026 (7.4): TLS with PEM keys where no user is signed in (SSH, a Windows service): tls_key_test
+add_executable(tls_key_test tls_key_test.cpp)
+target_link_libraries(tls_key_test PRIVATE DataReel::datareel)
+set_target_properties(tls_key_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
