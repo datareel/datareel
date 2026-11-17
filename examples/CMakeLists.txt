@@ -49,6 +49,7 @@ datareel_example(pop3_list         tls/pop3_list.cpp)
 # 11/16/2026 (7.4): IMAP, based on the 2007 IMAP client program
 datareel_example(imap_fetch        tls/imap_fetch.cpp)
 datareel_example(ftps_client       tls/ftps_client.cpp)
+datareel_example(dir_upload        tls/dir_upload.cpp)   # 11/17/2026: watch a folder, FTPS upload, delete (from dirscanf)
 datareel_example(stream_server     tls/stream_server.cpp)
 datareel_example(stream_client     tls/stream_client.cpp)
 

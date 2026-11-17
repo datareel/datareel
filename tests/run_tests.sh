@@ -263,6 +263,26 @@ head -c 150000 /dev/urandom > upload.bin
 check ftps_put sh -c "$E/ftps_client localhost $((P4+5)) test secret put upload.bin up.bin --ca ca.pem"
 check ftps_list sh -c "$E/ftps_client localhost $((P4+5)) test secret list --ca ca.pem | grep -q up.bin"
 check ftps_get sh -c "$E/ftps_client localhost $((P4+4)) test secret get up.bin down.bin --implicit --ca ca.pem && cmp down.bin upload.bin"
+# 11/17/2026 (7.4): dir_upload (examples/tls/dir_upload.cpp) against the mock FTPS server: settled files go up as
+# NAME.part, are renamed, size-checked and deleted (or moved to --done); a file still changing, a wrong password
+# and an unsafe password file leave the files alone; the password is never taken from the command line
+mkdir -p "$WORK/dirup/in" "$WORK/dirup/done" && rm -f "$WORK/ftp/du_"*
+for n in 1 2 3; do head -c $((n * 70000)) /dev/urandom > "$WORK/dirup/in/du_$n.dat"; done
+touch -d '2 minutes ago' "$WORK/dirup/in/du_"*.dat
+check dir_upload_once sh -c "DR_FTP_PASSWORD=secret $E/dir_upload --dir '$WORK/dirup/in' --host localhost --port $((P4+5)) --user test --ca ca.pem --pattern 'du_*' --once --log '$WORK/dirup/log.txt' &&
+  for n in 1 2 3; do [ -f '$WORK/ftp/du_'\$n.dat ] && [ ! -e '$WORK/dirup/in/du_'\$n.dat ] || exit 1; done && [ -z \"\$(ls '$WORK/ftp' | grep '\\.part\$')\" ] &&
+  ! grep -q secret '$WORK/dirup/log.txt'"
+head -c 1000 /dev/urandom > "$WORK/dirup/in/du_fresh.dat"
+check dir_upload_settle sh -c "DR_FTP_PASSWORD=secret $E/dir_upload --dir '$WORK/dirup/in' --host localhost --port $((P4+5)) --user test --ca ca.pem --settle 60 --once &&
+  [ -f '$WORK/dirup/in/du_fresh.dat' ] && [ ! -e '$WORK/ftp/du_fresh.dat' ]"
+touch -d '2 minutes ago' "$WORK/dirup/in/du_fresh.dat"
+check dir_upload_bad_password sh -c "! DR_FTP_PASSWORD=wrong $E/dir_upload --dir '$WORK/dirup/in' --host localhost --port $((P4+5)) --user test --ca ca.pem --once && [ -f '$WORK/dirup/in/du_fresh.dat' ]"
+printf 'secret\n' > "$WORK/dirup/pw" && chmod 644 "$WORK/dirup/pw"
+check dir_upload_unsafe_password_file sh -c "$E/dir_upload --dir '$WORK/dirup/in' --host localhost --port $((P4+5)) --user test --password-file '$WORK/dirup/pw' --once; [ \$? -eq 64 ] && [ -f '$WORK/dirup/in/du_fresh.dat' ]"
+check dir_upload_no_password_argv sh -c "$E/dir_upload --dir '$WORK/dirup/in' --host localhost --user test --password secret --once; [ \$? -eq 64 ]"
+chmod 600 "$WORK/dirup/pw"
+check dir_upload_done_folder sh -c "$E/dir_upload --dir '$WORK/dirup/in' --host localhost --port $((P4+4)) --implicit --user test --password-file '$WORK/dirup/pw' --ca ca.pem --done '$WORK/dirup/done' --once &&
+  cmp '$WORK/dirup/done/du_fresh.dat' '$WORK/ftp/du_fresh.dat' && [ ! -e '$WORK/dirup/in/du_fresh.dat' ]"
 
 # 11/16/2026 (7.4): IMAP (gxsIMAPClient, examples/tls/imap_fetch.cpp) against the mock server: implicit TLS,
 # STARTTLS, plain text, literals, a quoted body, the 2007 client's cut-short bodies, LOGINDISABLED, the spool
