@@ -6,7 +6,7 @@
 // C++ Compiler Used: GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/08/2026
-// Date Last Modified: 11/08/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -31,20 +31,27 @@ Many databases over one connection (gxdbmux.h).
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
 
-#if !defined (__WIN32__)
-
-#include "gxdbmux.h"
+// 11/17/2026 (7.4): Windows too (Winsock, WSAPoll, Schannel)
 #include "gxstream.h"
+#include "gxdbmux.h"
 
 #include <errno.h>
+#include <string.h>
+#include <chrono>
+#if defined (__WIN32__)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <fcntl.h>
 #include <poll.h>
-#include <string.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <unistd.h>
-#include <chrono>
+#endif
+#if !defined (__USE_GX_SCHANNEL__)
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#endif
 
 namespace datareel {
 
@@ -114,29 +121,115 @@ int gxdMuxDecodeBody(const unsigned char *p, size_t n, gxdMuxFrame &f)
 
 // ---------------- Transports ----------------
 
+// 11/17/2026 (7.4): the socket calls the transports need, on both systems
+#if defined (__WIN32__)
+typedef SOCKET mux_sock;
+static const mux_sock mux_bad = INVALID_SOCKET;
+typedef WSAPOLLFD mux_pollfd;
+static int mux_poll(mux_pollfd *p, int n, int ms) { return WSAPoll(p, (ULONG)n, ms); }
+static int mux_errno() { return WSAGetLastError(); }
+static bool mux_again(int e) { return e == WSAEWOULDBLOCK || e == WSAEINTR; }
+static bool mux_intr(int e) { return e == WSAEINTR; }
+static void mux_close(mux_sock s) { closesocket(s); }
+static int mux_nonblock(mux_sock s, bool on) { u_long v = on ? 1 : 0; return ioctlsocket(s, FIONBIO, &v); }
+static long mux_recv(mux_sock s, unsigned char *b, size_t n) { return recv(s, (char *)b, (int)n, 0); }
+static long mux_send(mux_sock s, const unsigned char *b, size_t n)
+{
+  return send(s, (const char *)b, n > 0x40000000 ? 0x40000000 : (int)n, 0);
+}
+static std::string mux_strerror(int e) { return "Winsock error " + std::to_string(e); }
+static void mux_startup()
+{
+  static bool done = false;
+  if(!done) { WSADATA d; WSAStartup(MAKEWORD(2, 2), &d); done = true; }
+}
+#else
+typedef int mux_sock;
+static const mux_sock mux_bad = -1;
+typedef struct pollfd mux_pollfd;
+static int mux_poll(mux_pollfd *p, int n, int ms) { return poll(p, (nfds_t)n, ms); }
+static int mux_errno() { return errno; }
+static bool mux_again(int e) { return e == EAGAIN || e == EWOULDBLOCK || e == EINTR; }
+static bool mux_intr(int e) { return e == EINTR; }
+static void mux_close(mux_sock s) { close(s); }
+static int mux_nonblock(mux_sock s, bool on)
+{
+  int fl = fcntl(s, F_GETFL, 0);
+  return fcntl(s, F_SETFL, on ? (fl | O_NONBLOCK) : (fl & ~O_NONBLOCK));
+}
+static long mux_recv(mux_sock s, unsigned char *b, size_t n) { return (long)read(s, b, n); }
+static long mux_send(mux_sock s, const unsigned char *b, size_t n) { return (long)send(s, b, n, MSG_NOSIGNAL); }
+static std::string mux_strerror(int e) { return strerror(e); }
+static void mux_startup() { }
+#endif
+
+// Two connected stream sockets: socketpair() on POSIX, a loopback TCP
+// connection on Windows (which has no socketpair). Returns 0 or -1.
+static int mux_pair(mux_sock sv[2])
+{
+  sv[0] = sv[1] = mux_bad;
+  mux_startup();
+#if defined (__WIN32__)
+  mux_sock l = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if(l == mux_bad) return -1;
+  sockaddr_in a;
+  memset(&a, 0, sizeof(a));
+  a.sin_family = AF_INET;
+  a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  a.sin_port = 0;
+  int alen = (int)sizeof(a);
+  BOOL excl = TRUE;
+  setsockopt(l, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char *)&excl, sizeof(excl));
+  if(bind(l, (sockaddr *)&a, sizeof(a)) != 0 || listen(l, 1) != 0 ||
+     getsockname(l, (sockaddr *)&a, &alen) != 0) { mux_close(l); return -1; }
+  sv[0] = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if(sv[0] == mux_bad || connect(sv[0], (sockaddr *)&a, sizeof(a)) != 0) {
+    if(sv[0] != mux_bad) mux_close(sv[0]);
+    sv[0] = mux_bad; mux_close(l); return -1;
+  }
+  // Only the socket this process just connected is taken: its local
+  // address must be the one accepted
+  sockaddr_in me, peer;
+  int mlen = (int)sizeof(me), plen = (int)sizeof(peer);
+  getsockname(sv[0], (sockaddr *)&me, &mlen);
+  sv[1] = accept(l, (sockaddr *)&peer, &plen);
+  mux_close(l);
+  if(sv[1] == mux_bad || peer.sin_port != me.sin_port || peer.sin_addr.s_addr != me.sin_addr.s_addr) {
+    if(sv[1] != mux_bad) mux_close(sv[1]);
+    mux_close(sv[0]); sv[0] = sv[1] = mux_bad; return -1;
+  }
+  BOOL nd = TRUE;
+  setsockopt(sv[0], IPPROTO_TCP, TCP_NODELAY, (const char *)&nd, sizeof(nd));
+  setsockopt(sv[1], IPPROTO_TCP, TCP_NODELAY, (const char *)&nd, sizeof(nd));
+  return 0;
+#else
+  int v[2];
+  if(socketpair(AF_UNIX, SOCK_STREAM, 0, v) != 0) return -1;
+  sv[0] = v[0]; sv[1] = v[1];
+  return 0;
+#endif
+}
+
 class FdTransport : public gxdMuxTransport {
 public:
-  explicit FdTransport(int f) : fd(f) {
-    int fl = fcntl(fd, F_GETFL, 0);
-    fcntl(fd, F_SETFL, fl | O_NONBLOCK);
-    if(pipe(wp) != 0) { wp[0] = wp[1] = -1; }
-    else {
-      for(int i = 0; i < 2; i++) fcntl(wp[i], F_SETFL, fcntl(wp[i], F_GETFL, 0) | O_NONBLOCK);
-    }
+  explicit FdTransport(mux_sock f) : fd(f) {
+    mux_nonblock(fd, true);
+    // The wake-up pair: Wake() writes a byte to wp[1], Wait() polls wp[0]
+    if(mux_pair(wp) == 0) { mux_nonblock(wp[0], true); mux_nonblock(wp[1], true); }
   }
   ~FdTransport() override {
-    if(wp[0] >= 0) { close(wp[0]); close(wp[1]); }
+    if(wp[0] != mux_bad) { mux_close(wp[0]); mux_close(wp[1]); }
   }
   int Wait(bool want_write, int timeout_ms) override {
     if(extra_ready()) return 1;
-    struct pollfd pf[2];
+    mux_pollfd pf[2];
     pf[0].fd = fd; pf[0].events = (short)(POLLIN | (want_write || out_wants() ? POLLOUT : 0)); pf[0].revents = 0;
     pf[1].fd = wp[0]; pf[1].events = POLLIN; pf[1].revents = 0;
-    int r = poll(pf, wp[0] >= 0 ? 2 : 1, timeout_ms);
-    if(r < 0) return errno == EINTR ? 0 : -1;
-    if(wp[0] >= 0 && (pf[1].revents & POLLIN)) {
-      char b[64];
-      while(read(wp[0], b, sizeof(b)) > 0) { }
+    int r = mux_poll(pf, wp[0] != mux_bad ? 2 : 1, timeout_ms);
+    if(r < 0) return mux_intr(mux_errno()) ? 0 : -1;
+    if(wp[0] != mux_bad && (pf[1].revents & POLLIN)) {
+      unsigned char b[64];
+      while(mux_recv(wp[0], b, sizeof(b)) > 0) { }
     }
     int mask = 0;
     if(pf[0].revents & (POLLIN | POLLHUP | POLLERR)) mask |= 1;
@@ -147,37 +240,141 @@ public:
     long total = 0;
     unsigned char b[65536];
     for(;;) {
-      ssize_t r = read(fd, b, sizeof(b));
+      long r = mux_recv(fd, b, sizeof(b));
       if(r > 0) { buf.insert(buf.end(), b, b + r); total += r; continue; }
       if(r == 0) { if(total) return total; err = "connection closed"; return -1; }
-      if(errno == EAGAIN || errno == EWOULDBLOCK) return total;
-      if(errno == EINTR) continue;
-      err = std::string("read: ") + strerror(errno);
+      int e = mux_errno();
+      if(mux_intr(e)) continue;
+      if(mux_again(e)) return total;
+      err = "read: " + mux_strerror(e);
       return -1;
     }
   }
   long WriteSome(const unsigned char *p, size_t n, std::string &err) override {
-    ssize_t w = send(fd, p, n, MSG_NOSIGNAL);
-    if(w >= 0) return (long)w;
-    if(errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return 0;
-    err = std::string("write: ") + strerror(errno);
+    long w = mux_send(fd, p, n);
+    if(w >= 0) return w;
+    int e = mux_errno();
+    if(mux_again(e)) return 0;
+    err = "write: " + mux_strerror(e);
     return -1;
   }
   void Wake() override {
-    if(wp[1] >= 0) { char c = 1; if(write(wp[1], &c, 1) < 0) { } }
+    if(wp[1] != mux_bad) { unsigned char c = 1; if(mux_send(wp[1], &c, 1) < 0) { } }
   }
   void Close() override {
-    if(fd >= 0 && own) { close(fd); }
-    fd = -1;
+    if(fd != mux_bad && own) { mux_close(fd); }
+    fd = mux_bad;
   }
 protected:
   virtual bool extra_ready() { return false; }
   virtual bool out_wants() { return false; }
-  int fd;
-  int wp[2];
+  mux_sock fd;
+  mux_sock wp[2] = { mux_bad, mux_bad };
   bool own = true;
 };
 
+#if defined (__USE_GX_SCHANNEL__)
+// 11/17/2026 (7.4): The TLS connection of a gxStream over Schannel.
+// Schannel has no non-blocking mode of its own: records are encrypted
+// into txq and sent as the socket takes them, and the bytes received
+// are decrypted as whole records arrive (gxSSL::NbEncrypt/NbDecrypt).
+// A blocking write would deadlock two peers that both send more than
+// the socket buffers hold while neither reads.
+class TlsTransport : public FdTransport {
+public:
+  TlsTransport(gxStream &s) : FdTransport((mux_sock)s.Connection().Socket().GetSocket()), st(s),
+			      tls(s.Connection().TLS()) {
+    own = false;
+    std::string b = st.Connection().TakeBuffered();
+    pending.assign(b.begin(), b.end());
+    std::string left;
+    if(tls.NbDecrypt(0, 0, left) < 0) failed = true;   // what gxSSL had decrypted or received
+    pending.insert(pending.end(), left.begin(), left.end());
+  }
+  ~TlsTransport() override {
+    if(fd != mux_bad) mux_nonblock(fd, false);   // the gxStream gets its blocking socket back
+  }
+  int Wait(bool want_write, int timeout_ms) override {
+    std::string err;
+    if(flush(err) < 0) return -1;
+    return FdTransport::Wait(want_write, timeout_ms);
+  }
+  long ReadSome(std::vector<unsigned char> &buf, std::string &err) override {
+    long total = 0;
+    if(failed) { err = "TLS read failed"; return -1; }
+    if(!pending.empty()) {
+      buf.insert(buf.end(), pending.begin(), pending.end());
+      total += (long)pending.size();
+      pending.clear();
+    }
+    if(flush(err) < 0) return -1;
+    unsigned char b[65536];
+    for(;;) {
+      long r = mux_recv(fd, b, sizeof(b));
+      if(r > 0) {
+	std::string plain;
+	int d = tls.NbDecrypt((const char *)b, (int)r, plain);
+	buf.insert(buf.end(), plain.begin(), plain.end());
+	total += (long)plain.size();
+	if(d < 0) { if(total) { failed = true; return total; } err = "TLS read failed"; return -1; }
+	if(d == 1) { if(total) { closed = true; return total; } err = "connection closed"; return -1; }
+	continue;
+      }
+      if(r == 0) { if(total) return total; err = "connection closed"; return -1; }
+      int e = mux_errno();
+      if(mux_intr(e)) continue;
+      if(mux_again(e)) {
+	if(closed && !total) { err = "connection closed"; return -1; }
+	return total;
+      }
+      if(total) return total;
+      err = "read: " + mux_strerror(e);
+      return -1;
+    }
+  }
+  long WriteSome(const unsigned char *p, size_t n, std::string &err) override {
+    if(flush(err) < 0) return -1;
+    if(!txq.empty()) return 0;                 // the socket has not taken the last records yet
+    if(n > 256 * 1024) n = 256 * 1024;
+    if(tls.NbEncrypt(p, (int)n, txq) < 0) { err = "TLS write failed"; return -1; }
+    txq_off = 0;
+    if(flush(err) < 0) return -1;
+    return (long)n;                            // taken: encrypted, the rest goes out from txq
+  }
+  void Close() override {
+    // What is encrypted goes out before the stream is closed (a short wait at most)
+    std::string err;
+    for(int i = 0; i < 50 && !txq.empty() && flush(err) == 0; i++) {
+      if(!txq.empty()) FdTransport::Wait(true, 20);
+    }
+    if(fd != mux_bad) mux_nonblock(fd, false);
+    FdTransport::Close();
+  }
+protected:
+  bool extra_ready() override { return !pending.empty(); }
+  bool out_wants() override { return !txq.empty(); }
+private:
+  // Send what the socket takes from txq. Returns 0, or -1 on an error.
+  int flush(std::string &err) {
+    while(txq_off < txq.size()) {
+      long w = mux_send(fd, (const unsigned char *)txq.data() + txq_off, txq.size() - txq_off);
+      if(w > 0) { txq_off += (size_t)w; continue; }
+      int e = mux_errno();
+      if(w < 0 && mux_again(e)) return 0;
+      err = "write: " + mux_strerror(e);
+      return -1;
+    }
+    txq.clear(); txq_off = 0;
+    return 0;
+  }
+  gxStream &st;
+  gxSSL &tls;
+  std::vector<unsigned char> pending;
+  std::string txq;
+  size_t txq_off = 0;
+  bool failed = false, closed = false;
+};
+#else
 // The TLS connection of a gxStream. The stream keeps the socket and the
 // SSL object; this transport only reads and writes them, without
 // blocking, from the session's I/O thread.
@@ -232,13 +429,14 @@ private:
   std::vector<unsigned char> pending;
   bool read_wants_write = false;
 };
+#endif
 
 gxdMuxTransport *gxdMuxStreamTransport(gxStream &s) { return new TlsTransport(s); }
 
 void gxdMuxPipe(std::unique_ptr<gxdMuxTransport> &a, std::unique_ptr<gxdMuxTransport> &b)
 {
-  int sv[2];
-  if(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) { a.reset(); b.reset(); return; }
+  mux_sock sv[2];
+  if(mux_pair(sv) != 0) { a.reset(); b.reset(); return; }
   a.reset(new FdTransport(sv[0]));
   b.reset(new FdTransport(sv[1]));
 }
@@ -675,7 +873,6 @@ std::vector<gxdMuxChannelStatus> gxdMuxSession::Status()
 
 } // namespace datareel
 
-#endif // !__WIN32__
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //

@@ -62,6 +62,10 @@ with throwaway certificates.
 #include "gxdlcode.h"
 
 #include <signal.h>
+#if defined (_WIN32)
+#include <winsock2.h>
+#include <windows.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -119,6 +123,10 @@ static int make(const std::string &dir)
 static gxDatabaseServer *g_server = 0;
 static std::atomic<bool> g_stop{false};
 static void on_signal(int) { g_stop = true; if(g_server) g_server->Stop(); }
+#if defined (_WIN32)
+// 11/17/2026 (7.4): Ctrl+C, Ctrl+Break, the console closed, log off or shut down
+static BOOL WINAPI on_console(DWORD) { on_signal(0); return TRUE; }
+#endif
 
 // Multiplex sessions for the object service (as utils/dbserver/object_server.cpp)
 class MuxObjects : public gxDatabaseService {
@@ -173,6 +181,9 @@ static int serve(char **a)
   g_server = &server;
   signal(SIGINT, on_signal);
   signal(SIGTERM, on_signal);
+#if defined (_WIN32)
+  SetConsoleCtrlHandler(on_console, TRUE);
+#endif
   printf("serving vector searches of \"notes\" on port %s\n", a[0]);
   fflush(stdout);
   std::string err;

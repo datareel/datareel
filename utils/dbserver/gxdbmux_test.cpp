@@ -6,7 +6,7 @@
 // C++ Compiler Used: GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/08/2026
-// Date Last Modified: 11/08/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -14,6 +14,12 @@
 /*
 Tests of the database object server's multiplex (gxdbmux.h) over a
 socketpair: two sessions, one opening channels and one accepting them.
+11/17/2026 (7.4): Windows too (a loopback connection in place of the
+socketpair), and both_ways_large over TLS: both sides send large
+messages at once over one connection (OpenSSL on POSIX, Schannel on
+Windows), the case a blocking TLS write would deadlock. It needs
+GXDBMUX_PKI=DIR with the files of utils/objrepl/objrepl_certs.sh DIR
+--copy-host 127.0.0.1 (ca.pem, copy.pem/.key, primary.pem/.key).
 
   gxdbmux_test [name]      run every test, or the ones whose name has "name"
 
@@ -23,10 +29,15 @@ Prints PASS/FAIL lines; exit code 0 when every test passed.
 #include "gxdlcode.h"
 #include "gxdbmux.h"
 #include "gxheader.h"   // 11/16/2026: gxBlockHeader, gxWirePackBlockHeader()
+#include "gxstream.h"   // 11/17/2026: both_ways_large over TLS
+#include "gxstls.h"
+#include <stdlib.h>
+#include <memory>
 
 #include <stdio.h>
 #include <string.h>
 #include <atomic>
+#include <mutex>
 #include <chrono>
 #include <string>
 #include <thread>
@@ -171,7 +182,7 @@ static bool test_slow_large_does_not_block_small()
   p.srv->AcceptChannel(a, sv, nm, md, 5000); p.srv->AcceptChannel(b, sv, nm, md, 5000);
   const uint32_t NL = 120, NS = 300;           // 120 x 1 MB, 300 x 2 KB
   std::atomic<bool> large_done{false};
-  double small_done = 0, large_end = 0, t0 = now_s();
+  double small_done = 0, large_end = 0, small_sent = 0, t0 = now_s();
   std::atomic<int> bad{0};
   std::thread cl([&] {                          // Slow consumer: 20 ms a message
     std::string e;
@@ -195,12 +206,16 @@ static bool test_slow_large_does_not_block_small()
   std::thread ss([&] {
     std::string e;
     for(uint32_t i = 0; i < NS; i++) { p.cli->Send(2, make_msg(2, i, 2048), gxdMUX_LAST, e); std::this_thread::sleep_for(std::chrono::milliseconds(2)); }
+    small_sent = now_s();
   });
   sl.join(); ss.join(); cs.join(); cl.join();
   CHECK(bad == 0, "a message was lost or damaged");
-  double small_t = small_done - t0, large_t = large_end - t0;
-  printf("    small channel done in %.2fs, large in %.2fs\n", small_t, large_t);
-  CHECK(small_t < large_t / 2, "the small channel waited behind the large one");
+  double small_t = small_done - t0, large_t = large_end - t0, small_lag = small_done - small_sent;
+  printf("    small channel done in %.2fs (%.3fs after its last send), large in %.2fs\n", small_t, small_lag, large_t);
+  // 11/17/2026 (7.4): judged by how soon the last small message arrives after it is sent, not against the large
+  // channel's time: the small sender's 2 ms sleeps take about 15 ms each on Windows (its timer), so its 300 messages
+  // alone take longer than the large channel there. Stuck behind the large backlog, it would wait seconds.
+  CHECK(small_lag < 0.5, "the small channel waited behind the large one");
   return true;
 }
 
@@ -296,8 +311,143 @@ static bool test_wire_frame_header_canonical()
   return true;
 }
 
+// 11/17/2026 (7.4): both sessions send NMSG messages of 900 KB at the
+// same time (channel 1 client to server, channel 2 server to client)
+// while their consumers read; every message arrives whole and in order
+static bool both_ways(gxdMuxSession &cli, gxdMuxSession &srv)
+{
+  std::string err;
+  CHECK(cli.Hello(err) == 0, "hello: " + err);
+  CHECK(cli.Open(1, "repl", "up", "push", 0, err) == 0, "open 1: " + err);
+  CHECK(cli.Open(2, "repl", "down", "push", 0, err) == 0, "open 2: " + err);
+  uint32_t a, b; std::string sv, nm, md;
+  CHECK(srv.AcceptChannel(a, sv, nm, md, 5000) == 0 && srv.AcceptChannel(b, sv, nm, md, 5000) == 0, "accept");
+  const uint32_t NMSG = 40;
+  const size_t SZ = 900 * 1024;
+  std::atomic<int> bad{0};
+  std::string why;
+  std::mutex wm;
+  auto note = [&](const std::string &w) { std::lock_guard<std::mutex> g(wm); if(why.empty()) why = w; bad++; };
+  std::thread up([&] { std::string e; for(uint32_t i = 0; i < NMSG; i++)
+      if(cli.Send(1, make_msg(1, i, SZ), gxdMUX_LAST, e) != 0) { note("client send: " + e); return; } });
+  std::thread down([&] { std::string e; for(uint32_t i = 0; i < NMSG; i++)
+      if(srv.Send(2, make_msg(2, i, SZ), gxdMUX_LAST, e) != 0) { note("server send: " + e); return; } });
+  std::thread rs([&] { std::string e; for(uint32_t i = 0; i < NMSG; i++) {
+      std::vector<unsigned char> m; uint64_t q;
+      if(srv.ReceiveMessage(1, m, q, 60000, e) != 0 || !check_msg(m, 1, i)) { note("server receive " + std::to_string(i) + ": " + e); return; } } });
+  std::thread rc([&] { std::string e; for(uint32_t i = 0; i < NMSG; i++) {
+      std::vector<unsigned char> m; uint64_t q;
+      if(cli.ReceiveMessage(2, m, q, 60000, e) != 0 || !check_msg(m, 2, i)) { note("client receive " + std::to_string(i) + ": " + e); return; } } });
+  up.join(); down.join(); rs.join(); rc.join();
+  CHECK(bad == 0, "both ways: " + why);
+  printf("    %u messages of %zu KB each way\n", NMSG, SZ / 1024);
+  return true;
+}
+
+static bool test_both_ways_large_pipe()
+{
+  gxdMuxOptions o; o.queue_bytes = 4 * 1024 * 1024; o.max_frame = 1024 * 1024;
+  Pair p(o, accept_all());
+  return both_ways(*p.cli, *p.srv);
+}
+
+static bool test_both_ways_large_tls()
+{
+  const char *pki = getenv("GXDBMUX_PKI");
+  CHECK(pki && *pki, "set GXDBMUX_PKI=DIR (utils/objrepl/objrepl_certs.sh DIR --copy-host 127.0.0.1 --apply)");
+  std::string d = pki;
+  gxsTLSServer server;
+  server.SetClientCAFile(d + "/ca.pem");
+  server.SetRequireClientAuth(true);
+  server.AllowClientCN("objrepl-primary");
+  CHECK(server.Listen(0, d + "/copy.pem", d + "/copy.key", std::string(), "127.0.0.1") == 0 && server.Port() > 0,
+	"listen: " + server.Error());
+  gxStream ss, cs;
+  std::string serr;
+  std::thread acc([&] { if(server.Accept(ss.Connection()) != 0) serr = server.Error(); });
+  gxsTLSConnection &c = cs.Connection();
+  c.SetCAFile(d + "/ca.pem");
+  c.SetClientCert(d + "/primary.pem", d + "/primary.key");
+  c.SetVerifyPeer(true);
+  gxSocket sock;
+  bool ok = sock.Connect("127.0.0.1", server.Port(), 10) == 0 && c.AttachClient(std::move(sock), "127.0.0.1") == 0;
+  acc.join();
+  CHECK(ok, "connect: " + c.Error());
+  CHECK(serr.empty(), "accept: " + serr);
+  gxdMuxOptions o; o.queue_bytes = 4 * 1024 * 1024; o.max_frame = 1024 * 1024;
+  std::unique_ptr<gxdMuxSession> srv(new gxdMuxSession(gxdMuxStreamTransport(ss), o));
+  std::unique_ptr<gxdMuxSession> cli(new gxdMuxSession(gxdMuxStreamTransport(cs), o));
+  srv->SetOpenHandler(accept_all());
+  srv->Start();
+  cli->Start();
+  bool r = both_ways(*cli, *srv);
+  cli->Shutdown(); srv->Shutdown();
+  cli.reset(); srv.reset();
+  return r;
+}
+
+// 11/17/2026 (7.4): one side of both_ways_large in its own process, for two machines (a Windows and a Linux peer):
+//   gxdbmux_test --peer-serve PKI_DIR PORT        the server (copy.pem/copy.key, client CN objrepl-primary)
+//   gxdbmux_test --peer-connect PKI_DIR HOST PORT the client (primary.pem/primary.key; HOST in the server's certificate)
+// Each sends NMSG messages of 900 KB on its channel while it receives the other's; prints PASS/FAIL, exit 0 on PASS.
+static int peer(bool serve, const std::string &d, const std::string &host, int port)
+{
+  const uint32_t NMSG = 40; const size_t SZ = 900 * 1024;
+  gxStream st;
+  gxsTLSServer server;
+  if(serve) {
+    server.SetClientCAFile(d + "/ca.pem"); server.SetRequireClientAuth(true); server.AllowClientCN("objrepl-primary");
+    if(server.Listen(port, d + "/copy.pem", d + "/copy.key", std::string(), "127.0.0.1") != 0) {
+      printf("FAIL peer listen: %s\n", server.Error().c_str()); return 1;
+    }
+    printf("listening on %d\n", server.Port()); fflush(stdout);
+    if(server.Accept(st.Connection()) != 0) { printf("FAIL peer accept: %s\n", server.Error().c_str()); return 1; }
+  }
+  else {
+    gxsTLSConnection &c = st.Connection();
+    c.SetCAFile(d + "/ca.pem"); c.SetClientCert(d + "/primary.pem", d + "/primary.key"); c.SetVerifyPeer(true);
+    gxSocket sock;
+    if(sock.Connect(host, port, 10) != 0 || c.AttachClient(std::move(sock), host) != 0) {
+      printf("FAIL peer connect: %s\n", c.Error().c_str()); return 1;
+    }
+  }
+  gxdMuxOptions o; o.queue_bytes = 4 * 1024 * 1024; o.max_frame = 1024 * 1024;
+  gxdMuxSession mux(gxdMuxStreamTransport(st), o);
+  if(serve) mux.SetOpenHandler(accept_all());
+  mux.Start();
+  std::string err;
+  uint32_t mine = serve ? 2 : 1, theirs = serve ? 1 : 2;
+  if(!serve) {
+    if(mux.Hello(err) != 0 || mux.Open(1, "repl", "up", "push", 0, err) != 0 || mux.Open(2, "repl", "down", "push", 0, err) != 0) {
+      printf("FAIL peer open: %s\n", err.c_str()); return 1;
+    }
+  }
+  else {
+    uint32_t a, b; std::string sv, nm, md;
+    if(mux.AcceptChannel(a, sv, nm, md, 30000) != 0 || mux.AcceptChannel(b, sv, nm, md, 30000) != 0) { printf("FAIL peer accept channels\n"); return 1; }
+  }
+  std::atomic<int> bad{0};
+  std::string why; std::mutex wm;
+  auto note = [&](const std::string &w) { std::lock_guard<std::mutex> g(wm); if(why.empty()) why = w; bad++; };
+  double t0 = now_s();
+  std::thread snd([&] { std::string e; for(uint32_t i = 0; i < NMSG; i++)
+      if(mux.Send(mine, make_msg(mine, i, SZ), gxdMUX_LAST, e) != 0) { note("send: " + e); return; } });
+  std::thread rcv([&] { std::string e; for(uint32_t i = 0; i < NMSG; i++) {
+      std::vector<unsigned char> m; uint64_t q;
+      if(mux.ReceiveMessage(theirs, m, q, 120000, e) != 0 || !check_msg(m, theirs, i)) { note("receive " + std::to_string(i) + ": " + e); return; } } });
+  snd.join(); rcv.join();
+  // both sides done: a short wait so the peer's last frames are read before this side closes
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  mux.Shutdown();
+  if(bad) { printf("FAIL peer %s: %s\n", serve ? "server" : "client", why.c_str()); return 1; }
+  printf("PASS peer %s: %u messages of %zu KB each way in %.1f s\n", serve ? "server" : "client", NMSG, SZ / 1024, now_s() - t0);
+  return 0;
+}
+
 int main(int argc, char **argv)
 {
+  if(argc == 4 && strcmp(argv[1], "--peer-serve") == 0) return peer(true, argv[2], "", atoi(argv[3]));
+  if(argc == 5 && strcmp(argv[1], "--peer-connect") == 0) return peer(false, argv[2], argv[3], atoi(argv[4]));
   struct T { const char *name; bool (*fn)(); } tests[] = {
     { "wire_frame_header_canonical", test_wire_frame_header_canonical },
     { "interleaved", test_interleaved },
@@ -305,6 +455,8 @@ int main(int argc, char **argv)
     { "slow_large_does_not_block_small", test_slow_large_does_not_block_small },
     { "queue_full_holds_only_its_sender", test_queue_full_holds_only_its_sender },
     { "shutdown_wakes_waiters", test_shutdown_wakes_waiters },
+    { "both_ways_large_pipe", test_both_ways_large_pipe },
+    { "both_ways_large_tls", test_both_ways_large_tls },
   };
   int failed = 0;
   for(auto &t : tests) {

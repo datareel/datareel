@@ -333,6 +333,17 @@ public:  // Object pointer functions
 		       const char *key_passphrase);
   gxSSL_CTX_t *GetCTX() { return ctx; }
   gxSSL_t *GetSSL() { return ssl; }
+#if defined (__USE_GX_SCHANNEL__)
+  // 11/17/2026 (7.4): Schannel without blocking, for an I/O thread that
+  // owns the (non-blocking) socket after the handshake (gxdbmux.cpp).
+  // NbEncrypt() encrypts all the bytes into TLS records appended to out
+  // (send them in order); returns bytes or -1. NbDecrypt() takes n raw
+  // bytes from the socket (0 to take only what earlier reads left) and
+  // appends the plain bytes there are now to plain; returns 0, 1 when
+  // the peer closed TLS, or -1 on an error.
+  int NbEncrypt(const void *buf, int bytes, std::string &out);
+  int NbDecrypt(const char *raw, int n, std::string &plain);
+#endif
 #if !defined (__USE_GX_SCHANNEL__)
   BIO *SocketBIO() { return socket_bio; }
   BIO *FileBIO() { return file_bio; }

@@ -38,7 +38,7 @@
 <LI><B>VECTOR_INFO</B> (op 8): the dimension, element type, metric, number of files, nodes and spec.</LI>
 <LI><B>VECTOR_SEARCH</B> (op 7): the k nearest to a query, with an optional tag filter and day range. The server skips files outside the range from the manifest; every result names its file. At most a few searches run at a time (<CODE>SetVectorLimits()</CODE>); vector requests never take the database's own lock, and a replicated copy's vectors are searched under its apply lock.</LI>
 </UL>
-<P>The program has three modes: <CODE>make</CODE> (three day files and their manifest), <CODE>serve</CODE> (the server, read only) and <CODE>search</CODE> (the client). Its comment gives the request and reply layouts. POSIX only, like the object server.</P>
+<P>The program has three modes: <CODE>make</CODE> (three day files and their manifest), <CODE>serve</CODE> (the server, read only) and <CODE>search</CODE> (the client). Its comment gives the request and reply layouts. Linux and Windows, like the object server.</P>
 
 <h2 id="Running">Running It</h2>
 <PRE>examples/oodb/vector_search_walkthrough.sh BUILD/examples</PRE><P>The walkthrough makes throwaway certificates (the openssl command), the data, starts the server on 127.0.0.1 and runs the client twice: every day, then one day (the other two files skipped). Exit code 0 when every check passes; KEEP=1 keeps its folder.</P>

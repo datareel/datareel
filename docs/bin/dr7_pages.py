@@ -236,7 +236,7 @@ page(file='classes/database/gxdbobject.htm', title='Object Server Vector Searche
 <LI><B>VECTOR_INFO</B> (gxOBJ_VECTOR_INFO = 8): no body. Reply: u32 version, dimension, element type, metric, number of files, u64 nodes, deleted, then u32 length and the spec.</LI>
 <LI><B>VECTOR_SEARCH</B> (gxOBJ_VECTOR_SEARCH = 7): u32 version, k (1 to gxObjVectorMaxK), ef (0: 64, at most gxObjVectorMaxEf), dimension (must be the index's), flags (bit 0: day range, bit 1: strict), tag mask (4 bits), u32 lo[4], hi[4], day_lo, day_hi, then the query as dim float32 values (finite). Reply: u32 version, n, skipped, missing, n results of (u64 id, f32 distance, u32 tags[4], u32 file), then the paths of the files named.</LI>
 </UL>
-<P>Vector requests never take the database's own lock. On a replicated copy the vectors are searched under the copy's apply lock, so a search never sees a half-applied batch; a search takes its slot (at most vec_max at a time, <A HREF="#SetVectorLimits">SetVectorLimits()</A>) before that lock. Every field is length-checked; a bad request is refused with a reason. The example: <A HREF="../../examples/vector_search_service.htm">vector_search_service</A>; the client tool: <A HREF="../../utils/object_server.htm">object_client --vinfo / --vsearch</A>. POSIX only.</P>
+<P>Vector requests never take the database's own lock. On a replicated copy the vectors are searched under the copy's apply lock, so a search never sees a half-applied batch; a search takes its slot (at most vec_max at a time, <A HREF="#SetVectorLimits">SetVectorLimits()</A>) before that lock. Every field is length-checked; a bad request is refused with a reason. The example: <A HREF="../../examples/vector_search_service.htm">vector_search_service</A>; the client tool: <A HREF="../../utils/object_server.htm">object_client --vinfo / --vsearch</A>. Linux and Windows (7.4).</P>
 ''')],
  functions=[
  ('Service', 'gxObjectService', [
@@ -1006,7 +1006,7 @@ EXAMPLES = [
   ('oodb/vector_basics.cpp', 'vector_basics', 'The vector index: float32, float16 and int8 files, exact against graph search (recall), the l2/cosine/ip metrics, tags and filters, update, delete, repair, a rolled back transaction and the format fields.'),
   ('oodb/vector_records.cpp', 'vector_records', 'Records that carry their own vectors (vector members): record and node in one transaction, records read back by address, Verify() with a resolver, the index rebuilt from the records alone.'),
   ('oodb/vector_days.cpp', 'vector_days', 'One vector index per day searched as one through a .vixset manifest: threads, a day range that skips files, an archived day, a live writer attached.'),
-  ('oodb/vector_search_service.cpp', 'vector_search_service', 'Vector searches through the database object server (VECTOR_INFO, VECTOR_SEARCH) over mutual TLS, with a day range. POSIX only.'),
+  ('oodb/vector_search_service.cpp', 'vector_search_service', 'Vector searches through the database object server (VECTOR_INFO, VECTOR_SEARCH) over mutual TLS, with a day range. Linux and Windows.'),
   ('oodb/object_replication.cpp', 'object_replication', 'gxObjRepl: a primary and a copy, a few commits read back on the copy, then a planned switch (takeover and rejoin) and more commits, with the digests equal on both nodes. Windows and Linux.'),
   ('oodb/replication_copy.cpp', 'replication_copy', 'A database folder copied with robocopy or cp while its writer is stopped, checked with digests, and the copy\'s indexes rebuilt from its records after a fault. Windows and Linux.'),
  ]),
@@ -1411,7 +1411,7 @@ All checks pass
 <LI><B>VECTOR_INFO</B> (op 8): the dimension, element type, metric, number of files, nodes and spec.</LI>
 <LI><B>VECTOR_SEARCH</B> (op 7): the k nearest to a query, with an optional tag filter and day range. The server skips files outside the range from the manifest; every result names its file. At most a few searches run at a time (<CODE>SetVectorLimits()</CODE>); vector requests never take the database's own lock, and a replicated copy's vectors are searched under its apply lock.</LI>
 </UL>
-<P>The program has three modes: <CODE>make</CODE> (three day files and their manifest), <CODE>serve</CODE> (the server, read only) and <CODE>search</CODE> (the client). Its comment gives the request and reply layouts. POSIX only, like the object server.</P>
+<P>The program has three modes: <CODE>make</CODE> (three day files and their manifest), <CODE>serve</CODE> (the server, read only) and <CODE>search</CODE> (the client). Its comment gives the request and reply layouts. Linux and Windows, like the object server.</P>
 '''),
   ('Running', 'Running It', code('''
 examples/oodb/vector_search_walkthrough.sh BUILD/examples
@@ -1595,7 +1595,7 @@ page(file='utils/utils.htm', title='Utility Programs',
 <LI><A HREF="ix_debug.htm">ix_debug</A>: analyze and check gxBtree index files.</LI>
 <LI><A HREF="vix_rebuild.htm">vix_rebuild</A> (7.4): rebuild a vector index from the vector members of records; digests of vector indexes.</LI>
 <LI>dr_digest (7.4): what a database, B-tree or file holds, as one 64-bit digest, whatever its layout (<CODE>dr_digest FILE [--kind btree|bytes|objects]</CODE>).</LI>
-<LI><A HREF="object_server.htm">object_server and object_client</A>: the database object server and its client, with vector searches (POSIX).</LI>
+<LI><A HREF="object_server.htm">object_server and object_client</A>: the database object server and its client, with vector searches (Linux and Windows).</LI>
 <LI><A HREF="hexdump.htm">hexdump</A> (back in 7.4): a file in hex, decimal or as a C array, a binary file rebuilt from its hex dump, CRC-32 and CRC-16 checksums.</LI>
 <LI><A HREF="ffind.htm">ffind</A> (back in 7.4): find, replace and insert strings in text files, or replace a whole section.</LI>
 <LI><A HREF="txfilter.htm">txfilter</A> (back in 7.4): keep the printable (or alphabetic, alphanumeric, numeric) characters of a text file; UNIX or DOS line ends.</LI>
@@ -1655,14 +1655,15 @@ vix_rebuild --digest FILE.vix [--digest-kind logical|bytes]
 ''')])
 
 page(file='utils/object_server.htm', title='object_server and object_client',
- lead='The database object server example tools: store and read objects, and ask for vector searches (POSIX).',
+ lead='The database object server example tools: store and read objects, and ask for vector searches (Linux and Windows).',
  sections=[('Usage', 'Usage', code('''
-object_server PORT CERT KEY CA CLIENT_CN DB_NAME DB_FILE
+object_server PORT CERT KEY CA CLIENT_CN DB_NAME DB_FILE [--stop-file FILE]
 object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME "text"
 object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME --vinfo
 object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME --vsearch K   < query (whitespace separated floats)
 ''') + '''
 <P>object_server serves one database with mutual TLS (only CLIENT_CN may connect). object_client stores a text object and reads it back, or with --vinfo / --vsearch asks a server whose database names its vectors (a gxObjectDbConfig with <CODE>vectors</CODE>) for the index's description or the K nearest to the query on stdin. The requests: <A HREF="../classes/database/gxdbobject.htm">Object Server Vector Searches</A>; a complete program: <A HREF="../examples/vector_search_service.htm">vector_search_service</A>.</P>
+<P>Stopping the server: Ctrl+C, or TERM on Linux; Ctrl+C, Ctrl+Break or closing the console on Windows; or, on both, creating the file given with <CODE>--stop-file</CODE> (checked every second; a service wrapper or a script uses this). Clients get up to 10 seconds to finish. Windows (7.4): the same programs over Winsock and Schannel, and they work with Linux servers and clients both ways. The multiplex never blocks on a TLS write, so two sides that both send large messages at once do not wait on each other (gxdbmux_test both_ways_large_tls checks this on both systems).</P>
 ''')])
 
 def main():

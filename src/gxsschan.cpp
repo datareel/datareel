@@ -1605,6 +1605,128 @@ int gxSSL::sc_read_some(void *buf, int bytes, int use_timeout, int seconds,
   }
 }
 
+int gxSSL::NbEncrypt(const void *buf, int bytes, std::string &out)
+// 11/17/2026 (7.4): See gxssl.h. sc_write_all() without the send.
+{
+  if(is_ssl_null()) return -1;
+  if(!ssl->handshake_done) {
+    ssl_error = ssl->closed ? gxSSL_CLOSE_ERROR : gxSSL_SSL_INIT_ERROR;
+    return -1;
+  }
+  const char *p = (const char *)buf;
+  int done = 0;
+  int header = (int)ssl->sizes.cbHeader;
+  int max_msg = (int)ssl->sizes.cbMaximumMessage;
+  while(done < bytes) {
+    int chunk = bytes - done;
+    if(chunk > max_msg) chunk = max_msg;
+    memmove(ssl->tx + header, p + done, chunk);
+    SecBuffer bufs[4];
+    SecBufferDesc desc;
+    bufs[0].BufferType = SECBUFFER_STREAM_HEADER;
+    bufs[0].cbBuffer = ssl->sizes.cbHeader;
+    bufs[0].pvBuffer = ssl->tx;
+    bufs[1].BufferType = SECBUFFER_DATA;
+    bufs[1].cbBuffer = (unsigned long)chunk;
+    bufs[1].pvBuffer = ssl->tx + header;
+    bufs[2].BufferType = SECBUFFER_STREAM_TRAILER;
+    bufs[2].cbBuffer = ssl->sizes.cbTrailer;
+    bufs[2].pvBuffer = ssl->tx + header + chunk;
+    bufs[3].BufferType = SECBUFFER_EMPTY;
+    bufs[3].cbBuffer = 0;
+    bufs[3].pvBuffer = 0;
+    desc.ulVersion = SECBUFFER_VERSION;
+    desc.cBuffers = 4;
+    desc.pBuffers = bufs;
+    SECURITY_STATUS st = EncryptMessage(&ssl->ctxt, 0, &desc, 0);
+    if(st != SEC_E_OK) {
+      sc_set_status((long)st);
+      ssl_error = gxSSL_WRITE_ERROR;
+      return -1;
+    }
+    out.append(ssl->tx, (size_t)(bufs[0].cbBuffer + bufs[1].cbBuffer + bufs[2].cbBuffer));
+    done += chunk;
+  }
+  ssl_error = gxSSL_NO_ERROR;
+  return done;
+}
+
+int gxSSL::NbDecrypt(const char *raw, int n, std::string &plain)
+// 11/17/2026 (7.4): See gxssl.h. sc_read_some() without the receive.
+{
+  if(is_ssl_null()) return -1;
+  if(n > 0) {
+    if(gxsc_grow(ssl->rx, ssl->rx_size, ssl->rx_len, ssl->rx_len + n) != 0) {
+      ssl_error = gxSSL_BUFOVER_ERROR;
+      return -1;
+    }
+    memmove(ssl->rx + ssl->rx_len, raw, n);
+    ssl->rx_len += n;
+  }
+  while(1) {
+    if(ssl->pt_pos < ssl->pt_len) {
+      plain.append(ssl->pt + ssl->pt_pos, (size_t)(ssl->pt_len - ssl->pt_pos));
+      ssl->pt_pos = ssl->pt_len = 0;
+    }
+    if(ssl->closed) return 1;
+    if(ssl->rx_len <= 0) return 0;
+    if(!ssl->handshake_done) {
+      ssl_error = gxSSL_SSL_INIT_ERROR;
+      return -1;
+    }
+    SecBuffer bufs[4];
+    SecBufferDesc desc;
+    bufs[0].BufferType = SECBUFFER_DATA;
+    bufs[0].cbBuffer = (unsigned long)ssl->rx_len;
+    bufs[0].pvBuffer = ssl->rx;
+    for(int i = 1; i < 4; i++) {
+      bufs[i].BufferType = SECBUFFER_EMPTY;
+      bufs[i].cbBuffer = 0;
+      bufs[i].pvBuffer = 0;
+    }
+    desc.ulVersion = SECBUFFER_VERSION;
+    desc.cBuffers = 4;
+    desc.pBuffers = bufs;
+    SECURITY_STATUS st = DecryptMessage(&ssl->ctxt, &desc, 0, 0);
+    if(st == SEC_E_INCOMPLETE_MESSAGE) return 0;   // the rest of the record later
+    if(st != SEC_E_OK && st != SEC_I_RENEGOTIATE && st != SEC_I_CONTEXT_EXPIRED) {
+      sc_set_status((long)st);
+      ssl_error = gxSSL_READ_ERROR;
+      return -1;
+    }
+    SecBuffer *data = 0, *extra = 0;
+    for(int i = 1; i < 4; i++) {
+      if(!data && bufs[i].BufferType == SECBUFFER_DATA) data = &bufs[i];
+      if(!extra && bufs[i].BufferType == SECBUFFER_EXTRA) extra = &bufs[i];
+    }
+    if(data && data->cbBuffer > 0) plain.append((const char *)data->pvBuffer, data->cbBuffer);
+    if(extra && extra->cbBuffer > 0) {
+      int k = (int)extra->cbBuffer;
+      memmove(ssl->rx, ssl->rx + (ssl->rx_len - k), k);
+      ssl->rx_len = k;
+    }
+    else {
+      ssl->rx_len = 0;
+    }
+    if(st == SEC_I_CONTEXT_EXPIRED) { // The peer sent close notify
+      ssl->closed = 1;
+      ssl->handshake_done = 0;
+      return 1;
+    }
+    if(st == SEC_I_RENEGOTIATE) {
+      // TLS 1.3 handshake messages after the handshake (session tickets):
+      // Schannel answers them at once, so the socket blocks for this
+      // short exchange only
+      u_long off = 0, on = 1;
+      ioctlsocket(ssl->s, FIONBIO, &off);
+      ssl->handshake_done = 0;
+      int rv = sc_handshake(ssl->is_accept, ssl->rx_len > 0);
+      ioctlsocket(ssl->s, FIONBIO, &on);
+      if(rv != gxSSL_NO_ERROR) return -1;
+    }
+  }
+}
+
 int gxSSL::RawWriteSSLSocket(const void *buf, int bytes)
 // Send a block of data to the bound socket.
 // Returns the total number of bytes sent or -1 if an error occurs.

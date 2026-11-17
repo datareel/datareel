@@ -33,9 +33,9 @@ datareel_example(vector_records    oodb/vector_records.cpp)
 datareel_example(vector_days       oodb/vector_days.cpp)
 if(NOT WIN32)
   datareel_example(journal_recovery oodb/journal_recovery.cpp)
-  # 11/15/2026 (7.4): vector searches through the object server (POSIX only, like the object server)
-  datareel_example(vector_search_service oodb/vector_search_service.cpp)
 endif()
+# 11/15/2026 (7.4): vector searches through the object server (11/17/2026: Windows too, like the object server)
+datareel_example(vector_search_service oodb/vector_search_service.cpp)
 
 # TLS networking
 datareel_example(tls_echo_server   tls/tls_echo_server.cpp)

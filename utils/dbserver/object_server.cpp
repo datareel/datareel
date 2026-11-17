@@ -23,8 +23,14 @@ Stop it with Ctrl-C. See object_client.cpp and gxdbobject.h.
 #include "gxdbobject.h"
 
 #include <signal.h>
+#if defined (_WIN32)
+#include <winsock2.h>
+#include <windows.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <string>
 #include <atomic>
 #include <thread>
 #include <vector>
@@ -34,6 +40,10 @@ using namespace datareel;
 static gxDatabaseServer *g_server = 0;
 static std::atomic<bool> g_stop{false};
 static void on_signal(int) { g_stop = true; if(g_server) g_server->Stop(); }
+#if defined (_WIN32)
+// 11/17/2026 (7.4): Ctrl+C, Ctrl+Break, the console closed, log off or shut down
+static BOOL WINAPI on_console(DWORD) { on_signal(0); return TRUE; }
+#endif
 
 // The object service takes multiplex sessions through this small service:
 // it answers the multiplex HELLO and serves each "object" channel
@@ -71,8 +81,12 @@ private:
 
 int main(int argc, char **argv)
 {
+  // 11/17/2026 (7.4): --stop-file F: stop when F appears (a service wrapper, a script, or Windows, where a console
+  // program gets no SIGTERM); Ctrl+C, Ctrl+Break and closing the console stop it too
+  std::string stop_file;
+  if(argc == 10 && strcmp(argv[8], "--stop-file") == 0) { stop_file = argv[9]; argc = 8; }
   if(argc != 8) {
-    fprintf(stderr, "usage: object_server PORT CERT KEY CA CLIENT_CN DB_NAME DB_FILE\n");
+    fprintf(stderr, "usage: object_server PORT CERT KEY CA CLIENT_CN DB_NAME DB_FILE [--stop-file FILE]\n");
     return 64;
   }
   gxDatabaseServerConfig c;
@@ -86,10 +100,23 @@ int main(int argc, char **argv)
   gxDatabaseServer server(c);
   server.AddService(&mux);
   g_server = &server;
+  if(!stop_file.empty()) {
+    remove(stop_file.c_str());
+    server.SetTick([&] {
+      FILE *f = fopen(stop_file.c_str(), "rb");
+      if(f && !g_stop) { printf("stop file %s seen\n", stop_file.c_str()); fflush(stdout); on_signal(0); }
+      if(f) fclose(f);
+    }, 1);
+  }
   signal(SIGINT, on_signal);
   signal(SIGTERM, on_signal);
+#if defined (_WIN32)
+  SetConsoleCtrlHandler(on_console, TRUE);
+#endif
   std::string err;
   printf("serving database %s on port %s\n", argv[6], argv[1]);
+  fflush(stdout);
   if(server.Run(err) != 0) { fprintf(stderr, "%s\n", err.c_str()); return 1; }
+  printf("stopped\n");
   return 0;
 }

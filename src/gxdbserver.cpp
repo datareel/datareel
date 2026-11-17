@@ -6,7 +6,7 @@
 // C++ Compiler Used: GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/08/2026
-// Date Last Modified: 11/08/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -33,7 +33,7 @@ service from a session's first block.
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
 
-#if !defined (__WIN32__)
+// 11/17/2026 (7.4): Windows too
 
 #include "gxdbserver.h"
 
@@ -41,7 +41,7 @@ service from a session's first block.
 #include <stdarg.h>
 #include <stdio.h>
 #include <time.h>
-#include <unistd.h>
+#include <chrono>
 #include <thread>
 
 namespace datareel {
@@ -53,7 +53,11 @@ void gxDatabaseServerLog(const char *fmt, ...)
   char tb[64];
   time_t t = time(0);
   struct tm tmv;
+#if defined (__WIN32__)
+  localtime_s(&tmv, &t);
+#else
   localtime_r(&t, &tmv);
+#endif
   strftime(tb, sizeof(tb), "%Y-%m-%d %H:%M:%S", &tmv);
   char msg[2048];
   va_list ap;
@@ -94,7 +98,9 @@ void gxDatabaseServer::describe(int slot, const std::string &d)
 
 int gxDatabaseServer::Run(std::string &err)
 {
-  signal(SIGPIPE, SIG_IGN);
+#if !defined (__WIN32__)
+  signal(SIGPIPE, SIG_IGN);   // Windows sockets do not raise signals
+#endif
   if(services.empty()) { err = "no service to serve"; return -1; }
   server.SetClientCAFile(cfg.ca);
   for(auto &cn : cfg.allow_cn) server.AllowClientCN(cn);
@@ -129,7 +135,7 @@ int gxDatabaseServer::Run(std::string &err)
 		std::make_shared<gxSocket>(std::move(c))).detach();
   }
   server.Close();
-  for(int i = 0; i < 100 && (clients > 0 || handshaking > 0); i++) usleep(100000);
+  for(int i = 0; i < 100 && (clients > 0 || handshaking > 0); i++) std::this_thread::sleep_for(std::chrono::milliseconds(100));
   if(tick) tick();
   return 0;
 }
@@ -191,7 +197,6 @@ void gxDatabaseServer::session(int slot, std::shared_ptr<gxStream> s)
 
 } // namespace datareel
 
-#endif // !__WIN32__
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //
