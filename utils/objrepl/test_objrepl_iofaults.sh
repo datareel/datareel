@@ -38,13 +38,19 @@ LINKS=(--links "lk:0:db0,lk:8:lk"); IX=(--index "k0:db0:B:0:8,v0:db0:V:8:8")
 CPID=""
 P=$((20000 + RANDOM % 10000))
 # start_copy DIR PORT [ENV...] [-- LIMIT_KB]: the copy, optionally with env (the shim) and a file size limit
+# 11/17/2026: a copy still running from before is stopped first (a failed case left one running for 12 hours: CPID
+# was overwritten by the next start), and a copy that exited is reaped
 start_copy() {
+  stop_copy
   local d=$1 port=$2 lim=""; shift 2
   local envs=()
   while [ $# -gt 0 ]; do case "$1" in --limit) lim=$2; shift 2 ;; *) envs+=("$1"); shift ;; esac; done
   ( trap '' XFSZ; [ -n "$lim" ] && ulimit -f $lim; exec env "${envs[@]}" "$X" copy "$T/$d" --listen $port "${CTLS[@]}" "${IX[@]}" ) >> "$T/copy_$d.log" 2>&1 & CPID=$!
-  for i in $(seq 1 100); do grep -qE "^state (listening|streaming)" "$T/$d/objrepl.status" 2>/dev/null && \
-    [ "$(awk '$1=="pid"{print $2}' "$T/$d/objrepl.status")" == "$CPID" ] && return 0; kill -0 $CPID 2>/dev/null || return 1; sleep 0.1; done; return 1
+  # up to 30 s (a loaded machine); a copy still starting after that is left running and tracked in CPID (the
+  # next start_copy, stop_copy or the EXIT trap stops it), as a case may still use it
+  for i in $(seq 1 300); do grep -qE "^state (listening|streaming)" "$T/$d/objrepl.status" 2>/dev/null && \
+    [ "$(awk '$1=="pid"{print $2}' "$T/$d/objrepl.status")" == "$CPID" ] && return 0; kill -0 $CPID 2>/dev/null || { stop_copy; return 1; }; sleep 0.1; done
+  return 1
 }
 stop_copy() { [ -n "$CPID" ] || return 0; kill -TERM $CPID 2>/dev/null
 	      for i in $(seq 1 50); do kill -0 $CPID 2>/dev/null || break; sleep 0.2; done
@@ -96,13 +102,17 @@ heal a2 b2 $((P + 1)) && [ $r -ne 0 ] && grep -qE "commit|write" "$T/a2_full.log
   && ok "primary full: the commit failed (exit $r: $(grep -m1 -oE 'objrepl primary: [a-z]+: [^/]*' "$T/a2_full.log")), the node was whole at seq $last, the copy equals it" \
   || bad "primary full" "rc $r last $last $(tail -n 2 "$T/a2_full.log" | tr '\n' '|')"
 
+# 11/17/2026: the shim must load: an LD_PRELOAD path that does not load only prints an ld.so error (which has
+# "eio_shim" in it), and the EIO cases then passed without one EIO
+[ -f "$SHIM" ] && env LD_PRELOAD="$SHIM" /bin/true 2>&1 | grep -q "ERROR: ld.so" && { echo "FAIL the shim $SHIM does not load"; exit 1; }
+[ -f "$SHIM" ] || { echo "FAIL no shim at $SHIM"; exit 1; }
 # copy EIO once (pwrite) and copy fsync EIO once
 for call in pwrite fsync; do
   mkdir -p "$T/a_$call" "$T/b_$call"
   start_copy b_$call $((P + 2)) LD_PRELOAD="$SHIM" EIO_MATCH="/b_$call/" EIO_CALL=$call EIO_AFTER=200 EIO_MODE=once
   prim a_$call $((P + 2)) -- --commits 200 --per 8 --seed 5 > "$T/a_$call.log" 2>&1; r=$?
   stop_copy
-  eio=$(grep -c "eio_shim" "$T/copy_b_$call.log")
+  eio=$(grep -c "^eio_shim: " "$T/copy_b_$call.log")
   [ $r -eq 0 ] && [ "$eio" -ge 1 ] && same a_$call b_$call \
     && ok "copy $call EIO once: the copy hit it ($eio), rolled back, the resend applied; equal and consistent" \
     || bad "copy $call EIO once" "primary rc $r, eio lines $eio, $(grep -m2 -E 'did not apply|failed|EIO' "$T/copy_b_$call.log" | tr '\n' '|')"
@@ -112,7 +122,7 @@ done
 mkdir -p "$T/a3" "$T/b3"
 prim a3 $((P + 3)) LD_PRELOAD="$SHIM" EIO_MATCH="/a3/" EIO_CALL=fsync EIO_AFTER=100 EIO_MODE=once -- --commits 200 --per 8 --seed 6 > "$T/a3.log" 2>&1; r=$?
 last=$("$X" status "$T/a3" | awk '{print $4 - 1}')
-heal a3 b3 $((P + 3)) && [ $r -ne 0 ] && grep -q "eio_shim" "$T/a3.log" \
+heal a3 b3 $((P + 3)) && [ $r -ne 0 ] && grep -q "^eio_shim: " "$T/a3.log" \
   && ok "primary fsync EIO once: Commit() failed (exit $r), the node was whole at seq $last after a restart; the copy equals it" \
   || bad "primary fsync EIO once" "rc $r last $last $(grep -m2 -E 'eio|commit' "$T/a3.log" | tr '\n' '|')"
 
