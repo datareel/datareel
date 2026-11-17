@@ -33,6 +33,8 @@ and non-throwing number conversion.
 
 Changes:
 ==============================================================
+11/17/2026: strip_ansi() and AnsiStripper: terminal (ECMA-48: VT100,
+VT220, xterm) control sequences out of text, also across pieces.
 10/26/2026: DataReel 7 replaces the UString/gxString classes and
 the null-terminated string functions with std::string and these
 header-only helpers in the datareel namespace.
@@ -478,6 +480,130 @@ inline std::string str_cat(const Args &...args)
   std::string s;
   (str_append_one(s, args), ...);
   return s;
+}
+
+// --------------------------------------------------------------
+// 11/17/2026 (7.4): terminal control sequences out of text. Text captured from a VT100/VT220 or xterm session,
+// a serial device or a program that colours its output holds ECMA-48 control sequences: ESC [ ... (CSI, colours
+// and cursor moves), ESC ] ... (OSC, titles and links, ended by BEL or ESC \), ESC P/X/^/_ ... ESC \ (DCS, SOS,
+// PM, APC strings), ESC followed by one final character (ESC 7, ESC c, ESC (B charset), and C0 control characters.
+// strip_ansi() returns the text without them. AnsiStripper does the same for text that arrives in pieces (a serial
+// port, a socket): a sequence split across two Feed() calls is still removed. Bytes 0x80-0x9F are the 8-bit C1
+// controls only with c1_8bit (they are UTF-8 continuation bytes otherwise, and UTF-8 text is passed through as is).
+// From dougg's vt220-strip (2001-2008, NWS data collection platforms), rewritten for 7.4.
+struct AnsiStripOptions {
+  bool keep_tab = true;          // \t stays
+  bool keep_newline = true;      // \n stays
+  bool cr_to_newline = false;    // a \r alone (not followed by \n) becomes \n; \r\n becomes \n; else \r is dropped
+  bool cursor_to_newline = false;// a cursor position (CSI ... H or f) or a cursor down (CSI ... B, E) becomes \n, so
+				 // text a terminal laid out by moving the cursor keeps its lines (vt220-strip did this)
+  bool c1_8bit = false;          // bytes 0x80-0x9F are C1 controls (0x9B CSI, 0x9D OSC, 0x90 DCS, ...): 8-bit text only
+  bool keep_del = false;         // 0x7F stays
+};
+
+class AnsiStripper {
+public:
+  explicit AnsiStripper(const AnsiStripOptions &o = AnsiStripOptions()) : opt(o) { }
+  // the text of S without control sequences, appended to OUT (state is kept across calls)
+  void Feed(std::string_view s, std::string &out) {
+    for(char ch : s) step((unsigned char)ch, out);
+  }
+  // the end of the input: a sequence left unfinished is dropped; a pending \r is resolved
+  void Finish(std::string &out) {
+    if(pending_cr) { out += '\n'; pending_cr = false; }
+    st = TEXT;
+  }
+  void Reset() { st = TEXT; pending_cr = false; csi_final_seen = 0; }
+  // sequences removed so far (counted when they end)
+  unsigned long Removed() const { return removed; }
+
+private:
+  enum State { TEXT, ESC, ESC_INTER, CSI, STRING, STRING_ESC, OSC, OSC_ESC };
+  AnsiStripOptions opt;
+  State st = TEXT;
+  bool pending_cr = false;
+  int csi_final_seen = 0;
+  unsigned long removed = 0;
+
+  void emit(unsigned char c, std::string &out) {
+    if(pending_cr) {                       // cr_to_newline: \r then this byte
+      pending_cr = false;
+      out += '\n';
+      if(c == '\n') return;                // \r\n: one newline
+    }
+    out += (char)c;
+  }
+  void text(unsigned char c, std::string &out) {
+    if(c == 0x1B) { st = ESC; return; }
+    if(opt.c1_8bit && c >= 0x80 && c <= 0x9F) {
+      if(c == 0x9B) { st = CSI; return; }
+      if(c == 0x9D) { st = OSC; return; }
+      if(c == 0x90 || c == 0x98 || c == 0x9E || c == 0x9F) { st = STRING; return; }
+      removed++; return;                   // another C1 control
+    }
+    if(c == '\t') { if(opt.keep_tab) emit(c, out); return; }
+    if(c == '\n') { if(opt.keep_newline) emit(c, out); else if(pending_cr) { pending_cr = false; out += '\n'; } return; }
+    if(c == '\r') { if(opt.cr_to_newline) { if(pending_cr) out += '\n'; pending_cr = true; } return; }
+    if(c < 0x20) { removed++; return; }    // another C0 control (BEL, BS, SO/SI, ...)
+    if(c == 0x7F) { if(opt.keep_del) emit(c, out); return; }
+    emit(c, out);
+  }
+  void step(unsigned char c, std::string &out) {
+    switch(st) {
+      case TEXT: text(c, out); return;
+      case ESC:
+	if(c == '[') { st = CSI; csi_final_seen = 0; return; }
+	if(c == ']') { st = OSC; return; }
+	if(c == 'P' || c == 'X' || c == '^' || c == '_') { st = STRING; return; }
+	if(c >= 0x20 && c <= 0x2F) { st = ESC_INTER; return; }   // ESC ( B and the like
+	if(c == 0x1B) { removed++; return; }                      // ESC ESC: the first one alone
+	st = TEXT; removed++;                                    // ESC and one final character (ESC 7, ESC c, ESC D ...)
+	if(opt.cursor_to_newline && (c == 'D' || c == 'E')) emit('\n', out);   // IND, NEL
+	if(c < 0x20) text(c, out);                               // a control right after ESC is acted on
+	return;
+      case ESC_INTER:
+	if(c >= 0x20 && c <= 0x2F) return;
+	st = TEXT; removed++;
+	if(c < 0x20) text(c, out);
+	return;
+      case CSI:
+	if(c >= 0x40 && c <= 0x7E) {                             // the final byte
+	  st = TEXT; removed++;
+	  if(opt.cursor_to_newline && (c == 'H' || c == 'f' || c == 'B' || c == 'E')) emit('\n', out);
+	  return;
+	}
+	if(c == 0x1B) { st = ESC; removed++; return; }           // cut short by a new sequence
+	if(c < 0x20) { text(c, out); return; }                   // C0 inside CSI is acted on (ECMA-48)
+	return;                                                  // parameter and intermediate bytes
+      case STRING:                                               // DCS, SOS, PM, APC: to ST (ESC \ or 0x9C)
+	if(c == 0x1B) { st = STRING_ESC; return; }
+	if(opt.c1_8bit && c == 0x9C) { st = TEXT; removed++; }
+	return;
+      case STRING_ESC:
+	if(c == '\\') { st = TEXT; removed++; return; }
+	st = (c == 0x1B) ? STRING_ESC : STRING; return;
+      case OSC:                                                  // to BEL or ST
+	if(c == 0x07) { st = TEXT; removed++; return; }
+	if(c == 0x1B) { st = OSC_ESC; return; }
+	if(opt.c1_8bit && c == 0x9C) { st = TEXT; removed++; }
+	return;
+      case OSC_ESC:
+	if(c == '\\') { st = TEXT; removed++; return; }
+	if(c == 0x1B) return;
+	st = OSC; return;
+    }
+  }
+};
+
+// S without terminal control sequences (see AnsiStripper)
+inline std::string strip_ansi(std::string_view s, const AnsiStripOptions &o = AnsiStripOptions())
+{
+  AnsiStripper a(o);
+  std::string out;
+  out.reserve(s.size());
+  a.Feed(s, out);
+  a.Finish(out);
+  return out;
 }
 
 } // namespace datareel

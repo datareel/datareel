@@ -55,3 +55,9 @@ add_executable(imap_login_test imap_login_test.cpp)
 target_link_libraries(imap_login_test PRIVATE DataReel::datareel)
 set_target_properties(imap_login_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+
+# 11/17/2026: strip_ansi() and AnsiStripper (strutil.h): terminal control sequences out of text
+add_executable(ansi_strip_test ansi_strip_test.cpp)
+target_link_libraries(ansi_strip_test PRIVATE DataReel::datareel)
+set_target_properties(ansi_strip_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")

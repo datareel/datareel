@@ -179,6 +179,8 @@ mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" &&
 mkdir -p "$WORK/run_salt" && check journal_salt_test "$BUILD/tests/journal_salt_test" "$WORK/run_salt"
 # 11/16/2026: block reuse, best fit and first fit (ReclaimBestFit() reused only exact fits)
 mkdir -p "$WORK/run_reclaim" && check reclaim_test "$BUILD/tests/reclaim_test" "$WORK/run_reclaim"
+# 11/17/2026: terminal control sequences out of text (strutil.h strip_ansi, AnsiStripper)
+check ansi_strip_test "$BUILD/tests/ansi_strip_test"
 # Vector index (gxvindex.h, 7.4): kernels, exact and graph search,
 # Merge, Repair, concurrent searches and 20 crash rounds
 mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" &&

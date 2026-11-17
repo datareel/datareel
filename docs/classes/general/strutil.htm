@@ -31,7 +31,8 @@
 <A HREF="#TrimFunctions">Trimming and Case</A><BR>
 <A HREF="#SearchFunctions">Comparing and Searching</A><BR>
 <A HREF="#EditFunctions">Editing and Splitting</A><BR>
-<A HREF="#FormatFunctions">Formatting and Conversion</A></P>
+<A HREF="#FormatFunctions">Formatting and Conversion</A><BR>
+<A HREF="#AnsiFunctions">Terminal Control Sequences</A></P>
 
 <h2 id="Overview">Overview</h2>
 <P>DataReel 7 uses std::string and std::string_view throughout. strutil.h adds what the C++17 standard library does not have. Conversions to numbers use atoi() rules: leading space is skipped, conversion stops at the first invalid character and 0 is returned for no number.</P>
@@ -61,6 +62,11 @@
 <div class="dr-fn" id="to_int"><code class="dr-sig">int to_int(const std::string &amp;s) / to_long / to_llong / to_ullong / to_double</code><p class="dr-desc">Number conversion without exceptions.</p></div>
 <div class="dr-fn" id="copy_to"><code class="dr-sig">std::size_t copy_to(char *dest, std::size_t dest_size, std::string_view s)</code><p class="dr-desc">Copies into a fixed buffer, always null terminated.</p></div>
 <div class="dr-fn" id="bounded_length"><code class="dr-sig">std::size_t bounded_length(const char *s, std::size_t max)</code><p class="dr-desc">Length of a fixed buffer that may not be null terminated.</p></div>
+
+<h2 id="AnsiFunctions">Terminal Control Sequences</h2>
+<div class="dr-fn" id="strip_ansi"><code class="dr-sig">std::string strip_ansi(std::string_view s, const AnsiStripOptions &amp;o = AnsiStripOptions())</code><p class="dr-desc">Text without ECMA-48 control sequences (VT100, VT220, xterm): CSI (ESC [ ..., colours and cursor moves), OSC (ESC ] ... ended by BEL or ESC \, titles and links), DCS, SOS, PM and APC strings (to ESC \), ESC with one final character (ESC 7, ESC c, ESC ( B), and C0 control characters. UTF-8 text passes through unchanged.</p></div>
+<div class="dr-fn" id="Feed"><code class="dr-sig">class AnsiStripper: Feed(std::string_view s, std::string &amp;out), Finish(std::string &amp;out), Reset(), Removed()</code><p class="dr-desc">The same for text that arrives in pieces (a serial port, a socket): a sequence split between two Feed() calls is still removed. Finish() drops a sequence left unfinished. Removed() counts the sequences and controls taken out.</p></div>
+<div class="dr-fn" id="struct_AnsiStripOptions"><code class="dr-sig">struct AnsiStripOptions</code><p class="dr-desc">keep_tab and keep_newline (on); cr_to_newline (a lone CR or CR LF becomes one newline); cursor_to_newline (cursor positions, cursor down and NEL become line breaks, for text a terminal laid out by moving the cursor); c1_8bit (bytes 0x80-0x9F are the 8-bit C1 controls: only for 8-bit text, never UTF-8); keep_del.</p></div>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
