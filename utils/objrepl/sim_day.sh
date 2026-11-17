@@ -21,8 +21,10 @@ set -u
 B=${1:?usage: sim_day.sh BIN_DIR [OBJECTS] [DAY_SECS]}
 N=${2:-1000000}; DAY=${3:-1200}
 X="$B/objrepl"; S="$B/objrepl_sim"
-# 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's)
-"$X" engine > /dev/null 2>&1 || { echo "$(basename "$0"): $X is not a 64-bit engine build: $("$X" engine 2>&1 | head -n 1); configure with -DDATAREEL_64BIT_DATABASE=ON"; exit 64; }
+# 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's), unless
+# OBJREPL_ALLOW_32BIT=1 says a 32-bit run is meant (the run makes its own folders, so no engine reads the other's files)
+[ "${OBJREPL_ALLOW_32BIT:-0}" == 1 ] && ! "$X" engine > /dev/null 2>&1 && echo "$(basename "$0"): a 32-bit engine run (OBJREPL_ALLOW_32BIT=1)"
+[ "${OBJREPL_ALLOW_32BIT:-0}" == 1 ] || "$X" engine > /dev/null 2>&1 || { echo "$(basename "$0"): $X is not a 64-bit engine build: $("$X" engine 2>&1 | head -n 1); configure with -DDATAREEL_64BIT_DATABASE=ON"; exit 64; }
 HERE=$(cd "$(dirname "$0")" && pwd)
 T=$(mktemp -d "${TMPDIR:-/tmp}/objrepl_simday.XXXXXX")
 "$HERE/objrepl_certs.sh" "$T/pki" --copy-host 127.0.0.1 --days 30 --apply > /dev/null || { echo "certificates failed"; exit 1; }

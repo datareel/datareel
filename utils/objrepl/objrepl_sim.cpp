@@ -59,6 +59,10 @@ objects written, last seq, copy applied, lag, reads, read p50/p99 us).
 #include <signal.h>
 #if !defined(_WIN32)
 #include <unistd.h>
+#else
+#include <windows.h>            // SetConsoleCtrlHandler (11/16/2026)
+#undef near
+#undef far
 #endif
 #include <time.h>
 #include <atomic>
@@ -84,6 +88,11 @@ static const int NSYM = 500, NCAT = 40, NAUTH = 300;
 static std::atomic<int> stopping{0};
 static gxObjRepl *node = 0;
 static void on_term(int) { stopping = 1; if(node) node->Stop(); }
+#if defined(_WIN32)
+// 11/16/2026: Windows has no TERM: Ctrl+C, Ctrl+Break and closing the console stop the simulator, and so does
+// ROOT/objrepl.stop (any platform), as for the objrepl tool
+static BOOL WINAPI on_ctrl(DWORD) { stopping = 1; if(node) node->Stop(); return TRUE; }
+#endif
 
 static double wall_s() { return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count(); }
 static double now_s() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
@@ -221,6 +230,7 @@ int main(int argc, char **argv)
     else return usage();
   }
 #if defined(_WIN32)
+  SetConsoleCtrlHandler(on_ctrl, TRUE);
   signal(SIGTERM, on_term); signal(SIGINT, on_term);
 #else
   struct sigaction sa; memset(&sa, 0, sizeof(sa)); sa.sa_handler = on_term;
@@ -231,6 +241,17 @@ int main(int argc, char **argv)
   int rc = s.r.Open(root, cfg, copy ? gxObjRepl::COPY : gxObjRepl::PRIMARY);
   if(rc != 0) { fprintf(stderr, "objrepl_sim %s: %s (rc %d)\n", mode.c_str(), s.r.Error().c_str(), rc); return rc == 4 ? 4 : 64; }
   node = &s.r;
+  // ROOT/objrepl.stop (any platform): the simulator stops within a second and the file is removed (11/16/2026: a
+  // Windows run could only stop it with taskkill /F)
+  std::string stopf = root + "/objrepl.stop";
+  std::remove(stopf.c_str());
+  std::thread stopwatch([stopf]() {
+    while(!stopping) {
+      if(FILE *f = fopen(stopf.c_str(), "r")) { fclose(f); std::remove(stopf.c_str()); on_term(0); break; }
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+  });
+  stopwatch.detach();
   FILE *sf = stats.empty() ? 0 : fopen(stats.c_str(), "a");
   std::vector<std::thread> rt;
   auto start_readers = [&]() { for(int k = 0; k < readers; k++) rt.emplace_back([&s, k, seed]() { s.reader(seed * 100 + k); }); };

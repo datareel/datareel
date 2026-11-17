@@ -14,15 +14,37 @@
 #include <map>
 #include <set>
 #include <random>
+#if defined(_WIN32)
+// 11/16/2026: Windows too (Linux <-> Windows replication is a 7.4 feature: the same API test on both)
+#include <winsock2.h>
+#include <windows.h>
+#include <stdlib.h>
+typedef SOCKET test_sock_t;
+static void test_setenv(const char *k, const char *v) { _putenv_s(k, v); }
+static void test_unsetenv(const char *k) { _putenv_s(k, ""); }
+static void test_closesock(test_sock_t s) { closesocket(s); }
+#else
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <signal.h>
+typedef int test_sock_t;
+static void test_setenv(const char *k, const char *v) { setenv(k, v, 1); }
+static void test_unsetenv(const char *k) { unsetenv(k); }
+static void test_closesock(test_sock_t s) { close(s); }
+#endif
+// a folder, made with the default permissions (the test only needs it to exist)
+static void test_mkdir(const std::string &d) { std::error_code ec; std::filesystem::create_directory(d, ec); }
 #include "gxobjrepl.h"
 #include "gxdbase.h"
 #include "gxstream.h"
+#if defined(_WIN32)
+#undef near                     // windows.h (minwindef.h) defines it; a variable below is named near
+#undef far
+#endif
 using namespace datareel;
 
 static int pass = 0, fail = 0;
@@ -35,6 +57,9 @@ int main(int argc, char **argv)
 {
   if(argc < 4) { fprintf(stderr, "usage: test_gxobjrepl_api DIR PKI_DIR PORT\n"); return 64; }
   std::string dir = argv[1], pki = argv[2], port = argv[3];
+#if defined(_WIN32)
+  { WSADATA w; WSAStartup(MAKEWORD(2, 2), &w); }            // the raw listener in r3-5 (gxSocket starts it too)
+#endif
   gxObjReplConfig pc, cc;
   std::string why;
   bool ok = pc.Set("ca", pki + "/ca.pem") && pc.Set("cert", pki + "/primary.pem") && pc.Set("key", pki + "/primary.key") &&
@@ -291,7 +316,7 @@ int main(int argc, char **argv)
     }
     // 3 an index that cannot be opened: its database is not kept open without it
     {
-      std::string d = dir + "/ix"; mkdir(d.c_str(), 0700); mkdir((d + "/ev.k.ix.btx.building").c_str(), 0700);
+      std::string d = dir + "/ix"; test_mkdir(d); test_mkdir(d + "/ev.k.ix.btx.building");
       gxObjReplConfig c = pcfg(base + 4, true); c.index = "k:ev:B:0:8";
       gxObjRepl x; x.Open(d, c, gxObjRepl::PRIMARY);
       int r1 = x.OpenDatabase("ev"), r2 = x.OpenDatabase("ev");
@@ -302,17 +327,29 @@ int main(int argc, char **argv)
     {
       std::string d = dir + "/lk";
       gxObjRepl x; x.Open(d, pcfg(base + 5, true), gxObjRepl::PRIMARY);
+#if defined(_WIN32)
+      // a child that inherits every inheritable handle (bInheritHandles TRUE): the lock's must not be one of them
+      STARTUPINFOA si; PROCESS_INFORMATION pi; memset(&si, 0, sizeof(si)); si.cb = sizeof(si); memset(&pi, 0, sizeof(pi));
+      char cmd[] = "cmd.exe /c ping -n 4 127.0.0.1 >nul";
+      BOOL started = CreateProcessA(0, cmd, 0, 0, TRUE, CREATE_NO_WINDOW, 0, 0, &si, &pi);
+      x.Close();
+      gxObjRepl y; int orc = y.Open(d, pcfg(base + 5, true), gxObjRepl::PRIMARY);
+      check(started && orc == 0, "review2 4: the node opens again while a child of the first opener still runs [" + y.Error() + "]");
+      y.Close();
+      if(started) { TerminateProcess(pi.hProcess, 9); WaitForSingleObject(pi.hProcess, 5000); CloseHandle(pi.hProcess); CloseHandle(pi.hThread); }
+#else
       pid_t kid = fork();
       if(kid == 0) { execlp("sleep", "sleep", "3", (char *)0); _exit(127); }
       x.Close();
       gxObjRepl y; int orc = y.Open(d, pcfg(base + 5, true), gxObjRepl::PRIMARY);
       check(orc == 0, "review2 4: the node opens again while a child of the first opener still runs [" + y.Error() + "]");
       y.Close(); kill(kid, SIGKILL); waitpid(kid, 0, 0);
+#endif
     }
     // 5 a state file created but never written (a crash in the first open): the new node starts; a node with data
     // whose state file is gone is refused
     {
-      std::string d = dir + "/st"; mkdir(d.c_str(), 0700);
+      std::string d = dir + "/st"; test_mkdir(d);
       { gxDatabase sdb; sdb.Create((d + "/state.gxd").c_str(), (FAU_t)96); sdb.Close(); }
       gxObjRepl x; int r1 = x.Open(d, pcfg(base + 6, true), gxObjRepl::PRIMARY); commit1(x); x.Close();
       std::remove((d + "/state.gxd").c_str());
@@ -353,13 +390,13 @@ int main(int argc, char **argv)
     }
     // r3-2: a database whose index failed to open is not opened again over the failed objects
     {
-      std::string d = dir + "/nv"; mkdir(d.c_str(), 0700); mkdir((d + "/nv.m.ix.btx.building").c_str(), 0700);
+      std::string d = dir + "/nv"; test_mkdir(d); test_mkdir(d + "/nv.m.ix.btx.building");
       gxObjReplConfig c = pcfg(base + 4, true); c.index = "k:nv:B:0:8,m:nv:B:8:8";
       gxObjRepl x; x.Open(d, c, gxObjRepl::PRIMARY);
       int r1 = x.OpenDatabase("nv"), r2 = x.OpenDatabase("nv");
       std::string e2 = x.Error();
       x.Close();
-      rmdir((d + "/nv.m.ix.btx.building").c_str());
+      { std::error_code ec; std::filesystem::remove(d + "/nv.m.ix.btx.building", ec); }
       gxObjRepl y; y.Open(d, c, gxObjRepl::PRIMARY);
       int r3 = y.OpenDatabase("nv");
       y.Begin(); for(int i = 0; i < 50; i++) { char b8[16]; memset(b8, 0, 16); b8[0] = 'A' + i % 2; b8[8] = (char)i; y.Put("nv", y.NewId(), b8, 16); } y.Commit();
@@ -386,8 +423,8 @@ int main(int argc, char **argv)
     }
     // r3-5: while Pump() waits on a copy that never answers TLS, a reader is not held up
     {
-      int ls = socket(AF_INET, SOCK_STREAM, 0); sockaddr_in a; memset(&a, 0, sizeof(a)); a.sin_family = AF_INET; a.sin_port = htons(base + 11);
-      a.sin_addr.s_addr = htonl(0x7f000001); int one = 1; setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+      test_sock_t ls = socket(AF_INET, SOCK_STREAM, 0); sockaddr_in a; memset(&a, 0, sizeof(a)); a.sin_family = AF_INET; a.sin_port = htons(base + 11);
+      a.sin_addr.s_addr = htonl(0x7f000001); int one = 1; setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof(one));
       bind(ls, (sockaddr *)&a, sizeof(a)); listen(ls, 4);     // accepts in the kernel, never speaks TLS
       gxObjRepl x; x.Open(dir + "/pb_p", pcfg(base + 11, true), gxObjRepl::PRIMARY); commit1(x);
       std::thread pt([&]() { x.Pump(); });
@@ -395,7 +432,7 @@ int main(int argc, char **argv)
       auto t0 = std::chrono::steady_clock::now();
       std::vector<unsigned char> b; x.Get("ev", 1, b);
       double w = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-      pt.join(); x.Close(); close(ls);
+      pt.join(); x.Close(); test_closesock(ls);
       check(w < 1.0, "r3-5: a reader waited " + std::to_string(w).substr(0, 5) + " s while Pump() was stuck in a TLS handshake");
     }
     // r3-6: Drain() after the copy was replaced by an empty one does not report 0 from stale knowledge
@@ -496,7 +533,7 @@ int main(int argc, char **argv)
       x.Drain(30); x.Close(); C.stop();
       std::string m; gxObjRepl::Rejoin(dir + "/sa_c", m);    // the copy will take a full send
       // the crash: ev.gxd and ev.id.btx moved into prev.tmp, the rest not yet
-      std::string c = dir + "/sa_c"; mkdir((c + "/prev.tmp").c_str(), 0700);
+      std::string c = dir + "/sa_c"; test_mkdir(c + "/prev.tmp");
       struct stat sb; stat((c + "/ev.gxd").c_str(), &sb); long long oldsz = (long long)sb.st_size;
       rename((c + "/ev.gxd").c_str(), (c + "/prev.tmp/ev.gxd").c_str()); rename((c + "/ev.id.btx").c_str(), (c + "/prev.tmp/ev.id.btx").c_str());
       gxObjRepl c2; int orc = c2.Open(c, ccfg(pr, "SA"), gxObjRepl::COPY);   // completes the set-aside first
@@ -508,7 +545,7 @@ int main(int argc, char **argv)
       gxObjRepl y; y.Open(dir + "/sa_p", pcfg(pr, true), gxObjRepl::PRIMARY); int drc = y.Drain(60); y.Close();
       C.stop();
       bool gone1 = stat((c + "/prev").c_str(), &sb) != 0;
-      mkdir((c + "/prev").c_str(), 0700); FILE *f = fopen((c + "/prev/old.gxd").c_str(), "w"); if(f) fclose(f);
+      test_mkdir(c + "/prev"); FILE *f = fopen((c + "/prev/old.gxd").c_str(), "w"); if(f) fclose(f);
       gxObjRepl c3; c3.Open(c, ccfg(pr, "SA"), gxObjRepl::COPY); bool gone2 = stat((c + "/prev").c_str(), &sb) != 0; uint64_t ap = c3.AppliedSeq(); c3.Close();
       std::string da, db; gxObjRepl::Digest(dir + "/sa_p", "", da); gxObjRepl::Digest(c, "", db);
       check(drc == 0 && gone1 && gone2 && ap == 5 && da == db, "r4-3: the full send ended (prev removed), a leftover prev was removed at open, data equal [" + db + "]");
@@ -581,7 +618,7 @@ int main(int argc, char **argv)
       for(int k = 0; k < 5; k++) x.Pump();                     // the outbox trimmed
       C1.stop();
       Srv C2; C2.start(dir + "/fs_c2", ccf("FS2"));            // an empty copy: it gets a full send
-      setenv("OBJREPL_TEST_ONLY_FULL_SEND", "1", 1);
+      test_setenv("OBJREPL_TEST_ONLY_FULL_SEND", "1");
       std::atomic<int> stop{0}; std::atomic<long> reads{0}, commits{0}; std::atomic<double> worst{0};
       std::string werr;
       std::thread rd([&]() {
@@ -630,7 +667,7 @@ int main(int argc, char **argv)
       double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
       long during = commits;
       stop = 1; rd.join(); wr.join();
-      unsetenv("OBJREPL_TEST_ONLY_FULL_SEND");
+      test_unsetenv("OBJREPL_TEST_ONLY_FULL_SEND");
       uint64_t sbase = C2.r.AppliedSeq();
       // the copy at the base: each object as the last commit up to the base left it
       size_t bad = 0, checked = 0; std::string first_bad;
