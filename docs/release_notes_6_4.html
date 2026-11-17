@@ -18,9 +18,9 @@
 </header>
 <main class="dr-main">
 <h1>DataReel 6.4 Release Notes</h1>
-<h2 id="Top">DataReel 6.4 Release Notes, 11/16/2026 (beta 2)</h2>
+<h2 id="Top">DataReel 6.4 Release Notes, 11/17/2026</h2>
 <p>DataReel version 6.4 (was 6.3.1) DataReel Copyright (c) 2001-2026 DataReel Software Development</p>
-<p>DataReel 6.4 is the DataReel 6.3.1 library, with the single-node crash safety and damaged-file fixes of DataReel 7.0-7.4 ported to the 6.x classes (beta 2, below), and an optional build of the DataReel 7.x vector database and replication features for 6.x programs. The 6.x API is the same, and database files are byte-identical to 6.2 and 6.3.1. DataReel 6.4 has no copy of the 7.x vector or replication code. A 6.x build uses the 7.x code, from a DataReel 7.4 or later source tree, only when it is asked to:</p>
+<p>DataReel 6.4 is the DataReel 6.3.1 library, with the single-node crash safety and damaged-file fixes of DataReel 7.0-7.4 ported to the 6.x classes (beta 2 and beta 3, below), and an optional build of the DataReel 7.x vector database and object replication features for 6.x programs. The 6.x API is the same, and database files keep the 6.2 and 6.3.1 format: 6.2 and 6.3.1 read every file 6.4 writes. (A file whose freed blocks are reused with best fit can hold different bytes than 6.3.1 would write; see BETA 3.) The gxStream wire header changed in 6.4: 6.4 network peers do not talk to 6.3 or older peers built on Windows or for 32 bits (see BETA 3). DataReel 6.4 has no copy of the 7.x vector or replication code. A 6.x build uses the 7.x code, from a DataReel 7.4 or later source tree, only when it is asked to:</p>
 <p>cmake -S datareel-6.4 -B build -DDATAREEL7_FEATURES_DIR=/path/to/datareel-7.4</p>
 <p>A program that does not use the 7.x features builds with the makefiles or with CMake as with 6.3.1. Everything in RELEASE_NOTES_6.3.1.txt and RELEASE_NOTES_6.3.txt is included. The shared library (Linux makefiles) is built as libdatareel.so.6.4.</p>
 <h2>Beta 2 (11/16/2026): Fixes from DataReel 7.x</h2>
@@ -50,11 +50,18 @@
 <li>The DataReel 7.4 gxsIMAPClient interface, with the 2007 work client&#x27;s calls, is in 6.4 too, so a program builds against either version: Connect() (gxsMAIL_IMPLICIT_TLS or gxsMAIL_STARTTLS), ConnectPlain(), Login(), Logout(), Capability()/HasCapability() (LOGIN is refused on LOGINDISABLED), SelectMailbox(), Examine(), ListMailboxes(), Search(), FetchHeader() (also the 2007 form with the dates), FetchBody(), FetchMessage(), FetchInternalDate(), Delete(), Expunge(), Command() with Untagged() and LastReply(), the 2007 SendCommand(cmd, tag), RecvBuffer() and ParseResponse(), FetchItem(), Quote(), Error() and the settings SetTimeout(), SetCAFile(), SetVerifyPeer(), SetMaxSize() and SetRecordProto()/ProtoString(). These use std::string and std::vector and return 0 or -1, as in 7.4.</li>
 <li>examples_socket/imap_client: one IMAP command from the command line, written with the 7.4 calls. proto_security: 47 IMAP checks with a fake server.</li>
 </ul>
+<h2>Beta 3 (11/17/2026): Fixes and the Wire Header from DataReel 7.4</h2>
+<ul>
+<li>Best-fit block reuse (gxDatabase::ReclaimBestFit(), gxDBASE_RECLAIM_BESTFIT): only exact fits were reused, so every other allocation grew the file. Now a free block whose unused bytes are within the reuse limit (2.5 times the bytes requested) is a candidate, and the one leaving the fewest unused bytes is taken; the rest of the split stays free. The deleted-block count follows the chosen block. First fit (the default) is unchanged, and so is the file format. Because blocks are now reused, a file built with best fit (for example the defrag example&#x27;s) can differ byte for byte from 6.3.1&#x27;s; 6.2 and 6.3.1 read it. Test: examples_database/reclaim.</li>
+<li>Journal salts (gxdJournal): processes forked from one parent that wrote a journal header in the same second got the same salt, and a recovery could replay the previous session&#x27;s records. The salt now mixes the OS random source (/dev/urandom; on Windows the performance counter, the process id and the tick count), a fine clock, the process id, a counter and the object&#x27;s address. The journal format is unchanged. Test: examples_database/journal_salt.</li>
+<li>The gxStream block header on the wire (gxStream, gxDatagram, gxSerialCommServer): DataReel 7.4&#x27;s canonical 32-byte form, the bytes 64-bit Linux always sent, on every platform. A sender with 4-byte words (a Windows or 32-bit build before this change) is refused (gxStream::PeerOldHeader()). COMPATIBILITY: a 6.4 gxStream, gxDatagram or gxSerialCommServer peer does not talk to a 6.3 or older peer built on Windows or for 32 bits. Upgrade both ends together. 6.4 talks to DataReel 7.4 and later.</li>
+<li>Object replication for 6.x programs (gxv7ObjRepl, the 7.x features build): see OBJECT REPLICATION below.</li>
+</ul>
 <h2>The 7.x Features Build (CMake Only)</h2>
 <ul>
 <li>DATAREEL7_FEATURES_DIR (a path, empty = off): the 7.x source tree. The build refuses a tree older than 7.4. It builds, next to the 6.x library: - the 7.x library, from that tree as it is. Its names are in the datareel namespace, so it links next to the 6.x library in one program; - dr7inner (dr7features/inner): a plain C interface to the 7.x classes, compiled against the 7.x headers only; - dr7features (dr7features/include/dr7features.h): DataReel 6.x classes that use it, with 6.x types (gxString, MemoryBuffer). Link a program with the CMake target DataReel::dr7features. It needs a C++17 compiler, the same one for both libraries.</li>
 <li>DATAREEL7_TOOLS (default ON with DATAREEL7_FEATURES_DIR): also build the 7.x programs from the 7.x tree into &lt;build&gt;/dr7inner/tools: objrepl, objrepl_sim and test_gxobjrepl_api (object replication), vix_rebuild, and on POSIX object_server, object_client and the 6.4 vector_server (the object server with a vector set).</li>
-<li>11/17/2026: the 7.x tree must be DataReel 7.4 beta 5 or later (gxObjRepl, the canonical gxStream block header, no gxrepl; feature checks, no version pin). The build stops with a message for an older tree.</li>
+<li>11/17/2026: the 7.x tree must be DataReel 7.4 or later (gxObjRepl, the canonical gxStream block header, no gxrepl; feature checks, no version pin). The build stops with a message for an older tree.</li>
 <li>The 7.x library is built with the same database engine as the 6.x library (DATAREEL_64BIT_DATABASE).</li>
 <li>Do not include DataReel 7.x headers in a 6.x source file. The two versions have header files of the same names and include guards. dr7features.h includes only 6.x headers.</li>
 </ul>
@@ -74,25 +81,36 @@
 <li>A primary commits objects (bytes under a 64-bit id both nodes share) with Begin(), Put(), Remove(), Purge(), Commit(); each commit is durable with its outbox entry, and Pump() or Drain() sends it.</li>
 <li>A copy serves with Serve() until Stop() and refuses application writes. Takeover(), Rejoin(), Status(), Check(), Digest() and ClearAlarm() work on a node folder.</li>
 <li>The configuration is the objrepl.conf keys (SetConfig(), LoadConfig()), as for the 7.4 objrepl tool.</li>
-<li>A 6.x program and a DataReel 7.4 program (or the 7.4 objrepl tool) replicate to each other, on Linux and Windows: 7.4 beta 5 sends gxStream&#x27;s block header in one canonical 32-byte form, and so does 6.4.</li>
+<li>A 6.x program and a DataReel 7.4 program (or the 7.4 objrepl tool) replicate to each other, on Linux and Windows: 7.4 sends gxStream&#x27;s block header in one canonical 32-byte form, and so does 6.4.</li>
 <li>The node files are the 7.x files of the build&#x27;s database engine; a 32-bit engine node and a 64-bit engine node never share a folder.</li>
-<li>The 7.x gxrepl (page-shipping replication) is gone: DataReel 7.4 beta 5 removed it. The replication_6x example is rewritten on gxv7ObjRepl: repl6_writer is a primary, repl6_check a copy, and either replicates with the 7.4 objrepl tool.</li>
+<li>The 7.x gxrepl (page-shipping replication) is gone: DataReel 7.4 removed it. The replication_6x example is rewritten on gxv7ObjRepl: repl6_writer is a primary, repl6_check a copy, and either replicates with the 7.4 objrepl tool.</li>
 </ul>
 <p>Example and how-to: examples_database/replication_6x (README.txt, <a href="replication_6x.html">Replicating 6.x programs&#x27; records</a>). See also the DataReel 7.4 gxObjRepl reference and administrator&#x27;s guide.</p>
 <h2>Tested Platforms</h2>
-<p>On RHEL 10.2 with DataReel 7.4 beta3 (tag 7.4-beta3), 32-bit and 64-bit database engines:</p>
+<p>DataReel 6.4, 11/17/2026. The 7.x features build used DataReel 7.4.</p>
+<p>On RHEL 10.2 (GCC), 32-bit and 64-bit database engines:</p>
 <ul>
-<li>vector_index: all checks pass. A 6.x program reading the DataReel 7.4 phase C .vix files gets the 7.4 results: 28 of 28 result lines equal, on both engines.</li>
-<li>replication_6x (the 7.x gxrepl, before 11/17/2026): 12 of 12, in three rounds on the 64-bit engine and one on the 32-bit engine.</li>
-<li>vector_client: 7 of 7. The server&#x27;s answers equal local searches, and bad requests and certificates are refused.</li>
-<li>The 6.x library with DATAREEL7_FEATURES_DIR off: the same objects as 6.3.1 (only a build folder name in gxssl differs); run_db_tests 33 of 33 and the 6.2 file compare (21 files the same) on both engines.</li>
+<li>examples_database/run_db_tests.sh: 39 of 39 on both engines (the examples, the damaged-file and security sweeps, the networking and TLS checks, reclaim, journal_salt, the journal tests and 50 kill -9 crash rounds). Also under AddressSanitizer and UBSan: 39 of 39, no reports.</li>
+<li>The 6.2 file compare: of 21 files, only defrag.gxd differs (best-fit reuse, see BETA 3); 6.2 reads it.</li>
+<li>The CMake build with the 7.x features off builds as before.</li>
+<li>The 7.x features build:
+<ul>
+<li>vector_index: all checks; the DataReel 7.4 phase C .vix files give the 7.4 results (fau64 and fau32).</li>
+<li>vector_client: 7 of 7 (against vector_server).</li>
+<li>replication_6x (gxv7ObjRepl): 23 of 23 on both engines: a 6.4 primary to a 7.4 copy and a 7.4 primary to a 6.4 copy with equal digests, 6.4 to 6.4 with every record&#x27;s CRC and index checked, a copy that starts late, a refused certificate and a 7.4 takeover.</li>
+<li>The DataReel 7.4 wire tests against 6.4 (run_repl6_xver.sh): the same 32-byte header from both, 6.4 and 7.4 as server and client, 6.4 speaking the gxObjRepl handshake both ways: 5 of 5.</li>
+<li>The DataReel 7.4 objrepl test scripts on the tools of a 6.4 build: all pass (the API test 73 of 73; the lag test at 2,000 commits).</li>
 </ul>
-<p>On Windows 11 with Visual Studio 2026 (MSVC 19.52), x64 (64-bit engine) and Win32 (32-bit engine), the CMake build with DATAREEL7_FEATURES_DIR:</p>
+</li>
+<li>Programs built on 6.4: fcrypt (key management 44, security 77, compatibility 43, migration 50), the encrypted password database (162 CLI checks, journal 25 of 25), the DataReel cluster manager (standby test 89 of 89), the load balancers (21, 18 and 15 checks) and the work programs.</li>
+</ul>
+<p>On Windows 11 with Visual Studio 2026, x64 (64-bit engine) and Win32 (32-bit engine):</p>
 <ul>
-<li>builds with no errors (the 7.x library, dr7features, vector_index, the replication example programs and vix_rebuild);</li>
-<li>vector_index: 27 of 27 checks. The 7.x vix_rebuild reads every .vix file it wrote, and the vectors are the same as the Linux build&#x27;s (the same logical digests; the demo file&#x27;s ids are record addresses, which differ by the header size).</li>
+<li>run_db_tests.bat: 29 of 29; the networking checks 160 of 160; reclaim 9 of 9; layout detection refuses the other platform&#x27;s and the other engine&#x27;s files.</li>
+<li>The 7.x features build: no errors or warnings; replication_6x 23 of 23; the 7.4 objrepl API test 73 of 73; vector_index; vix_rebuild.</li>
 <li>gxv7ObjectClient is POSIX only, as in DataReel 7.4. The phase C files are Linux files (see VECTOR DATABASE above).</li>
 </ul>
+<p>Linux and Windows (x64): a Linux 6.4 primary to a Windows 6.4 copy, a Windows 6.4 primary to a Linux 7.4 copy and a Linux 7.4 primary to a Windows 6.4 copy, each with equal digests.</p>
 <p>DataReel Copyright (c) 2001-2026 DataReel Software Development</p>
 </main>
 <footer class="dr-footer">DataReel 6.4 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>

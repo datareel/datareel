@@ -9,7 +9,7 @@ VECTOR_INFO over mutual TLS.
 The server is the DataReel 7.x database object server, whose config
 (gxObjectDbConfig) gives a database a vector index or set: path, access
 read, vectors = a .vixset manifest or one .vix. 11/17/2026: DataReel
-7.4 beta 5 removed gxrepl (whose "serve" command was the server
+7.4 removed gxrepl (whose "serve" command was the server
 before); the 6.4 build makes vector_server (dr7features/inner), the
 7.x object server for one database with its vectors:
 

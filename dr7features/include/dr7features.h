@@ -149,7 +149,7 @@ public:
   unsigned long long Deleted() const;
 
   static const char *ErrorMessage(int err);
-  // The DataReel 7.x library the features were built with ("7.4 beta3")
+  // The DataReel 7.x library the features were built with ("7.4")
   static const char *LibraryVersion();
 
 private:
@@ -251,7 +251,7 @@ private:
 };
 
 // 11/17/2026: object replication with the DataReel 7.x gxObjRepl
-// (DataReel 7.4 beta 5 or later: gxobjrepl.h). Two nodes, each a folder
+// (DataReel 7.4 or later: gxobjrepl.h). Two nodes, each a folder
 // with its own object databases: the primary commits objects (bytes
 // under a 64-bit id both nodes share) and sends them to its copy over
 // gxStream with TLS certificates on both sides; only objects travel,

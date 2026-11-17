@@ -73,6 +73,7 @@ j.Begin();
 j.Commit();             // Durable when it returns
 j.Close();              // Checkpoint, before closing the files
 btx.Close(); db.Close();</PRE></P>
+<P><B>6.4</B>: the journal header salt mixes the OS random source (/dev/urandom; on Windows the performance counter, the process id and the tick count), a fine clock, the process id, a counter and the object&#x27;s address, so processes forked from one parent in the same second no longer get the same salt (a recovery could replay the previous session&#x27;s records). The journal format is unchanged.</P>
 <h2 id="Functions">Functions</h2>
 <div class="dr-fn"><code class="dr-sig">gxDatabaseError gxdJournal::Open(const char *jname) / gxDatabaseError gxdJournal::Close()</code><p class="dr-desc">Recover and open the journal; roll back or checkpoint and close it.</p></div>
 <div class="dr-fn"><code class="dr-sig">gxDatabaseError gxdJournal::Attach(gxDatabase *f, size_t cache_bytes = gxdDefaultPageCacheSize) / Attach(gxBtree *btx, size_t cache_bytes = gxdDefaultPageCacheSize) / Attach(BtreeCache *cache) / gxDatabaseError gxdJournal::Detach()</code><p class="dr-desc">Add a file (or a B-tree cache) to the journal; Detach() checkpoints and removes every file.</p></div>
