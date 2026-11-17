@@ -59,6 +59,7 @@ datareel_example(thread_pool       general/thread_pool.cpp)
 datareel_example(trading_sessions  general/trading_sessions.cpp)
 datareel_example(string_utils      general/string_utils.cpp)
 datareel_example(csv_merge         general/csv_merge.cpp)   # 11/17/2026: gxcsv.h
+datareel_example(service_example   general/service_example.cpp)   # 11/17/2026: gxproclock.h, daemon / Windows service
 
 # Plain text diagnostics (ICMP and telnet cannot use TLS)
 datareel_example(ping              diagnostics/ping.cpp)

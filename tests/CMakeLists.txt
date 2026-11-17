@@ -80,3 +80,10 @@ add_executable(csv_test csv_test.cpp)
 target_link_libraries(csv_test PRIVATE DataReel::datareel)
 set_target_properties(csv_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+# 11/17/2026: gxProcessLock (gxproclock.h), one instance at a time (POSIX: fork)
+if(NOT WIN32)
+  add_executable(proclock_test proclock_test.cpp)
+  target_link_libraries(proclock_test PRIVATE DataReel::datareel)
+  set_target_properties(proclock_test PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+endif()

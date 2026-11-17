@@ -196,6 +196,16 @@ mkdir -p "$WORK/run_reclaim" && check reclaim_test "$BUILD/tests/reclaim_test" "
 mkdir -p "$WORK/run_serial_read" && check serial_read_test "$BUILD/tests/serial_read_test" "$E/serial_read" "$WORK/run_serial_read"
 # 11/17/2026: terminal control sequences out of text (strutil.h strip_ansi, AnsiStripper)
 check ansi_strip_test "$BUILD/tests/ansi_strip_test"
+# 11/17/2026: one instance at a time (gxProcessLock) and service_example as a daemon: a second start exits 2, the
+# heartbeats are in the log, the stop file stops it and frees the lock; a daemon killed with -9 leaves no stale lock
+mkdir -p "$WORK/run_proclock" && check proclock_test "$BUILD/tests/proclock_test" "$WORK/run_proclock"
+SV="$WORK/run_service"; mkdir -p "$SV" && rm -f "$SV"/*
+check service_daemon sh -c "$E/service_example --lock '$SV/svc.lock' --log '$SV/svc.log' --stop-file '$SV/stop' --daemon && sleep 2.5 &&
+  { $E/service_example --lock '$SV/svc.lock' --log '$SV/svc.log' 2> '$SV/second.err'; [ \$? -eq 2 ]; } && grep -q 'locked by process' '$SV/second.err' &&
+  grep -q 'heartbeat 2' '$SV/svc.log' && touch '$SV/stop' && sleep 1.5 && grep -q 'stop file seen' '$SV/svc.log' &&
+  $E/service_example --lock '$SV/svc.lock' --log '$SV/svc.log' --run-for 1"
+check service_kill9_no_stale_lock sh -c "$E/service_example --lock '$SV/k.lock' --log '$SV/k.log' --daemon && sleep 1 &&
+  kill -9 \$(cat '$SV/k.lock') && sleep 0.5 && $E/service_example --lock '$SV/k.lock' --log '$SV/k.log' --run-for 1"
 # Vector index (gxvindex.h, 7.4): kernels, exact and graph search,
 # Merge, Repair, concurrent searches and 20 crash rounds
 mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" &&
