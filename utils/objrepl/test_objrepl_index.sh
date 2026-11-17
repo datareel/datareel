@@ -16,6 +16,8 @@
 #   checker    a stale index file put back is reported by ixcheck (MISMATCH, rc 5)
 set -u
 X=${1:?usage: test_objrepl_index.sh BIN}
+# 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's)
+"$X" engine > /dev/null 2>&1 || { echo "$(basename "$0"): $X is not a 64-bit engine build: $("$X" engine 2>&1 | head -n 1); configure with -DDATAREEL_64BIT_DATABASE=ON"; exit 64; }
 T=$(mktemp -d "${TMPDIR:-/tmp}/objrepl_index.XXXXXX")
 FAIL=0; PASS=0
 ok()  { echo "PASS $1"; PASS=$((PASS + 1)); }
