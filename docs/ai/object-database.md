@@ -627,7 +627,8 @@ and `VECTOR_SEARCH` (op 7) for a database whose config names its vectors
 (`gxObjectDbConfig::vectors`: a `.vixset` or a `.vix`), over gxStream
 with mutual TLS. See `examples/oodb/vector_search_service.cpp` for the
 request and reply layouts; `utils/dbserver/object_client --vinfo` and
-`--vsearch K` ask from the command line. POSIX only.
+`--vsearch K` ask from the command line. Linux and Windows (7.4);
+`object_server ... --stop-file FILE` stops when FILE appears.
 
 ### Replicated copies
 

@@ -32,18 +32,16 @@ if(NOT WIN32)
 endif()
 
 # 11/16/2026: gxrepl (page-shipping replication) went from 7.4 (replication is gxObjRepl); the database object
-# server and its multiplex test stay (POSIX only)
-if(NOT WIN32)
-  # 11/08/2026: tests of the database object server's multiplex (gxdbmux.h)
-  add_executable(gxdbmux_test dbserver/gxdbmux_test.cpp)
-  target_link_libraries(gxdbmux_test PRIVATE DataReel::datareel)
-  # 11/08/2026: database object server examples
-  add_executable(object_server dbserver/object_server.cpp)
-  target_link_libraries(object_server PRIVATE DataReel::datareel)
-  add_executable(object_client dbserver/object_client.cpp)
-  target_link_libraries(object_client PRIVATE DataReel::datareel)
-  set(_dr_repl_tools gxdbmux_test object_server object_client)
-endif()
+# server and its multiplex test stay. 11/17/2026 (7.4): on Windows too (Winsock, Schannel)
+# 11/08/2026: tests of the database object server's multiplex (gxdbmux.h)
+add_executable(gxdbmux_test dbserver/gxdbmux_test.cpp)
+target_link_libraries(gxdbmux_test PRIVATE DataReel::datareel)
+# 11/08/2026: database object server examples
+add_executable(object_server dbserver/object_server.cpp)
+target_link_libraries(object_server PRIVATE DataReel::datareel)
+add_executable(object_client dbserver/object_client.cpp)
+target_link_libraries(object_client PRIVATE DataReel::datareel)
+set(_dr_repl_tools gxdbmux_test object_server object_client)
 
 # 11/12/2026: tests of the vector index (gxvindex.h), DataReel 7.4 (11/14/2026: on Windows too; its crash
 # rounds are POSIX only)

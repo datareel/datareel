@@ -25,16 +25,17 @@
 </header>
 <main class="dr-main">
 <H1>object_server and object_client</H1>
-<p class="dr-lead">The database object server example tools: store and read objects, and ask for vector searches (POSIX).</p>
+<p class="dr-lead">The database object server example tools: store and read objects, and ask for vector searches (Linux and Windows).</p>
 <div class="dr-toc-title">Contents</div>
 <P class="dr-toc"><A HREF="#Usage">Usage</A></P>
 
 <h2 id="Usage">Usage</h2>
-<PRE>object_server PORT CERT KEY CA CLIENT_CN DB_NAME DB_FILE
+<PRE>object_server PORT CERT KEY CA CLIENT_CN DB_NAME DB_FILE [--stop-file FILE]
 object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME &quot;text&quot;
 object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME --vinfo
 object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME --vsearch K   &lt; query (whitespace separated floats)</PRE>
 <P>object_server serves one database with mutual TLS (only CLIENT_CN may connect). object_client stores a text object and reads it back, or with --vinfo / --vsearch asks a server whose database names its vectors (a gxObjectDbConfig with <CODE>vectors</CODE>) for the index's description or the K nearest to the query on stdin. The requests: <A HREF="../classes/database/gxdbobject.htm">Object Server Vector Searches</A>; a complete program: <A HREF="../examples/vector_search_service.htm">vector_search_service</A>.</P>
+<P>Stopping the server: Ctrl+C, or TERM on Linux; Ctrl+C, Ctrl+Break or closing the console on Windows; or, on both, creating the file given with <CODE>--stop-file</CODE> (checked every second; a service wrapper or a script uses this). Clients get up to 10 seconds to finish. Windows (7.4): the same programs over Winsock and Schannel, and they work with Linux servers and clients both ways. The multiplex never blocks on a TLS write, so two sides that both send large messages at once do not wait on each other (gxdbmux_test both_ways_large_tls checks this on both systems).</P>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

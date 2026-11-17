@@ -185,8 +185,22 @@ mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" &&
   check vix_test "$BUILD/utils/vix_test"
 # The object server's multiplex and the 32-byte wire frames (gxdbmux.h,
 # gxstream.h). 11/16/2026: run here since the gxrepl kit that ran it is gone
+# 11/17/2026 (7.4): GXDBMUX_PKI for both_ways_large_tls (both sides send large messages at once over TLS)
 mkdir -p "$WORK/run_gxdbmux" && cd "$WORK/run_gxdbmux" &&
-  check gxdbmux_test "$BUILD/utils/gxdbmux_test"
+  "$SRC/utils/objrepl/objrepl_certs.sh" pki --copy-host 127.0.0.1 --apply > /dev/null &&
+  check gxdbmux_test env GXDBMUX_PKI="$WORK/run_gxdbmux/pki" "$BUILD/utils/gxdbmux_test"
+# 11/17/2026 (7.4): object_server and object_client: an object stored and read back over mutual TLS, a client
+# without the allowed certificate refused, and the server stopped by its --stop-file
+PO=$((PORT + 40))
+mkdir -p "$WORK/run_object_server" && cd "$WORK/run_object_server" &&
+  "$SRC/utils/objrepl/objrepl_certs.sh" pki --copy-host 127.0.0.1 --apply > /dev/null
+"$BUILD/utils/object_server" $PO pki/copy.pem pki/copy.key pki/ca.pem objrepl-primary notes notes.gxd \
+  --stop-file stop.now > server.log 2>&1 &
+OSPID=$!; PIDS+=($OSPID); wait_port $PO
+check object_client_roundtrip sh -c "'$BUILD/utils/object_client' 127.0.0.1 $PO 127.0.0.1 pki/primary.pem pki/primary.key pki/ca.pem notes 'hello objects' | grep -qx 'read back: hello objects'"
+check object_client_wrong_cert_refused sh -c "! '$BUILD/utils/object_client' 127.0.0.1 $PO 127.0.0.1 pki/copy.pem pki/copy.key pki/ca.pem notes x"
+touch stop.now
+check object_server_stop_file sh -c "for i in \$(seq 50); do kill -0 $OSPID 2>/dev/null || break; sleep 0.2; done; ! kill -0 $OSPID 2>/dev/null && grep -q '^stopped' server.log"
 for t in stream_security_test proto_security_test support_security_test; do
   mkdir -p "$WORK/run_$t" && cd "$WORK/run_$t" && check $t "$BUILD/tests/$t"
 done

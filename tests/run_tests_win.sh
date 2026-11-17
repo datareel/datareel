@@ -150,5 +150,20 @@ else
   echo "SKIP SMTP, POP3 and FTPS checks (no MOCK_PORT)"
 fi
 
+# 11/17/2026 (7.4): the object server on Windows: the multiplex tests (both_ways_large_tls: both sides send large
+# messages at once over Schannel), an object stored and read back, a wrong client refused, the --stop-file stop
+mkdir -p "$WORK/run_gxdbmux" && cd "$WORK/run_gxdbmux" &&
+  sh "$SRC/utils/objrepl/objrepl_certs.sh" pki --copy-host 127.0.0.1 --apply > /dev/null &&
+  check gxdbmux_test env GXDBMUX_PKI="$(cygpath -w "$WORK/run_gxdbmux/pki")" "$U/gxdbmux_test"
+PO=$((PORT + 40))
+cd "$WORK/run_gxdbmux"
+"$U/object_server" $PO pki/copy.pem pki/copy.key pki/ca.pem objrepl-primary notes notes.gxd --stop-file stop.now \
+  > object_server.log 2>&1 &
+OSPID=$!; PIDS+=($OSPID); wait_port
+check object_client_roundtrip sh -c "'$U/object_client' 127.0.0.1 $PO 127.0.0.1 pki/primary.pem pki/primary.key pki/ca.pem notes 'hello objects' | tr -d '\r' | grep -qx 'read back: hello objects'"
+check object_client_wrong_cert_refused sh -c "! '$U/object_client' 127.0.0.1 $PO 127.0.0.1 pki/copy.pem pki/copy.key pki/ca.pem notes x"
+touch stop.now
+check object_server_stop_file sh -c "for i in \$(seq 50); do kill -0 $OSPID 2>/dev/null || break; sleep 0.2; done; ! kill -0 $OSPID 2>/dev/null && tr -d '\r' < object_server.log | grep -q '^stopped'"
+cd "$WORK"
 echo "$PASS passed, $FAIL failed"
 [ $FAIL -eq 0 ]

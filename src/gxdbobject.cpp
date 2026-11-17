@@ -6,7 +6,7 @@
 // C++ Compiler Used: GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 11/08/2026
-// Date Last Modified: 11/08/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -31,8 +31,7 @@ Database objects over the network (gxdbobject.h).
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
 
-#if !defined (__WIN32__)
-
+// 11/17/2026 (7.4): Windows too
 #include "gxdbobject.h"
 #include "gxvset.h"
 #include <thread>
@@ -46,10 +45,44 @@ Database objects over the network (gxdbobject.h).
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/stat.h>
+#include <filesystem>
+#include <system_error>
 
 namespace datareel {
+
+// 11/17/2026 (7.4): a file's path with its folder made real (symlinks and
+// ".." resolved), '/' separators, lower case on Windows (its paths are
+// not case sensitive); the path as given if the folder does not exist
+static std::string gxdo_real_path(const std::string &path)
+{
+  std::filesystem::path p(path);
+  std::error_code ec;
+  std::filesystem::path dir = p.has_parent_path() ? p.parent_path() : std::filesystem::path(".");
+  std::filesystem::path real = std::filesystem::canonical(dir, ec);
+  std::string s = ec ? p.generic_string() : (real / p.filename()).generic_string();
+#if defined (__WIN32__)
+  std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)tolower(c); });
+#endif
+  return s;
+}
+
+static std::string gxdo_root(const std::string &root)
+{
+  std::error_code ec;
+  std::filesystem::path real = std::filesystem::canonical(root, ec);
+  std::string r = ec ? std::filesystem::path(root).generic_string() : real.generic_string();
+#if defined (__WIN32__)
+  std::transform(r.begin(), r.end(), r.begin(), [](unsigned char c) { return (char)tolower(c); });
+#endif
+  while(r.size() > 1 && r.back() == '/') r.pop_back();
+  return r;
+}
+
+static bool gxdo_exists(const std::string &f)
+{
+  std::error_code ec;
+  return std::filesystem::exists(f, ec);
+}
 
 struct gxObjectService::Db {
   gxObjectDbConfig cfg;
@@ -94,24 +127,19 @@ gxObjectService::~gxObjectService()
 
 void gxObjectService::ProtectRoot(const std::string &root, const std::string &apply_journal)
 {
-  std::string r = root;
-  while(r.size() > 1 && r.back() == '/') r.pop_back();
+  // 11/17/2026 (7.4): real paths on both sides (a symlink or ".." in the
+  // config cannot hide a copy; Windows paths compare without case)
+  std::string r = gxdo_root(root);
   for(auto &e : dbs) {
     Db *d = e.second.get();
-    // Compare real paths (a symlink or ".." in the config cannot hide a copy)
-    std::string p = d->cfg.path;
-    size_t k = p.find_last_of('/');
-    char buf[PATH_MAX];
-    if(k != std::string::npos && realpath(p.substr(0, k).c_str(), buf)) p = std::string(buf) + p.substr(k);
+    std::string p = gxdo_real_path(d->cfg.path);
     if(p.compare(0, r.size() + 1, r + "/") == 0) {
       d->write = false;              // A copy only changes by replication
       d->apply_journal = apply_journal;
     }
     // 11/14/2026 (7.4): the vector files too
     if(!d->cfg.vectors.empty()) {
-      std::string v = d->cfg.vectors;
-      size_t kv = v.find_last_of('/');
-      if(kv != std::string::npos && realpath(v.substr(0, kv).c_str(), buf)) v = std::string(buf) + v.substr(kv);
+      std::string v = gxdo_real_path(d->cfg.vectors);
       if(v.compare(0, r.size() + 1, r + "/") == 0) d->vec_apply_journal = apply_journal;
     }
   }
@@ -170,7 +198,7 @@ int gxObjectService::Request(const std::string &name, bool write, uint8_t op,
     db = d->db.get();
   }
   else {
-    if(!d->apply_journal.empty() && access(d->apply_journal.c_str(), F_OK) == 0 &&
+    if(!d->apply_journal.empty() && gxdo_exists(d->apply_journal) &&
        rl.Lock(d->apply_journal.c_str()) != gxDBASE_NO_ERROR) {
       err = "cannot lock " + d->apply_journal; return -1;
     }
@@ -268,7 +296,7 @@ int gxObjectService::vector_request(Db *d, uint8_t op, const std::vector<unsigne
   }
   // The copy's apply lock (a reader never sees a half-applied batch), then the set
   gxdJournalReadLock rl;
-  if(!d->vec_apply_journal.empty() && access(d->vec_apply_journal.c_str(), F_OK) == 0 &&
+  if(!d->vec_apply_journal.empty() && gxdo_exists(d->vec_apply_journal) &&
      rl.Lock(d->vec_apply_journal.c_str()) != gxDBASE_NO_ERROR) {
     err = "cannot lock " + d->vec_apply_journal; return -1;
   }
@@ -434,7 +462,6 @@ void gxObjectService::Serve(gxDatabaseSession &ses)
 
 } // namespace datareel
 
-#endif // !__WIN32__
 // ----------------------------------------------------------- //
 // ------------------------------- //
 // --------- End of File --------- //
