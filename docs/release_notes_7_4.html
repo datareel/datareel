@@ -391,7 +391,7 @@
 <li>dr_bench section 6: TLS handshakes and throughput over the loopback.</li>
 </ul>
 </li>
-<li>Tests: odirect_test (a replicated node read with O_DIRECT and the page cache dropped equals the plain reads, with the same digest and index checks); longer waits in the objrepl test harness for slow disks; run_tests takes its port base from DR_TEST_PORT.</li>
+<li>Tests: odirect_test (a replicated node read with O_DIRECT and the page cache dropped equals the plain reads, with the same digest and index checks); longer waits in the objrepl test harness for slow disks; run_tests takes its port base from DR_TEST_PORT. The objrepl test scripts stop a copy through one helper (objrepl_proc.sh): on Windows with ROOT/objrepl.stop and its Windows process id (a clean stop, as on Linux), so the scripts give the same results on both.</li>
 </ul>
 <h2 id="UpgradingTo74Beta5">Upgrading to 7.4 beta 5</h2>
 <ul>

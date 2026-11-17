@@ -740,7 +740,10 @@ NEW IN 7.4 (AFTER BETA 5)
 - Tests: odirect_test (a replicated node read with O_DIRECT and the
   page cache dropped equals the plain reads, with the same digest and
   index checks); longer waits in the objrepl test harness for slow
-  disks; run_tests takes its port base from DR_TEST_PORT.
+  disks; run_tests takes its port base from DR_TEST_PORT. The objrepl
+  test scripts stop a copy through one helper (objrepl_proc.sh): on
+  Windows with ROOT/objrepl.stop and its Windows process id (a clean
+  stop, as on Linux), so the scripts give the same results on both.
 
 UPGRADING TO 7.4 BETA 5
 -----------------------
