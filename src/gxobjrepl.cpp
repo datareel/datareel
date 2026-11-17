@@ -1799,14 +1799,26 @@ void gxObjRepl::Close()
   while(p->mu.windows > 0 && p->mu.Once()) { p->mu.unlock(); std::this_thread::sleep_for(std::chrono::milliseconds(2)); p->mu.lock(); }
   p->gen++;
   if(!p->s.is_open) return;
+  // 11/17/2026: "stopping" (and since when) while the node closes: the journal checkpoint syncs every file, which
+  // can take minutes on a saturated disk; "stopped" with the close's time once it is done (objrepl check warns
+  // on a long "stopping")
+  time_t c0 = time(0);
+  if(!p->mon.v.count("stopping_since")) p->mon.set("stopping_since", (unsigned long long)c0);
+  std::string final_state = "stopped";
   if(p->role == PRIMARY) {
     bool done = p->L.copy_applied + 1 >= p->s.st.next_seq;
+    final_state = done ? "stopped, drained" : "stopped, NOT drained";
     p->L.drop();
-    p->primary_status(true, done ? "stopped, drained" : "stopped, NOT drained");
+    p->primary_status(true, "stopping");
   }
+  else { p->mon.set("state", "stopping"); p->mon.write(true); }
   p->L.drop();
   p->s.close();
   p->sync_snapflag();
+  p->mon.v.erase("stopping_since");
+  p->mon.set("close_secs", (unsigned long long)(time(0) - c0));
+  p->mon.set("state", final_state);
+  p->mon.write(true);
 }
 
 int gxObjRepl::OpenDatabase(const std::string &db)
@@ -2363,7 +2375,10 @@ int gxObjRepl::Impl::serve()
     status(true, "listening", false);
   }
   std::lock_guard<ObjMutex> el(mu);
-  status(true, "stopped", false);
+  // 11/17/2026: "stopping" until Close() has closed the node: the close's journal checkpoint syncs every file,
+  // minutes on a saturated disk, and the status says so (Close() writes "stopped" when it is done)
+  if(!mon.v.count("stopping_since")) mon.set("stopping_since", (unsigned long long)time(0));
+  status(true, "stopping", false);
   return 0;
 }
 
@@ -2658,6 +2673,13 @@ int gxObjRepl::Check(const std::string &root, const gxObjReplConfig &cfg, std::s
   else if(v["role"] == "primary" && num("lag_seq") > cfg.max_lag && num("behind_secs") > cfg.max_behind) add("the copy is behind");
   else if(v["role"] == "primary" && num("lag_seq") && num("oldest_unacked_secs") > cfg.max_behind) add("the oldest unacknowledged commit is old");
   if(running && v["role"] == "copy" && num("in_snapshot") && num("snapshot_secs") > cfg.max_behind) add("a full send is taking long");
+  // 11/17/2026: a node closing: WARN after 10 s (the close's checkpoint syncs every file: slow on a busy disk, not a
+  // failure); a node that died while closing is "not running" (above) and says so
+  if(v["state"] == "stopping") {
+    unsigned long long since = num("stopping_since"), secs = since ? (unsigned long long)time(0) - since : 0;
+    if(running && secs > 10) add("stopping for " + std::to_string(secs) + "s (the close's journal checkpoint syncs every file; a busy disk makes it slow)");
+    if(!running) add("it stopped while closing (killed or crashed during the close: the next open recovers)");
+  }
   if(v.count("cert_days_left") && atol(v["cert_days_left"].c_str()) >= 0 && atol(v["cert_days_left"].c_str()) < cfg.min_cert_days)
     add("the certificate expires in " + v["cert_days_left"] + " day(s)");
   if(!warn.empty()) { line = "WARN " + who + ": " + warn + "; " + what; return 1; }

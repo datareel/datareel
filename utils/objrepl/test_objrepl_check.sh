@@ -9,6 +9,7 @@
 #              primary and copy report the same tombstone count
 #   away       a running primary with no copy: WARN "the copy is away", lag and oldest unacked age grow
 #   alarm      a refused primary: the copy's check FAIL (exit 2) with the alarm; clear-alarm, then OK again
+#   stopping   a clean stop ends "stopped" (close_secs); "stopping" over 10 s is WARN; gone while closing is WARN
 #   killed     the copy SIGKILLed: WARN (not running)
 set -u
 X=${1:?usage: test_objrepl_check.sh BIN}
@@ -92,6 +93,35 @@ co=$(chk a); rc=$?; po=$(chk q); qrc=$?
 kill -KILL $CPID 2>/dev/null; wait $CPID 2>/dev/null; CPID=""
 co=$(chk a); rc=$?
 [ $rc -eq 1 ] && echo "$co" | grep -q "not running" && ok "killed: WARN not running (rc 1)" || bad "killed" "rc $rc [$co]"
+
+# 11/17/2026: stopping. A clean stop ends "stopped" with the close's time; a status left "stopping" (a close on a
+# saturated disk: the journal checkpoint syncs every file) is WARN after 10 s while the process lives, and WARN
+# "stopped while closing" once it is gone (never FAIL)
+mkdir -p "$T/st"
+start_copy st $((PA + 7)) --name copyS
+stop_copy
+[ "$(field st state)" == "stopped" ] && [ -n "$(field st close_secs)" ] && [ -z "$(field st stopping_since)" ] \
+  && ok "stopping: a clean stop ends \"stopped\" (close took $(field st close_secs)s)" || bad "stopping clean" "state [$(field st state)] close_secs [$(field st close_secs)]"
+sleep 300 & SLP=$!
+now=$(date +%s)
+cat > "$T/st/objrepl.status" <<EOS
+role copy
+name copyS
+epoch 1
+state stopping
+stopping_since $((now - 30))
+pid $SLP
+updated $now
+applied_seq 0
+EOS
+co=$(chk st); rc=$?
+[ $rc -eq 1 ] && echo "$co" | grep -q "stopping for 3[0-9]s" && ok "stopping: a close still running after 30 s is WARN (rc 1): $(echo "$co" | cut -c1-90)" || bad "stopping slow" "rc $rc [$co]"
+sed -i "s/^stopping_since .*/stopping_since $((now - 3))/" "$T/st/objrepl.status"
+co=$(chk st); rc=$?
+[ $rc -eq 0 ] && ok "stopping: a close of 3 s is OK" || bad "stopping short" "rc $rc [$co]"
+kill -TERM $SLP 2>/dev/null; wait $SLP 2>/dev/null
+co=$(chk st); rc=$?
+[ $rc -eq 1 ] && echo "$co" | grep -q "stopped while closing" && ok "stopping: the process gone while closing is WARN \"stopped while closing\" (not FAIL)" || bad "stopping dead" "rc $rc [$co]"
 
 echo "$PASS passed, $FAIL failed"
 [ $FAIL -eq 0 ]

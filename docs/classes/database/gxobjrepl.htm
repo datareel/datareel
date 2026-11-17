@@ -93,6 +93,7 @@ c.Serve();                                   // until Stop() (signal-safe) or Cl
 <LI>With the 32-bit engine each database file is limited to 2 GB (FAU_t); 1M-object stores need the 64-bit engine. Mixed 32/64-bit nodes replicate. Not tested: a 32-bit Windows build.</LI>
 <LI>The property test (prop_objrepl) and the wire fuzzer (fuzz_objrepl) are POSIX only (fork); the API test, the objrepl tool and the test scripts run on Windows and Linux.</LI>
 <LI>Index fields may not overlap link fields.</LI>
+<LI><B>Stopping</B>: a close on a saturated disk can take minutes: the journal checkpoint syncs every file. The status file says "stopping" (with stopping_since) until the close is done, then "stopped" with close_secs; <CODE>objrepl check</CODE> reports a "stopping" longer than 10 s as WARN, and a node that died while closing as WARN (the next open recovers), never FAIL.</LI>
 <LI>Platforms: see <A HREF="#Platforms">Windows and Linux</A>.</LI>
 </UL>
 
