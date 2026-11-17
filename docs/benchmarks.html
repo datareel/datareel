@@ -28,7 +28,8 @@
 <li><strong>Threads:</strong> one, except the four-thread vector set search.</li>
 <li><strong>Times:</strong> wall clock; p50 and p99 are the median and the 99th percentile of the single operations.</li>
 </ul>
-<pre>dr_bench [WORK_FOLDER] [--quick]          # --quick: a tenth of the sizes, for a smoke test</pre>
+<pre>dr_bench [WORK_FOLDER] [--quick]          # --quick: a tenth of the sizes, for a smoke test
+dr_bench [WORK_FOLDER] --tls PKI_DIR [--tls-only]   # adds section 6 (TLS); --tls-only runs it alone</pre>
 <h2 id="1RecordsGxdatabase">1. Records (gxDatabase)</h2>
 <p>200,000 fixed 128-byte records, appended with <code>Alloc()</code> and <code>Write()</code>, then read back at 200,000 random addresses.</p>
 <table>
@@ -96,6 +97,24 @@
 </tbody>
 </table>
 <p>A day range is answered from the manifest first: each listed file keeps the range of its day tag, so the nine other days are skipped without being opened. Searching the set with several threads splits the files between them.</p>
+<h2 id="6TlsOverTheLoopbackGxstlsserverGxstlsconnection">6. TLS over the loopback (gxsTLSServer, gxsTLSConnection)</h2>
+<p>A server thread and a client in one process over 127.0.0.1, with the certificates <code>utils/objrepl/objrepl_certs.sh PKI_DIR --copy-host 127.0.0.1</code> makes (RSA 3072, a CA and a server and a client certificate), 100 handshakes each way and 512 MB sent in each write size. Measured 11/17/2026 on the same machine with OpenSSL 3.5.8, outside a container, at a 1-minute load of 6 to 9 (other builds running), so treat these as a floor.</p>
+<table>
+<thead><tr><th>Handshake</th><th>Rate</th><th>p50</th><th>p99</th></tr></thead>
+<tbody>
+<tr><td>Server certificate</td><td>112 a second</td><td>5.74 ms</td><td>42.2 ms</td></tr>
+<tr><td>Server and client certificates</td><td>94 a second</td><td>9.34 ms</td><td>16.7 ms</td></tr>
+</tbody>
+</table>
+<table>
+<thead><tr><th>Send() size</th><th>Throughput, to the server's ack</th></tr></thead>
+<tbody>
+<tr><td>4 KB</td><td>465 MB/s</td></tr>
+<tr><td>64 KB</td><td>923 MB/s</td></tr>
+<tr><td>1 MB</td><td>1,050 MB/s</td></tr>
+</tbody>
+</table>
+<p>A handshake is mostly the RSA signature, so a long-lived connection (what gxObjRepl and object_server keep) pays it once. Small writes cost more because each Send() is at least one TLS record with its own header and tag; writes of 64 KB and more fill 16 KB records. On Windows the same section runs over Schannel.</p>
 <h2 id="TheTechniquesBehindTheNumbers">The techniques behind the numbers</h2>
 <ul>
 <li><strong>Fixed records at known addresses.</strong> A gxDatabase record is found by its file address, so the common read is a single positioned read with no lookup structure in between; indexes (B-trees, vector indexes) store addresses.</li>
@@ -108,7 +127,9 @@
 <h2 id="RunningItYourself">Running it yourself</h2>
 <pre>cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target dr_bench
-build/utils/dr_bench /path/on/the/disk/to/measure</pre>
+build/utils/dr_bench /path/on/the/disk/to/measure
+utils/objrepl/objrepl_certs.sh pki --copy-host 127.0.0.1 --apply
+build/utils/dr_bench /path/on/the/disk/to/measure --tls pki       # with section 6</pre>
 <p>Give it a folder on the disk you want measured: a durable commit's time is that disk's sync time. The work folder is removed at the end.</p>
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

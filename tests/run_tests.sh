@@ -167,6 +167,12 @@ mkdir -p "$WORK/run_tls_key" && cd "$WORK/run_tls_key" &&
   check tls_key_test "$BUILD/tests/tls_key_test" pki $((PORT + 50))
 # 11/17/2026 (7.4, from 6.4.1): sockets close on exec; a child started by the server does not keep its port
 mkdir -p "$WORK/run_cloexec" && cd "$WORK/run_cloexec" && check socket_cloexec_test "$BUILD/tests/socket_cloexec_test" $((PORT + 60))
+# 11/17/2026 (7.4): dr_bench section 6, TLS over 127.0.0.1 (handshakes with and without a client certificate,
+# three write sizes): a quick run must finish with no FAIL line
+mkdir -p "$WORK/run_dr_bench_tls" && cd "$WORK/run_dr_bench_tls" &&
+  check dr_bench_tls sh -c "set -e; '$SRC/utils/objrepl/objrepl_certs.sh' pki --copy-host 127.0.0.1 --apply > /dev/null
+    '$BUILD/utils/dr_bench' w --quick --tls pki --tls-only > out.txt; ! grep -q FAIL out.txt
+    grep -q 'handshake, client cert' out.txt; [ \$(grep -c 'MB/s' out.txt) -eq 3 ]"
 # 11/15/2026 (7.4): the vector examples
 for p in vector_basics vector_records vector_days; do
   mkdir -p "$WORK/run_$p" && cd "$WORK/run_$p" && check $p "$E/$p" "$WORK/run_$p/w"
