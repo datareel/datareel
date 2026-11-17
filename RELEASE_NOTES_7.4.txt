@@ -688,6 +688,40 @@ NEW IN 7.4 (AFTER BETA 5)
 - objrepl_certs.sh makes its certificates under Git Bash on Windows
   too: Git Bash rewrote openssl's "/CN=..." subject into a path, so no
   certificates were made (MSYS_NO_PATHCONV is now set for openssl).
+- Windows TLS servers without an interactive sign-in (Schannel): a
+  PEM key is imported into the user key store, then held in memory,
+  then the machine store, and the error names each place tried, so a
+  server started over a key-based SSH login or as a Windows service
+  loads its PEM certificate and key. Key names are per process, so two
+  servers using one certificate no longer delete each other's key.
+  Tests: tls_key_test, tests/tls_key_service.cmd (SSH and LocalService
+  service runs).
+- gxSocket: sockets are close-on-exec on POSIX and not inherited on
+  Windows (Connect, Listen, Accept, OpenDatagram and gxsPing), so a
+  child process no longer holds a server's port open (the 6.4.1 fix).
+  Test: socket_cloexec_test.
+- gxObjRepl: while a node closes, its status says "stopping" (with
+  stopping_since), then "stopped" with close_secs; objrepl check warns
+  about a long stop.
+- New classes:
+  - gxCSVReader and gxCSVWriter (gxcsv.h): RFC 4180 CSV, with the
+    csv_merge example (two spreadsheets merged on a key column).
+  - gxProcessLock (gxproclock.h): a single-instance lock, with
+    service_example (a daemon on POSIX, a Windows service).
+  - strip_ansi() and AnsiStripper (strutil.h): VT220/ANSI terminal
+    control sequences out of text, such as captured device output.
+- New examples and tools:
+  - serial_read: read a serial port as binary or hex, with limits and
+    hangup handling (pty test on Linux).
+  - dir_upload: watch a folder and upload new files over FTPS (a
+    settle time, a .part name renamed when complete, a size check).
+  - hexdump, ffind and txfilter, the 6.x file utilities for 7.x.
+  - dr_bench section 6: TLS handshakes and throughput over the
+    loopback.
+- Tests: odirect_test (a replicated node read with O_DIRECT and the
+  page cache dropped equals the plain reads, with the same digest and
+  index checks); longer waits in the objrepl test harness for slow
+  disks; run_tests takes its port base from DR_TEST_PORT.
 
 UPGRADING TO 7.4 BETA 5
 -----------------------

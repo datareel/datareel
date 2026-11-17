@@ -56,18 +56,18 @@ w.Close();</PRE>
 <div class="dr-fn" id="bool_crlf_true_bool_quote_all_false"><code class="dr-sig">bool crlf = true / bool quote_all = false</code><p class="dr-desc">Writing: CR LF or LF line ends; every field quoted.</p></div>
 
 <h2 id="Reader">gxCSVReader</h2>
-<div class="dr-fn" id="Open"><code class="dr-sig">bool Open(const std::string &amp;fname) / void SetText(std::string_view text) / void Close()</code><p class="dr-desc">A file to read (in pieces), or text in memory.</p></div>
+<div class="dr-fn" id="Open"><span id="SetText"></span><span id="Close"></span><code class="dr-sig">bool Open(const std::string &amp;fname) / void SetText(std::string_view text) / void Close()</code><p class="dr-desc">A file to read (in pieces), or text in memory.</p></div>
 <div class="dr-fn" id="ReadRow"><code class="dr-sig">bool ReadRow(std::vector&lt;std::string&gt; &amp;fields)</code><p class="dr-desc">The next row; false at the end or on an error. An empty line is a row with one empty field.</p></div>
-<div class="dr-fn" id="ReadHeader"><code class="dr-sig">bool ReadHeader() / const std::vector&lt;std::string&gt; &amp;Header() const / int Column(std::string_view name) const</code><p class="dr-desc">The first row as column names, and a column index by name (-1 if none).</p></div>
-<div class="dr-fn" id="Error"><code class="dr-sig">bool Error() const / const std::string &amp;ErrorMessage() const</code><p class="dr-desc">Why reading stopped (a strict-mode error, an open or read error).</p></div>
-<div class="dr-fn" id="Line"><code class="dr-sig">unsigned long Line() const / unsigned long Rows() const</code><p class="dr-desc">The file line where the last row started, and the rows read.</p></div>
+<div class="dr-fn" id="ReadHeader"><span id="Header"></span><span id="Column"></span><code class="dr-sig">bool ReadHeader() / const std::vector&lt;std::string&gt; &amp;Header() const / int Column(std::string_view name) const</code><p class="dr-desc">The first row as column names, and a column index by name (-1 if none).</p></div>
+<div class="dr-fn" id="Error"><span id="ErrorMessage"></span><code class="dr-sig">bool Error() const / const std::string &amp;ErrorMessage() const</code><p class="dr-desc">Why reading stopped (a strict-mode error, an open or read error).</p></div>
+<div class="dr-fn" id="Line"><span id="Rows"></span><code class="dr-sig">unsigned long Line() const / unsigned long Rows() const</code><p class="dr-desc">The file line where the last row started, and the rows read.</p></div>
 <div class="dr-fn" id="ParseText"><code class="dr-sig">static bool ParseText(std::string_view text, std::vector&lt;std::vector&lt;std::string&gt;&gt; &amp;rows, const gxCSVOptions &amp;o = gxCSVOptions(), std::string *why = 0)</code><p class="dr-desc">Every row of a text.</p></div>
 
 <h2 id="Writer">gxCSVWriter</h2>
-<div class="dr-fn" id="Open2"><code class="dr-sig">bool Open(const std::string &amp;fname, bool append = false) / void SetOutput(std::string *out)</code><p class="dr-desc">A file to write, or a string to append the rows to.</p></div>
+<div class="dr-fn" id="Open2"><span id="SetOutput"></span><code class="dr-sig">bool Open(const std::string &amp;fname, bool append = false) / void SetOutput(std::string *out)</code><p class="dr-desc">A file to write, or a string to append the rows to.</p></div>
 <div class="dr-fn" id="WriteRow"><code class="dr-sig">bool WriteRow(const std::vector&lt;std::string&gt; &amp;fields)</code><p class="dr-desc">One row with its line end. A row of one empty field is written as "" so it does not read back as an empty line.</p></div>
-<div class="dr-fn" id="Close"><code class="dr-sig">bool Close()</code><p class="dr-desc">Flushes and closes the file; false if a write failed.</p></div>
-<div class="dr-fn" id="FormatField"><code class="dr-sig">static std::string FormatField(std::string_view f, const gxCSVOptions &amp;o) / FormatRow(fields, o)</code><p class="dr-desc">A field or a row as it would be written.</p></div>
+<div class="dr-fn" id="Close2"><code class="dr-sig">bool Close()</code><p class="dr-desc">Flushes and closes the file; false if a write failed.</p></div>
+<div class="dr-fn" id="FormatField"><span id="FormatRow"></span><code class="dr-sig">static std::string FormatField(std::string_view f, const gxCSVOptions &amp;o) / FormatRow(fields, o)</code><p class="dr-desc">A field or a row as it would be written.</p></div>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

@@ -41,8 +41,8 @@ if(!lk.Acquire(&quot;/var/run/myapp.lock&quot;)) {
 
 <h2 id="Functions">Functions</h2>
 <div class="dr-fn" id="Acquire"><code class="dr-sig">bool Acquire(const std::string &amp;fname)</code><p class="dr-desc">Takes the lock (the file is made if needed). False if another holder has it (HolderPid()) or the file cannot be opened (Error()).</p></div>
-<div class="dr-fn" id="Release"><code class="dr-sig">void Release() / bool Held() const</code><p class="dr-desc">Gives the lock up; the file stays, emptied.</p></div>
-<div class="dr-fn" id="HolderPid"><code class="dr-sig">long long HolderPid() const / const std::string &amp;Error() const</code><p class="dr-desc">The holder's process id (this process after a successful Acquire()), and why Acquire() failed.</p></div>
+<div class="dr-fn" id="Release"><span id="Held"></span><code class="dr-sig">void Release() / bool Held() const</code><p class="dr-desc">Gives the lock up; the file stays, emptied.</p></div>
+<div class="dr-fn" id="HolderPid"><span id="Error"></span><code class="dr-sig">long long HolderPid() const / const std::string &amp;Error() const</code><p class="dr-desc">The holder's process id (this process after a successful Acquire()), and why Acquire() failed.</p></div>
 <div class="dr-fn" id="IsLocked"><code class="dr-sig">static bool IsLocked(const std::string &amp;fname, long long *pid = 0)</code><p class="dr-desc">True if a live process holds the lock, without taking it.</p></div>
 
 </main>
