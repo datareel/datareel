@@ -176,6 +176,13 @@ int gxSerialCommServer::ReadHeader(gxBlockHeader &gx)
   // the transmitter and receiver are no longer synchronized.
   if(bytes_read != gxWireBlockHeaderSize) 
     return scomm_error = gxSerialComm::scomm_BLOCKHEADER_ERROR;
+  // 11/16/2026: the check word and the status are 8-byte words whose high 4 bytes are 0 in the canonical form; a
+  // sender with 4-byte words (before 7.4 beta 5 on 64-bit Windows or a 32-bit build) puts the length and the next
+  // field there: refused, not misread (the same rule as gxStream::ReadHeader())
+  for(int k = 0; k < 3; k += 2) {
+    if(wb[8 * k + 4] | wb[8 * k + 5] | wb[8 * k + 6] | wb[8 * k + 7])
+      return scomm_error = gxSerialComm::scomm_BLOCKHEADER_ERROR;
+  }
   gxWireUnpackBlockHeader(wb, gx);
       
   if(gx.block_check_word != gxCheckWord) 

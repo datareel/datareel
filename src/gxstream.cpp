@@ -130,7 +130,19 @@ int gxStream::ReadHeader(gxBlockHeader &gx)
     return set_error(conn.IsOpen() ? gxSOCKET_BLOCKHEADER_ERROR : 
 		     gxSOCKET_DISCONNECTED_ERROR);
   }
-  gxWireUnpackBlockHeader((const unsigned char *)s.data(), gx);   // 11/15/2026 (beta 5): canonical
+  // 11/16/2026: in the canonical form the check word and the status are 8-byte words whose high 4 bytes are 0 (each
+  // holds a 32-bit value). A peer before 7.4 beta 5 on 64-bit Windows (24 bytes) or a 32-bit build (16 bytes) sends
+  // 4-byte words, so the length and the next field land there: refused as such (PeerOldHeader()), not misread. The
+  // length word is not checked here: a length over 32 bits stays a block size error
+  peer_old_header = 0;
+  const unsigned char *w = (const unsigned char *)s.data();
+  for(int k = 0; k < 3; k += 2) {
+    if(w[8 * k + 4] | w[8 * k + 5] | w[8 * k + 6] | w[8 * k + 7]) {
+      peer_old_header = 1;
+      return set_error(gxSOCKET_BLOCKHEADER_ERROR);
+    }
+  }
+  gxWireUnpackBlockHeader(w, gx);   // 11/15/2026 (beta 5): canonical
   if(gx.block_check_word != gxCheckWord) {
     return set_error(gxSOCKET_BLOCKSYNC_ERROR);
   }

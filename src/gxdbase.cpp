@@ -1899,7 +1899,7 @@ FAU_t gxDatabase::ReclaimBestFit(__ULWORD__ bytes)
   // PC-lint 09/08/2005: Variable init warning
   FAU_t best_fit_prev_addr = (FAU_t)0;
   __ULWORD__ avail_len, unused_len, best_fit_unused_len = 0;
-  __SBYTE__ status;
+  __SBYTE__ status, best_fit_status = (__SBYTE__)0;
   
   // Constants for the best-fit criteria. NOTE: The maximum length
   // of a block to reuse equals: (max_limit * byte_multiple) * bytes 
@@ -1909,13 +1909,13 @@ FAU_t gxDatabase::ReclaimBestFit(__ULWORD__ bytes)
   double best_byte_len, byte_percent = 0;
   double bytes_requested = (double)bytes;
   unsigned i;
-  unsigned best_length[max_limit];
+  __ULWORD__ best_length[max_limit]; // 11/16/2026: was unsigned (cut off for big blocks)
   
   // Calculate the best-fit byte values
   for(i = 0; i < max_limit; i++) {
     byte_percent += byte_multiple;
     best_byte_len = bytes_requested * byte_percent;
-    best_length[i] = (unsigned)best_byte_len;
+    best_length[i] = (__ULWORD__)best_byte_len;
   }
 
   addr = file_header.gxd_fs_fptr;
@@ -2019,19 +2019,20 @@ FAU_t gxDatabase::ReclaimBestFit(__ULWORD__ bytes)
       return (FAU_t)IsOK() ? (FAU_t)addr : (FAU_t)0;
     }
 
-    if(unused_len > 0) { // Found bigger block with room for header
-      for(i = 0; i < max_limit; i++) {
-	if(unused_len <= best_length[i]) { 
-	  // Use the block matching the best-fit criteria
-	  if(best_fit_unused_len > best_length[i]) { 
-	    // Use the block if it is a better then the current one
-	    best_fit_addr = addr;
-	    best_fit_prev_addr = prev_addr;
-            best_fit_blk = blk_hdr;
-	    best_fit_prev_blk = prev_blk;
-	    best_fit_unused_len = unused_len;
-	  }
-	}
+    // 11/16/2026: A bigger block with room for a header is a candidate
+    // if its unused bytes are within the reuse limit (max_limit *
+    // byte_multiple times the bytes requested), and it is taken if it
+    // leaves fewer unused bytes than the best one so far. Before, the
+    // best one so far started at 0 unused bytes, so no candidate was
+    // ever better: only exact fits were reused and the file grew.
+    if((unused_len > 0) && (unused_len <= best_length[max_limit - 1])) {
+      if((best_fit_addr == (FAU_t)0) || (unused_len < best_fit_unused_len)) {
+	best_fit_addr = addr;
+	best_fit_prev_addr = prev_addr;
+	best_fit_blk = blk_hdr;
+	best_fit_prev_blk = prev_blk;
+	best_fit_unused_len = unused_len;
+	best_fit_status = status;
       }
     }
     
@@ -2046,12 +2047,13 @@ FAU_t gxDatabase::ReclaimBestFit(__ULWORD__ bytes)
   // Could not find a best fit
   if(best_fit_addr == (FAU_t)0) return (FAU_t)0; 
 
-  // Update the file stats header for exact best fit blocks
-  if(status == gxDeletedBlock) {
+  // Update the file stats header for the best fit block (11/16/2026:
+  // its own status, not the status of the last block searched)
+  if(best_fit_status == gxDeletedBlock) {
     if(file_stats_header.deleted_blocks > (FAU)0)
       file_stats_header.deleted_blocks--;
   }
-  else if(status == gxRemovedBlock) {
+  else if(best_fit_status == gxRemovedBlock) {
     if(file_stats_header.removed_blocks > (FAU)0)
       file_stats_header.removed_blocks--;
   }

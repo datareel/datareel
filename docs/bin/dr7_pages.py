@@ -240,6 +240,86 @@ page(file='classes/database/gxdbobject.htm', title='Object Server Vector Searche
  ]),
  ])
 
+page(file='classes/database/gxobjrepl.htm', title='Object Replication Class',
+ lead='gxObjRepl replicates objects between two independent object databases over gxStream with TLS: only objects travel, never file pages, and each node keeps its own addresses and indexes (DataReel 7.4).',
+ sections=[('Overview', 'Overview', """
+<P>A node is a folder (ROOT). The <B>primary</B> takes the application's changes in transactions: <A HREF="#Begin">Begin()</A>, <A HREF="#Put">Put()</A>, <A HREF="#Remove">Remove()</A>, <A HREF="#Purge">Purge()</A>, <A HREF="#Commit">Commit()</A>. A commit is durable on the primary when Commit() returns: its objects, their indexes, an outbox entry and the node's state are written in one <A HREF="gxdjrnl.htm">gxdJournal</A> transaction. <A HREF="#Pump">Pump()</A> sends the copy what it does not have and drops outbox entries the copy has acknowledged. The <B>copy</B> runs <A HREF="#Serve">Serve()</A>: it applies each commit in one transaction of its own, reads every object back and compares it with what was sent, and acknowledges only what is durable.</P>
+<P>Objects are found by a 64-bit id both nodes share. A remove leaves a <B>tombstone</B> where the object was, so links to it still resolve and its address is never reused; <A HREF="#Purge">Purge()</A> frees a tombstone (refused while a live link names it). A <B>link</B> is an 8-byte file address inside an object at an offset the link map names (<CODE>DB:OFFSET:TARGET_DB</CODE>); links travel as ids and each node stores its own addresses. An object that grows moves and leaves a forwarding stub, so links to the old address still work.</P>
+<P><B>Indexes</B> are each node's own (<A HREF="#Config">index</A>): B-tree indexes on up to 32 bytes at an offset and vector indexes (<A HREF="gxvindex.htm">gxVectorIndex</A>) on floats at an offset, kept in the same transaction as the objects. A copy may have indexes the primary does not.</P>
+""" + code("""
+gxObjReplConfig cfg;
+cfg.Load("primary/objrepl.conf");            // ca, cert, key, copy, links, index ...
+gxObjRepl p;
+if(p.Open("primary", cfg, gxObjRepl::PRIMARY) != 0) printf("%s\\n", p.Error().c_str());
+p.OpenDatabase("events");                    // before Begin()
+p.Begin();
+uint64_t id = p.NewId();
+p.Put("events", id, &rec, sizeof(rec));
+p.Commit();                                  // durable here, waiting in the outbox
+p.Pump();                                    // 0: the copy has every commit
+
+gxObjRepl c;                                 // the copy (another process or machine)
+c.Open("copy", cfg_copy, gxObjRepl::COPY);
+c.Serve();                                   // until Stop() (signal-safe) or Close()
+""")),
+ ('Files', 'Files in a Node', """
+<P><CODE>&lt;db&gt;.gxd</CODE> and <CODE>&lt;db&gt;.id.btx</CODE> (each database: the objects and the id index), <CODE>&lt;db&gt;.&lt;name&gt;.ix.btx</CODE> / <CODE>.vix</CODE> with a <CODE>.def</CODE> file (the node's indexes), <CODE>state.gxd</CODE> (role, epoch, sequence numbers, digests), <CODE>outbox.gxd</CODE> (primary), <CODE>digests.btx</CODE> (the running digest after each commit, the last 1,000,000 kept), <CODE>node.jnl</CODE> (the journal over all of them), <CODE>objrepl.lock</CODE> (held while the node is open: one process per node), <CODE>objrepl.status</CODE> (a running node's status) and <CODE>objrepl.alarm</CODE> (why a stream was refused). During a full send the old data waits in <CODE>prev/</CODE> until the new copy is whole.</P>
+"""),
+ ('Roles', 'Roles, Epochs and Checks', """
+<P>Each node has a role and an <B>epoch</B>. When the primary connects, both sides check names, roles, the epoch, the sequence number and a running digest of every commit: a copy refuses an older epoch, a primary whose history differs from its own (the digest at the copy's sequence number) is refused, and every refusal writes an alarm. Once the primary accepts the copy it sends its epoch first, and the copy saves it, fencing older primaries out. A copy that is behind gets what it misses from the outbox, or a <B>full send</B> of every database when the outbox no longer has it; the full send ends only when the copy has received exactly what was sent (a count and a hash).</P>
+<P><B>Takeover</B> (<A HREF="#Takeover">Takeover()</A>, the node stopped) makes a copy the primary at the next epoch. <B>Rejoin</B> (<A HREF="#Rejoin">Rejoin()</A>) makes a former primary a copy again: if its copy had acknowledged every commit (a planned switchover) it follows on with no full send; otherwise it gets a full send from the new primary.</P>
+<P>New ids carry the epoch (<CODE>epoch &lt;&lt; 40</CODE> plus a counter), so a new primary never hands out an id the old one may have used in commits that never reached it.</P>
+"""),
+ ('Limits', 'Limits', """
+<UL>
+<LI><B>Asynchronous</B>: a commit is durable on the primary when Commit() returns and on the copy when Pump() returns 0. If the primary is lost, the commits the copy did not have are lost with it (the primary's status shows them as lag_seq); after a crash failover the old primary's Rejoin() counts them (dropped_at_rejoin).</LI>
+<LI><B>Trust</B>: a peer whose certificate the copy accepts (allow-cn) is trusted with the stream: it can raise the copy's epoch, which fences other primaries out, or send a full send. Protect the certificates and keys.</LI>
+<LI>An object is at most 32 MB and a commit's changes at most 60 MB (one gxStream block is 64 MB).</LI>
+<LI>A copy further behind than the digest log's 1,000,000 commits, or whose history a primary cannot check, is refused: <A HREF="#Rejoin">Rejoin()</A> on it makes it take a full send.</LI>
+<LI>Threads: every call takes one lock in the object; readers (Get, FindKey, Nearest ...) run between the frames Serve() applies. Pump() holds the lock while it exchanges frames with the copy (not while it connects), and gives it up between frames when a reader waits. While a copy receives a full send, reads fail with "a full send is under way".</LI>
+<LI>Index fields may not overlap link fields.</LI>
+<LI>Platforms: Linux and Windows nodes replicate to each other in both directions: DataReel 7.4 sends gxStream's block header in one canonical 32-byte form (the one 64-bit Linux always sent), and a Windows or 32-bit peer from before 7.4 beta 5 is refused (an alarm on the copy, a log line or an alarm on the primary). A Schannel build checks the certificates' dates, CA and key at the TLS handshake rather than at Open(). The objrepl tool stops on TERM/INT (POSIX), Ctrl+C or Ctrl+Break (Windows), or when <CODE>ROOT/objrepl.stop</CODE> appears.</LI>
+</UL>
+"""),
+ ('Tool', 'The objrepl Tool and Checks', """
+<P>The <CODE>objrepl</CODE> tool (utils/objrepl/objrepl.cpp) runs a node from the command line and from <CODE>ROOT/objrepl.conf</CODE>: <CODE>objrepl copy ROOT</CODE>, <CODE>objrepl digest|ixcheck|status|check|clear-alarm|takeover|rejoin ROOT</CODE>. <CODE>objrepl check</CODE> prints one line, OK / WARN / FAIL (exit 0 / 1 / 2), for cron or a monitor. <CODE>utils/objrepl/objrepl_certs.sh</CODE> makes a private CA and the two node certificates.</P>
+""")],
+ functions=[
+ ('Config', 'Configuration', [
+  ('struct gxObjReplConfig { name, peer_name, ca, cert, key, allow_cn, copy, listen_addr, listen_port, links, index, trim, idle_timeout, max_lag, max_behind, min_cert_days, log }', 'name and peer_name: this node and the expected peer; ca, cert, key: TLS with certificates on both sides; allow_cn: the CN of the primary\'s client certificate (copy); copy: HOST:PORT (primary); listen_addr/listen_port (copy); links: "DB:OFFSET:TARGET_DB,..."; index: "NAME:DB:B:OFFSET:LEN" or "NAME:DB:V:OFFSET:DIM", comma separated; idle_timeout: seconds without a frame before the copy drops a connection (120); log: where messages go (stderr).'),
+  ('bool Set(const std::string &key, const std::string &value, std::string *why = 0) / bool Load(const std::string &fname, std::string *why = 0)', 'One "key value" setting (name, peer-name, copy, listen, ca, cert, key, allow-cn, links, index, max-lag, max-behind, min-cert-days, trim, idle-timeout), or a file of them (# comments). False and why for an unknown key or a bad value.'),
+ ]),
+ ('Open', 'Open and Close', [
+  ('int Open(const std::string &root, const gxObjReplConfig &cfg, Role role)', 'Opens ROOT (created if new) as PRIMARY or COPY. Checks the config and the certificates (readable, the key not readable by others, within their dates, signed by the CA, key and certificate matching). Returns 0; -1 with Error(); 4 when ROOT has the other role.'),
+  ('void Close() / int IsOpen() const / std::string Error() const', 'Closes (stopping a Serve() running in another thread first); whether open; the last error.'),
+ ]),
+ ('Writes', 'Primary: Changes', [
+  ('int OpenDatabase(const std::string &db)', 'Opens or creates a database before Begin() (the journal attaches files only between transactions).'),
+  ('int Begin() / int Commit() / int Rollback()', 'A transaction. Commit() makes it durable with its outbox entry; a failed Commit() leaves nothing.'),
+  ('uint64_t NewId()', 'An id no database here has used, with the epoch in the high bits.'),
+  ('int Put(const std::string &db, uint64_t id, const void *bytes, uint32_t n)', 'An add, or an update of a live object or a tombstone. Link fields hold this node\'s addresses (AddressOf()).'),
+  ('int Remove(const std::string &db, uint64_t id) / int Purge(const std::string &db, uint64_t id)', 'A remove leaves a tombstone (an unknown id gets one); a purge frees a tombstone no live link names.'),
+ ]),
+ ('Replication', 'Replication', [
+  ('int Pump()', 'Primary: connect if needed (with the checks), send what the copy lacks (or a full send), drop acknowledged outbox entries. 0: the copy has every commit; 1: away or behind; 3: refused (alarm).'),
+  ('int Drain(int seconds)', 'Primary: Pump() until the copy has every commit. 0, 2 (not drained) or 3 (refused).'),
+  ('int Serve() / void Stop()', 'Copy: accept primaries and apply until Stop() (async-signal-safe; Serve() returns within half a second).'),
+ ]),
+ ('Reads', 'Reads', [
+  ('int Get(const std::string &db, uint64_t id, std::vector<unsigned char> &bytes) / int IsLive(...)', 'A live object\'s bytes (links as this node\'s addresses); whether it is live.'),
+  ('FAU_t AddressOf(const std::string &db, uint64_t id) / uint64_t IdAt(const std::string &db, FAU_t a)', 'An object\'s address here, and the id at an address (for link fields).'),
+  ('std::vector<uint64_t> Ids(const std::string &db, Which which = LIVE) / std::vector<std::string> Databases()', 'The live ids or the tombstones of a database; the databases open here.'),
+  ('int FindKey(const std::string &index, const void *key, unsigned n, std::vector<uint64_t> &ids) / int Nearest(const std::string &index, const float *query, unsigned k, std::vector<gxObjReplHit> &hits)', 'This node\'s indexes: the ids whose key starts with KEY, or the K nearest vectors.'),
+  ('int InSnapshot() / uint64_t Epoch() / LastSeq() / AppliedSeq() / CopyApplied() / long Snapshots()', 'A copy inside a full send; the epoch; the primary\'s last commit, the copy\'s last applied one, the copy as last heard; full sends made.'),
+ ]),
+ ('Folders', 'Folders (no open node)', [
+  ('static int Digest(const std::string &root, const std::string &links, std::string &line, std::string *detail = 0)', '"objects N digest H": ids and contents with links as ids, equal on two nodes holding the same objects.'),
+  ('static int IndexCheck(const std::string &root, const std::string &index, std::string &report)', 'Each index against entries rebuilt from the objects, and a digest of its contents. 0 consistent, 5 not.'),
+  ('static int Check(const std::string &root, const gxObjReplConfig &cfg, std::string &line) / static int Status(...) / static int ClearAlarm(...)', 'OK / WARN / FAIL from the status and alarm files (0, 1, 2); the state; an alarm acknowledged.'),
+  ('static int Takeover(const std::string &root, std::string &msg) / static int Rejoin(const std::string &root, std::string &msg)', 'A stopped copy becomes primary at the next epoch; a former primary (or a copy) becomes a copy again, with a full send unless every commit was acknowledged.'),
+ ]),
+ ])
+
 page(file='classes/socket/sdiagram.htm', title='Networking Model',
  lead='DataReel 7 networking is TLS first: every protocol client and server except telnet and ping is encrypted.',
  sections=[

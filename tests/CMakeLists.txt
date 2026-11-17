@@ -4,6 +4,20 @@ target_link_libraries(damaged_files PRIVATE DataReel::datareel)
 set_target_properties(damaged_files PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 
+# 11/16/2026: journal salts distinct across forked processes (POSIX: fork)
+if(NOT WIN32)
+  add_executable(journal_salt_test journal_salt_test.cpp)
+  target_link_libraries(journal_salt_test PRIVATE DataReel::datareel)
+  set_target_properties(journal_salt_test PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+endif()
+
+# 11/16/2026: block reuse, best fit and first fit (ReclaimBestFit() reused only exact fits)
+add_executable(reclaim_test reclaim_test.cpp)
+target_link_libraries(reclaim_test PRIVATE DataReel::datareel)
+set_target_properties(reclaim_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+
 add_executable(journal_test journal_test.cpp)
 target_link_libraries(journal_test PRIVATE DataReel::datareel)
 set_target_properties(journal_test PROPERTIES

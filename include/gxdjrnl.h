@@ -168,6 +168,27 @@ public:
   gxDatabaseError Commit(int durable = 1);
   gxDatabaseError Rollback();
   gxDatabaseError Checkpoint();
+  // 11/16/2026: Write-back mode: write the committed pages held in
+  // memory to their files now, without a sync and without emptying the
+  // journal (the next checkpoint syncs the files and empties it). Not
+  // inside a transaction. With Commit(0) and a sync of the journal file
+  // made in between (by another descriptor, so another thread may use
+  // the journal meanwhile), it is the write-through commit split in
+  // three: the files are changed only after their batch is durable.
+  gxDatabaseError WriteCommitted();
+  // 11/16/2026: A checkpoint in two steps, for a program that syncs the
+  // files itself in between (with other descriptors, without holding
+  // its own lock on the journal, so other threads read and commit
+  // meanwhile). CheckpointBegin() (not inside a transaction) writes the
+  // committed pages to the files and passes back the path of every
+  // attached file and the commit count; the caller syncs each of those
+  // files (fsync) and calls CheckpointEnd() with the count. If no commit
+  // came in between, the files hold every page in the journal, which is
+  // emptied without syncing them again; otherwise CheckpointEnd() does
+  // nothing and returns gxDBASE_FILE_NOT_READY (try again later).
+  gxDatabaseError CheckpointBegin(std::vector<std::string> &paths,
+				  unsigned long &commit_count);
+  gxDatabaseError CheckpointEnd(unsigned long commit_count);
   int InTransaction() const { return in_txn; }
   // Checkpoint when the journal passes this size. 0 (the default) means
   // 8 MB in write-through mode and 64 MB in write-back mode.

@@ -170,6 +170,10 @@ mkdir -p "$WORK/run_damaged" && cd "$WORK/run_damaged" &&
   check damaged_files "$BUILD/tests/damaged_files" 300 7
 mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" &&
   check journal_test "$BUILD/tests/journal_test" 20 7
+# 11/16/2026: journal salts distinct across processes forked in the same second
+mkdir -p "$WORK/run_salt" && check journal_salt_test "$BUILD/tests/journal_salt_test" "$WORK/run_salt"
+# 11/16/2026: block reuse, best fit and first fit (ReclaimBestFit() reused only exact fits)
+mkdir -p "$WORK/run_reclaim" && check reclaim_test "$BUILD/tests/reclaim_test" "$WORK/run_reclaim"
 # Vector index (gxvindex.h, 7.4): kernels, exact and graph search,
 # Merge, Repair, concurrent searches and 20 crash rounds
 mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" &&

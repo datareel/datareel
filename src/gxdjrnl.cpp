@@ -81,12 +81,35 @@ number; records left in the file after that have an old salt.
 #include <atomic>
 #include <limits>
 #include <map>
+#include <random>
+#include <chrono>
 #include "gxdjrnl.h"
 #include "gxbtree.h"
 #include "btcache.h"
 
 namespace datareel {
 
+// 11/16/2026: a header's salt. It was time(0), a counter and the object's address, so two processes forked from one
+// parent that wrote a header in the same second (same counter, same address) wrote the same salt; Recover() then
+// took the previous session's records left after the cleared header for this session's and replayed old
+// transactions (a copy went back from applied 4 to 3). Now: random (the OS entropy source), mixed with a fine clock,
+// the process id and a counter, and never 0 or the salt this object wrote last
+static uint32_t jnewsalt(uint32_t avoid)
+{
+  static std::atomic<unsigned> counter{0};
+  uint64_t x = (uint64_t)std::chrono::high_resolution_clock::now().time_since_epoch().count();
+#if defined(_WIN32)
+  x ^= (uint64_t)GetCurrentProcessId() << 32;
+#else
+  x ^= (uint64_t)getpid() << 32;
+#endif
+  x ^= (uint64_t)(counter.fetch_add(1) + 1) * 0x9E3779B97F4A7C15ULL;
+  try { std::random_device rd; x ^= ((uint64_t)rd() << 32) ^ (uint64_t)rd(); } catch(...) { }
+  x ^= x >> 29; x *= 0xBF58476D1CE4E5B9ULL; x ^= x >> 32;
+  uint32_t s = (uint32_t)x;
+  while(s == 0 || s == avoid) s = s * 2654435761u + 1;
+  return s;
+}
 
 static const char gxdJournalMagic[8] = { 'G','X','D','W','A','L','0','1' };
 static const uint32_t gxdJournalVersion = 1;
@@ -473,11 +496,7 @@ gxDatabaseError gxdJournal::Begin()
 
 gxDatabaseError gxdJournal::WriteHeader()
 {
-  static unsigned counter = 0;
-  salt = (unsigned long)(((unsigned)time(0) * 2654435761u) ^
-			 (++counter * 40503u) ^ (unsigned)(size_t)this);
-  salt &= 0xFFFFFFFFUL;
-  if(salt == 0) salt = 1;
+  salt = (unsigned long)jnewsalt((uint32_t)salt);
   std::vector<unsigned char> h(gxdJournalMagic, gxdJournalMagic + 8);
   jput32(h, gxdJournalVersion);
   jput32(h, (uint32_t)salt);
@@ -608,6 +627,63 @@ gxDatabaseError gxdJournal::Commit(int durable)
     if(pc->LoggedPages() * gxdPageSize > pc->MaxBytes()) ckpt = 1;
   }
   if(ckpt) return Checkpoint();
+  return jerror = gxDBASE_NO_ERROR;
+}
+
+gxDatabaseError gxdJournal::WriteCommitted()
+// 11/16/2026: Write-back mode: the committed pages to their files, no
+// sync, the journal kept (see the header)
+{
+  if(in_txn) return jerror = gxDBASE_FILE_NOT_READY;
+  gxDatabaseError err = gxDBASE_NO_ERROR;
+  for(size_t i = 0; i < files.size(); i++) {
+    gxdPageCache *pc = files[i].f->PageCache();
+    size_t n = pc->LoggedPages();
+    if(n == 0) continue;
+    if(pc->WriteLoggedPages() != 0) err = gxDBASE_FILE_WRITE_ERROR;
+    files[i].written = 1;
+    pages_written += n;
+  }
+  return jerror = err;
+}
+
+gxDatabaseError gxdJournal::CheckpointBegin(std::vector<std::string> &paths,
+					    unsigned long &commit_count)
+// 11/16/2026: The first step of a checkpoint whose files the caller
+// syncs (see the header)
+{
+  paths.clear();
+  commit_count = commits;
+  if(in_txn) return jerror = gxDBASE_FILE_NOT_READY;
+  if(WriteCommitted() != gxDBASE_NO_ERROR) return jerror;
+  for(size_t i = 0; i < files.size(); i++) paths.push_back(files[i].path);
+  return jerror = gxDBASE_NO_ERROR;
+}
+
+gxDatabaseError gxdJournal::CheckpointEnd(unsigned long commit_count)
+// 11/16/2026: The second step: the journal emptied if no commit came
+// since CheckpointBegin() and the caller synced every file
+{
+  if(in_txn || commits != commit_count) return jerror = gxDBASE_FILE_NOT_READY;
+  if(!jfp || !header_written) return jerror = gxDBASE_NO_ERROR;
+  for(size_t i = 0; i < files.size(); i++)
+    if(files[i].f->PageCache()->LoggedPages()) return jerror = gxDBASE_FILE_NOT_READY;
+  // The journal itself: synced as a checkpoint would (Commit(0) batches)
+  int sync = (sync_level != gxdJOURNAL_SYNC_OFF) || durable_logged;
+  if(sync && unsynced) {
+    if(gxdFPTRSync(jfp, 0) != 0) return jerror = gxDBASE_FILE_WRITE_ERROR;
+  }
+  unsynced = 0;
+  for(size_t i = 0; i < files.size(); i++) files[i].written = 0;
+  if(jclear(jfp, 0) != 0) return jerror = gxDBASE_FILE_WRITE_ERROR;
+  header_written = 0;
+  durable_logged = 0;
+  jsize = (FAU_t)0;
+  seq = 0;
+  checkpoints++;
+  if(jalloc > (FAU_t)(2 * CheckpointSize() + gxdJournalGrowBy)) {
+    if(gxdFPTRTruncate(jfp, (FAU_t)0) == 0) jalloc = (FAU_t)0;
+  }
   return jerror = gxDBASE_NO_ERROR;
 }
 

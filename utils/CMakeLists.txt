@@ -6,8 +6,21 @@ foreach(tool db_debug ix_debug vix_rebuild dr_digest)
   target_link_libraries(${tool} PRIVATE DataReel::datareel)
 endforeach()
 
-# 11/16/2026: gxrepl (page-shipping replication) went from 7.4 (replication is gxObjRepl, gxobjrepl.h); the database
-# object server and its multiplex test stay (POSIX only)
+# 11/16/2026: objrepl (gxObjRepl's tool, gxobjrepl.h) and its workload simulator: every platform. The test scripts
+# (utils/objrepl/test_objrepl*.sh) need a build with -DGXREPL_TEST_HOOKS=ON for their kill and drop cases
+add_executable(objrepl objrepl/objrepl.cpp)
+target_link_libraries(objrepl PRIVATE DataReel::datareel)
+add_executable(objrepl_sim objrepl/objrepl_sim.cpp)
+target_link_libraries(objrepl_sim PRIVATE DataReel::datareel)
+
+# 11/16/2026: gxObjRepl's API test (fork, sockets): POSIX only
+if(NOT WIN32)
+  add_executable(test_gxobjrepl_api objrepl/test_gxobjrepl_api.cpp)
+  target_link_libraries(test_gxobjrepl_api PRIVATE DataReel::datareel)
+endif()
+
+# 11/16/2026: gxrepl (page-shipping replication) went from 7.4 (replication is gxObjRepl); the database object
+# server and its multiplex test stay (POSIX only)
 if(NOT WIN32)
   # 11/08/2026: tests of the database object server's multiplex (gxdbmux.h)
   add_executable(gxdbmux_test dbserver/gxdbmux_test.cpp)
