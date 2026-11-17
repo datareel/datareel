@@ -886,6 +886,49 @@ cfg.ChangeConfigValue("port", 8443);        // Changes the file and the loaded v
   ('void SetParmID(const std::string &s) / SetCommentChar(char c) / FilterComments() / ReadComments()', 'Format settings.'),
  ])])
 
+page(file='classes/general/gxcsv.htm', title='CSV Reader and Writer',
+ lead='gxCSVReader and gxCSVWriter read and write CSV files (RFC 4180): spreadsheets exported as CSV, logs, tables to import (DataReel 7.4).',
+ sections=[('Overview', 'Overview', '''
+<P>Fields are separated by a delimiter (',' by default; ';', TAB and '|' work too). A field in double quotes may hold the delimiter, line breaks (CR LF or LF, kept as they are) and quotes, written twice (""). Rows end with CR LF or LF. The reader reads a file in 64 KB pieces, so a file of any size takes little memory, or text in memory; a spreadsheet's UTF-8 byte order mark is skipped. The writer quotes a field only when it needs it: the delimiter, a quote, CR, LF, or a leading or trailing space or tab (or every field with quote_all).</P>
+<P><B>Lenient and strict reading.</B> By default a stray quote in an unquoted field, text after a closing quote and a quoted field never closed are read as text, as spreadsheets do. With strict each is an error: ReadRow() returns false and ErrorMessage() names the line and field. A field's line breaks count in Line(), so the line given is the line of the file.</P>
+''' + code('''
+gxCSVReader r;
+if(!r.Open("orders.csv") || !r.ReadHeader()) return;
+int qty = r.Column("qty");
+std::vector<std::string> row;
+while(r.ReadRow(row)) total += to_long(row[qty]);
+if(r.Error()) fprintf(stderr, "%s\\n", r.ErrorMessage().c_str());
+
+gxCSVWriter w;                          // CR LF line ends (RFC 4180)
+w.Open("out.csv");
+w.WriteRow({"id", "note"});
+w.WriteRow({"7", "two\\nlines, and \\"quotes\\""});   // written as 7,"two<LF>lines, and ""quotes"""
+w.Close();
+'''))],
+ functions=[
+ ('Options', 'gxCSVOptions', [
+  ('char delimiter = \',\' / char quote = \'"\'', 'The field delimiter and the quote character.'),
+  ('bool strict = false', 'Reading: stray quotes, text after a closing quote and an unclosed quoted field are errors.'),
+  ('bool trim_unquoted = false', 'Reading: spaces and tabs around unquoted fields (and around a quoted field) are dropped; RFC 4180 keeps them.'),
+  ('bool skip_bom = true / bool skip_empty_rows = false', 'Reading: a UTF-8 byte order mark at the start is skipped; empty lines are not returned (a row of one quoted empty field, "", is kept).'),
+  ('bool crlf = true / bool quote_all = false', 'Writing: CR LF or LF line ends; every field quoted.'),
+ ]),
+ ('Reader', 'gxCSVReader', [
+  ('bool Open(const std::string &fname) / void SetText(std::string_view text) / void Close()', 'A file to read (in pieces), or text in memory.'),
+  ('bool ReadRow(std::vector<std::string> &fields)', 'The next row; false at the end or on an error. An empty line is a row with one empty field.'),
+  ('bool ReadHeader() / const std::vector<std::string> &Header() const / int Column(std::string_view name) const', 'The first row as column names, and a column index by name (-1 if none).'),
+  ('bool Error() const / const std::string &ErrorMessage() const', 'Why reading stopped (a strict-mode error, an open or read error).'),
+  ('unsigned long Line() const / unsigned long Rows() const', 'The file line where the last row started, and the rows read.'),
+  ('static bool ParseText(std::string_view text, std::vector<std::vector<std::string>> &rows, const gxCSVOptions &o = gxCSVOptions(), std::string *why = 0)', 'Every row of a text.'),
+ ]),
+ ('Writer', 'gxCSVWriter', [
+  ('bool Open(const std::string &fname, bool append = false) / void SetOutput(std::string *out)', 'A file to write, or a string to append the rows to.'),
+  ('bool WriteRow(const std::vector<std::string> &fields)', 'One row with its line end. A row of one empty field is written as "" so it does not read back as an empty line.'),
+  ('bool Close()', 'Flushes and closes the file; false if a write failed.'),
+  ('static std::string FormatField(std::string_view f, const gxCSVOptions &o) / FormatRow(fields, o)', 'A field or a row as it would be written.'),
+ ]),
+ ])
+
 page(file='classes/general/thrpool.htm', title='Thread Pool',
  lead='ThreadPool runs tasks on a fixed set of std::thread workers. It is the one thread class DataReel 7 keeps.',
  sections=[('Overview', 'Overview', '''
@@ -961,6 +1004,7 @@ EXAMPLES = [
   ('general/thread_pool.cpp', 'thread_pool', 'ThreadPool tasks, results and exceptions.'),
   ('general/trading_sessions.cpp', 'trading_sessions', 'CDate and systime.h: US market sessions, holidays, trading days.'),
   ('general/string_utils.cpp', 'string_utils', 'strutil.h, base 64 and CRC-32, each checked against a known answer.'),
+  ('general/csv_merge.cpp', 'csv_merge', 'gxCSVReader and gxCSVWriter: merge two spreadsheets exported as CSV on a key column. Usage: csv_merge [--inner] [--delimiter C] KEY A.csv B.csv [OUT.csv]'),
  ]),
  ('Plain text diagnostics', [
   ('diagnostics/ping.cpp', 'ping', 'ICMP and ICMPv6 echo. Usage: ping host [count] [-4|-6]'),

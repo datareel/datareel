@@ -89,6 +89,13 @@ cd "$WORK/run_db_infohog" && check db_infohog_reopen sh -c "$E/db_infohog < /dev
 for p in trading_sessions string_utils day_events; do
   mkdir -p "$WORK/run_$p" && cd "$WORK/run_$p" && check $p $E/$p
 done
+# 11/17/2026: CSV (gxcsv.h): the class test, and csv_merge on two small tables against the expected output
+mkdir -p "$WORK/run_csv" && check csv_test "$BUILD/tests/csv_test" "$WORK/run_csv"
+mkdir -p "$WORK/run_csv_merge" && cd "$WORK/run_csv_merge" &&
+  printf 'id,name,qty\r\n1,apple,5\r\n2,"pear, green",3\r\n4,fig,1\r\n' > a.csv &&
+  printf 'qty,id,note\n7,2,"two\nlines"\n9,3,new\n' > b.csv &&
+  printf 'id,name,qty,b.qty,note\r\n1,apple,5,,\r\n2,"pear, green",3,7,"two\nlines"\r\n4,fig,1,,\r\n3,,,9,new\r\n' > want.csv &&
+  check csv_merge sh -c "$E/csv_merge id a.csv b.csv out.csv && cmp out.csv want.csv"
 mkdir -p "$WORK/run_typed_objects" && cd "$WORK/run_typed_objects" &&
   check typed_objects $E/typed_objects "$WORK/server.pem" "$WORK/server.key" --ca "$WORK/ca.pem"
 # 11/15/2026 (7.4): the B-tree digest on keys whose names repeat (two writer runs with the same seed: the address
