@@ -428,10 +428,10 @@ struct Ctl {
   }
   bool stop_copy_clean() {
     if(!copy.pid) return true;
-    kill(copy.pid, SIGTERM); bool to = false; int rc = wait_kid(copy.pid, 30000, &to);
+    kill(copy.pid, SIGTERM); bool to = false; int rc = wait_kid(copy.pid, 90000, &to);   // 11/17/2026: 90 s (was 30: the close's checkpoint fsyncs)
     logf("copy %s pid %d stopped (TERM) rc %d", node_name(copy.node), (int)copy.pid, rc);
     copy.pid = 0;
-    if(to) FAIL("the copy did not stop within 30 s of SIGTERM");
+    if(to) FAIL("the copy did not stop within 90 s of SIGTERM");
     if(rc != 0) FAIL("the copy exited %d on SIGTERM", rc);
     return true;
   }
@@ -457,7 +457,13 @@ struct Ctl {
       long ms = (long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
       if(!pk && kill_ms >= 0 && ms >= kill_ms) { kill(k, SIGKILL); pk = true; logf("primary SIGKILLed by the controller at %ld ms", ms); }
       if(!ck && copy_kill_ms >= 0 && ms >= copy_kill_ms) { ck = true; kill_copy("during the primary's step"); }
-      if(ms > 60000) { kill(k, SIGKILL); waitpid(k, &st, 0); logf("primary child hung 60 s: killed"); return -1001; }
+      // 11/17/2026: 180 s (was 60 s: a drain of 30 s plus fsync-heavy commits went past it under disk load); the
+      // child's stacks are saved before the kill, to tell a hang from a slow disk
+      if(ms > 180000) {
+	std::string cmd = "timeout 60 gdb -p " + std::to_string((long)k) + " -batch -ex 'thread apply all bt' 2>&1 | head -n 400";
+	if(FILE *g = popen(cmd.c_str(), "r")) { char line[512]; while(fgets(line, sizeof(line), g)) logf("  stack: %s", line); pclose(g); }
+	kill(k, SIGKILL); waitpid(k, &st, 0); logf("primary child hung 180 s: killed"); return -1001;
+      }
       std::this_thread::sleep_for(std::chrono::microseconds(200));
     }
     int rc = WIFEXITED(st) ? WEXITSTATUS(st) : -WTERMSIG(st);

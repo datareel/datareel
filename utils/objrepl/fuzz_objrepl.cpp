@@ -235,7 +235,7 @@ struct Copy {
     int s = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in a; memset(&a, 0, sizeof(a)); a.sin_family = AF_INET; a.sin_port = htons((uint16_t)g_port); a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if(s >= 0) { connect(s, (sockaddr *)&a, sizeof(a)); close(s); }
-    for(int i = 0; i < 10000 && running; i++) std::this_thread::sleep_for(std::chrono::microseconds(500));
+    for(int i = 0; i < 120000 && running; i++) std::this_thread::sleep_for(std::chrono::microseconds(500));   // 60 s (was 5)
     if(running) return false;
     t.join(); r.Close();
     return true;
@@ -246,7 +246,7 @@ struct Copy {
 struct Client {
   gxStream st; bool up = false;
   bool connect() {
-    st.Connection().SetCAFile(g_pki + "/ca.pem"); st.SetClientCert(g_pki + "/primary.pem", g_pki + "/primary.key"); st.SetTimeOut(3);
+    st.Connection().SetCAFile(g_pki + "/ca.pem"); st.SetClientCert(g_pki + "/primary.pem", g_pki + "/primary.key"); st.SetTimeOut(30);   // 11/17/2026: was 3 s (a copy's commit fsyncs under disk load)
     up = st.Connect("127.0.0.1", g_port) == 0;
     if(up) st.Connection().Socket().SetNoDelay(true);        // as the primary does: no Nagle wait per frame
     return up;
@@ -370,6 +370,7 @@ struct Counts {
   long unchanged = 0, prefix = 0, mutated_applied = 0;
   long clean_ok = 0, clean_refused_rejoined = 0, fenced_epoch = 0;
   long undetected = 0, index_bad = 0, copy_dead = 0, stuck = 0, not_recovered = 0;
+  long slow_back = 0; double max_back_secs = 0;   // 11/17/2026: the copy back to listening after 10 s (not stuck)
   std::map<std::string, long> alarm_reasons;
   std::map<std::string, long> by_kind, by_kind_applied;      // cases by the kind of the (first) mutated frame
 };
@@ -497,14 +498,27 @@ int main(int argc, char **argv)
     bool hello_refused = !hrep.empty() && hrep[0] != 1;
     tmark("play");
     // the copy is done with the connection once its status says listening (or refused) again: it stays up, idle
+    // 11/17/2026: up to 60 s (was 10 s). A copy that rolls back a refused frame reopens the node, and the close's
+    // checkpoint fsyncs every file: seconds on a busy disk. Back after 10 s is counted as slow (and its time kept), not
+    // stuck; only 60 s without it is stuck, with the process's stacks saved (gdb) to tell a hang from a slow disk
     bool back = false;
-    for(int w = 0; w < 20000 && c.running && !back; w++) {
+    auto bt0 = std::chrono::steady_clock::now();
+    for(int w = 0; w < 120000 && c.running && !back; w++) {
       std::string st = slurp(CD + "/objrepl.status");
       back = st.find("state listening") != std::string::npos || st.find("state refused") != std::string::npos;
       if(!back) std::this_thread::sleep_for(std::chrono::microseconds(500));
     }
+    double bsecs = std::chrono::duration<double>(std::chrono::steady_clock::now() - bt0).count();
+    if(back && bsecs > 10) { C.slow_back++; logf("SLOW case %ld [%s]: the copy back to listening after %.1f s", i, label.c_str(), bsecs); }
+    if(back && bsecs > C.max_back_secs) C.max_back_secs = bsecs;
+    if(!back && c.running && !g_fail.empty()) {
+      std::error_code ec; fs::create_directories(g_fail, ec);
+      std::string cmd = "timeout 60 gdb -p " + std::to_string((long)getpid()) + " -batch -ex 'thread apply all bt' > '" + g_fail +
+			"/stuck_case_" + std::to_string(i) + "_stacks.txt' 2>&1";
+      if(system(cmd.c_str()) != 0) logf("  (gdb could not capture the stacks)");
+    }
     if(!c.running) { problem(i, label, "the copy's Serve() returned " + std::to_string(c.rc.load()) + " after the case: " + c.r.Error(), CD); C.copy_dead++; c.stop(); continue; }
-    if(!back) { problem(i, label, "the copy did not go back to listening within 10 s (stuck)", CD); C.stuck++; if(!c.stop()) { logf("ABORT: a stuck copy thread"); fflush(stdout); _exit(3); } continue; }
+    if(!back) { problem(i, label, "the copy did not go back to listening within 60 s (stuck; stacks saved)", CD); C.stuck++; if(!c.stop()) { logf("ABORT: a stuck copy thread"); fflush(stdout); _exit(3); } continue; }
     size_t a1 = alarm_lines(CD);
     bool dropped = answered < (int)acts.size();
     if(hello_refused) C.hello_refused++;
@@ -528,7 +542,7 @@ int main(int argc, char **argv)
       gxObjRepl p;
       if(p.Open(W + "/p", prim_cfg(g_port), gxObjRepl::PRIMARY) != 0) { logf("primary open: %s", p.Error().c_str()); return 2; }
       int rc = 1;
-      auto until = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+      auto until = std::chrono::steady_clock::now() + std::chrono::seconds(60);   // 11/17/2026: was 15 s
       while(rc == 1 && std::chrono::steady_clock::now() < until) { rc = p.Pump(); if(rc == 1) std::this_thread::sleep_for(std::chrono::milliseconds(3)); }
       tmark("clean pump");
       std::string perr = p.Error();
@@ -555,7 +569,7 @@ int main(int argc, char **argv)
 	continue;
       }
       if(rc == 3) { C.not_recovered++; problem(i, label, "refused again after the rejoin: " + pal, CD); outcome = "refused2"; break; }
-      C.stuck++; problem(i, label, "the clean primary did not drain in 15 s (rc " + std::to_string(rc) + "): " + perr, CD); outcome = "notdrained"; break;
+      C.stuck++; problem(i, label, "the clean primary did not drain in 60 s (rc " + std::to_string(rc) + "): " + perr, CD); outcome = "notdrained"; break;
     }
     if(outcome == "ok") C.clean_ok++; else if(outcome == "rejoined") C.clean_refused_rejoined++;
     if(g_verbose) logf("case %ld %s: answered %d/%zu%s, alarm %s, after-case %s, clean %s", i, label.c_str(), answered, acts.size(),
@@ -565,6 +579,7 @@ int main(int argc, char **argv)
   logf("SUMMARY cases %ld (start %ld seed %llu) secs %.1f problems %ld", C.cases, start, (unsigned long long)seed, secs, C.problems);
   logf("SUMMARY stream: hello_refused %ld dropped %ld (alarm %ld silent %ld) all_frames_answered %ld", C.hello_refused, C.dropped, C.dropped_alarm, C.dropped_silent, C.accepted_all);
   logf("SUMMARY copy_after_case: unchanged %ld valid_prefix %ld mutated_applied %ld", C.unchanged, C.prefix, C.mutated_applied);
+  logf("SUMMARY slow: %ld case(s) with the copy back to listening after 10 s (max %.1f s)", C.slow_back, C.max_back_secs);
   logf("SUMMARY clean_primary: ok %ld refused_then_rejoined_ok %ld fenced_by_epoch %ld undetected %ld not_recovered %ld stuck %ld index_bad %ld copy_dead %ld",
        C.clean_ok, C.clean_refused_rejoined, C.fenced_epoch, C.undetected, C.not_recovered, C.stuck, C.index_bad, C.copy_dead);
   for(auto &a : C.alarm_reasons) logf("SUMMARY alarm %ld x %s", a.second, a.first.c_str());
