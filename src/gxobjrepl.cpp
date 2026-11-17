@@ -1010,15 +1010,24 @@ struct gxObjRepl::Impl {
   std::set<std::pair<std::string, uint64_t>> linked;
   bool linked_valid = false;
   std::string last_alarm;
+  time_t last_alarm_said = 0; unsigned long alarm_repeats = 0;   // the log line of a repeated alarm: once a minute
 
   void say(const std::string &m) {
     if(cfg.log) cfg.log(m); else { fprintf(stderr, "objrepl: %s\n", m.c_str()); fflush(stderr); }
   }
   // a reason to stop streaming: said and kept in ROOT/objrepl.alarm until someone clears it
   void alarm(const std::string &why) {
+    time_t now = time(0);
+    if(why == last_alarm) {                                    // the same reason again: not written again, and said
+      alarm_repeats++;                                         // once a minute with a count (11/16/2026: an old
+      if(now - last_alarm_said >= 60) {                        // primary's retries gave 3.5 log lines a second)
+	say("ALARM (again, " + std::to_string(alarm_repeats) + " time(s) since it was last logged): " + why);
+	alarm_repeats = 0; last_alarm_said = now;
+      }
+      return;
+    }
     say("ALARM: " + why);
-    if(why == last_alarm) return;                              // the same reason again: said, not written again
-    last_alarm = why;
+    last_alarm = why; last_alarm_said = now; alarm_repeats = 0;
     if(FILE *f = fopen(path(s.root, "objrepl.alarm").c_str(), "a")) {
       time_t t = time(0); char ts[32]; strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", localtime(&t));
       fprintf(f, "%s %s\n", ts, why.c_str()); fclose(f);
@@ -1063,9 +1072,9 @@ struct gxObjRepl::Impl {
     h.str(cfg.name); h.u8(ROLE_PRIMARY); h.u64(s.st.next_seq - 1); h.u64(s.st.cur_digest);
     std::vector<unsigned char> rep;
     if(!send_frame(*L.st, h.b) || !recv_frame(*L.st, rep)) {
-      if(L.st->PeerOldHeader()) { alarm("the copy uses another gxStream block header (DataReel before 7.4?): refused"); L.refused = true; }
-      else say("the copy closed the connection without answering the hello (a DataReel before 7.4, which cannot read this "
-	       "gxStream header, or a copy that stopped)");   // not an alarm: a restarting copy looks the same
+      if(L.st->PeerOldHeader()) { alarm("the copy sends the gxStream block header with 4-byte words (DataReel before 7.4 beta 5 on Windows or a 32-bit build): refused"); L.refused = true; }
+      else say("the copy closed the connection without answering the hello (a DataReel before 7.4 beta 5 on Windows or a "
+	       "32-bit build, which cannot read this gxStream header, or a copy that stopped)");   // not an alarm: a restarting copy looks the same
       L.drop(); return false;
     }
     Rd r(rep.data(), rep.size());
@@ -1596,7 +1605,7 @@ int gxObjRepl::Impl::serve()
     st.Connection().Socket().SetNoDelay(true);                // the acks go out at once (see connect_to)
     std::vector<unsigned char> b;
     if(!recv_frame(st, b)) {
-      if(st.PeerOldHeader()) { std::lock_guard<std::recursive_mutex> al(mu); alarm("a primary with another gxStream block header (DataReel before 7.4?) was refused"); }
+      if(st.PeerOldHeader()) { std::lock_guard<std::recursive_mutex> al(mu); alarm("a primary that sends the gxStream block header with 4-byte words (DataReel before 7.4 beta 5 on Windows or a 32-bit build) was refused"); }
       st.Close(); continue;
     }
     st.SetTimeOut(cfg.idle_timeout > 0 ? cfg.idle_timeout : 3600);   // a frame that stops half way: dropped too

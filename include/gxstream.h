@@ -140,6 +140,10 @@ public:
     return gxSocket::ExceptionMessage(stream_error);
   }
   const std::string &Error() const { return conn.Error(); }
+  // 11/16/2026: the last ReadHeader() met a peer that sends the block
+  // header with 4-byte words (before 7.4 beta 5 on 64-bit Windows, or a
+  // 32-bit build) instead of the canonical form (gxWirePackBlockHeader)
+  int PeerOldHeader() const { return peer_old_header; }
 
 private:
   int set_error(gxSocketError err) { return stream_error = err; }
@@ -148,6 +152,7 @@ private:
   gxsTLSConnection conn;
   gxUINT32 max_block = gxSTREAM_DEF_MAX_BLOCK;
   gxSocketError stream_error = gxSOCKET_NO_ERROR;
+  int peer_old_header = 0;
 };
 
 // 11/01/2026: TLS server for gxStream database clients. The same as
