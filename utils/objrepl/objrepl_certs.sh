@@ -11,6 +11,8 @@
 #   DIR/primary.conf copy.conf    sample objrepl.conf lines for each node
 # Keys are written mode 600. Defaults: CNs objrepl-copy, objrepl-primary, objrepl-ca; 825 days.
 set -u
+# 11/17/2026: Git Bash on Windows turns "/CN=..." into a Windows path before openssl sees it; keep arguments as given
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*"
 DIR=""; HOSTS=""; COPY_CN=objrepl-copy; PRIM_CN=objrepl-primary; CA_CN=objrepl-ca; DAYS=825; APPLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
