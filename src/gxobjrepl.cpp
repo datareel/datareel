@@ -250,6 +250,14 @@ std::string links_spec(const std::vector<LinkDef> &v)
   for(auto &d : v) s += (s.empty() ? "" : ",") + d.db + ":" + std::to_string(d.off) + ":" + d.target;
   return s;
 }
+// the map in one order (by database, offset, target) and its hash: two nodes' maps compare equal whatever order
+// each was configured in (11/16/2026: each node configures its own map; a copy refuses a primary whose map differs)
+std::string links_canon(std::vector<LinkDef> v)
+{
+  std::sort(v.begin(), v.end(), [](const LinkDef &a, const LinkDef &b) {
+    return a.db != b.db ? a.db < b.db : a.off != b.off ? a.off < b.off : a.target < b.target; });
+  return links_spec(v);
+}
 
 // ---------- indexes: each node builds its own ----------
 // Configured on each node, never sent on the wire, and built from the object bytes in the same transaction as the
@@ -965,6 +973,7 @@ struct gxObjRepl::Impl {
   Link L;
   Mon mon;
   std::vector<LinkDef> links;
+  std::vector<LinkDef> links_own;      // copy: the map this node was configured with (the hello must match it)
   std::vector<IxDef> ixdefs;
   std::string err;
   Role role = PRIMARY;
@@ -1055,6 +1064,8 @@ struct gxObjRepl::Impl {
     std::vector<unsigned char> rep;
     if(!send_frame(*L.st, h.b) || !recv_frame(*L.st, rep)) {
       if(L.st->PeerOldHeader()) { alarm("the copy uses another gxStream block header (DataReel before 7.4?): refused"); L.refused = true; }
+      else say("the copy closed the connection without answering the hello (a DataReel before 7.4, which cannot read this "
+	       "gxStream header, or a copy that stopped)");   // not an alarm: a restarting copy looks the same
       L.drop(); return false;
     }
     Rd r(rep.data(), rep.size());
@@ -1321,6 +1332,7 @@ int gxObjRepl::Open(const std::string &root, const gxObjReplConfig &cfg, Role ro
   p->L = Link(); p->mon = Mon(); p->touched.clear(); p->moved.clear(); p->held.clear();
   p->next_id = 1; p->linked_valid = false; p->last_alarm.clear(); p->gen++;
   if(!parse_links(cfg.links, p->links)) return p->fail("bad links (DB:OFFSET:TARGET,...)");
+  p->links_own = p->links;
   if(!parse_ix(cfg.index, p->ixdefs)) return p->fail("bad index (NAME:DB:B|V:OFFSET:LEN,...)");
   for(auto &x : p->ixdefs) for(auto &l : p->links)             // an index field may not hold a link (an address)
     if(x.db == l.db && l.off < x.off + (x.kind == 'B' ? x.len : 4 * x.len) && x.off < l.off + 8)
@@ -1601,6 +1613,11 @@ int gxObjRepl::Impl::serve()
     else if(!s.st.in_snapshot && s.st.applied_seq > plast)
       why = "this copy is at seq " + std::to_string(s.st.applied_seq) + ", past the primary's last commit " + std::to_string(plast);
     else if(!parse_links(lspec, plinks)) why = "a bad link map";
+    else if(!cfg.links.empty() && links_canon(plinks) != links_canon(links_own)) {
+      std::string a = links_canon(plinks), c = links_canon(links_own);
+      char hx[64]; snprintf(hx, sizeof(hx), "%016llx vs %016llx", (unsigned long long)fnv(a.data(), a.size()), (unsigned long long)fnv(c.data(), c.size()));
+      why = "the primary's link map [" + a + "] differs from this copy's [" + c + "] (hash " + hx + ")";
+    }
     else for(auto &x : ixdefs) for(auto &l : plinks)
       if(why.empty() && x.db == l.db && l.off < x.off + (x.kind == 'B' ? x.len : 4 * x.len) && x.off < l.off + 8)
 	why = "the primary's link field " + l.db + ":" + std::to_string(l.off) + " overlaps this copy's index " + x.name;

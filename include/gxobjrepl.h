@@ -74,10 +74,9 @@ and any other copy refuse its older epoch); it comes back with Rejoin(),
 which replaces its databases with the new primary's and records how
 many of its own commits were dropped (dropped_at_rejoin in its status).
 The copy refuses application writes (Begin() and Put() on a copy fail).
-Platforms: two nodes must run on the same platform family for now:
-gxStream's block header is sent as a raw struct whose size differs
-between 64-bit Linux (32 bytes) and Windows (24 bytes), so a Linux node
-and a Windows node cannot connect. On Windows a connect to a copy that
+Platforms: Linux and Windows nodes replicate to each other (DataReel 7.4
+sends gxStream's block header in a fixed 32-byte little-endian form; a
+peer from before 7.4 is refused with an alarm or a log line). On Windows a connect to a copy that
 is not listening takes about 2 s, so pump less often while it is away.
 Trust: a peer with a certificate the copy accepts (allow-cn) is trusted
 with the stream; such a peer can raise the copy's epoch (fencing older
