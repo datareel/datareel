@@ -506,6 +506,11 @@ int gxsIMAPClient::Login(const std::string &user, const std::string &passwd)
 {
   error.clear();
   if(!IsConnected()) return fail("IMAP exception: Client is not connected to server");
+  // 11/16/2026 (beta5, G4-2): no password in plain text unless the caller asked for it
+  if(!IsSecure() && !allow_plain_login) {
+    return fail("IMAP exception: Login refused on a plain text connection (the password would be sent "
+		"unencrypted); use Connect() with TLS, or call AllowPlainLogin() first");
+  }
   if(capabilities.empty()) {
     std::vector<std::string> caps;
     if(Capability(caps) != 0) return -1;

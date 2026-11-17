@@ -34,7 +34,8 @@ and with --spool each message's text is written to the folder once
 
 Implicit TLS (port 993) is used unless --starttls (port 143, then
 STARTTLS) or --plain (port 143, plain text: a local server or a
-test only) is given.
+test only) is given. --plain is also what lets Login() send the
+password unencrypted (gxsIMAPClient::AllowPlainLogin()).
 
 Usage: imap_fetch host port user password [--mailbox INBOX]
        [--search CRITERIA] [-r number] [--spool folder] [--debug]
@@ -141,6 +142,7 @@ int main(int argc, char **argv)
   gxsIMAPClient client;
   opt.Apply(client);
   client.SetRecordProto(debug);
+  if(plain) client.AllowPlainLogin(); // --plain: the password goes unencrypted, by request
   int port = std::atoi(a[1].c_str());
   int rv = plain ? client.ConnectPlain(a[0], port) :
     client.Connect(a[0], port, opt.starttls ? gxsMAIL_STARTTLS : gxsMAIL_IMPLICIT_TLS);

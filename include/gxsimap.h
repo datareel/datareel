@@ -113,6 +113,10 @@ public: // Settings used before Connect()
   void SetCAFile(const std::string &fname) { conn.SetCAFile(fname); }
   void SetVerifyPeer(bool on) { conn.SetVerifyPeer(on); }
   void SetMaxSize(std::size_t n) { max_size = n; } // Largest reply kept
+  // 11/16/2026 (beta5): Login() on a connection without TLS sends the
+  // password as plain text, so it is refused unless this is called first
+  // (a server on the same host or a test). TLS connections ignore it.
+  void AllowPlainLogin(bool on = true) { allow_plain_login = on; }
 
 public: // Connections. Each returns 0 if successful, or -1 (see Error())
   // Implicit TLS (port 993) or STARTTLS on the plain port (143). A
@@ -120,7 +124,8 @@ public: // Connections. Each returns 0 if successful, or -1 (see Error())
   int Connect(const std::string &host, int port = gxSOCKET_SIMAP_PORT,
 	      gxsMailSecurity security = gxsMAIL_IMPLICIT_TLS);
   // Plain text, user name and password included. Use it only for a
-  // server on the same host or a private test network.
+  // server on the same host or a private test network; Login() on it
+  // needs AllowPlainLogin().
   int ConnectPlain(const std::string &host, int port = gxSOCKET_IMAP_PORT);
   // 2007 name: implicit TLS on port
   int ConnectClient(const std::string &host, int port = gxSOCKET_SIMAP_PORT) {
@@ -236,6 +241,7 @@ private:
   std::string last_reply;
   std::string error;
   bool record_proto = false;
+  bool allow_plain_login = false;
   std::string proto_string;
 };
 

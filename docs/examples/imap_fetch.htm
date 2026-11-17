@@ -36,10 +36,10 @@
 <h2 id="Shows">What It Shows</h2>
 <P>The program is the 2007 IMAP client program on the DataReel 7.4 <A HREF="../classes/socket/gxsimap.htm">gxsIMAPClient</A>:</P>
 <OL>
-<LI>Connect() with implicit TLS (port 993), or --starttls (port 143, then STARTTLS), or --plain (port 143, plain text, for a server on the same host or a test only), then Login().</LI>
+<LI>Connect() with implicit TLS (port 993), or --starttls (port 143, then STARTTLS), or --plain (port 143, plain text, for a server on the same host or a test only: it also calls AllowPlainLogin(), without which Login() refuses to send the password unencrypted), then Login().</LI>
 <LI>SelectMailbox() and Search() with IMAP search criteria (ALL by default).</LI>
 <LI>FetchHeader() with the arrival time and the envelope's date, for each match, newest first.</LI>
-<LI>With --spool, FetchBody() into a file named by the arrival time and the message number; a message already in the folder is skipped, so the program can run from cron.</LI>
+<LI>With --spool, FetchBody() into a file named by the arrival time and the message number; a message already in the folder is skipped, so the program can run from cron. The arrival time is the server's text, so the name keeps only its letters, digits, "-", "_" and "+" (the rest become "_", at most 60 characters): it never leaves the spool folder.</LI>
 <LI>With --debug, the session, with the password recorded as xxxxxxxx.</LI>
 </OL>
 <P>Nothing is changed on the server: the fetches use BODY.PEEK and do not set \Seen.</P>
@@ -91,7 +91,7 @@ server-&gt;* BYE logging out
 server-&gt;A0005 OK bye</PRE>
 
 <h2 id="Tests">How It Is Tested</h2>
-<P>tests/run_tests.sh runs it against the mock IMAP server in tests/mock_servers.py (implicit TLS, STARTTLS, plain text, 8-bit logins sent as literals, a refused password, LOGINDISABLED, a server without STARTTLS, search, the spool and the masked session) and against a local IMAP server in a container on 127.0.0.1 (tests/imap_container_check.sh), removed after the test.</P>
+<P>tests/run_tests.sh runs it against the mock IMAP server in tests/mock_servers.py (implicit TLS, STARTTLS, plain text, a plain text login without the opt-in, 8-bit logins sent as literals, a refused password, LOGINDISABLED, a server without STARTTLS, search, the spool, spool names from a hostile arrival date and the masked session) and against a local IMAP server in a container on 127.0.0.1 (tests/imap_container_check.sh), removed after the test.</P>
 
 <h2 id="Source">Source</h2>
 <P>examples/tls/imap_fetch.cpp, one source file built by examples/CMakeLists.txt as <B>imap_fetch</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>

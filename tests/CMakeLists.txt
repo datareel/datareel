@@ -35,3 +35,9 @@ add_executable(support_security_test support_security_test.cpp)
 target_link_libraries(support_security_test PRIVATE DataReel::datareel)
 set_target_properties(support_security_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+
+# 11/16/2026 (7.4 beta5, G4-2): a plain text IMAP login needs AllowPlainLogin(); run_tests runs it on the mock server
+add_executable(imap_login_test imap_login_test.cpp)
+target_link_libraries(imap_login_test PRIVATE DataReel::datareel)
+set_target_properties(imap_login_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")

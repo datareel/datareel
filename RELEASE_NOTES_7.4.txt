@@ -574,9 +574,14 @@ NEW IN BETA 5 (11/16/2026)
   session with the password masked. Replies are read to their own
   tagged completion and message data as literals, so a message can
   hold any text; the 2007 client's calls are kept. A server that
-  announces LOGINDISABLED is never sent a password.
+  announces LOGINDISABLED is never sent a password, and Login() on a
+  plain text connection is refused, with nothing sent, unless the
+  program calls AllowPlainLogin() first.
 - Example imap_fetch: search a mailbox, list the matches newest first
   and save each message's text to a spool folder once (from cron).
+  Spool file names keep only letters, digits, "-", "_" and "+" of the
+  server's arrival date, so they never leave the folder. --plain is
+  the opt-in for a plain text login.
 - Example https_check, based on the 2007 HTTP ping and header
   programs: a list of web sites checked over TLS, with the status,
   times, size, redirects and the response headers.

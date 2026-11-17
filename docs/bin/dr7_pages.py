@@ -606,7 +606,7 @@ page(file='classes/socket/gxsimap.htm', title='IMAP Client',
  lead='gxsIMAPClient (DataReel 7.4) reads mail with IMAP4rev1: implicit TLS on port 993, STARTTLS on port 143, or plain text on port 143 when asked for by name.',
  sections=[('Overview', 'Overview', '''
 <P>gxsIMAPClient is based on the IMAP client class of a 2007 program that downloads report messages to a spool folder, released with DataReel 7.4 under the LGPL. Its calls are kept (Login(), SelectMailbox(), FetchHeader(), FetchBody(), SendCommand(), RecvBuffer(), ParseResponse() and the recorded session) and it has the interface of the other DataReel 7 mail clients (<A HREF="gxspop3.htm">gxsPOP3Client</A>, <A HREF="gxsmtp.htm">gxsSMTPClient</A>): every call returns 0 if the server replied OK, or -1 with the reason in Error().</P>
-<P>TLS goes through <A HREF="gxstls.htm">gxsTLSConnection</A> and <A HREF="gxssl.htm">gxSSL</A>: the server certificate and host name are checked by default, TLS 1.2 is the minimum and TLS 1.3 is used when the server has it. With gxsMAIL_STARTTLS a server that does not accept STARTTLS is refused. ConnectPlain() sends everything, the password included, in plain text: use it only for a server on the same host or a private test network. A server that announces LOGINDISABLED is never sent a password.</P>
+<P>TLS goes through <A HREF="gxstls.htm">gxsTLSConnection</A> and <A HREF="gxssl.htm">gxSSL</A>: the server certificate and host name are checked by default, TLS 1.2 is the minimum and TLS 1.3 is used when the server has it. With gxsMAIL_STARTTLS a server that does not accept STARTTLS is refused. ConnectPlain() sends everything in plain text: use it only for a server on the same host or a private test network. Login() on a plain text connection is refused, with nothing sent, unless AllowPlainLogin() was called first (7.4 beta5). A server that announces LOGINDISABLED is never sent a password.</P>
 ''' + code('''
 gxsIMAPClient imap;
 int count = 0;
@@ -627,8 +627,9 @@ imap.Logout();
 ''')],
  functions=[('Functions', 'Functions', [
   ('int gxsIMAPClient::Connect(const std::string &host, int port = gxSOCKET_SIMAP_PORT, gxsMailSecurity security = gxsMAIL_IMPLICIT_TLS)', 'Connects with implicit TLS (993) or STARTTLS (143) and reads the greeting. Returns 0 if successful.'),
-  ('int gxsIMAPClient::ConnectPlain(const std::string &host, int port = gxSOCKET_IMAP_PORT)', 'Plain text connection, for a local or test server only.'),
-  ('int gxsIMAPClient::Login(const std::string &user, const std::string &passwd)', 'LOGIN. Refused without sending the password if the server announces LOGINDISABLED.'),
+  ('int gxsIMAPClient::ConnectPlain(const std::string &host, int port = gxSOCKET_IMAP_PORT)', 'Plain text connection, for a local or test server only. Login() on it needs AllowPlainLogin().'),
+  ('void gxsIMAPClient::AllowPlainLogin(bool on = true)', 'Lets Login() send the password on a connection without TLS (refused by default). TLS connections ignore it.'),
+  ('int gxsIMAPClient::Login(const std::string &user, const std::string &passwd)', 'LOGIN. Refused without sending the password if the connection is plain text and AllowPlainLogin() was not called, or if the server announces LOGINDISABLED.'),
   ('int gxsIMAPClient::Login(const std::string &host, int port, const std::string &user, const std::string &passwd)', 'The 2007 form: connects with implicit TLS first if not connected.'),
   ('int gxsIMAPClient::Logout(int close_sockets = 1)', 'LOGOUT, then closes the connection.'),
   ('int gxsIMAPClient::Capability(std::vector<std::string> &caps) / bool HasCapability(const std::string &cap) const', 'The server\'s capabilities (upper case).'),
@@ -1045,10 +1046,10 @@ OK: object by object, one automatic folder rebuild after the fault, and the same
   ('Shows', 'What It Shows', '''
 <P>The program is the 2007 IMAP client program on the DataReel 7.4 <A HREF="../classes/socket/gxsimap.htm">gxsIMAPClient</A>:</P>
 <OL>
-<LI>Connect() with implicit TLS (port 993), or --starttls (port 143, then STARTTLS), or --plain (port 143, plain text, for a server on the same host or a test only), then Login().</LI>
+<LI>Connect() with implicit TLS (port 993), or --starttls (port 143, then STARTTLS), or --plain (port 143, plain text, for a server on the same host or a test only: it also calls AllowPlainLogin(), without which Login() refuses to send the password unencrypted), then Login().</LI>
 <LI>SelectMailbox() and Search() with IMAP search criteria (ALL by default).</LI>
 <LI>FetchHeader() with the arrival time and the envelope's date, for each match, newest first.</LI>
-<LI>With --spool, FetchBody() into a file named by the arrival time and the message number; a message already in the folder is skipped, so the program can run from cron.</LI>
+<LI>With --spool, FetchBody() into a file named by the arrival time and the message number; a message already in the folder is skipped, so the program can run from cron. The arrival time is the server's text, so the name keeps only its letters, digits, "-", "_" and "+" (the rest become "_", at most 60 characters): it never leaves the spool folder.</LI>
 <LI>With --debug, the session, with the password recorded as xxxxxxxx.</LI>
 </OL>
 <P>Nothing is changed on the server: the fetches use BODY.PEEK and do not set \\Seen.</P>
@@ -1100,7 +1101,7 @@ server->* BYE logging out
 server->A0005 OK bye
 ''')),
   ('Tests', 'How It Is Tested', '''
-<P>tests/run_tests.sh runs it against the mock IMAP server in tests/mock_servers.py (implicit TLS, STARTTLS, plain text, 8-bit logins sent as literals, a refused password, LOGINDISABLED, a server without STARTTLS, search, the spool and the masked session) and against a local IMAP server in a container on 127.0.0.1 (tests/imap_container_check.sh), removed after the test.</P>
+<P>tests/run_tests.sh runs it against the mock IMAP server in tests/mock_servers.py (implicit TLS, STARTTLS, plain text, a plain text login without the opt-in, 8-bit logins sent as literals, a refused password, LOGINDISABLED, a server without STARTTLS, search, the spool, spool names from a hostile arrival date and the masked session) and against a local IMAP server in a container on 127.0.0.1 (tests/imap_container_check.sh), removed after the test.</P>
 '''),
  ]),
  'udp_broadcast': ('diagnostics/udp_broadcast.cpp', 'UDP Broadcast Example',

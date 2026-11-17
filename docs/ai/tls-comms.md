@@ -328,7 +328,8 @@ pop3.Quit();
 ```
 
 IMAP (7.4; implicit TLS on 993 or STARTTLS on 143; `ConnectPlain()`
-is plain text, for a server on the same host or a test only):
+is plain text, for a server on the same host or a test only, and
+`Login()` on it is refused unless `AllowPlainLogin()` was called first):
 
 ```cpp
 gxsIMAPClient imap;

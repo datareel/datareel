@@ -264,6 +264,8 @@ check imap_implicit_tls sh -c "$IM $((P4+8)) test secret --ca ca.pem -r 1 > imap
 check imap_dates sh -c "$IM $((P4+8)) test secret --ca ca.pem | grep -q 'received 17-Apr-2007 12:00:00 -0400, sent Tue, 17 Apr 2007 11:59:00 -0400'"
 check imap_starttls sh -c "$IM $((P4+9)) test secret --starttls --ca ca.pem | grep -q '(TLS)'"
 check imap_plain sh -c "$IM $((P4+10)) test secret --plain | grep -q '(plain text)'"
+# 11/16/2026 (beta5, G4-2): Login() over plain text is refused, with nothing sent, unless AllowPlainLogin()
+check imap_plain_login_needs_optin "$BUILD/tests/imap_login_test" $((P4+10))
 check imap_logindisabled_refused sh -c "! $IM $((P4+9)) test secret --plain > imapld.out 2>&1 && grep -q LOGINDISABLED imapld.out"
 check imap_no_starttls_refused sh -c "! $IM $((P4+10)) test secret --starttls --ca ca.pem > imapns.out 2>&1 && grep -q 'does not accept STARTTLS' imapns.out"
 check imap_bad_password_refused sh -c "! $IM $((P4+8)) test wrong --ca ca.pem > imapbp.out 2>&1 && grep -q 'Login refused' imapbp.out"
