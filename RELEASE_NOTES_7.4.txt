@@ -684,7 +684,6 @@ These are planned features, not part of 7.4:
 - The Python module as a package that installs with pip.
 - The database object server tools (object_server, object_client) on
   Windows; 7.4 builds them on Linux and POSIX only.
-- The 6.x version with the legacy classes, carrying the 7.x features.
 - TLS servers on Windows without an interactive sign-in, so a server
   can load its PEM certificate and key when started over a key-based
   remote login or as a Windows service.
