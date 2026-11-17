@@ -131,6 +131,7 @@ def ftps(c, secure):
     prot_p = False
     cwd = FTPDIR
     pasv = None
+    rnfr = None
     def data_close(d):
         # Send close_notify; the client may already have closed its side
         try: d.unwrap()
@@ -190,6 +191,20 @@ def ftps(c, secure):
         elif u.startswith('SIZE '):
             path = os.path.join(cwd, os.path.basename(l[5:]))
             c.send('213 %d' % os.path.getsize(path) if os.path.isfile(path) else '550 no')
+        # 11/17/2026 (7.4): RNFR/RNTO and DELE, for dir_upload (upload as NAME.part, then rename)
+        elif u.startswith('RNFR '):
+            rnfr = os.path.join(cwd, os.path.basename(l[5:]))
+            c.send('350 ready for RNTO' if os.path.isfile(rnfr) else '550 no file')
+        elif u.startswith('RNTO '):
+            try:
+                os.replace(rnfr, os.path.join(cwd, os.path.basename(l[5:]))); c.send('250 renamed')
+            except (OSError, NameError):
+                c.send('550 rename failed')
+            rnfr = None
+        elif u.startswith('DELE '):
+            path = os.path.join(cwd, os.path.basename(l[5:]))
+            if os.path.isfile(path): os.remove(path); c.send('250 deleted')
+            else: c.send('550 no file')
         elif u == 'PWD':
             c.send('257 "/" is the directory')
         elif u == 'QUIT':

@@ -1019,6 +1019,7 @@ EXAMPLES = [
   ('tls/pop3_list.cpp', 'pop3_list', 'List and read a POP3 mailbox over TLS.'),
   ('tls/imap_fetch.cpp', 'imap_fetch', 'Read an IMAP mailbox over TLS (or STARTTLS, or plain text for a local server): search, list newest first, save each message once to a spool folder (7.4).'),
   ('tls/ftps_client.cpp', 'ftps_client', 'List, download and upload with FTPS.'),
+  ('tls/dir_upload.cpp', 'dir_upload', 'gxsFTPClient: watch a folder and upload each settled file by FTPS (as NAME.part, renamed, size-checked), then delete it or move it to a done folder. The password comes from DR_FTP_PASSWORD or a mode-600 file, never the command line. Usage: dir_upload --dir DIR --host HOST --user USER [--password-file FILE] [--ca FILE] [--implicit] [--remote-dir DIR] [--pattern GLOB] [--settle S] [--interval S] [--done DIR] [--once] [--log FILE]'),
   ('tls/stream_server.cpp', 'stream_server', 'gxStream server that stores client blocks in a gxDatabase file.'),
   ('tls/stream_client.cpp', 'stream_client', 'gxStream client that stores and reads back blocks over TLS.'),
  ]),
