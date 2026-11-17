@@ -16,6 +16,8 @@
 # Stops at the first failed compare and keeps the folders. Prints one line per cycle and a summary.
 set -u
 X=${1:?usage: drill_objrepl.sh BIN [MINUTES]}
+# 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's)
+"$X" engine > /dev/null 2>&1 || { echo "$(basename "$0"): $X is not a 64-bit engine build: $("$X" engine 2>&1 | head -n 1); configure with -DDATAREEL_64BIT_DATABASE=ON"; exit 64; }
 MIN=${2:-30}
 HERE=$(cd "$(dirname "$0")" && pwd)
 T=$(mktemp -d "${TMPDIR:-/tmp}/objrepl_drill.XXXXXX")

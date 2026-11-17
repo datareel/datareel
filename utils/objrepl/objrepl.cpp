@@ -46,6 +46,7 @@ Usage:
   objrepl check ROOT        OK / WARN / FAIL (exit 0 / 1 / 2)
   objrepl clear-alarm ROOT
   objrepl status ROOT
+  objrepl engine            the database engine (exit 0 for 64-bit, 1 for 32-bit)
   objrepl takeover ROOT     a copy becomes primary: epoch + 1
   objrepl rejoin ROOT       a former primary becomes a copy (full send)
   Common: --name N --peer-name N --links SPEC --index SPEC --max-lag N
@@ -278,6 +279,13 @@ static int run_copy(const std::string &root, const gxObjReplConfig &cfg)
 
 int main(int argc, char **argv)
 {
+  // 11/16/2026: "objrepl engine": the database engine this tool was built with (the test scripts refuse a 32-bit one:
+  // its files are not the 64-bit engine's, and a 32-bit build reading 64-bit files misread them)
+  // (the file signature size tells the engines apart: FAU is 8 bytes in both on 64-bit Linux, a long in the 32-bit one)
+  if(argc == 2 && std::string(argv[1]) == "engine") {
+    printf("engine %s (file signature %d bytes)\n", gxSignatureSize == 10 ? "64-bit" : "32-bit", gxSignatureSize);
+    return gxSignatureSize == 10 ? 0 : 1;
+  }
   if(argc < 3) { fprintf(stderr, "usage: objrepl primary|copy|digest|ixcheck|status|check|clear-alarm|takeover|rejoin ROOT [options]\n"); return 64; }
   std::string cmd = argv[1], root = argv[2], why;
   gxObjReplConfig cfg;

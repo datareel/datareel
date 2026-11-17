@@ -17,6 +17,8 @@
 #   wrong CN   a primary whose client certificate CN is not the copy's allow-cn: never gets a stream
 set -u
 X=${1:?usage: test_objrepl_config.sh BIN}
+# 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's)
+"$X" engine > /dev/null 2>&1 || { echo "$(basename "$0"): $X is not a 64-bit engine build: $("$X" engine 2>&1 | head -n 1); configure with -DDATAREEL_64BIT_DATABASE=ON"; exit 64; }
 HERE=$(cd "$(dirname "$0")" && pwd)
 T=$(mktemp -d "${TMPDIR:-/tmp}/objrepl_config.XXXXXX")
 FAIL=0; PASS=0
