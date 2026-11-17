@@ -33,15 +33,15 @@ int main(int argc, char **argv)
     if(f.Create(fn.c_str()) != gxDBASE_NO_ERROR) { check(false, name + ": create"); continue; }
     // blocks of 4000, 1000 and 2000 bytes between small separators (so freed blocks do not merge)
     FAU_t big = put(f, 4000, m); put(f, 10, m);
-    FAU_t small = put(f, 1000, m); put(f, 10, m);
+    FAU_t small_blk = put(f, 1000, m); put(f, 10, m);
     FAU_t mid = put(f, 2000, m); put(f, 10, m);
     FAU_t eof = f.GetEOF();
-    f.Delete(big); f.Delete(small); f.Delete(mid);
+    f.Delete(big); f.Delete(small_blk); f.Delete(mid);
     long long d0 = freed(f);
     // a 700-byte object fits the 1000-byte block best (the 4000 one is first in no particular order)
     FAU_t a = put(f, 700, m);
     check(a != 0 && f.GetEOF() == eof, name + ": a 700-byte object reuses a freed block (the file stays " + std::to_string((long long)eof) + " bytes)");
-    if(k == 0) check(a == small, name + ": it took the smallest block that fits (the 1000-byte one)");
+    if(k == 0) check(a == small_blk, name + ": it took the smallest block that fits (the 1000-byte one)");
     long long d1 = freed(f);
     check(d1 >= 1 && d1 <= d0, name + ": free blocks " + std::to_string(d0) + " -> " + std::to_string(d1) + " (the rest of the split is free again)");
     // the rest of the split block is reusable: more small objects still do not grow the file
