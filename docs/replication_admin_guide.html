@@ -147,7 +147,6 @@ kill $(cat $D/n1.pid)</pre>
 <li>A copy's SNAP_BEGIN (the start of a full send) still holds the lock while it sets the old data aside, but readers fail at once ("a full send is under way") rather than wait.</li>
 <li>An object is at most 32 MB, and a commit's changes at most 60 MB.</li>
 <li>Index fields may not overlap link fields.</li>
-<li><code>test_gxobjrepl_api</code>, the API test, runs on Linux and POSIX only.</li>
 <li>With the 32-bit engine each database file is limited to 2 GB (FAU_t); 1M-object stores need the 64-bit engine. Mixed 32/64-bit nodes replicate. Not tested: a 32-bit Windows build.</li>
 </ul>
 <h2 id="8TheJournalAndTheLock">8. The journal and the lock</h2>

@@ -703,6 +703,3 @@ These are planned features, not part of 7.4:
   replication.
 - File utilities: hexdump, file find and text filter programs for 7.x.
 - A TLS throughput section in the dr_bench benchmarks.
-- Replication test leftovers: test_gxobjrepl_api runs on Linux only;
-  the check test's "away" case needs a longer connect timeout on
-  Windows (about 2 s).

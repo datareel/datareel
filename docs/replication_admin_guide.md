@@ -218,7 +218,6 @@ how many of its commits the copy never had (`dropped_at_rejoin`). Then start it 
   readers fail at once ("a full send is under way") rather than wait.
 - An object is at most 32 MB, and a commit's changes at most 60 MB.
 - Index fields may not overlap link fields.
-- `test_gxobjrepl_api`, the API test, runs on Linux and POSIX only.
 - With the 32-bit engine each database file is limited to 2 GB (FAU_t); 1M-object stores need the 64-bit engine.
   Mixed 32/64-bit nodes replicate. Not tested: a 32-bit Windows build.
 

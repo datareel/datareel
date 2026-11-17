@@ -1570,7 +1570,12 @@ struct gxObjRepl::Impl {
     mon.set("role", "primary"); mon.set("name", cfg.name); mon.set("epoch", (unsigned long long)s.st.epoch);
     mon.set("state", state); mon.set("connected", L.st ? 1ULL : 0ULL);
     mon.set("last_seq", (unsigned long long)last); mon.set("copy_applied", (unsigned long long)L.copy_applied);
-    mon.set("lag_seq", (unsigned long long)lag); mon.set("behind_secs", (unsigned long long)(mon.behind_since ? now - mon.behind_since : 0));
+    // how long the copy has been behind: since this node first saw the lag, or the age of the oldest commit the copy
+    // does not have, whichever is longer (11/16/2026: on Windows a connect to a closed port takes ~2 s, so the first
+    // status with the lag came late and said "for 0s" with commits seconds old)
+    unsigned long long behind = mon.behind_since ? (unsigned long long)(now - mon.behind_since) : 0;
+    if(lag && oldest > behind) behind = oldest;
+    mon.set("lag_seq", (unsigned long long)lag); mon.set("behind_secs", behind);
     mon.set("outbox_entries", (unsigned long long)n); mon.set("outbox_bytes", bytes);
     mon.set("snapshots", (unsigned long long)L.snapshots); mon.set("cert_days_left", std::to_string(cert_days));
     mon.write(force);

@@ -292,7 +292,6 @@ c.Serve();                                   // until Stop() (signal-safe) or Cl
 <LI><B>Startup</B>: Open() of a node with many databases opens them (and builds any missing index) under the lock, so readers wait for it once, at startup.</LI>
 <LI><B>Full send</B>: a copy's SNAP_BEGIN still holds the lock while it sets the old data aside, but readers fail at once ("a full send is under way") rather than wait for it.</LI>
 <LI>A commit that fails on a journal sync error may still survive recovery: after such an error, read the object back before counting on either outcome.</LI>
-<LI>test_gxobjrepl_api (the API test) runs on Linux and POSIX only; the objrepl tool and its scripts' cases run on both platforms.</LI>
 <LI>With the 32-bit engine each database file is limited to 2 GB (FAU_t); 1M-object stores need the 64-bit engine. Mixed 32/64-bit nodes replicate. Not tested: a 32-bit Windows build.</LI>
 <LI>Index fields may not overlap link fields.</LI>
 <LI>Platforms: see <A HREF="#Platforms">Windows and Linux</A>.</LI>

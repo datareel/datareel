@@ -13,10 +13,16 @@ target_link_libraries(objrepl PRIVATE DataReel::datareel)
 add_executable(objrepl_sim objrepl/objrepl_sim.cpp)
 target_link_libraries(objrepl_sim PRIVATE DataReel::datareel)
 
-# 11/16/2026: gxObjRepl's API test, property test and fuzzer (fork, sockets): POSIX only
+# 11/16/2026: gxObjRepl's API test, on every platform (Linux <-> Windows replication is a 7.4 feature: the same
+# tests on both)
+add_executable(test_gxobjrepl_api objrepl/test_gxobjrepl_api.cpp)
+target_link_libraries(test_gxobjrepl_api PRIVATE DataReel::datareel)
+if(WIN32)
+  target_link_libraries(test_gxobjrepl_api PRIVATE ws2_32)
+endif()
+
+# 11/16/2026: gxObjRepl's property test and fuzzer (fork, sockets): POSIX only
 if(NOT WIN32)
-  add_executable(test_gxobjrepl_api objrepl/test_gxobjrepl_api.cpp)
-  target_link_libraries(test_gxobjrepl_api PRIVATE DataReel::datareel)
   # 11/16/2026: a randomized property test (two nodes, kills, drops, takeovers, rejoins) and a wire fuzzer for the copy
   # (run_prop_objrepl.sh, run_fuzz_objrepl.sh; the fuzzer is meant for a -fsanitize=address,undefined build)
   add_executable(prop_objrepl objrepl/prop_objrepl.cpp)

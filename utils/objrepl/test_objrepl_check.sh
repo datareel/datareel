@@ -12,8 +12,10 @@
 #   killed     the copy SIGKILLed: WARN (not running)
 set -u
 X=${1:?usage: test_objrepl_check.sh BIN}
-# 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's)
-"$X" engine > /dev/null 2>&1 || { echo "$(basename "$0"): $X is not a 64-bit engine build: $("$X" engine 2>&1 | head -n 1); configure with -DDATAREEL_64BIT_DATABASE=ON"; exit 64; }
+# 11/16/2026: a 32-bit engine build is refused (its database files are not the 64-bit engine's), unless
+# OBJREPL_ALLOW_32BIT=1 says a 32-bit run is meant (the run makes its own folders, so no engine reads the other's files)
+[ "${OBJREPL_ALLOW_32BIT:-0}" == 1 ] && ! "$X" engine > /dev/null 2>&1 && echo "$(basename "$0"): a 32-bit engine run (OBJREPL_ALLOW_32BIT=1)"
+[ "${OBJREPL_ALLOW_32BIT:-0}" == 1 ] || "$X" engine > /dev/null 2>&1 || { echo "$(basename "$0"): $X is not a 64-bit engine build: $("$X" engine 2>&1 | head -n 1); configure with -DDATAREEL_64BIT_DATABASE=ON"; exit 64; }
 T=$(mktemp -d "${TMPDIR:-/tmp}/objrepl_check.XXXXXX")
 FAIL=0; PASS=0
 ok()  { echo "PASS $1"; PASS=$((PASS + 1)); }
@@ -67,7 +69,10 @@ stop_copy
 
 # away: a running primary, no copy
 "$X" primary "$T/p" --copy 127.0.0.1:$PA "${PTLS[@]}" --name P1 --commits 200 --per 4 --seed 72 --sleep 30 > "$T/p2.log" 2>&1 &
-PPID2=$!; sleep 4
+# 11/16/2026: Windows (Git Bash): a connect to a closed port takes ~2 s there, so the primary writes its status less
+# often: a longer wait before the check
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) AWAY_WAIT=8 ;; *) AWAY_WAIT=4 ;; esac
+PPID2=$!; sleep $AWAY_WAIT
 po=$(chk p --max-behind 2); rc=$?
 lag=$(field p lag_seq); old=$(field p oldest_unacked_secs)
 [ $rc -eq 1 ] && echo "$po" | grep -q "the copy is away" && [ "${lag:-0}" -gt 10 ] && [ "${old:-0}" -ge 2 ] \
