@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/25/2000
-// Date Last Modified: 10/31/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -94,6 +94,11 @@ PTHREAD_STACK_MIN value defined.
 
 #if defined (__POSIX__) && defined (__REENTRANT__)
 #include <time.h>
+#endif
+
+#if defined (__POSIX__) && !defined (__WIN32__)
+#include <time.h>  // 11/17/2026 (6.4.1): nanosleep()
+#include <errno.h>
 #endif
 
 #if defined (__LINUX__)
@@ -261,7 +266,11 @@ void *gxThreadAPIWrapper::apiThreadStartRoutine(void *arg)
     // Enter any variables that need to be initialized before the thread
     // is executed or callback functions here
     // ------------------------------------------------------------
+#if defined (__WIN32__)
     thread->thread_state = gxTHREAD_STATE_RUNNING;
+#endif
+    // 11/17/2026 (6.4.1): Under POSIX apiCreateThread() sets the running
+    // state before the thread starts (see there).
 
 #if defined (__WIN32__)
     // 10/24/2026: Cast through size_t to avoid a pointer truncation
@@ -515,10 +524,19 @@ int gxThreadAPIWrapper::apiCreateThread(gxThread_t *thread)
 #endif // Stack size
 
   // Create the thread and execute the thread's entry routine
+  // 11/17/2026 (6.4.1): The state is set to running before the thread
+  // starts. The new thread used to set it itself, so a caller that
+  // looked at the state right after CreateThread() could see NEW, take
+  // the thread for one that never ran, and delete its gxThread_t while
+  // it started; and a cancel made before the thread ran had its
+  // CANCELED state overwritten with RUNNING.
+  gxThreadState prev_state = thread->thread_state;
+  thread->thread_state = gxTHREAD_STATE_RUNNING;
   rv = pthread_create(&thread->thread_id, &thread->thread_attribute,
     (gxThreadStartRoutine)gxThreadAPIWrapper::apiThreadStartRoutine,
 		      (void *)(thread));
   if(rv != 0) {
+    thread->thread_state = prev_state;
     thread->thread_error = gxTHREAD_CREATE_ERROR;
     // 10/31/2026: Release the attribute (it leaked)
     apiDestroyThreadAttribute(&thread->thread_attribute);
@@ -663,31 +681,52 @@ int gxThreadAPIWrapper::apiDestroyThreadAttribute(gxThreadAttribute *attr)
   return 0; // No errors were reported
 }
 
+#if defined (__POSIX__) && !defined (__WIN32__)
+static void gxThreadAPIWrapper_nanosleep(unsigned long sec, unsigned long nsec)
+// 11/17/2026 (6.4.1): Sleep with nanosleep(), going on after a signal
+// for the time that is left.
+{
+  struct timespec req, rem;
+  req.tv_sec = (time_t)sec;
+  req.tv_nsec = (long)nsec;
+  while(nanosleep(&req, &rem) != 0) {
+    if(errno != EINTR) break;
+    req = rem;
+  }
+}
+#endif
+
 void gxThreadAPIWrapper::api_nSleep(unsigned long nanoseconds)
 // Make the process sleep for a specified number of nanoseconds.
+// 11/17/2026 (6.4.1): api_nSleep(), api_uSleep() and api_mSleep() under
+// POSIX waited on a condition with a mutex they locked and never
+// unlocked, so every call destroyed a locked mutex (EBUSY, undefined
+// behaviour), and the wait ran on the system clock. api_uSleep() also
+// overflowed for more than 4294 seconds on 32-bit systems. They now
+// call nanosleep(), which is not affected by changes to the system
+// time and finishes the sleep after a signal.
 {
-  gxMutex t_mutex;
-  gxCondition t_condition;
-  t_mutex.MutexLock();
-  while(1) {
-    t_condition.ConditionTimedWait(&t_mutex, 0, nanoseconds);
-    break;
-  }
+#if defined (__WIN32__)
+  Sleep((DWORD)(nanoseconds / 1000000UL));
+#elif defined (__POSIX__)
+  gxThreadAPIWrapper_nanosleep(nanoseconds / 1000000000UL,
+			       nanoseconds % 1000000000UL);
+#else
+#error You must define a native API: __WIN32__ or __UNIX__
+#endif
 }
 
 void gxThreadAPIWrapper::api_uSleep(unsigned long microseconds)
-// Make the process sleep for a specified number of nanoseconds.
+// Make the process sleep for a specified number of microseconds.
 {
-  // Convert microseconds to nanoseconds
-  unsigned long nseconds = microseconds * 1000; 
-
-  gxMutex t_mutex;
-  gxCondition t_condition;
-  t_mutex.MutexLock();
-  while(1) {
-    t_condition.ConditionTimedWait(&t_mutex, 0, nseconds);
-    break;
-  }
+#if defined (__WIN32__)
+  Sleep((DWORD)(microseconds / 1000UL));
+#elif defined (__POSIX__)
+  gxThreadAPIWrapper_nanosleep(microseconds / 1000000UL,
+			       (microseconds % 1000000UL) * 1000UL);
+#else
+#error You must define a native API: __WIN32__ or __UNIX__
+#endif
 }
 
 void gxThreadAPIWrapper::api_mSleep(unsigned long milliseconds)
@@ -695,18 +734,10 @@ void gxThreadAPIWrapper::api_mSleep(unsigned long milliseconds)
 {
 #if defined (__WIN32__)
   Sleep((DWORD)milliseconds);
-
 #elif defined (__POSIX__)
-  unsigned long nseconds = milliseconds * (1000 * 1000); 
-  gxMutex t_mutex;
-  gxCondition t_condition;
-  t_mutex.MutexLock();
-  while(1) {
-    t_condition.ConditionTimedWait(&t_mutex, 0, nseconds);
-    break;
-  }
-
-#else // No native sleep functions are defined
+  gxThreadAPIWrapper_nanosleep(milliseconds / 1000UL,
+			       (milliseconds % 1000UL) * 1000000UL);
+#else
 #error You must define a native API: __WIN32__ or __UNIX__
 #endif
 }

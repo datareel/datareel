@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, BCC32, GCC, HPUX aCC, SOLARIS CC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 03/25/2000
-// Date Last Modified: 10/24/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -65,6 +65,15 @@ release counts before decrementing.
 
 #if defined (__POSIX__) && !defined (__WIN32__)
 #include <sys/time.h> // 10/14/2026: gettimeofday() for timed waits
+#include <time.h>
+#endif
+
+// 11/17/2026 (6.4.1): Linux condition variables time their waits on
+// CLOCK_MONOTONIC (see gxThreadConditionInit()). Other systems keep the
+// system clock.
+#if defined (__POSIX__) && defined (__LINUX__) && !defined (__HPUX10__) && \
+    defined (CLOCK_MONOTONIC)
+#define __GX_COND_MONOTONIC__
 #endif
 
 #include <string.h>
@@ -730,6 +739,16 @@ GXDLCODE_API int gxThreadConditionInit(gxCondition_t *c, gxProcessType type)
       c->condition_error = gxCONDITION_SET_SHARE_ERROR;
       return rv;
     }
+#if defined (__GX_COND_MONOTONIC__)
+    // 11/17/2026 (6.4.1): Timed waits use the monotonic clock
+    rv = pthread_condattr_setclock(&c->condition_attribute, CLOCK_MONOTONIC);
+    if(rv != 0) {
+      c->is_initialized = 0;
+      gxThreadConditionAttributeDestroy(&c->condition_attribute);
+      c->condition_error = gxCONDITION_ATTR_INIT_ERROR;
+      return rv;
+    }
+#endif
     
     rv = pthread_cond_init(&c->condition, &c->condition_attribute);
     if(rv != 0) {
@@ -751,7 +770,23 @@ GXDLCODE_API int gxThreadConditionInit(gxCondition_t *c, gxProcessType type)
 #endif // PTHREAD_PROCESS_SHARED
   }
   else {
+#if defined (__GX_COND_MONOTONIC__)
+    // 11/17/2026 (6.4.1): Timed waits use the monotonic clock, so a
+    // change to the system time (an NTP step or date -s) does not make
+    // a timed wait end early or wait hours longer than asked.
+    pthread_condattr_t mattr;
+    rv = pthread_condattr_init(&mattr);
+    if(rv != 0) {
+      c->is_initialized = 0;
+      c->condition_error = gxCONDITION_ATTR_INIT_ERROR;
+      return rv;
+    }
+    rv = pthread_condattr_setclock(&mattr, CLOCK_MONOTONIC);
+    if(rv == 0) rv = pthread_cond_init(&c->condition, &mattr);
+    pthread_condattr_destroy(&mattr);
+#else
     rv = pthread_cond_init(&c->condition, (pthread_condattr_t *)0);
+#endif
     if(rv != 0) { // Could not initialize the condition variable
       c->is_initialized = 0;
       c->condition_error = gxCONDITION_INIT_ERROR;
@@ -1127,10 +1162,21 @@ GXDLCODE_API int gxThreadConditionTimedWait(gxCondition_t *c,
   // second early, and an nsec value of one second or more failed with
   // EINVAL without waiting. The deadline is now the current time plus
   // sec seconds plus nsec nanoseconds.
+#if defined (__GX_COND_MONOTONIC__)
+  // 11/17/2026 (6.4.1): The deadline is on the monotonic clock, the
+  // clock gxThreadConditionInit() gives the condition. It was on the
+  // system clock, so setting the time back an hour made a one second
+  // wait last an hour and one second.
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  unsigned long total_nsec = (unsigned long)now.tv_nsec + 
+    (nsec % 1000000000UL);
+#else
   struct timeval now;
   gettimeofday(&now, 0);
   unsigned long total_nsec = ((unsigned long)now.tv_usec * 1000UL) + 
     (nsec % 1000000000UL);
+#endif
   timespec delay;
   memset(&delay, 0, sizeof(delay));
   delay.tv_sec = now.tv_sec + (time_t)sec + (time_t)(nsec / 1000000000UL) +
