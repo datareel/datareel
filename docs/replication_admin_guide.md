@@ -1,11 +1,11 @@
 # DataReel Replication Administrator's Guide (gxObjRepl)
 
 This guide is for the person who runs object replication on two nodes: setting it up, watching it, taking over
-when the primary fails, and getting back. It covers gxObjRepl as shipped in DataReel 7.4 beta 5. The class
+when the primary fails, and getting back. It covers gxObjRepl as shipped in DataReel 7.4. The class
 reference is `docs/classes/database/gxobjrepl.htm`. The tool is `utils/objrepl/objrepl.cpp`, and the release
 notes are `RELEASE_NOTES_7.4.txt`.
 
-> **7.4 beta 5:** gxObjRepl replaces gxrepl page shipping, which 7.4 no longer has. A gxrepl binary installed
+> **7.4:** gxObjRepl replaces gxrepl page shipping, which 7.4 no longer has. A gxrepl binary installed
 > from a 7.4 beta keeps working as it is, but it is not part of 7.4. The gxrepl guide of the 7.4 betas 1 to 4 is
 > kept with the gxrepl source in the DataReel repository's history.
 
@@ -39,7 +39,7 @@ first. **Test status:** each block marked **(tested)** was run as printed, in or
 
 ### 2.1 Build
 
-Build every binary from one 7.4 beta 5 tree: the library, the `objrepl` tool and your programs. A program built
+Build every binary from one 7.4 tree: the library, the `objrepl` tool and your programs. A program built
 from an older tree may send the old stream header, which is refused (section 6).
 
 ```
@@ -189,7 +189,7 @@ how many of its commits the copy never had (`dropped_at_rejoin`). Then start it 
 
 ## 5. Upgrades
 
-- Every node must run a 7.4 beta 5 build. A peer that sends the old header with 4-byte words (Windows and 32-bit
+- Every node must run a 7.4 build (7.4 beta 5 or later). A peer that sends the old header with 4-byte words (Windows and 32-bit
   builds from before beta 5) is refused with an alarm. Older 64-bit Linux builds always sent the canonical
   header, but upgrade them anyway.
 - From DataReel 6.4, programs built with the matching stream header can talk to 7.4 replication.

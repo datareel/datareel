@@ -19,8 +19,8 @@
 </header>
 <main class="dr-main">
 <h1>DataReel Replication Administrator's Guide (gxObjRepl)</h1>
-<p>This guide is for the person who runs object replication on two nodes: setting it up, watching it, taking over when the primary fails, and getting back. It covers gxObjRepl as shipped in DataReel 7.4 beta 5. The class reference is <code>docs/classes/database/gxobjrepl.htm</code>. The tool is <code>utils/objrepl/objrepl.cpp</code>, and the release notes are <code>RELEASE_NOTES_7.4.txt</code>.</p>
-<p>&gt; <strong>7.4 beta 5:</strong> gxObjRepl replaces gxrepl page shipping, which 7.4 no longer has. A gxrepl binary installed &gt; from a 7.4 beta keeps working as it is, but it is not part of 7.4. The gxrepl guide of the 7.4 betas 1 to 4 is &gt; kept with the gxrepl source in the DataReel repository's history.</p>
+<p>This guide is for the person who runs object replication on two nodes: setting it up, watching it, taking over when the primary fails, and getting back. It covers gxObjRepl as shipped in DataReel 7.4. The class reference is <code>docs/classes/database/gxobjrepl.htm</code>. The tool is <code>utils/objrepl/objrepl.cpp</code>, and the release notes are <code>RELEASE_NOTES_7.4.txt</code>.</p>
+<p>&gt; <strong>7.4:</strong> gxObjRepl replaces gxrepl page shipping, which 7.4 no longer has. A gxrepl binary installed &gt; from a 7.4 beta keeps working as it is, but it is not part of 7.4. The gxrepl guide of the 7.4 betas 1 to 4 is &gt; kept with the gxrepl source in the DataReel repository's history.</p>
 <p>Every example uses throwaway folders under <code>/tmp/objrepl_demo</code>, two node names (<code>n1</code> and <code>n2</code>) and the loopback address. Never try the commands here for the first time on production nodes: run them on a local throwaway setup first. <strong>Test status:</strong> each block marked <strong>(tested)</strong> was run as printed, in order, on a throwaway setup (section 10 says how).</p>
 <h2 id="1WhatGxobjreplReplicates">1. What gxObjRepl replicates</h2>
 <ul>
@@ -32,7 +32,7 @@
 </ul>
 <h2 id="2SettingUpAPrimaryAndACopy">2. Setting up a primary and a copy</h2>
 <h3 id="21Build">2.1 Build</h3>
-<p>Build every binary from one 7.4 beta 5 tree: the library, the <code>objrepl</code> tool and your programs. A program built from an older tree may send the old stream header, which is refused (section 6).</p>
+<p>Build every binary from one 7.4 tree: the library, the <code>objrepl</code> tool and your programs. A program built from an older tree may send the old stream header, which is refused (section 6).</p>
 <pre>cmake -S datareel -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j2
 build/utils/objrepl engine        # &quot;64-bit&quot; and exit 0 for the 64-bit engine (the default)</pre>
@@ -128,7 +128,7 @@ kill $(cat $D/n1.pid)</pre>
 <p>If the primary is gone, take over on the copy at once (<code>objrepl takeover</code>), and point your writers at it. When the old primary comes back, do not start it as a primary. Run <code>objrepl rejoin</code> on it first: the status line says how many of its commits the copy never had (<code>dropped_at_rejoin</code>). Then start it as a copy.</p>
 <h2 id="5Upgrades">5. Upgrades</h2>
 <ul>
-<li>Every node must run a 7.4 beta 5 build. A peer that sends the old header with 4-byte words (Windows and 32-bit builds from before beta 5) is refused with an alarm. Older 64-bit Linux builds always sent the canonical header, but upgrade them anyway.</li>
+<li>Every node must run a 7.4 build (7.4 beta 5 or later). A peer that sends the old header with 4-byte words (Windows and 32-bit builds from before beta 5) is refused with an alarm. Older 64-bit Linux builds always sent the canonical header, but upgrade them anyway.</li>
 <li>From DataReel 6.4, programs built with the matching stream header can talk to 7.4 replication.</li>
 <li>Build every binary from one tree (section 2.1).</li>
 <li>Never set <code>GXD_CREATE_LAYOUT</code> in production. It creates files in the old 4-byte layout, for readers older than beta 5 only.</li>

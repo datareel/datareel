@@ -68,7 +68,7 @@ c.Serve();                                   // until Stop() (signal-safe) or Cl
 <LI>A peer that sends the old header with 4-byte words (Windows and 32-bit builds from before beta 5) is refused with gxSOCKET_BLOCKHEADER_ERROR (PeerOldHeader()) and an alarm. Older 64-bit Linux builds always sent the canonical header.</LI>
 <LI>TLS uses each platform's own TLS library through <A HREF="../socket/gxssl.htm">gxSSL</A>, with mutual certificates: OpenSSL on Linux, the Windows Schannel library on Windows. A Schannel build checks the certificates' dates, CA and key at the TLS handshake rather than at Open().</LI>
 <LI>From DataReel 6.4, programs built with the matching stream header can talk to 7.4 replication.</LI>
-<LI>Upgrade: every node must run a 7.4 beta 5 build.</LI>
+<LI>Upgrade: every node must run a 7.4 build (7.4 beta 5 or later).</LI>
 </UL>
 <P>Tested Linux to Windows and Windows to Linux: takeover and rejoin with identical object and index digests in every run, a 2,500-commit stress run each way, and old Windows builds refused both ways. The objrepl tool stops on TERM/INT (POSIX), Ctrl+C or Ctrl+Break (Windows), or when <CODE>ROOT/objrepl.stop</CODE> appears.</P>
 

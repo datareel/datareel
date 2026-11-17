@@ -1,4 +1,4 @@
-DataReel 7.4 Beta 5 Release Notes (vector extensions), 11/14/2026
+DataReel 7.4 Release Notes (vector extensions), 11/17/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the
