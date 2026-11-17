@@ -613,6 +613,24 @@ NEW IN BETA 5 (11/16/2026)
   - The database digest stays, as gxDatabaseDigest() and
     gxDatabaseHash() (gxddigest.h) and the dr_digest tool. The values
     are the same as gxrepl's digest printed.
+- Fixes for every program (they came with gxObjRepl):
+  - gxdJournal header salts: processes forked from one parent in the
+    same second could write the same salt, and Recover() could then
+    replay the previous session's records. The salt now mixes the OS
+    random source, a fine clock, the process id and a counter. The
+    journal format is unchanged.
+  - gxDatabase::ReclaimBestFit() reuses best-fit blocks. Before, only
+    exact fits were reused and the file grew. First fit (the default)
+    is unchanged.
+- Fixes found by the beta 5 Windows run:
+  - db_debug (gxDatabaseDebugManager::BlockSearch()) copied a block
+    header of the file's size into the struct in memory: on Windows a
+    canonical header is larger than the struct, so the copy overran
+    it on the stack, and no block was ever found (the walk, search and
+    rebuild saw an empty file). The header is now read in the file's
+    layout. The same in the db_debug block walk (db_walk.h). A new
+    check walks an old-layout file on Linux (layout_detect_test).
+  - The imap_fetch example built on Linux only (strncasecmp).
 - Known issue of beta 4, fixed here: the library's version string
   (DATAREEL_VERSION_STRING, include/gxdlcode.h) still said "7.4 beta3",
   so beta 4's gxrepl reports 7.4 beta3. It says "7.4 beta5" now, and

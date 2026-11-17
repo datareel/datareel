@@ -341,6 +341,18 @@
 <li>The database digest stays, as gxDatabaseDigest() and gxDatabaseHash() (gxddigest.h) and the dr_digest tool. The values are the same as gxrepl&#x27;s digest printed.</li>
 </ul>
 </li>
+<li>Fixes for every program (they came with gxObjRepl):
+<ul>
+<li>gxdJournal header salts: processes forked from one parent in the same second could write the same salt, and Recover() could then replay the previous session&#x27;s records. The salt now mixes the OS random source, a fine clock, the process id and a counter. The journal format is unchanged.</li>
+<li>gxDatabase::ReclaimBestFit() reuses best-fit blocks. Before, only exact fits were reused and the file grew. First fit (the default) is unchanged.</li>
+</ul>
+</li>
+<li>Fixes found by the beta 5 Windows run:
+<ul>
+<li>db_debug (gxDatabaseDebugManager::BlockSearch()) copied a block header of the file&#x27;s size into the struct in memory: on Windows a canonical header is larger than the struct, so the copy overran it on the stack, and no block was ever found (the walk, search and rebuild saw an empty file). The header is now read in the file&#x27;s layout. The same in the db_debug block walk (db_walk.h). A new check walks an old-layout file on Linux (layout_detect_test).</li>
+<li>The imap_fetch example built on Linux only (strncasecmp).</li>
+</ul>
+</li>
 <li>Known issue of beta 4, fixed here: the library&#x27;s version string (DATAREEL_VERSION_STRING, include/gxdlcode.h) still said &quot;7.4 beta3&quot;, so beta 4&#x27;s gxrepl reports 7.4 beta3. It says &quot;7.4 beta5&quot; now, and tools/check_release_version.sh TAG (also a run_tests check without a tag) fails when the version string, version.txt and the release notes title do not match the release.</li>
 <li>gxsIMAPClient (gxsimap.h): an IMAP4rev1 mail client, based on the IMAP client class of a 2007 program that downloads report messages to a spool folder, released under the LGPL. Implicit TLS (port 993), STARTTLS (port 143), or plain text (port 143) only when asked for by name with ConnectPlain(). Login, select and examine, list mailboxes, search, fetch the header, text or whole message and the arrival time, delete and expunge, any other command, and a recorded session with the password masked. Replies are read to their own tagged completion and message data as literals, so a message can hold any text; the 2007 client&#x27;s calls are kept. A server that announces LOGINDISABLED is never sent a password, and Login() on a plain text connection is refused, with nothing sent, unless the program calls AllowPlainLogin() first.</li>
 <li>Example imap_fetch: search a mailbox, list the matches newest first and save each message&#x27;s text to a spool folder once (from cron). Spool file names keep only letters, digits, &quot;-&quot;, &quot;_&quot; and &quot;+&quot; of the server&#x27;s arrival date, so they never leave the folder. --plain is the opt-in for a plain text login.</li>
