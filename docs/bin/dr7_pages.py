@@ -904,6 +904,25 @@ pool.Wait();                              // All queued tasks finished
   ('std::size_t ThreadPool::Size() const / Pending()', 'Worker count and queued task count.'),
  ])])
 
+page(file='classes/general/gxproclock.htm', title='Single Instance Lock',
+ lead='gxProcessLock lets one instance of a program run at a time (DataReel 7.4).',
+ sections=[('Overview', 'Overview', '''
+<P>Acquire() takes an exclusive lock on a lock file (flock on POSIX, LockFileEx on Windows) and writes the holder's process id into it. A second Acquire() of the same file, in another process or this one, fails at once, and HolderPid() names the holder. The operating system drops the lock when the holder ends, however it ends, so a lock file left by a crash or kill -9 never blocks a restart: only a live holder does. The lock is not inherited by child processes. Network file systems without lock support are not supported.</P>
+''' + code('''
+gxProcessLock lk;
+if(!lk.Acquire("/var/run/myapp.lock")) {
+  fprintf(stderr, "already running: %s\\n", lk.Error().c_str());   // "... is locked by process 4711"
+  return 2;
+}
+// ... the work; the lock goes with the process, or lk.Release()
+'''))],
+ functions=[('Functions', 'Functions', [
+  ('bool Acquire(const std::string &fname)', 'Takes the lock (the file is made if needed). False if another holder has it (HolderPid()) or the file cannot be opened (Error()).'),
+  ('void Release() / bool Held() const', 'Gives the lock up; the file stays, emptied.'),
+  ('long long HolderPid() const / const std::string &Error() const', 'The holder\'s process id (this process after a successful Acquire()), and why Acquire() failed.'),
+  ('static bool IsLocked(const std::string &fname, long long *pid = 0)', 'True if a live process holds the lock, without taking it.'),
+ ])])
+
 page(file='classes/general/cdate.htm', title='Date Type',
  lead='CDate is a portable 4-byte date type.',
  sections=[('Overview', 'Overview', '<P>The layout (month byte, day byte, 16-bit year) may be stored in database files and is unchanged. Comparisons order dates by year, month and day. Use std::chrono for date arithmetic.</P>')],
@@ -961,6 +980,7 @@ EXAMPLES = [
   ('general/thread_pool.cpp', 'thread_pool', 'ThreadPool tasks, results and exceptions.'),
   ('general/trading_sessions.cpp', 'trading_sessions', 'CDate and systime.h: US market sessions, holidays, trading days.'),
   ('general/string_utils.cpp', 'string_utils', 'strutil.h, base 64 and CRC-32, each checked against a known answer.'),
+  ('general/service_example.cpp', 'service_example', 'gxProcessLock and the frame of a long-running program: one instance, work every few seconds, a clean stop on SIGTERM, Ctrl+C, a stop file or the Windows service manager; --daemon on POSIX, --install/--service/--uninstall on Windows (demand start, LocalService). Exit 2 if another instance runs.'),
  ]),
  ('Plain text diagnostics', [
   ('diagnostics/ping.cpp', 'ping', 'ICMP and ICMPv6 echo. Usage: ping host [count] [-4|-6]'),
