@@ -343,6 +343,7 @@ public:
   bool try_lock() { if(!m.try_lock()) return false; if(depth++ == 0) begin_hold(); return true; }
   void unlock() { if(--depth == 0) end_hold(); m.unlock(); }
   bool Once() const { return depth == 1; }  // only meaningful to the thread that holds it
+  std::atomic<int> windows{0};              // threads inside an Unlocked window (the lock given up for a while)
 #ifdef GXREPL_TEST_HOOKS
   void at(const char *s) { if(depth <= 0) return; seg_end(); site = s; seg0 = clk::now(); }
   static long thresh() { static long t = getenv("OBJREPL_TEST_HOLD_MS") ? atol(getenv("OBJREPL_TEST_HOLD_MS")) : -1; return t; }
@@ -377,9 +378,12 @@ private:
 // the lock given up for a scope by a thread that holds it once (see ObjMutex::Once()), and taken again
 struct Unlocked {
   ObjMutex &m; bool did;
-  Unlocked(ObjMutex &x) : m(x), did(x.Once()) { if(did) m.unlock(); }
-  ~Unlocked() { if(did) m.lock(); }
+  Unlocked(ObjMutex &x) : m(x), did(x.Once()) { if(did) { m.windows++; m.unlock(); } }
+  ~Unlocked() { if(did) { m.lock(); m.windows--; } }
 };
+
+bool sync_files(const std::vector<std::string> &paths);   // below: sync by path
+int sync_path(const std::string &f, bool data_only);
 
 // ---------- one database: NAME.gxd + NAME.id.btx ----------
 struct Db {
@@ -563,6 +567,7 @@ struct Node {
   int lock_fd = -1;
 #endif
   const std::vector<LinkDef> *links = 0;
+  std::set<std::string> opening;          // OpenDatabase(): databases being prepared without the lock (11/16/2026)
   const std::vector<IxDef> *ixdefs = 0;
   std::function<void(const std::string &)> log;
   uint64_t seen_seq = 0;            // the commit being applied (placeholders record it)
@@ -674,7 +679,13 @@ struct Node {
       if(!commit()) return fail("cannot write the state");
     }
     for(auto &n : list_dir(root))                              // the databases already here
-      if(ends_with(n, ".gxd")) { std::string nm = n.substr(0, n.size() - 4); if(good_name(nm) && !get(nm)) return false; }
+      if(ends_with(n, ".gxd")) {
+	std::string nm = n.substr(0, n.size() - 4);
+	// one OpenDatabase() is preparing without the lock (a reopen() from another thread meanwhile): it attaches it
+	// (review: a reopen built the same index over the preparer's)
+	if(opening.count(nm)) continue;
+	if(good_name(nm) && !get(nm)) return false;
+      }
     // old data kept from a full send that has ended (the removal failed or was cut short): it goes now (review 4)
     if(!st.in_snapshot && (exists(path(root, "prev")) || exists(path(root, "prev.tmp")))) drop_aside();
     return true;
@@ -690,17 +701,18 @@ struct Node {
     return true;
   }
   // the database NAME, opened (or created) and attached; never inside a transaction
-  Db *get(const std::string &name) {
+  // READY: NAME's files opened and scanned already (prepare_db(), without the node's lock), or 0 to open them here
+  Db *get(const std::string &name, std::unique_ptr<Db> ready = nullptr) {
     auto it = dbs.find(name);
-    if(it != dbs.end()) return it->second.get();
-    if(!good_name(name)) { err = "a bad database name: " + name; return 0; }
-    if(j.InTransaction()) { err = "the database " + name + " is not open (open it before Begin())"; return 0; }
+    if(it != dbs.end()) { if(ready) ready->close(); return it->second.get(); }
+    if(!good_name(name)) { if(ready) ready->close(); err = "a bad database name: " + name; return 0; }
+    if(j.InTransaction()) { if(ready) ready->close(); err = "the database " + name + " is not open (open it before Begin())"; return 0; }
     // a database whose open failed keeps its objects attached until close: it is not opened a second time over them
     // (review 3: the dead objects' stale headers were written at close and emptied an index)
-    for(auto &d : dead_dbs) if(d->name == name) { err = "the database " + name + " failed to open earlier: Close() and Open() again"; return 0; }
-    std::unique_ptr<Db> d(new Db);
+    for(auto &d : dead_dbs) if(d->name == name) { if(ready) ready->close(); err = "the database " + name + " failed to open earlier: Close() and Open() again"; return 0; }
+    std::unique_ptr<Db> d(ready ? std::move(ready) : std::unique_ptr<Db>(new Db));
     d->name = name;
-    if(!d->open(root)) { d->close(); err = "cannot open the database " + name; return 0; }
+    if(!d->db.IsOpen() && !d->open(root)) { d->close(); err = "cannot open the database " + name; return 0; }
     if(j.Attach(&d->db) != gxDBASE_NO_ERROR || j.Attach(&d->bt) != gxDBASE_NO_ERROR) {
       dead_dbs.push_back(std::move(d)); err = "cannot attach " + name; return 0;   // the journal may hold one of them
     }
@@ -733,6 +745,64 @@ struct Node {
     return p;
   }
   void say(const std::string &m) { if(log) log(m); }
+  // 11/16/2026 (lock holds): OpenDatabase() on a primary opens NAME's files, reads its objects' headers and builds any
+  // index that must be built (new, unfinished or of another definition) here, WITHOUT the node's lock, so readers do
+  // not wait for it (a new primary held the lock 74 s building indexes). Nobody else can reach NAME meanwhile: it is
+  // not in dbs (Put() and the other writers need it there, readers find nothing) and OpenDatabase() lets one caller
+  // prepare it at a time. The index is built outside the journal: ROOT/<index file>.building marks it unfinished (a
+  // crash in the middle builds it again at the next open, as before), the files are synced before the .def is written
+  // and the mark removed. get() under the lock then finds the index ready (opened and attached, not built again).
+  // DEFS, ROOT: copies taken under the lock. STOP: Close() has begun (the build gives up)
+  static bool prepare_db(const std::string &root, const std::string &name, const std::vector<IxDef> &defs,
+			 std::unique_ptr<Db> &out, std::string &e, std::function<bool()> stop, std::function<void(const std::string &)> log) {
+    std::unique_ptr<Db> d(new Db);
+    d->name = name;
+    bool was = exists(path(root, name + ".gxd"));
+    if(!d->open(root)) { d->close(); e = "cannot open the database " + name; return false; }
+    // a new database's files and their directory entries are durable before the journal holds pages for them
+    // (review: after a power loss Recover() could not open them and the node did not open)
+    if(!was && (!sync_files({path(root, name + ".gxd"), path(root, name + ".id.btx")}) || sync_path(root, false) == 0)) {
+      d->close(); e = "cannot sync the new database " + name; return false;
+    }
+    for(auto &def : defs) {
+      if(def.db != name) continue;
+      Ix x; x.def = def;
+      std::string f = x.file(root), mark = f + ".building", deff = f + ".def";
+      std::string want = std::string(1, def.kind) + ":" + std::to_string(def.off) + ":" + std::to_string(def.len) + "\n";
+      bool fresh = !exists(f) || exists(mark) || read_file(deff) != want;
+      if(!fresh) {
+	bool ok = def.kind == 'B' ? x.bt.Open(f.c_str()) == gxDBASE_NO_ERROR : x.vx.Open(f.c_str(), gxDBASE_READWRITE, x.spec().c_str()) == gxv_NO_ERROR;
+	if(ok) { x.close(); continue; }                        // ready: get() opens and attaches it
+	fresh = true;                                          // one that will not open is built again
+      }
+      if(FILE *m = fopen(mark.c_str(), "w")) fclose(m); else { d->close(); e = "cannot write " + mark; return false; }
+      remove_file(f); remove_file(deff);
+      Ix b; b.def = def;
+      if(def.kind == 'B' ? b.bt.Create(f.c_str()) != gxDBASE_NO_ERROR
+			 : b.vx.Create(f.c_str(), def.len, gxvFLOAT32, gxvL2, 16, b.spec().c_str()) != gxv_NO_ERROR) { d->close(); e = "cannot create " + f; return false; }
+      size_t built = 0;
+      for(auto &w : d->where) {
+	if(d->tombs.count(w.first)) continue;
+	std::vector<unsigned char> rec; ObjHead h;
+	if(!d->read(w.second, rec, h) || !b.add(w.first, rec.data() + sizeof(h), h.len)) { b.close(); d->close(); e = "cannot build " + f; return false; }
+	if(++built % 1024 == 0 && stop()) { b.close(); d->close(); e = "the node was closed while " + name + " was opened"; return false; }
+#ifdef GXREPL_TEST_HOOKS
+	if(built == 50 && getenv("OBJREPL_TEST_KILL_IN_IXBUILD")) _exit(9);   // test only: killed inside the build
+#endif
+      }
+      b.close();
+      // durable before it is marked finished: a crash after the mark is gone must find a whole index
+      if(!sync_files({f})) { d->close(); e = "cannot sync " + f; return false; }
+      FILE *df = fopen(deff.c_str(), "wb");
+      if(!df || fputs(want.c_str(), df) < 0 || fclose(df) != 0) { d->close(); e = "cannot write " + deff; return false; }
+      if(!sync_files({deff})) { d->close(); e = "cannot sync " + deff; return false; }
+      remove_file(mark);
+      sync_files({root});
+      if(built) log("index " + def.name + " on " + def.db + " built from " + std::to_string(built) + " object(s) (without the lock)");
+    }
+    out = std::move(d);
+    return true;
+  }
   // an index of D: opened, or created and built from the objects already here (in one transaction)
   // ROOT/<index file>.def holds the definition the file was built for: another offset, length or kind under the same
   // name rebuilds it (11/16/2026, review: a changed definition was reopened as it was and every write then failed)
@@ -872,23 +942,48 @@ void settle(const std::string &root)
   n.unlock();
 }
 
-// files synced to disk by name, each by its own descriptor (nothing of an open node is used, so it runs without the
-// node's lock). Returns false if one cannot be synced (one that is gone meanwhile counts as synced: the node was
-// closed or set aside, and the caller checks that). Windows: false (FlushFileBuffers needs a write handle)
-bool sync_files(const std::vector<std::string> &paths)
+// one file synced to disk by name, by its own handle (nothing of an open node is used, so it runs without the node's
+// lock): 1 synced, 0 failed, -1 gone, 2 (Windows) not opened for the sync (another handle denies write sharing) (the node was closed or set aside meanwhile: the caller checks that). DATA_ONLY:
+// fdatasync where there is one. Windows (11/16/2026): a second handle with write access (DataReel opens its files
+// sharing read and write) and FlushFileBuffers, which flushes the file whichever handle wrote it; a directory needs
+// no flush there (NTFS logs its metadata) and counts as synced
+int sync_path(const std::string &f, bool data_only)
 {
 #if !defined(_WIN32)
-  bool ok = true;
-  for(auto &f : paths) {
-    int fd = ::open(f.c_str(), O_RDONLY | O_CLOEXEC);
-    if(fd < 0) { if(errno != ENOENT) ok = false; continue; }
-    if(fsync(fd) != 0) ok = false;
-    ::close(fd);
-  }
-  return ok;
+  int fd = ::open(f.c_str(), O_RDONLY | O_CLOEXEC);
+  if(fd < 0) return errno == ENOENT ? -1 : 0;
+#if defined(__linux__)
+  int r = data_only ? fdatasync(fd) : fsync(fd);
 #else
-  (void)paths; return false;
+  (void)data_only; int r = fsync(fd);
 #endif
+  ::close(fd);
+  return r == 0 ? 1 : 0;
+#else
+  (void)data_only;
+  DWORD at = GetFileAttributesA(f.c_str());
+  if(at == INVALID_FILE_ATTRIBUTES) { DWORD e = GetLastError(); return e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND ? -1 : 0; }
+  if(at & FILE_ATTRIBUTE_DIRECTORY) return 1;
+  HANDLE h = CreateFileA(f.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, OPEN_EXISTING,
+			 FILE_ATTRIBUTE_NORMAL, 0);
+  if(h == INVALID_HANDLE_VALUE) {
+    DWORD e = GetLastError();
+    if(e == ERROR_SHARING_VIOLATION) return 2;               // another program's handle denies write sharing: not synced,
+    return e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND ? -1 : 0;   // nothing failed (the caller syncs another way)
+  }
+  BOOL ok = FlushFileBuffers(h);
+  CloseHandle(h);
+  return ok ? 1 : 0;
+#endif
+}
+
+// files synced to disk by name (see sync_path()). Returns false if one cannot be synced (one that is gone meanwhile
+// counts as synced: the node was closed or set aside, and the caller checks that)
+bool sync_files(const std::vector<std::string> &paths)
+{
+  bool ok = true;
+  for(auto &f : paths) { int r = sync_path(f, false); if(r == 0 || r == 2) ok = false; }
+  return ok;
 }
 
 // ---------- the wire: one gxStream block per frame ----------
@@ -1077,6 +1172,8 @@ struct gxObjRepl::Impl {
   // a copy in a full send (s.st.in_snapshot), as of the last time the node's lock was given up: reads fail at once
   // then, without waiting for the batch being applied (11/16/2026)
   std::atomic<int> snapflag{0};
+  std::atomic<int> opening_n{0};
+  std::set<std::string> failed_dbs;       // OpenDatabase(): prepared without success (refused until Close()/Open())
   void sync_snapflag() { snapflag = role == COPY && s.is_open && s.st.in_snapshot ? 1 : 0; }
   Role role = PRIMARY;
   long cert_days = -1;
@@ -1140,33 +1237,44 @@ struct gxObjRepl::Impl {
   // by then they wait for the next commit or checkpoint). durable_seq: the commits made durable (Pump() sends no
   // other). Otherwise (held deeper, Windows) the plain commit. Returns false (s.err) when the commit failed
   uint64_t durable_seq = 0;
+  // 11/16/2026 (review of the unlocked sync): commits whose journal sync is running without the lock. Pages reach the
+  // files only when none is (WriteCommitted() writes every committed page, a later commit's too: its record must be
+  // durable first, and it is once its own committer is back), a soft checkpoint waits for none, Close() and Begin()
+  // wait for none. jcommit_gen_ok: the node was not closed or opened again while the last jcommit() was unlocked
+  std::atomic<int> commits_inflight{0};
+  bool jcommit_gen_ok = true;
+  bool said_sharing = false;              // the sharing-violation fallback was logged (once a node)
+  // with the lock held once: wait (lock given up) until no commit's sync is running
+  void wait_commits() { while(commits_inflight && mu.Once()) { Unlocked u(mu); std::this_thread::sleep_for(std::chrono::microseconds(200)); } }
   bool jcommit() {
-#if !defined(_WIN32)
+    jcommit_gen_ok = true;
     if(mu.Once()) {
 #ifdef GXREPL_TEST_HOOKS
       auto t0 = std::chrono::steady_clock::now();
 #endif
       if(s.j.Commit(0) != gxDBASE_NO_ERROR) { if(s.j.InTransaction()) s.j.Rollback(); return s.fail("a commit failed"); }
       unsigned long g = gen; std::string jn = path(s.root, "node.jnl");
-      bool synced = false;
-      {
-	Unlocked u(mu);
-	int fd = ::open(jn.c_str(), O_RDONLY | O_CLOEXEC);
-	if(fd >= 0) { synced = fdatasync(fd) == 0; ::close(fd); }
-      }
+      bool synced = false; int sr = 0;
+      commits_inflight++;
+      { Unlocked u(mu); sr = sync_path(jn, true); synced = sr == 1; }
+      commits_inflight--;
 #ifdef GXREPL_TEST_HOOKS
       ObjMutex::note("journal sync (unlocked)", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
 #endif
       mu.at("commit: the pages to the files");
-      if(g != gen || !s.is_open) return true;                // closed meanwhile: the close checkpointed the batch
-      if(!synced) {                                          // a checkpoint syncs the journal first, or fails
-	if(s.j.InTransaction() || s.j.Checkpoint() != gxDBASE_NO_ERROR) return s.fail("the journal sync failed");
-	return true;
-      }
-      if(!s.j.InTransaction() && s.j.WriteCommitted() != gxDBASE_NO_ERROR) return s.fail("a commit's pages cannot be written");
+      if(g != gen || !s.is_open) { jcommit_gen_ok = false; return true; }   // closed meanwhile: the close checkpointed the batch
+      // Windows: the journal could not be opened a second time (another program's handle denies write sharing): its own
+      // handle syncs it, with the lock held, as before (a first sync, not a retry)
+      if(sr == 2 && !said_sharing) { said_sharing = true; say("the journal could not be opened again for its sync (another program's handle denies write sharing): synced through its own handle, with the lock held"); }
+      if(sr == 2) { if(s.j.InTransaction() || commits_inflight || s.j.Checkpoint() != gxDBASE_NO_ERROR) return s.fail("the journal sync failed"); return true; }
+      // a failed sync fails the commit and the caller reopens the node. The close syncs the journal once more through
+      // its own descriptor, which still reports the earlier error (Linux), so the journal is not emptied, and the
+      // recovery at the open replays what is in it: the commit the application was told failed may still be there
+      // and then reaches the copy (review: documented, not "dropped")
+      if(!synced) return s.fail("the journal sync failed");
+      if(!commits_inflight && !s.j.InTransaction() && s.j.WriteCommitted() != gxDBASE_NO_ERROR) return s.fail("a commit's pages cannot be written");
       return true;
     }
-#endif
     return s.commit();
   }
 
@@ -1182,19 +1290,20 @@ struct gxObjRepl::Impl {
   // if no commit came meanwhile (else the next try does it; the journal's own limit, CKPT_HARD, checkpoints inside a
   // commit if the soft one never gets its turn). Called with the lock held once, between transactions
   void checkpoint_soon() {
-    if(!s.is_open || s.j.InTransaction() || journal_bytes() < CKPT_SOFT || !mu.Once()) return;
-#if defined(_WIN32)
-    s.j.Checkpoint();
-#else
+    if(!s.is_open || s.j.InTransaction() || commits_inflight || journal_bytes() < CKPT_SOFT || !mu.Once()) return;
+    checkpoint_unlocked();
+  }
+  // the checkpoint with the files synced while the lock is given up: true if the journal was emptied
+  bool checkpoint_unlocked() {
+    if(!s.is_open || s.j.InTransaction() || commits_inflight || !mu.Once()) return false;
     std::vector<std::string> paths; unsigned long c0 = 0;
-    if(s.j.CheckpointBegin(paths, c0) != gxDBASE_NO_ERROR) return;
+    if(s.j.CheckpointBegin(paths, c0) != gxDBASE_NO_ERROR) return false;
     unsigned long g = gen, o = s.opens;
     bool synced;
     { Unlocked u(mu); synced = sync_files(paths); }
     mu.at("checkpoint");
-    if(!synced || g != gen || o != s.opens || !s.is_open) return;
-    s.j.CheckpointEnd(c0);
-#endif
+    if(!synced || g != gen || o != s.opens || !s.is_open) return false;
+    return s.j.CheckpointEnd(c0) == gxDBASE_NO_ERROR;
   }
 
 
@@ -1496,6 +1605,9 @@ struct gxObjRepl::Impl {
     bool more = cfg.trim && !v.empty() && v.front().first <= L.copy_applied;
     if((L.copy_applied > s.st.acked_seq || more) && !s.j.InTransaction()) {
       mu.at("trim");
+      wait_commits();                                          // no transaction of its own while a commit syncs
+      if(closing || !s.is_open) { err = "the node was closed while pumping"; return false; }
+      if(s.j.InTransaction()) return true;                     // the application's Begin() came first: trim next time
       if(!s.begin()) { err = s.err; return false; }
       uint64_t d = 0;
       if(L.copy_applied == s.st.next_seq - 1) s.st.acked_digest = s.st.cur_digest;
@@ -1551,7 +1663,7 @@ struct gxObjRepl::Impl {
     s.put_state();
     mu.at("Commit journal");
     if(!jcommit()) { err = "the commit failed"; return false; }
-    durable_seq = std::max(durable_seq, seq);
+    if(jcommit_gen_ok) durable_seq = std::max(durable_seq, seq);   // not the old node's seq on a node opened since
     return true;
   }
   // every (database, id) a link field of a live object names (a scan; no reverse index)
@@ -1624,8 +1736,11 @@ int gxObjRepl::Open(const std::string &root, const gxObjReplConfig &cfg, Role ro
   Close();
   std::lock_guard<ObjMutex> g_(p->mu);
   p->mu.at("Open");
+  // another thread's Open() got here first (review: a second Open() reset the first one's state, then failed on the
+  // lock file): not opened twice
+  if(p->s.is_open) return p->fail("another Open() of this object is running: Close() it first");
   p->cfg = cfg; p->role = role; p->err.clear(); p->stop = 0;
-  p->L = Link(); p->mon = Mon(); p->touched.clear(); p->moved.clear(); p->held.clear();
+  p->L = Link(); p->mon = Mon(); p->failed_dbs.clear(); p->touched.clear(); p->moved.clear(); p->held.clear();
   p->next_id = 1; p->linked_valid = false; p->last_alarm.clear(); p->gen++;
   if(!parse_links(cfg.links, p->links)) return p->fail("bad links (DB:OFFSET:TARGET,...)");
   p->links_own = p->links;
@@ -1670,10 +1785,13 @@ void gxObjRepl::Close()
   if(p->serving) { p->stop = 1; while(p->serving) std::this_thread::sleep_for(std::chrono::milliseconds(10)); }
   // a Pump() running in another thread is told to stop and waited for (review 4)
   p->closing = 1;
-  while(p->pumping) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  while(p->pumping || p->opening_n || p->commits_inflight) std::this_thread::sleep_for(std::chrono::milliseconds(5));   // and OpenDatabase(), a commit's sync
   struct Unclose { std::atomic<int> &f; ~Unclose() { f = 0; } } uc{p->closing};
   std::lock_guard<ObjMutex> g_(p->mu);
   p->mu.at("Close");
+  // a thread that gave the lock up for a while (a commit's sync, a checkpoint's, an OpenDatabase() prepare or wait)
+  // takes it back before the node is closed (review: such a thread took a freed lock after ~gxObjRepl)
+  while(p->mu.windows > 0 && p->mu.Once()) { p->mu.unlock(); std::this_thread::sleep_for(std::chrono::milliseconds(2)); p->mu.lock(); }
   p->gen++;
   if(!p->s.is_open) return;
   if(p->role == PRIMARY) {
@@ -1688,10 +1806,45 @@ void gxObjRepl::Close()
 
 int gxObjRepl::OpenDatabase(const std::string &db)
 {
-  std::lock_guard<ObjMutex> g_(p->mu);
+  std::unique_lock<ObjMutex> g_(p->mu);
   p->mu.at("OpenDatabase");
   if(!p->s.is_open || p->role != PRIMARY) return p->fail("not an open primary (a copy opens databases as they arrive)");
-  return p->s.get(db) ? 0 : p->fail(p->s.err);
+  if(p->closing) return p->fail("the node is closing");
+  // 11/16/2026 (lock holds): the files are opened and the indexes built without the lock (see Node::prepare_db());
+  // only the attach to the journal is done with it. One caller prepares a database at a time; Close() waits for it
+  for(;;) {
+    if(p->s.dbs.count(db)) return 0;
+    if(!p->s.opening.count(db)) break;
+    { Unlocked u(p->mu); std::this_thread::sleep_for(std::chrono::milliseconds(5)); }
+    if(p->closing || !p->s.is_open) return p->fail("the node was closed while " + db + " was opened");
+  }
+  if(!good_name(db)) return p->fail("a bad database name: " + db);
+  if(p->s.j.InTransaction()) return p->fail("the database " + db + " is not open (open it before Begin())");
+  for(auto &d : p->s.dead_dbs) if(d->name == db) return p->fail("the database " + db + " failed to open earlier: Close() and Open() again");
+  if(p->failed_dbs.count(db)) return p->fail("the database " + db + " failed to open earlier: Close() and Open() again");
+  std::vector<IxDef> defs = p->ixdefs; std::string root = p->s.root;
+  unsigned long g0 = p->gen;
+  p->s.opening.insert(db); p->opening_n++;
+  std::unique_ptr<Db> pre; std::string e; bool ok;
+  {
+    Unlocked u(p->mu);
+    gxObjRepl::Impl *q = p;
+    ok = Node::prepare_db(root, db, defs, pre, e, [q]() { return q->closing != 0; }, [q](const std::string &m) { q->say(m); });
+  }
+  p->mu.at("OpenDatabase attach");
+  p->s.opening.erase(db); p->opening_n--;
+  if(p->closing || g0 != p->gen || !p->s.is_open) { if(pre) pre->close(); return p->fail("the node was closed while " + db + " was opened"); }
+  if(!ok) { p->failed_dbs.insert(db); return p->fail(e); }
+  // gxdJournal::Attach() checkpoints the journal, with the lock held: the journal is emptied first with the files
+  // synced without the lock, so that checkpoint has little or nothing left (a new primary held the lock 74 s here)
+  for(int i = 0; i < 3; i++) {
+    p->wait_commits();
+    if(p->closing || g0 != p->gen || !p->s.is_open) { pre->close(); return p->fail("the node was closed while " + db + " was opened"); }
+    if(p->checkpoint_unlocked()) break;
+  }
+  p->mu.at("OpenDatabase attach");
+  if(p->s.j.InTransaction()) { pre->close(); return p->fail("the database " + db + " is not open (open it before Begin())"); }
+  return p->s.get(db, std::move(pre)) ? 0 : p->fail(p->s.err);
 }
 
 int gxObjRepl::Begin()
@@ -1699,6 +1852,11 @@ int gxObjRepl::Begin()
   std::lock_guard<ObjMutex> g_(p->mu);
   p->mu.at("Begin");
   if(!p->s.is_open || p->role != PRIMARY) return p->fail("not an open primary");
+  // a transaction begins once no commit's sync is running (review: a Begin() during another thread's unlocked sync
+  // had its touched list cleared by that Commit() when it took the lock back, and its operations left out of the
+  // outbox frame)
+  p->wait_commits();
+  if(!p->s.is_open) return p->fail("not an open primary");
   if(p->s.j.InTransaction()) return p->fail("a transaction is open");
   if(!p->s.begin()) return p->fail(p->s.err);
   p->touched = p->held; p->held.clear(); p->moved.clear(); p->linked_valid = false;
@@ -1812,7 +1970,7 @@ int gxObjRepl::Pump()
   if(connect) { ns = new gxStream; if(!p->connect_to(*ns)) { ns->Close(); delete ns; ns = 0; } }
   std::lock_guard<ObjMutex> g_(p->mu);
   p->mu.at("Pump");
-  if(!p->s.is_open) { if(ns) { ns->Close(); delete ns; } return p->fail("closed"); }
+  if(!p->s.is_open || p->closing) { if(ns) { ns->Close(); delete ns; } return p->fail("closed"); }   // review: Close() waited a hello
   if(connect && !ns) { p->primary_status(true, "copy away"); return 1; }
   if(ns) { L.drop(); L.st = ns; L.fresh = true; }
   bool was = !connect;
@@ -2122,6 +2280,9 @@ int gxObjRepl::Impl::serve()
 	s.st.snap_count = 0; s.st.snap_hash = DIGEST0;
 	s.put_state();
 	if(!jcommit()) { rolled = true; break; }
+	// readers fail at once from here (a full send is under way) instead of waiting for the lock through the set-aside
+	// and reopen below (11/16/2026: a copy reader waited out a 40 s SNAP_BEGIN)
+	snapflag = 1;
 	if(!s.set_aside()) { say("copy: " + s.err); s.close(); return fail(s.err); }
 	for(auto &l : links) { s.get(l.db); s.get(l.target); }   // the link databases again (empty)
 	Buf a; a.u64(0);

@@ -6,6 +6,7 @@
 #include <string.h>
 #include <thread>
 #include <atomic>
+#include <filesystem>
 #include <chrono>
 #include <string>
 #include <vector>
@@ -661,6 +662,128 @@ int main(int argc, char **argv)
       std::string da, db; gxObjRepl::Digest(dir + "/fs_p", "lk:0:ev", da); gxObjRepl::Digest(dir + "/fs_c2", "lk:0:ev", db);
       std::string ia, ib; int ra = gxObjRepl::IndexCheck(dir + "/fs_c2", "k:ev:B:0:8", ib);
       check(d2 == 0 && da == db && ra == 0, "r5-1: the commits made during the full send followed from the outbox: equal [" + da + "], the copy's index consistent");
+    }
+
+    // r6-1 (11/16/2026, lock holds): OpenDatabase() opens the files and builds a new index without the node's lock: a
+    // reader of another database does not wait for it (a new primary held the lock 74 s building indexes); the index
+    // is whole afterwards. r6-2: Close() during that build makes OpenDatabase() fail, and the next Open() builds the
+    // index again (the .building mark)
+    {
+      int pf = base + 19;
+      gxObjReplConfig xc = pcfg(pf, false);
+      {
+	gxObjRepl x; x.Open(dir + "/od_p", xc, gxObjRepl::PRIMARY); x.OpenDatabase("big"); x.OpenDatabase("small");
+	for(int k = 0; k < 40; k++) {                          // 80000 objects of 64 bytes
+	  x.Begin();
+	  for(int i = 0; i < 2000; i++) { unsigned char b[64]; uint64_t id = x.NewId(), key = id % 977; memset(b, 0, 64); memcpy(b, &key, 8); memcpy(b + 8, &id, 8); x.Put("big", id, b, 64); }
+	  if(x.Commit() != 0) check(false, "r6-1 seed: " + x.Error());
+	}
+	x.Begin(); x.Put("small", 1, "smallobj", 8); x.Commit();
+	x.Close();
+      }
+      xc.index = "kb:big:B:0:8";
+      // the index files are removed so the database opens without them: Open() opens what it finds (with the lock),
+      // OpenDatabase() of a database not there yet is what builds without it, so "big" is moved out and back
+      std::filesystem::create_directories(dir + "/od_hold");
+      for(auto &e : std::filesystem::directory_iterator(dir + "/od_p"))
+	if(e.path().filename().string().rfind("big.", 0) == 0) std::filesystem::rename(e.path(), dir + "/od_hold/" + e.path().filename().string());
+      gxObjRepl x; x.Open(dir + "/od_p", xc, gxObjRepl::PRIMARY);
+      check(x.OpenDatabase("small") == 0, "r6-1: open small");
+      for(auto &e : std::filesystem::directory_iterator(dir + "/od_hold")) std::filesystem::rename(e.path(), dir + "/od_p/" + e.path().filename().string());
+      std::atomic<int> stop{0}; std::atomic<double> worst{0}; std::atomic<long> reads{0}; std::atomic<int> bad{0};
+      std::thread rd([&]() {
+	std::vector<unsigned char> b;
+	while(!stop) {
+	  auto t0 = std::chrono::steady_clock::now();
+	  if(x.Get("small", 1, b) != 0 || b.size() != 8) bad++;
+	  double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+	  if(ms > worst) worst = ms;
+	  reads++;
+	  std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+      });
+      while(reads < 5) std::this_thread::sleep_for(std::chrono::milliseconds(1));   // the reader is going
+      auto t0 = std::chrono::steady_clock::now();
+      int orc = x.OpenDatabase("big");
+      double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+      stop = 1; rd.join();
+      uint64_t key = 5; std::vector<uint64_t> f;
+      int frc = x.FindKey("kb", &key, 8, f);
+      check(orc == 0 && frc == 0 && f.size() > 50, "r6-1: OpenDatabase(big) built the index of 80000 objects in " + std::to_string(secs).substr(0, 5) + " s; FindKey found " + std::to_string(f.size()) + " [" + x.Error() + "]");
+      check(worst < 250 && bad == 0 && reads > 10, "r6-1: a reader of another database meanwhile: worst wait " + std::to_string((double)worst).substr(0, 6) + " ms over " + std::to_string((long)reads) + " reads, " + std::to_string((int)bad) + " failed");
+      x.Close();
+      std::string ix; int irc = gxObjRepl::IndexCheck(dir + "/od_p", "kb:big:B:0:8", ix);
+      check(irc == 0, "r6-1: the index is consistent after Close() [" + ix + "]");
+      // r6-2: Close() while OpenDatabase() builds a second index
+      xc.index = "kb:big:B:0:8,kc:big:B:8:8";
+      gxObjRepl y; y.Open(dir + "/od_p", xc, gxObjRepl::PRIMARY);
+      std::atomic<int> yrc{99}; std::string yerr;
+      std::thread op([&]() { yrc = y.OpenDatabase("big"); yerr = y.Error(); });
+      std::this_thread::sleep_for(std::chrono::milliseconds(30));
+      y.Close();
+      op.join();
+      bool marked = false;
+      for(auto &e : std::filesystem::directory_iterator(dir + "/od_p")) if(e.path().string().find(".building") != std::string::npos) marked = true;
+      check(yrc == 0 || (yrc == -1 && yerr.find("closed") != std::string::npos), "r6-2: Close() during the build: OpenDatabase() " + std::to_string((int)yrc) + " [" + yerr + "], a .building mark left: " + (marked ? "yes" : "no"));
+      gxObjRepl z; z.Open(dir + "/od_p", xc, gxObjRepl::PRIMARY);
+      int zrc = z.OpenDatabase("big");
+      z.Close();
+      std::string iz; int izrc = gxObjRepl::IndexCheck(dir + "/od_p", "kb:big:B:0:8,kc:big:B:8:8", iz);
+      check(zrc == 0 && izrc == 0, "r6-2: the next Open() and OpenDatabase() built it again: both indexes consistent [" + iz + "]");
+      // r6-3 (re-review): reopen() from another thread (Rollback()) while OpenDatabase() prepares without the lock:
+      // the reopen leaves the database being prepared alone, the preparer attaches it, the indexes are whole
+      xc.index = "kb:big:B:0:8,kc:big:B:8:8,kd:big:B:4:8";
+      gxObjRepl w; w.Open(dir + "/od_p", xc, gxObjRepl::PRIMARY);
+      // "big" is moved out for the Open() and back, so OpenDatabase() prepares it (as in r6-1)
+      std::filesystem::create_directories(dir + "/od_hold3");
+      w.Close();
+      for(auto &e : std::filesystem::directory_iterator(dir + "/od_p"))
+	if(e.path().filename().string().rfind("big.", 0) == 0) std::filesystem::rename(e.path(), dir + "/od_hold3/" + e.path().filename().string());
+      w.Open(dir + "/od_p", xc, gxObjRepl::PRIMARY);
+      w.OpenDatabase("small");
+      std::atomic<int> wstop{0}; std::atomic<long> reopens{0};
+      std::thread rb([&]() { while(!wstop) { if(w.Begin() == 0) { w.Put("small", 2, "rollback", 8); w.Rollback(); reopens++; } std::this_thread::sleep_for(std::chrono::milliseconds(1)); } });
+      while(reopens < 3) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      // back just before the call (a reopen may still open it first: then OpenDatabase() finds it open; either way
+      // the indexes must be whole)
+      for(auto &e : std::filesystem::directory_iterator(dir + "/od_hold3")) std::filesystem::rename(e.path(), dir + "/od_p/" + e.path().filename().string());
+      int wrc = w.OpenDatabase("big");
+      wstop = 1; rb.join();
+      std::string werr = w.Error();
+      w.Close();
+      std::string iw; int iwrc = gxObjRepl::IndexCheck(dir + "/od_p", xc.index, iw);
+      check(wrc == 0 && iwrc == 0 && reopens > 3, "r6-3: " + std::to_string((long)reopens) + " reopens from another thread while OpenDatabase() prepared: " + std::to_string(wrc) + " [" + werr + "], the indexes consistent [" + iw.substr(0, 200) + "]");
+    }
+
+    // r7-1 (11/16/2026, review of the unlocked sync): two writer threads and a Pump() thread on one primary. A
+    // Begin() during another thread's unlocked journal sync had its operations cleared by that Commit() and left out of
+    // the outbox frame (the copy then missed them, silently); now Begin() waits for the sync. At the end the copy
+    // equals the primary and its index is consistent
+    {
+      int pf = base + 20;
+      gxObjReplConfig xc = pcfg(pf, true); xc.index = "k:ev:B:0:8";
+      auto cc7 = ccfg(pf, "W7"); cc7.index = "k:ev:B:0:8";
+      Srv C7; C7.start(dir + "/w7_c", cc7);
+      gxObjRepl x; x.Open(dir + "/w7_p", xc, gxObjRepl::PRIMARY); x.OpenDatabase("ev");
+      std::atomic<int> stop{0}; std::atomic<long> done[2] = {{0}, {0}}; std::atomic<long> busy{0};
+      auto writer = [&](int w) {
+	std::mt19937_64 r(100 + w);
+	while(!stop) {
+	  if(x.Begin() != 0) { busy++; std::this_thread::sleep_for(std::chrono::microseconds(100)); continue; }
+	  for(int i = 0; i < 5; i++) { unsigned char b[32]; uint64_t id = x.NewId(), key = r() % 100; memset(b, w, 32); memcpy(b, &key, 8); x.Put("ev", id, b, 32); }
+	  if(x.Commit() == 0) done[w]++;
+	}
+      };
+      std::thread w0(writer, 0), w1(writer, 1);
+      std::thread pu([&]() { while(!stop) { x.Pump(); std::this_thread::sleep_for(std::chrono::milliseconds(2)); } });
+      std::this_thread::sleep_for(std::chrono::seconds(8));
+      stop = 1; w0.join(); w1.join(); pu.join();
+      int d = x.Drain(60);
+      long last = (long)x.LastSeq();
+      C7.stop(); x.Close();
+      std::string da, db, ib; gxObjRepl::Digest(dir + "/w7_p", "", da); gxObjRepl::Digest(dir + "/w7_c", "", db);
+      int ir = gxObjRepl::IndexCheck(dir + "/w7_c", "k:ev:B:0:8", ib);
+      check(d == 0 && da == db && ir == 0 && done[0] > 10 && done[1] > 10, "r7-1: two writers (" + std::to_string((long)done[0]) + " + " + std::to_string((long)done[1]) + " commits, " + std::to_string(last) + " seqs) and Pump(): the copy equals the primary [" + da + "] vs [" + db + "], index consistent (" + std::to_string(ir) + ")");
     }
   }
 
