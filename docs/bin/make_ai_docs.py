@@ -26,6 +26,8 @@ GUIDES = [
      'CMake options, file format settings, find_package(DataReel), running the tests'),
     ('porting-from-6x.md', 'Porting from 6.x',
      'Replacements for the removed classes and the move to TLS-only networking'),
+    ('utilities.md', 'Text, CSV, single-instance and file utilities',
+     'strip_ansi/AnsiStripper, gxCSVReader/gxCSVWriter, gxProcessLock, hexdump, ffind, txfilter (7.4)'),
 ]
 
 SAMPLE = re.compile(r'(<!-- sample: (\S+)(?: from="([^"]*)")? -->\n)(.*?)(<!-- end sample -->)',

@@ -14,6 +14,9 @@ Start with `AGENTS.md` in the top folder for the rules, then:
   settings, using DataReel from your project, tests.
 - [Porting from 6.x](porting-from-6x.md): replacements for removed
   classes and the changes to network code.
+- [Text, CSV, single-instance and file utilities](utilities.md):
+  strip_ansi/AnsiStripper, gxCSVReader/gxCSVWriter, gxProcessLock,
+  hexdump, ffind, txfilter (7.4).
 
 `samples/` holds the programs the guides include. After changing one,
 run `python3 docs/bin/make_ai_docs.py` to refresh the guides,

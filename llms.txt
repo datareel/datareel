@@ -11,6 +11,7 @@ All classes are in namespace datareel. Link with CMake target DataReel::datareel
 - [Object database](docs/ai/object-database.md): gxDatabase block files, gxBtree indexes, POD and InfoHog persistent objects, vector indexes and sets
 - [Building and linking](docs/ai/building.md): CMake options, file format settings, find_package(DataReel), running the tests
 - [Porting from 6.x](docs/ai/porting-from-6x.md): Replacements for the removed classes and the move to TLS-only networking
+- [Text, CSV, single-instance and file utilities](docs/ai/utilities.md): strip_ansi/AnsiStripper, gxCSVReader/gxCSVWriter, gxProcessLock, hexdump, ffind, txfilter (7.4)
 
 ## Reference
 
