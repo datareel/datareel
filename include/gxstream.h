@@ -54,15 +54,6 @@ gxStream::SetClientCert() before Connect(). A plain gxsTLSServer
 still works for gxStream but does not require client certificates;
 the requirement is kept out of gxsTLSServer so HTTPS and other TLS
 servers do not need them.
-11/16/2026 (7.4): The block header has a fixed wire form: 32 bytes,
-little endian - magic "GXS2" (u32), wire version 2 (u16), 0 (u16),
-check word (u32), status (u32), length (u64), next deleted (u64) -
-whatever gxUINT32 and FAU are on each side. It was the gxBlockHeader
-struct sent as it lies in memory: 32 bytes on 64-bit Linux and 24 on
-Windows, so Linux and Windows peers misread each other. A peer that
-sends the old form is refused: ReadHeader() fails with
-gxSOCKET_BLOCKHEADER_ERROR and PeerOldHeader() is true. Peers before
-7.4 and 7.4 peers cannot talk to each other over gxStream.
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -82,16 +73,6 @@ namespace datareel {
 
 const int gxSTREAM_DEF_TIMEOUT = 7200;
 const gxUINT32 gxSTREAM_DEF_MAX_BLOCK = 64*1024*1024;
-
-// 11/16/2026 (7.4): the block header on the wire (see the top of the file)
-const unsigned gxSTREAM_WIRE_HEADER = 32;
-const unsigned gxSTREAM_WIRE_VERSION = 2;
-const unsigned long gxSTREAM_WIRE_MAGIC = 0x32535847UL;   // "GXS2" little endian
-// The header in its wire form, and back. gxStreamUnpackHeader() returns 0,
-// 1 for the old raw form (a peer before 7.4), 2 for another wire version,
-// 3 for anything else
-GXDLCODE_API void gxStreamPackHeader(const gxBlockHeader &gx, unsigned char out[32]);
-GXDLCODE_API int gxStreamUnpackHeader(const unsigned char in[32], gxBlockHeader &gx);
 
 // Database block client/server protocol over TLS. Each block is a
 // gxBlockHeader followed by block_length bytes.
@@ -159,9 +140,6 @@ public:
     return gxSocket::ExceptionMessage(stream_error);
   }
   const std::string &Error() const { return conn.Error(); }
-  // 11/16/2026: the last ReadHeader() met a peer that sends the old,
-  // platform-dependent header (before 7.4) or another wire version
-  int PeerOldHeader() const { return peer_old_header; }
 
 private:
   int set_error(gxSocketError err) { return stream_error = err; }
@@ -170,7 +148,6 @@ private:
   gxsTLSConnection conn;
   gxUINT32 max_block = gxSTREAM_DEF_MAX_BLOCK;
   gxSocketError stream_error = gxSOCKET_NO_ERROR;
-  int peer_old_header = 0;
 };
 
 // 11/01/2026: TLS server for gxStream database clients. The same as

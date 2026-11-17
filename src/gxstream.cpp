@@ -82,45 +82,11 @@ void gxStream::SetBlockStatus(gxBlockHeader &gx, __SBYTE__ net_status,
   gx.block_nd_fptr = (FAU)0;
 }
 
-// 11/16/2026 (7.4): the fixed wire form of a block header
-static void wput(unsigned char *p, uint64_t v, int n) { for(int i = 0; i < n; i++) p[i] = (unsigned char)(v >> (8 * i)); }
-static uint64_t wget(const unsigned char *p, int n) { uint64_t v = 0; for(int i = 0; i < n; i++) v |= (uint64_t)p[i] << (8 * i); return v; }
-
-void gxStreamPackHeader(const gxBlockHeader &gx, unsigned char out[32])
-{
-  wput(out, gxSTREAM_WIRE_MAGIC, 4);
-  wput(out + 4, gxSTREAM_WIRE_VERSION, 2);
-  wput(out + 6, 0, 2);
-  wput(out + 8, (uint64_t)gx.block_check_word & 0xFFFFFFFFu, 4);
-  wput(out + 12, (uint64_t)gx.block_status & 0xFFFFFFFFu, 4);
-  wput(out + 16, (uint64_t)gx.block_length, 8);
-  wput(out + 24, (uint64_t)gx.block_nd_fptr, 8);
-}
-
-int gxStreamUnpackHeader(const unsigned char in[32], gxBlockHeader &gx)
-{
-  if(wget(in, 4) != gxSTREAM_WIRE_MAGIC) {
-    // the old form starts with the check word (0xfefe, little endian on
-    // every supported platform)
-    return wget(in, 4) == (uint64_t)gxCheckWord ? 1 : 3;
-  }
-  if(wget(in + 4, 2) != gxSTREAM_WIRE_VERSION) return 2;
-  uint64_t len = wget(in + 16, 8);
-  if(len > 0xFFFFFFFFull) return 3;                 // gxUINT32 is 32 bits on Windows
-  gx.block_check_word = (gxUINT32)wget(in + 8, 4);
-  gx.block_status = (gxUINT32)wget(in + 12, 4);
-  gx.block_length = (gxUINT32)len;
-  gx.block_nd_fptr = (FAU)wget(in + 24, 8);
-  return 0;
-}
-
 int gxStream::WriteHeader(gxBlockHeader &gx)
 {
   // 11/01/2026: Never send database blocks in cleartext
   if(!conn.IsSecure()) return set_error(gxSOCKET_SSL_ERROR);
-  unsigned char w[gxSTREAM_WIRE_HEADER];
-  gxStreamPackHeader(gx, w);                       // 11/16/2026: the fixed wire form
-  if(conn.Send(w, (int)gxSTREAM_WIRE_HEADER) != (int)gxSTREAM_WIRE_HEADER) {
+  if(conn.Send(&gx, (int)sizeof(gxBlockHeader)) != (int)sizeof(gxBlockHeader)) {
     return set_error(gxSOCKET_BLOCKHEADER_ERROR);
   }
   return set_error(gxSOCKET_NO_ERROR);
@@ -158,23 +124,11 @@ int gxStream::ReadHeader(gxBlockHeader &gx)
   // 11/01/2026: Never accept database blocks in cleartext
   if(!conn.IsSecure()) return set_error(gxSOCKET_SSL_ERROR);
   std::string s;
-  peer_old_header = 0;
-  // 11/16/2026: the fixed wire form. A peer that sends the old form (24 bytes on Windows) is told apart by its
-  // first bytes, read before the rest so a short old header does not leave this side waiting for 32 bytes
-  if(conn.Read(s, 8) != 8) {
-    return set_error(conn.IsOpen() ? gxSOCKET_BLOCKHEADER_ERROR : gxSOCKET_DISCONNECTED_ERROR);
+  if(conn.Read(s, sizeof(gxBlockHeader)) != (int)sizeof(gxBlockHeader)) {
+    return set_error(conn.IsOpen() ? gxSOCKET_BLOCKHEADER_ERROR : 
+		     gxSOCKET_DISCONNECTED_ERROR);
   }
-  if(wget((const unsigned char *)s.data(), 4) != gxSTREAM_WIRE_MAGIC ||
-     wget((const unsigned char *)s.data() + 4, 2) != gxSTREAM_WIRE_VERSION) {
-    peer_old_header = 1;
-    return set_error(gxSOCKET_BLOCKHEADER_ERROR);
-  }
-  std::string rest;
-  if(conn.Read(rest, gxSTREAM_WIRE_HEADER - 8) != (int)(gxSTREAM_WIRE_HEADER - 8)) {
-    return set_error(conn.IsOpen() ? gxSOCKET_BLOCKHEADER_ERROR : gxSOCKET_DISCONNECTED_ERROR);
-  }
-  s += rest;
-  if(gxStreamUnpackHeader((const unsigned char *)s.data(), gx) != 0) return set_error(gxSOCKET_BLOCKHEADER_ERROR);
+  memcpy((void *)&gx, s.data(), sizeof(gxBlockHeader));
   if(gx.block_check_word != gxCheckWord) {
     return set_error(gxSOCKET_BLOCKSYNC_ERROR);
   }

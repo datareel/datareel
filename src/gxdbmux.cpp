@@ -90,8 +90,8 @@ void gxdMuxEncode(const gxdMuxFrame &f, std::vector<unsigned char> &out)
   gx.block_length = (gxUINT32)(BODY_HDR + f.payload.size());
   gx.block_nd_fptr = (FAU)0;
   size_t start = out.size();
-  out.resize(start + gxSTREAM_WIRE_HEADER);                 // 11/16/2026: the fixed wire form (gxstream.h)
-  gxStreamPackHeader(gx, out.data() + start);
+  out.resize(start + sizeof(gxBlockHeader));
+  memcpy(out.data() + start, &gx, sizeof(gxBlockHeader));
   put8(out, gxdMUX_MARK);
   put8(out, f.kind);
   put32(out, f.channel);
@@ -391,19 +391,19 @@ void gxdMuxSession::io()
     if(in.size() > before) {
       progress = true;
       std::lock_guard<std::mutex> g(m);
-      while(in.size() - in_off >= gxSTREAM_WIRE_HEADER) {
+      while(in.size() - in_off >= sizeof(gxBlockHeader)) {
 	gxBlockHeader gx;
-	int uh = gxStreamUnpackHeader(in.data() + in_off, gx);
-	if(uh != 0 || gx.block_check_word != gxCheckWord || gx.block_length > opt.max_block) {
-	  fail_locked(uh == 1 || uh == 2 ? "the peer uses another gxStream block header (DataReel before 7.4?)" : "bad block from the peer"); break;
+	memcpy(&gx, in.data() + in_off, sizeof(gxBlockHeader));
+	if(gx.block_check_word != gxCheckWord || gx.block_length > opt.max_block) {
+	  fail_locked("bad block from the peer"); break;
 	}
-	size_t need = gxSTREAM_WIRE_HEADER + (size_t)gx.block_length;
+	size_t need = sizeof(gxBlockHeader) + (size_t)gx.block_length;
 	if(in.size() - in_off < need) break;
 	unsigned char net = (unsigned char)((gx.block_status >> 8) & 0xff);
 	if(net == (unsigned char)gxCloseConnection) { fail_locked("closed by the peer"); break; }
 	gxdMuxFrame f;
 	if(net != (unsigned char)gxSendBlock ||
-	   gxdMuxDecodeBody(in.data() + in_off + gxSTREAM_WIRE_HEADER, gx.block_length, f) != 0) {
+	   gxdMuxDecodeBody(in.data() + in_off + sizeof(gxBlockHeader), gx.block_length, f) != 0) {
 	  fail_locked("not a multiplex frame"); break;
 	}
 	in_off += need;
