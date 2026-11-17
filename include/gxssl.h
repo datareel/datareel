@@ -404,6 +404,17 @@ public:  // Key, cert, and passwd functions
   int MakeCertReq(const char *key_fname, gxCertIssuerInfo &ci,
 		  const char *req_fname);
 
+public:
+  // 11/17/2026: Where this context's PEM or DER private key is kept:
+  // "in memory", "user key store" or "machine key store" with Schannel
+  // (the first one Schannel accepted, see gxsschan.cpp); "" with OpenSSL,
+  // which always keeps it in memory, or with no key or a PFX file
+#if defined (__USE_GX_SCHANNEL__)
+  const char *KeyStorage();
+#else
+  const char *KeyStorage() { return ""; }
+#endif
+
 public: // Thread functions
   // 10/14/2026: Release() clears every pointer without freeing it. The
   // misspelled Relase() is kept for existing code; it used to copy
@@ -441,6 +452,9 @@ protected: // Internal functions
   int sc_acquire_cred(int inbound);
   int sc_load_cert_and_key();
   int sc_load_pfx(const char *fname);
+  // 11/17/2026: the key in memory, the user store or the machine store
+  int sc_import_key(std::vector<unsigned char> &pkcs8, int encrypted, int where);
+  int sc_use_key(std::vector<unsigned char> &pkcs8, int encrypted, int inbound);
   int sc_handshake(int is_accept, int have_input);
   int sc_send_token(SecBuffer &token);
   int sc_recv_raw(int use_timeout, int seconds, int useconds);

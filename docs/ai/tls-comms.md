@@ -39,6 +39,11 @@ OpenSSL 3.x). Telnet and ping are the only plain text protocols.
 - A `gxsTLSConnection` is not copyable. Servers create one per client,
   usually in a `std::shared_ptr` handed to a thread pool task.
 - Socket library start-up on Windows (WSAStartup) is automatic.
+- On Windows (Schannel) a PEM or DER private key goes to the user key
+  store, else in memory, else the machine key store, whichever Schannel
+  accepts first; tested in a service under LocalService and over a
+  key-based SSH logon. See
+  "Schannel Private Keys" in README_windows_setup.txt.
 
 ## TLS client
 

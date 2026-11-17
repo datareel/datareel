@@ -88,6 +88,11 @@ mkdir -p "$WORK/run_replication_copy" && cd "$WORK/run_replication_copy" &&
 for t in stream_security_test proto_security_test support_security_test; do
   mkdir -p "$WORK/run_$t" && cd "$WORK/run_$t" && check $t "$T/$t"
 done
+# 11/17/2026 (7.4): PEM keys with Schannel where no user is signed in (this runs over SSH; the service run is
+# tests/tls_key_service.cmd), two servers with one certificate
+mkdir -p "$WORK/run_tls_key" && cd "$WORK/run_tls_key" &&
+  sh "$SRC/utils/objrepl/objrepl_certs.sh" pki --copy-host 127.0.0.1 --apply > /dev/null &&
+  check tls_key_test "$T/tls_key_test" pki $((PORT + 50))
 cd "$WORK"
 
 # TLS echo server and client, IPv4 and IPv6, certificate checks
