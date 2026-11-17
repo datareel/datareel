@@ -33,6 +33,7 @@
 <a href="#Beta411162026">Beta 4 (11/16/2026)</a><br>
 <a href="#OneFileLayoutOnEveryPlatform11152026Beta5">ONE FILE LAYOUT ON EVERY PLATFORM (11/15/2026, beta 5)</a><br>
 <a href="#NewInBeta511162026">New in beta 5 (11/16/2026)</a><br>
+<a href="#NewIn74AfterBeta5">New in 7.4 (after beta 5)</a><br>
 <a href="#UpgradingTo74Beta5">Upgrading to 7.4 beta 5</a><br>
 <a href="#PlannedForTheNextRelease75">Planned for the next release (7.5)</a></p>
 <p>DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the replication fixes and the security scan below (BETA 3). Beta 2:</p>
@@ -362,6 +363,10 @@
 <li>The layout detection reads the first block&#x27;s length both ways and takes the old 4-byte layout only when that length fits the file and the canonical one does not: a damaged first block is never taken for the old layout (tests/layout_detect_test).</li>
 <li>The header documentation (Database Headers) explains the on-disk layout and byte order: every header field is written little endian, field by field, on every machine.</li>
 <li>Tests: the IMAP client against a mock server (TLS, STARTTLS, plain text, a plain text login without the opt-in, 8-bit logins, LOGINDISABLED, message bodies that look like replies, spool names from a hostile arrival date) and against a local IMAP server in a container; gxdbmux_test (the multiplex and wire frames) in run_tests; https_check against the example HTTPS server; broadcast and multicast on this host.</li>
+</ul>
+<h2 id="NewIn74AfterBeta5">New in 7.4 (after beta 5)</h2>
+<ul>
+<li>objrepl_certs.sh makes its certificates under Git Bash on Windows too: Git Bash rewrote openssl&#x27;s &quot;/CN=...&quot; subject into a path, so no certificates were made (MSYS_NO_PATHCONV is now set for openssl).</li>
 </ul>
 <h2 id="UpgradingTo74Beta5">Upgrading to 7.4 beta 5</h2>
 <ul>

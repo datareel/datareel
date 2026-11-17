@@ -683,6 +683,12 @@ NEW IN BETA 5 (11/16/2026)
   against the example HTTPS server; broadcast and multicast on this
   host.
 
+NEW IN 7.4 (AFTER BETA 5)
+-------------------------
+- objrepl_certs.sh makes its certificates under Git Bash on Windows
+  too: Git Bash rewrote openssl's "/CN=..." subject into a path, so no
+  certificates were made (MSYS_NO_PATHCONV is now set for openssl).
+
 UPGRADING TO 7.4 BETA 5
 -----------------------
 - Never set GXD_CREATE_LAYOUT in production. It makes new files in the
