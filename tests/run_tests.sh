@@ -156,62 +156,38 @@ mkdir -p "$WORK/run_replication_copy" && cd "$WORK/run_replication_copy" &&
     \$R digest p > p.d; \$R digest c > c.d; cmp p.d c.d
     rm c/by_name.btx c/vectors.vix; if \$R digest c > /dev/null; then exit 1; fi; \$R rebuild c > /dev/null
     \$R digest c > c.d; cmp p.d c.d"
-# 11/17/2026 (7.4): the object replication example (gxObjRepl): a primary and a copy, a planned switch, equal digests
-mkdir -p "$WORK/run_object_replication" && cd "$WORK/run_object_replication" &&
-  check object_replication sh -c "set -e; '$SRC/utils/objrepl/objrepl_certs.sh' pki --copy-host 127.0.0.1 --apply > /dev/null
-    mkdir work; '$E/object_replication' pki work \$((20000 + \$\$ % 9000)) > out.txt
-    grep -q 'no full send' out.txt; grep -q '^OK: 10 notes replicated' out.txt"
-# 11/17/2026 (7.4): PEM keys on both sides of TLS, two servers with one certificate (tls_key_test)
-mkdir -p "$WORK/run_tls_key" && cd "$WORK/run_tls_key" &&
-  "$SRC/utils/objrepl/objrepl_certs.sh" pki --copy-host 127.0.0.1 --apply > /dev/null &&
-  check tls_key_test "$BUILD/tests/tls_key_test" pki $((PORT + 50))
-# 11/17/2026 (7.4, from 6.4.1): sockets close on exec; a child started by the server does not keep its port
-mkdir -p "$WORK/run_cloexec" && cd "$WORK/run_cloexec" && check socket_cloexec_test "$BUILD/tests/socket_cloexec_test" $((PORT + 60))
 # 11/17/2026 (7.4): dr_bench section 6, TLS over 127.0.0.1 (handshakes with and without a client certificate,
 # three write sizes): a quick run must finish with no FAIL line
 mkdir -p "$WORK/run_dr_bench_tls" && cd "$WORK/run_dr_bench_tls" &&
   check dr_bench_tls sh -c "set -e; '$SRC/utils/objrepl/objrepl_certs.sh' pki --copy-host 127.0.0.1 --apply > /dev/null
     '$BUILD/utils/dr_bench' w --quick --tls pki --tls-only > out.txt; ! grep -q FAIL out.txt
     grep -q 'handshake, client cert' out.txt; [ \$(grep -c 'MB/s' out.txt) -eq 3 ]"
+# 11/17/2026 (7.4): the object replication example (gxObjRepl): a primary and a copy, a planned switch, equal digests
+mkdir -p "$WORK/run_object_replication" && cd "$WORK/run_object_replication" &&
+  check object_replication sh -c "set -e; '$SRC/utils/objrepl/objrepl_certs.sh' pki --copy-host 127.0.0.1 --apply > /dev/null
+    mkdir work; '$E/object_replication' pki work \$((20000 + \$\$ % 9000)) > out.txt
+    grep -q 'no full send' out.txt; grep -q '^OK: 10 notes replicated' out.txt"
+# 11/17/2026 (7.4, from 6.4.1): sockets close on exec; a child started by the server does not keep its port
+mkdir -p "$WORK/run_cloexec" && cd "$WORK/run_cloexec" && check socket_cloexec_test "$BUILD/tests/socket_cloexec_test" $((PORT + 60))
+# 11/17/2026 (7.4): PEM keys on both sides of TLS, two servers with one certificate (tls_key_test)
+mkdir -p "$WORK/run_tls_key" && cd "$WORK/run_tls_key" &&
+  "$SRC/utils/objrepl/objrepl_certs.sh" pki --copy-host 127.0.0.1 --apply > /dev/null &&
+  check tls_key_test "$BUILD/tests/tls_key_test" pki $((PORT + 50))
 # 11/15/2026 (7.4): the vector examples
 for p in vector_basics vector_records vector_days; do
   mkdir -p "$WORK/run_$p" && cd "$WORK/run_$p" && check $p "$E/$p" "$WORK/run_$p/w"
 done
 mkdir -p "$WORK/run_vector_search" && cd "$WORK/run_vector_search" &&
   check vector_search_walkthrough "$SRC/examples/oodb/vector_search_walkthrough.sh" "$E" "$WORK/run_vector_search/w"
+# 11/17/2026: O_DIRECT reads of a closed gxObjRepl node (from direct_io): equal to plain reads, same digest
+mkdir -p "$WORK/run_odirect" && "$SRC/utils/objrepl/objrepl_certs.sh" "$WORK/run_odirect/pki" --copy-host 127.0.0.1 --days 30 --apply > /dev/null &&
+  check odirect_test env ODIRECT_PKI="$WORK/run_odirect/pki" "$BUILD/tests/odirect_test" "$WORK/run_odirect"
 mkdir -p "$WORK/run_journal_recovery" && cd "$WORK/run_journal_recovery" &&
   check journal_recovery $E/journal_recovery 5
 # Sample programs from the AI guides (docs/ai/samples); run twice to
 # reopen the files
 mkdir -p "$WORK/run_ai_db" && cd "$WORK/run_ai_db" &&
   $E/ai_record_store > /dev/null 2>&1 && $E/ai_indexed_records > /dev/null 2>&1
-check ai_record_store $E/ai_record_store
-mkdir -p "$WORK/run_ai_vec" && (cd "$WORK/run_ai_vec" && "$E/ai_vector_search" > /dev/null 2>&1) &&
-  check ai_vector_search sh -c "cd '$WORK/run_ai_vec' && '$E/ai_vector_search' | grep -q 'on 2026-11-11 only: 2 note'"
-check ai_record_store_walk sh -c "[ \$(grep -c qty $WORK/ai_record_store.log) -eq 4 ]"
-check ai_indexed_records sh -c "$E/ai_indexed_records | tr -d '\n' | grep -q 'Found Acme Tools.*Acme Tools, 40 orders  Baker Hardware, 7 orders  Wilson Supply, 12 orders\$'"
-mkdir -p "$WORK/run_damaged" && cd "$WORK/run_damaged" && 
-  check damaged_files "$BUILD/tests/damaged_files" 300 7
-mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" &&
-  check journal_test "$BUILD/tests/journal_test" 20 7
-# 11/16/2026: journal salts distinct across processes forked in the same second
-mkdir -p "$WORK/run_salt" && check journal_salt_test "$BUILD/tests/journal_salt_test" "$WORK/run_salt"
-# 11/16/2026: block reuse, best fit and first fit (ReclaimBestFit() reused only exact fits)
-mkdir -p "$WORK/run_reclaim" && check reclaim_test "$BUILD/tests/reclaim_test" "$WORK/run_reclaim"
-# 11/17/2026: serial_read (gxSerialComm) on a pseudo terminal: every byte value, --hex, limits, hangup, SIGTERM
-mkdir -p "$WORK/run_serial_read" && check serial_read_test "$BUILD/tests/serial_read_test" "$E/serial_read" "$WORK/run_serial_read"
-# 11/17/2026: terminal control sequences out of text (strutil.h strip_ansi, AnsiStripper)
-check ansi_strip_test "$BUILD/tests/ansi_strip_test"
-# 11/17/2026: one instance at a time (gxProcessLock) and service_example as a daemon: a second start exits 2, the
-# heartbeats are in the log, the stop file stops it and frees the lock; a daemon killed with -9 leaves no stale lock
-mkdir -p "$WORK/run_proclock" && check proclock_test "$BUILD/tests/proclock_test" "$WORK/run_proclock"
-SV="$WORK/run_service"; mkdir -p "$SV" && rm -f "$SV"/*
-check service_daemon sh -c "$E/service_example --lock '$SV/svc.lock' --log '$SV/svc.log' --stop-file '$SV/stop' --daemon && sleep 2.5 &&
-  { $E/service_example --lock '$SV/svc.lock' --log '$SV/svc.log' 2> '$SV/second.err'; [ \$? -eq 2 ]; } && grep -q 'locked by process' '$SV/second.err' &&
-  grep -q 'heartbeat 2' '$SV/svc.log' && touch '$SV/stop' && sleep 1.5 && grep -q 'stop file seen' '$SV/svc.log' &&
-  $E/service_example --lock '$SV/svc.lock' --log '$SV/svc.log' --run-for 1"
-check service_kill9_no_stale_lock sh -c "$E/service_example --lock '$SV/k.lock' --log '$SV/k.log' --daemon && sleep 1 &&
-  kill -9 \$(cat '$SV/k.lock') && sleep 0.5 && $E/service_example --lock '$SV/k.lock' --log '$SV/k.log' --run-for 1"
 # 11/17/2026: hexdump, ffind and txfilter (back from 6.x): known CRC values, a dump rebuilt byte for byte, ffind's
 # counts (its exit code) and edits, txfilter's character sets and line ends
 U="$BUILD/utils"; DU="$WORK/run_dr_utils"; mkdir -p "$DU" && printf '123456789' > "$DU/check.txt" &&
@@ -225,9 +201,33 @@ check ffind_find_replace sh -c "cd '$DU' && printf 'alpha beta\\nBeta alpha alph
   $U/ffind -Iend -W' (last)' t.txt > /dev/null; grep -q '^end (last)\$' t.txt && [ ! -e t.txt.ffind.tmp ]"
 check txfilter_sets sh -c "cd '$DU' && printf 'ab 12\\t\\001x!\\r\\nZ9\\n' > f.txt; [ \"\$($U/txfilter -N f.txt | od -An -c | tr -d ' ')\" = \"12\\t\\n9\\n\" ] &&
   $U/txfilter -d f.txt | od -An -c | tr -d ' ' | grep -qF 'ab12\\tx!\\r\\nZ9\\r\\n'"
-# 11/17/2026: O_DIRECT reads of a closed gxObjRepl node (from direct_io): equal to plain reads, same digest
-mkdir -p "$WORK/run_odirect" && "$SRC/utils/objrepl/objrepl_certs.sh" "$WORK/run_odirect/pki" --copy-host 127.0.0.1 --days 30 --apply > /dev/null &&
-  check odirect_test env ODIRECT_PKI="$WORK/run_odirect/pki" "$BUILD/tests/odirect_test" "$WORK/run_odirect"
+# 11/17/2026: one instance at a time (gxProcessLock) and service_example as a daemon: a second start exits 2, the
+# heartbeats are in the log, the stop file stops it and frees the lock; a daemon killed with -9 leaves no stale lock
+mkdir -p "$WORK/run_proclock" && check proclock_test "$BUILD/tests/proclock_test" "$WORK/run_proclock"
+SV="$WORK/run_service"; mkdir -p "$SV" && rm -f "$SV"/*
+check service_daemon sh -c "$E/service_example --lock '$SV/svc.lock' --log '$SV/svc.log' --stop-file '$SV/stop' --daemon && sleep 2.5 &&
+  { $E/service_example --lock '$SV/svc.lock' --log '$SV/svc.log' 2> '$SV/second.err'; [ \$? -eq 2 ]; } && grep -q 'locked by process' '$SV/second.err' &&
+  grep -q 'heartbeat 2' '$SV/svc.log' && touch '$SV/stop' && sleep 1.5 && grep -q 'stop file seen' '$SV/svc.log' &&
+  $E/service_example --lock '$SV/svc.lock' --log '$SV/svc.log' --run-for 1"
+check service_kill9_no_stale_lock sh -c "$E/service_example --lock '$SV/k.lock' --log '$SV/k.log' --daemon && sleep 1 &&
+  kill -9 \$(cat '$SV/k.lock') && sleep 0.5 && $E/service_example --lock '$SV/k.lock' --log '$SV/k.log' --run-for 1"
+check ai_record_store $E/ai_record_store
+mkdir -p "$WORK/run_ai_vec" && (cd "$WORK/run_ai_vec" && "$E/ai_vector_search" > /dev/null 2>&1) &&
+  check ai_vector_search sh -c "cd '$WORK/run_ai_vec' && '$E/ai_vector_search' | grep -q 'on 2026-11-11 only: 2 note'"
+check ai_record_store_walk sh -c "[ \$(grep -c qty $WORK/ai_record_store.log) -eq 4 ]"
+check ai_indexed_records sh -c "$E/ai_indexed_records | tr -d '\n' | grep -q 'Found Acme Tools.*Acme Tools, 40 orders  Baker Hardware, 7 orders  Wilson Supply, 12 orders\$'"
+mkdir -p "$WORK/run_damaged" && cd "$WORK/run_damaged" && 
+  check damaged_files "$BUILD/tests/damaged_files" 300 7
+# 11/17/2026: terminal control sequences out of text (strutil.h strip_ansi, AnsiStripper)
+check ansi_strip_test "$BUILD/tests/ansi_strip_test"
+mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" &&
+  check journal_test "$BUILD/tests/journal_test" 20 7
+# 11/16/2026: journal salts distinct across processes forked in the same second
+mkdir -p "$WORK/run_salt" && check journal_salt_test "$BUILD/tests/journal_salt_test" "$WORK/run_salt"
+# 11/16/2026: block reuse, best fit and first fit (ReclaimBestFit() reused only exact fits)
+mkdir -p "$WORK/run_reclaim" && check reclaim_test "$BUILD/tests/reclaim_test" "$WORK/run_reclaim"
+# 11/17/2026: serial_read (gxSerialComm) on a pseudo terminal: every byte value, --hex, limits, hangup, SIGTERM
+mkdir -p "$WORK/run_serial_read" && check serial_read_test "$BUILD/tests/serial_read_test" "$E/serial_read" "$WORK/run_serial_read"
 # Vector index (gxvindex.h, 7.4): kernels, exact and graph search,
 # Merge, Repair, concurrent searches and 20 crash rounds
 mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" &&

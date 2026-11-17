@@ -56,40 +56,50 @@ target_link_libraries(imap_login_test PRIVATE DataReel::datareel)
 set_target_properties(imap_login_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 
-# 11/17/2026 (7.4): TLS with PEM keys where no user is signed in (SSH, a Windows service): tls_key_test
-add_executable(tls_key_test tls_key_test.cpp)
-target_link_libraries(tls_key_test PRIVATE DataReel::datareel)
-set_target_properties(tls_key_test PROPERTIES
-# 11/17/2026 (7.4, from 6.4.1): sockets are not passed to programs this process runs (close on exec / not inherited)
-add_executable(socket_cloexec_test socket_cloexec_test.cpp)
-target_link_libraries(socket_cloexec_test PRIVATE DataReel::datareel)
-set_target_properties(socket_cloexec_test PROPERTIES
-  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
-# 11/17/2026: the serial_read example on a pseudo terminal (POSIX)
-if(NOT WIN32)
-  add_executable(serial_read_test serial_read_test.cpp)
-  set_target_properties(serial_read_test PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
-endif()
-# 11/17/2026: strip_ansi() and AnsiStripper (strutil.h): terminal control sequences out of text
-add_executable(ansi_strip_test ansi_strip_test.cpp)
-target_link_libraries(ansi_strip_test PRIVATE DataReel::datareel)
-set_target_properties(ansi_strip_test PROPERTIES
-# 11/17/2026: gxCSVReader and gxCSVWriter (gxcsv.h)
-add_executable(csv_test csv_test.cpp)
-target_link_libraries(csv_test PRIVATE DataReel::datareel)
-set_target_properties(csv_test PROPERTIES
-  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
-# 11/17/2026: gxProcessLock (gxproclock.h), one instance at a time (POSIX: fork)
-if(NOT WIN32)
-  add_executable(proclock_test proclock_test.cpp)
-  target_link_libraries(proclock_test PRIVATE DataReel::datareel)
-  set_target_properties(proclock_test PROPERTIES
 # 11/17/2026: a closed gxObjRepl node's files read past the page cache (O_DIRECT, Linux): equal to the plain reads,
 # and the bytes read that way give the same digest and consistent indexes
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_executable(odirect_test odirect_test.cpp)
   target_link_libraries(odirect_test PRIVATE DataReel::datareel)
   set_target_properties(odirect_test PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+endif()
+
+# 11/17/2026: gxProcessLock (gxproclock.h), one instance at a time (POSIX: fork)
+if(NOT WIN32)
+  add_executable(proclock_test proclock_test.cpp)
+  target_link_libraries(proclock_test PRIVATE DataReel::datareel)
+  set_target_properties(proclock_test PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+endif()
+
+# 11/17/2026: gxCSVReader and gxCSVWriter (gxcsv.h)
+add_executable(csv_test csv_test.cpp)
+target_link_libraries(csv_test PRIVATE DataReel::datareel)
+set_target_properties(csv_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+
+# 11/17/2026: strip_ansi() and AnsiStripper (strutil.h): terminal control sequences out of text
+add_executable(ansi_strip_test ansi_strip_test.cpp)
+target_link_libraries(ansi_strip_test PRIVATE DataReel::datareel)
+set_target_properties(ansi_strip_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+
+# 11/17/2026 (7.4): TLS with PEM keys where no user is signed in (SSH, a Windows service): tls_key_test
+add_executable(tls_key_test tls_key_test.cpp)
+target_link_libraries(tls_key_test PRIVATE DataReel::datareel)
+set_target_properties(tls_key_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+
+# 11/17/2026 (7.4, from 6.4.1): sockets are not passed to programs this process runs (close on exec / not inherited)
+add_executable(socket_cloexec_test socket_cloexec_test.cpp)
+target_link_libraries(socket_cloexec_test PRIVATE DataReel::datareel)
+set_target_properties(socket_cloexec_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+
+# 11/17/2026: the serial_read example on a pseudo terminal (POSIX)
+if(NOT WIN32)
+  add_executable(serial_read_test serial_read_test.cpp)
+  set_target_properties(serial_read_test PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 endif()

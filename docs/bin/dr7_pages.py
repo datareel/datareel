@@ -1030,8 +1030,8 @@ EXAMPLES = [
   ('general/thread_pool.cpp', 'thread_pool', 'ThreadPool tasks, results and exceptions.'),
   ('general/trading_sessions.cpp', 'trading_sessions', 'CDate and systime.h: US market sessions, holidays, trading days.'),
   ('general/string_utils.cpp', 'string_utils', 'strutil.h, base 64 and CRC-32, each checked against a known answer.'),
-  ('general/csv_merge.cpp', 'csv_merge', 'gxCSVReader and gxCSVWriter: merge two spreadsheets exported as CSV on a key column. Usage: csv_merge [--inner] [--delimiter C] KEY A.csv B.csv [OUT.csv]'),
   ('general/service_example.cpp', 'service_example', 'gxProcessLock and the frame of a long-running program: one instance, work every few seconds, a clean stop on SIGTERM, Ctrl+C, a stop file or the Windows service manager; --daemon on POSIX, --install/--service/--uninstall on Windows (demand start, LocalService). Exit 2 if another instance runs.'),
+  ('general/csv_merge.cpp', 'csv_merge', 'gxCSVReader and gxCSVWriter: merge two spreadsheets exported as CSV on a key column. Usage: csv_merge [--inner] [--delimiter C] KEY A.csv B.csv [OUT.csv]'),
  ]),
  ('Plain text diagnostics', [
   ('diagnostics/ping.cpp', 'ping', 'ICMP and ICMPv6 echo. Usage: ping host [count] [-4|-6]'),
