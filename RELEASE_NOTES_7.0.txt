@@ -1,9 +1,10 @@
 DataReel 7.0 Beta Release Notes, 10/26/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
-DataReel 7.0 is a beta release. DataReel 6.2 remains the stable
-release for production use until 7.0 is final; please report
-problems through https://datareel.com/contact.php.
+DataReel 7.0 is a beta release. DataReel 7.4 (11/17/2026) is now the
+stable release, and DataReel 6.4.1 the legacy release (bug fixes and
+security updates only); please report problems through
+https://datareel.com/contact.php.
 
 DataReel 7.1 removed the gxRDBMS relational tables; see
 RELEASE_NOTES_7.1.txt.

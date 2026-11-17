@@ -22,7 +22,7 @@
 <div class="dr-toc-title">Contents</div>
 <p class="dr-toc"><a href="#ReplicationFixes">Replication fixes</a><br>
 <a href="#Tests">Tests</a></p>
-<p>DataReel 7.3.3 is a beta bug fix release of 7.3.2. DataReel 6.2 remains the stable release for production use until DataReel 7 is final; please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
+<p>DataReel 7.3.3 is a beta bug fix release of 7.3.2. DataReel 7.4 (11/17/2026) is now the stable release, and DataReel 6.4.1 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
 <p>7.3.3 fixes more database replication (gxrepl, utils/gxrepl) problems found while it ran in production between two nodes. Database file formats and replication protocol 3 are unchanged, and the API changes are additions. A copy&#x27;s seal gains a field that a 7.3.2 gxrepl reads and ignores. Run the same version on both nodes, and rebuild programs against 7.3.3.</p>
 <p>The library version is 7.3.3 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.3.3); the soname stays libdatareel.so.7.</p>
 <h2 id="ReplicationFixes">Replication fixes</h2>
@@ -77,7 +77,14 @@
    false TORN).</pre>
 <h2 id="Tests">Tests</h2>
 <ul>
-<li>utils/gxrepl/test_gxrepl.py, new tests: - test_derived_seal_per_folder - test_delete_reseals_before_unlink - test_verify_sees_files_named_during_its_pass - test_promote_check_reads_under_the_apply_lock</li>
+<li>utils/gxrepl/test_gxrepl.py, new tests:
+<ul>
+<li>test_derived_seal_per_folder</li>
+<li>test_delete_reseals_before_unlink</li>
+<li>test_verify_sees_files_named_during_its_pass</li>
+<li>test_promote_check_reads_under_the_apply_lock</li>
+</ul>
+</li>
 <li>test_commit_block_kill_storm reads its verdict and &quot;gxrepl torn&quot; under the shared lock, as the staged storm has since 7.3.2.</li>
 <li>The full gxrepl suite passes (GXREPL_TEST_HOOKS build, RHEL 10.2).</li>
 </ul>

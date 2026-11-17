@@ -4,9 +4,10 @@ DataReel Copyright (c) 2001-2026 DataReel Software Development
 DataReel 7.3 followed on the same day with memory-mapped reads and
 faster scans; see RELEASE_NOTES_7.3.txt.
 
-DataReel 7.2 is a beta release. DataReel 6.2 remains the stable
-release for production use until DataReel 7 is final; please report
-problems through https://datareel.com/contact.php.
+DataReel 7.2 is a beta release. DataReel 7.4 (11/17/2026) is now the
+stable release, and DataReel 6.4.1 the legacy release (bug fixes and
+security updates only); please report problems through
+https://datareel.com/contact.php.
 
 The library version is 7.2 (version.txt, DATAREEL_VERSION_STRING in
 gxdlcode.h, libdatareel.so.7.2). The shared library soname
