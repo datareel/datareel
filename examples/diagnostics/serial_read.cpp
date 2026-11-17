@@ -35,12 +35,15 @@ Ctrl+C, a time limit or a byte count. From dougg's ttycat.
 	      [--hex] [--seconds N] [--bytes N] [--quiet]
 
 DEVICE: /dev/ttyS0, /dev/ttyUSB0, a pseudo terminal (/dev/pts/N) on
-Linux; COM1 ... COM9 (or \\.\COM10 and up) on Windows. Defaults:
+Linux; COM1, COM2 ... on Windows. Defaults:
 9600 baud, 8 data bits, no parity, 1 stop bit, no flow control, raw
 (binary) mode. --out appends to FILE and flushes after every read, so
 the capture survives a crash or a pulled cable. --hex writes each
 byte as two hex digits (16 a line) instead of the bytes themselves.
 Exit 0, 1 on an open or read error (a hangup ends the read: exit 0).
+Windows has no hangup on a serial line: the read goes on until Ctrl+C,
+Ctrl+Break, --seconds or --bytes; a USB adapter pulled out is a read
+error (exit 1). COM10 and up are opened as \\.\COMn for you.
 */
 // ----------------------------------------------------------- //
 #include "gxdlcode.h"
@@ -55,6 +58,8 @@ Exit 0, 1 on an open or read error (a hangup ends the read: exit 0).
 #include <atomic>
 #if defined (_WIN32)
 #include <windows.h>
+#include <io.h>
+#include <fcntl.h>
 #else
 #include <poll.h>
 #endif
@@ -108,11 +113,28 @@ int main(int argc, char **argv)
 #endif
   gxSerialComm port;
   std::string devname = dev;
+#if defined (_WIN32)
+  // 11/17/2026: COM10 and up only open as \\.\COM10 (the short name works for COM1 to COM9 only)
+  if(devname.size() > 3 && _strnicmp(devname.c_str(), "COM", 3) == 0 && atoi(devname.c_str() + 3) >= 10)
+    devname = "\\\\.\\" + devname;
+#endif
   // InitSerialPort() returns the port's access mode (scommREAD_WRITE ...), or -1
   if(port.InitSerialPort((char *)devname.c_str(), baud, parity, bits, stop, flow) < 0) {
     fprintf(stderr, "serial_read: %s: %s\n", dev.c_str(), port.SerialCommExceptionMessage());
     return 1;
   }
+#if defined (_WIN32)
+  // 11/17/2026: reads that return at once with what has arrived, or after 100 ms with nothing (the library's
+  // timeouts wait about 4 s for a full 4 KB buffer), so --seconds and Ctrl+C are seen within 100 ms, as on POSIX
+  {
+    COMMTIMEOUTS ct; memset(&ct, 0, sizeof(ct));
+    ct.ReadIntervalTimeout = MAXDWORD; ct.ReadTotalTimeoutMultiplier = MAXDWORD; ct.ReadTotalTimeoutConstant = 100;
+    ct.WriteTotalTimeoutConstant = 1000;
+    SetCommTimeouts(port.DeviceHandle(), &ct);
+  }
+  // 11/17/2026: binary bytes to standard output unchanged (text mode turns \n into \r\n)
+  if(out_file.empty()) _setmode(_fileno(stdout), _O_BINARY);
+#endif
   FILE *out = stdout;
   if(!out_file.empty()) {
     out = fopen(out_file.c_str(), "ab");
