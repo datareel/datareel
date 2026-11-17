@@ -74,6 +74,13 @@ number; records left in the file after that have an old salt.
 #include <limits.h>
 #include <time.h>
 #include <map>
+#if defined (__WIN32__)
+#include <windows.h>              // 11/16/2026: GetCurrentProcessId, QueryPerformanceCounter (the salt)
+#else
+#include <unistd.h>
+#include <sys/time.h>
+#include <stdio.h>
+#endif
 #include "gxdjrnl.h"
 #include "gxbtree.h"
 #include "btcache.h"
@@ -151,6 +158,31 @@ static uint32_t jcheck(const unsigned char *p, size_t n,
   uint64_t h = jsum(p, n, (uint64_t)(n + len));
   if(data) h = jsum(data, len, h);
   return (uint32_t)(h ^ (h >> 32));
+}
+
+// 11/16/2026: a header's salt. It was time(0), a counter and the object's address, so two processes forked from one
+// parent that wrote a header in the same second (same counter, same address) wrote the same salt; a recovery then
+// took the previous session's records left after the cleared header for this session's and replayed old
+// transactions (found in DataReel 7.4 by the gxObjRepl property test). Now: the OS random source where there is
+// one, mixed with a fine clock, the process id, a counter and the address; never 0 or the salt written last.
+static uint32_t jnewsalt(uint32_t avoid, const void *self)
+{
+  static unsigned counter = 0;
+  uint64_t x = (uint64_t)time(0) * 2654435761u ^ (uint64_t)(++counter) * 0x9E3779B97F4A7C15ULL ^ (uint64_t)(size_t)self;
+  x ^= (uint64_t)clock() << 20;
+#if defined (__WIN32__)
+  LARGE_INTEGER pc; QueryPerformanceCounter(&pc);
+  x ^= (uint64_t)pc.QuadPart ^ ((uint64_t)GetCurrentProcessId() << 32) ^ ((uint64_t)GetTickCount() << 16);
+#else
+  struct timeval tv; gettimeofday(&tv, 0);
+  x ^= ((uint64_t)tv.tv_usec << 12) ^ ((uint64_t)getpid() << 32);
+  FILE *r = fopen("/dev/urandom", "rb");
+  if(r) { uint64_t y = 0; if(fread(&y, 1, sizeof(y), r) == sizeof(y)) x ^= y; fclose(r); }
+#endif
+  x ^= x >> 29; x *= 0xBF58476D1CE4E5B9ULL; x ^= x >> 32;
+  uint32_t s = (uint32_t)x;
+  while(s == 0 || s == avoid) s = s * 2654435761u + 1;
+  return s;
 }
 
 static std::string jfull_path(const char *name)
@@ -471,11 +503,7 @@ gxDatabaseError gxdJournal::Begin()
 
 gxDatabaseError gxdJournal::WriteHeader()
 {
-  static unsigned counter = 0;
-  salt = (unsigned long)(((unsigned)time(0) * 2654435761u) ^
-			 (++counter * 40503u) ^ (unsigned)(size_t)this);
-  salt &= 0xFFFFFFFFUL;
-  if(salt == 0) salt = 1;
+  salt = (unsigned long)jnewsalt((uint32_t)salt, this);   // 11/16/2026: see jnewsalt()
   std::vector<unsigned char> h(gxdJournalMagic, gxdJournalMagic + 8);
   jput32(h, gxdJournalVersion);
   jput32(h, (uint32_t)salt);
