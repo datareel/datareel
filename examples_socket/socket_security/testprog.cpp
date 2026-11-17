@@ -6,7 +6,7 @@
 // Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 10/31/2026
-// Date Last Modified: 10/31/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- //
 // ------------- Program Description and Details ------------- //
@@ -43,6 +43,9 @@ so a crash or a killing signal is reported as a FAIL.
   loopback    A TCP Send()/Recv() round trip over 127.0.0.1.
   address     InitSIN() fills in the structure passed to it, and
               SetRemoteIPAddress() sets the remote address.
+  cloexec     Socket() and both Accept() calls set FD_CLOEXEC, so a
+              program the process runs does not get its sockets
+              (6.4.1).
 
 Returns 0 if every check passes.
 */
@@ -261,6 +264,53 @@ static int test_address()
   return rv;
 }
 
+static int has_cloexec(int fd)
+{
+  int flags = fcntl(fd, F_GETFD);
+  return flags >= 0 && (flags & FD_CLOEXEC);
+}
+
+static int test_cloexec()
+{
+  int rv = 0;
+  gxSocket server;
+  if(server.InitSocket(SOCK_STREAM, 0, (char *)"127.0.0.1") < 0) return 2;
+  if(!has_cloexec(server.GetSocket())) {
+    printf("  Socket() did not set FD_CLOEXEC\n");
+    rv = 1;
+  }
+  int on = 1;
+  server.SetSockOpt(SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+  if(server.Bind() < 0) return 2;
+  if(server.Listen(2) < 0) return 2;
+  if(server.GetSockName() < 0) return 2;
+  int port = server.GetPortNumber();
+
+  // Accept(): the object's remote socket
+  gxSocket c1;
+  if(c1.InitSocket(SOCK_STREAM, port, (char *)"127.0.0.1") < 0) return 2;
+  if(c1.Connect() < 0) return 2;
+  if(server.Accept() < 0) return 2;
+  if(!has_cloexec(server.GetRemoteSocket())) {
+    printf("  Accept() did not set FD_CLOEXEC\n");
+    rv = 1;
+  }
+
+  // Accept(s, sa): a descriptor returned to the caller
+  gxSocket c2;
+  if(c2.InitSocket(SOCK_STREAM, port, (char *)"127.0.0.1") < 0) return 2;
+  if(c2.Connect() < 0) return 2;
+  gxsSocketAddress sa;
+  gxsSocket_t cfd = server.Accept(server.GetSocket(), &sa);
+  if(cfd < 0) return 2;
+  if(!has_cloexec(cfd)) {
+    printf("  Accept(s, sa) did not set FD_CLOEXEC\n");
+    rv = 1;
+  }
+  server.Close(cfd);
+  return rv;
+}
+
 int main()
 {
   run("close: a second Close() does not close a reused descriptor",
@@ -271,6 +321,7 @@ int main()
   run("iotimeout: SetIOTimeout() ends a blocking Recv()", test_iotimeout);
   run("loopback: TCP Send()/Recv() round trip", test_loopback);
   run("address: InitSIN() and SetRemoteIPAddress()", test_address);
+  run("cloexec: Socket() and Accept() set FD_CLOEXEC", test_cloexec);
   printf("%d failure(s)\n", failures);
   return failures ? 1 : 0;
 }
