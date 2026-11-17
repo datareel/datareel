@@ -30,8 +30,8 @@ and networking engine:
   Windows and Linux nodes in both directions, with the primary on either side, and takeover
   and rejoin work across the platforms. It replaces gxrepl page shipping (7.3.1 to the 7.4
   betas), removed in 7.4 beta 5. The
-  [replication administrator's guide](docs/replication_admin_guide.md) still describes gxrepl
-  and is being rewritten for gxObjRepl.
+  [replication administrator's guide](docs/replication_admin_guide.md) covers setup, watching,
+  takeover and rejoin, upgrades, and when a plain file copy is enough.
 
 ### Legacy utility classes removed
 

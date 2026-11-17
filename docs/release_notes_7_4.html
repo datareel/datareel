@@ -330,6 +330,7 @@
 <li>From DataReel 6.4, programs built with the matching stream header can talk to 7.4 replication.</li>
 <li>Tested Linux to Windows and Windows to Linux: takeover and rejoin with identical digests and index digests in every run, a 2,500-commit stress run each way, and old Windows builds refused both ways.</li>
 <li>Upgrade: every node must run a 7.4 beta 5 build (see UPGRADING TO 7.4 BETA 5).</li>
+<li>With the 32-bit engine each database file is limited to 2 GB (FAU_t); 1M-object stores need the 64-bit engine. Mixed 32/64-bit nodes replicate. Not tested: a 32-bit Windows build.</li>
 </ul>
 </li>
 <li>gxrepl page-shipping replication is removed. 7.4 replication is gxObjRepl.

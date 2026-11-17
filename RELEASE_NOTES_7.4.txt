@@ -596,6 +596,9 @@ NEW IN BETA 5 (11/16/2026)
     both ways.
   - Upgrade: every node must run a 7.4 beta 5 build (see UPGRADING TO
     7.4 BETA 5).
+  - With the 32-bit engine each database file is limited to 2 GB
+    (FAU_t); 1M-object stores need the 64-bit engine. Mixed 32/64-bit
+    nodes replicate. Not tested: a 32-bit Windows build.
 - gxrepl page-shipping replication is removed. 7.4 replication is
   gxObjRepl.
   - A gxrepl binary installed from a 7.4 beta keeps working as it is,

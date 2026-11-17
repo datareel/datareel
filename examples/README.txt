@@ -146,9 +146,15 @@ comment gives the request and reply layouts.
 
 Replication
 -----------
-11/16/2026: DataReel 7.4 replication is gxObjRepl (gxobjrepl.h). The
-gxrepl page-shipping example (replication.cpp, its walkthrough and its
-extractor) went with gxrepl; the gxObjRepl examples come with it.
+11/16/2026: DataReel 7.4 replication is gxObjRepl (gxobjrepl.h):
+object replication between Windows and Linux nodes in both directions,
+with takeover and rejoin. The gxrepl page-shipping example
+(replication.cpp, its walkthrough and its extractor) went with gxrepl.
+The worked example is the objrepl tool (utils/objrepl/objrepl.cpp): a
+copy (objrepl copy), a test writer (objrepl primary), status, check,
+digest, takeover and rejoin. docs/replication_admin_guide.md runs it
+step by step on two local folders; the class page is
+docs/classes/database/gxobjrepl.htm.
 
 
 Folder copy (examples/oodb/replication_copy.cpp, Windows and Linux)

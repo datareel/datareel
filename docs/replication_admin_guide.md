@@ -1,400 +1,264 @@
-# DataReel Replication Administrator's Guide (gxrepl)
+# DataReel Replication Administrator's Guide (gxObjRepl)
 
-> **Marked for a rewrite (7.4 beta 5, 11/16/2026).** gxrepl page-shipping replication was removed in 7.4
-> beta 5. Replication in 7.4 is gxObjRepl (`gxobjrepl.h`): object replication between Windows and Linux nodes
-> in both directions, with takeover and rejoin. This guide describes gxrepl as it was in 7.3 and the 7.4 betas
-> 1 to 4, and is being rewritten for gxObjRepl. A gxrepl binary installed from a 7.4 beta keeps working, but
-> it is not part of 7.4.
+This guide is for the person who runs object replication on two nodes: setting it up, watching it, taking over
+when the primary fails, and getting back. It covers gxObjRepl as shipped in DataReel 7.4 beta 5. The class
+reference is `docs/classes/database/gxobjrepl.htm`. The tool is `utils/objrepl/objrepl.cpp`, and the release
+notes are `RELEASE_NOTES_7.4.txt`.
 
-This guide is for the person who runs database replication on two nodes: setting it up, watching it, taking
-over when the primary fails, and getting back. It covers gxrepl as shipped in DataReel 7.4 beta 3. The design
-and every config key are in `utils/gxrepl/README.md`, `include/gxrepl.h` and `RELEASE_NOTES_7.4.txt`.
+> **7.4 beta 5:** gxObjRepl replaces gxrepl page shipping, which 7.4 no longer has. A gxrepl binary installed
+> from a 7.4 beta keeps working as it is, but it is not part of 7.4. The gxrepl guide of the 7.4 betas 1 to 4 is
+> kept with the gxrepl source in the DataReel repository's history.
 
-Every example uses throwaway folders under `/tmp/repl_demo`, two node names (`primary` and `copy`) and the
-loopback address. Never try the commands here for the first time on production nodes: run them on a local
-throwaway setup first. **Test status:** every command block below is marked **(tested)**: it was run as printed,
-in order, on a throwaway setup (section 9 says how).
+Every example uses throwaway folders under `/tmp/objrepl_demo`, two node names (`n1` and `n2`) and the loopback
+address. Never try the commands here for the first time on production nodes: run them on a local throwaway setup
+first. **Test status:** each block marked **(tested)** was run as printed, in order, on a throwaway setup
+(section 10 says how).
 
-**The demo's data.** The examples need a writer with the ship log on. The demo uses the replication example
-program (`examples/oodb/replication`, built with the examples): `replication write DIR` writes records to
-`DIR/data.gxd` with their two indexes, a B-tree of names (`by_name.btx`) and a vector index (`vectors.vix`), and a
-commit block (`commit.bin`); `replication rebuild DIR [LSN]` makes both indexes again from the records and writes
-`derived.stamp`. Your own program takes its place on real nodes.
+## 1. What gxObjRepl replicates
 
-**Platforms.** gxrepl, live replication, runs on Linux and other POSIX systems only; it is not built on Windows,
-and the Windows build of the library has no ship log. On Windows, copy a database folder the way section 8
-describes, with robocopy, as the Windows example `examples/oodb/replication_copy_walkthrough.cmd` does.
-
-**File layouts.** Since 7.4 beta 4 every platform writes one database file layout (the 64-bit Linux one), and a
-file in the old 4-byte layout (written by 64-bit Windows or a 32-bit build before beta 4) is read and written in its
-own layout. gxrepl copies bytes and never rewrites a header, so a copy keeps its source's layout. `gxd_upgrade`
-rewrites an old data file as a canonical one, only when you run it. An application's own record types are still
-per platform when they hold native gx types or, in a 32-bit file address build, a FAU.
-
-## 1. What gxrepl replicates
-
-- **Committed database pages.** A program writing through a `gxdJournal` with the ship log on
-  (`EnableShipLog(set_root)`) appends each commit's pages to `<root>/.gxrepl/log/<stream>/`. gxrepl sends those
-  records to the copy over a mutual-TLS gxStream connection (TCP 2073), and the copy applies them through its own
-  journal (`<root>/.gxrepl/apply.jnl`). The copy is always one whole commit, even after a crash in the middle of
-  an apply.
-- **Database files without a ship log** (published databases, writers without the log) go by a scan: changed
-  files are compared in 64 KB pieces and only the pieces that differ are sent. Live writers' files are read under
-  `gxdJournalReadLock`.
-- **Database files only.** `.gxd`, `.btx` and the files a set names with `include` (a commit block, a manifest).
-  Flat files (logs, CSV, reports) are not gxrepl's job; copy them with your usual file sync.
-- **Derived indexes are never sent.** An index the copy can make from the data (`derived = by_*.btx, vectors.vix`)
-  is left out of the ship log and the file sync, and the copy keeps it itself. Each set chooses how:
-  - `derived_apply = rebuild` (the default): the copy runs `derived_rebuild` for a folder once its data is quiet
-    (`derived_delay`), or after `derived_busy_rebuild` seconds on a folder that never goes quiet.
-  - `derived_apply = incremental` (7.4): the copy updates each index object by object, in the same atomic batch
-    as the data, from the "objects" records the writer adds to the ship log (object notes, below). A gap, an
-    error or a crash it cannot be sure of puts that folder back on a full rebuild ("rebuild needed").
-- **Commit blocks.** A folder whose writer keeps a commit block (`commit_block = commit.bin@8`, a generation that
-  is odd while a batch writes) is copied as one unit and sealed at a whole commit. `gxrepl torn` (promote-check)
-  says whether every copy is whole.
+- **Objects, not file pages.** Each node is a folder with its own object databases (`<db>.gxd` and an id index).
+  The primary sends the objects a commit added, changed or removed, and the copy applies them in one transaction.
+  Each node keeps its own file addresses and builds its own B-tree and vector indexes, so nothing about one node's
+  files has to match the other's.
+- **Between Windows and Linux, in both directions.** Mixed Windows and Linux nodes replicate either way, with the
+  primary on either side, and takeover and rejoin work across the platforms. Every platform sends gxStream's block
+  header in one canonical 32-byte form. TLS uses each platform's own TLS library (OpenSSL on Linux, the Windows
+  Schannel library on Windows), with certificates on both sides.
+- **Asynchronous.** A commit is durable on the primary when `Commit()` returns, and on the copy once the copy has
+  acknowledged it. If the primary is lost, the commits the copy did not have are lost with it. The primary's
+  status shows them as lag. After a takeover, the old primary's rejoin counts them.
+- **The application is the primary.** A program writes through the gxObjRepl API (`Begin()`, `Put()`, `Remove()`,
+  `Commit()`) and sends with `Pump()` or `Drain()`. The copy runs `objrepl copy` or the program's own `Serve()`.
+  `objrepl primary` is a test data generator: it writes test commits and sends them. This guide uses it as the
+  demo's writer.
+- **32-bit and 64-bit.** With the 32-bit engine each database file is limited to 2 GB (FAU_t); 1M-object stores
+  need the 64-bit engine. Mixed 32/64-bit nodes replicate. Not tested: a 32-bit Windows build.
 
 ## 2. Setting up a primary and a copy
 
-### 2.1 Certificates
+### 2.1 Build
 
-Both nodes authenticate with certificates from a private CA. The server lets in only the client names in
-`allow_cn` (or fingerprints in `allow_fingerprint`), and the client checks that the server's certificate names
-`server_name`.
+Build every binary from one 7.4 beta 5 tree: the library, the `objrepl` tool and your programs. A program built
+from an older tree may send the old stream header, which is refused (section 6).
+
+```
+cmake -S datareel -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j2
+build/utils/objrepl engine        # "64-bit" and exit 0 for the 64-bit engine (the default)
+```
+
+### 2.2 Certificates
+
+`utils/objrepl/objrepl_certs.sh` makes a private CA and the two certificates: the copy's server certificate, and
+the primary's client certificate, whose CN the copy allows. It is a dry run unless you add `--apply`, and it never
+overwrites a file.
 
 (tested)
 
 ```
-mkdir -p /tmp/repl_demo/pki && cd /tmp/repl_demo/pki
-openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
-    -keyout ca.key -out ca.pem -days 30 -subj /CN=demo-ca
-# the server: the copy, which listens
-openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout copy.key -out copy.csr -subj /CN=copy
-printf 'subjectAltName=DNS:copy,IP:127.0.0.1\nextendedKeyUsage=serverAuth\n' > copy.ext
-openssl x509 -req -in copy.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out copy.pem -days 30 -extfile copy.ext
-# the client: the primary, which dials
-openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout primary.key -out primary.csr -subj /CN=primary
-printf 'extendedKeyUsage=clientAuth\n' > primary.ext
-openssl x509 -req -in primary.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out primary.pem -days 30 -extfile primary.ext
-chmod 600 *.key
-gxrepl fingerprint primary.pem          # for allow_fingerprint, if you pin it
+mkdir -p /tmp/objrepl_demo
+datareel/utils/objrepl/objrepl_certs.sh /tmp/objrepl_demo/certs --copy-host 127.0.0.1           # dry run
+datareel/utils/objrepl/objrepl_certs.sh /tmp/objrepl_demo/certs --copy-host 127.0.0.1 --apply
+ls /tmp/objrepl_demo/certs
 ```
 
-Keep the CA key off both nodes. On a real node, give gxrepl its key on a descriptor (`key = fd:3` or
-`--key-fd 3`) or from the environment (`env:VAR`) instead of a file. gxrepl then keeps it only in an anonymous
-memory file.
+Give each node its own certificate and key, and the CA certificate (`ca.pem`). Keep `ca.key` off the nodes. The
+keys are written mode 600. `objrepl` refuses a key that others can read, and it also checks the certificates'
+dates, CA and key when it starts. A Windows (Schannel) build makes those checks at the TLS handshake instead.
 
-### 2.2 Configs
+### 2.3 Configuration
 
-Usually the node that cannot take inbound connections is the client (`gxrepl run`) and the other is the server
-(`gxrepl serve`). Direction is per set: `push` copies the client's folder to the server, `pull` the reverse.
-In this demo the primary pushes to the copy.
+Each node reads `ROOT/objrepl.conf`, one `key value` line per setting (`#` starts a comment). The same keys work
+as command line options with `--` in front, and the command line wins.
 
-`/tmp/repl_demo/primary.conf` (the client):
-
-```
-node = primary
-role = client
-connect = 127.0.0.1:12073
-server_name = copy
-cert = /tmp/repl_demo/pki/primary.pem
-key = /tmp/repl_demo/pki/primary.key
-ca = /tmp/repl_demo/pki/ca.pem
-status_file = /tmp/repl_demo/primary.status.json
-
-[set db]
-root = /tmp/repl_demo/primary/db
-direction = push
-commit_block = commit.bin@8
-include = commit.bin
-derived = by_*.btx, vectors.vix
-deletes = yes
-```
-
-`/tmp/repl_demo/copy.conf` (the server):
-
-```
-node = copy
-role = server
-listen = 127.0.0.1:12073
-allow_cn = primary
-cert = /tmp/repl_demo/pki/copy.pem
-key = /tmp/repl_demo/pki/copy.key
-ca = /tmp/repl_demo/pki/ca.pem
-status_file = /tmp/repl_demo/copy.status.json
-
-[set db]
-root = /tmp/repl_demo/copy/db
-accept = target
-commit_block = commit.bin@8
-include = commit.bin
-derived = by_*.btx, vectors.vix
-derived_rebuild = /path/to/replication rebuild {dir} {lsn}
-derived_delay = 30
-```
-
-The patterns:
-
-- `include`: extra files carried with the databases (only database files go by default).
-- `exclude`: files and folders never sent. `/x/` matches only x under the root; `name/` matches a folder of that
-  name anywhere.
-- `derived`: the indexes the copy rebuilds. Name the same patterns on both nodes. `<index>.stamp` files belong to
-  their index and are never sent.
-- `writer_lock`: lock files a node's own writer holds while it is the active node. While one is held, gxrepl
-  refuses to change that node's copy (the split-brain guard).
-
-`derived_rebuild` runs on the copy under the apply lock, with `{dir}` (the folder) and `{lsn}` (the ship log
-record the folder was last changed at). It must rebuild the folder's derived indexes and write
-`<folder>/derived.stamp` (`gen G lsn L records N keys K`); in the demo that is `replication rebuild` (give its
-full path). For vector indexes made from record members,
-`utils/vix_rebuild` is such a tool:
-
-```
-derived = vectors.vix
-derived_rebuild = vix_rebuild --data {dir}/data.gxd --index {dir}/vectors.vix --member infohog:1 \
-    --dim 96 --spec news/v1 --stamp-dir {dir} --lsn {lsn}
-```
-
-### 2.3 Check and start
-
-The demo writes some data first (`mkdir -p /tmp/repl_demo/primary/db /tmp/repl_demo/copy/db`, then
-`replication write /tmp/repl_demo/primary/db --commits 60`).
+| key | node | meaning |
+|---|---|---|
+| `name`, `peer-name` | both | this node and the peer it expects (empty: any) |
+| `ca`, `cert`, `key` | both | the CA, this node's certificate and key |
+| `copy` | primary | the copy, `HOST:PORT` |
+| `listen` | copy | `[ADDR:]PORT` (default address 127.0.0.1) |
+| `allow-cn` | copy | the CN of the primary's client certificate |
+| `links` | primary | `DB:OFFSET:TARGET_DB,...`: link fields (8-byte addresses) sent as ids |
+| `index` | both | `NAME:DB:B:OFFSET:LEN` (B-tree) or `NAME:DB:V:OFFSET:DIM` (vector): this node's own indexes |
+| `max-lag`, `max-behind`, `min-cert-days` | both | `check` thresholds: commits, seconds, certificate days (100, 60, 30) |
+| `idle-timeout` | both | seconds without a frame before a connection is dropped (120) |
+| `trim` | primary | 1: drop outbox entries the copy has (default) |
 
 (tested)
 
 ```
-gxrepl check --config /tmp/repl_demo/copy.conf          # certificates, sets, folders
-gxrepl check --config /tmp/repl_demo/primary.conf
-gxrepl serve --config /tmp/repl_demo/copy.conf &        # the copy listens
-gxrepl once  --config /tmp/repl_demo/primary.conf       # one pass with a full verify; 0 = every set the same
-gxrepl run   --config /tmp/repl_demo/primary.conf &     # replicate until stopped
+D=/tmp/objrepl_demo; C=$D/certs
+mkdir -p $D/n1 $D/n2
+cat > $D/n2/objrepl.conf <<EOF
+name n2
+peer-name n1
+ca $C/ca.pem
+cert $C/copy.pem
+key $C/copy.key
+listen 127.0.0.1:24700
+allow-cn objrepl-primary
+EOF
+cat > $D/n1/objrepl.conf <<EOF
+name n1
+peer-name n2
+ca $C/ca.pem
+cert $C/primary.pem
+key $C/primary.key
+copy 127.0.0.1:24700
+EOF
 ```
 
-`check` prints each set (`set db  push /tmp/repl_demo/primary/db`). The first `once` verifies the new stream
-and says so:
+### 2.4 Start the copy, then the primary
+
+(tested)
 
 ```
-gxrepl: connected to copy (direct)
-gxrepl: set db: stream writer.jnl needs a verify (new)
-gxrepl: set db: stream writer.jnl verified (2 file(s))
-gxrepl: set db: in step
+B=build/utils/objrepl; D=/tmp/objrepl_demo
+$B copy $D/n2 > $D/n2.log 2>&1 &  echo $! > $D/n2.pid
+$B primary $D/n1 --commits 200               # the demo's writer: 200 test commits, then waits for the copy
+echo "exit $?"                                # 0: the copy has every commit
 ```
 
-`once` exits 0 when every set is the same, 1 when a set is not in step, 2 on an error. `TERM` stops either side
-after the current message. `HUP` on the client forces a full verify at its next pass.
-
-### 2.4 Per-object derived apply (incremental)
-
-Turn it on per set, on the copy, only when both nodes run DataReel 7.4 beta 2 or later (section 6):
-
-```
-derived_apply = incremental
-derived_extractor = <a built-in name, or /path/to/extractor.so>
-derived_extractor_config = <the extractor's settings>
-derived_source = data.gxd          # the folder's data file the indexes come from
-derived_count = by_time.btx        # the index whose entry count is derived.stamp's "keys"
-derived_apply_max_mb = 256         # most staged index pages a batch may hold
-derived_apply_max_s = 30           # longest index step of a batch
-```
-
-and on the writer, turn the object notes on (`gxdJournal::EnableObjectNotes(1)`, or `GXDSHIP_OBJECTS=1` in its
-environment before it calls `EnableShipLog`). Without the notes, an incremental set stays on rebuild.
-
-An extractor turns one record into its index entries (`include/gxrextract.h`). The built-in `gxvmember` keeps a
-vector index made from the records' vector members. An application builds its own into its gxrepl and registers
-it with `gxrRegisterExtractor()` (build gxrepl with `GXREPL_EXTRA_EXTRACTORS`). The replication example
-(`examples/oodb/replication.cpp`, `replication_walkthrough.sh`) shows one end to end.
-
-Rules worth knowing:
-
-- The first incremental batch of a folder needs a stamped index, so the folder is rebuilt once first.
-- A writer restart (its open record makes the copy verify), a copy by files, a ship log gap, an extractor error,
-  or a staged batch over the cap each cost one rebuild of the folders it touched.
-- Two crashes of the index step on one batch, or three in an hour on one set, trip the breaker: the set goes
-  back to rebuild with an ALERT in the log. `gxrepl derived rebuild --config FILE --set NAME` clears it.
-- Rolling back is one line: `derived_apply = rebuild`, then restart the server.
+The copy runs until it gets TERM or INT on Linux, or Ctrl+C or Ctrl+Break on Windows. On either platform it also
+stops when `ROOT/objrepl.stop` appears. Stop it by its process id, never by a name pattern.
 
 ## 3. Watching it
 
-(tested, with a writer running on the primary)
+- `objrepl status ROOT`: the node's state from `ROOT/objrepl.status`: role, epoch, sequence numbers, lag, and
+  whether it is running.
+- `objrepl check ROOT`: one line, OK, WARN or FAIL, with exit 0, 1 or 2. WARN covers a node that is not running,
+  a copy that is away, lag over `max-lag` or `max-behind`, and a certificate within `min-cert-days` of expiring.
+  FAIL means an alarm, such as a refused peer. Run it from cron and send the line to your monitoring.
+- `objrepl clear-alarm ROOT`: acknowledges an alarm once you have dealt with its cause.
+- `objrepl digest ROOT`: every database's ids and contents, with links as ids. Two nodes that hold the same
+  objects print the same line.
+- `objrepl ixcheck ROOT --index ...`: each index checked against entries rebuilt from the objects.
+
+(tested)
 
 ```
-gxrepl status --config /tmp/repl_demo/primary.conf      # the status JSON; exit 1 if older than 30 s
-gxrepl derived status --config /tmp/repl_demo/copy.conf # derived mode, stamps, breaker, per folder
-gxrepl torn --config /tmp/repl_demo/copy.conf           # promote-check: is every copy whole?
-gxrepl shiplog /tmp/repl_demo/primary/db/.gxrepl/log/writer.jnl   # the records of one stream
-gxrepl digest /tmp/repl_demo/copy/db/by_name.btx --kind btree   # compare an index with the other node
-vix_rebuild --digest /tmp/repl_demo/copy/db/vectors.vix         # a vector index's logical digest
+B=build/utils/objrepl; D=/tmp/objrepl_demo
+$B status $D/n1; $B status $D/n2
+$B check $D/n2; echo "exit $?"
+$B digest $D/n1 > $D/n1.digest; $B digest $D/n2 > $D/n2.digest
+cmp $D/n1.digest $D/n2.digest && echo "the same objects"
 ```
-
-What to look at:
-
-- **status.json** (`status_file`, rewritten every few seconds): per set `ok`, `last_ok`, `last_error`, `warn`,
-  bytes and records sent, and per stream `source`, `copy` and `lag` (records the copy is behind). With derived
-  indexes there is a `derived` block: the mode, folders whose stamps are behind, an index step in progress, the
-  breaker and the last ALERT.
-- **The stall check.** `lag` should come back to 0 within seconds of a quiet writer. A lag that stays above 0
-  while the writer is quiet, or a `last_ok` that stops moving while `ok` is false, means the set is stuck: read
-  `last_error` and the server log. `gxrepl status` itself exits 1 when the status file is older than 30 seconds
-  (gxrepl is not running).
-- **Digests.** `gxrepl digest` compares what an index holds, not its bytes: `btree` hashes the keys in order,
-  the same for any node layout; `objects` hashes a data file's live objects; `bytes` hashes the file.
-  `vix_rebuild --digest` gives a vector index's logical digest (live nodes in id order). A primary's index and a
-  copy's index made by incremental apply or by a rebuild agree on the logical digests. Two rebuilds of the same
-  data also agree on the bytes.
-- **Log lines.** `derived indexes rebuilt`, `rebuild needed: <why>` and `ALERT` are the ones to alert on.
-
-A stream is named after its writer's journal (`writer.jnl` in the demo); `ls .gxrepl/log` lists them. In the demo,
-with the copy on `derived_apply = rebuild`, `derived status` says `by_name.btx: no stamp (rebuild mode)` (only an
-incremental set keeps per-index stamps) and `state 280 ok rc=0` once the rebuild ran; `shiplog` prints one line per
-record (`280 ... commit(z) 4563 bytes  data.gxd 4 page(s) ...`, and `objects ... 4 add 3 update 0 remove` when the
-writer has the object notes on). Both `digest` lines and both `vix_rebuild --digest` lines agree between the nodes
-(the `opt` field of `vix_rebuild --digest` differs: a rebuilt index is marked as made from the records).
-
-### 3.1 "waiting for verify" (the seal guard, 7.4)
-
-A writer's open record (a writer restart), a gap, or a file update that would move the copy to another ship log
-(a log purged and made again, as a late pass that reopens a day does) makes the copy verify that stream. Until the
-verify is done, gxrepl does not apply the folder's commit block: the copy stays unsealed, so it is never reported
-in step with a data file that is behind. While it waits, the set's entry in status.json carries
-
-```
-"waiting": "waiting for verify: writer.jnl"
-```
-
-and `gxrepl once` returns 1 for that pass (a verify the pass queued itself runs in the next pass): run it again,
-and it returns 0 once the verify is done. This is expected, not an error. A `waiting` that stays for minutes while
-`lag` is 0 and the writer is quiet means the verify cannot finish: read `last_error` and the server log. Do not
-promote a copy while it waits: run `gxrepl torn` (section 4.1) after the wait is over.
 
 ## 4. Failover and failback
 
-### 4.1 Before a node takes over
+- **Takeover.** `objrepl takeover ROOT` makes a stopped copy the primary at the next epoch. New ids carry the
+  epoch, so the new primary never hands out an id the old one may have used.
+- **Rejoin.** `objrepl rejoin ROOT` makes the former primary a copy again. If its copy had acknowledged every
+  commit (a planned switch), it follows on from there with no full send. Otherwise, the commits the new primary
+  never had are counted and dropped, and the node takes a full send from the new primary.
 
-(tested, after stopping the primary's `gxrepl run`)
+Either node can be Windows or Linux. A Windows copy can take over from a Linux primary, and the Linux node then
+rejoins as its copy, or the other way round.
 
-```
-gxrepl promote --config /tmp/repl_demo/copy.conf            # dry run: what promote would do
-gxrepl promote --config /tmp/repl_demo/copy.conf --apply    # finish stages, recover, then the torn check
-```
+### 4.1 A planned switch (no commit lost)
 
-`promote --apply` recovers the apply journal and finishes or discards staged unit copies. It then runs the same
-check as `gxrepl torn`. Exit codes: 0 every copy is whole (go); 1 a copy is torn (do not take over); 3 promote
-could not finish its own work, such as a swap while the writer runs or an I/O error (do not take over until it
-has; the lines say why); 2 usage.
+Drain first: the primary's last run exited 0, and `objrepl primary ROOT --drain` sends what is left without new
+commits. Then stop both nodes, and switch.
 
-`gxrepl torn` lists each folder:
-
-- `TORN`: not one whole commit (a copy stopped half way). Never promote it.
-- `INDEXES`: the derived indexes are behind or missing ("rebuild"). That is a warning, not torn: the data is
-  whole, and the new writer's open (or the copy's derived pass) rebuilds them. Missing `<index>.stamp` files on
-  an incremental set read the same way.
-- `STAGED`: a staged unit copy is waiting for its swap.
-- `OWN`: files this node has that gxrepl never copies (its own data).
-- `WARNING`: the check could not take the apply lock in time (`GXREPL_TORN_LOCK_WAIT`, 15 s) and read without it.
-
-Then start the writer on the node taking over, holding its `writer_lock`, so gxrepl will not overwrite it. In the
-demo both `promote` lines print `set db: 1 folder(s) checked, 0 torn` and exit 0, and the copy then takes the
-writes (`replication write /tmp/repl_demo/copy/db --commits 20`).
-
-### 4.2 Failback
-
-When the old primary is back, copy the new primary's changes to it before it writes again. On the node that
-serves, for that run only:
-
-(tested: the copy, now primary, serves; the old primary is the client)
+(tested)
 
 ```
-gxrepl serve --config FILE --accept-both                 # its copies may also be read as sources
-gxrepl once  --config FILE --pull-all                    # on the client: pull every set once, no deletes
-gxrepl torn  --config FILE --copied-only                 # only the folders gxrepl copied
+B=build/utils/objrepl; D=/tmp/objrepl_demo
+kill $(cat $D/n2.pid); wait $(cat $D/n2.pid) 2>/dev/null
+$B takeover $D/n2                             # n2: primary, epoch 2
+$B rejoin $D/n1                               # n1: a copy again
+# n1 now listens and n2 sends: swap the settings
+sed -i 's/^copy .*/listen 127.0.0.1:24701/; s/primary\./copy./g' $D/n1/objrepl.conf && echo "allow-cn objrepl-primary" >> $D/n1/objrepl.conf
+sed -i 's/^listen .*/copy 127.0.0.1:24701/; /^allow-cn/d; s/copy\.\(pem\|key\)/primary.\1/g' $D/n2/objrepl.conf
+$B copy $D/n1 > $D/n1.log 2>&1 &  echo $! > $D/n1.pid
+$B primary $D/n2 --commits 50; echo "exit $?"
+$B digest $D/n1 > $D/n1.digest; $B digest $D/n2 > $D/n2.digest
+cmp $D/n1.digest $D/n2.digest && echo "the same objects"
+kill $(cat $D/n1.pid)
 ```
 
-The pull copies the data, not the derived indexes: the old primary does not rebuild them as a copy does (its
-config has no `derived_rebuild`), so `torn --copied-only` prints a warning, not a torn folder:
+The demo swaps the certificates as well, because its copy certificate is the server certificate. With one
+certificate per host that can serve both roles, only `copy`, `listen` and `allow-cn` change.
 
-```
-set db: 1 folder(s) checked, 0 torn
-  INDEXES .: derived indexes missing (never built) (rebuilt by the take over's writer open)
-```
+### 4.2 After a crash
 
-Rebuild them on the old primary before its writer starts (in the demo, `replication rebuild
-/tmp/repl_demo/primary/db`), or let the writer rebuild them when it opens, if it does that. The `INDEXES` line
-reads gxrepl's own record of its rebuilds, so it stays after a rebuild by hand; check the rebuilt indexes with the
-digests instead (section 3: `gxrepl digest ... --kind btree` and `vix_rebuild --digest` give the same values on
-both nodes). Then stop the writer on the interim primary, swap the roles back, and start the normal configs.
+If the primary is gone, take over on the copy at once (`objrepl takeover`), and point your writers at it. When
+the old primary comes back, do not start it as a primary. Run `objrepl rejoin` on it first: the status line says
+how many of its commits the copy never had (`dropped_at_rejoin`). Then start it as a copy.
 
-## 5. Archived folders
+## 5. Upgrades
 
-A writer that archives a folder (a finished day moved away) deletes it on the primary. On the copy, gxrepl
-removes the copied files, then the folder whole, with its stage, derived indexes, `derived.stamp`, stamps and its
-seal, under the apply lock. A minute sweep (`GXREPL_SWEEP_SEC`) catches folders left by a stop part way.
+- Every node must run a 7.4 beta 5 build. A peer that sends the old header with 4-byte words (Windows and 32-bit
+  builds from before beta 5) is refused with an alarm. Older 64-bit Linux builds always sent the canonical
+  header, but upgrade them anyway.
+- From DataReel 6.4, programs built with the matching stream header can talk to 7.4 replication.
+- Build every binary from one tree (section 2.1).
+- Never set `GXD_CREATE_LAYOUT` in production. It creates files in the old 4-byte layout, for readers older than
+  beta 5 only.
+- Upgrade the copy first, then switch (section 4.1), then upgrade the old primary.
 
-A folder is never swept when it:
-- is unsealed, or sealed "copying";
-- has a commit block, a copied file, a sub-folder or a writer lock held;
-- holds a file gxrepl neither copies nor owns;
-- changed in the last 10 minutes (`GXREPL_DEAD_QUIET_SEC`).
+## 6. Troubleshooting
 
-It is also never swept on a node that is the set's source. Archive your folders on the primary only.
+- **`check` says FAIL with "refused".** The peer's name, role, epoch or history does not match, or it sent the old
+  stream header. Read the alarm in the status, fix the cause (a wrong node, an old build), then
+  `objrepl clear-alarm`.
+- **A copy far behind.** A copy further behind than the digest log's 1,000,000 commits, or one whose history the
+  primary cannot check, is refused. `objrepl rejoin` on it makes it take a full send.
+- **Readers wait.** The node's lock is held while a frame is applied, while an index is built at startup, and
+  while a full send sets the old data aside. A test build (`-DGXREPL_TEST_HOOKS=ON`) with `OBJREPL_TEST_HOLD_MS=N`
+  set prints every hold of N ms or more on stderr, by phase. Release builds print nothing.
+- **A commit failed on a journal sync error.** It may still survive recovery. Read the object back before
+  counting on either outcome.
 
-Readers of vector index sets (`.vixset`) skip a listed day that is missing and count it, so an archived day never
-breaks a search.
+## 7. Known limits
 
-## 6. Upgrades
+- `Open()` of a node with many databases opens them, and builds any missing index, under the lock: readers wait
+  for it once, at startup.
+- A copy's SNAP_BEGIN (the start of a full send) still holds the lock while it sets the old data aside, but
+  readers fail at once ("a full send is under way") rather than wait.
+- An object is at most 32 MB, and a commit's changes at most 60 MB.
+- Index fields may not overlap link fields.
+- `test_gxobjrepl_api`, the API test, runs on Linux and POSIX only.
+- With the 32-bit engine each database file is limited to 2 GB (FAU_t); 1M-object stores need the 64-bit engine.
+  Mixed 32/64-bit nodes replicate. Not tested: a 32-bit Windows build.
 
-- **Mixed versions are safe.** A copy on older code skips the 7.4 "objects" records and applies every commit's
-  pages. A source on older code works with a new copy. Protocol 3 is unchanged.
-- **With the notes off (the default), the ship log is byte for byte what 7.3.2 writes.** Turn the object notes and
-  `derived_apply = incremental` on only once both nodes run 7.4 beta 2 or later.
-- Upgrade the copy first, then the primary. Keep the old binary (for example `gxrepl.prev`) for a rollback, and
-  never copy a new binary over a running one (build to `gxrepl.new`, then rename).
-- After the upgrade, run `gxrepl once` (exit 0) and `gxrepl torn` (0) before calling it done.
+## 8. The journal and the lock
 
-## 7. Troubleshooting
+Each node writes through one gxdJournal (`ROOT/node.jnl`) in write-back mode: a commit's pages reach the files
+only after its batch is durable in the journal, as with write-through. This lets the journal sync run without
+the node's lock, so readers keep going during it. Checkpoints sync the files the same way. `Begin()`, `Close()`
+and a soft checkpoint wait until no commit's sync is running. `Pump()` gives the lock up for its network I/O.
+Do not copy a running node's folder: use `objrepl digest` to compare, and rejoin to rebuild a copy.
 
-| Symptom | Likely cause | What to do |
-|---|---|---|
-| `refused ... SSL exception` in the server log | a client without the right certificate, or a port scanner | check `allow_cn` / `allow_fingerprint` and the client's `cert`, `ca`, `server_name` |
-| `lag` stays above 0, `last_error` "busy" | a reader or a derived rebuild holds the apply lock | wait; if it lasts, look for a stuck reader of the copy |
-| `needs a verify (open, gap or old position)` | a writer restarted, a gap, or a copy behind its log | normal; the verify copies only the pieces that differ |
-| `record N is bigger than max_message` | one commit larger than a message | raise `max_message` on both nodes (16 MB is common); the copy resyncs the file meanwhile |
-| `torn` says INDEXES for a long time | `derived_rebuild` failing, or a busy folder never quiet | check the rebuild command by hand on a scratch copy; set `derived_busy_rebuild` |
-| `rebuild needed:` lines on an incremental set | a gap, an extractor error, or the cap | expected after faults; frequent ones mean look at the extractor or raise `derived_apply_max_mb` |
-| `ALERT ... derived_apply back on rebuild` | the breaker tripped | find the crash in the log, fix the extractor, then `gxrepl derived rebuild --set NAME` |
-| `ALERT ... outside the staged scope` | an extractor wrote its index directly | the extractor must write only through DataReel in its own gxrepl build |
-| a TORN folder after a cut link | a copy stopped half way | let the next pass finish it; `promote --apply` before any take over |
+## 9. When a plain file copy is enough
 
-## 8. When a plain file copy is enough
-
-You do not always need gxrepl. A plain copy of the database folder is enough when all of these hold:
+You do not always need replication. A plain copy of the database folder is enough when all of these hold:
 
 - the database is written rarely (a few times a day, or by a nightly job), so a copy minutes old is fine;
 - you can stop or quiesce the writer while the copy runs: no transaction open, the journal checkpointed
   (`gxdJournal::Checkpoint()`, or closing the writer), so the files hold every commit and nothing else;
 - nothing reads the copy while it is being written, or readers can wait for it to finish.
 
-Then copy the folder with your file sync tool while the writer is stopped, and verify after.
-
-(tested on one machine, with a local folder in place of `copy-host:`)
+Then copy the folder with your file sync tool while the writer is stopped, and verify after with `dr_digest`,
+which prints the same digest for the same contents whatever the file's layout:
 
 ```
 # on the primary, with the writer stopped (or between its jobs)
-rsync -a --delete -n --exclude '*.jnl' --exclude .gxrepl/ /tmp/repl_demo/primary/db/ copy-host:/tmp/repl_demo/copy/db/   # dry run first
-rsync -a --delete    --exclude '*.jnl' --exclude .gxrepl/ /tmp/repl_demo/primary/db/ copy-host:/tmp/repl_demo/copy/db/
+rsync -a --delete -n --exclude '*.jnl' /data/db/ copy-host:/data/db/   # dry run first
+rsync -a --delete    --exclude '*.jnl' /data/db/ copy-host:/data/db/
 # verify: the same digests on both sides
-gxrepl digest /tmp/repl_demo/primary/db/data.gxd --kind objects
-ssh copy-host gxrepl digest /tmp/repl_demo/copy/db/data.gxd --kind objects
+dr_digest /data/db/data.gxd --kind objects
+ssh copy-host dr_digest /data/db/data.gxd --kind objects
 ```
 
-The excludes leave out the journal (`*.jnl`) and a ship log (`.gxrepl/`) that a writer with gxrepl keeps; leave
-out lock files the same way. Copy the indexes with the data or rebuild them on the copy.
+The exclude leaves out the journal (`*.jnl`); leave out lock files the same way. Copy the indexes with the data
+or rebuild them on the copy.
 
-**On Windows** (no gxrepl there), the same with robocopy, and the digests of the example program
-`replication_copy` (its own records; your application needs its own digest, the way `replication_copy.cpp`
-makes one: the records in address order, the B-tree's keys in order, `gxVectorIndex::LogicalDigest()`):
+**On Windows**, the same with robocopy, and the digests of the example program `replication_copy`. Your
+application needs its own digest, the way `replication_copy.cpp` makes one: the records in address order, the
+B-tree's keys in order, and `gxVectorIndex::LogicalDigest()`.
 
-(tested on Windows 11)
+(tested on Windows 11 with DataReel 7.4 beta 3)
 
 ```
 rem with the writer stopped
@@ -411,15 +275,13 @@ robocopy cannot copy a file another program holds open, which is one more reason
 copy that lost its indexes rebuilds them from its own data (`replication_copy rebuild`); the digests then agree
 again.
 
-If the writer cannot stop, if the database changes all day, or if the copy must be
-seconds behind and always one whole commit, use gxrepl.
+If the writer cannot stop, if the database changes all day, or if the copy must be seconds behind and always one
+whole commit, use gxObjRepl.
 
-## 9. Test status of this guide
+## 10. Test status of this guide
 
-Every block marked (tested) was run as printed, in order, on 11/15/2026 with DataReel 7.4 beta 3 plus the docs-7.4
-fixes (the B-tree digest walk): sections 2.1 to 8 on one Linux machine (two folders under `/tmp/repl_demo`, the
-loopback address, the replication example as the writer), and the robocopy block of section 8 on Windows 11 (a
-Visual Studio 2026 build, `replication_copy` as the writer). Every command exited as the text says; the digests
-agreed between the nodes after each step (the B-tree and vector index digests in section 3, the data after the
-failback in 4.2, the data after the rsync and robocopy copies in section 8). The script that runs them is
-`tests/admin_guide_check.sh` (Linux).
+The blocks marked (tested) in sections 2 to 4 were run as printed, in order, with DataReel 7.4 beta 5
+(header-fixed-width after the gxObjRepl merge) on one Linux machine: two folders under `/tmp/objrepl_demo` and the
+loopback address, with `objrepl primary` as the writer. The robocopy block in section 9 was run on Windows 11
+with 7.4 beta 3. The cross-platform cases (Linux to Windows and back, takeover and rejoin, the 2,500-commit stress
+run each way, old builds refused) come from the replication tests of 11/16/2026.

@@ -241,7 +241,7 @@ page(file='classes/database/gxdbobject.htm', title='Object Server Vector Searche
  ])
 
 page(file='classes/database/gxobjrepl.htm', title='Object Replication Class',
- lead='gxObjRepl replicates objects between two independent object databases over gxStream with TLS: only objects travel, never file pages, and each node keeps its own addresses and indexes (DataReel 7.4).',
+ lead='gxObjRepl replicates objects between two independent object databases over gxStream with TLS, between Windows and Linux nodes in both directions: only objects travel, never file pages, and each node keeps its own addresses and indexes (DataReel 7.4).',
  sections=[('Overview', 'Overview', """
 <P>A node is a folder (ROOT). The <B>primary</B> takes the application's changes in transactions: <A HREF="#Begin">Begin()</A>, <A HREF="#Put">Put()</A>, <A HREF="#Remove">Remove()</A>, <A HREF="#Purge">Purge()</A>, <A HREF="#Commit">Commit()</A>. A commit is durable on the primary when Commit() returns: its objects, their indexes, an outbox entry and the node's state are written in one <A HREF="gxdjrnl.htm">gxdJournal</A> transaction. <A HREF="#Pump">Pump()</A> sends the copy what it does not have and drops outbox entries the copy has acknowledged. The <B>copy</B> runs <A HREF="#Serve">Serve()</A>: it applies each commit in one transaction of its own, reads every object back and compares it with what was sent, and acknowledges only what is durable.</P>
 <P>Objects are found by a 64-bit id both nodes share. A remove leaves a <B>tombstone</B> where the object was, so links to it still resolve and its address is never reused; <A HREF="#Purge">Purge()</A> frees a tombstone (refused while a live link names it). A <B>link</B> is an 8-byte file address inside an object at an offset the link map names (<CODE>DB:OFFSET:TARGET_DB</CODE>); links travel as ids and each node stores its own addresses. An object that grows moves and leaves a forwarding stub, so links to the old address still work.</P>
@@ -262,6 +262,18 @@ gxObjRepl c;                                 // the copy (another process or mac
 c.Open("copy", cfg_copy, gxObjRepl::COPY);
 c.Serve();                                   // until Stop() (signal-safe) or Close()
 """)),
+ ('Platforms', 'Windows and Linux', """
+<P>Object replication between Windows and Linux is new in DataReel 7.4 (beta 5):</P>
+<UL>
+<LI>Mixed Windows and Linux nodes replicate both ways, with the primary on either side. <A HREF="#Takeover">Takeover()</A> and <A HREF="#Rejoin">Rejoin()</A> work across the platforms: a Windows copy can take over from a Linux primary, and the Linux node rejoins as its copy (and the other way round).</LI>
+<LI>One canonical 32-byte gxStream block header on every platform (the form 64-bit Linux always sent), so the frames are the same bytes on both.</LI>
+<LI>A peer that sends the old header with 4-byte words (Windows and 32-bit builds from before beta 5) is refused with gxSOCKET_BLOCKHEADER_ERROR (PeerOldHeader()) and an alarm. Older 64-bit Linux builds always sent the canonical header.</LI>
+<LI>TLS uses each platform's own TLS library through <A HREF="../socket/gxssl.htm">gxSSL</A>, with mutual certificates: OpenSSL on Linux, the Windows Schannel library on Windows. A Schannel build checks the certificates' dates, CA and key at the TLS handshake rather than at Open().</LI>
+<LI>From DataReel 6.4, programs built with the matching stream header can talk to 7.4 replication.</LI>
+<LI>Upgrade: every node must run a 7.4 beta 5 build.</LI>
+</UL>
+<P>Tested Linux to Windows and Windows to Linux: takeover and rejoin with identical object and index digests in every run, a 2,500-commit stress run each way, and old Windows builds refused both ways. The objrepl tool stops on TERM/INT (POSIX), Ctrl+C or Ctrl+Break (Windows), or when <CODE>ROOT/objrepl.stop</CODE> appears.</P>
+"""),
  ('Files', 'Files in a Node', """
 <P><CODE>&lt;db&gt;.gxd</CODE> and <CODE>&lt;db&gt;.id.btx</CODE> (each database: the objects and the id index), <CODE>&lt;db&gt;.&lt;name&gt;.ix.btx</CODE> / <CODE>.vix</CODE> with a <CODE>.def</CODE> file (the node's indexes), <CODE>state.gxd</CODE> (role, epoch, sequence numbers, digests), <CODE>outbox.gxd</CODE> (primary), <CODE>digests.btx</CODE> (the running digest after each commit, the last 1,000,000 kept), <CODE>node.jnl</CODE> (the journal over all of them), <CODE>objrepl.lock</CODE> (held while the node is open: one process per node), <CODE>objrepl.status</CODE> (a running node's status) and <CODE>objrepl.alarm</CODE> (why a stream was refused). During a full send the old data waits in <CODE>prev/</CODE> until the new copy is whole.</P>
 """),
@@ -276,10 +288,19 @@ c.Serve();                                   // until Stop() (signal-safe) or Cl
 <LI><B>Trust</B>: a peer whose certificate the copy accepts (allow-cn) is trusted with the stream: it can raise the copy's epoch, which fences other primaries out, or send a full send. Protect the certificates and keys.</LI>
 <LI>An object is at most 32 MB and a commit's changes at most 60 MB (one gxStream block is 64 MB).</LI>
 <LI>A copy further behind than the digest log's 1,000,000 commits, or whose history a primary cannot check, is refused: <A HREF="#Rejoin">Rejoin()</A> on it makes it take a full send.</LI>
-<LI>Threads: every call takes one lock in the object; readers (Get, FindKey, Nearest ...) run between the frames Serve() applies. Pump() holds the lock while it exchanges frames with the copy (not while it connects), and gives it up between frames when a reader waits. While a copy receives a full send, reads fail with "a full send is under way".</LI>
+<LI>Threads: every call takes one lock in the object; readers (Get, FindKey, Nearest ...) run between the frames Serve() applies. See <A HREF="#Journal">The Journal and the Lock</A>. While a copy receives a full send, reads fail with "a full send is under way".</LI>
+<LI><B>Startup</B>: Open() of a node with many databases opens them (and builds any missing index) under the lock, so readers wait for it once, at startup.</LI>
+<LI><B>Full send</B>: a copy's SNAP_BEGIN still holds the lock while it sets the old data aside, but readers fail at once ("a full send is under way") rather than wait for it.</LI>
+<LI>A commit that fails on a journal sync error may still survive recovery: after such an error, read the object back before counting on either outcome.</LI>
+<LI>test_gxobjrepl_api (the API test) runs on Linux and POSIX only; the objrepl tool and its scripts' cases run on both platforms.</LI>
+<LI>With the 32-bit engine each database file is limited to 2 GB (FAU_t); 1M-object stores need the 64-bit engine. Mixed 32/64-bit nodes replicate. Not tested: a 32-bit Windows build.</LI>
 <LI>Index fields may not overlap link fields.</LI>
-<LI>Platforms: Linux and Windows nodes replicate to each other in both directions: DataReel 7.4 sends gxStream's block header in one canonical 32-byte form (the one 64-bit Linux always sent), and a Windows or 32-bit peer from before 7.4 beta 5 is refused (an alarm on the copy, a log line or an alarm on the primary). A Schannel build checks the certificates' dates, CA and key at the TLS handshake rather than at Open(). The objrepl tool stops on TERM/INT (POSIX), Ctrl+C or Ctrl+Break (Windows), or when <CODE>ROOT/objrepl.stop</CODE> appears.</LI>
+<LI>Platforms: see <A HREF="#Platforms">Windows and Linux</A>.</LI>
 </UL>
+"""),
+ ('Journal', 'The Journal and the Lock', """
+<P>Each node writes through one <A HREF="gxdjrnl.htm">gxdJournal</A> in <B>write-back</B> mode (<CODE>ROOT/node.jnl</CODE>): a commit's pages reach the files only after its batch is durable in the journal, as in a write-through commit. That lets the journal sync run without the node's lock: Commit() puts the batch in the journal with the lock held, syncs the journal file by its own handle with the lock given up (on Windows a second handle and FlushFileBuffers), then writes the batch's pages (<CODE>WriteCommitted()</CODE>) with the lock held again. Checkpoints sync the files the same way (<CODE>CheckpointBegin()</CODE> / <CODE>CheckpointEnd()</CODE>). Begin(), Close() and a soft checkpoint wait until no commit's sync is running.</P>
+<P>The lock is one recursive mutex per node. Pump() gives it up for its network I/O and readers run in between; Serve() takes it per frame it applies. A test build (<CODE>-DGXREPL_TEST_HOOKS=ON</CODE>) with <CODE>OBJREPL_TEST_HOLD_MS=N</CODE> set prints every hold of the lock of N ms or more on stderr, by phase ("objrepl hold: PHASE MS ms"), so a wait a reader sees can be traced to what held the lock. Release builds have no such output.</P>
 """),
  ('Tool', 'The objrepl Tool and Checks', """
 <P>The <CODE>objrepl</CODE> tool (utils/objrepl/objrepl.cpp) runs a node from the command line and from <CODE>ROOT/objrepl.conf</CODE>: <CODE>objrepl copy ROOT</CODE>, <CODE>objrepl digest|ixcheck|status|check|clear-alarm|takeover|rejoin ROOT</CODE>. <CODE>objrepl check</CODE> prints one line, OK / WARN / FAIL (exit 0 / 1 / 2), for cron or a monitor. <CODE>utils/objrepl/objrepl_certs.sh</CODE> makes a private CA and the two node certificates.</P>
@@ -1451,6 +1472,7 @@ page(file='utils/utils.htm', title='Utility Programs',
  lead='Command line tools for checking and repairing DataReel database files.',
  sections=[('Tools', 'Tools', '''
 <UL>
+<LI><A HREF="../classes/database/gxobjrepl.htm#Tool">objrepl</A> (7.4): object replication between Windows and Linux nodes from the command line (copy, status, check, digest, takeover, rejoin), and its test data generator; see the <A HREF="../replication_admin_guide.html">administrator's guide</A>.</LI>
 <LI><A HREF="db_debug.htm">db_debug</A>: analyze, dump and rebuild gxDatabase files.</LI>
 <LI><A HREF="ix_debug.htm">ix_debug</A>: analyze and check gxBtree index files.</LI>
 <LI><A HREF="vix_rebuild.htm">vix_rebuild</A> (7.4): rebuild a vector index from the vector members of records; digests of vector indexes.</LI>
