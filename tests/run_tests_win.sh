@@ -32,7 +32,7 @@ T="$BUILD/tests/$CFG"; [ -d "$T" ] || T="$BUILD/tests"
 # BUILD/CONFIG; put it on the PATH so the programs can load it
 export PATH="$BUILD/$CFG:$BUILD:$PATH"
 WORK=$(mktemp -d)
-PORT=$((20000 + RANDOM % 9000))
+PORT=${DR_TEST_PORT:-$((20000 + RANDOM % 9000))}   # 11/17/2026: DR_TEST_PORT picks the base
 PASS=0; FAIL=0; PIDS=()
 cleanup() {
   for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
@@ -85,6 +85,8 @@ done
 mkdir -p "$WORK/run_replication_copy" && cd "$WORK/run_replication_copy" &&
   check replication_copy cmd //c "$(cygpath -w "$SRC/examples/oodb/replication_copy_walkthrough.cmd")" \
     "$(cygpath -w "$E")" "$(cygpath -w "$U")" "$(cygpath -w "$WORK/run_replication_copy/w")"
+# 11/17/2026 (7.4, from 6.4.1): sockets are not inherited by programs this one runs
+mkdir -p "$WORK/run_cloexec" && cd "$WORK/run_cloexec" && check socket_cloexec_test "$T/socket_cloexec_test" $((PORT + 60))
 for t in stream_security_test proto_security_test support_security_test; do
   mkdir -p "$WORK/run_$t" && cd "$WORK/run_$t" && check $t "$T/$t"
 done

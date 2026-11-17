@@ -55,3 +55,9 @@ add_executable(imap_login_test imap_login_test.cpp)
 target_link_libraries(imap_login_test PRIVATE DataReel::datareel)
 set_target_properties(imap_login_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+
+# 11/17/2026 (7.4, from 6.4.1): sockets are not passed to programs this process runs (close on exec / not inherited)
+add_executable(socket_cloexec_test socket_cloexec_test.cpp)
+target_link_libraries(socket_cloexec_test PRIVATE DataReel::datareel)
+set_target_properties(socket_cloexec_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")

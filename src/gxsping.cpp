@@ -6,7 +6,7 @@
 // C++ Compiler Used: MSVC, GCC
 // Produced By: DataReel Software Development Team
 // File Creation Date: 09/20/1999
-// Date Last Modified: 11/01/2026
+// Date Last Modified: 11/17/2026
 // Copyright (c) 2001-2026 DataReel Software Development
 // ----------------------------------------------------------- // 
 // ------------- Program Description and Details ------------- // 
@@ -58,6 +58,7 @@ a diagnostic tool, like telnet.
 #pragma comment(lib, "iphlpapi.lib")
 #else
 #include <unistd.h>
+#include <fcntl.h>
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
 #include <netinet/icmp6.h>
@@ -206,6 +207,9 @@ int gxsPing::Ping(const std::string &host, gxsPingResult &result, int family)
     s = socket(a.Family(), SOCK_RAW, proto);
     raw = true;
   }
+#if defined (FD_CLOEXEC)
+  if(s >= 0) fcntl(s, F_SETFD, FD_CLOEXEC);   // 11/17/2026 (7.4): not passed to programs this one runs
+#endif
   if(s < 0) {
     result.error = std::string("Ping exception: Cannot open an ICMP socket: ") +
       strerror(errno);
