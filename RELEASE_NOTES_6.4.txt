@@ -145,9 +145,10 @@ THE 7.x FEATURES BUILD (CMake only)
   objrepl, objrepl_sim and test_gxobjrepl_api (object replication),
   vix_rebuild, and on POSIX object_server, object_client and the 6.4
   vector_server (the object server with a vector set).
-- 11/17/2026: the 7.x tree must be DataReel 7.4 at or after 41b6e15
+- 11/17/2026: the 7.x tree must be DataReel 7.4 beta 5 or later
   (gxObjRepl, the canonical gxStream block header, no gxrepl). The
-  build stops with a message for an older tree.
+  build checks for these features, not a version or commit, and stops
+  with a message for an older tree.
 - The 7.x library is built with the same database engine as the 6.x
   library (DATAREEL_64BIT_DATABASE).
 - Do not include DataReel 7.x headers in a 6.x source file. The two

@@ -54,7 +54,7 @@
 <ul>
 <li>DATAREEL7_FEATURES_DIR (a path, empty = off): the 7.x source tree. The build refuses a tree older than 7.4. It builds, next to the 6.x library: - the 7.x library, from that tree as it is. Its names are in the datareel namespace, so it links next to the 6.x library in one program; - dr7inner (dr7features/inner): a plain C interface to the 7.x classes, compiled against the 7.x headers only; - dr7features (dr7features/include/dr7features.h): DataReel 6.x classes that use it, with 6.x types (gxString, MemoryBuffer). Link a program with the CMake target DataReel::dr7features. It needs a C++17 compiler, the same one for both libraries.</li>
 <li>DATAREEL7_TOOLS (default ON with DATAREEL7_FEATURES_DIR): also build the 7.x programs from the 7.x tree into &lt;build&gt;/dr7inner/tools: objrepl, objrepl_sim and test_gxobjrepl_api (object replication), vix_rebuild, and on POSIX object_server, object_client and the 6.4 vector_server (the object server with a vector set).</li>
-<li>11/17/2026: the 7.x tree must be DataReel 7.4 at or after 41b6e15 (gxObjRepl, the canonical gxStream block header, no gxrepl). The build stops with a message for an older tree.</li>
+<li>11/17/2026: the 7.x tree must be DataReel 7.4 beta 5 or later (gxObjRepl, the canonical gxStream block header, no gxrepl; feature checks, no version pin). The build stops with a message for an older tree.</li>
 <li>The 7.x library is built with the same database engine as the 6.x library (DATAREEL_64BIT_DATABASE).</li>
 <li>Do not include DataReel 7.x headers in a 6.x source file. The two versions have header files of the same names and include guards. dr7features.h includes only 6.x headers.</li>
 </ul>

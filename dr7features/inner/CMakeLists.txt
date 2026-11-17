@@ -19,21 +19,18 @@ if(_dr7_version VERSION_LESS "7.4")
   message(FATAL_ERROR "DataReel ${_dr7_version} in ${DATAREEL7_DIR}: "
     "DataReel 7.4 or later is required")
 endif()
-# 11/17/2026: object replication (gxv7ObjRepl) needs the 7.4 tree with
-# gxObjRepl and the canonical gxStream block header (7.4 beta 5, at or
-# after the objrepl-lib merge 41b6e15): gxobjrepl.h, no gxrepl, and the
-# copy's lag age from 846245d (gxobjrepl.cpp, "oldest > behind").
-set(_dr7_min "DataReel 7.4 at or after 41b6e15 (gxObjRepl, objrepl-lib 846245d) is required")
+# 11/17/2026: object replication (gxv7ObjRepl) needs a 7.4 or later tree
+# with gxObjRepl and the canonical gxStream block header (7.4 beta 5 and
+# later): gxobjrepl.h and no gxrepl. Feature checks only, no version or
+# commit pin (dougg 11/17), so any later 7.x release that keeps gxObjRepl
+# builds.
+set(_dr7_min "DataReel 7.4 beta 5 or later (gxObjRepl, without gxrepl) is required")
 if(NOT EXISTS "${DATAREEL7_DIR}/include/gxobjrepl.h" OR
    NOT EXISTS "${DATAREEL7_DIR}/src/gxobjrepl.cpp")
   message(FATAL_ERROR "${DATAREEL7_DIR} has no gxObjRepl (gxobjrepl.h): ${_dr7_min}")
 endif()
 if(EXISTS "${DATAREEL7_DIR}/utils/gxrepl")
   message(FATAL_ERROR "${DATAREEL7_DIR} still has gxrepl (a 7.4 beta before beta 5): ${_dr7_min}")
-endif()
-file(STRINGS "${DATAREEL7_DIR}/src/gxobjrepl.cpp" _dr7_lag REGEX "oldest > behind")
-if(NOT _dr7_lag)
-  message(FATAL_ERROR "${DATAREEL7_DIR}: gxobjrepl.cpp is older than 846245d: ${_dr7_min}")
 endif()
 message(STATUS "DataReel 7.x features from ${DATAREEL7_DIR} (DataReel ${_dr7_version})")
 

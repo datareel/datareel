@@ -267,7 +267,7 @@ the same as 6.3.1; 6.4 holds no copy of the 7.x vector or replication
 code.
 gxv7VectorIndex and gxv7VectorSet use the 7.x .vix/.vixset vector
 index, gxv7ObjectClient searches a 7.x object server's vectors, and
-gxv7ObjRepl (11/17/2026, DataReel 7.4 at or after 41b6e15) replicates
+gxv7ObjRepl (11/17/2026, DataReel 7.4 beta 5 or later) replicates
 a 6.x program's objects with the 7.x gxObjRepl, to and from DataReel
 7.4 programs, on Linux and Windows. See RELEASE_NOTES_6.4.txt and
 examples_database/vector_index, examples_database/replication_6x and

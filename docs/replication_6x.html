@@ -81,7 +81,7 @@
   run_repl6_xver.sh      the 7.4 tree&#x27;s 6.4&lt;-&gt;7.4 wire tests
                          (utils/objrepl/xver: wirecmp, xmatrix, hook64)
                          built against this 6.4 library (Linux)</PRE>
-<P>Build (DataReel 7.4 at or after 41b6e15, which has gxObjRepl and the canonical gxStream block header; the build stops with a message for an older tree):</P>
+<P>Build (DataReel 7.4 beta 5 or later, which has gxObjRepl and the canonical gxStream block header; the build stops with a message for an older tree):</P>
 <PRE>  cmake -S datareel-6.4 -B build -DCMAKE_BUILD_TYPE=Release \
         -DDATAREEL7_FEATURES_DIR=/path/to/datareel-7.4 \
         -DDATAREEL_64BIT_DATABASE=ON

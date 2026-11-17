@@ -36,7 +36,7 @@ replication is gxObjRepl, and the 6.x programs here use it directly.
                          (utils/objrepl/xver: wirecmp, xmatrix, hook64)
                          built against this 6.4 library (Linux)
 
-Build (DataReel 7.4 at or after 41b6e15, which has gxObjRepl and the
+Build (DataReel 7.4 beta 5 or later, which has gxObjRepl and the
 canonical gxStream block header; the build stops with a message for
 an older tree):
 

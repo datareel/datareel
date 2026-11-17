@@ -159,8 +159,9 @@ endif()
 
 # 11/15/2026: DataReel 6.4: the DataReel 7.x vector database features
 # for 6.x programs, built from a DataReel 7.4 or later source tree.
-# 11/17/2026: and object replication (gxObjRepl): the 7.4 tree at or
-# after 41b6e15 (checked in dr7features/inner/CMakeLists.txt).
+# 11/17/2026: and object replication (gxObjRepl): DataReel 7.4 beta 5
+# or later, gxObjRepl without gxrepl (checked in
+# dr7features/inner/CMakeLists.txt).
 # DataReel 6.4 has no copy of the 7.x code: this builds the 7.x library
 # (its names are in namespace datareel, so it links next to the 6.x
 # library), the plain interface dr7inner (dr7features/inner, 7.x headers
