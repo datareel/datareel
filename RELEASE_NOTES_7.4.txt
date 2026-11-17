@@ -744,6 +744,8 @@ NEW IN 7.4 (AFTER BETA 5)
   test scripts stop a copy through one helper (objrepl_proc.sh): on
   Windows with ROOT/objrepl.stop and its Windows process id (a clean
   stop, as on Linux), so the scripts give the same results on both.
+  test_objrepl_check's faked "stopping" status names a process by its
+  Windows pid under Git Bash, as objrepl check reads it.
 
 UPGRADING TO 7.4 BETA 5
 -----------------------

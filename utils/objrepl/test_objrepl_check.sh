@@ -104,6 +104,8 @@ stop_copy
 [ "$(field st state)" == "stopped" ] && [ -n "$(field st close_secs)" ] && [ -z "$(field st stopping_since)" ] \
   && ok "stopping: a clean stop ends \"stopped\" (close took $(field st close_secs)s)" || bad "stopping clean" "state [$(field st state)] close_secs [$(field st close_secs)]"
 sleep 300 & SLP=$!
+# 11/17/2026: the status names the process by its OS pid: under Git Bash on Windows that is the Windows pid
+# (/proc/PID/winpid), not the MSYS one, or objrepl check finds no such process. Linux has no winpid: $SLP
 now=$(date +%s)
 cat > "$T/st/objrepl.status" <<EOS
 role copy
@@ -111,7 +113,7 @@ name copyS
 epoch 1
 state stopping
 stopping_since $((now - 30))
-pid $SLP
+pid $(cat /proc/$SLP/winpid 2>/dev/null || echo $SLP)
 updated $now
 applied_seq 0
 EOS
