@@ -65,3 +65,9 @@ add_executable(socket_cloexec_test socket_cloexec_test.cpp)
 target_link_libraries(socket_cloexec_test PRIVATE DataReel::datareel)
 set_target_properties(socket_cloexec_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+# 11/17/2026: the serial_read example on a pseudo terminal (POSIX)
+if(NOT WIN32)
+  add_executable(serial_read_test serial_read_test.cpp)
+  set_target_properties(serial_read_test PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+endif()
