@@ -18,9 +18,9 @@
 </header>
 <main class="dr-main">
 <h1>DataReel 6.4 Release Notes</h1>
-<h2 id="Top">DataReel 6.4 Release Notes, 11/17/2026 (beta 3)</h2>
+<h2 id="Top">DataReel 6.4 Release Notes, 11/17/2026</h2>
 <p>DataReel version 6.4 (was 6.3.1) DataReel Copyright (c) 2001-2026 DataReel Software Development</p>
-<p>DataReel 6.4 is the DataReel 6.3.1 library, with the single-node crash safety and damaged-file fixes of DataReel 7.0-7.4 ported to the 6.x classes (beta 2 and beta 3, below), and an optional build of the DataReel 7.x vector database and object replication features for 6.x programs. The 6.x API is the same, and database files keep the 6.2 and 6.3.1 format: 6.2 and 6.3.1 read every file 6.4 writes. (A file whose freed blocks are reused with best fit can hold different bytes than 6.3.1 would write; see BETA 3.) The gxStream wire header changed in beta 3: 6.4 network peers do not talk to 6.3 or older peers (see BETA 3). DataReel 6.4 has no copy of the 7.x vector or replication code. A 6.x build uses the 7.x code, from a DataReel 7.4 or later source tree, only when it is asked to:</p>
+<p>DataReel 6.4 is the DataReel 6.3.1 library, with the single-node crash safety and damaged-file fixes of DataReel 7.0-7.4 ported to the 6.x classes (beta 2 and beta 3, below), and an optional build of the DataReel 7.x vector database and object replication features for 6.x programs. The 6.x API is the same, and database files keep the 6.2 and 6.3.1 format: 6.2 and 6.3.1 read every file 6.4 writes. (A file whose freed blocks are reused with best fit can hold different bytes than 6.3.1 would write; see BETA 3.) The gxStream wire header changed in 6.4: 6.4 network peers do not talk to 6.3 or older peers built on Windows or for 32 bits (see BETA 3). DataReel 6.4 has no copy of the 7.x vector or replication code. A 6.x build uses the 7.x code, from a DataReel 7.4 or later source tree, only when it is asked to:</p>
 <p>cmake -S datareel-6.4 -B build -DDATAREEL7_FEATURES_DIR=/path/to/datareel-7.4</p>
 <p>A program that does not use the 7.x features builds with the makefiles or with CMake as with 6.3.1. Everything in RELEASE_NOTES_6.3.1.txt and RELEASE_NOTES_6.3.txt is included. The shared library (Linux makefiles) is built as libdatareel.so.6.4.</p>
 <h2>Beta 2 (11/16/2026): Fixes from DataReel 7.x</h2>
@@ -87,7 +87,7 @@
 </ul>
 <p>Example and how-to: examples_database/replication_6x (README.txt, <a href="replication_6x.html">Replicating 6.x programs&#x27; records</a>). See also the DataReel 7.4 gxObjRepl reference and administrator&#x27;s guide.</p>
 <h2>Tested Platforms</h2>
-<p>Beta 3, 6.4-dev c11c74b, 11/17/2026. The 7.x features build used DataReel 7.4.</p>
+<p>DataReel 6.4, 11/17/2026. The 7.x features build used DataReel 7.4.</p>
 <p>On RHEL 10.2 (GCC), 32-bit and 64-bit database engines:</p>
 <ul>
 <li>examples_database/run_db_tests.sh: 39 of 39 on both engines (the examples, the damaged-file and security sweeps, the networking and TLS checks, reclaim, journal_salt, the journal tests and 50 kill -9 crash rounds). Also under AddressSanitizer and UBSan: 39 of 39, no reports.</li>
@@ -102,7 +102,7 @@
 <li>The DataReel 7.4 objrepl test scripts on the tools of a 6.4 build: all pass (the API test 73 of 73; the lag test at 2,000 commits).</li>
 </ul>
 </li>
-<li>Programs built on 6.4 beta 3: fcrypt (key management 44, security 77, compatibility 43, migration 50), the encrypted password database (162 CLI checks, journal 25 of 25), the DataReel cluster manager (standby test 89 of 89), the load balancers (21, 18 and 15 checks) and the work programs.</li>
+<li>Programs built on 6.4: fcrypt (key management 44, security 77, compatibility 43, migration 50), the encrypted password database (162 CLI checks, journal 25 of 25), the DataReel cluster manager (standby test 89 of 89), the load balancers (21, 18 and 15 checks) and the work programs.</li>
 </ul>
 <p>On Windows 11 with Visual Studio 2026, x64 (64-bit engine) and Win32 (32-bit engine):</p>
 <ul>

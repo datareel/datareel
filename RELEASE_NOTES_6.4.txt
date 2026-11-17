@@ -1,4 +1,4 @@
-DataReel 6.4 Release Notes, 11/17/2026 (beta 3)
+DataReel 6.4 Release Notes, 11/17/2026
 DataReel version 6.4 (was 6.3.1)
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
@@ -10,7 +10,8 @@ programs. The 6.x API is the same, and database files keep the 6.2 and
 6.3.1 format: 6.2 and 6.3.1 read every file 6.4 writes. (A file whose
 freed blocks are reused with best fit can hold different bytes than
 6.3.1 would write; see BETA 3.) The gxStream wire header changed in
-beta 3: 6.4 network peers do not talk to 6.3 or older peers (see BETA 3).
+6.4: 6.4 network peers do not talk to 6.3 or older peers built on
+Windows or for 32 bits (see BETA 3).
 DataReel 6.4 has no copy of the 7.x vector or replication code. A 6.x
 build uses the 7.x code, from a DataReel 7.4 or later source tree, only
 when it is asked to:
@@ -253,8 +254,7 @@ also the DataReel 7.4 gxObjRepl reference and administrator's guide.
 
 TESTED PLATFORMS
 ----------------
-Beta 3, 6.4-dev c11c74b, 11/17/2026. The 7.x features build used
-DataReel 7.4.
+DataReel 6.4, 11/17/2026. The 7.x features build used DataReel 7.4.
 
 On RHEL 10.2 (GCC), 32-bit and 64-bit database engines:
 - examples_database/run_db_tests.sh: 39 of 39 on both engines (the
@@ -278,7 +278,7 @@ On RHEL 10.2 (GCC), 32-bit and 64-bit database engines:
     6.4 speaking the gxObjRepl handshake both ways: 5 of 5.
   - The DataReel 7.4 objrepl test scripts on the tools of a 6.4 build:
     all pass (the API test 73 of 73; the lag test at 2,000 commits).
-- Programs built on 6.4 beta 3: fcrypt (key management 44, security
+- Programs built on 6.4: fcrypt (key management 44, security
   77, compatibility 43, migration 50), the encrypted password database
   (162 CLI checks, journal 25 of 25), the DataReel cluster manager
   (standby test 89 of 89), the load balancers (21, 18 and 15 checks)

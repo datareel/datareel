@@ -80,7 +80,7 @@ gxSocket library extensions the same block header written to a disked-based data
 <B><P>Message Sequences</B>: When a client sends a block of raw data a block header precedes the data and informs the server of the block size and the block status. After reception of a device header the server waits for the block data and processes the data or signals/handles an event according to the status of the block.</P>
 <B><P>Protocol functions</B>: Communication via database block headers allows gxDatabase applications to share database blocks in a client/server relationship.</P>
 
-<P><B>6.4 (beta 3)</B>: the block header goes on the wire in one canonical 32-byte form (the bytes 64-bit Linux always sent; DataReel 7.4 sends the same), on every platform, and so do gxDatagram and gxSerialCommServer. A sender that uses 4-byte words (a Windows or 32-bit build before 6.4) is refused, and PeerOldHeader() returns nonzero. A 6.4 peer does not talk to such a 6.3 or older peer: upgrade both ends together.</P>
+<P><B>6.4</B>: the block header goes on the wire in one canonical 32-byte form (the bytes 64-bit Linux always sent; DataReel 7.4 sends the same), on every platform, and so do gxDatagram and gxSerialCommServer. A sender that uses 4-byte words (a Windows or 32-bit build before 6.4) is refused, and PeerOldHeader() returns nonzero. A 6.4 peer does not talk to such a 6.3 or older peer: upgrade both ends together.</P>
 <h2 id="Functions">Functions</h2>
 <P class="dr-fnlist"><A HREF="#gxStream">gxStream::gxStream()</A><BR>
 <A HREF="#BM_gxStream">gxStream::~gxStream()</A><BR>

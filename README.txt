@@ -1,4 +1,4 @@
-DataReel 6.4 (beta 3) Readme File
+DataReel 6.4 Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -254,9 +254,9 @@ DOCUMENTATION
 All documentation is included in the docs sub directory in an HTML
 format, viewable in any Web browser. 
 
-VERSION 6.4 (BETA)
-------------------
-DataReel 6.4, 11/17/2026 (beta 3), is the 6.3.1 library with the
+VERSION 6.4
+-----------
+DataReel 6.4, 11/17/2026, is the 6.3.1 library with the
 single-node crash safety and damaged-file fixes of DataReel 7.0-7.4
 (folder sync after a file is created, cached B-tree and length checks,
 the read-only B-tree cache, the next/previous block navigation fix,
@@ -271,7 +271,7 @@ and gxSerialCommServer peers do not talk to 6.3 or older peers built on
 Windows or for 32 bits; upgrade both ends together.
 gxv7VectorIndex and gxv7VectorSet use the 7.x .vix/.vixset vector
 index, gxv7ObjectClient searches a 7.x object server's vectors, and
-gxv7ObjRepl (11/17/2026, DataReel 7.4 or later) replicates
+gxv7ObjRepl (DataReel 7.4 or later) replicates
 a 6.x program's objects with the 7.x gxObjRepl, to and from DataReel
 7.4 programs, on Linux and Windows. See RELEASE_NOTES_6.4.txt and
 examples_database/vector_index, examples_database/replication_6x and
