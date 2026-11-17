@@ -179,6 +179,9 @@ mkdir -p "$WORK/run_journal" && cd "$WORK/run_journal" &&
 mkdir -p "$WORK/run_salt" && check journal_salt_test "$BUILD/tests/journal_salt_test" "$WORK/run_salt"
 # 11/16/2026: block reuse, best fit and first fit (ReclaimBestFit() reused only exact fits)
 mkdir -p "$WORK/run_reclaim" && check reclaim_test "$BUILD/tests/reclaim_test" "$WORK/run_reclaim"
+# 11/17/2026: O_DIRECT reads of a closed gxObjRepl node (from direct_io): equal to plain reads, same digest
+mkdir -p "$WORK/run_odirect" && "$SRC/utils/objrepl/objrepl_certs.sh" "$WORK/run_odirect/pki" --copy-host 127.0.0.1 --days 30 --apply > /dev/null &&
+  check odirect_test env ODIRECT_PKI="$WORK/run_odirect/pki" "$BUILD/tests/odirect_test" "$WORK/run_odirect"
 # Vector index (gxvindex.h, 7.4): kernels, exact and graph search,
 # Merge, Repair, concurrent searches and 20 crash rounds
 mkdir -p "$WORK/run_vix" && cd "$WORK/run_vix" &&
