@@ -140,8 +140,8 @@ database features for 6.x programs (`DATAREEL7_FEATURES_DIR`, see
 It runs on RHEL 8, 9 and 10 and compatible Linux systems (GCC, the
 system OpenSSL) and on Windows 11 and Windows Server 2022 and 2025
 (Visual Studio 2022 or 2026, Schannel by default or OpenSSL 3.5.x LTS).
-It is free software under the GNU Lesser General Public License (see
-`LICENSE` and the header in each source file), provided as is.
+It is free software under the GNU Lesser General Public License version
+3 or later (`LICENSE`), provided as is.
 
 ## 3. Setup: download and install a release
 
@@ -236,8 +236,8 @@ release.
 
 ## 6. Forks
 
-DataReel is under the GNU Lesser General Public License (see `LICENSE`
-and the header in each source file). A fork, a vendored copy inside another project, or a modified
+DataReel is under the GNU Lesser General Public License version 3 or
+later. A fork, a vendored copy inside another project, or a modified
 build must:
 
 - Keep `LICENSE` and the copyright and license headers in every file,
