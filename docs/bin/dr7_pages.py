@@ -1640,7 +1640,7 @@ page(file='utils/utils.htm', title='Utility Programs',
  lead='Command line tools for checking and repairing DataReel database files.',
  sections=[('Tools', 'Tools', '''
 <UL>
-<LI><A HREF="../classes/database/gxobjrepl.htm#Tool">objrepl</A> (7.4): object replication between Windows and Linux nodes from the command line (copy, status, check, digest, takeover, rejoin), and its test data generator; see the <A HREF="../replication_admin_guide.html">administrator's guide</A>.</LI>
+<LI><A HREF="objrepl.htm">objrepl</A> (7.4): object replication between Windows and Linux nodes from the command line (copy, status, check, digest, takeover, rejoin), and its test data generator; see the <A HREF="../replication_admin_guide.html">administrator's guide</A>.</LI>
 <LI><A HREF="db_debug.htm">db_debug</A>: analyze, dump and rebuild gxDatabase files.</LI>
 <LI><A HREF="ix_debug.htm">ix_debug</A>: analyze and check gxBtree index files.</LI>
 <LI><A HREF="vix_rebuild.htm">vix_rebuild</A> (7.4): rebuild a vector index from the vector members of records; digests of vector indexes.</LI>
@@ -1817,6 +1817,97 @@ bytes 5bb78b0992e1cb6e 230392 items.vix
 $ vix_rebuild --digest parts.vix --digest-kind bytes
 bytes 05053735863893a0 230392 parts.vix
 ''')),
+])
+
+page(file='utils/objrepl.htm', title='objrepl',
+ lead='Object replication between two nodes from the command line: run a copy, check and compare nodes, take over and rejoin, and a test data generator (DataReel 7.4).',
+ sections=[('Usage', 'Usage', code('''
+objrepl primary ROOT --copy HOST:PORT --ca CA --cert CERT --key KEY
+                [--commits N] [--per N] [--dbs N] [--sleep MS] [--seed N] [--drain] [--no-trim]
+                [--drop-linked N] [--unknown-removes N] [--purge] [--defer-target]
+objrepl copy ROOT --listen [ADDR:]PORT --ca CA --cert CERT --key KEY --allow-cn CN
+objrepl digest ROOT                every database: ids and content hashes
+objrepl ixcheck ROOT --index ...   each index against the objects
+objrepl check ROOT                 OK / WARN / FAIL (exit 0 / 1 / 2)
+objrepl clear-alarm ROOT
+objrepl status ROOT
+objrepl engine                     the database engine (exit 0 for 64-bit, 1 for 32-bit)
+objrepl takeover ROOT              a copy becomes primary: epoch + 1
+objrepl rejoin ROOT                a former primary becomes a copy
+Common: --name N --peer-name N --links SPEC --index SPEC --max-lag N --max-behind S
+        --min-cert-days N --idle-timeout S --config FILE
+''') + '''
+<P>A node is a folder (ROOT). Any option may come from ROOT/objrepl.conf (or --config FILE), one "key value" line each, the option without "--"; the command line wins. The keys are listed in the <A HREF="../replication_admin_guide.html">administrator's guide</A>, section 2.3. <CODE>objrepl primary</CODE> is a test data generator: it writes test commits (adds, updates, removes, linked objects), sends them to the copy and waits up to 120 s for the copy to have them all, exit 0 (drained), 2 (not drained), 3 (refused), 4 (ROOT is a copy) or 64 (configuration or certificates). Programs write through the <A HREF="../classes/database/gxobjrepl.htm">gxObjRepl</A> API instead. <CODE>objrepl copy</CODE> runs until TERM or INT (Ctrl+C or Ctrl+Break on Windows), or until ROOT/objrepl.stop appears.</P>
+'''),
+ ('Examples', 'Examples', '<P>Two nodes on one machine, n1 (the primary) and n2 (the copy), in the current folder. Build the tool and check the engine; every node and program must use the same one (the default build is the 32-bit engine, -DDATAREEL_64BIT_DATABASE=ON makes the 64-bit one):</P>' + code('''
+$ objrepl engine
+engine 32-bit (file signature 8 bytes)
+''') + '<P>Certificates: utils/objrepl/objrepl_certs.sh makes a private CA, the copy\'s server certificate and the primary\'s client certificate (CN objrepl-primary). It is a dry run unless you add --apply, and it never overwrites a file:</P>' + code('''
+$ utils/objrepl/objrepl_certs.sh certs --copy-host 127.0.0.1 --apply
+CA       certs/ca.pem (CN objrepl-ca, 825 days)
+copy     certs/copy.pem (CN objrepl-copy, subjectAltName IP:127.0.0.1)
+primary  certs/primary.pem (CN objrepl-primary)
+configs  certs/primary.conf certs/copy.conf
+written to certs (keys mode 600)
+''') + '<P>The two configuration files:</P>' + code('''
+$ cat n2/objrepl.conf
+name n2
+peer-name n1
+ca certs/ca.pem
+cert certs/copy.pem
+key certs/copy.key
+listen 127.0.0.1:24790
+allow-cn objrepl-primary
+
+$ cat n1/objrepl.conf
+name n1
+peer-name n2
+ca certs/ca.pem
+cert certs/primary.pem
+key certs/primary.key
+copy 127.0.0.1:24790
+''') + '<P>Start the copy, then send 200 test commits from the primary:</P>' + code('''
+$ objrepl copy n2 > n2.log 2>&1 &  echo $! > n2.pid
+$ cat n2.log
+objrepl: copy listening on 127.0.0.1:24790 (gxStream, TLS, client CN objrepl-primary), applied 0, epoch 1
+
+$ objrepl primary n1 --commits 200
+objrepl primary: epoch 1, last seq 200, copy applied 200, 0 snapshot(s), outbox drained
+''') + '<P>Watch the nodes. check prints one line for cron or a monitor; here the primary is WARN only because no primary is running now (the generator has exited):</P>' + code('''
+$ objrepl status n1
+epoch 1 next_seq 201 acked_seq 200 applied_seq 0 in_snapshot 0 role primary digest dd6541189a6e5b70
+$ objrepl status n2
+epoch 1 next_seq 1 acked_seq 0 applied_seq 200 in_snapshot 0 role copy digest dd6541189a6e5b70
+
+$ objrepl check n2
+OK copy n2 epoch 1: applied 200 from n1, 202 frames, 176 tombstones, listening; last contact 0s ago
+$ objrepl check n1
+WARN primary n1 epoch 1: not running; seq 200, copy applied 200, lag 0 for 0s, oldest unacked 0s, outbox 0 (0 bytes), 176 tombstones, stopped, drained (not running, status 0s old)
+''') + '<P>Compare the two nodes: the same objects give the same digest output, whatever the file layouts:</P>' + code('''
+$ objrepl digest n1 > n1.digest
+objrepl digest: 176 tombstone(s) 280 stub(s) 0 dangling
+$ objrepl digest n2 > n2.digest
+objrepl digest: 176 tombstone(s) 277 stub(s) 0 dangling
+$ cat n1.digest
+objects 1025 digest 4dcf09fee9854aa8
+$ cmp n1.digest n2.digest && echo "the same objects"
+the same objects
+''') + '<P>A planned switch: stop the copy (by its process id), make it the primary at the next epoch, and make the old primary a copy. Its copy had every commit, so there is no full send:</P>' + code('''
+$ kill $(cat n2.pid)
+$ objrepl takeover n2
+objrepl takeover: n2 is primary at epoch 2 (applied 200)
+$ objrepl rejoin n1
+objrepl rejoin: n1 is a copy at epoch 1, following on from seq 200 (its copy had every commit: no full send)
+''') + '<P>Swap the settings (n1 now listens on 127.0.0.1:24791 with the copy certificate and allows objrepl-primary; n2 sends to it with the primary certificate), start n1 as the copy and send 50 more commits from n2:</P>' + code('''
+$ objrepl copy n1 > n1.log 2>&1 &  echo $! > n1.pid
+$ objrepl primary n2 --commits 50
+objrepl primary: epoch 2, last seq 250, copy applied 250, 0 snapshot(s), outbox drained
+$ objrepl check n1
+OK copy n1 epoch 2: applied 250 from n2, 52 frames, 232 tombstones, listening; last contact 0s ago
+$ objrepl clear-alarm n1
+no alarm
+$ kill $(cat n1.pid)
+''') + '<P>The <A HREF="../replication_admin_guide.html">administrator\'s guide</A> covers the same steps in more detail, failover after a crash, upgrades, troubleshooting and the plain file copy alternative.</P>'),
 ])
 
 page(file='utils/dr_digest.htm', title='dr_digest',

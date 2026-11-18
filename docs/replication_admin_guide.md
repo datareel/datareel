@@ -45,7 +45,7 @@ from an older tree may send the old stream header, which is refused (section 6).
 ```
 cmake -S datareel -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j2
-build/utils/objrepl engine        # "64-bit" and exit 0 for the 64-bit engine (the default)
+build/utils/objrepl engine        # "engine 64-bit" and exit 0 with -DDATAREEL_64BIT_DATABASE=ON; "engine 32-bit" and exit 1 by default
 ```
 
 ### 2.2 Certificates

@@ -35,7 +35,7 @@
 <p>Build every binary from one 7.4 tree: the library, the <code>objrepl</code> tool and your programs. A program built from an older tree may send the old stream header, which is refused (section 6).</p>
 <pre>cmake -S datareel -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j2
-build/utils/objrepl engine        # &quot;64-bit&quot; and exit 0 for the 64-bit engine (the default)</pre>
+build/utils/objrepl engine        # &quot;engine 64-bit&quot; and exit 0 with -DDATAREEL_64BIT_DATABASE=ON; &quot;engine 32-bit&quot; and exit 1 by default</pre>
 <h3 id="22Certificates">2.2 Certificates</h3>
 <p><code>utils/objrepl/objrepl_certs.sh</code> makes a private CA and the two certificates: the copy's server certificate, and the primary's client certificate, whose CN the copy allows. It is a dry run unless you add <code>--apply</code>, and it never overwrites a file.</p>
 <p>(tested)</p>
