@@ -1,0 +1,199 @@
+<!doctype html>
+<!-- Generated from gxstream_replication_white_paper.md by docs/bin/md2html.py -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>gxStream and Replication on Port 2073 (White Paper)</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>gxStream and Replication on Port 2073 (White Paper)</h1>
+<p><strong>Release:</strong> DataReel 7.4 (the 7.4.1 branch), 11/18/2026. <strong>Audience:</strong> network and security reviewers, firewall administrators, and developers who write gxStream clients and servers or run DataReel replication. Everything in this paper was written from the DataReel 7.4 source: <code>include/gxstypes.h</code>, <code>include/gxheader.h</code>, <code>include/gxstream.h</code>, <code>src/gxstream.cpp</code>, <code>include/gxstls.h</code>, <code>src/gxstls.cpp</code>, <code>include/gxdbserver.h</code>, <code>src/gxdbserver.cpp</code>, <code>include/gxdbmux.h</code>, <code>src/gxdbmux.cpp</code>, <code>include/gxdbobject.h</code>, <code>src/gxdbobject.cpp</code>, <code>include/gxobjrepl.h</code> and <code>src/gxobjrepl.cpp</code>. When this paper and the code disagree, the code wins.</p>
+<p>The exact wire format, with every field, is in the <a href="rfc/draft-gaer-datareel-gxstream-00.html">protocol specification</a> (<code>docs/rfc/draft-gaer-datareel-gxstream-00.txt</code>, an Internet-Draft for the Independent Submission stream). The security design of the library as a whole is in the <a href="security_white_paper.html">DataReel security white paper</a>.</p>
+<h2 id="1Port2073">1. Port 2073</h2>
+<p>TCP and UDP port 2073 are registered with IANA for DataReel under the service name <code>gxs-data-port</code>, "DataReel Database Socket". The registration was made in the 1990s, when a protocol description was not required with it; this paper and the specification are that description. The DataReel source has carried the services file entries since its early releases (<code>include/gxstypes.h</code>):</p>
+<pre>gxs-data-port   2073/tcp   DataReel Database Socket
+gxs-data-port   2073/udp   DataReel Database Socket</pre>
+<p>and the port number as constants (<code>gxsDATA_PORT</code>, <code>gxSOCKET_DBS_PORT</code>, <code>gxSOCKET_DEFAULT_PORT</code>, all 2073).</p>
+<p>What uses it in DataReel 7.4:</p>
+<table>
+<thead><tr><th>Use</th><th>Port 2073</th><th>Where</th></tr></thead>
+<tbody>
+<tr><td>gxStream clients</td><td>the default of <code>gxStream::Connect()</code></td><td><code>gxstream.h</code></td></tr>
+<tr><td>The database object server</td><td>the default <code>listen_port</code></td><td><code>gxdbserver.h</code></td></tr>
+<tr><td>Remote database objects (object service)</td><td>carried by the database object server</td><td><code>gxdbobject.h</code></td></tr>
+<tr><td>Vector searches (7.4)</td><td>carried by the object service</td><td><code>gxdbobject.h</code></td></tr>
+<tr><td>6.x style clients (legacy add/request blocks)</td><td>carried by the object service</td><td><code>gxdbobject.h</code></td></tr>
+<tr><td>Object replication (gxObjRepl)</td><td>uses gxStream framing; the port is set in its configuration (no default in 7.4)</td><td><code>gxobjrepl.h</code></td></tr>
+</tbody>
+</table>
+<p>UDP is not used: no DataReel 7.4 protocol sends datagrams on port 2073.</p>
+<p><strong>Why a registered port.</strong> gxStream is a long-lived service protocol between hosts that are configured once and then left alone: a database server, its clients and a replication pair. A fixed, registered port lets the services files, firewall rules, SELinux port labels and network monitoring name the traffic as DataReel database traffic, lets clients connect without being told a port, and keeps DataReel from colliding with another program's choice of an unregistered port. gxStream has been DataReel's database block protocol since 1999, and 2073 its port since the registration.</p>
+<h2 id="2TheLayers">2. The layers</h2>
+<pre> +-------------------------------------------------------------+
+ | Services: object service (op 1-8), vector search, legacy    |
+ | add/request blocks, object replication frames               |
+ +-------------------------------------------------------------+
+ | Multiplex (optional): channels with credit flow control     |
+ +-------------------------------------------------------------+
+ | gxStream blocks: 32-byte header + body                      |
+ +-------------------------------------------------------------+
+ | TLS 1.2 or 1.3, certificates on both sides                  |
+ +-------------------------------------------------------------+
+ | TCP, port 2073                                              |
+ +-------------------------------------------------------------+</pre>
+<ul>
+<li><strong>TCP:</strong> IPv6 and IPv4; a server with no bind address listens on every interface.</li>
+<li><strong>TLS:</strong> always. gxStream refuses to send or accept a block before the TLS handshake has finished. The server is authenticated by its certificate and host name; the client by its certificate, which must chain to the server's client CA and be named in its allow list (SHA-256 fingerprint or subject common name). <code>gxStreamServer</code> requires this by default.</li>
+<li><strong>gxStream blocks:</strong> the unit of the protocol. Each block is a 32-byte header followed by <code>block_length</code> bytes of body.</li>
+<li><strong>Multiplex:</strong> an optional layer that runs many independent channels (one database each) over one connection.</li>
+<li><strong>Services:</strong> what the blocks mean: requests to database objects, vector searches, and replication.</li>
+</ul>
+<h2 id="3TheGxstreamBlock">3. The gxStream block</h2>
+<p>Every block starts with the same header, the one <code>gxDatabase</code> writes before every block in a database file. On the wire it is four 8-byte little endian words, the same on every platform since DataReel 7.4:</p>
+<pre>  0               8               16              24              32
+ +---------------+---------------+---------------+---------------+
+ |  check word   |    length     |    status     |    result     |
+ +---------------+---------------+---------------+---------------+</pre>
+<table>
+<thead><tr><th>Word</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td>check word</td><td><code>0xFEFE</code>; anything else is a synchronization error</td></tr>
+<tr><td>length</td><td>the number of body bytes that follow (0 for a header-only block)</td></tr>
+<tr><td>status</td><td>byte 0: the block's data status, <code>V</code> (a block from a remote device); byte 1: the control code (below); the other bytes are 0</td></tr>
+<tr><td>result</td><td>a 64-bit result value carried in a header-only acknowledgment (a file address, for example); otherwise 0</td></tr>
+</tbody>
+</table>
+<p>The high four bytes of the check word and the status words are always 0. A DataReel peer older than 7.4 beta 5 on 64-bit Windows, or a 32-bit build, sent 4-byte words (a 24 or 16 byte header); a 7.4 receiver sees non-zero bytes there and refuses the connection instead of misreading it.</p>
+<p>Control codes (status byte 1) used on the wire in 7.4:</p>
+<table>
+<thead><tr><th>Code</th><th>Name</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>S</code></td><td>send block</td><td>a body of data: a reply, a multiplex frame or a replication frame</td></tr>
+<tr><td><code>R</code></td><td>request block</td><td>a request; the body names what is wanted (an 8-byte object address for the legacy object service)</td></tr>
+<tr><td><code>A</code></td><td>add block</td><td>add the body as a new object; the reply is a result block with its address</td></tr>
+<tr><td><code>C</code></td><td>change block</td><td>change an object; the request block is followed by an <code>S</code> block with the new contents</td></tr>
+<tr><td><code>D</code></td><td>delete block</td><td>delete the object the body names</td></tr>
+<tr><td><code>W</code></td><td>acknowledge</td><td>a header-only acknowledgment; the result word carries the result</td></tr>
+<tr><td><code>L</code></td><td>close connection</td><td>the client is done</td></tr>
+<tr><td><code>K</code></td><td>kill server</td><td>ask the server to shut down</td></tr>
+<tr><td><code>T</code></td><td>restart server</td><td>ask the server to restart</td></tr>
+</tbody>
+</table>
+<p>A receiver checks the length against its maximum block size (64 MB by default, 17 MB on the database object server) before it allocates anything, and refuses a header with a wrong check word or an oversize length. The <code>K</code> and <code>T</code> codes are defined by the protocol; the 7.4 database object server does not act on them (a session that sends one is closed), and programs that offer them must restrict them to administrators.</p>
+<h2 id="4TheDatabaseObjectServer">4. The database object server</h2>
+<p><code>gxDatabaseServer</code> is one TLS listener on port 2073 shared by several services:</p>
+<p>1. The accept loop takes the TCP connection only. The TLS handshake runs in its own thread with a 10 second limit, at most 16 at once, so a scanner or a silent connection cannot keep real clients out. 2. A client whose certificate fails the CA or allow list check is closed. At most <code>max_clients</code> (4 by default) authenticated sessions run at once. 3. The server reads the session's first block and gives the session to the first service that claims it:</p>
+<ul>
+<li>an <code>S</code> block whose body is a multiplex HELLO frame goes to the multiplex (section 5);</li>
+<li>an <code>A</code> or <code>R</code> block goes to the legacy object service, when the server names a legacy database;</li>
+<li>anything else closes the session.</li>
+</ul>
+<h2 id="5TheMultiplex">5. The multiplex</h2>
+<p>A multiplex session carries numbered channels over one connection. Each frame is one <code>S</code> block whose body starts with an 18-byte frame header:</p>
+<pre> byte 0   &#x27;M&#x27; (0x4D), the multiplex mark
+ byte 1   kind
+ bytes 2-5    channel (u32)
+ bytes 6-13   sequence number (u64)
+ bytes 14-17  flags (u32; bit 0 = the last frame of a message)
+ then the payload</pre>
+<table>
+<thead><tr><th>Kind</th><th>Payload</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>1 HELLO</td><td>str "GXDBMUX", u32 version (1)</td><td>first frame of each side, on channel 0</td></tr>
+<tr><td>2 OPEN</td><td>str service, str name, str mode, u64 credit</td><td>open a channel to a database (<code>object</code>, the database name, <code>read</code> or <code>write</code>)</td></tr>
+<tr><td>3 OPENED</td><td>u64 credit, bytes extra</td><td>the channel is open</td></tr>
+<tr><td>4 REFUSED</td><td>str reason</td><td>the channel was not opened</td></tr>
+<tr><td>5 DATA</td><td>service data</td><td>part of a message</td></tr>
+<tr><td>6 CREDIT</td><td>u64 bytes</td><td>the receiver has room for this many more bytes</td></tr>
+<tr><td>7 ACK</td><td>u64 seq, u64 lsn</td><td>a durable apply up to seq</td></tr>
+<tr><td>8 ERROR</td><td>str reason</td><td>closes the channel</td></tr>
+<tr><td>9 CLOSE</td><td>none</td><td>closes the channel; on channel 0, the connection</td></tr>
+</tbody>
+</table>
+<p>(str: a 4-byte length and the bytes; bytes: an 8-byte length and the bytes.)</p>
+<ul>
+<li><strong>Flow control per channel.</strong> Each side opens with the size of its receive queue as credit (16 MB by default). A sender sends DATA only while it has credit, and the receiver returns credit as its consumer takes data. A peer that sends past its credit has the channel closed with an ERROR. So one slow database never blocks the others.</li>
+<li><strong>Fair sending.</strong> Control frames go first; data frames go by deficit round robin (256 KB a turn), and no data frame is larger than 1 MB, so a large transfer cannot starve a small one.</li>
+<li><strong>Errors are per channel.</strong> A refused open, an ERROR or a CLOSE ends that channel only. A bad block or a frame that is not a multiplex frame ends the connection.</li>
+</ul>
+<h2 id="6TheObjectService">6. The object service</h2>
+<p>On an open <code>object</code> channel each message (DATA frames up to the one with the last-frame flag) is one request: a 1-byte operation and its arguments. The reply is one message: a status byte (0 ok, 1 error), then the result or an error string.</p>
+<table>
+<thead><tr><th>Op</th><th>Request</th><th>Reply</th></tr></thead>
+<tbody>
+<tr><td>1 ADD</td><td>bytes data</td><td>u64 address</td></tr>
+<tr><td>2 REQUEST</td><td>u64 address</td><td>bytes data</td></tr>
+<tr><td>3 CHANGE</td><td>u64 address, bytes data (the same length as the object)</td><td>nothing</td></tr>
+<tr><td>4 DELETE</td><td>u64 address</td><td>nothing</td></tr>
+<tr><td>5 FIRST</td><td>nothing</td><td>u64 address of the first object (0: none)</td></tr>
+<tr><td>6 NEXT</td><td>u64 address</td><td>u64 address of the next object (0: none)</td></tr>
+<tr><td>7 VECTOR_SEARCH</td><td>version, k, ef, dim, filters, query floats</td><td>nearest neighbors with distances and tags</td></tr>
+<tr><td>8 VECTOR_INFO</td><td>nothing</td><td>the vector index's dimension, type, metric and counts</td></tr>
+</tbody>
+</table>
+<p>A database opened <code>write</code> changes through its journal, one transaction per request. A database that is a replicated copy is read-only, and every read holds the copy's apply lock so it never sees half of a commit.</p>
+<p><strong>Legacy clients.</strong> A DataReel 6.x style client that sends an <code>A</code> block (add) gets a <code>W</code> result block with the new object's address in the result word; an <code>R</code> block with an 8-byte address gets an <code>S</code> block with the object; <code>L</code> ends the session. These work only on a server that names a legacy database, and over TLS with a client certificate like every other client.</p>
+<h2 id="7ObjectReplicationGxobjrepl">7. Object replication (gxObjRepl)</h2>
+<p><code>gxObjRepl</code> keeps a copy of a primary's object databases on a second node. Only objects travel, never file pages: each node keeps its own file addresses, free space and indexes, so the two nodes can be different platforms (Linux and Windows, in either direction).</p>
+<h3 id="71TheStream">7.1 The stream</h3>
+<p>The primary connects to the copy over gxStream with mutual TLS: the copy listens with <code>gxStreamServer</code> and accepts only a primary whose certificate chains to the configured CA and has the configured common name. Each frame is one <code>S</code> block; the copy answers each with one <code>S</code> block (the hello reply, or an 8-byte acknowledgment). All numbers are little endian; strings are a 2-byte length and the bytes.</p>
+<pre> primary                                   copy
+    | -- TLS handshake (certificates both ways) --&gt;|
+    | -- hello: magic, epoch, link map, name,      |
+    |    role, last seq, running digest ----------&gt;|  checks roles, epoch, history
+    |&lt;-- reply: ok, applied seq, epoch, in full    |
+    |    send, name, role, applied digest, why ----|
+    | -- F_EPOCH epoch ---------------------------&gt;|  saves the epoch (fencing)
+    |&lt;-- ack: applied seq -------------------------|
+    | -- F_COMMIT seq, epoch, ops ----------------&gt;|  applies in one transaction
+    |&lt;-- ack: seq ---------------------------------|  after it is durable
+    |        ... one commit at a time ...          |</pre>
+<ul>
+<li><strong>The hello</strong> carries the magic number <code>0x3550524F</code> ("ORP5"), the primary's epoch, its link map (which 8-byte fields of which objects are links to other objects), its name and role, its last sequence number and its running digest. The copy refuses a primary with an older epoch, a peer that is not a primary, an unexpected name, a primary that is behind the copy, or a link map that differs from the copy's own (when the copy has one configured). A refusal is a reply with ok = 0 and the reason, then the copy closes the connection and writes an alarm.</li>
+<li><strong>History check.</strong> The primary checks the copy's reply: the copy must be a copy, at a sequence the primary has committed, with the same running digest the primary had at that sequence. A copy whose history differs, or that is past the primary, is refused with an alarm.</li>
+<li><strong>F_EPOCH</strong> comes next. The copy saves the primary's epoch when it applies it, so from then on it refuses any older primary. The copy refuses data frames that come before F_EPOCH.</li>
+<li><strong>F_COMMIT</strong> carries one commit: its sequence number, its epoch and its operations (add, update, remove, purge), each naming a database and a 64-bit object id; adds and updates carry the object's bytes with its links as ids. The copy applies a commit only if it is the next one (a resend of one it has is acknowledged again; a gap is refused), in one journal transaction, and acknowledges it once that transaction is durable.</li>
+</ul>
+<h3 id="72TheFullSend">7.2 The full send</h3>
+<p>When the copy is new, was told to rejoin, or is further behind than the primary's outbox reaches, the primary sends everything instead: F_SNAP_BEGIN (the base sequence), F_SNAP_BATCH frames of objects and tombstones, F_SNAP_DLOG frames with the primary's digest log, and F_SNAP_END with the base's digest, the number of records sent and a hash chained over them. The copy ends the full send only if the count and the hash match what it received; otherwise it waits for the primary to send it again. The copy's old data is set aside, not deleted, until the full send is whole. Commits made while the full send was under way follow from the outbox.</p>
+<h3 id="73Failover">7.3 Failover</h3>
+<ul>
+<li><strong>Takeover:</strong> a copy becomes the primary at the next epoch. Object ids carry the epoch in their high bits, so the new primary never reuses an id the old one handed out.</li>
+<li><strong>Fencing:</strong> every copy that has heard from the new primary refuses the old one (its epoch is older).</li>
+<li><strong>Rejoin:</strong> the old primary becomes a copy waiting for a full send, and records how many of its own commits never reached the new primary.</li>
+</ul>
+<p>Replication is asynchronous: a commit is durable on the primary when <code>Commit()</code> returns, and on the copy once it is acknowledged. If the primary is lost, the commits the copy did not acknowledge are lost with it, and the status shows how many.</p>
+<h3 id="74ThePort">7.4 The port</h3>
+<p>In 7.4 the copy's listen port and the primary's <code>copy HOST:PORT</code> setting have no default and are set in the configuration (<code>docs/replication_admin_guide.md</code>). Port 2073 is the registered port for this traffic, and sites should use it for replication unless another DataReel service already listens there on that address.</p>
+<h2 id="8Compatibility">8. Compatibility</h2>
+<ul>
+<li><strong>Byte order and layout:</strong> the block header is canonical little endian on every platform, with the same 32 bytes a 64-bit Linux build has always sent. DataReel 6.4 and 7.4 interoperate: the 6.4 legacy release sends the same header, and <code>utils/objrepl/xver</code> tests 6.4 and 7.4 peers against each other in both directions, as server and as client.</li>
+<li><strong>Old peers are refused, not misread:</strong> a 7.4 receiver detects a 4-byte-word header and closes the connection with a clear error (<code>PeerOldHeader()</code>), and replication writes an alarm.</li>
+<li><strong>Versioning:</strong> the multiplex HELLO carries a version (1), replication's hello a magic number for the replication state format, and vector requests their own version (1). A peer that does not match is refused.</li>
+</ul>
+<h2 id="9Security">9. Security</h2>
+<p>The design choices that matter for a reviewer of port 2073 (the <a href="security_white_paper.html">security white paper</a> has the details):</p>
+<ul>
+<li>TLS 1.2 or 1.3 on every connection, and no cleartext fallback: the block functions refuse to run on a connection that is not secure.</li>
+<li>Mutual TLS by default for gxStream servers: a client CA (not the system store) and an allow list of fingerprints or common names. Opting out needs an explicit call.</li>
+<li>Every length from the peer is checked before it is used: block lengths against the maximum block size, multiplex fields against the frame, replication fields against the frame and against object and commit size limits (32 MB per object, 60 MB per commit).</li>
+<li>Bounded resources: handshake threads and their timeout, a session limit, per-channel credit, a limit on concurrent vector searches.</li>
+<li>Replication refuses older epochs, gaps, reordering, changed histories and incomplete full sends, and writes an alarm for each.</li>
+</ul>
+<p>Limits: a trusted certificate is trusted with everything its service allows (a <code>write</code> client can change any object of its database; a replication peer the copy accepts can raise the copy's epoch or replace its data). The replication digests are FNV-1a hashes that catch mistakes, not forgeries; the mutual TLS check is what keeps forged streams out. Anyone who can reach the port can use up handshake slots for their timeout, so firewall port 2073 to the hosts that need it.</p>
+</main>
+<footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+</body>
+</html>

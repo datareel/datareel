@@ -1,0 +1,2667 @@
+<!DOCTYPE html>
+<html lang="en" class="Internet-Draft">
+<head>
+<meta charset="utf-8">
+<meta content="Common,Latin" name="scripts">
+<meta content="initial-scale=1.0" name="viewport">
+<title>The DataReel gxStream Database Block Protocol and Object Replication over TCP Port 2073</title>
+<meta content="D. Gaer" name="author">
+<meta content='
+       This document describes gxStream, the database block protocol of the DataReel C++ library, and the
+      services carried on it: the DataReel database object server with its channel multiplex, remote access to
+      database objects and vector searches, and gxObjRepl object replication between two independent object
+      databases. gxStream runs over TLS with certificates on both sides on TCP port 2073, which is registered
+      with IANA under the service name "gxs-data-port". The port was registered before a protocol description
+      was required; this document provides that description, as implemented in DataReel 7.4. It is published
+      for information and does not specify an Internet standard. 
+    ' name="description">
+<meta content="xml2rfc 3.35.0" name="generator">
+<meta content="DataReel" name="keyword">
+<meta content="gxStream" name="keyword">
+<meta content="database" name="keyword">
+<meta content="replication" name="keyword">
+<meta content="gxs-data-port" name="keyword">
+<meta content="draft-gaer-datareel-gxstream-00" name="ietf.draft">
+<!-- Generator version information:
+  xml2rfc 3.35.0
+    Python 3.12.15
+    ConfigArgParse 1.10.1
+    google-i18n-address 3.1.1
+    intervaltree 3.2.1
+    Jinja2 3.1.6
+    lxml 6.1.3
+    natsort 8.4.0
+    platformdirs 4.14.7
+    pycountry 26.2.16
+    PyYAML 6.0.3
+    requests 2.34.2
+    wcwidth 0.9.4
+-->
+<link href="draft-gaer-datareel-gxstream-00.xml" rel="alternate" type="application/rfc+xml">
+<link href="#copyright" rel="license">
+<style type="text/css">/*
+
+  NOTE: Changes at the bottom of this file overrides some earlier settings.
+
+  Once the style has stabilized and has been adopted as an official RFC style,
+  this can be consolidated so that style settings occur only in one place, but
+  for now the contents of this file consists first of the initial CSS work as
+  provided to the RFC Formatter (xml2rfc) work, followed by itemized and
+  commented changes found necessary during the development of the v3
+  formatters.
+
+*/
+
+/* fonts */
+@import url('https://static.ietf.org/fonts/noto-sans/import.css'); /* Sans-serif */
+@import url('https://static.ietf.org/fonts/noto-serif/import.css'); /* Serif (print) */
+@import url('https://static.ietf.org/fonts/roboto-mono/import.css'); /* Monospace */
+
+:root {
+  --font-sans: 'Noto Sans', Arial, Helvetica, sans-serif;
+  --font-serif: 'Noto Serif', 'Times', 'Times New Roman', serif;
+  --font-mono: 'Roboto Mono', Courier, 'Courier New', monospace;
+}
+
+@viewport {
+  zoom: 1.0;
+}
+@-ms-viewport {
+  width: extend-to-zoom;
+  zoom: 1.0;
+}
+/* general and mobile first */
+html {
+}
+body {
+  max-width: 90%;
+  margin: 1.5em auto;
+  color: #222;
+  background-color: #fff;
+  font-size: 14px;
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  scroll-behavior: smooth;
+  overflow-wrap: break-word;
+}
+.ears {
+  display: none;
+}
+
+/* headings */
+#title, h1, h2, h3, h4, h5, h6 {
+  margin: 1em 0 0.5em;
+  font-weight: bold;
+  line-height: 1.3;
+}
+#title {
+  clear: both;
+  border-bottom: 1px solid #ddd;
+  margin: 0 0 0.5em 0;
+  padding: 1em 0 0.5em;
+}
+.author {
+  padding-bottom: 4px;
+}
+h1 {
+  font-size: 26px;
+  margin: 1em 0;
+}
+h2 {
+  font-size: 22px;
+  margin-top: -20px;  /* provide offset for in-page anchors */
+  padding-top: 33px;
+}
+h3 {
+  font-size: 18px;
+  margin-top: -36px;  /* provide offset for in-page anchors */
+  padding-top: 42px;
+}
+h4 {
+  font-size: 16px;
+  margin-top: -36px;  /* provide offset for in-page anchors */
+  padding-top: 42px;
+}
+h5, h6 {
+  font-size: 14px;
+}
+#n-copyright-notice {
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 1em;
+  margin-bottom: 1em;
+}
+/* general structure */
+p {
+  padding: 0;
+  margin: 0 0 1em 0;
+  text-align: left;
+}
+div, span {
+  position: relative;
+}
+div {
+  margin: 0;
+}
+.alignRight.art-text {
+  background-color: #f9f9f9;
+  border: 1px solid #eee;
+  border-radius: 3px;
+  padding: 1em 1em 0;
+  margin-bottom: 1.5em;
+}
+.alignRight.art-text pre {
+  padding: 0;
+}
+.alignRight {
+  margin: 1em 0;
+}
+.alignRight > *:first-child {
+  border: none;
+  margin: 0;
+  float: right;
+  clear: both;
+}
+.alignRight > *:nth-child(2) {
+  clear: both;
+  display: block;
+  border: none;
+}
+svg {
+  display: block;
+}
+@media print {
+  svg {
+    max-height: 850px;
+    max-width: 660px;
+  }
+}
+svg[font-family~="serif" i], svg [font-family~="serif" i] {
+  font-family: var(--font-serif);
+}
+svg[font-family~="sans-serif" i], svg [font-family~="sans-serif" i] {
+  font-family: var(--font-sans);
+}
+svg[font-family~="monospace" i], svg [font-family~="monospace" i] {
+  font-family: var(--font-mono);
+}
+.alignCenter.art-text {
+  background-color: #f9f9f9;
+  border: 1px solid #eee;
+  border-radius: 3px;
+  padding: 1em 1em 0;
+  margin-bottom: 1.5em;
+}
+.alignCenter.art-text pre {
+  padding: 0;
+}
+.alignCenter {
+  margin: 1em 0;
+}
+.alignCenter > *:first-child {
+  display: table;
+  border: none;
+  margin: 0 auto;
+}
+
+/* lists */
+ol, ul {
+  padding: 0;
+  margin: 0 0 1em 2em;
+}
+ol ol, ul ul, ol ul, ul ol {
+  margin-left: 1em;
+}
+li {
+  margin: 0 0 0.25em 0;
+}
+.ulCompact li {
+  margin: 0;
+}
+ul.empty, .ulEmpty {
+  list-style-type: none;
+}
+ul.empty li, .ulEmpty li {
+  margin-top: 0.5em;
+}
+ul.ulBare, li.ulBare {
+  margin-left: 0em !important;
+}
+ul.compact, .ulCompact,
+ol.compact, .olCompact {
+  line-height: 100%;
+  margin: 0 0 0 2em;
+}
+
+/* definition lists */
+dl {
+}
+dl > dt {
+  float: left;
+  margin-right: 1em;
+}
+/* 
+dl.nohang > dt {
+  float: none;
+}
+*/
+dl > dd {
+  margin-bottom: .8em;
+  min-height: 1.3em;
+}
+dl.compact > dd, .dlCompact > dd {
+  margin-bottom: 0em;
+}
+dl > dd > dl {
+  margin-top: 0.5em;
+  margin-bottom: 0em;
+}
+
+/* links */
+a {
+  text-decoration: none;
+}
+a[href] {
+  color: #22e; /* Arlen: WCAG 2019 */
+}
+a[href]:hover {
+  background-color: #f2f2f2;
+}
+figcaption a[href],
+a[href].selfRef {
+  color: #222;
+}
+/* XXX probably not this:
+a.selfRef:hover {
+  background-color: transparent;
+  cursor: default;
+} */
+
+/* Figures */
+tt, code, pre {
+  background-color: #f9f9f9;
+  font-family: var(--font-mono);
+}
+pre {
+  border: 1px solid #eee;
+  margin: 0;
+  padding: 1em;
+}
+img {
+  max-width: 100%;
+}
+figure {
+  margin: 0;
+}
+figure blockquote {
+  margin: 0.8em 0.4em 0.4em;
+}
+figcaption {
+  font-style: italic;
+  margin: 0 0 1em 0;
+}
+@media screen {
+  pre {
+    overflow-x: auto;
+    max-width: 100%;
+    max-width: calc(100% - 22px);
+  }
+}
+
+/* aside, blockquote */
+aside, blockquote {
+  margin-left: 0;
+  padding: 1.2em 2em;
+}
+blockquote {
+  background-color: #f9f9f9;
+  color: #111; /* Arlen: WCAG 2019 */
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  margin: 1em 0;
+}
+blockquote > *:last-child {
+  margin-bottom: 0;
+}
+cite {
+  display: block;
+  text-align: right;
+  font-style: italic;
+}
+.xref {
+  overflow-wrap: normal;
+}
+
+/* tables */
+table {
+  width: 100%;
+  margin: 0 0 1em;
+  border-collapse: collapse;
+  border: 1px solid #eee;
+}
+th, td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.5em 0.75em;
+}
+th {
+  text-align: left;
+  background-color: #e9e9e9;
+}
+tr:nth-child(2n+1) > td {
+  background-color: #f5f5f5;
+}
+table caption {
+  font-style: italic;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+table p {
+  /* XXX to avoid bottom margin on table row signifiers. If paragraphs should
+     be allowed within tables more generally, it would be far better to select on a class. */
+  margin: 0;
+}
+sub,
+sup {
+ white-space: nowrap;
+}
+
+/* pilcrow */
+a.pilcrow {
+  color: #666; /* Arlen: AHDJ 2019 */
+  text-decoration: none;
+  visibility: hidden;
+  user-select: none;
+  -ms-user-select: none;
+  -o-user-select:none;
+  -moz-user-select: none;
+  -khtml-user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+@media screen {
+  aside:hover > a.pilcrow,
+  p:hover > a.pilcrow,
+  blockquote:hover > a.pilcrow,
+  div:hover > a.pilcrow,
+  li:hover > a.pilcrow,
+  pre:hover > a.pilcrow {
+    visibility: visible;
+  }
+  a.pilcrow:hover {
+    background-color: transparent;
+  }
+}
+
+/* misc */
+hr {
+  border: 0;
+  border-top: 1px solid #eee;
+}
+.bcp14 {
+  font-variant: small-caps;
+}
+
+.role {
+  font-variant: all-small-caps;
+}
+
+/* info block */
+#identifiers {
+  margin: 0;
+  font-size: 0.9em;
+}
+#identifiers dt {
+  width: 3em;
+  clear: left;
+}
+#identifiers dd {
+  float: left;
+  margin-bottom: 0;
+}
+/* Fix PDF info block run off issue */
+@media print {
+  #identifiers dd {
+    max-width: 100%;
+  }
+}
+#identifiers .authors .author {
+  display: inline-block;
+  margin-right: 1.5em;
+}
+#identifiers .authors .org {
+  font-style: italic;
+}
+
+/* The prepared/rendered info at the very bottom of the page */
+.docInfo {
+  color: #666; /* Arlen: WCAG 2019 */
+  font-size: 0.9em;
+  font-style: italic;
+  margin-top: 2em;
+}
+.docInfo .prepared {
+  float: left;
+}
+.docInfo .prepared {
+  float: right;
+}
+
+/* table of contents */
+#toc  {
+  padding: 0.75em 0 2em 0;
+  margin-bottom: 1em;
+}
+nav.toc ul {
+  margin: 0 0.5em 0 0;
+  padding: 0;
+  list-style: none;
+}
+nav.toc li {
+  line-height: 1.3em;
+  margin: 0.75em 0;
+  padding-left: 1.2em;
+  text-indent: -1.2em;
+}
+/* references */
+.references dt {
+  text-align: right;
+  font-weight: bold;
+  min-width: 7em;
+}
+.references dd {
+  margin-left: 8em;
+  overflow: auto;
+}
+
+.refInstance {
+  margin-bottom: 1.25em;
+}
+
+.refSubseries {
+  margin-bottom: 1.25em;
+}
+
+.references .ascii {
+  margin-bottom: 0.25em;
+}
+
+/* index */
+.index ul {
+  margin: 0 0 0 1em;
+  padding: 0;
+  list-style: none;
+}
+.index ul ul {
+  margin: 0;
+}
+.index li {
+  margin: 0;
+  text-indent: -2em;
+  padding-left: 2em;
+  padding-bottom: 5px;
+}
+.indexIndex {
+  margin: 0.5em 0 1em;
+}
+.index a {
+  font-weight: 700;
+}
+/* make the index two-column on all but the smallest screens */
+@media (min-width: 600px) {
+  .index ul {
+    -moz-column-count: 2;
+    -moz-column-gap: 20px;
+  }
+  .index ul ul {
+    -moz-column-count: 1;
+    -moz-column-gap: 0;
+  }
+}
+
+/* authors */
+address.vcard {
+  font-style: normal;
+  margin: 1em 0;
+}
+
+address.vcard .nameRole {
+  font-weight: 700;
+  margin-left: 0;
+}
+address.vcard .label {
+  font-family: var(--font-sans);
+  margin: 0.5em 0;
+}
+address.vcard .type {
+  display: none;
+}
+.alternative-contact {
+  margin: 1.5em 0 1em;
+}
+hr.addr {
+  border-top: 1px dashed;
+  margin: 0;
+  color: #ddd;
+  max-width: calc(100% - 16px);
+}
+
+/* temporary notes */
+.rfcEditorRemove::before {
+  position: absolute;
+  top: 0.2em;
+  right: 0.2em;
+  padding: 0.2em;
+  content: "The RFC Editor will remove this note";
+  color: #9e2a00; /* Arlen: WCAG 2019 */
+  background-color: #ffd; /* Arlen: WCAG 2019 */
+}
+.rfcEditorRemove {
+  position: relative;
+  padding-top: 1.8em;
+  background-color: #ffd; /* Arlen: WCAG 2019 */
+  border-radius: 3px;
+}
+.cref {
+  background-color: #ffd; /* Arlen: WCAG 2019 */
+  padding: 2px 4px;
+}
+.crefSource {
+  font-style: italic;
+}
+/* alternative layout for smaller screens */
+@media screen and (max-width: 1023px) {
+  body {
+    padding-top: 2em;
+  }
+  #title {
+    padding: 1em 0;
+  }
+  h1 {
+    font-size: 24px;
+  }
+  h2 {
+    font-size: 20px;
+    margin-top: -18px;  /* provide offset for in-page anchors */
+    padding-top: 38px;
+  }
+  #identifiers dd {
+    max-width: 60%;
+  }
+  #toc {
+    position: fixed;
+    z-index: 2;
+    top: 0;
+    right: 0;
+    padding: 0;
+    margin: 0;
+    background-color: inherit;
+    border-bottom: 1px solid #ccc;
+  }
+  #toc h2 {
+    margin: -1px 0 0 0;
+    padding: 4px 0 4px 6px;
+    padding-right: 1em;
+    min-width: 190px;
+    font-size: 1.1em;
+    text-align: right;
+    background-color: #444;
+    color: white;
+    cursor: pointer;
+  }
+  #toc h2::before { /* css hamburger */
+    float: right;
+    position: relative;
+    width: 1em;
+    height: 1px;
+    left: -164px;
+    margin: 6px 0 0 0;
+    background: white none repeat scroll 0 0;
+    box-shadow: 0 4px 0 0 white, 0 8px 0 0 white;
+    content: "";
+  }
+  #toc nav {
+    display: none;
+    padding: 0.5em 1em 1em;
+    overflow: auto;
+    height: calc(100vh - 48px);
+    border-left: 1px solid #ddd;
+  }
+}
+
+/* alternative layout for wide screens */
+@media screen and (min-width: 1024px) {
+  body {
+    max-width: 724px;
+    margin: 42px auto;
+    padding-left: 1.5em;
+    padding-right: 29em;
+  }
+  #toc {
+    position: fixed;
+    top: 42px;
+    right: 42px;
+    width: 25%;
+    margin: 0;
+    padding: 0 1em;
+    z-index: 1;
+  }
+  #toc h2 {
+    border-top: none;
+    border-bottom: 1px solid #ddd;
+    font-size: 1em;
+    font-weight: normal;
+    margin: 0;
+    padding: 0.25em 1em 1em 0;
+  }
+  #toc nav {
+    display: block;
+    height: calc(90vh - 84px);
+    bottom: 0;
+    padding: 0.5em 0 0;
+    overflow: auto;
+  }
+  img { /* future proofing */
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+/* pagination */
+@media print {
+  body {
+    width: 100%;
+  }
+  p {
+    orphans: 3;
+    widows: 3;
+  }
+  #n-copyright-notice {
+    border-bottom: none;
+  }
+  #toc, #n-introduction {
+    page-break-before: always;
+  }
+  #toc {
+    border-top: none;
+    padding-top: 0;
+  }
+  figure, pre {
+    page-break-inside: avoid;
+  }
+  figure {
+    overflow: scroll;
+  }
+  .breakable pre {
+    break-inside: auto;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+  }
+  h2+*, h3+*, h4+*, h5+*, h6+* {
+    page-break-before: avoid;
+  }
+  pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-size: 10pt;
+  }
+  table {
+    border: 1px solid #ddd;
+  }
+  td {
+    border-top: 1px solid #ddd;
+  }
+}
+
+/* This is commented out here, as the string-set: doesn't
+   pass W3C validation currently */
+/*
+.ears thead .left {
+  string-set: ears-top-left content();
+}
+
+.ears thead .center {
+  string-set: ears-top-center content();
+}
+
+.ears thead .right {
+  string-set: ears-top-right content();
+}
+
+.ears tfoot .left {
+  string-set: ears-bottom-left content();
+}
+
+.ears tfoot .center {
+  string-set: ears-bottom-center content();
+}
+
+.ears tfoot .right {
+  string-set: ears-bottom-right content();
+}
+*/
+
+@page :first {
+  padding-top: 0;
+  @top-left {
+    content: normal;
+    border: none;
+  }
+  @top-center {
+    content: normal;
+    border: none;
+  }
+  @top-right {
+    content: normal;
+    border: none;
+  }
+}
+
+@page {
+  size: A4;
+  margin-bottom: 45mm;
+  padding-top: 20px;
+  /* The following is commented out here, but set appropriately by in code, as
+     the content depends on the document */
+  /*
+  @top-left {
+    content: 'Internet-Draft';
+    vertical-align: bottom;
+    border-bottom: solid 1px #ccc;
+  }
+  @top-left {
+    content: string(ears-top-left);
+    vertical-align: bottom;
+    border-bottom: solid 1px #ccc;
+  }
+  @top-center {
+    content: string(ears-top-center);
+    vertical-align: bottom;
+    border-bottom: solid 1px #ccc;
+  }
+  @top-right {
+    content: string(ears-top-right);
+    vertical-align: bottom;
+    border-bottom: solid 1px #ccc;
+  }
+  @bottom-left {
+    content: string(ears-bottom-left);
+    vertical-align: top;
+    border-top: solid 1px #ccc;
+  }
+  @bottom-center {
+    content: string(ears-bottom-center);
+    vertical-align: top;
+    border-top: solid 1px #ccc;
+  }
+  @bottom-right {
+      content: '[Page ' counter(page) ']';
+      vertical-align: top;
+      border-top: solid 1px #ccc;
+  }
+  */
+
+}
+
+/* Changes introduced to fix issues found during implementation */
+/* Make sure links are clickable even if overlapped by following H* */
+a {
+  z-index: 2;
+}
+/* Separate body from document info even without intervening H1 */
+section {
+  clear: both;
+}
+
+
+/* Top align author divs, to avoid names without organization dropping level with org names */
+.author {
+  vertical-align: top;
+}
+
+/* Leave room in document info to show Internet-Draft on one line */
+#identifiers dt {
+  width: 8em;
+}
+
+/* Don't waste quite as much whitespace between label and value in doc info */
+#identifiers dd {
+  margin-left: 1em;
+}
+
+/* Give floating toc a background color (needed when it's a div inside section */
+#toc {
+  background-color: white;
+}
+
+/* Make the collapsed ToC header render white on gray also when it's a link */
+@media screen and (max-width: 1023px) {
+  #toc h2 a,
+  #toc h2 a:link,
+  #toc h2 a:focus,
+  #toc h2 a:hover,
+  #toc a.toplink,
+  #toc a.toplink:hover {
+    color: white;
+    background-color: #444;
+    text-decoration: none;
+  }
+}
+
+/* Give the bottom of the ToC some whitespace */
+@media screen and (min-width: 1024px) {
+  #toc {
+    padding: 0 0 1em 1em;
+  }
+}
+
+/* Style section numbers with more space between number and title */
+.section-number {
+  padding-right: 0.5em;
+}
+
+/* prevent monospace from becoming overly large */
+tt, code, pre {
+  font-size: 95%;
+}
+
+/* Fix the height/width aspect for ascii art*/
+.sourcecode pre,
+.art-text pre {
+  line-height: 1.12;
+}
+
+
+/* Add styling for a link in the ToC that points to the top of the document */
+a.toplink {
+  float: right;
+  margin-right: 0.5em;
+}
+
+/* Fix the dl styling to match the RFC 7992 attributes */
+dl > dt,
+dl.dlParallel > dt {
+  float: left;
+  margin-right: 1em;
+}
+dl.dlNewline > dt {
+  float: none;
+}
+
+/* Provide styling for table cell text alignment */
+table td.text-left,
+table th.text-left {
+  text-align: left;
+}
+table td.text-center,
+table th.text-center {
+  text-align: center;
+}
+table td.text-right,
+table th.text-right {
+  text-align: right;
+}
+
+/* Make the alternative author contact information look less like just another
+   author, and group it closer with the primary author contact information */
+.alternative-contact {
+  margin: 0.5em 0 0.25em 0;
+}
+address .non-ascii {
+  margin: 0 0 0 2em;
+}
+
+/* With it being possible to set tables with alignment
+  left, center, and right, { width: 100%; } does not make sense */
+table {
+  width: auto;
+}
+
+/* Avoid reference text that sits in a block with very wide left margin,
+   because of a long floating dt label.*/
+.references dd {
+  overflow: visible;
+}
+
+/* Control caption placement */
+caption {
+  caption-side: bottom;
+}
+
+/* Limit the width of the author address vcard, so names in right-to-left
+   script don't end up on the other side of the page. */
+
+address.vcard {
+  max-width: 30em;
+  margin-right: auto;
+}
+
+/* For address alignment dependent on LTR or RTL scripts */
+address div.left {
+  text-align: left;
+}
+address div.right {
+  text-align: right;
+}
+
+/* Provide table alignment support.  We can't use the alignX classes above
+   since they do unwanted things with caption and other styling. */
+table.right {
+ margin-left: auto;
+ margin-right: 0;
+}
+table.center {
+ margin-left: auto;
+ margin-right: auto;
+}
+table.left {
+ margin-left: 0;
+ margin-right: auto;
+}
+
+/* Give the table caption label the same styling as the figcaption */
+caption a[href] {
+  color: #222;
+}
+
+@media print {
+  .toplink {
+    display: none;
+  }
+
+  /* avoid overwriting the top border line with the ToC header */
+  #toc {
+    padding-top: 1px;
+  }
+
+  /* Avoid page breaks inside dl and author address entries */
+  .vcard {
+    page-break-inside: avoid;
+  }
+
+}
+/* Tweak the bcp14 keyword presentation */
+.bcp14 {
+  font-variant: small-caps;
+  font-weight: bold;
+  font-size: 0.9em;
+}
+/* Tweak the invisible space above H* in order not to overlay links in text above */
+ h2 {
+  margin-top: -18px;  /* provide offset for in-page anchors */
+  padding-top: 31px;
+ }
+ h3 {
+  margin-top: -18px;  /* provide offset for in-page anchors */
+  padding-top: 24px;
+ }
+ h4 {
+  margin-top: -18px;  /* provide offset for in-page anchors */
+  padding-top: 24px;
+ }
+/* Float artwork pilcrow to the right */
+@media screen {
+  .artwork a.pilcrow {
+    display: block;
+    line-height: 0.7;
+    margin-top: 0.15em;
+  }
+}
+/* Make pilcrows on dd visible */
+@media screen {
+  dd:hover > a.pilcrow {
+    visibility: visible;
+  }
+}
+/* Make the placement of figcaption match that of a table's caption
+   by removing the figure's added bottom margin */
+.alignLeft.art-text,
+.alignCenter.art-text,
+.alignRight.art-text {
+   margin-bottom: 0;
+}
+.alignLeft,
+.alignCenter,
+.alignRight {
+  margin: 1em 0 0 0;
+}
+/* In print, the pilcrow won't show on hover, so prevent it from taking up space,
+   possibly even requiring a new line */
+@media print {
+  a.pilcrow {
+    display: none;
+  }
+}
+/* Styling for the external metadata */
+div#external-metadata {
+  background-color: #eee;
+  padding: 0.5em;
+  margin-bottom: 0.5em;
+  display: none;
+}
+div#internal-metadata {
+  padding: 0.5em;                       /* to match the external-metadata padding */
+}
+/* Styling for title RFC Number */
+h1#rfcnum {
+  clear: both;
+  margin: 0 0 -1em;
+  padding: 1em 0 0 0;
+}
+/* Make .olPercent look the same as <ol><li> */
+dl.olPercent > dd {
+  margin-bottom: 0.25em;
+  min-height: initial;
+}
+/* Give aside some styling to set it apart */
+aside {
+  border-left: 1px solid #ddd;
+  margin: 1em 0 1em 2em;
+  padding: 0.2em 2em;
+}
+aside > dl,
+aside > ol,
+aside > ul,
+aside > table,
+aside > p {
+  margin-bottom: 0.5em;
+}
+/* Additional page break settings */
+@media print {
+  figcaption, table caption {
+    page-break-before: avoid;
+  }
+  table {
+    page-break-inside: avoid;
+  }
+}
+/* Font size adjustments for print */
+@media print {
+  body  { font-size: 10pt;      line-height: normal; max-width: 96%; }
+  h1    { font-size: 1.72em;    padding-top: 1.5em; } /* 1*1.2*1.2*1.2 */
+  h2    { font-size: 1.44em;    padding-top: 1.5em; } /* 1*1.2*1.2 */
+  h3    { font-size: 1.2em;     padding-top: 1.5em; } /* 1*1.2 */
+  h4    { font-size: 1em;       padding-top: 1.5em; }
+  h5, h6 { font-size: 1em;      margin: initial; padding: 0.5em 0 0.3em; }
+}
+/* Sourcecode margin in print, when there's no pilcrow */
+@media print {
+  .artwork,
+  .artwork > pre,
+  .sourcecode {
+    margin-bottom: 1em;
+  }
+}
+/* Avoid narrow tables forcing too narrow table captions, which may render badly */
+table {
+  min-width: 20em;
+}
+/* ol type a */
+ol.type-a { list-style-type: lower-alpha; }
+ol.type-A { list-style-type: upper-alpha; }
+ol.type-i { list-style-type: lower-roman; }
+ol.type-I { list-style-type: upper-roman; }
+/* Apply the print table and row borders in general, on request from the RPC,
+and increase the contrast between border and odd row background slightly */
+table {
+  border: 1px solid #ddd;
+}
+td {
+  border-top: 1px solid #ddd;
+}
+tr {
+  break-inside: avoid;
+}
+tr:nth-child(2n+1) > td {
+  background-color: #f8f8f8;
+}
+/* Use style rules to govern display of the TOC. */
+@media screen and (max-width: 1023px) {
+  #toc nav { display: none; }
+  #toc.active nav { display: block; }
+}
+/* Add support for keepWithNext */
+.keepWithNext {
+  break-after: avoid-page;
+  break-after: avoid-page;
+}
+/* Add support for keepWithPrevious */
+.keepWithPrevious {
+  break-before: avoid-page;
+}
+/* Change the approach to avoiding breaks inside artwork etc. */
+figure, pre, table, .artwork, .sourcecode  {
+  break-before: auto;
+  break-after: auto;
+}
+/* Avoid breaks between <dt> and <dd> */
+dl {
+  break-before: auto;
+  break-inside: auto;
+}
+dt {
+  break-before: auto;
+  break-after: avoid-page;
+}
+dd {
+  break-before: avoid-page;
+  break-after: auto;
+  orphans: 3;
+  widows: 3
+}
+span.break, dd.break {
+  margin-bottom: 0;
+  min-height: 0;
+  break-before: auto;
+  break-inside: auto;
+  break-after: auto;
+}
+/* Undo break-before ToC */
+@media print {
+  #toc {
+    break-before: auto;
+  }
+}
+/* Text in compact lists should not get extra bottom margin space,
+   since that would makes the list not compact */
+ul.compact p, .ulCompact p,
+ol.compact p, .olCompact p {
+ margin: 0;
+}
+/* But the list as a whole needs the extra space at the end */
+section ul.compact,
+section .ulCompact,
+section ol.compact,
+section .olCompact {
+  margin-bottom: 1em;                    /* same as p not within ul.compact etc. */
+}
+/* The tt and code background above interferes with for instance table cell
+   backgrounds.  Changed to something a bit more selective. */
+tt, code {
+  background-color: transparent;
+}
+p tt, p code, li tt, li code, dt tt, dt code {
+  background-color: #f8f8f8;
+}
+/* Tweak the pre margin -- 0px doesn't come out well */
+pre {
+   margin-top: 0.5px;
+}
+/* Tweak the compact list text */
+ul.compact, .ulCompact,
+ol.compact, .olCompact,
+dl.compact, .dlCompact {
+  line-height: normal;
+}
+/* Don't add top margin for nested lists */
+li > ul, li > ol, li > dl,
+dd > ul, dd > ol, dd > dl,
+dl > dd > dl {
+  margin-top: initial;
+}
+/* Elements that should not be rendered on the same line as a <dt> */
+/* This should match the element list in writer.text.TextWriter.render_dl() */
+dd > div.artwork:first-child,
+dd > aside:first-child,
+dd > blockquote:first-child,
+dd > figure:first-child,
+dd > ol:first-child,
+dd > div.sourcecode:first-child,
+dd > table:first-child,
+dd > ul:first-child {
+  clear: left;
+}
+/* fix for weird browser behaviour when <dd/> is empty */
+dt+dd:empty::before{
+  content: "\00a0";
+}
+/* Make paragraph spacing inside <li> smaller than in body text, to fit better within the list */
+li > p {
+  margin-bottom: 0.5em
+}
+/* Don't let p margin spill out from inside list items */
+li > p:last-of-type:only-child {
+  margin-bottom: 0;
+}
+</style>
+<link href="rfc-local.css" rel="stylesheet" type="text/css">
+<script type="application/javascript">async function addMetadata(){try{const e=document.styleSheets[0].cssRules;for(let t=0;t<e.length;t++)if(/#identifiers/.exec(e[t].selectorText)){const a=e[t].cssText.replace("#identifiers","#external-updates");document.styleSheets[0].insertRule(a,document.styleSheets[0].cssRules.length)}}catch(e){console.log(e)}const e=document.getElementById("external-metadata");if(e)try{var t,a="",o=function(e){const t=document.getElementsByTagName("meta");for(let a=0;a<t.length;a++)if(t[a].getAttribute("name")===e)return t[a].getAttribute("content");return""}("rfc.number");if(o){t="https://www.rfc-editor.org/rfc/rfc"+o+".json";try{const e=await fetch(t);a=await e.json()}catch(e){t=document.URL.indexOf("html")>=0?document.URL.replace(/html$/,"json"):document.URL+".json";const o=await fetch(t);a=await o.json()}}if(!a)return;e.style.display="block";const s="",d="https://datatracker.ietf.org/doc",n="https://datatracker.ietf.org/ipr/search",c="https://www.rfc-editor.org/info",l=a.doc_id.toLowerCase(),i=a.doc_id.slice(0,3).toLowerCase(),f=a.doc_id.slice(3).replace(/^0+/,""),u={status:"Status",obsoletes:"Obsoletes",obsoleted_by:"Obsoleted By",updates:"Updates",updated_by:"Updated By",see_also:"See Also",errata_url:"Errata"};let h="<dl style='overflow:hidden' id='external-updates'>";["status","obsoletes","obsoleted_by","updates","updated_by","see_also","errata_url"].forEach(e=>{if("status"==e){a[e]=a[e].toLowerCase();var t=a[e].split(" "),o=t.length,w="",p=1;for(let e=0;e<o;e++)p<o?w=w+r(t[e])+" ":w+=r(t[e]),p++;a[e]=w}else if("obsoletes"==e||"obsoleted_by"==e||"updates"==e||"updated_by"==e){var g,m="",b=1;g=a[e].length;for(let t=0;t<g;t++)a[e][t]&&(a[e][t]=String(a[e][t]).toLowerCase(),m=b<g?m+"<a href='"+s+"/rfc/".concat(a[e][t])+"'>"+a[e][t].slice(3)+"</a>, ":m+"<a href='"+s+"/rfc/".concat(a[e][t])+"'>"+a[e][t].slice(3)+"</a>",b++);a[e]=m}else if("see_also"==e){var y,L="",C=1;y=a[e].length;for(let t=0;t<y;t++)if(a[e][t]){a[e][t]=String(a[e][t]);var _=a[e][t].slice(0,3),v=a[e][t].slice(3).replace(/^0+/,"");L=C<y?"RFC"!=_?L+"<a href='"+s+"/info/"+_.toLowerCase().concat(v.toLowerCase())+"'>"+_+" "+v+"</a>, ":L+"<a href='"+s+"/info/"+_.toLowerCase().concat(v.toLowerCase())+"'>"+v+"</a>, ":"RFC"!=_?L+"<a href='"+s+"/info/"+_.toLowerCase().concat(v.toLowerCase())+"'>"+_+" "+v+"</a>":L+"<a href='"+s+"/info/"+_.toLowerCase().concat(v.toLowerCase())+"'>"+v+"</a>",C++}a[e]=L}else if("errata_url"==e){var R="";R=a[e]?R+"<a href='"+a[e]+"'>Errata exist</a> | <a href='"+d+"/"+l+"'>Datatracker</a>| <a href='"+n+"/?"+i+"="+f+"&submit="+i+"'>IPR</a> | <a href='"+c+"/"+l+"'>Info page</a>":"<a href='"+d+"/"+l+"'>Datatracker</a> | <a href='"+n+"/?"+i+"="+f+"&submit="+i+"'>IPR</a> | <a href='"+c+"/"+l+"'>Info page</a>",a[e]=R}""!=a[e]?"Errata"==u[e]?h+=`<dt>More info:</dt><dd>${a[e]}</dd>`:h+=`<dt>${u[e]}:</dt><dd>${a[e]}</dd>`:"Errata"==u[e]&&(h+=`<dt>More info:</dt><dd>${a[e]}</dd>`)}),h+="</dl>",e.innerHTML=h}catch(e){console.log(e)}else console.log("Could not locate metadata <div> element");function r(e){return e.charAt(0).toUpperCase()+e.slice(1)}}window.removeEventListener("load",addMetadata),window.addEventListener("load",addMetadata);</script>
+</head>
+<body class="xml2rfc">
+<table class="ears">
+<thead><tr>
+<td class="left">Internet-Draft</td>
+<td class="center">DataReel gxStream</td>
+<td class="right">November 2026</td>
+</tr></thead>
+<tfoot><tr>
+<td class="left">Gaer</td>
+<td class="center">Expires 22 May 2027</td>
+<td class="right">[Page]</td>
+</tr></tfoot>
+</table>
+<div id="external-metadata" class="document-information"></div>
+<div id="internal-metadata" class="document-information">
+<dl id="identifiers">
+<dt class="label-workgroup">Workgroup:</dt>
+<dd class="workgroup">Network Working Group</dd>
+<dt class="label-internet-draft">Internet-Draft:</dt>
+<dd class="internet-draft">draft-gaer-datareel-gxstream-00</dd>
+<dt class="label-published">Published:</dt>
+<dd class="published">
+<time datetime="2026-11-18" class="published">18 November 2026</time>
+    </dd>
+<dt class="label-intended-status">Intended Status:</dt>
+<dd class="intended-status">Informational</dd>
+<dt class="label-expires">Expires:</dt>
+<dd class="expires"><time datetime="2027-05-22">22 May 2027</time></dd>
+<dt class="label-authors">Author:</dt>
+<dd class="authors">
+<div class="author">
+      <div class="author-name">D. Gaer</div>
+<div class="org">DataReel Software Development</div>
+</div>
+</dd>
+</dl>
+</div>
+<h1 id="title">The DataReel gxStream Database Block Protocol and Object Replication over TCP Port 2073</h1>
+<section id="section-abstract">
+      <h2 id="abstract"><a href="#abstract" class="selfRef">Abstract</a></h2>
+<p id="section-abstract-1">This document describes gxStream, the database block protocol of the DataReel C++ library, and the
+      services carried on it: the DataReel database object server with its channel multiplex, remote access to
+      database objects and vector searches, and gxObjRepl object replication between two independent object
+      databases. gxStream runs over TLS with certificates on both sides on TCP port 2073, which is registered
+      with IANA under the service name "gxs-data-port". The port was registered before a protocol description
+      was required; this document provides that description, as implemented in DataReel 7.4. It is published
+      for information and does not specify an Internet standard.<a href="#section-abstract-1" class="pilcrow">¶</a></p>
+</section>
+<section class="note" id="section-note.1">
+      <h2 id="name-note">
+<a href="#name-note" class="section-name selfRef">Note</a>
+      </h2>
+<p id="section-note.1-1">This is an Independent Submission. The protocol is defined by its reference implementation, the DataReel
+      library, which is free software under the GNU Lesser General Public License version 3 or later
+      (https://datareel.com). Where this document and the DataReel 7.4 source differ, the difference is listed in
+      <a href="#impl-status" class="auto internal xref">Appendix A</a>.<a href="#section-note.1-1" class="pilcrow">¶</a></p>
+</section>
+<div id="status-of-memo">
+<section id="section-boilerplate.1">
+        <h2 id="name-status-of-this-memo">
+<a href="#name-status-of-this-memo" class="section-name selfRef">Status of This Memo</a>
+        </h2>
+<p id="section-boilerplate.1-1">
+        This Internet-Draft is submitted in full conformance with the
+        provisions of BCP 78 and BCP 79.<a href="#section-boilerplate.1-1" class="pilcrow">¶</a></p>
+<p id="section-boilerplate.1-2">
+        Internet-Drafts are working documents of the Internet Engineering Task
+        Force (IETF). Note that other groups may also distribute working
+        documents as Internet-Drafts. The list of current Internet-Drafts is
+        at <span><a href="https://datatracker.ietf.org/drafts/current/">https://datatracker.ietf.org/drafts/current/</a></span>.<a href="#section-boilerplate.1-2" class="pilcrow">¶</a></p>
+<p id="section-boilerplate.1-3">
+        Internet-Drafts are draft documents valid for a maximum of six months
+        and may be updated, replaced, or obsoleted by other documents at any
+        time. It is inappropriate to use Internet-Drafts as reference
+        material or to cite them other than as "work in progress."<a href="#section-boilerplate.1-3" class="pilcrow">¶</a></p>
+<p id="section-boilerplate.1-4">
+        This Internet-Draft will expire on 22 May 2027.<a href="#section-boilerplate.1-4" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="copyright">
+<section id="section-boilerplate.2">
+        <h2 id="name-copyright-notice">
+<a href="#name-copyright-notice" class="section-name selfRef">Copyright Notice</a>
+        </h2>
+<p id="section-boilerplate.2-1">
+            Copyright (c) 2026 IETF Trust and the persons identified as the
+            document authors. All rights reserved.<a href="#section-boilerplate.2-1" class="pilcrow">¶</a></p>
+<p id="section-boilerplate.2-2">
+            This document is subject to BCP 78 and the IETF Trust's Legal
+            Provisions Relating to IETF Documents
+            (<span><a href="https://trustee.ietf.org/license-info">https://trustee.ietf.org/license-info</a></span>) in effect on the date of
+            publication of this document. Please review these documents
+            carefully, as they describe your rights and restrictions with
+            respect to this document.<a href="#section-boilerplate.2-2" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="toc">
+<section id="section-toc.1">
+        <a href="#" onclick="scroll(0,0)" class="toplink">▲</a><h2 id="name-table-of-contents">
+<a href="#name-table-of-contents" class="section-name selfRef">Table of Contents</a>
+        </h2>
+<nav class="toc"><ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.1">
+            <p id="section-toc.1-1.1.1" class="keepWithNext"><a href="#section-1" class="auto internal xref">1</a>.  <a href="#name-introduction" class="internal xref">Introduction</a></p>
+<ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.1.2.1">
+                <p id="section-toc.1-1.1.2.1.1" class="keepWithNext"><a href="#section-1.1" class="auto internal xref">1.1</a>.  <a href="#name-requirements-language" class="internal xref">Requirements Language</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.1.2.2">
+                <p id="section-toc.1-1.1.2.2.1" class="keepWithNext"><a href="#section-1.2" class="auto internal xref">1.2</a>.  <a href="#name-terminology" class="internal xref">Terminology</a></p>
+</li>
+            </ul>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.2">
+            <p id="section-toc.1-1.2.1"><a href="#section-2" class="auto internal xref">2</a>.  <a href="#name-transport" class="internal xref">Transport</a></p>
+<ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.2.2.1">
+                <p id="section-toc.1-1.2.2.1.1"><a href="#section-2.1" class="auto internal xref">2.1</a>.  <a href="#name-tcp" class="internal xref">TCP</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.2.2.2">
+                <p id="section-toc.1-1.2.2.2.1"><a href="#section-2.2" class="auto internal xref">2.2</a>.  <a href="#name-tls" class="internal xref">TLS</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.2.2.3">
+                <p id="section-toc.1-1.2.2.3.1"><a href="#section-2.3" class="auto internal xref">2.3</a>.  <a href="#name-timeouts" class="internal xref">Timeouts</a></p>
+</li>
+            </ul>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3">
+            <p id="section-toc.1-1.3.1"><a href="#section-3" class="auto internal xref">3</a>.  <a href="#name-the-gxstream-block" class="internal xref">The gxStream Block</a></p>
+<ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3.2.1">
+                <p id="section-toc.1-1.3.2.1.1"><a href="#section-3.1" class="auto internal xref">3.1</a>.  <a href="#name-block-header" class="internal xref">Block Header</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3.2.2">
+                <p id="section-toc.1-1.3.2.2.1"><a href="#section-3.2" class="auto internal xref">3.2</a>.  <a href="#name-control-codes" class="internal xref">Control Codes</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3.2.3">
+                <p id="section-toc.1-1.3.2.3.1"><a href="#section-3.3" class="auto internal xref">3.3</a>.  <a href="#name-maximum-block-size" class="internal xref">Maximum Block Size</a></p>
+</li>
+            </ul>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.4">
+            <p id="section-toc.1-1.4.1"><a href="#section-4" class="auto internal xref">4</a>.  <a href="#name-basic-block-exchanges" class="internal xref">Basic Block Exchanges</a></p>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.5">
+            <p id="section-toc.1-1.5.1"><a href="#section-5" class="auto internal xref">5</a>.  <a href="#name-the-database-object-server" class="internal xref">The Database Object Server</a></p>
+<ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.5.2.1">
+                <p id="section-toc.1-1.5.2.1.1"><a href="#section-5.1" class="auto internal xref">5.1</a>.  <a href="#name-legacy-object-sessions" class="internal xref">Legacy Object Sessions</a></p>
+</li>
+            </ul>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.6">
+            <p id="section-toc.1-1.6.1"><a href="#section-6" class="auto internal xref">6</a>.  <a href="#name-the-channel-multiplex" class="internal xref">The Channel Multiplex</a></p>
+<ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.6.2.1">
+                <p id="section-toc.1-1.6.2.1.1"><a href="#section-6.1" class="auto internal xref">6.1</a>.  <a href="#name-frames" class="internal xref">Frames</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.6.2.2">
+                <p id="section-toc.1-1.6.2.2.1"><a href="#section-6.2" class="auto internal xref">6.2</a>.  <a href="#name-session-and-channels" class="internal xref">Session and Channels</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.6.2.3">
+                <p id="section-toc.1-1.6.2.3.1"><a href="#section-6.3" class="auto internal xref">6.3</a>.  <a href="#name-flow-control" class="internal xref">Flow Control</a></p>
+</li>
+            </ul>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.7">
+            <p id="section-toc.1-1.7.1"><a href="#section-7" class="auto internal xref">7</a>.  <a href="#name-the-object-service" class="internal xref">The Object Service</a></p>
+<ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.7.2.1">
+                <p id="section-toc.1-1.7.2.1.1"><a href="#section-7.1" class="auto internal xref">7.1</a>.  <a href="#name-requests-and-replies" class="internal xref">Requests and Replies</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.7.2.2">
+                <p id="section-toc.1-1.7.2.2.1"><a href="#section-7.2" class="auto internal xref">7.2</a>.  <a href="#name-vector-searches" class="internal xref">Vector Searches</a></p>
+</li>
+            </ul>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.8">
+            <p id="section-toc.1-1.8.1"><a href="#section-8" class="auto internal xref">8</a>.  <a href="#name-object-replication-gxobjrep" class="internal xref">Object Replication (gxObjRepl)</a></p>
+<ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.8.2.1">
+                <p id="section-toc.1-1.8.2.1.1"><a href="#section-8.1" class="auto internal xref">8.1</a>.  <a href="#name-connection" class="internal xref">Connection</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.8.2.2">
+                <p id="section-toc.1-1.8.2.2.1"><a href="#section-8.2" class="auto internal xref">8.2</a>.  <a href="#name-hello-and-reply" class="internal xref">Hello and Reply</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.8.2.3">
+                <p id="section-toc.1-1.8.2.3.1"><a href="#section-8.3" class="auto internal xref">8.3</a>.  <a href="#name-frames-2" class="internal xref">Frames</a></p>
+<ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.8.2.3.2.1">
+                    <p id="section-toc.1-1.8.2.3.2.1.1"><a href="#section-8.3.1" class="auto internal xref">8.3.1</a>.  <a href="#name-f_commit" class="internal xref">F_COMMIT</a></p>
+</li>
+                  <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.8.2.3.2.2">
+                    <p id="section-toc.1-1.8.2.3.2.2.1"><a href="#section-8.3.2" class="auto internal xref">8.3.2</a>.  <a href="#name-full-send" class="internal xref">Full Send</a></p>
+</li>
+                </ul>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.8.2.4">
+                <p id="section-toc.1-1.8.2.4.1"><a href="#section-8.4" class="auto internal xref">8.4</a>.  <a href="#name-digests" class="internal xref">Digests</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.8.2.5">
+                <p id="section-toc.1-1.8.2.5.1"><a href="#section-8.5" class="auto internal xref">8.5</a>.  <a href="#name-epochs-takeover-and-rejoin" class="internal xref">Epochs, Takeover and Rejoin</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.8.2.6">
+                <p id="section-toc.1-1.8.2.6.1"><a href="#section-8.6" class="auto internal xref">8.6</a>.  <a href="#name-port" class="internal xref">Port</a></p>
+</li>
+            </ul>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.9">
+            <p id="section-toc.1-1.9.1"><a href="#section-9" class="auto internal xref">9</a>.  <a href="#name-error-handling" class="internal xref">Error Handling</a></p>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.10">
+            <p id="section-toc.1-1.10.1"><a href="#section-10" class="auto internal xref">10</a>. <a href="#name-security-considerations" class="internal xref">Security Considerations</a></p>
+<ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.10.2.1">
+                <p id="section-toc.1-1.10.2.1.1"><a href="#section-10.1" class="auto internal xref">10.1</a>.  <a href="#name-confidentiality-and-integri" class="internal xref">Confidentiality and Integrity</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.10.2.2">
+                <p id="section-toc.1-1.10.2.2.1"><a href="#section-10.2" class="auto internal xref">10.2</a>.  <a href="#name-authentication-and-authoriz" class="internal xref">Authentication and Authorization</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.10.2.3">
+                <p id="section-toc.1-1.10.2.3.1"><a href="#section-10.3" class="auto internal xref">10.3</a>.  <a href="#name-replication" class="internal xref">Replication</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.10.2.4">
+                <p id="section-toc.1-1.10.2.4.1"><a href="#section-10.4" class="auto internal xref">10.4</a>.  <a href="#name-resource-exhaustion" class="internal xref">Resource Exhaustion</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.10.2.5">
+                <p id="section-toc.1-1.10.2.5.1"><a href="#section-10.5" class="auto internal xref">10.5</a>.  <a href="#name-server-control-codes" class="internal xref">Server Control Codes</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.10.2.6">
+                <p id="section-toc.1-1.10.2.6.1"><a href="#section-10.6" class="auto internal xref">10.6</a>.  <a href="#name-stored-data" class="internal xref">Stored Data</a></p>
+</li>
+            </ul>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.11">
+            <p id="section-toc.1-1.11.1"><a href="#section-11" class="auto internal xref">11</a>. <a href="#name-iana-considerations" class="internal xref">IANA Considerations</a></p>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.12">
+            <p id="section-toc.1-1.12.1"><a href="#section-12" class="auto internal xref">12</a>. <a href="#name-references" class="internal xref">References</a></p>
+<ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.12.2.1">
+                <p id="section-toc.1-1.12.2.1.1"><a href="#section-12.1" class="auto internal xref">12.1</a>.  <a href="#name-normative-references" class="internal xref">Normative References</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.12.2.2">
+                <p id="section-toc.1-1.12.2.2.1"><a href="#section-12.2" class="auto internal xref">12.2</a>.  <a href="#name-informative-references" class="internal xref">Informative References</a></p>
+</li>
+            </ul>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.13">
+            <p id="section-toc.1-1.13.1"><a href="#appendix-A" class="auto internal xref">Appendix A</a>.  <a href="#name-implementation-status" class="internal xref">Implementation Status</a></p>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.14">
+            <p id="section-toc.1-1.14.1"><a href="#appendix-B" class="auto internal xref"></a><a href="#name-acknowledgments" class="internal xref">Acknowledgments</a></p>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.15">
+            <p id="section-toc.1-1.15.1"><a href="#appendix-C" class="auto internal xref"></a><a href="#name-authors-address" class="internal xref">Author's Address</a></p>
+</li>
+        </ul>
+</nav>
+</section>
+</div>
+<div id="intro">
+<section id="section-1">
+      <h2 id="name-introduction">
+<a href="#section-1" class="section-number selfRef">1. </a><a href="#name-introduction" class="section-name selfRef">Introduction</a>
+      </h2>
+<p id="section-1-1">DataReel is a cross-platform C++ library with an embedded object database and TLS communication classes.
+      Since 1999 it has had a block protocol, gxStream, that carries database blocks between programs: the same
+      block header the database writes before every object in its files is sent on the network, followed by the
+      block's bytes. TCP and UDP port 2073 were registered with IANA for this protocol as "gxs-data-port",
+      "DataReel Database Socket".<a href="#section-1-1" class="pilcrow">¶</a></p>
+<p id="section-1-2">DataReel 7 (2026) rewrote the protocol on TLS: no block is ever sent or accepted in cleartext, servers
+      require client certificates by default, and every length received is checked before it is used. DataReel
+      7.3.1 added the database object server, which carries several services over one listener and a multiplex of
+      independent channels. DataReel 7.4 added vector searches to the object service, a canonical block header on
+      every platform, and gxObjRepl, which replicates objects (never file pages) from a primary node to a copy.<a href="#section-1-2" class="pilcrow">¶</a></p>
+<p id="section-1-3">This document specifies:<a href="#section-1-3" class="pilcrow">¶</a></p>
+<ul class="normal">
+<li class="normal" id="section-1-4.1">the transport and TLS requirements (<a href="#transport" class="auto internal xref">Section 2</a>);<a href="#section-1-4.1" class="pilcrow">¶</a>
+</li>
+        <li class="normal" id="section-1-4.2">the gxStream block and its control codes (<a href="#block" class="auto internal xref">Section 3</a>) and the basic block exchanges
+        (<a href="#basic" class="auto internal xref">Section 4</a>);<a href="#section-1-4.2" class="pilcrow">¶</a>
+</li>
+        <li class="normal" id="section-1-4.3">the database object server's service selection (<a href="#server" class="auto internal xref">Section 5</a>);<a href="#section-1-4.3" class="pilcrow">¶</a>
+</li>
+        <li class="normal" id="section-1-4.4">the channel multiplex (<a href="#mux" class="auto internal xref">Section 6</a>), the object service and vector searches
+        (<a href="#object" class="auto internal xref">Section 7</a>);<a href="#section-1-4.4" class="pilcrow">¶</a>
+</li>
+        <li class="normal" id="section-1-4.5">the gxObjRepl replication protocol (<a href="#repl" class="auto internal xref">Section 8</a>).<a href="#section-1-4.5" class="pilcrow">¶</a>
+</li>
+      </ul>
+<p id="section-1-5">The UDP assignment of port 2073 is not used by any protocol in this document (<a href="#iana" class="auto internal xref">Section 11</a>).<a href="#section-1-5" class="pilcrow">¶</a></p>
+<div id="reqs">
+<section id="section-1.1">
+        <h3 id="name-requirements-language">
+<a href="#section-1.1" class="section-number selfRef">1.1. </a><a href="#name-requirements-language" class="section-name selfRef">Requirements Language</a>
+        </h3>
+<p id="section-1.1-1">The key words "<span class="bcp14">MUST</span>", "<span class="bcp14">MUST NOT</span>", "<span class="bcp14">REQUIRED</span>",
+        "<span class="bcp14">SHALL</span>", "<span class="bcp14">SHALL NOT</span>", "<span class="bcp14">SHOULD</span>", "<span class="bcp14">SHOULD NOT</span>",
+        "<span class="bcp14">RECOMMENDED</span>", "<span class="bcp14">NOT RECOMMENDED</span>", "<span class="bcp14">MAY</span>", and
+        "<span class="bcp14">OPTIONAL</span>" in this document are to be interpreted as described in BCP 14
+        <span>[<a href="#RFC2119" class="cite xref">RFC2119</a>]</span> <span>[<a href="#RFC8174" class="cite xref">RFC8174</a>]</span> when, and only when, they appear in all capitals, as
+        shown here.<a href="#section-1.1-1" class="pilcrow">¶</a></p>
+<p id="section-1.1-2">This document describes an existing protocol. The requirement words state what an implementation needs
+        to do to interoperate with DataReel 7.4 and to keep its security properties.<a href="#section-1.1-2" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="terms">
+<section id="section-1.2">
+        <h3 id="name-terminology">
+<a href="#section-1.2" class="section-number selfRef">1.2. </a><a href="#name-terminology" class="section-name selfRef">Terminology</a>
+        </h3>
+<span class="break"></span><dl class="dlParallel" id="section-1.2-1">
+          <dt id="section-1.2-1.1">Block:</dt>
+          <dd style="margin-left: 1.5em" id="section-1.2-1.2">A 32-byte block header followed by zero or more body bytes.<a href="#section-1.2-1.2" class="pilcrow">¶</a>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-1.2-1.3">Client, server:</dt>
+          <dd style="margin-left: 1.5em" id="section-1.2-1.4">The TLS client (the side that opens the TCP connection) and the TLS server.<a href="#section-1.2-1.4" class="pilcrow">¶</a>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-1.2-1.5">Object:</dt>
+          <dd style="margin-left: 1.5em" id="section-1.2-1.6">A record stored in a DataReel database file, identified by its file address on one
+          node or, in replication, by a 64-bit object id shared by both nodes.<a href="#section-1.2-1.6" class="pilcrow">¶</a>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-1.2-1.7">Channel:</dt>
+          <dd style="margin-left: 1.5em" id="section-1.2-1.8">One independent stream of messages inside a multiplex session.<a href="#section-1.2-1.8" class="pilcrow">¶</a>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-1.2-1.9">Primary, copy:</dt>
+          <dd style="margin-left: 1.5em" id="section-1.2-1.10">The replication node that takes writes, and the node that receives them.<a href="#section-1.2-1.10" class="pilcrow">¶</a>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-1.2-1.11">Epoch:</dt>
+          <dd style="margin-left: 1.5em" id="section-1.2-1.12">A replication generation number, raised by each takeover.<a href="#section-1.2-1.12" class="pilcrow">¶</a>
+</dd>
+        <dd class="break"></dd>
+</dl>
+<p id="section-1.2-2">Integer types are written u8, u16, u32 and u64 (unsigned, 1, 2, 4 and 8 bytes), i64 (signed, 8 bytes,
+        two's complement) and f32 (IEEE 754 binary32). Unless a section says otherwise, every integer and float is
+        sent in little endian byte order.<a href="#section-1.2-2" class="pilcrow">¶</a></p>
+</section>
+</div>
+</section>
+</div>
+<div id="transport">
+<section id="section-2">
+      <h2 id="name-transport">
+<a href="#section-2" class="section-number selfRef">2. </a><a href="#name-transport" class="section-name selfRef">Transport</a>
+      </h2>
+<section id="section-2.1">
+        <h3 id="name-tcp">
+<a href="#section-2.1" class="section-number selfRef">2.1. </a><a href="#name-tcp" class="section-name selfRef">TCP</a>
+        </h3>
+<p id="section-2.1-1">gxStream runs over TCP <span>[<a href="#RFC9293" class="cite xref">RFC9293</a>]</span>. Servers listen on port 2073 unless configured
+        otherwise, and clients connect to port 2073 unless given another port. A server MAY listen on IPv6 and IPv4
+        at once. Implementations SHOULD disable the Nagle algorithm on replication connections, since each frame is
+        answered by a small acknowledgment.<a href="#section-2.1-1" class="pilcrow">¶</a></p>
+</section>
+<div id="tls">
+<section id="section-2.2">
+        <h3 id="name-tls">
+<a href="#section-2.2" class="section-number selfRef">2.2. </a><a href="#name-tls" class="section-name selfRef">TLS</a>
+        </h3>
+<p id="section-2.2-1">Every gxStream connection MUST be protected with TLS. The TLS handshake starts immediately after the
+        TCP connection is established; there is no cleartext phase and no STARTTLS command.<a href="#section-2.2-1" class="pilcrow">¶</a></p>
+<ul class="normal">
+<li class="normal" id="section-2.2-2.1">Implementations MUST support TLS 1.2 <span>[<a href="#RFC5246" class="cite xref">RFC5246</a>]</span> and SHOULD support TLS 1.3
+          <span>[<a href="#RFC8446" class="cite xref">RFC8446</a>]</span>. They MUST NOT negotiate SSL 2.0, SSL 3.0, TLS 1.0 or TLS 1.1, and SHOULD follow
+          <span>[<a href="#RFC9325" class="cite xref">RFC9325</a>]</span> in the choice of cipher suites.<a href="#section-2.2-2.1" class="pilcrow">¶</a>
+</li>
+          <li class="normal" id="section-2.2-2.2">Neither side may send or accept a block before the handshake has completed. An implementation MUST
+          NOT send blocks on, or accept blocks from, a connection whose handshake failed or was not run.<a href="#section-2.2-2.2" class="pilcrow">¶</a>
+</li>
+          <li class="normal" id="section-2.2-2.3">A client MUST send the server name indication extension when it connects by host name, and MUST
+          verify the server's certificate chain <span>[<a href="#RFC5280" class="cite xref">RFC5280</a>]</span> and the server's identity
+          <span>[<a href="#RFC9525" class="cite xref">RFC9525</a>]</span> (DNS name, or IP address for a numeric host). Partial-label wildcards MUST NOT be
+          accepted. A failed check closes the connection before any block is sent.<a href="#section-2.2-2.3" class="pilcrow">¶</a>
+</li>
+          <li class="normal" id="section-2.2-2.4">A gxStream server SHOULD require a client certificate. Such a server MUST verify the client's chain
+          against a configured set of client certification authorities only (not a general trust store) and MUST
+          accept only clients named in a configured allow list, by the SHA-256 fingerprint of the certificate or by
+          its subject common name (exact, case sensitive match). A server that accepts clients without certificates
+          MUST be configured to do so explicitly.<a href="#section-2.2-2.4" class="pilcrow">¶</a>
+</li>
+          <li class="normal" id="section-2.2-2.5">No application-layer protocol negotiation (ALPN) identifier is used. The service is selected by the
+          first block (<a href="#server" class="auto internal xref">Section 5</a>).<a href="#section-2.2-2.5" class="pilcrow">¶</a>
+</li>
+        </ul>
+<p id="section-2.2-3">A failed handshake, failed certificate check or failed allow list check closes the TCP connection.<a href="#section-2.2-3" class="pilcrow">¶</a></p>
+</section>
+</div>
+<section id="section-2.3">
+        <h3 id="name-timeouts">
+<a href="#section-2.3" class="section-number selfRef">2.3. </a><a href="#name-timeouts" class="section-name selfRef">Timeouts</a>
+        </h3>
+<p id="section-2.3-1">Every handshake, read and write SHOULD be bounded by a timeout. DataReel 7.4 uses 10 seconds for the
+        handshake and 120 seconds for each block on the database object server, 30 seconds for the replication
+        handshake and hello, and a configurable idle timeout (default 120 seconds) for replication frames.<a href="#section-2.3-1" class="pilcrow">¶</a></p>
+</section>
+</section>
+</div>
+<div id="block">
+<section id="section-3">
+      <h2 id="name-the-gxstream-block">
+<a href="#section-3" class="section-number selfRef">3. </a><a href="#name-the-gxstream-block" class="section-name selfRef">The gxStream Block</a>
+      </h2>
+<div id="header">
+<section id="section-3.1">
+        <h3 id="name-block-header">
+<a href="#section-3.1" class="section-number selfRef">3.1. </a><a href="#name-block-header" class="section-name selfRef">Block Header</a>
+        </h3>
+<p id="section-3.1-1">Every block begins with a 32-byte header of four 64-bit little endian words:<a href="#section-3.1-1" class="pilcrow">¶</a></p>
+<span id="name-block-header-2"></span><figure id="figure-1">
+          <div class="alignLeft art-ascii-art art-text artwork" id="section-3.1-2.1">
+<pre>
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Check Word (64 bits)                       |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Length (64 bits)                           |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Status (64 bits)                           |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Result (64 bits)                           |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+</pre>
+</div>
+<figcaption><a href="#figure-1" class="selfRef">Figure 1</a>:
+<a href="#name-block-header-2" class="selfRef">Block Header</a>
+          </figcaption></figure>
+<span class="break"></span><dl class="dlNewline" id="section-3.1-3">
+          <dt id="section-3.1-3.1">Check Word:</dt>
+          <dd style="margin-left: 1.5em" id="section-3.1-3.2">0x000000000000FEFE. A receiver MUST treat any other value as a loss of synchronization and close the
+          connection.<a href="#section-3.1-3.2" class="pilcrow">¶</a>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-3.1-3.3">Length:</dt>
+          <dd style="margin-left: 1.5em" id="section-3.1-3.4">The number of body bytes that follow the header. The high 32 bits MUST be zero; a sender MUST NOT
+          send a block longer than 2147483647 bytes. A receiver MUST compare the length with its maximum block size
+          before it allocates memory for the body, and MUST close the connection if it is larger.<a href="#section-3.1-3.4" class="pilcrow">¶</a>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-3.1-3.5">Status:</dt>
+          <dd style="margin-left: 1.5em" id="section-3.1-3.6">Byte 0 (the least significant byte) is the data status. Senders set it to 0x56 ("V", a block received
+          from a remote device); receivers MUST ignore it. Byte 1 is the control code (<a href="#codes" class="auto internal xref">Section 3.2</a>).
+          Bytes 2 to 7 MUST be zero.<a href="#section-3.1-3.6" class="pilcrow">¶</a>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-3.1-3.7">Result:</dt>
+          <dd style="margin-left: 1.5em" id="section-3.1-3.8">A signed 64-bit value carried by a result block (<a href="#basic" class="auto internal xref">Section 4</a>); zero in every other
+          block.<a href="#section-3.1-3.8" class="pilcrow">¶</a>
+</dd>
+        <dd class="break"></dd>
+</dl>
+<p id="section-3.1-4">The high four bytes of the Check Word and of the Status word are always zero. A receiver that finds a
+        non-zero byte there has met a peer that sends the obsolete header with 32-bit words (a 24-byte or 16-byte
+        header sent by DataReel builds older than 7.4 beta 5 on 64-bit Windows, or by 32-bit builds). It MUST
+        close the connection and SHOULD report that cause; it MUST NOT try to read the block.<a href="#section-3.1-4" class="pilcrow">¶</a></p>
+<p id="section-3.1-5">The block header is the one DataReel writes before each block in its database files; on the network
+        the Result word carries what the file uses as a free list pointer.<a href="#section-3.1-5" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="codes">
+<section id="section-3.2">
+        <h3 id="name-control-codes">
+<a href="#section-3.2" class="section-number selfRef">3.2. </a><a href="#name-control-codes" class="section-name selfRef">Control Codes</a>
+        </h3>
+<p id="section-3.2-1">The control code is one ASCII character:<a href="#section-3.2-1" class="pilcrow">¶</a></p>
+<span id="name-control-codes-2"></span><div id="tbl-codes">
+<table class="center" id="table-1">
+          <caption>
+<a href="#table-1" class="selfRef">Table 1</a>:
+<a href="#name-control-codes-2" class="selfRef">Control Codes</a>
+          </caption>
+<thead>
+            <tr>
+              <th class="text-left" rowspan="1" colspan="1">Code</th>
+              <th class="text-left" rowspan="1" colspan="1">Name</th>
+              <th class="text-left" rowspan="1" colspan="1">Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">0x41 "A"</td>
+              <td class="text-left" rowspan="1" colspan="1">Add</td>
+              <td class="text-left" rowspan="1" colspan="1">The body is a new object to add.</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">0x43 "C"</td>
+              <td class="text-left" rowspan="1" colspan="1">Change</td>
+              <td class="text-left" rowspan="1" colspan="1">The body names an object to change; an "S" block with the new contents follows.</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">0x44 "D"</td>
+              <td class="text-left" rowspan="1" colspan="1">Delete</td>
+              <td class="text-left" rowspan="1" colspan="1">The body names an object to delete.</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">0x4B "K"</td>
+              <td class="text-left" rowspan="1" colspan="1">Kill server</td>
+              <td class="text-left" rowspan="1" colspan="1">Header only. Asks the server to shut down.</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">0x4C "L"</td>
+              <td class="text-left" rowspan="1" colspan="1">Close connection</td>
+              <td class="text-left" rowspan="1" colspan="1">Header only. The sender is done with the connection.</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">0x52 "R"</td>
+              <td class="text-left" rowspan="1" colspan="1">Request</td>
+              <td class="text-left" rowspan="1" colspan="1">The body is a request; the reply is a block.</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">0x53 "S"</td>
+              <td class="text-left" rowspan="1" colspan="1">Send</td>
+              <td class="text-left" rowspan="1" colspan="1">The body is data: a reply, a multiplex frame or a replication frame.</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">0x54 "T"</td>
+              <td class="text-left" rowspan="1" colspan="1">Restart server</td>
+              <td class="text-left" rowspan="1" colspan="1">Header only. Asks the server to restart.</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">0x57 "W"</td>
+              <td class="text-left" rowspan="1" colspan="1">Acknowledge</td>
+              <td class="text-left" rowspan="1" colspan="1">Header only. An acknowledgment; the Result word carries the result.</td>
+            </tr>
+          </tbody>
+        </table>
+</div>
+<p id="section-3.2-3">Other code values are defined in the DataReel headers for database file use or for earlier designs and
+        are not sent by the services in this document. A server MUST close a session that sends a code its
+        service does not expect. "K" and "T" give a client control over the server process: a server MUST NOT act
+        on them unless the client is authorized to administer the server; the DataReel 7.4 database object server
+        does not act on them and closes the session.<a href="#section-3.2-3" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="limits">
+<section id="section-3.3">
+        <h3 id="name-maximum-block-size">
+<a href="#section-3.3" class="section-number selfRef">3.3. </a><a href="#name-maximum-block-size" class="section-name selfRef">Maximum Block Size</a>
+        </h3>
+<p id="section-3.3-1">Each receiver has a maximum block size. DataReel 7.4 uses 67108864 bytes (64 MiB) by default and
+        17825792 bytes (17 MiB) on the database object server. A sender SHOULD NOT send a block larger than the
+        peer is known to accept: multiplex senders split messages into frames of at most 1 MiB
+        (<a href="#mux-flow" class="auto internal xref">Section 6.3</a>), and replication limits objects to 32 MiB and commits to 60 MiB.<a href="#section-3.3-1" class="pilcrow">¶</a></p>
+</section>
+</div>
+</section>
+</div>
+<div id="basic">
+<section id="section-4">
+      <h2 id="name-basic-block-exchanges">
+<a href="#section-4" class="section-number selfRef">4. </a><a href="#name-basic-block-exchanges" class="section-name selfRef">Basic Block Exchanges</a>
+      </h2>
+<p id="section-4-1">The original gxStream exchanges use the control codes directly. The object service accepts them from
+      DataReel 6.x style ("legacy") clients (<a href="#legacy" class="auto internal xref">Section 5.1</a>).<a href="#section-4-1" class="pilcrow">¶</a></p>
+<span class="break"></span><dl class="dlNewline" id="section-4-2">
+        <dt id="section-4-2.1">Request:</dt>
+        <dd style="margin-left: 1.5em" id="section-4-2.2">The client sends an "R" block whose body is the request; the server answers with one "S" block whose
+        body is the reply (possibly empty).<a href="#section-4-2.2" class="pilcrow">¶</a>
+</dd>
+        <dd class="break"></dd>
+<dt id="section-4-2.3">Add:</dt>
+        <dd style="margin-left: 1.5em" id="section-4-2.4">The client sends an "A" block whose body is the object; the server answers with a result block.<a href="#section-4-2.4" class="pilcrow">¶</a>
+</dd>
+        <dd class="break"></dd>
+<dt id="section-4-2.5">Change:</dt>
+        <dd style="margin-left: 1.5em" id="section-4-2.6">The client sends a "C" block whose body names the object, then an "S" block with the new contents.<a href="#section-4-2.6" class="pilcrow">¶</a>
+</dd>
+        <dd class="break"></dd>
+<dt id="section-4-2.7">Delete:</dt>
+        <dd style="margin-left: 1.5em" id="section-4-2.8">The client sends a "D" block whose body names the object.<a href="#section-4-2.8" class="pilcrow">¶</a>
+</dd>
+        <dd class="break"></dd>
+<dt id="section-4-2.9">Result block:</dt>
+        <dd style="margin-left: 1.5em" id="section-4-2.10">A "W" header with Length 0 and the result (for example a file address, 0 for none) in the Result
+        word.<a href="#section-4-2.10" class="pilcrow">¶</a>
+</dd>
+        <dd class="break"></dd>
+<dt id="section-4-2.11">Acknowledgment:</dt>
+        <dd style="margin-left: 1.5em" id="section-4-2.12">A "W" header with Length 0 and Result 0.<a href="#section-4-2.12" class="pilcrow">¶</a>
+</dd>
+        <dd class="break"></dd>
+<dt id="section-4-2.13">Close:</dt>
+        <dd style="margin-left: 1.5em" id="section-4-2.14">An "L" header. The receiver closes the session.<a href="#section-4-2.14" class="pilcrow">¶</a>
+</dd>
+      <dd class="break"></dd>
+</dl>
+</section>
+</div>
+<div id="server">
+<section id="section-5">
+      <h2 id="name-the-database-object-server">
+<a href="#section-5" class="section-number selfRef">5. </a><a href="#name-the-database-object-server" class="section-name selfRef">The Database Object Server</a>
+      </h2>
+<p id="section-5-1">The DataReel database object server carries several services on one listener. After the TLS handshake
+      and the client certificate checks, the server reads the session's first block and gives the session to the
+      first service that claims it:<a href="#section-5-1" class="pilcrow">¶</a></p>
+<ol start="1" type="1" class="normal type-1" id="section-5-2">
+        <li id="section-5-2.1">An "S" block whose body is a multiplex HELLO frame (<a href="#mux" class="auto internal xref">Section 6</a>): the multiplex, with the
+        object service on its channels.<a href="#section-5-2.1" class="pilcrow">¶</a>
+</li>
+        <li id="section-5-2.2">An "A" or "R" block: the legacy object service, if the server is configured with a legacy
+        database.<a href="#section-5-2.2" class="pilcrow">¶</a>
+</li>
+      </ol>
+<p id="section-5-3">A first block that no service claims closes the session. The first byte of a multiplex body is 0x4D
+      ("M"); services that use "S" blocks for other messages MUST NOT start their first message with that
+      byte.<a href="#section-5-3" class="pilcrow">¶</a></p>
+<p id="section-5-4">To resist connections that never complete TLS, a server SHOULD run each handshake apart from its accept
+      loop with a short timeout and a limit on concurrent handshakes (DataReel 7.4: 10 seconds, 16 handshakes),
+      and SHOULD limit the number of authenticated sessions (DataReel 7.4: 4 by default). Only sessions that
+      passed the certificate checks count against the session limit.<a href="#section-5-4" class="pilcrow">¶</a></p>
+<div id="legacy">
+<section id="section-5.1">
+        <h3 id="name-legacy-object-sessions">
+<a href="#section-5.1" class="section-number selfRef">5.1. </a><a href="#name-legacy-object-sessions" class="section-name selfRef">Legacy Object Sessions</a>
+        </h3>
+<p id="section-5.1-1">On a server configured with a legacy database:<a href="#section-5.1-1" class="pilcrow">¶</a></p>
+<ul class="normal">
+<li class="normal" id="section-5.1-2.1">An "A" block adds its body as a new object. The reply is a result block with the new object's file
+          address, or 0 if the add failed (for example because the database is read-only).<a href="#section-5.1-2.1" class="pilcrow">¶</a>
+</li>
+          <li class="normal" id="section-5.1-2.2">An "R" block whose body is an 8-byte object address is answered with an "S" block holding that
+          object, or an empty "S" block if there is none.<a href="#section-5.1-2.2" class="pilcrow">¶</a>
+</li>
+          <li class="normal" id="section-5.1-2.3">An "L" block ends the session. Any other block also ends it.<a href="#section-5.1-2.3" class="pilcrow">¶</a>
+</li>
+        </ul>
+</section>
+</div>
+</section>
+</div>
+<div id="mux">
+<section id="section-6">
+      <h2 id="name-the-channel-multiplex">
+<a href="#section-6" class="section-number selfRef">6. </a><a href="#name-the-channel-multiplex" class="section-name selfRef">The Channel Multiplex</a>
+      </h2>
+<p id="section-6-1">The multiplex carries numbered channels over one connection. Each channel has its own order, flow control
+      and errors, so one slow or failed channel does not hold up the others.<a href="#section-6-1" class="pilcrow">¶</a></p>
+<div id="mux-frame">
+<section id="section-6.1">
+        <h3 id="name-frames">
+<a href="#section-6.1" class="section-number selfRef">6.1. </a><a href="#name-frames" class="section-name selfRef">Frames</a>
+        </h3>
+<p id="section-6.1-1">Each multiplex frame is one "S" block. Its body is an 18-byte frame header followed by the payload:<a href="#section-6.1-1" class="pilcrow">¶</a></p>
+<span id="name-multiplex-frame-body"></span><figure id="figure-2">
+          <div class="alignLeft art-ascii-art art-text artwork" id="section-6.1-2.1">
+<pre>
++--------+--------+--------------------+-------------------------+
+| Mark   | Kind   | Channel (u32)      | Sequence (u64)          |
+| 1 byte | 1 byte | 4 bytes            | 8 bytes                 |
++--------+--------+--------------------+-------------------------+
+| Flags (u32)     | Payload (Length - 18 bytes)                  |
+| 4 bytes         |                                              |
++-----------------+----------------------------------------------+
+</pre>
+</div>
+<figcaption><a href="#figure-2" class="selfRef">Figure 2</a>:
+<a href="#name-multiplex-frame-body" class="selfRef">Multiplex Frame Body</a>
+          </figcaption></figure>
+<span class="break"></span><dl class="dlParallel" id="section-6.1-3">
+          <dt id="section-6.1-3.1">Mark:</dt>
+          <dd style="margin-left: 1.5em" id="section-6.1-3.2">0x4D ("M").<a href="#section-6.1-3.2" class="pilcrow">¶</a>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-6.1-3.3">Kind:</dt>
+          <dd style="margin-left: 1.5em" id="section-6.1-3.4">The frame kind, 1 to 9 (<a href="#tbl-kinds" class="auto internal xref">Table 2</a>).<a href="#section-6.1-3.4" class="pilcrow">¶</a>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-6.1-3.5">Channel:</dt>
+          <dd style="margin-left: 1.5em" id="section-6.1-3.6">The channel number. Channel 0 is the connection itself (HELLO, and CLOSE of the
+          whole connection).<a href="#section-6.1-3.6" class="pilcrow">¶</a>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-6.1-3.7">Sequence:</dt>
+          <dd style="margin-left: 1.5em" id="section-6.1-3.8">For DATA frames, a per-channel counter starting at 1 and increasing by 1 for each
+          DATA frame the sender sends on the channel. Control frames carry 0.<a href="#section-6.1-3.8" class="pilcrow">¶</a>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-6.1-3.9">Flags:</dt>
+          <dd style="margin-left: 1.5em" id="section-6.1-3.10">Bit 0 (LAST) marks the last DATA frame of a message. Other bits MUST be zero.<a href="#section-6.1-3.10" class="pilcrow">¶</a>
+</dd>
+        <dd class="break"></dd>
+</dl>
+<p id="section-6.1-4">In payloads, "str" is a u32 length followed by that many bytes, and "bytes" is a u64 length followed by
+        that many bytes. Every length MUST be checked against the remaining payload; a payload that is too short
+        is malformed.<a href="#section-6.1-4" class="pilcrow">¶</a></p>
+<span id="name-multiplex-frame-kinds"></span><div id="tbl-kinds">
+<table class="center" id="table-2">
+          <caption>
+<a href="#table-2" class="selfRef">Table 2</a>:
+<a href="#name-multiplex-frame-kinds" class="selfRef">Multiplex Frame Kinds</a>
+          </caption>
+<thead>
+            <tr>
+              <th class="text-left" rowspan="1" colspan="1">Kind</th>
+              <th class="text-left" rowspan="1" colspan="1">Name</th>
+              <th class="text-left" rowspan="1" colspan="1">Payload</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">1</td>
+              <td class="text-left" rowspan="1" colspan="1">HELLO</td>
+              <td class="text-left" rowspan="1" colspan="1">str "GXDBMUX", u32 version (1)</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">2</td>
+              <td class="text-left" rowspan="1" colspan="1">OPEN</td>
+              <td class="text-left" rowspan="1" colspan="1">str service, str name, str mode, u64 credit</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">3</td>
+              <td class="text-left" rowspan="1" colspan="1">OPENED</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 credit, bytes extra</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">4</td>
+              <td class="text-left" rowspan="1" colspan="1">REFUSED</td>
+              <td class="text-left" rowspan="1" colspan="1">str reason</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">5</td>
+              <td class="text-left" rowspan="1" colspan="1">DATA</td>
+              <td class="text-left" rowspan="1" colspan="1">service data</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">6</td>
+              <td class="text-left" rowspan="1" colspan="1">CREDIT</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 bytes</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">7</td>
+              <td class="text-left" rowspan="1" colspan="1">ACK</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 seq, u64 lsn</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">8</td>
+              <td class="text-left" rowspan="1" colspan="1">ERROR</td>
+              <td class="text-left" rowspan="1" colspan="1">str reason</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">9</td>
+              <td class="text-left" rowspan="1" colspan="1">CLOSE</td>
+              <td class="text-left" rowspan="1" colspan="1">(empty)</td>
+            </tr>
+          </tbody>
+        </table>
+</div>
+<p id="section-6.1-6">A block that is not an "S" block, or whose body is not a frame (shorter than 18 bytes, a wrong mark,
+        an unknown kind), ends the connection. An "L" block ends the connection.<a href="#section-6.1-6" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="mux-session">
+<section id="section-6.2">
+        <h3 id="name-session-and-channels">
+<a href="#section-6.2" class="section-number selfRef">6.2. </a><a href="#name-session-and-channels" class="section-name selfRef">Session and Channels</a>
+        </h3>
+<ol start="1" type="1" class="normal type-1" id="section-6.2-1">
+          <li id="section-6.2-1.1">The client sends HELLO on channel 0. The server answers with its own HELLO. A side that receives a
+          HELLO with another magic string or version MUST end the connection. A client MUST send HELLO before
+          any OPEN.<a href="#section-6.2-1.1" class="pilcrow">¶</a>
+</li>
+          <li id="section-6.2-1.2">The client opens a channel with OPEN, choosing an unused non-zero channel number. The payload names
+          the service ("object" for <a href="#object" class="auto internal xref">Section 7</a>), the object to open (a database name) and the mode
+          ("read" or "write"), and gives the opener's receive credit (<a href="#mux-flow" class="auto internal xref">Section 6.3</a>).<a href="#section-6.2-1.2" class="pilcrow">¶</a>
+</li>
+          <li id="section-6.2-1.3">The accepting side answers OPENED (with its own credit and optional service data) or REFUSED (with
+          a reason). It MUST refuse an OPEN on channel 0, on a channel that is open, or with a malformed
+          payload.<a href="#section-6.2-1.3" class="pilcrow">¶</a>
+</li>
+          <li id="section-6.2-1.4">Either side sends DATA on an open channel. A message is a run of DATA frames ending with one that
+          has the LAST flag.<a href="#section-6.2-1.4" class="pilcrow">¶</a>
+</li>
+          <li id="section-6.2-1.5">Either side closes a channel with CLOSE, or with ERROR and a reason. A CLOSE on channel 0 ends the
+          connection. DATA that arrives for a closed channel is discarded.<a href="#section-6.2-1.5" class="pilcrow">¶</a>
+</li>
+        </ol>
+<p id="section-6.2-2">Frames of one channel are delivered in the order they were sent; TLS over TCP provides that order.
+        ACK frames are passed to the channel's consumer in order with its DATA frames; a service uses them to
+        report that the data up to a DATA sequence number is durable at a log sequence number (lsn) of its
+        own.<a href="#section-6.2-2" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="mux-flow">
+<section id="section-6.3">
+        <h3 id="name-flow-control">
+<a href="#section-6.3" class="section-number selfRef">6.3. </a><a href="#name-flow-control" class="section-name selfRef">Flow Control</a>
+        </h3>
+<p id="section-6.3-1">Flow control is per channel and counts DATA payload bytes only; control frames are not counted.<a href="#section-6.3-1" class="pilcrow">¶</a></p>
+<ul class="normal">
+<li class="normal" id="section-6.3-2.1">Each side's credit for a channel starts at the value the other side gave in OPEN or OPENED: the size
+          of its receive queue for that channel (DataReel 7.4: 16 MiB).<a href="#section-6.3-2.1" class="pilcrow">¶</a>
+</li>
+          <li class="normal" id="section-6.3-2.2">A sender MUST NOT send a DATA frame larger than its remaining credit, and subtracts each DATA
+          payload from the credit as it sends it.<a href="#section-6.3-2.2" class="pilcrow">¶</a>
+</li>
+          <li class="normal" id="section-6.3-2.3">As the receiver's consumer takes data, the receiver returns the room with CREDIT frames. DataReel
+          7.4 sends CREDIT when a quarter of the queue has been consumed, or when the queue becomes empty.<a href="#section-6.3-2.3" class="pilcrow">¶</a>
+</li>
+          <li class="normal" id="section-6.3-2.4">A receiver MUST count the DATA bytes it has received on each channel and, if they exceed the credit
+          it has granted in total, MUST close the channel with ERROR ("over credit").<a href="#section-6.3-2.4" class="pilcrow">¶</a>
+</li>
+          <li class="normal" id="section-6.3-2.5">Senders SHOULD NOT send DATA payloads larger than 1 MiB, and SHOULD share the connection between
+          channels fairly. DataReel 7.4 sends control frames first, then DATA frames by deficit round robin with a
+          quantum of 256 KiB.<a href="#section-6.3-2.5" class="pilcrow">¶</a>
+</li>
+        </ul>
+</section>
+</div>
+</section>
+</div>
+<div id="object">
+<section id="section-7">
+      <h2 id="name-the-object-service">
+<a href="#section-7" class="section-number selfRef">7. </a><a href="#name-the-object-service" class="section-name selfRef">The Object Service</a>
+      </h2>
+<p id="section-7-1">The object service gives remote access to the objects of the databases a server is configured with.
+      A client opens a multiplex channel with service "object", the database name and mode "read" or "write".
+      The server MUST refuse the open for a database it does not serve, for any other mode, and for mode "write"
+      on a database that is read-only or is a replicated copy.<a href="#section-7-1" class="pilcrow">¶</a></p>
+<div id="object-msgs">
+<section id="section-7.1">
+        <h3 id="name-requests-and-replies">
+<a href="#section-7.1" class="section-number selfRef">7.1. </a><a href="#name-requests-and-replies" class="section-name selfRef">Requests and Replies</a>
+        </h3>
+<p id="section-7.1-1">Each request is one message: a u8 operation followed by its arguments. Each reply is one message: a u8
+        status (0 success, 1 error) followed by the result on success, or by a str (u32 length and bytes) with the
+        error on failure. An empty request message closes the channel with an error.<a href="#section-7.1-1" class="pilcrow">¶</a></p>
+<span id="name-object-service-operations"></span><div id="tbl-ops">
+<table class="center" id="table-3">
+          <caption>
+<a href="#table-3" class="selfRef">Table 3</a>:
+<a href="#name-object-service-operations" class="selfRef">Object Service Operations</a>
+          </caption>
+<thead>
+            <tr>
+              <th class="text-left" rowspan="1" colspan="1">Op</th>
+              <th class="text-left" rowspan="1" colspan="1">Name</th>
+              <th class="text-left" rowspan="1" colspan="1">Arguments</th>
+              <th class="text-left" rowspan="1" colspan="1">Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">1</td>
+              <td class="text-left" rowspan="1" colspan="1">ADD</td>
+              <td class="text-left" rowspan="1" colspan="1">bytes data (length at least 1)</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 address</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">2</td>
+              <td class="text-left" rowspan="1" colspan="1">REQUEST</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 address</td>
+              <td class="text-left" rowspan="1" colspan="1">bytes data</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">3</td>
+              <td class="text-left" rowspan="1" colspan="1">CHANGE</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 address, bytes data</td>
+              <td class="text-left" rowspan="1" colspan="1">(empty)</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">4</td>
+              <td class="text-left" rowspan="1" colspan="1">DELETE</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 address</td>
+              <td class="text-left" rowspan="1" colspan="1">(empty)</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">5</td>
+              <td class="text-left" rowspan="1" colspan="1">FIRST</td>
+              <td class="text-left" rowspan="1" colspan="1">(none)</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 address, 0 if none</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">6</td>
+              <td class="text-left" rowspan="1" colspan="1">NEXT</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 address</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 next address, 0 if none</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">7</td>
+              <td class="text-left" rowspan="1" colspan="1">VECTOR_SEARCH</td>
+              <td class="text-left" rowspan="1" colspan="1">
+                <a href="#vector" class="auto internal xref">Section 7.2</a>
+</td>
+              <td class="text-left" rowspan="1" colspan="1">
+                <a href="#vector" class="auto internal xref">Section 7.2</a>
+</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">8</td>
+              <td class="text-left" rowspan="1" colspan="1">VECTOR_INFO</td>
+              <td class="text-left" rowspan="1" colspan="1">(none)</td>
+              <td class="text-left" rowspan="1" colspan="1">
+                <a href="#vector" class="auto internal xref">Section 7.2</a>
+</td>
+            </tr>
+          </tbody>
+        </table>
+</div>
+<ul class="normal">
+<li class="normal" id="section-7.1-3.1">Addresses are the object's file address in the server's database; address 0 is never an object.<a href="#section-7.1-3.1" class="pilcrow">¶</a>
+</li>
+          <li class="normal" id="section-7.1-3.2">ADD, CHANGE and DELETE are refused on a channel opened "read". On a writable database each one is
+          one durable transaction. CHANGE MUST carry exactly the object's existing length.<a href="#section-7.1-3.2" class="pilcrow">¶</a>
+</li>
+          <li class="normal" id="section-7.1-3.3">Reads of a replicated copy MUST NOT observe a partly applied replication commit.<a href="#section-7.1-3.3" class="pilcrow">¶</a>
+</li>
+          <li class="normal" id="section-7.1-3.4">A request whose arguments do not exactly fill the message is malformed and answered with an
+          error.<a href="#section-7.1-3.4" class="pilcrow">¶</a>
+</li>
+        </ul>
+</section>
+</div>
+<div id="vector">
+<section id="section-7.2">
+        <h3 id="name-vector-searches">
+<a href="#section-7.2" class="section-number selfRef">7.2. </a><a href="#name-vector-searches" class="section-name selfRef">Vector Searches</a>
+        </h3>
+<p id="section-7.2-1">A database configured with a vector index answers VECTOR_SEARCH and VECTOR_INFO on any channel, read
+        only. The VECTOR_SEARCH arguments are, in order: u32 version (1); u32 k (1 to 1000); u32 ef (0 for the
+        server default of 64, at most 4096); u32 dim (MUST equal the index's dimension); u32 flags (bit 0: apply
+        the day range; bit 1: strict, a missing index file is an error; other bits MUST be zero); u32 tag_mask
+        (bits 0 to 3; other bits MUST be zero); u32 lo[4]; u32 hi[4] (when bit i of tag_mask is set, tag i must be
+        within lo[i]..hi[i]); u32 day_lo; u32 day_hi; and f32 query[dim]. The arguments MUST be exactly that long
+        and every query value MUST be finite.<a href="#section-7.2-1" class="pilcrow">¶</a></p>
+<p id="section-7.2-2">The VECTOR_SEARCH result is: u32 version (1); u32 count; u32 files skipped by their day range; u32
+        files missing; count entries of { i64 id, f32 distance, u32 tags[4], u32 file }, sorted by distance, then
+        file, then id; u32 names; and names entries of { u32 file, str path } for the files the results name,
+        with paths relative to the index manifest's folder.<a href="#section-7.2-2" class="pilcrow">¶</a></p>
+<p id="section-7.2-3">The VECTOR_INFO result is: u32 version (1), u32 dim, u32 element type, u32 metric, u32 files, u64
+        nodes, u64 deleted, str spec.<a href="#section-7.2-3" class="pilcrow">¶</a></p>
+<p id="section-7.2-4">A server SHOULD limit concurrent searches; DataReel 7.4 runs at most 4 at once and answers a search
+        that waits more than 5 seconds for a slot with the error "busy".<a href="#section-7.2-4" class="pilcrow">¶</a></p>
+</section>
+</div>
+</section>
+</div>
+<div id="repl">
+<section id="section-8">
+      <h2 id="name-object-replication-gxobjrep">
+<a href="#section-8" class="section-number selfRef">8. </a><a href="#name-object-replication-gxobjrep" class="section-name selfRef">Object Replication (gxObjRepl)</a>
+      </h2>
+<p id="section-8-1">gxObjRepl replicates the object databases of a primary node to a copy node. Only objects travel; each
+      node keeps its own file addresses, free space and indexes. Objects are identified by 64-bit ids shared by
+      both nodes. Replication is asynchronous.<a href="#section-8-1" class="pilcrow">¶</a></p>
+<div id="repl-conn">
+<section id="section-8.1">
+        <h3 id="name-connection">
+<a href="#section-8.1" class="section-number selfRef">8.1. </a><a href="#name-connection" class="section-name selfRef">Connection</a>
+        </h3>
+<p id="section-8.1-1">The primary is the TLS client and the copy is the TLS server. The copy MUST require a client
+        certificate from the configured certification authority with the configured subject common name; the
+        primary MUST verify the copy's certificate and identity (<a href="#tls" class="auto internal xref">Section 2.2</a>).<a href="#section-8.1-1" class="pilcrow">¶</a></p>
+<p id="section-8.1-2">Each replication frame is the body of one "S" block. The copy answers each frame with exactly one "S"
+        block. The primary sends the next frame only after it has the answer. In this section a "str" is a u16
+        length followed by that many bytes.<a href="#section-8.1-2" class="pilcrow">¶</a></p>
+<p id="section-8.1-3">The copy handles one primary connection at a time. It closes the connection, without an answer, when a
+        frame breaks the rules below; it SHOULD record the reason where an administrator will see it (DataReel
+        writes an alarm file).<a href="#section-8.1-3" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="repl-hello">
+<section id="section-8.2">
+        <h3 id="name-hello-and-reply">
+<a href="#section-8.2" class="section-number selfRef">8.2. </a><a href="#name-hello-and-reply" class="section-name selfRef">Hello and Reply</a>
+        </h3>
+<p id="section-8.2-1">The first frame on each connection is the primary's hello:<a href="#section-8.2-1" class="pilcrow">¶</a></p>
+<div class="alignLeft art-ascii-art art-text artwork" id="section-8.2-2">
+<pre>
+hello = u32 magic         ; 0x3550524F ("ORP5" in byte order)
+        u64 epoch         ; the primary's epoch
+        str link-map      ; link fields, "DB:OFFSET:TARGET_DB,..."
+        str name          ; the primary's node name
+        u8  role          ; 1 (primary)
+        u64 last-seq      ; the primary's last commit
+        u64 digest        ; the running digest at last-seq
+</pre><a href="#section-8.2-2" class="pilcrow">¶</a>
+</div>
+<p id="section-8.2-3">The copy answers:<a href="#section-8.2-3" class="pilcrow">¶</a></p>
+<div class="alignLeft art-ascii-art art-text artwork" id="section-8.2-4">
+<pre>
+reply = u8  ok            ; 1 accepted, 0 refused
+        u64 applied-seq   ; the last commit the copy applied
+        u64 epoch         ; the copy's epoch
+        u8  in-full-send  ; 1 if a full send is under way
+        str name          ; the copy's node name
+        u8  role          ; 2 (copy)
+        u64 digest        ; the running digest at applied-seq
+        str why           ; the reason when ok = 0
+</pre><a href="#section-8.2-4" class="pilcrow">¶</a>
+</div>
+<p id="section-8.2-5">The copy MUST refuse (ok = 0, then close) a hello that is malformed or has another magic number; a
+        hello received while the copy is itself a primary; a role other than 1; a name other than the configured
+        peer name, if one is configured; an epoch lower than the copy's; a last-seq lower than the copy's
+        applied-seq when no full send is under way; a malformed link map; or, when the copy has its own link map
+        configured, a link map that differs from it or link fields that overlap the copy's index fields.<a href="#section-8.2-5" class="pilcrow">¶</a></p>
+<p id="section-8.2-6">The primary MUST stop (and SHOULD raise an alarm) when the reply has ok = 0, a role other than 2, or a
+        name other than its configured copy name. Unless the copy is in a full send or has applied nothing, the
+        primary MUST also check the copy's history: applied-seq MUST NOT exceed the primary's last commit, and the
+        copy's digest MUST equal the primary's digest at applied-seq. A primary that no longer knows its digest
+        at that sequence MUST refuse the copy; an administrator then has the copy rejoin.<a href="#section-8.2-6" class="pilcrow">¶</a></p>
+<p id="section-8.2-7">Having accepted the copy, the primary sends F_EPOCH (<a href="#repl-frames" class="auto internal xref">Section 8.3</a>). The copy MUST
+        refuse every other frame kind on the connection until it has received F_EPOCH. The copy saves the epoch
+        durably on F_EPOCH, never at the hello, so that a primary that then refuses the copy cannot fence out the
+        real one.<a href="#section-8.2-7" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="repl-frames">
+<section id="section-8.3">
+        <h3 id="name-frames-2">
+<a href="#section-8.3" class="section-number selfRef">8.3. </a><a href="#name-frames-2" class="section-name selfRef">Frames</a>
+        </h3>
+<p id="section-8.3-1">Each frame starts with a u8 kind:<a href="#section-8.3-1" class="pilcrow">¶</a></p>
+<span id="name-replication-frames"></span><div id="tbl-repl">
+<table class="center" id="table-4">
+          <caption>
+<a href="#table-4" class="selfRef">Table 4</a>:
+<a href="#name-replication-frames" class="selfRef">Replication Frames</a>
+          </caption>
+<thead>
+            <tr>
+              <th class="text-left" rowspan="1" colspan="1">Kind</th>
+              <th class="text-left" rowspan="1" colspan="1">Name</th>
+              <th class="text-left" rowspan="1" colspan="1">Contents after the kind</th>
+              <th class="text-left" rowspan="1" colspan="1">Copy's answer</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">1</td>
+              <td class="text-left" rowspan="1" colspan="1">F_COMMIT</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 seq, u64 epoch, u32 ops, ops</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 seq applied</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">2</td>
+              <td class="text-left" rowspan="1" colspan="1">F_SNAP_BEGIN</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 base seq, u64 epoch</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 0</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">3</td>
+              <td class="text-left" rowspan="1" colspan="1">F_SNAP_BATCH</td>
+              <td class="text-left" rowspan="1" colspan="1">u32 records, records</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 0</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">4</td>
+              <td class="text-left" rowspan="1" colspan="1">F_SNAP_END</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 base seq, u64 digest, u64 count, u64 hash</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 base seq</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">5</td>
+              <td class="text-left" rowspan="1" colspan="1">F_EPOCH</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 epoch</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 applied seq</td>
+            </tr>
+            <tr>
+              <td class="text-left" rowspan="1" colspan="1">6</td>
+              <td class="text-left" rowspan="1" colspan="1">F_SNAP_DLOG</td>
+              <td class="text-left" rowspan="1" colspan="1">u32 entries, entries of {u64 seq, u64 digest}</td>
+              <td class="text-left" rowspan="1" colspan="1">u64 0</td>
+            </tr>
+          </tbody>
+        </table>
+</div>
+<p id="section-8.3-3">An answer is an "S" block whose body is at least 8 bytes; its first 8 bytes are the u64 shown. A frame
+        of an unknown kind is refused.<a href="#section-8.3-3" class="pilcrow">¶</a></p>
+<div id="repl-commit">
+<section id="section-8.3.1">
+          <h4 id="name-f_commit">
+<a href="#section-8.3.1" class="section-number selfRef">8.3.1. </a><a href="#name-f_commit" class="section-name selfRef">F_COMMIT</a>
+          </h4>
+<p id="section-8.3.1-1">Each op is: u8 op (1 ADD, 2 UPDATE, 3 REMOVE, 4 PURGE), str database, u64 object id; ADD and UPDATE
+          then carry u32 capacity (the record size the primary allocated), u8 moved (1 if the object moved to a
+          new block on the primary), u32 length and that many bytes of object data. In the object data, every link
+          field named by the link map carries the target's object id instead of a file address (0 for no
+          link).<a href="#section-8.3.1-1" class="pilcrow">¶</a></p>
+<p id="section-8.3.1-2">A database name consists of letters, digits, "_" and "-" only. The copy MUST:<a href="#section-8.3.1-2" class="pilcrow">¶</a></p>
+<ul class="normal">
+<li class="normal" id="section-8.3.1-3.1">refuse a commit whose epoch is lower than the copy's epoch, or that arrives during a full
+            send;<a href="#section-8.3.1-3.1" class="pilcrow">¶</a>
+</li>
+            <li class="normal" id="section-8.3.1-3.2">answer a commit whose seq is not greater than its applied-seq with its applied-seq, without
+            applying it again (a resend);<a href="#section-8.3.1-3.2" class="pilcrow">¶</a>
+</li>
+            <li class="normal" id="section-8.3.1-3.3">refuse a commit whose seq is not applied-seq + 1 (a gap);<a href="#section-8.3.1-3.3" class="pilcrow">¶</a>
+</li>
+            <li class="normal" id="section-8.3.1-3.4">refuse a commit with a malformed op, a bad database name, an object over 32 MiB, or a capacity
+            smaller than the object's data or larger than 32 MiB plus 64 bytes (a primary limits a commit to
+            60 MiB, so its frame fits the default maximum block size);<a href="#section-8.3.1-3.4" class="pilcrow">¶</a>
+</li>
+            <li class="normal" id="section-8.3.1-3.5">apply all ops of the commit in one durable transaction, translating each link from an id to its
+            own file address (creating a placeholder for a target it does not have yet), raise its epoch to the
+            commit's epoch if that is higher, and answer with seq only after the transaction is durable. A commit
+            that cannot be applied is rolled back and not answered.<a href="#section-8.3.1-3.5" class="pilcrow">¶</a>
+</li>
+          </ul>
+<p id="section-8.3.1-4">REMOVE leaves a tombstone that keeps the object's id and address, so links to it still resolve.
+          PURGE frees a tombstone.<a href="#section-8.3.1-4" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="repl-full">
+<section id="section-8.3.2">
+          <h4 id="name-full-send">
+<a href="#section-8.3.2" class="section-number selfRef">8.3.2. </a><a href="#name-full-send" class="section-name selfRef">Full Send</a>
+          </h4>
+<p id="section-8.3.2-1">When the copy is in a full send, or the primary no longer has the commits that follow the copy's
+          applied-seq, the primary sends a full copy of its databases as of its last commit (the base):<a href="#section-8.3.2-1" class="pilcrow">¶</a></p>
+<ol start="1" type="1" class="normal type-1" id="section-8.3.2-2">
+            <li id="section-8.3.2-2.1">F_SNAP_BEGIN with the base and the epoch. The copy records that a full send is under way, sets its
+            current data aside (it is not deleted until the full send ends) and starts empty. A copy MUST refuse
+            F_SNAP_BEGIN with an epoch lower than its own.<a href="#section-8.3.2-2.1" class="pilcrow">¶</a>
+</li>
+            <li id="section-8.3.2-2.2">F_SNAP_BATCH frames. Each record is: str database, u64 id, u32 version, u32 flags (bit 0:
+            tombstone), u32 reason, u64 seen seq, u32 capacity, u32 length, and that many bytes (links as ids).
+            The copy MUST refuse a batch outside a full send, and records whose length exceeds 32 MiB or whose
+            capacity is too small for the data.<a href="#section-8.3.2-2.2" class="pilcrow">¶</a>
+</li>
+            <li id="section-8.3.2-2.3">F_SNAP_DLOG frames with the primary's digest log up to the base (at most 65536 entries a frame),
+            so that the copy can later prove its history.<a href="#section-8.3.2-2.3" class="pilcrow">¶</a>
+</li>
+            <li id="section-8.3.2-2.4">F_SNAP_END with the base, the running digest at the base, the number of batch records and digest
+            log entries sent, and a hash chained over them. The copy MUST refuse an F_SNAP_END whose base differs
+            from F_SNAP_BEGIN, or whose count and hash differ from what it received; the full send then stays
+            open and the primary sends it again. Otherwise the copy translates all links, sets its applied-seq to
+            the base and its digest to the given digest, ends the full send and answers with the base.<a href="#section-8.3.2-2.4" class="pilcrow">¶</a>
+</li>
+          </ol>
+<p id="section-8.3.2-3">The commits made on the primary after the base then follow as F_COMMIT frames.<a href="#section-8.3.2-3" class="pilcrow">¶</a></p>
+</section>
+</div>
+</section>
+</div>
+<div id="repl-digest">
+<section id="section-8.4">
+        <h3 id="name-digests">
+<a href="#section-8.4" class="section-number selfRef">8.4. </a><a href="#name-digests" class="section-name selfRef">Digests</a>
+        </h3>
+<p id="section-8.4-1">The running digest is the 64-bit FNV-1a hash <span>[<a href="#FNV" class="cite xref">FNV</a>]</span> (offset basis 14695981039346656037,
+        prime 1099511628211) chained over the bytes of every F_COMMIT frame body in sequence order: it starts at
+        the offset basis, and each commit continues the hash from the previous value over the whole frame body,
+        from its kind byte to its last op. The primary computes it when it records a commit; the copy when it
+        applies one. Each node keeps a log of (seq, digest) pairs for at least the last 1000000 commits.<a href="#section-8.4-1" class="pilcrow">¶</a></p>
+<p id="section-8.4-2">The full send hash is the same FNV-1a function chained, from the offset basis, over the bytes of each
+        F_SNAP_BATCH record and of each 16-byte F_SNAP_DLOG entry, in the order sent.<a href="#section-8.4-2" class="pilcrow">¶</a></p>
+<p id="section-8.4-3">These digests detect divergent histories and lost, repeated or altered frames caused by faults. They
+        are not cryptographic and do not authenticate the stream (<a href="#sec-repl" class="auto internal xref">Section 10.3</a>).<a href="#section-8.4-3" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="repl-failover">
+<section id="section-8.5">
+        <h3 id="name-epochs-takeover-and-rejoin">
+<a href="#section-8.5" class="section-number selfRef">8.5. </a><a href="#name-epochs-takeover-and-rejoin" class="section-name selfRef">Epochs, Takeover and Rejoin</a>
+        </h3>
+<p id="section-8.5-1">A node starts at epoch 1. A takeover makes a copy the primary at its epoch plus one. Object ids that
+        a primary issues carry its epoch in bits 40 and above, so a new primary never issues an id that an older
+        primary may have issued in commits the new primary never received. Every copy that has saved the new epoch
+        refuses an older primary. A former primary rejoins as a copy that waits for a full send, which replaces
+        its databases.<a href="#section-8.5-1" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="repl-port">
+<section id="section-8.6">
+        <h3 id="name-port">
+<a href="#section-8.6" class="section-number selfRef">8.6. </a><a href="#name-port" class="section-name selfRef">Port</a>
+        </h3>
+<p id="section-8.6-1">Replication SHOULD use TCP port 2073 unless another gxStream service already listens on that port at
+        the copy's address. DataReel 7.4 has no default port for replication: the copy's listen address and port
+        and the primary's copy address are set in the configuration.<a href="#section-8.6-1" class="pilcrow">¶</a></p>
+</section>
+</div>
+</section>
+</div>
+<div id="errors">
+<section id="section-9">
+      <h2 id="name-error-handling">
+<a href="#section-9" class="section-number selfRef">9. </a><a href="#name-error-handling" class="section-name selfRef">Error Handling</a>
+      </h2>
+<ul class="normal">
+<li class="normal" id="section-9-1.1">Block level: a wrong check word, an oversize length, non-zero reserved header bytes, or a read or
+        write failure ends the connection.<a href="#section-9-1.1" class="pilcrow">¶</a>
+</li>
+        <li class="normal" id="section-9-1.2">Multiplex: a malformed frame ends the connection; a refused open, an over-credit channel, an ERROR or
+        a CLOSE ends that channel only.<a href="#section-9-1.2" class="pilcrow">¶</a>
+</li>
+        <li class="normal" id="section-9-1.3">Object service: a request error is a reply with status 1 and a message; the channel stays open.<a href="#section-9-1.3" class="pilcrow">¶</a>
+</li>
+        <li class="normal" id="section-9-1.4">Replication: a refused hello is answered with ok = 0 and a reason; any other violation closes the
+        connection without an answer. The primary connects again on its next attempt and the hello checks start
+        over.<a href="#section-9-1.4" class="pilcrow">¶</a>
+</li>
+      </ul>
+</section>
+</div>
+<div id="security">
+<section id="section-10">
+      <h2 id="name-security-considerations">
+<a href="#section-10" class="section-number selfRef">10. </a><a href="#name-security-considerations" class="section-name selfRef">Security Considerations</a>
+      </h2>
+<section id="section-10.1">
+        <h3 id="name-confidentiality-and-integri">
+<a href="#section-10.1" class="section-number selfRef">10.1. </a><a href="#name-confidentiality-and-integri" class="section-name selfRef">Confidentiality and Integrity</a>
+        </h3>
+<p id="section-10.1-1">All traffic is protected by TLS (<a href="#tls" class="auto internal xref">Section 2.2</a>), and implementations refuse to send or accept
+        blocks before the handshake completes, so there is no cleartext mode to downgrade to. The block header,
+        the multiplex and the replication frames add no cryptographic protection of their own. Implementations
+        should require TLS 1.3 where both peers support it. With TLS libraries that offer a hybrid key exchange
+        such as X25519MLKEM768 (ML-KEM <span>[<a href="#FIPS203" class="cite xref">FIPS203</a>]</span>), recorded traffic is protected against a future
+        quantum computer; certificates remain RSA or ECDSA.<a href="#section-10.1-1" class="pilcrow">¶</a></p>
+</section>
+<section id="section-10.2">
+        <h3 id="name-authentication-and-authoriz">
+<a href="#section-10.2" class="section-number selfRef">10.2. </a><a href="#name-authentication-and-authoriz" class="section-name selfRef">Authentication and Authorization</a>
+        </h3>
+<p id="section-10.2-1">Servers authenticate clients by certificate (mutual TLS) and an allow list. Server certificates are
+        checked against the server's name. Authorization is by service: a certificate in the allow list may use
+        every database the server serves, in every mode the server's configuration allows for that database. A
+        client allowed "write" access can change or delete any object of that database. Deployments that need
+        finer authorization should run separate servers or databases per client group.<a href="#section-10.2-1" class="pilcrow">¶</a></p>
+<p id="section-10.2-2">In DataReel 7.4 the object service checks a client-supplied address only by finding a valid block
+        header check word in front of it (<a href="#impl-status" class="auto internal xref">Appendix A</a>). A client with write access can therefore
+        damage the database it may change, and a client with read access can read deleted blocks. Grant write
+        access only to trusted programs.<a href="#section-10.2-2" class="pilcrow">¶</a></p>
+</section>
+<div id="sec-repl">
+<section id="section-10.3">
+        <h3 id="name-replication">
+<a href="#section-10.3" class="section-number selfRef">10.3. </a><a href="#name-replication" class="section-name selfRef">Replication</a>
+        </h3>
+<p id="section-10.3-1">A peer whose certificate the copy accepts is trusted with the stream. Such a peer can raise the copy's
+        epoch, which fences out the legitimate primary, or replace the copy's data with a full send. The epoch,
+        sequence and digest checks protect against operational mistakes (a stale primary, two primaries, a
+        diverged history); they do not protect against a compromised key. Replication keys should be dedicated
+        to replication, kept readable only by their owner (DataReel refuses a key file that group or others can
+        read), and the copy's allow list should name only the primary.<a href="#section-10.3-1" class="pilcrow">¶</a></p>
+</section>
+</div>
+<section id="section-10.4">
+        <h3 id="name-resource-exhaustion">
+<a href="#section-10.4" class="section-number selfRef">10.4. </a><a href="#name-resource-exhaustion" class="section-name selfRef">Resource Exhaustion</a>
+        </h3>
+<p id="section-10.4-1">Every length received is checked against the remaining data and against a maximum before memory is
+        allocated. Servers limit concurrent handshakes, handshake time, sessions and concurrent vector searches,
+        and the multiplex bounds each channel's queue with credit. An attacker who can reach the port can still
+        occupy handshake slots for the handshake timeout, and a replication copy, which serves one connection at
+        a time, can be delayed by a connection that stalls its handshake. The number of channels in one multiplex
+        session is not limited in DataReel 7.4. Access to port 2073 should be limited by firewall to the hosts
+        that need it, and servers used only locally should listen on the loopback address.<a href="#section-10.4-1" class="pilcrow">¶</a></p>
+</section>
+<section id="section-10.5">
+        <h3 id="name-server-control-codes">
+<a href="#section-10.5" class="section-number selfRef">10.5. </a><a href="#name-server-control-codes" class="section-name selfRef">Server Control Codes</a>
+        </h3>
+<p id="section-10.5-1">The "K" (kill) and "T" (restart) control codes let a client stop or restart a server process. They
+        must not be honored for clients that are not authorized administrators; DataReel 7.4 servers do not honor
+        them.<a href="#section-10.5-1" class="pilcrow">¶</a></p>
+</section>
+<section id="section-10.6">
+        <h3 id="name-stored-data">
+<a href="#section-10.6" class="section-number selfRef">10.6. </a><a href="#name-stored-data" class="section-name selfRef">Stored Data</a>
+        </h3>
+<p id="section-10.6-1">DataReel database files are not encrypted by the library; data is protected on the wire, not at rest.
+        Block check words and optional CRC-32 checksums in the files detect accidental damage only.<a href="#section-10.6-1" class="pilcrow">¶</a></p>
+</section>
+</section>
+</div>
+<div id="iana">
+<section id="section-11">
+      <h2 id="name-iana-considerations">
+<a href="#section-11" class="section-number selfRef">11. </a><a href="#name-iana-considerations" class="section-name selfRef">IANA Considerations</a>
+      </h2>
+<p id="section-11-1">IANA has assigned port 2073 for TCP and UDP in the "Service Name and Transport Protocol Port Number
+      Registry" <span>[<a href="#RFC6335" class="cite xref">RFC6335</a>]</span>:<a href="#section-11-1" class="pilcrow">¶</a></p>
+<div class="alignLeft art-ascii-art art-text artwork" id="section-11-2">
+<pre>
+Service Name:  gxs-data-port
+Port Number:   2073
+Transport:     tcp, udp
+Description:   DataReel Database Socket
+</pre><a href="#section-11-2" class="pilcrow">¶</a>
+</div>
+<p id="section-11-3">This document asks IANA to update the Reference of the TCP assignment to this document, keeping the
+      service name, port number, assignee and contact.<a href="#section-11-3" class="pilcrow">¶</a></p>
+<p id="section-11-4">No protocol in this document uses UDP. This document makes no change to the UDP assignment.<a href="#section-11-4" class="pilcrow">¶</a></p>
+<p id="section-11-5">This document creates no new registry. The control codes, multiplex frame kinds, object service
+      operations and replication frame kinds are maintained by the DataReel project with its source code.<a href="#section-11-5" class="pilcrow">¶</a></p>
+</section>
+</div>
+<section id="section-12">
+      <h2 id="name-references">
+<a href="#section-12" class="section-number selfRef">12. </a><a href="#name-references" class="section-name selfRef">References</a>
+      </h2>
+<section id="section-12.1">
+        <h3 id="name-normative-references">
+<a href="#section-12.1" class="section-number selfRef">12.1. </a><a href="#name-normative-references" class="section-name selfRef">Normative References</a>
+        </h3>
+<dl class="references">
+<dt id="RFC2119">[RFC2119]</dt>
+        <dd>
+<span class="refAuthor">Bradner, S.</span>, <span class="refTitle">"Key words for use in RFCs to Indicate Requirement Levels"</span>, <span class="seriesInfo">BCP 14</span>, <span class="seriesInfo">RFC 2119</span>, <span class="seriesInfo">DOI 10.17487/RFC2119</span>, <time datetime="1997-03" class="refDate">March 1997</time>, <span>&lt;<a href="https://www.rfc-editor.org/info/rfc2119">https://www.rfc-editor.org/info/rfc2119</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="RFC5246">[RFC5246]</dt>
+        <dd>
+<span class="refAuthor">Dierks, T.</span> and <span class="refAuthor">E. Rescorla</span>, <span class="refTitle">"The Transport Layer Security (TLS) Protocol Version 1.2"</span>, <span class="seriesInfo">RFC 5246</span>, <span class="seriesInfo">DOI 10.17487/RFC5246</span>, <time datetime="2008-08" class="refDate">August 2008</time>, <span>&lt;<a href="https://www.rfc-editor.org/info/rfc5246">https://www.rfc-editor.org/info/rfc5246</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="RFC5280">[RFC5280]</dt>
+        <dd>
+<span class="refAuthor">Cooper, D.</span>, <span class="refAuthor">Santesson, S.</span>, <span class="refAuthor">Farrell, S.</span>, <span class="refAuthor">Boeyen, S.</span>, <span class="refAuthor">Housley, R.</span>, and <span class="refAuthor">W. Polk</span>, <span class="refTitle">"Internet X.509 Public Key Infrastructure Certificate and Certificate Revocation List (CRL) Profile"</span>, <span class="seriesInfo">RFC 5280</span>, <span class="seriesInfo">DOI 10.17487/RFC5280</span>, <time datetime="2008-05" class="refDate">May 2008</time>, <span>&lt;<a href="https://www.rfc-editor.org/info/rfc5280">https://www.rfc-editor.org/info/rfc5280</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="RFC8174">[RFC8174]</dt>
+        <dd>
+<span class="refAuthor">Leiba, B.</span>, <span class="refTitle">"Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</span>, <span class="seriesInfo">BCP 14</span>, <span class="seriesInfo">RFC 8174</span>, <span class="seriesInfo">DOI 10.17487/RFC8174</span>, <time datetime="2017-05" class="refDate">May 2017</time>, <span>&lt;<a href="https://www.rfc-editor.org/info/rfc8174">https://www.rfc-editor.org/info/rfc8174</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="RFC8446">[RFC8446]</dt>
+        <dd>
+<span class="refAuthor">Rescorla, E.</span>, <span class="refTitle">"The Transport Layer Security (TLS) Protocol Version 1.3"</span>, <span class="seriesInfo">RFC 8446</span>, <span class="seriesInfo">DOI 10.17487/RFC8446</span>, <time datetime="2018-08" class="refDate">August 2018</time>, <span>&lt;<a href="https://www.rfc-editor.org/info/rfc8446">https://www.rfc-editor.org/info/rfc8446</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="RFC9293">[RFC9293]</dt>
+        <dd>
+<span class="refAuthor">Eddy, W., Ed.</span>, <span class="refTitle">"Transmission Control Protocol (TCP)"</span>, <span class="seriesInfo">STD 7</span>, <span class="seriesInfo">RFC 9293</span>, <span class="seriesInfo">DOI 10.17487/RFC9293</span>, <time datetime="2022-08" class="refDate">August 2022</time>, <span>&lt;<a href="https://www.rfc-editor.org/info/rfc9293">https://www.rfc-editor.org/info/rfc9293</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="RFC9525">[RFC9525]</dt>
+      <dd>
+<span class="refAuthor">Saint-Andre, P.</span> and <span class="refAuthor">R. Salz</span>, <span class="refTitle">"Service Identity in TLS"</span>, <span class="seriesInfo">RFC 9525</span>, <span class="seriesInfo">DOI 10.17487/RFC9525</span>, <time datetime="2023-11" class="refDate">November 2023</time>, <span>&lt;<a href="https://www.rfc-editor.org/info/rfc9525">https://www.rfc-editor.org/info/rfc9525</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+</dl>
+</section>
+<section id="section-12.2">
+        <h3 id="name-informative-references">
+<a href="#section-12.2" class="section-number selfRef">12.2. </a><a href="#name-informative-references" class="section-name selfRef">Informative References</a>
+        </h3>
+<dl class="references">
+<dt id="DATAREEL">[DATAREEL]</dt>
+        <dd>
+<span class="refAuthor">DataReel Software Development</span>, <span class="refTitle">"DataReel C++ Library, Release 7.4"</span>, <time datetime="2026-11" class="refDate">November 2026</time>, <span>&lt;<a href="https://datareel.com">https://datareel.com</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="FIPS203">[FIPS203]</dt>
+        <dd>
+<span class="refAuthor">National Institute of Standards and Technology</span>, <span class="refTitle">"Module-Lattice-Based Key-Encapsulation Mechanism Standard"</span>, <span class="seriesInfo">FIPS 203</span>, <span class="seriesInfo">DOI 10.6028/NIST.FIPS.203</span>, <time datetime="2024-08" class="refDate">August 2024</time>, <span>&lt;<a href="https://doi.org/10.6028/NIST.FIPS.203">https://doi.org/10.6028/NIST.FIPS.203</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="FNV">[FNV]</dt>
+        <dd>
+<span class="refAuthor">Fowler, G.</span>, <span class="refAuthor">Noll, L.</span>, <span class="refAuthor">Vo, K.-P.</span>, <span class="refAuthor">Eastlake, D.</span>, and <span class="refAuthor">T. Hansen</span>, <span class="refTitle">"The FNV Non-Cryptographic Hash Algorithm"</span>, <span class="refContent">Work in Progress</span>, <span class="seriesInfo">Internet-Draft, draft-eastlake-fnv</span>, <time datetime="2025" class="refDate">2025</time>, <span>&lt;<a href="https://datatracker.ietf.org/doc/draft-eastlake-fnv/">https://datatracker.ietf.org/doc/draft-eastlake-fnv/</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="RFC6335">[RFC6335]</dt>
+        <dd>
+<span class="refAuthor">Cotton, M.</span>, <span class="refAuthor">Eggert, L.</span>, <span class="refAuthor">Touch, J.</span>, <span class="refAuthor">Westerlund, M.</span>, and <span class="refAuthor">S. Cheshire</span>, <span class="refTitle">"Internet Assigned Numbers Authority (IANA) Procedures for the Management of the Service Name and Transport Protocol Port Number Registry"</span>, <span class="seriesInfo">BCP 165</span>, <span class="seriesInfo">RFC 6335</span>, <span class="seriesInfo">DOI 10.17487/RFC6335</span>, <time datetime="2011-08" class="refDate">August 2011</time>, <span>&lt;<a href="https://www.rfc-editor.org/info/rfc6335">https://www.rfc-editor.org/info/rfc6335</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="RFC7942">[RFC7942]</dt>
+        <dd>
+<span class="refAuthor">Sheffer, Y.</span> and <span class="refAuthor">A. Farrel</span>, <span class="refTitle">"Improving Awareness of Running Code: The Implementation Status Section"</span>, <span class="seriesInfo">BCP 205</span>, <span class="seriesInfo">RFC 7942</span>, <span class="seriesInfo">DOI 10.17487/RFC7942</span>, <time datetime="2016-07" class="refDate">July 2016</time>, <span>&lt;<a href="https://www.rfc-editor.org/info/rfc7942">https://www.rfc-editor.org/info/rfc7942</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="RFC9325">[RFC9325]</dt>
+      <dd>
+<span class="refAuthor">Sheffer, Y.</span>, <span class="refAuthor">Saint-Andre, P.</span>, and <span class="refAuthor">T. Fossati</span>, <span class="refTitle">"Recommendations for Secure Use of Transport Layer Security (TLS) and Datagram Transport Layer Security (DTLS)"</span>, <span class="seriesInfo">BCP 195</span>, <span class="seriesInfo">RFC 9325</span>, <span class="seriesInfo">DOI 10.17487/RFC9325</span>, <time datetime="2022-11" class="refDate">November 2022</time>, <span>&lt;<a href="https://www.rfc-editor.org/info/rfc9325">https://www.rfc-editor.org/info/rfc9325</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+</dl>
+</section>
+</section>
+<div id="impl-status">
+<section id="appendix-A">
+      <h2 id="name-implementation-status">
+<a href="#appendix-A" class="section-number selfRef">Appendix A. </a><a href="#name-implementation-status" class="section-name selfRef">Implementation Status</a>
+      </h2>
+<p id="appendix-A-1">This section follows <span>[<a href="#RFC7942" class="cite xref">RFC7942</a>]</span>. The reference implementation is the DataReel C++ library
+      <span>[<a href="#DATAREEL" class="cite xref">DATAREEL</a>]</span>, release 7.4, on Linux (OpenSSL) and Windows (Schannel or OpenSSL). The DataReel
+      6.4.1 legacy release sends the same block header and interoperates with 7.4 over TLS. Files:
+      include/gxheader.h, include/gxstream.h, src/gxstream.cpp, include/gxstls.h, src/gxstls.cpp,
+      src/gxdbserver.cpp, src/gxdbmux.cpp, src/gxdbobject.cpp, src/gxobjrepl.cpp.<a href="#appendix-A-1" class="pilcrow">¶</a></p>
+<p id="appendix-A-2">Known differences between DataReel 7.4 and this document, to be resolved in a later 7.4.x release:<a href="#appendix-A-2" class="pilcrow">¶</a></p>
+<ul class="normal">
+<li class="normal" id="appendix-A-3.1">The high 32 bits of the Length word are not checked on builds where the in-memory length field is
+        32 bits wide (Windows, and builds without native integer types); the length is truncated instead of
+        refused. Such a block then fails the next header check. The multiplex reader also does not check the
+        reserved high bytes of the Check Word and Status words.<a href="#appendix-A-3.1" class="pilcrow">¶</a>
+</li>
+        <li class="normal" id="appendix-A-3.2">The object service checks a client-supplied object address only by the check word of the block header
+        in front of it; it does not check that the address is the start of a live object.<a href="#appendix-A-3.2" class="pilcrow">¶</a>
+</li>
+        <li class="normal" id="appendix-A-3.3">The multiplex server does not require HELLO before OPEN, and does not limit the number of channels in
+        a session.<a href="#appendix-A-3.3" class="pilcrow">¶</a>
+</li>
+        <li class="normal" id="appendix-A-3.4">Replication has no default port (<a href="#repl-port" class="auto internal xref">Section 8.6</a>).<a href="#appendix-A-3.4" class="pilcrow">¶</a>
+</li>
+        <li class="normal" id="appendix-A-3.5">Multiplex and object service integers are sent in the host byte order. Every platform DataReel 7.4
+        supports is little endian, so this matches the little endian order specified here.<a href="#appendix-A-3.5" class="pilcrow">¶</a>
+</li>
+      </ul>
+</section>
+</div>
+<div id="ack">
+<section id="appendix-B">
+      <h2 id="name-acknowledgments">
+<a href="#name-acknowledgments" class="section-name selfRef">Acknowledgments</a>
+      </h2>
+<p id="appendix-B-1">The gxStream protocol has been part of DataReel since 1999. This description was written from the
+      DataReel 7.4 source code.<a href="#appendix-B-1" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="authors-addresses">
+<section id="appendix-C">
+      <h2 id="name-authors-address">
+<a href="#name-authors-address" class="section-name selfRef">Author's Address</a>
+      </h2>
+<address class="vcard">
+        <div dir="auto" class="left"><span class="fn nameRole">D. Gaer</span></div>
+<div dir="auto" class="left"><span class="org">DataReel Software Development</span></div>
+<div class="url">
+<span>URI:</span>
+<a href="https://datareel.com" class="url">https://datareel.com</a>
+</div>
+</address>
+</section>
+</div>
+<script>const toc = document.getElementById("toc");
+toc.querySelector("h2").addEventListener("click", e => {
+  toc.classList.toggle("active");
+});
+toc.querySelector("nav").addEventListener("click", e => {
+  toc.classList.remove("active");
+});
+</script>
+</body>
+</html>
