@@ -63,6 +63,470 @@ All objects match</PRE>
 
 <h2 id="Source">Source</h2>
 <P>examples/oodb/typed_objects.cpp, one source file built by examples/CMakeLists.txt as <B>typed_objects</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>
+<pre class="dr-code"><span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: typed_objects.cpp</span>
+<span class="cm">// Compiler Used: MSVC, GCC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 11/12/2026</span>
+<span class="cm">// Date Last Modified: 11/12/2026</span>
+<span class="cm">// Copyright (c) 2001-2026 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------- Program Description and Details ------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">/*
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 3 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library. If not, see
+&lt;https://www.gnu.org/licenses/&gt;.
+
+Typed objects over gxStream, with a plain text export and import.
+
+The program shows the whole life of a typed object in DataReel:
+
+ 1. A C++ class (TradeEvent) packs itself into a block of bytes with
+    a small type header (a type code, a version and the body size),
+    so any program that reads the block knows what it holds.
+ 2. A client sends each packed object over TLS with gxStream. A
+    server thread in the same program stores every block it receives
+    in a gxDatabase file and answers with the block&#x27;s file address.
+ 3. The client reads each object back by address and checks it.
+ 4. The program walks the database file, unpacks every object and
+    exports them to a text file: one line per object in key=value
+    form, under a comment line that says the same thing in plain
+    words. The text file can be read, searched, kept in version
+    control or mailed, and it does not depend on the binary layout.
+ 5. The text file is imported into a second database file and every
+    object is compared with the original, field by field.
+
+gxStream is only the transport here: the objects are the program&#x27;s
+own class, and the database file stores whatever bytes the class
+packs. The text export is the long-lived, portable form.
+
+The client and the server talk over localhost on a port the system
+picks. gxStream always uses TLS, so the program needs a certificate
+and key for localhost (see examples/README section &quot;Typed objects&quot;
+for the openssl commands).
+
+Usage: typed_objects cert.pem key.pem [--ca ca.pem | --insecure]
+
+  cert.pem, key.pem  Server certificate and private key for localhost
+  --ca ca.pem        CA file the client checks the certificate with
+                     (for a self-signed certificate, the cert itself)
+  --insecure         Do not check the certificate (testing only)
+
+Files written in the current directory: typed_objects.gxd (what the
+server stored), typed_objects.txt (the export) and
+typed_objects_import.gxd (the import). The program exits with 0 when
+every object survives all three steps.
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+#include &quot;gxdlcode.h&quot;
+
+#include &lt;cstdint&gt;
+#include &lt;cstdio&gt;
+#include &lt;cstring&gt;
+#include &lt;fstream&gt;
+#include &lt;iostream&gt;
+#include &lt;string&gt;
+#include &lt;thread&gt;
+#include &lt;vector&gt;
+#include &quot;gxdbase.h&quot;
+#include &quot;gxstream.h&quot;
+#include &quot;strutil.h&quot;
+
+using namespace datareel;
+
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// The typed object</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+
+<span class="cm">// Every packed object starts with this header. The type code tells a</span>
+<span class="cm">// reader which class the block holds and the version lets the class</span>
+<span class="cm">// change later and still read old blocks.</span>
+struct ObjectHeader {
+  std::uint32_t type;    <span class="cm">// A four character code, &#x27;TEVT&#x27; here</span>
+  std::uint16_t version; <span class="cm">// Layout version of the body</span>
+  std::uint16_t size;    <span class="cm">// Body bytes after the header</span>
+};
+
+const std::uint32_t TRADE_EVENT_TYPE = 0x54564554; <span class="cm">// &quot;TEVT&quot; in memory</span>
+const std::uint16_t TRADE_EVENT_VERSION = 1;
+
+<span class="cm">// One trading event: a fill, a cancel or a note about a ticker.</span>
+class TradeEvent
+{
+public:
+  TradeEvent() { }
+  TradeEvent(std::int64_t id_, int day_, int seconds_, const char *ticker_,
+             char side_, int qty_, double price_, const char *note_)
+    : id(id_), day(day_), seconds(seconds_), side(side_), qty(qty_),
+      price(price_) {
+    copy_to(ticker, sizeof(ticker), ticker_);
+    copy_to(note, sizeof(note), note_);
+  }
+
+public: <span class="cm">// Binary form, used in the database file and on the network</span>
+  <span class="cm">// The body is written field by field with fixed sizes, so the</span>
+  <span class="cm">// layout does not depend on the compiler&#x27;s structure padding.</span>
+  <span class="cm">// Numbers are in this machine&#x27;s byte order: files and streams move</span>
+  <span class="cm">// between machines of the same byte order (x86-64 and ARM64 are</span>
+  <span class="cm">// both little endian).</span>
+  std::vector&lt;unsigned char&gt; Pack() const {
+    std::vector&lt;unsigned char&gt; buf;
+    ObjectHeader h{TRADE_EVENT_TYPE, TRADE_EVENT_VERSION, (std::uint16_t)BODY_SIZE};
+    put(buf, &amp;h.type, sizeof(h.type));
+    put(buf, &amp;h.version, sizeof(h.version));
+    put(buf, &amp;h.size, sizeof(h.size));
+    put(buf, &amp;id, sizeof(id));
+    put(buf, &amp;day, sizeof(day));
+    put(buf, &amp;seconds, sizeof(seconds));
+    put(buf, ticker, sizeof(ticker));
+    put(buf, &amp;side, sizeof(side));
+    put(buf, &amp;qty, sizeof(qty));
+    put(buf, &amp;price, sizeof(price));
+    put(buf, note, sizeof(note));
+    return buf;
+  }
+
+  <span class="cm">// Returns false if the block is not a TradeEvent this code can read</span>
+  bool Unpack(const unsigned char *p, std::size_t len) {
+    const std::size_t HDR = 8;
+    if(len &lt; HDR) return false;
+    ObjectHeader h;
+    std::size_t at = 0;
+    get(p, at, &amp;h.type, sizeof(h.type));
+    get(p, at, &amp;h.version, sizeof(h.version));
+    get(p, at, &amp;h.size, sizeof(h.size));
+    if(h.type != TRADE_EVENT_TYPE || h.version != TRADE_EVENT_VERSION ||
+       h.size != BODY_SIZE || len != HDR + BODY_SIZE) return false;
+    get(p, at, &amp;id, sizeof(id));
+    get(p, at, &amp;day, sizeof(day));
+    get(p, at, &amp;seconds, sizeof(seconds));
+    get(p, at, ticker, sizeof(ticker));
+    get(p, at, &amp;side, sizeof(side));
+    get(p, at, &amp;qty, sizeof(qty));
+    get(p, at, &amp;price, sizeof(price));
+    get(p, at, note, sizeof(note));
+    ticker[sizeof(ticker) - 1] = 0; <span class="cm">// Never trust a block&#x27;s strings</span>
+    note[sizeof(note) - 1] = 0;
+    return true;
+  }
+
+public: <span class="cm">// Text form, used by the export and the import</span>
+  <span class="cm">// What the object says, in plain words: the comment line above</span>
+  <span class="cm">// each record in the export</span>
+  std::string Narrative() const {
+    const char *what = side == &#x27;B&#x27; ? &quot;bought&quot; : side == &#x27;S&#x27; ? &quot;sold&quot; : &quot;noted&quot;;
+    if(side == &#x27;N&#x27;) return format(&quot;%s %s at %s: %s&quot;, ticker, what, Time().c_str(), note);
+    return format(&quot;%s %s %d shares at %.4f at %s ET on %s (%s)&quot;, ticker, what, qty,
+                  price, Time().c_str(), Day().c_str(), note);
+  }
+
+  <span class="cm">// One line of key=value fields. note= is always last and runs to the</span>
+  <span class="cm">// end of the line, so it may hold spaces.</span>
+  std::string TextLine() const {
+    return format(&quot;event id=%lld day=%s time=%s ticker=%s side=%c qty=%d &quot;
+                  &quot;price=%.4f note=%s&quot;, (long long)id, Day().c_str(),
+                  Time().c_str(), ticker, side, qty, price, note);
+  }
+
+  <span class="cm">// Parse a line written by TextLine(). Returns false if it is not one.</span>
+  bool FromText(const std::string &amp;line) {
+    if(!starts_with(line, &quot;event &quot;)) return false;
+    std::string rest = line.substr(6);
+    std::size_t np = rest.find(&quot; note=&quot;);
+    if(np == std::string::npos) return false;
+    copy_to(note, sizeof(note), rest.substr(np + 6));
+    *this = TradeEvent(0, 0, 0, &quot;&quot;, &#x27;N&#x27;, 0, 0, note);
+    int got = 0;
+    for(const std::string &amp;field : split(rest.substr(0, np), &#x27; &#x27;, true)) {
+      std::size_t eq = field.find(&#x27;=&#x27;);
+      if(eq == std::string::npos) return false;
+      std::string k = field.substr(0, eq), v = field.substr(eq + 1);
+      if(k == &quot;id&quot;) id = to_llong(v), got++;
+      else if(k == &quot;day&quot;) { <span class="cm">// YYYY-MM-DD</span>
+        auto ymd = split(v, &#x27;-&#x27;);
+        if(ymd.size() != 3) return false;
+        day = to_int(ymd[0]) * 10000 + to_int(ymd[1]) * 100 + to_int(ymd[2]);
+        got++;
+      }
+      else if(k == &quot;time&quot;) { <span class="cm">// HH:MM:SS</span>
+        auto hms = split(v, &#x27;:&#x27;);
+        if(hms.size() != 3) return false;
+        seconds = to_int(hms[0]) * 3600 + to_int(hms[1]) * 60 + to_int(hms[2]);
+        got++;
+      }
+      else if(k == &quot;ticker&quot;) copy_to(ticker, sizeof(ticker), v), got++;
+      else if(k == &quot;side&quot; &amp;&amp; v.size() == 1) side = v[0], got++;
+      else if(k == &quot;qty&quot;) qty = to_int(v), got++;
+      else if(k == &quot;price&quot;) price = to_double(v), got++;
+      else return false; <span class="cm">// An unknown field: refuse rather than guess</span>
+    }
+    return got == 7;
+  }
+
+  std::string Day() const {
+    return format(&quot;%04d-%02d-%02d&quot;, day / 10000, day / 100 % 100, day % 100);
+  }
+  std::string Time() const {
+    return format(&quot;%02d:%02d:%02d&quot;, seconds / 3600, seconds / 60 % 60, seconds % 60);
+  }
+
+  <span class="cm">// Field by field. The price went through &quot;%.4f&quot; in the text, so</span>
+  <span class="cm">// compare it to that precision.</span>
+  bool Same(const TradeEvent &amp;o) const {
+    return id == o.id &amp;&amp; day == o.day &amp;&amp; seconds == o.seconds &amp;&amp;
+      strcmp(ticker, o.ticker) == 0 &amp;&amp; side == o.side &amp;&amp; qty == o.qty &amp;&amp;
+      format(&quot;%.4f&quot;, price) == format(&quot;%.4f&quot;, o.price) &amp;&amp;
+      strcmp(note, o.note) == 0;
+  }
+
+private:
+  static void put(std::vector&lt;unsigned char&gt; &amp;b, const void *v, std::size_t n) {
+    const unsigned char *p = (const unsigned char *)v;
+    b.insert(b.end(), p, p + n);
+  }
+  static void get(const unsigned char *p, std::size_t &amp;at, void *v, std::size_t n) {
+    memcpy(v, p + at, n);
+    at += n;
+  }
+
+public:
+  std::int64_t id = 0;
+  std::int32_t day = 0;     <span class="cm">// YYYYMMDD</span>
+  std::int32_t seconds = 0; <span class="cm">// Seconds after midnight, Eastern time</span>
+  char ticker[12] = {0};
+  char side = &#x27;N&#x27;;          <span class="cm">// B buy, S sell, N note</span>
+  std::int32_t qty = 0;
+  double price = 0;
+  char note[64] = {0};
+
+  static const std::size_t BODY_SIZE = 8 + 4 + 4 + 12 + 1 + 4 + 8 + 64;
+};
+
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// The server: stores each block it receives in a database file</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+
+static void serve(gxsTLSServer *server, const char *dbname, int *stored)
+{
+  gxDatabase db;
+  if(db.Create(dbname) != gxDBASE_NO_ERROR) {
+    std::cerr &lt;&lt; &quot;server: cannot create &quot; &lt;&lt; dbname &lt;&lt; &quot;\n&quot;;
+    return;
+  }
+  gxStream stream;
+  if(server-&gt;Accept(stream.Connection()) != 0) {
+    std::cerr &lt;&lt; &quot;server: accept failed: &quot; &lt;&lt; server-&gt;Error() &lt;&lt; &quot;\n&quot;;
+    return;
+  }
+  std::vector&lt;unsigned char&gt; block;
+  for(bool done = false; !done; ) {
+    gxBlockHeader hdr;
+    if(stream.ReadHeader(hdr) != gxSOCKET_NO_ERROR) break;
+    switch(gxStream::BlockStatus(hdr)) {
+      case gxAddRemoteBlock: { <span class="cm">// Store the block, answer with its address</span>
+        if(stream.ReadBlock(block, hdr) != gxSOCKET_NO_ERROR) { done = true; break; }
+        FAU_t addr = db.Alloc((__ULWORD__)block.size());
+        if(addr == (FAU_t)0 ||
+           db.Write(block.data(), (__ULWORD__)block.size(), addr) != gxDBASE_NO_ERROR) {
+          stream.WriteResultBlock(0);
+          break;
+        }
+        (*stored)++;
+        stream.WriteResultBlock((int)addr);
+        break;
+      }
+      case gxRequestBlock: { <span class="cm">// Send back the block at an address</span>
+        if(stream.ReadBlock(block, hdr) != gxSOCKET_NO_ERROR) { done = true; break; }
+        std::int64_t addr = 0;
+        if(block.size() == sizeof(addr)) memcpy(&amp;addr, block.data(), sizeof(addr));
+        std::vector&lt;unsigned char&gt; data;
+        __ULWORD__ len = addr &gt; 0 ? db.ObjectLength((FAU_t)addr) : 0;
+        if(len &gt; 0) {
+          data.resize(len);
+          if(db.Read(data.data(), len, (FAU_t)addr) != gxDBASE_NO_ERROR) data.clear();
+        }
+        stream.WriteBlock(data.data(), (int)data.size());
+        break;
+      }
+      default: <span class="cm">// gxCloseConnection: the client is done</span>
+        done = true;
+        break;
+    }
+  }
+  stream.Close();
+  db.Close();
+}
+
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// Export and import</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+
+<span class="cm">// Walk every object in a database file and write the TradeEvents to</span>
+<span class="cm">// a text file. Returns the number written, -1 on error.</span>
+static int export_text(const char *dbname, const char *txtname)
+{
+  gxDatabase db;
+  if(db.Open(dbname, gxDBASE_READONLY) != gxDBASE_NO_ERROR) return -1;
+  std::ofstream out(txtname, std::ios::trunc);
+  out &lt;&lt; &quot;# TradeEvent export from &quot; &lt;&lt; dbname &lt;&lt; &quot;\n&quot;
+      &lt;&lt; &quot;# One event per line; the comment above each says it in words.\n&quot;;
+  int n = 0;
+  std::vector&lt;unsigned char&gt; buf;
+  for(FAU_t addr = db.FindFirstObject(); addr != (FAU_t)0;
+      addr = db.FindNextObject(addr)) {
+    buf.resize(db.ObjectLength(addr));
+    if(db.Read(buf.data(), (__ULWORD__)buf.size(), addr) != gxDBASE_NO_ERROR) return -1;
+    TradeEvent e;
+    if(!e.Unpack(buf.data(), buf.size())) continue; <span class="cm">// Some other type</span>
+    out &lt;&lt; &quot;# &quot; &lt;&lt; e.Narrative() &lt;&lt; &quot;\n&quot; &lt;&lt; e.TextLine() &lt;&lt; &quot;\n&quot;;
+    n++;
+  }
+  db.Close();
+  return out.good() ? n : -1;
+}
+
+<span class="cm">// Read the text file back into objects and store them in a new</span>
+<span class="cm">// database file. Comment and blank lines are skipped.</span>
+static int import_text(const char *txtname, const char *dbname,
+                       std::vector&lt;TradeEvent&gt; &amp;events)
+{
+  std::ifstream in(txtname);
+  gxDatabase db;
+  if(!in || db.Create(dbname) != gxDBASE_NO_ERROR) return -1;
+  std::string line;
+  int lineno = 0;
+  while(std::getline(in, line)) {
+    lineno++;
+    std::string t = trim(line);
+    if(t.empty() || t[0] == &#x27;#&#x27;) continue;
+    TradeEvent e;
+    if(!e.FromText(t)) {
+      std::cerr &lt;&lt; txtname &lt;&lt; &quot;:&quot; &lt;&lt; lineno &lt;&lt; &quot;: not an event line\n&quot;;
+      return -1;
+    }
+    std::vector&lt;unsigned char&gt; b = e.Pack();
+    FAU_t addr = db.Alloc((__ULWORD__)b.size());
+    if(addr == (FAU_t)0 || db.Write(b.data(), (__ULWORD__)b.size(), addr) != gxDBASE_NO_ERROR)
+      return -1;
+    events.push_back(e);
+  }
+  db.Close();
+  return (int)events.size();
+}
+
+int main(int argc, char **argv)
+{
+  if(argc &lt; 3) {
+    std::cerr &lt;&lt; &quot;Usage: &quot; &lt;&lt; argv[0] &lt;&lt; &quot; cert.pem key.pem [--ca ca.pem | --insecure]\n&quot;;
+    return 1;
+  }
+  std::string ca_file;
+  bool insecure = false;
+  for(int i = 3; i &lt; argc; i++) {
+    if(strcmp(argv[i], &quot;--ca&quot;) == 0 &amp;&amp; i + 1 &lt; argc) ca_file = argv[++i];
+    else if(strcmp(argv[i], &quot;--insecure&quot;) == 0) insecure = true;
+  }
+
+  <span class="cm">// The objects this program writes</span>
+  const std::vector&lt;TradeEvent&gt; events = {
+    TradeEvent(1001, 20261109, 9 * 3600 + 41 * 60 + 7, &quot;AMTX&quot;, &#x27;B&#x27;, 100, 3.25, &quot;opening flush, back over VWAP&quot;),
+    TradeEvent(1002, 20261109, 9 * 3600 + 58 * 60 + 30, &quot;AMTX&quot;, &#x27;S&#x27;, 100, 3.61, &quot;target hit&quot;),
+    TradeEvent(1003, 20261109, 10 * 3600 + 2 * 60, &quot;SOUN&quot;, &#x27;N&#x27;, 0, 0, &quot;halted, news pending&quot;),
+    TradeEvent(1004, 20261110, 4 * 3600 + 15 * 60, &quot;BTCS&quot;, &#x27;B&#x27;, 250, 4.0125, &quot;pre-market gap, small size&quot;),
+    TradeEvent(1005, 20261110, 15 * 3600 + 59 * 60 + 59, &quot;BTCS&quot;, &#x27;S&#x27;, 250, 3.9, &quot;flat at the close&quot;),
+  };
+
+  <span class="cm">// Start the server on a port the system picks (0), on this machine</span>
+  gxsTLSServer server;
+  if(server.Listen(0, argv[1], argv[2], &quot;&quot;, &quot;127.0.0.1&quot;) != 0) {
+    std::cerr &lt;&lt; &quot;Listen failed: &quot; &lt;&lt; server.Error() &lt;&lt; &quot;\n&quot;;
+    return 1;
+  }
+  int port = server.Port(), stored = 0;
+  std::cout &lt;&lt; &quot;Server listening on 127.0.0.1:&quot; &lt;&lt; port &lt;&lt; &quot;\n&quot;;
+  std::thread server_thread(serve, &amp;server, &quot;typed_objects.gxd&quot;, &amp;stored);
+
+  <span class="cm">// The client: send every object, then read each one back by address</span>
+  int failures = 0;
+  {
+    gxStream stream;
+    if(!ca_file.empty()) stream.Connection().SetCAFile(ca_file);
+    if(insecure) stream.Connection().SetVerifyPeer(false);
+    stream.SetTimeOut(30);
+    if(stream.Connect(&quot;localhost&quot;, port) != gxSOCKET_NO_ERROR) {
+      std::cerr &lt;&lt; &quot;Connect failed: &quot; &lt;&lt; stream.Error() &lt;&lt; &quot;\n&quot;;
+      server.Close();
+      server_thread.join();
+      return 1;
+    }
+    for(const TradeEvent &amp;e : events) {
+      std::vector&lt;unsigned char&gt; b = e.Pack();
+      gxBlockHeader hdr;
+      hdr.block_length = (__ULWORD__)b.size();
+      int addr = 0;
+      if(stream.AddBlock(b.data(), hdr) != gxSOCKET_NO_ERROR ||
+         stream.ReadResultBlock(addr) != gxSOCKET_NO_ERROR || addr == 0) {
+        std::cerr &lt;&lt; &quot;Send failed: &quot; &lt;&lt; stream.SocketExceptionMessage() &lt;&lt; &quot;\n&quot;;
+        return 1;
+      }
+      std::int64_t req = addr;
+      gxBlockHeader req_hdr, reply_hdr;
+      req_hdr.block_length = sizeof(req);
+      std::vector&lt;unsigned char&gt; reply;
+      TradeEvent back;
+      bool ok = stream.RequestBlock(&amp;req, req_hdr, reply_hdr, reply) == gxSOCKET_NO_ERROR &amp;&amp;
+        back.Unpack(reply.data(), reply.size()) &amp;&amp; back.Same(e);
+      if(!ok) failures++;
+      std::cout &lt;&lt; &quot;sent id &quot; &lt;&lt; e.id &lt;&lt; &quot;, stored at &quot; &lt;&lt; addr &lt;&lt; &quot;, read back &quot;
+                &lt;&lt; (ok ? &quot;OK&quot; : &quot;DIFFERENT&quot;) &lt;&lt; &quot;\n&quot;;
+    }
+    stream.CloseConnection();
+    stream.Close();
+  }
+  server_thread.join();
+  server.Close();
+  std::cout &lt;&lt; &quot;Server stored &quot; &lt;&lt; stored &lt;&lt; &quot; objects in typed_objects.gxd\n&quot;;
+
+  <span class="cm">// Export the stored objects to text, then import the text</span>
+  int exported = export_text(&quot;typed_objects.gxd&quot;, &quot;typed_objects.txt&quot;);
+  std::cout &lt;&lt; &quot;Exported &quot; &lt;&lt; exported &lt;&lt; &quot; objects to typed_objects.txt\n&quot;;
+  std::vector&lt;TradeEvent&gt; imported;
+  int n = import_text(&quot;typed_objects.txt&quot;, &quot;typed_objects_import.gxd&quot;, imported);
+  std::cout &lt;&lt; &quot;Imported &quot; &lt;&lt; n &lt;&lt; &quot; objects into typed_objects_import.gxd\n&quot;;
+
+  <span class="cm">// Compare what came back with what was written</span>
+  if(exported != (int)events.size() || n != (int)events.size()) failures++;
+  for(std::size_t i = 0; i &lt; imported.size() &amp;&amp; i &lt; events.size(); i++) {
+    if(!imported[i].Same(events[i])) {
+      std::cout &lt;&lt; &quot;id &quot; &lt;&lt; events[i].id &lt;&lt; &quot; changed in the text round trip\n&quot;;
+      failures++;
+    }
+  }
+  std::cout &lt;&lt; &quot;Sample of the export:\n&quot;;
+  std::ifstream txt(&quot;typed_objects.txt&quot;);
+  std::string line;
+  for(int i = 0; i &lt; 6 &amp;&amp; std::getline(txt, line); i++) std::cout &lt;&lt; &quot;  &quot; &lt;&lt; line &lt;&lt; &quot;\n&quot;;
+  std::cout &lt;&lt; (failures == 0 ? &quot;All objects match&quot; : &quot;Some objects differ&quot;) &lt;&lt; &quot;\n&quot;;
+  return failures == 0 ? 0 : 1;
+}
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span></pre>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

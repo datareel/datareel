@@ -47,6 +47,243 @@
 
 <h2 id="Source">Source</h2>
 <P>examples/oodb/replication_copy.cpp, one source file built by examples/CMakeLists.txt as <B>replication_copy</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>
+<pre class="dr-code"><span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: replication_copy.cpp</span>
+<span class="cm">// Compiler Used: GCC, MSVC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 11/14/2026</span>
+<span class="cm">// Date Last Modified: 11/14/2026</span>
+<span class="cm">// Copyright (c) 2001-2026 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------- Program Description and Details ------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">/*
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 3 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library. If not, see
+&lt;https://www.gnu.org/licenses/&gt;.
+
+A copy of a database folder by a plain file copy, on any platform
+(DataReel 7.4), Windows and Linux. Where a copy minutes old is fine,
+the writer stops (or finishes its job), the folder is copied with
+the usual file copy tool (robocopy on Windows, rsync or cp elsewhere),
+and the digests say the copy holds what the primary holds.
+
+The records and their two indexes are in replication_records.h: a name, a day and a vector member in
+data.gxd, a B-tree of names (by_name.btx) and a vector index
+(vectors.vix). The writer changes all three in one gxdJournal
+transaction per commit, so a writer that stops at any point leaves the
+three files at a whole commit once its journal is opened again; a
+writer that finishes closes the journal (a checkpoint) and the files
+hold every commit.
+
+If the copy loses or damages its indexes, it does not need them from
+the primary: &quot;rebuild&quot; makes both again from the copy&#x27;s records, and
+the digests agree again.
+
+replication_copy_walkthrough.cmd (Windows) runs it on throwaway folders:
+write, copy, compare; write more, copy again, compare; the copy&#x27;s
+indexes lost, rebuilt, compare. tests/run_tests.sh runs the same steps
+on Linux with cp.
+
+Usage:
+  replication_copy write DIR [--commits N] [--per N] [--seed N]
+        The primary&#x27;s writer: adds, changes and removes records in
+        DIR/data.gxd with DIR/by_name.btx and DIR/vectors.vix, one
+        gxdJournal transaction (DIR/writer.jnl) per commit. Run it again
+        to go on writing to the same folder.
+  replication_copy digest DIR
+        What the folder holds, whatever the files&#x27; layout: the records
+        (address and bytes, in address order), the B-tree&#x27;s keys in
+        order and the vector index&#x27;s live nodes. Equal on the primary
+        and the copy. Exit 1 if a file is missing or cannot be read.
+  replication_copy rebuild DIR
+        Both indexes made again from DIR/data.gxd.
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+#include &quot;gxdlcode.h&quot;
+
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdint.h&gt;
+#include &lt;string&gt;
+#include &lt;vector&gt;
+#include &quot;gxdjrnl.h&quot;
+#include &quot;replication_records.h&quot;
+
+using namespace datareel;
+using namespace example;
+
+static unsigned rng = 2026;
+static unsigned rnd() { rng = rng * 1103515245u + 12345u; return rng &gt;&gt; 8; }
+
+<span class="cm">// FNV-1a, 64 bits: the example&#x27;s own hash, the same on every platform</span>
+static uint64_t fnv(const void *p, size_t n, uint64_t h)
+{
+  const unsigned char *b = (const unsigned char *)p;
+  for(size_t i = 0; i &lt; n; i++) { h ^= b[i]; h *= 1099511628211ULL; }
+  return h;
+}
+static const uint64_t FNV0 = 14695981039346656037ULL;
+
+static int write_records(const std::string &amp;dir, long commits, long per)
+{
+  gxdJournal j;
+  gxDatabase db;
+  NameKey type;
+  gxBtree bt(type, ORDER);
+  gxVectorIndex vix;
+  <span class="cm">// The journal first: it finishes or undoes a commit a stopped writer left half done</span>
+  if(j.Open((dir + &quot;/writer.jnl&quot;).c_str()) != gxDBASE_NO_ERROR) { printf(&quot;cannot open the journal\n&quot;); return 1; }
+  if(db.Open((dir + &quot;/data.gxd&quot;).c_str()) != gxDBASE_NO_ERROR &amp;&amp; db.Create((dir + &quot;/data.gxd&quot;).c_str()) != gxDBASE_NO_ERROR) return 1;
+  if(bt.Open((dir + &quot;/by_name.btx&quot;).c_str()) != gxDBASE_NO_ERROR &amp;&amp; bt.Create((dir + &quot;/by_name.btx&quot;).c_str()) != gxDBASE_NO_ERROR) return 1;
+  if(vix.Open((dir + &quot;/vectors.vix&quot;).c_str()) != gxv_NO_ERROR &amp;&amp;
+     vix.Create((dir + &quot;/vectors.vix&quot;).c_str(), DIM, gxvFLOAT32, gxvL2, 8, SPEC, 100) != gxv_NO_ERROR) return 1;
+  if(j.Attach(&amp;db) != gxDBASE_NO_ERROR || j.Attach(&amp;bt) != gxDBASE_NO_ERROR || j.Attach(vix.Database()) != gxDBASE_NO_ERROR) return 1;
+  std::vector&lt;FAU_t&gt; live;
+  for(FAU_t a = db.FindFirstObject(); a != (FAU_t)0; a = db.FindNextObject(a)) live.push_back(a);
+  long next_name = (long)live.size() + 1000 * (long)(rng % 97);
+  std::vector&lt;float&gt; v(DIM);
+  std::vector&lt;unsigned char&gt; mem;
+  for(long c = 0; c &lt; commits; c++) {
+    j.Begin();
+    unsigned day = 20261110 + (unsigned)(c % 5);
+    for(long k = 0; k &lt; per; k++) {
+      unsigned r = rnd() % 10;
+      Record rec;
+      memset(&amp;rec, 0, sizeof(rec));
+      for(auto &amp;x : v) x = (float)((rnd() % 2001) / 1000.0 - 1.0);
+      vix.MakeMember(v.data(), mem);
+      if(r &lt; 7 || live.size() &lt; 5) {                 <span class="cm">// a new record</span>
+        snprintf(rec.name, sizeof(rec.name), &quot;rec%08ld&quot;, next_name++);
+        rec.day = day;
+        memcpy(rec.vec, mem.data(), MEMBER);
+        FAU_t a = db.Alloc(sizeof(rec));
+        if(!a || db.Write(&amp;rec, sizeof(rec), a) != gxDBASE_NO_ERROR) return 1;
+        NameKey key(rec.name, a), cmp;
+        bt.Insert(key, cmp);
+        unsigned t[gxvTagCount] = { 0, 0, day, 0 };
+        vix.InsertMember((long long)a, mem.data(), (unsigned)MEMBER, t);
+        live.push_back(a);
+      }
+      else if(r &lt; 9) {                                 <span class="cm">// a new vector for a record</span>
+        FAU_t a = live[rnd() % live.size()];
+        if(db.Read(&amp;rec, sizeof(rec), a) != gxDBASE_NO_ERROR) return 1;
+        memcpy(rec.vec, mem.data(), MEMBER);
+        rec.day = day;
+        if(db.Write(&amp;rec, sizeof(rec), a) != gxDBASE_NO_ERROR) return 1;
+        unsigned t[gxvTagCount] = { 0, 0, day, 0 };
+        vix.UpdateMember((long long)a, mem.data(), (unsigned)MEMBER, t);
+      }
+      else {                                           <span class="cm">// a deleted record</span>
+        size_t i = rnd() % live.size();
+        FAU_t a = live[i];
+        if(db.Read(&amp;rec, sizeof(rec), a) != gxDBASE_NO_ERROR) return 1;
+        NameKey key(rec.name, a), cmp;
+        bt.Delete(key, cmp);
+        vix.Delete((long long)a);
+        db.Delete(a);
+        live.erase(live.begin() + (long)i);
+      }
+    }
+    if(j.Commit() != gxDBASE_NO_ERROR) { printf(&quot;commit failed\n&quot;); return 1; }
+  }
+  <span class="cm">// Close the journal first (a checkpoint): then the files hold every commit and can be copied</span>
+  j.Close();
+  bt.Close();
+  vix.Close();
+  db.Close();
+  printf(&quot;wrote %ld commits, %zu live records\n&quot;, commits, live.size());
+  return 0;
+}
+
+static int digest(const std::string &amp;dir)
+{
+  <span class="cm">// The records: address and bytes, in address order</span>
+  {
+    gxDatabase db;
+    if(db.Open((dir + &quot;/data.gxd&quot;).c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { printf(&quot;digest: no data.gxd\n&quot;); return 1; }
+    uint64_t h = FNV0, n = 0;
+    std::vector&lt;unsigned char&gt; b;
+    for(FAU_t a = db.FindFirstObject(); a != (FAU_t)0; a = db.FindNextObject(a)) {
+      __ULWORD__ len = db.ObjectLength(a);
+      b.resize(len);
+      if(len &amp;&amp; db.Read(b.data(), len, a) != gxDBASE_NO_ERROR) { printf(&quot;digest: cannot read a record\n&quot;); return 1; }
+      uint64_t addr = (uint64_t)a;
+      h = fnv(&amp;addr, sizeof(addr), h);
+      h = fnv(b.data(), b.size(), h);
+      n++;
+    }
+    db.Close();
+    printf(&quot;data.gxd objects %016llx %llu records\n&quot;, (unsigned long long)h, (unsigned long long)n);
+  }
+  <span class="cm">// The B-tree: its keys in order (the same for any node layout), the example&#x27;s own key walk</span>
+  {
+    NameKey k, c;
+    gxBtree bt(k, ORDER);
+    if(bt.Open((dir + &quot;/by_name.btx&quot;).c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { printf(&quot;digest: no by_name.btx\n&quot;); return 1; }
+    uint64_t h = FNV0, n = 0;
+    for(int ok = bt.FindFirst(k); ok; ok = bt.FindNext(k, c)) { h = fnv(&amp;k.d, sizeof(k.d), h); n++; }
+    bt.Close();
+    printf(&quot;by_name.btx btree %016llx %llu keys\n&quot;, (unsigned long long)h, (unsigned long long)n);
+  }
+  <span class="cm">// The vector index: its live nodes (id, vector, tags) in id order</span>
+  {
+    gxVectorIndex vix;
+    if(vix.Open((dir + &quot;/vectors.vix&quot;).c_str(), gxDBASE_READONLY) != gxv_NO_ERROR) { printf(&quot;digest: no vectors.vix\n&quot;); return 1; }
+    unsigned long long nodes = 0, d = vix.LogicalDigest(&amp;nodes);
+    printf(&quot;vectors.vix logical %016llx %llu nodes\n&quot;, d, nodes);
+  }
+  return 0;
+}
+
+int main(int argc, char **argv)
+{
+  if(argc &lt; 3) {
+    fprintf(stderr, &quot;usage: replication_copy write DIR [--commits N] [--per N] [--seed N]\n&quot;
+            &quot;       replication_copy digest DIR\n&quot;
+            &quot;       replication_copy rebuild DIR\n&quot;);
+    return 64;
+  }
+  std::string mode = argv[1], dir = argv[2];
+  if(mode == &quot;write&quot;) {
+    long commits = 20, per = 10;
+    for(int i = 3; i + 1 &lt; argc; i += 2) {
+      std::string a = argv[i];
+      if(a == &quot;--commits&quot;) commits = atol(argv[i + 1]);
+      else if(a == &quot;--per&quot;) per = atol(argv[i + 1]);
+      else if(a == &quot;--seed&quot;) rng ^= (unsigned)strtoul(argv[i + 1], 0, 10) * 2654435761u;
+      else return 64;
+    }
+    return write_records(dir, commits, per);
+  }
+  if(mode == &quot;digest&quot;) return digest(dir);
+  if(mode == &quot;rebuild&quot;) {
+    unsigned long long records = 0, keys = 0;
+    std::string why;
+    if(rebuild(dir, records, keys, why) != 0) { printf(&quot;rebuild: %s\n&quot;, why.c_str()); return 1; }
+    printf(&quot;rebuilt %s: %llu records, %llu keys\n&quot;, dir.c_str(), records, keys);
+    return 0;
+  }
+  return 64;
+}
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span></pre>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

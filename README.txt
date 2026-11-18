@@ -164,11 +164,17 @@ and RELEASE_NOTES_7.4.txt for the changes in 7.1 to 7.4. In short:
   object server, and vector indexes that a replicated copy rebuilds
   from its records (RELEASE_NOTES_7.4.txt). Existing file formats are
   unchanged.
-- 7.4 beta 5: object replication between Windows and Linux (gxObjRepl):
-  nodes on either platform replicate objects both ways, with the
-  primary on either side, and takeover and rejoin work across them.
-  One database file layout and one 32-byte stream header on every
-  platform. gxrepl page-shipping replication is removed.
+- 7.4 also adds object replication between Windows and Linux
+  (gxObjRepl, first in 7.4 beta 5): nodes on either platform replicate
+  objects both ways, with the primary on either side, and takeover and
+  rejoin work across them. One database file layout and one 32-byte
+  stream header on every platform. gxrepl page-shipping replication is
+  removed.
+- 7.4 brings back the 6.x file utilities hexdump, ffind and txfilter,
+  adds the objrepl, vix_rebuild and dr_digest tools, an IMAP client
+  (gxsIMAPClient), CSV files (gxCSVReader, gxCSVWriter) and strip_ansi(),
+  and adds the examples imap_fetch, https_check, udp_broadcast,
+  udp_multicast, csv_merge, service_example, serial_read and dir_upload.
 
 LICENSE
 -------

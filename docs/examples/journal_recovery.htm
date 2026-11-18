@@ -55,6 +55,273 @@ Every crash recovered to a consistent database</PRE>
 
 <h2 id="Source">Source</h2>
 <P>examples/oodb/journal_recovery.cpp, one source file built by examples/CMakeLists.txt as <B>journal_recovery</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>
+<pre class="dr-code"><span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: journal_recovery.cpp</span>
+<span class="cm">// Compiler Used: GCC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 11/12/2026</span>
+<span class="cm">// Date Last Modified: 11/12/2026</span>
+<span class="cm">// Copyright (c) 2001-2026 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------- Program Description and Details ------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">/*
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 3 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library. If not, see
+&lt;https://www.gnu.org/licenses/&gt;.
+
+gxdJournal crash and recovery.
+
+A transaction groups several writes so that after a crash either all
+of them are in the database file or none are. This program proves it
+the hard way, by killing a writer in the middle of its work:
+
+ 1. A child process (fork) opens a journal, creates a database file,
+    attaches the file to the journal and writes batches of records.
+    Each batch is one transaction: Begin(), several Alloc() and
+    Write() calls, Commit(). After each commit the child writes the
+    number of committed batches to a progress file.
+ 2. The parent waits until a few batches are committed, waits a
+    little longer so the child is somewhere inside a transaction, and
+    kills it with SIGKILL. Nothing in the child gets to clean up:
+    this is what a crash or &quot;kill -9&quot; looks like to the files.
+ 3. The parent calls gxdJournal::Recover(), which writes every
+    committed transaction left in the journal to the database file
+    and drops the one that was not committed.
+ 4. The parent opens the database and checks it: every record belongs
+    to a whole batch, no batch is partly there, and at least every
+    batch the child reported as committed is present. (One more batch
+    may be there: the child can be killed after a Commit() returned
+    and before it wrote the progress file.)
+ 5. It also shows Rollback(): a transaction that is started and then
+    rolled back leaves no trace.
+
+Each record is 64 bytes: the batch number, the record number in the
+batch, the number of records in a batch and some text. The database
+is consistent when every batch b holds records 0 to BATCH-1, each
+exactly once.
+
+The program uses fork() and kill(), so it runs on Linux and other
+POSIX systems.
+
+Usage: journal_recovery [rounds]
+
+  rounds  How many times to crash and recover (default 5)
+
+Files written in the current directory: journal_recovery.gxd,
+journal_recovery.jnl and journal_recovery.progress. Exits with 0 when
+every round recovers to a consistent database.
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+#include &quot;gxdlcode.h&quot;
+
+#include &lt;csignal&gt;
+#include &lt;cstdint&gt;
+#include &lt;cstdio&gt;
+#include &lt;cstdlib&gt;
+#include &lt;cstring&gt;
+#include &lt;iostream&gt;
+#include &lt;map&gt;
+#include &lt;string&gt;
+#include &lt;vector&gt;
+#include &lt;sys/types.h&gt;
+#include &lt;sys/wait.h&gt;
+#include &lt;unistd.h&gt;
+#include &quot;gxdbase.h&quot;
+#include &quot;gxdjrnl.h&quot;
+
+using namespace datareel;
+
+const char *DB_FILE = &quot;journal_recovery.gxd&quot;;
+const char *JNL_FILE = &quot;journal_recovery.jnl&quot;;
+const char *PROGRESS_FILE = &quot;journal_recovery.progress&quot;;
+const int BATCH = 25; <span class="cm">// Records per transaction</span>
+
+struct Record {
+  std::int32_t batch;     <span class="cm">// Which transaction wrote it</span>
+  std::int32_t number;    <span class="cm">// 0 .. BATCH-1 inside the transaction</span>
+  std::int32_t batch_size;
+  char text[52];
+};
+
+static void write_progress(long committed)
+{
+  <span class="cm">// Write a new file and rename it over the old one, so the parent</span>
+  <span class="cm">// never reads half a number</span>
+  std::string tmp = std::string(PROGRESS_FILE) + &quot;.tmp&quot;;
+  FILE *fp = fopen(tmp.c_str(), &quot;w&quot;);
+  if(!fp) return;
+  fprintf(fp, &quot;%ld\n&quot;, committed);
+  fclose(fp);
+  rename(tmp.c_str(), PROGRESS_FILE);
+}
+
+static long read_progress()
+{
+  FILE *fp = fopen(PROGRESS_FILE, &quot;r&quot;);
+  if(!fp) return 0;
+  long n = 0;
+  if(fscanf(fp, &quot;%ld&quot;, &amp;n) != 1) n = 0;
+  fclose(fp);
+  return n;
+}
+
+<span class="cm">// The child: write batches until killed. It never returns.</span>
+static void writer()
+{
+  gxdJournal j;
+  <span class="cm">// Open the journal before the database file. Open() recovers any</span>
+  <span class="cm">// committed transactions an earlier crash left in it.</span>
+  if(j.Open(JNL_FILE) != gxDBASE_NO_ERROR) _exit(2);
+  gxDatabase db;
+  if(db.Create(DB_FILE) != gxDBASE_NO_ERROR) _exit(3);
+  <span class="cm">// Make the new file&#x27;s header durable before the journal takes over:</span>
+  <span class="cm">// the journal protects changes, so the starting point must be on disk.</span>
+  db.Sync(1);
+  if(j.Attach(&amp;db) != gxDBASE_NO_ERROR) _exit(4);
+  for(long b = 0;; b++) {
+    j.Begin();
+    for(int i = 0; i &lt; BATCH; i++) {
+      Record r;
+      memset(&amp;r, 0, sizeof(r));
+      r.batch = (std::int32_t)b;
+      r.number = i;
+      r.batch_size = BATCH;
+      snprintf(r.text, sizeof(r.text), &quot;batch %ld record %d&quot;, b, i);
+      FAU_t addr = db.Alloc(sizeof(r));
+      if(addr == (FAU_t)0 || db.Write(&amp;r, sizeof(r), addr) != gxDBASE_NO_ERROR) _exit(5);
+      <span class="cm">// Slow the writer down a little so the parent can kill it in the</span>
+      <span class="cm">// middle of a transaction, not only between two</span>
+      if(i == BATCH / 2) usleep(2000);
+    }
+    <span class="cm">// Commit(1): the transaction is in the journal and synced to disk</span>
+    <span class="cm">// when Commit() returns</span>
+    if(j.Commit(1) != gxDBASE_NO_ERROR) _exit(6);
+    write_progress(b + 1);
+  }
+}
+
+<span class="cm">// Check the recovered database. Returns the number of whole batches,</span>
+<span class="cm">// -1 if the file is not consistent.</span>
+static long check_database(long committed, std::string &amp;why)
+{
+  gxDatabase db;
+  if(db.Open(DB_FILE, gxDBASE_READONLY) != gxDBASE_NO_ERROR) {
+    why = &quot;cannot open the database&quot;;
+    return -1;
+  }
+  std::map&lt;int, std::vector&lt;int&gt;&gt; batches; <span class="cm">// batch -&gt; how often each number is there</span>
+  for(FAU_t addr = db.FindFirstObject(); addr != (FAU_t)0;
+      addr = db.FindNextObject(addr)) {
+    Record r;
+    if(db.ObjectLength(addr) != sizeof(r) ||
+       db.Read(&amp;r, sizeof(r), addr) != gxDBASE_NO_ERROR ||
+       r.batch_size != BATCH || r.number &lt; 0 || r.number &gt;= BATCH) {
+      why = &quot;a record that no batch wrote&quot;;
+      return -1;
+    }
+    std::vector&lt;int&gt; &amp;seen = batches[r.batch];
+    seen.resize(BATCH);
+    seen[r.number]++;
+  }
+  db.Close();
+  long expect = 0;
+  for(auto &amp;b : batches) {
+    if(b.first != expect) { why = &quot;a missing batch in the middle&quot;; return -1; }
+    for(int n : b.second) if(n != 1) { why = &quot;a batch that is only partly there&quot;; return -1; }
+    expect++;
+  }
+  if(expect &lt; committed) { why = &quot;a committed batch was lost&quot;; return -1; }
+  if(expect &gt; committed + 1) { why = &quot;more batches than were committed&quot;; return -1; }
+  return expect;
+}
+
+<span class="cm">// Rollback(): start a transaction, write to it, roll it back</span>
+static bool rollback_demo()
+{
+  gxdJournal j;
+  gxDatabase db;
+  if(j.Open(JNL_FILE) != gxDBASE_NO_ERROR || db.Open(DB_FILE) != gxDBASE_NO_ERROR) return false;
+  j.Attach(&amp;db);
+  long before = 0;
+  for(FAU_t a = db.FindFirstObject(); a != (FAU_t)0; a = db.FindNextObject(a)) before++;
+  j.Begin();
+  Record r;
+  memset(&amp;r, 0, sizeof(r));
+  r.batch = -1; <span class="cm">// Would fail the consistency check if it survived</span>
+  FAU_t addr = db.Alloc(sizeof(r));
+  db.Write(&amp;r, sizeof(r), addr);
+  j.Rollback();
+  long after = 0;
+  for(FAU_t a = db.FindFirstObject(); a != (FAU_t)0; a = db.FindNextObject(a)) after++;
+  j.Close(); <span class="cm">// Close the journal before the files it protects</span>
+  db.Close();
+  std::cout &lt;&lt; &quot;Rollback: &quot; &lt;&lt; before &lt;&lt; &quot; records before, &quot; &lt;&lt; after
+            &lt;&lt; &quot; after a rolled-back insert\n&quot;;
+  return before == after;
+}
+
+int main(int argc, char **argv)
+{
+  int rounds = argc &gt; 1 ? atoi(argv[1]) : 5;
+  if(rounds &lt; 1) rounds = 1;
+  int failures = 0;
+  srand(12345);
+  for(int round = 0; round &lt; rounds; round++) {
+    remove(DB_FILE);
+    remove(JNL_FILE);
+    remove(PROGRESS_FILE);
+
+    pid_t pid = fork();
+    if(pid &lt; 0) { perror(&quot;fork&quot;); return 1; }
+    if(pid == 0) writer(); <span class="cm">// The child never comes back</span>
+
+    <span class="cm">// Wait for at least 3 committed batches (up to 30 seconds)</span>
+    for(int i = 0; i &lt; 3000 &amp;&amp; read_progress() &lt; 3; i++) usleep(10000);
+    <span class="cm">// Then a random short wait, so the kill lands anywhere in a batch</span>
+    usleep(1000 + rand() % 20000);
+    kill(pid, SIGKILL);
+    int status = 0;
+    waitpid(pid, &amp;status, 0);
+    long committed = read_progress();
+
+    <span class="cm">// Recover before anything opens the database file</span>
+    unsigned long recovered = 0;
+    gxDatabaseError err = gxdJournal::Recover(JNL_FILE, &amp;recovered);
+    std::string why;
+    long batches = err == gxDBASE_NO_ERROR ? check_database(committed, why) : -1;
+    if(err != gxDBASE_NO_ERROR) why = gxDatabaseExceptionMessage(err);
+    std::cout &lt;&lt; &quot;Round &quot; &lt;&lt; round + 1 &lt;&lt; &quot;: killed after &quot; &lt;&lt; committed
+              &lt;&lt; &quot; committed batches; Recover() wrote &quot; &lt;&lt; recovered
+              &lt;&lt; &quot; transactions from the journal; database holds &quot;
+              &lt;&lt; (batches &lt; 0 ? 0 : batches) &lt;&lt; &quot; whole batches&quot;
+              &lt;&lt; (batches == committed + 1 ? &quot; (the last commit beat its progress note)&quot; : &quot;&quot;)
+              &lt;&lt; (batches &lt; 0 ? &quot; - NOT CONSISTENT: &quot; + why : std::string(&quot; - consistent&quot;))
+              &lt;&lt; &quot;\n&quot;;
+    if(batches &lt; 0) failures++;
+  }
+  if(!rollback_demo()) failures++;
+  std::cout &lt;&lt; (failures == 0 ? &quot;Every crash recovered to a consistent database&quot; :
+                &quot;Some rounds failed&quot;) &lt;&lt; &quot;\n&quot;;
+  return failures == 0 ? 0 : 1;
+}
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span></pre>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

@@ -86,6 +86,278 @@ All checks pass</PRE><P>From a 64-bit Linux build. The times differ from machine
 
 <h2 id="Source">Source</h2>
 <P>examples/oodb/vector_basics.cpp, one source file built by examples/CMakeLists.txt as <B>vector_basics</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>
+<pre class="dr-code"><span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: vector_basics.cpp</span>
+<span class="cm">// Compiler Used: MSVC, GCC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 11/15/2026</span>
+<span class="cm">// Date Last Modified: 11/15/2026</span>
+<span class="cm">// Copyright (c) 2001-2026 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------- Program Description and Details ------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">/*
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 3 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library. If not, see
+&lt;https://www.gnu.org/licenses/&gt;.
+
+The vector index (gxvindex.h, DataReel 7.4), step by step:
+
+  1. Three .vix files of the same 4,000 clustered vectors (dimension 32),
+     one per element type: float32, float16 and int8 (a scale per vector).
+     Their sizes show what each type costs on disk.
+  2. Exact() against Search() (the HNSW graph): recall@10 of the graph
+     search for three search widths (ef), and how long each took.
+  3. The three metrics on one small index: l2 (squared distance),
+     cosine (the vectors kept at unit length) and ip (inner product).
+  4. Tags and a gxvFilter: tag 2 holds a day (yyyymmdd), tag 0 a
+     category; a search that keeps one category in a range of days.
+  5. Update, Delete (a tombstone: Count() and Deleted()), Repair() (the
+     graph made again from the live nodes) and Verify().
+  6. A gxdJournal transaction rolled back: the index&#x27;s file is attached
+     to the journal; after Rollback() the program calls Reload() so the
+     nodes in memory match the file again.
+  7. The phase D format fields of a file: the required and optional
+     feature bits, the codec, the graph layout, the tag 2 range and the
+     logical digest (what the index holds, whatever its layout).
+
+The files go in the work folder (default vector_basics_work). Exit code 0
+when every check passes.
+
+  vector_basics [WORK_FOLDER]
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+#include &quot;gxdlcode.h&quot;
+
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;math.h&gt;
+#include &lt;chrono&gt;
+#include &lt;filesystem&gt;
+#include &lt;random&gt;
+#include &lt;set&gt;
+#include &lt;string&gt;
+#include &lt;vector&gt;
+#include &quot;gxdjrnl.h&quot;
+#include &quot;gxvindex.h&quot;
+
+using namespace datareel;
+
+static const unsigned DIM = 32, N = 4000, CLUSTERS = 40;
+static int failures = 0;
+
+static void check(bool ok, const char *what)
+{
+  printf(&quot;  %s %s\n&quot;, ok ? &quot;ok  &quot; : &quot;FAIL&quot;, what);
+  if(!ok) failures++;
+}
+
+<span class="cm">// Clustered vectors: CLUSTERS centers, each vector a center plus noise</span>
+struct Data {
+  std::vector&lt;std::vector&lt;float&gt; &gt; centers, vecs;
+  Data(unsigned n, unsigned seed) {
+    std::mt19937 g(seed);
+    std::normal_distribution&lt;float&gt; c(0.0f, 1.0f), noise(0.0f, 0.15f);
+    centers.resize(CLUSTERS, std::vector&lt;float&gt;(DIM));
+    for(auto &amp;v : centers) for(auto &amp;x : v) x = c(g);
+    vecs.resize(n, std::vector&lt;float&gt;(DIM));
+    for(unsigned i = 0; i &lt; n; i++)
+      for(unsigned d = 0; d &lt; DIM; d++) vecs[i][d] = centers[i % CLUSTERS][d] + noise(g);
+  }
+};
+
+static const char *type_name(gxvElementType t)
+{
+  return t == gxvFLOAT32 ? &quot;float32&quot; : t == gxvFLOAT16 ? &quot;float16&quot; : &quot;int8&quot;;
+}
+
+static double ms_since(std::chrono::steady_clock::time_point t0)
+{
+  return std::chrono::duration&lt;double, std::milli&gt;(std::chrono::steady_clock::now() - t0).count();
+}
+
+int main(int argc, char **argv)
+{
+  std::string dir = argc &gt; 1 ? argv[1] : &quot;vector_basics_work&quot;;
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  Data data(N, 2026);
+
+  <span class="cm">// 1. Three element types --------------------------------------------------</span>
+  printf(&quot;1. %u vectors of dimension %u, three element types\n&quot;, N, DIM);
+  const gxvElementType types[3] = { gxvFLOAT32, gxvFLOAT16, gxvINT8 };
+  for(gxvElementType t : types) {
+    std::string f = dir + &quot;/basics_&quot; + type_name(t) + &quot;.vix&quot;;
+    gxVectorIndex vix;
+    if(vix.Create(f.c_str(), DIM, t, gxvL2, 16, &quot;example/basics&quot;, 200) != gxv_NO_ERROR) {
+      printf(&quot;cannot create %s\n&quot;, f.c_str()); return 1;
+    }
+    auto t0 = std::chrono::steady_clock::now();
+    for(unsigned i = 0; i &lt; N; i++) {
+      unsigned tags[gxvTagCount] = { i % 3, 0, 20261110 + i % 5, 0 };   <span class="cm">// tag 0: category, tag 2: day</span>
+      if(vix.Insert((long long)i, data.vecs[i].data(), tags) != gxv_NO_ERROR) { printf(&quot;insert failed\n&quot;); return 1; }
+    }
+    double build = ms_since(t0);
+    unsigned node = vix.NodeSize(), code = vix.CodeSize();   <span class="cm">// read before Close()</span>
+    vix.Close();
+    printf(&quot;  %-7s  %6.0f ms to build, %7llu bytes, %u bytes a node (%u of them the vector)\n&quot;, type_name(t), build,
+           (unsigned long long)std::filesystem::file_size(f, ec), node, code);
+  }
+
+  <span class="cm">// 2. Exact against the graph ----------------------------------------------</span>
+  printf(&quot;2. Exact() against Search() (float32), 100 queries, recall@10\n&quot;);
+  {
+    gxVectorIndex vix;
+    if(vix.Open((dir + &quot;/basics_float32.vix&quot;).c_str(), gxDBASE_READONLY) != gxv_NO_ERROR) { printf(&quot;open failed\n&quot;); return 1; }
+    Data queries(100, 77);
+    std::vector&lt;std::vector&lt;gxvResult&gt; &gt; truth(100);
+    auto t0 = std::chrono::steady_clock::now();
+    for(unsigned q = 0; q &lt; 100; q++) vix.Exact(queries.vecs[q].data(), 10, truth[q]);
+    printf(&quot;  exact:   %6.1f ms\n&quot;, ms_since(t0));
+    double best = 0;
+    for(unsigned ef : { 16u, 64u, 200u }) {
+      unsigned hit = 0;
+      auto t1 = std::chrono::steady_clock::now();
+      for(unsigned q = 0; q &lt; 100; q++) {
+        std::vector&lt;gxvResult&gt; r;
+        vix.Search(queries.vecs[q].data(), 10, r, ef);
+        std::set&lt;long long&gt; want;
+        for(auto &amp;x : truth[q]) want.insert(x.id);
+        for(auto &amp;x : r) hit += want.count(x.id);
+      }
+      double recall = hit / 1000.0;
+      if(recall &gt; best) best = recall;
+      printf(&quot;  ef %3u:  %6.1f ms, recall %.3f\n&quot;, ef, ms_since(t1), recall);
+    }
+    check(best &gt;= 0.95, &quot;the graph search finds at least 95% of the exact top 10 at the widest ef&quot;);
+  }
+
+  <span class="cm">// 3. Three metrics --------------------------------------------------------</span>
+  printf(&quot;3. Metrics on four 2-D vectors, query (1, 0)\n&quot;);
+  {
+    const float pts[4][2] = { { 1, 0 }, { 10, 0 }, { 0, 1 }, { 0.7f, 0.7f } };
+    const gxvMetric metrics[3] = { gxvL2, gxvCOSINE, gxvIP };
+    const char *names[3] = { &quot;l2&quot;, &quot;cosine&quot;, &quot;ip&quot; };
+    for(int m = 0; m &lt; 3; m++) {
+      std::string f = dir + &quot;/metric_&quot; + names[m] + &quot;.vix&quot;;
+      gxVectorIndex vix;
+      vix.Create(f.c_str(), 2, gxvFLOAT32, metrics[m]);
+      for(int i = 0; i &lt; 4; i++) vix.Insert(i, pts[i]);
+      float q[2] = { 1, 0 };
+      std::vector&lt;gxvResult&gt; r;
+      vix.Exact(q, 4, r);
+      printf(&quot;  %-6s  order:&quot;, names[m]);
+      for(auto &amp;x : r) printf(&quot; %lld (%.3f)&quot;, x.id, x.distance);
+      printf(&quot;\n&quot;);
+      <span class="cm">// l2: (1,0) first; cosine: (1,0) and (10,0) tie at the top (same direction); ip: (10,0) first (largest dot)</span>
+      if(m == 0) check(r[0].id == 0, &quot;l2: the nearest point is (1, 0)&quot;);
+      if(m == 1) check((r[0].id == 0 || r[0].id == 1) &amp;&amp; fabsf(r[0].distance - r[1].distance) &lt; 1e-5f,
+                       &quot;cosine: (1, 0) and (10, 0) are the same direction&quot;);
+      if(m == 2) check(r[0].id == 1, &quot;ip: (10, 0) has the largest inner product&quot;);
+      vix.Close();
+    }
+  }
+
+  <span class="cm">// 4. Tags and a filter ----------------------------------------------------</span>
+  printf(&quot;4. A filter: category 1, days 2026-11-11 to 2026-11-12\n&quot;);
+  {
+    gxVectorIndex vix;
+    vix.Open((dir + &quot;/basics_float32.vix&quot;).c_str(), gxDBASE_READONLY);
+    gxvFilter f;
+    f.Tag(0, 1);
+    f.Range(2, 20261111, 20261112);
+    std::vector&lt;gxvResult&gt; r;
+    vix.Search(data.vecs[7].data(), 10, r, 64, &amp;f);
+    bool all = !r.empty();
+    for(auto &amp;x : r) all = all &amp;&amp; x.tags[0] == 1 &amp;&amp; x.tags[2] &gt;= 20261111 &amp;&amp; x.tags[2] &lt;= 20261112;
+    printf(&quot;  %zu results, first id %lld (category %u, day %u)\n&quot;, r.size(), r.empty() ? -1LL : r[0].id,
+           r.empty() ? 0 : r[0].tags[0], r.empty() ? 0 : r[0].tags[2]);
+    check(all, &quot;every result is category 1 in the two days&quot;);
+  }
+
+  <span class="cm">// 5. Update, Delete, Repair, Verify ---------------------------------------</span>
+  printf(&quot;5. Update, Delete, Repair and Verify\n&quot;);
+  {
+    gxVectorIndex vix;
+    vix.Open((dir + &quot;/basics_float32.vix&quot;).c_str());
+    unsigned tags[gxvTagCount] = { 2, 0, 20261114, 0 };
+    vix.Update(5, data.vecs[6].data(), tags);                      <span class="cm">// a new vector: the old node is replaced</span>
+    for(long long id = 100; id &lt; 200; id++) vix.Delete(id);         <span class="cm">// tombstones</span>
+    printf(&quot;  live %llu, deleted %llu\n&quot;, vix.Count(), vix.Deleted());
+    check(!vix.Contains(150) &amp;&amp; vix.Contains(5), &quot;a deleted id is gone, an updated one is there&quot;);
+    check(vix.Repair() == gxv_NO_ERROR, &quot;Repair() makes the graph again from the live nodes&quot;);
+    std::vector&lt;long long&gt; bad;
+    std::string report;
+    check(vix.Verify(0, 0, &amp;bad, &amp;report) == 0, &quot;Verify() finds no problem&quot;);
+    vix.Close();
+  }
+
+  <span class="cm">// 6. A rolled back transaction and Reload() -------------------------------</span>
+  printf(&quot;6. A gxdJournal transaction rolled back, then Reload()\n&quot;);
+  {
+    gxdJournal j;
+    gxVectorIndex vix;
+    j.Open((dir + &quot;/basics.jnl&quot;).c_str());
+    vix.Open((dir + &quot;/basics_float16.vix&quot;).c_str());
+    j.Attach(vix.Database());
+    unsigned long long before = vix.Count();
+    j.Begin();
+    for(long long id = 50000; id &lt; 50010; id++) vix.Insert(id, data.vecs[id % N].data());
+    printf(&quot;  in the transaction: %llu live\n&quot;, vix.Count());
+    j.Rollback();
+    vix.Reload();                                                   <span class="cm">// the file was restored: read it again</span>
+    printf(&quot;  after Rollback() and Reload(): %llu live\n&quot;, vix.Count());
+    check(vix.Count() == before &amp;&amp; !vix.Contains(50003), &quot;the rolled back inserts are gone&quot;);
+    j.Close();
+    vix.Close();
+  }
+
+  <span class="cm">// 7. Format fields and the logical digest ---------------------------------</span>
+  printf(&quot;7. Format fields (phase D)\n&quot;);
+  {
+    gxVectorIndex a, b;
+    a.Open((dir + &quot;/basics_int8.vix&quot;).c_str(), gxDBASE_READONLY);
+    unsigned lo = 0, hi = 0;
+    int has = a.TagRange(2, lo, hi);
+    printf(&quot;  required 0x%x, optional 0x%x, codec %u, graph layout %u, tag 2 %s %u..%u\n&quot;, a.FeaturesRequired(),
+           a.FeaturesOptional(), a.Codec(), a.GraphLayout(), has ? &quot;range&quot; : &quot;none&quot;, lo, hi);
+    check(has &amp;&amp; lo == 20261110 &amp;&amp; hi == 20261114, &quot;the file keeps the range of tag 2 (a set can skip it)&quot;);
+    <span class="cm">// the same nodes in another file, inserted in reverse order: another graph, the same logical digest</span>
+    std::string f = dir + &quot;/basics_int8_reverse.vix&quot;;
+    b.Create(f.c_str(), DIM, gxvINT8, gxvL2, 16, &quot;example/basics&quot;, 200);
+    for(unsigned i = N; i-- &gt; 0; ) {
+      unsigned tags[gxvTagCount] = { i % 3, 0, 20261110 + i % 5, 0 };
+      b.Insert((long long)i, data.vecs[i].data(), tags);
+    }
+    unsigned long long na = 0, nb = 0, da = a.LogicalDigest(&amp;na), db = b.LogicalDigest(&amp;nb);
+    printf(&quot;  logical digest %016llx (%llu nodes), reverse order %016llx (%llu nodes)\n&quot;, da, na, db, nb);
+    check(da == db &amp;&amp; na == nb, &quot;the same nodes give the same logical digest, whatever the graph&quot;);
+    a.Close();
+    b.Close();
+  }
+
+  printf(failures ? &quot;%d check(s) failed\n&quot; : &quot;All checks pass\n&quot;, failures);
+  return failures ? 1 : 0;
+}
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span></pre>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

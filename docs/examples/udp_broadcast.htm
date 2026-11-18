@@ -59,6 +59,144 @@ from 127.0.0.1:35730: hello 3
 
 <h2 id="Source">Source</h2>
 <P>examples/diagnostics/udp_broadcast.cpp, one source file built by examples/CMakeLists.txt as <B>udp_broadcast</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>
+<pre class="dr-code"><span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: udp_broadcast.cpp</span>
+<span class="cm">// Compiler Used: MSVC, GCC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 11/16/2026</span>
+<span class="cm">// Date Last Modified: 11/16/2026</span>
+<span class="cm">// Copyright (c) 2001-2026 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------- Program Description and Details ------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">/*
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 3 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library. If not, see
+&lt;https://www.gnu.org/licenses/&gt;.
+
+Send and receive UDP broadcast datagrams with gxSocket (OpenDatagram,
+SendTo, RecvFrom). Based on the 2001 broadcast sender and receiver
+programs.
+
+PLAIN TEXT: datagrams are not encrypted or authenticated and anyone
+on the network can read or forge them. Use broadcasts only on a
+trusted local network, for data that is not secret.
+
+Usage: udp_broadcast send address port [--count N] [--interval ms]
+                     [text]
+       udp_broadcast recv port [--count N] [--timeout seconds]
+
+  send  sends N datagrams (&quot;text 1&quot;, &quot;text 2&quot;, ...) to the address,
+        such as 255.255.255.255, a subnet&#x27;s broadcast address
+        (192.168.1.255) or 127.255.255.255 on this host
+  recv  prints each datagram and its sender until N arrived (exit 0)
+        or no datagram came for the timeout (exit 1)
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+#include &quot;gxdlcode.h&quot;
+
+#include &lt;chrono&gt;
+#include &lt;cstdlib&gt;
+#include &lt;iostream&gt;
+#include &lt;string&gt;
+#include &lt;thread&gt;
+#include &lt;vector&gt;
+#include &quot;gxsocket.h&quot;
+
+using namespace datareel;
+
+static int usage(const char *prog)
+{
+  std::cerr &lt;&lt; &quot;Usage: &quot; &lt;&lt; prog &lt;&lt; &quot; send address port [--count N] [--interval ms] [text]\n&quot;
+            &lt;&lt; &quot;       &quot; &lt;&lt; prog &lt;&lt; &quot; recv port [--count N] [--timeout seconds]\n&quot;;
+  return 1;
+}
+
+int main(int argc, char **argv)
+{
+  if(argc &lt; 3) return usage(argv[0]);
+  std::string mode = argv[1];
+  int count = 5, interval_ms = 200, timeout = 10;
+  std::string text = &quot;broadcast&quot;;
+  std::vector&lt;std::string&gt; pos;
+  for(int i = 2; i &lt; argc; i++) {
+    std::string a = argv[i];
+    if(a == &quot;--count&quot; &amp;&amp; i + 1 &lt; argc) count = std::atoi(argv[++i]);
+    else if(a == &quot;--interval&quot; &amp;&amp; i + 1 &lt; argc) interval_ms = std::atoi(argv[++i]);
+    else if(a == &quot;--timeout&quot; &amp;&amp; i + 1 &lt; argc) timeout = std::atoi(argv[++i]);
+    else pos.push_back(a);
+  }
+  if(count &lt; 1) count = 1;
+
+  gxSocket s;
+  if(mode == &quot;send&quot;) {
+    if(pos.size() &lt; 2) return usage(argv[0]);
+    if(pos.size() &gt; 2) text = pos[2];
+    std::vector&lt;gxsAddress&gt; to;
+    if(gxsAddress::Resolve(pos[0], std::atoi(pos[1].c_str()), to, SOCK_DGRAM, AF_INET) != 0) {
+      std::cerr &lt;&lt; &quot;Cannot resolve &quot; &lt;&lt; pos[0] &lt;&lt; &quot;\n&quot;;
+      return 1;
+    }
+    if(s.OpenDatagram(AF_INET) != 0) {
+      std::cerr &lt;&lt; s.SocketExceptionMessage() &lt;&lt; &quot;\n&quot;;
+      return 1;
+    }
+    int on = 1; <span class="cm">// A broadcast address needs SO_BROADCAST</span>
+    if(s.SetSockOpt(SOL_SOCKET, SO_BROADCAST, &amp;on, sizeof(on)) != 0) {
+      std::cerr &lt;&lt; &quot;SO_BROADCAST: &quot; &lt;&lt; s.SocketExceptionMessage() &lt;&lt; &quot;\n&quot;;
+      return 1;
+    }
+    for(int n = 1; n &lt;= count; n++) {
+      std::string msg = text + &quot; &quot; + std::to_string(n);
+      if(s.SendTo(to[0], msg.data(), (int)msg.size()) &lt; 0) {
+        std::cerr &lt;&lt; &quot;Send to &quot; &lt;&lt; to[0].ToString() &lt;&lt; &quot;: &quot; &lt;&lt; s.SocketExceptionMessage() &lt;&lt; &quot;\n&quot;;
+        return 1;
+      }
+      std::cout &lt;&lt; &quot;sent \&quot;&quot; &lt;&lt; msg &lt;&lt; &quot;\&quot; to &quot; &lt;&lt; to[0].ToString() &lt;&lt; &quot;\n&quot;;
+      if(n &lt; count) std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+    }
+    return 0;
+  }
+  if(mode == &quot;recv&quot;) {
+    if(pos.empty()) return usage(argv[0]);
+    if(s.OpenDatagram(AF_INET, std::atoi(pos[0].c_str())) != 0) {
+      std::cerr &lt;&lt; &quot;Bind port &quot; &lt;&lt; pos[0] &lt;&lt; &quot;: &quot; &lt;&lt; s.SocketExceptionMessage() &lt;&lt; &quot;\n&quot;;
+      return 1;
+    }
+    std::cout &lt;&lt; &quot;receiving broadcasts on port &quot; &lt;&lt; pos[0] &lt;&lt; &quot;\n&quot; &lt;&lt; std::flush;
+    char buf[65536];
+    for(int n = 0; n &lt; count; n++) {
+      gxsAddress from;
+      int bytes = s.RecvFrom(from, buf, (int)sizeof(buf), timeout);
+      if(bytes &lt; 0) {
+        std::cerr &lt;&lt; &quot;no datagram for &quot; &lt;&lt; timeout &lt;&lt; &quot; seconds (&quot; &lt;&lt; n &lt;&lt; &quot; of &quot;
+                  &lt;&lt; count &lt;&lt; &quot; received)\n&quot;;
+        return 1;
+      }
+      std::cout &lt;&lt; &quot;from &quot; &lt;&lt; from.ToString() &lt;&lt; &quot;: &quot; &lt;&lt; std::string(buf, bytes) &lt;&lt; &quot;\n&quot; &lt;&lt; std::flush;
+    }
+    std::cout &lt;&lt; count &lt;&lt; &quot; datagrams received\n&quot;;
+    return 0;
+  }
+  return usage(argv[0]);
+}
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span></pre>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

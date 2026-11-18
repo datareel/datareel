@@ -67,6 +67,215 @@ All checks pass</PRE><P>From a 64-bit Linux build; the program uses fixed random
 
 <h2 id="Source">Source</h2>
 <P>examples/oodb/vector_records.cpp, one source file built by examples/CMakeLists.txt as <B>vector_records</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>
+<pre class="dr-code"><span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: vector_records.cpp</span>
+<span class="cm">// Compiler Used: MSVC, GCC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 11/15/2026</span>
+<span class="cm">// Date Last Modified: 11/15/2026</span>
+<span class="cm">// Copyright (c) 2001-2026 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------- Program Description and Details ------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">/*
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 3 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library. If not, see
+&lt;https://www.gnu.org/licenses/&gt;.
+
+Records that carry their own vectors (vector members, gxvindex.h and
+gxvmember.h, DataReel 7.4):
+
+  1. Fixed records in a gxDatabase file: a name, a day, a category and a
+     vector member (MakeMember(): a 12-byte head and the stored code, here
+     float16). Each record and its index node are written in the same
+     gxdJournal transaction; the node id is the record&#x27;s address.
+  2. A search returns addresses: the program reads the records back and
+     prints their names. MemberVector() decodes a record&#x27;s member.
+  3. Verify() with a resolver that reads each node&#x27;s record and checks
+     that its member still matches the node (MemberMatches()).
+  4. The index made again from the records alone (gxvRebuildFromMembers,
+     what vix_rebuild and a replicated copy do): the member and tag
+     places are given as &quot;member=offset:32 tags=offset:28,-,offset:24,-&quot;.
+     The rebuilt index and the one written with the records hold the
+     same nodes: the same logical digest.
+
+  vector_records [WORK_FOLDER]
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+#include &quot;gxdlcode.h&quot;
+
+#include &lt;stdio.h&gt;
+#include &lt;stdint.h&gt;
+#include &lt;string.h&gt;
+#include &lt;filesystem&gt;
+#include &lt;random&gt;
+#include &lt;string&gt;
+#include &lt;vector&gt;
+#include &quot;gxdbase.h&quot;
+#include &quot;gxdjrnl.h&quot;
+#include &quot;gxvindex.h&quot;
+#include &quot;gxvmember.h&quot;
+
+using namespace datareel;
+
+static const unsigned DIM = 16;
+static const unsigned MEMBER = gxvMemberHead + 2 * DIM;   <span class="cm">// float16: 2 bytes a value</span>
+static int failures = 0;
+
+static void check(bool ok, const char *what)
+{
+  printf(&quot;  %s %s\n&quot;, ok ? &quot;ok  &quot; : &quot;FAIL&quot;, what);
+  if(!ok) failures++;
+}
+
+<span class="cm">// The record: name at 0, day at 24, category at 28, the vector member at 32</span>
+struct Record {
+  char name[24];
+  uint32_t day;
+  uint32_t category;
+  unsigned char member[MEMBER];
+};
+
+struct Resolver { gxDatabase *db; const gxVectorIndex *vix; };
+
+<span class="cm">// Verify()&#x27;s resolver: the record at &quot;id&quot; exists and its member is the node&#x27;s</span>
+static int still_there(long long id, void *data)
+{
+  Resolver *r = (Resolver *)data;
+  Record rec;
+  if(r-&gt;db-&gt;Read(&amp;rec, sizeof(rec), (FAU_t)id) != gxDBASE_NO_ERROR) return 0;
+  return r-&gt;vix-&gt;MemberMatches(id, rec.member, MEMBER);
+}
+
+int main(int argc, char **argv)
+{
+  std::string dir = argc &gt; 1 ? argv[1] : &quot;vector_records_work&quot;;
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  const std::string data_path = dir + &quot;/items.gxd&quot;, index_path = dir + &quot;/items.vix&quot;;
+  const char *categories[3] = { &quot;tool&quot;, &quot;part&quot;, &quot;kit&quot; };
+
+  <span class="cm">// 1. Records and their index in one transaction per batch -----------------</span>
+  printf(&quot;1. 600 records with float16 vector members\n&quot;);
+  {
+    gxdJournal j;
+    gxDatabase db;
+    gxVectorIndex vix;
+    j.Open((dir + &quot;/items.jnl&quot;).c_str());
+    db.Create(data_path.c_str());
+    vix.Create(index_path.c_str(), DIM, gxvFLOAT16, gxvCOSINE, 16, &quot;example/items&quot;, 200);
+    j.Attach(&amp;db);
+    j.Attach(vix.Database());
+    std::mt19937 g(11);
+    std::normal_distribution&lt;float&gt; n(0.0f, 1.0f);
+    std::vector&lt;float&gt; v(DIM);
+    std::vector&lt;unsigned char&gt; m;
+    for(unsigned batch = 0; batch &lt; 6; batch++) {
+      j.Begin();
+      for(unsigned k = 0; k &lt; 100; k++) {
+        unsigned i = batch * 100 + k;
+        Record rec;
+        memset(&amp;rec, 0, sizeof(rec));
+        snprintf(rec.name, sizeof(rec.name), &quot;%s-%04u&quot;, categories[i % 3], i);
+        rec.day = 20261110 + i % 5;
+        rec.category = i % 3;
+        for(unsigned d = 0; d &lt; DIM; d++) v[d] = n(g) + (d == i % 3 ? 4.0f : 0.0f);   <span class="cm">// each category leans one way</span>
+        vix.MakeMember(v.data(), m);
+        memcpy(rec.member, m.data(), MEMBER);
+        FAU_t a = db.Alloc(sizeof(rec));
+        db.Write(&amp;rec, sizeof(rec), a);
+        unsigned tags[gxvTagCount] = { rec.category, 0, rec.day, 0 };
+        vix.InsertMember((long long)a, rec.member, MEMBER, tags);   <span class="cm">// the node id is the record&#x27;s address</span>
+      }
+      if(j.Commit() != gxDBASE_NO_ERROR) { printf(&quot;commit failed\n&quot;); return 1; }
+    }
+    printf(&quot;  %llu records indexed, %u-byte member (head %u + code %u)\n&quot;, vix.Count(), vix.MemberSize(),
+           (unsigned)gxvMemberHead, vix.CodeSize());
+    check(vix.Count() == 600, &quot;every record has its node&quot;);
+    j.Close();
+    vix.Close();
+    db.Close();
+  }
+
+  <span class="cm">// 2. Search, then read the records -----------------------------------------</span>
+  printf(&quot;2. The 5 records nearest a \&quot;part\&quot;-like vector, read back by address\n&quot;);
+  {
+    gxDatabase db;
+    gxVectorIndex vix;
+    db.Open(data_path.c_str(), gxDBASE_READONLY);
+    vix.Open(index_path.c_str(), gxDBASE_READONLY);
+    std::vector&lt;float&gt; q(DIM, 0.0f);
+    q[1] = 4.0f;
+    std::vector&lt;gxvResult&gt; r;
+    vix.Search(q.data(), 5, r, 64);
+    bool parts = !r.empty();
+    for(auto &amp;x : r) {
+      Record rec;
+      db.Read(&amp;rec, sizeof(rec), (FAU_t)x.id);
+      std::vector&lt;float&gt; back(DIM);
+      vix.MemberVector(rec.member, MEMBER, back.data());
+      printf(&quot;  %-10s day %u  distance %.4f  member[1] %.2f\n&quot;, rec.name, rec.day, x.distance, back[1]);
+      parts = parts &amp;&amp; rec.category == 1;
+    }
+    check(parts, &quot;the nearest records are all of category \&quot;part\&quot;&quot;);
+
+  <span class="cm">// 3. Verify with a resolver ------------------------------------------------</span>
+    printf(&quot;3. Verify() reading every node&#x27;s record\n&quot;);
+    Resolver res = { &amp;db, &amp;vix };
+    std::vector&lt;long long&gt; bad;
+    std::string report;
+    unsigned long problems = vix.Verify(still_there, &amp;res, &amp;bad, &amp;report);
+    printf(&quot;  %lu problem(s)\n&quot;, problems);
+    check(problems == 0, &quot;every node&#x27;s record exists and holds the node&#x27;s code&quot;);
+    vix.Close();
+    db.Close();
+  }
+
+  <span class="cm">// 4. The index made again from the records alone ---------------------------</span>
+  printf(&quot;4. The index rebuilt from the records (as vix_rebuild does)\n&quot;);
+  {
+    gxVectorIndex like;
+    like.Open(index_path.c_str(), gxDBASE_READONLY);
+    unsigned long long n_before = 0, d_before = like.LogicalDigest(&amp;n_before);
+    std::string rebuilt = dir + &quot;/items_rebuilt.vix&quot;;
+    std::filesystem::copy_file(index_path, rebuilt, std::filesystem::copy_options::overwrite_existing, ec);
+    unsigned long long records = 0;
+    std::string why;
+    int rc = gxvRebuildFromMembers(data_path, rebuilt, like, &quot;member=offset:32 tags=offset:28,-,offset:24,-&quot;,
+                                   records, why);
+    like.Close();
+    check(rc == 0, rc == 0 ? &quot;rebuilt&quot; : why.c_str());
+    gxVectorIndex again;
+    again.Open(rebuilt.c_str(), gxDBASE_READONLY);
+    unsigned long long n_after = 0, d_after = again.LogicalDigest(&amp;n_after);
+    printf(&quot;  %llu records with a member; digest %016llx (%llu nodes) against %016llx (%llu nodes)\n&quot;, records,
+           d_after, n_after, d_before, n_before);
+    check(d_after == d_before &amp;&amp; n_after == n_before, &quot;the rebuilt index holds the same nodes and tags&quot;);
+    check((again.FeaturesOptional() &amp; gxvOptFromMembers) != 0, &quot;it is marked as derived from record members&quot;);
+    again.Close();
+  }
+
+  printf(failures ? &quot;%d check(s) failed\n&quot; : &quot;All checks pass\n&quot;, failures);
+  return failures ? 1 : 0;
+}
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span></pre>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

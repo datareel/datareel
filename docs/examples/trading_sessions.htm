@@ -58,6 +58,289 @@ All samples match</PRE>
 
 <h2 id="Source">Source</h2>
 <P>examples/general/trading_sessions.cpp, one source file built by examples/CMakeLists.txt as <B>trading_sessions</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>
+<pre class="dr-code"><span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: trading_sessions.cpp</span>
+<span class="cm">// Compiler Used: MSVC, GCC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 11/12/2026</span>
+<span class="cm">// Date Last Modified: 11/12/2026</span>
+<span class="cm">// Copyright (c) 2001-2026 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------- Program Description and Details ------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">/*
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 3 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library. If not, see
+&lt;https://www.gnu.org/licenses/&gt;.
+
+US stock market sessions with CDate and the systime functions.
+
+CDate is DataReel&#x27;s 4-byte date (month, day, 16-bit year), the type to
+store in a database record. It parses and prints M/D/YYYY and compares
+dates, but it does no calendar arithmetic, so this program adds the
+day-of-week, next-day and trading-day math with std::tm and mktime().
+The systime.h functions format time stamps (time_string(),
+iso8601_utc()) and give thread-safe local and UTC broken-down times.
+
+The rules shown (all times US Eastern, ET):
+
+  pre-market   4:00 to 9:30
+  regular      9:30 to 16:00
+  post-market  16:00 to 20:00
+  closed       20:00 to 4:00, weekends, market holidays
+
+A holiday list for 2026 is built in (the NYSE full-day closures).
+Early closes (1:00 PM the day after Thanksgiving and on Christmas Eve)
+end the regular session at 13:00 and the post-market at 17:00.
+
+The program prints:
+ 1. The session for a set of sample ET times, including weekends,
+    holidays and the session edges (9:30 belongs to regular, 16:00
+    to post-market).
+ 2. The trading days in November 2026 and the next trading day after
+    some dates.
+ 3. The current session in New York right now, when the system has
+    the America/New_York time zone (POSIX systems; set TZ yourself
+    on others).
+
+Usage: trading_sessions [M/D/YYYY HH:MM]
+
+  With a date and a time (ET) it prints only that time&#x27;s session.
+
+Exits with 0 when every sample matches its expected session.
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+#include &quot;gxdlcode.h&quot;
+
+#include &lt;cstdlib&gt;
+#include &lt;ctime&gt;
+#include &lt;iostream&gt;
+#include &lt;string&gt;
+#include &lt;vector&gt;
+#include &quot;cdate.h&quot;
+#include &quot;strutil.h&quot;
+#include &quot;systime.h&quot;
+
+using namespace datareel;
+
+enum Session { CLOSED, PRE_MARKET, REGULAR, POST_MARKET };
+
+static const char *session_name(Session s)
+{
+  switch(s) {
+    case PRE_MARKET: return &quot;pre-market&quot;;
+    case REGULAR: return &quot;regular&quot;;
+    case POST_MARKET: return &quot;post-market&quot;;
+    default: return &quot;closed&quot;;
+  }
+}
+
+<span class="cm">// NYSE full-day closures in 2026</span>
+static const std::vector&lt;CDate&gt; HOLIDAYS_2026 = {
+  CDate(1, 1, 2026),   <span class="cm">// New Year&#x27;s Day</span>
+  CDate(1, 19, 2026),  <span class="cm">// Martin Luther King Jr. Day</span>
+  CDate(2, 16, 2026),  <span class="cm">// Washington&#x27;s Birthday</span>
+  CDate(4, 3, 2026),   <span class="cm">// Good Friday</span>
+  CDate(5, 25, 2026),  <span class="cm">// Memorial Day</span>
+  CDate(6, 19, 2026),  <span class="cm">// Juneteenth</span>
+  CDate(7, 3, 2026),   <span class="cm">// Independence Day (observed, July 4 is a Saturday)</span>
+  CDate(9, 7, 2026),   <span class="cm">// Labor Day</span>
+  CDate(11, 26, 2026), <span class="cm">// Thanksgiving</span>
+  CDate(12, 25, 2026), <span class="cm">// Christmas</span>
+};
+
+<span class="cm">// Early closes: regular session ends at 13:00, post-market at 17:00</span>
+static const std::vector&lt;CDate&gt; EARLY_CLOSES_2026 = {
+  CDate(11, 27, 2026), <span class="cm">// Day after Thanksgiving</span>
+  CDate(12, 24, 2026), <span class="cm">// Christmas Eve</span>
+};
+
+static bool in_list(const std::vector&lt;CDate&gt; &amp;list, const CDate &amp;d)
+{
+  for(const CDate &amp;h : list) if(h == d) return true;
+  return false;
+}
+
+<span class="cm">// Day of the week, 0 = Sunday. CDate has no calendar math, so convert</span>
+<span class="cm">// to a std::tm and let mktime() fill in the weekday. Noon avoids any</span>
+<span class="cm">// daylight saving edge.</span>
+static int weekday(const CDate &amp;d)
+{
+  std::tm t{};
+  t.tm_year = (int)d.GetYear() - 1900;
+  t.tm_mon = d.GetMonth() - 1;
+  t.tm_mday = d.GetDay();
+  t.tm_hour = 12;
+  t.tm_isdst = -1;
+  std::mktime(&amp;t);
+  return t.tm_wday;
+}
+
+<span class="cm">// The next calendar day. mktime() normalizes day 32 into the next month.</span>
+static CDate next_day(const CDate &amp;d)
+{
+  std::tm t{};
+  t.tm_year = (int)d.GetYear() - 1900;
+  t.tm_mon = d.GetMonth() - 1;
+  t.tm_mday = d.GetDay() + 1;
+  t.tm_hour = 12;
+  t.tm_isdst = -1;
+  std::mktime(&amp;t);
+  return CDate((__UBYTE__)(t.tm_mon + 1), (__UBYTE__)t.tm_mday, (gxUINT16)(t.tm_year + 1900));
+}
+
+static bool is_trading_day(const CDate &amp;d)
+{
+  int wd = weekday(d);
+  if(wd == 0 || wd == 6) return false;
+  return !in_list(HOLIDAYS_2026, d);
+}
+
+static CDate next_trading_day(const CDate &amp;d)
+{
+  CDate n = next_day(d);
+  while(!is_trading_day(n)) n = next_day(n);
+  return n;
+}
+
+<span class="cm">// The session at a date and a time of day in ET (minutes after midnight)</span>
+static Session session_at(const CDate &amp;d, int minutes)
+{
+  if(!is_trading_day(d)) return CLOSED;
+  bool early = in_list(EARLY_CLOSES_2026, d);
+  const int pre_open = 4 * 60, open = 9 * 60 + 30;
+  const int close = early ? 13 * 60 : 16 * 60;
+  const int post_close = early ? 17 * 60 : 20 * 60;
+  if(minutes &lt; pre_open) return CLOSED;
+  if(minutes &lt; open) return PRE_MARKET;   <span class="cm">// 9:30 itself is regular</span>
+  if(minutes &lt; close) return REGULAR;     <span class="cm">// 16:00 itself is post-market</span>
+  if(minutes &lt; post_close) return POST_MARKET;
+  return CLOSED;
+}
+
+static const char *day_name(int wd)
+{
+  static const char *names[] = {&quot;Sun&quot;, &quot;Mon&quot;, &quot;Tue&quot;, &quot;Wed&quot;, &quot;Thu&quot;, &quot;Fri&quot;, &quot;Sat&quot;};
+  return names[wd % 7];
+}
+
+<span class="cm">// Parse &quot;HH:MM&quot; into minutes, -1 if it is not a time</span>
+static int parse_hhmm(const std::string &amp;s)
+{
+  auto f = split(s, &#x27;:&#x27;);
+  if(f.size() != 2) return -1;
+  int h = to_int(f[0]), m = to_int(f[1]);
+  if(h &lt; 0 || h &gt; 23 || m &lt; 0 || m &gt; 59) return -1;
+  return h * 60 + m;
+}
+
+int main(int argc, char **argv)
+{
+  if(argc &gt; 2) { <span class="cm">// One date and time from the command line</span>
+    CDate d;
+    int minutes = parse_hhmm(argv[2]);
+    if(!d.SetDate(argv[1]) || minutes &lt; 0) {
+      std::cerr &lt;&lt; &quot;Usage: &quot; &lt;&lt; argv[0] &lt;&lt; &quot; [M/D/YYYY HH:MM]\n&quot;;
+      return 1;
+    }
+    std::cout &lt;&lt; d &lt;&lt; &quot; &quot; &lt;&lt; argv[2] &lt;&lt; &quot; ET (&quot; &lt;&lt; day_name(weekday(d)) &lt;&lt; &quot;): &quot;
+              &lt;&lt; session_name(session_at(d, minutes)) &lt;&lt; &quot;\n&quot;;
+    return 0;
+  }
+
+  <span class="cm">// 1. Sample times, with the session each one should be in</span>
+  struct Sample { const char *date, *time; Session expect; const char *why; };
+  const Sample samples[] = {
+    {&quot;11/9/2026&quot;, &quot;03:59&quot;, CLOSED, &quot;one minute before the pre-market&quot;},
+    {&quot;11/9/2026&quot;, &quot;04:00&quot;, PRE_MARKET, &quot;pre-market opens&quot;},
+    {&quot;11/9/2026&quot;, &quot;09:29&quot;, PRE_MARKET, &quot;last pre-market minute&quot;},
+    {&quot;11/9/2026&quot;, &quot;09:30&quot;, REGULAR, &quot;the opening bell&quot;},
+    {&quot;11/9/2026&quot;, &quot;15:59&quot;, REGULAR, &quot;last regular minute&quot;},
+    {&quot;11/9/2026&quot;, &quot;16:00&quot;, POST_MARKET, &quot;the closing bell starts post-market&quot;},
+    {&quot;11/9/2026&quot;, &quot;19:59&quot;, POST_MARKET, &quot;last post-market minute&quot;},
+    {&quot;11/9/2026&quot;, &quot;20:00&quot;, CLOSED, &quot;post-market is over&quot;},
+    {&quot;11/7/2026&quot;, &quot;10:00&quot;, CLOSED, &quot;a Saturday&quot;},
+    {&quot;11/8/2026&quot;, &quot;10:00&quot;, CLOSED, &quot;a Sunday&quot;},
+    {&quot;11/26/2026&quot;, &quot;10:00&quot;, CLOSED, &quot;Thanksgiving&quot;},
+    {&quot;11/27/2026&quot;, &quot;12:59&quot;, REGULAR, &quot;early close day, before 13:00&quot;},
+    {&quot;11/27/2026&quot;, &quot;13:00&quot;, POST_MARKET, &quot;early close day, after the bell&quot;},
+    {&quot;11/27/2026&quot;, &quot;17:00&quot;, CLOSED, &quot;early close day, post-market ends at 17:00&quot;},
+    {&quot;7/3/2026&quot;, &quot;10:00&quot;, CLOSED, &quot;Independence Day, observed&quot;},
+  };
+  int failures = 0;
+  std::cout &lt;&lt; &quot;Sessions at sample times (ET):\n&quot;;
+  for(const Sample &amp;s : samples) {
+    CDate d(s.date);
+    Session got = session_at(d, parse_hhmm(s.time));
+    bool ok = got == s.expect;
+    if(!ok) failures++;
+    std::cout &lt;&lt; format(&quot;  %-10s %s %s  %-11s %-3s %s\n&quot;, d.str().c_str(),
+                        day_name(weekday(d)), s.time, session_name(got),
+                        ok ? &quot;ok&quot; : &quot;BAD&quot;, s.why);
+  }
+
+  <span class="cm">// 2. The trading days in a month, and the next trading day</span>
+  std::cout &lt;&lt; &quot;Trading days in November 2026:&quot;;
+  int count = 0;
+  for(CDate d(11, 1, 2026); d.GetMonth() == 11; d = next_day(d)) {
+    if(is_trading_day(d)) {
+      std::cout &lt;&lt; (count % 10 == 0 ? &quot;\n  &quot; : &quot; &quot;) &lt;&lt; (int)d.GetDay();
+      count++;
+    }
+  }
+  std::cout &lt;&lt; &quot;\n  &quot; &lt;&lt; count &lt;&lt; &quot; trading days\n&quot;;
+  if(count != 20) failures++; <span class="cm">// 21 weekdays, less Thanksgiving</span>
+
+  struct Next { const char *from, *expect; };
+  const Next nexts[] = {
+    {&quot;11/6/2026&quot;, &quot;11/9/2026&quot;},    <span class="cm">// Friday -&gt; Monday</span>
+    {&quot;11/25/2026&quot;, &quot;11/27/2026&quot;},  <span class="cm">// Over Thanksgiving</span>
+    {&quot;12/24/2026&quot;, &quot;12/28/2026&quot;},  <span class="cm">// Over Christmas and a weekend</span>
+    {&quot;7/2/2026&quot;, &quot;7/6/2026&quot;},      <span class="cm">// Over the observed July 4</span>
+  };
+  for(const Next &amp;n : nexts) {
+    CDate from(n.from), got = next_trading_day(from);
+    bool ok = got == CDate(n.expect);
+    if(!ok) failures++;
+    std::cout &lt;&lt; &quot;  next trading day after &quot; &lt;&lt; from &lt;&lt; &quot; (&quot; &lt;&lt; day_name(weekday(from))
+              &lt;&lt; &quot;) is &quot; &lt;&lt; got &lt;&lt; &quot; (&quot; &lt;&lt; day_name(weekday(got)) &lt;&lt; &quot;)&quot;
+              &lt;&lt; (ok ? &quot;&quot; : &quot; BAD&quot;) &lt;&lt; &quot;\n&quot;;
+  }
+
+  <span class="cm">// 3. Right now in New York. The systime.h functions take the time</span>
+  <span class="cm">// zone from the TZ setting, so set it for this process only.</span>
+#if !defined(_WIN32)
+  setenv(&quot;TZ&quot;, &quot;America/New_York&quot;, 1);
+  tzset();
+  std::time_t now = std::time(nullptr);
+  std::tm et = local_tm(now);
+  CDate today((__UBYTE__)(et.tm_mon + 1), (__UBYTE__)et.tm_mday, (gxUINT16)(et.tm_year + 1900));
+  std::cout &lt;&lt; &quot;Now: &quot; &lt;&lt; time_string(&quot;%Y-%m-%d %H:%M:%S %Z&quot;, now) &lt;&lt; &quot; (&quot;
+            &lt;&lt; iso8601_utc() &lt;&lt; &quot;), session: &quot;
+            &lt;&lt; (today.GetYear() == 2026 ? session_name(session_at(today, et.tm_hour * 60 + et.tm_min))
+                : &quot;unknown (the holiday list is for 2026)&quot;) &lt;&lt; &quot;\n&quot;;
+#endif
+
+  std::cout &lt;&lt; (failures == 0 ? &quot;All samples match&quot; : &quot;Some samples differ&quot;) &lt;&lt; &quot;\n&quot;;
+  return failures == 0 ? 0 : 1;
+}
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span></pre>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

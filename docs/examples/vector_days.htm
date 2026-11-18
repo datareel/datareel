@@ -88,6 +88,223 @@ All checks pass</PRE><P>From a 64-bit Linux build; fixed random seeds, so the id
 
 <h2 id="Source">Source</h2>
 <P>examples/oodb/vector_days.cpp, one source file built by examples/CMakeLists.txt as <B>vector_days</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>
+<pre class="dr-code"><span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: vector_days.cpp</span>
+<span class="cm">// Compiler Used: MSVC, GCC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 11/15/2026</span>
+<span class="cm">// Date Last Modified: 11/15/2026</span>
+<span class="cm">// Copyright (c) 2001-2026 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------- Program Description and Details ------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">/*
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 3 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library. If not, see
+&lt;https://www.gnu.org/licenses/&gt;.
+
+A vector set across day files (gxvset.h, DataReel 7.4): one .vix per day
+in YYYY/MM/DD folders, searched as one through a .vixset manifest.
+
+  1. Five day files (2026-11-09 to 2026-11-13), 500 vectors each, tag 2 =
+     the day. A manifest lists them (AddFile): each line keeps the file&#x27;s
+     node counts, its tag 2 range and a CRC of its header.
+  2. One search across all the days, with up to 4 threads: every result
+     names its file, and the results are the same for any thread count.
+  3. A day-range search (11-11 to 11-12): the other days are skipped from
+     the manifest alone, without opening them (Skipped(), Opened()).
+  4. A day archived (its file moved away): the set skips it and counts it
+     in Missing(); with strict set, the search is an error instead.
+  5. The live day: a writer keeps its own index open and puts it in the
+     set (AttachOpen): searches see its newest vectors at once, and
+     Refresh() writes the new counts and range into the manifest.
+
+  vector_days [WORK_FOLDER]
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+#include &quot;gxdlcode.h&quot;
+
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;filesystem&gt;
+#include &lt;random&gt;
+#include &lt;string&gt;
+#include &lt;vector&gt;
+#include &quot;gxvindex.h&quot;
+#include &quot;gxvset.h&quot;
+
+using namespace datareel;
+
+static const unsigned DIM = 24, PER_DAY = 500;
+static int failures = 0;
+
+static void check(bool ok, const char *what)
+{
+  printf(&quot;  %s %s\n&quot;, ok ? &quot;ok  &quot; : &quot;FAIL&quot;, what);
+  if(!ok) failures++;
+}
+
+static std::string day_rel(unsigned day)    <span class="cm">// 20261111 -&gt; &quot;2026/11/11/vectors.vix&quot;</span>
+{
+  char b[64];
+  snprintf(b, sizeof(b), &quot;%04u/%02u/%02u/vectors.vix&quot;, day / 10000, day / 100 % 100, day % 100);
+  return b;
+}
+
+static void make_vec(std::mt19937 &amp;g, std::vector&lt;float&gt; &amp;v)
+{
+  std::normal_distribution&lt;float&gt; n(0.0f, 1.0f);
+  for(auto &amp;x : v) x = n(g);
+}
+
+int main(int argc, char **argv)
+{
+  std::string dir = argc &gt; 1 ? argv[1] : &quot;vector_days_work&quot;;
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  const std::string manifest = dir + &quot;/days.vixset&quot;;
+  std::mt19937 g(5);
+  std::vector&lt;float&gt; v(DIM);
+
+  <span class="cm">// 1. Day files and the manifest --------------------------------------------</span>
+  printf(&quot;1. Five day files and the manifest\n&quot;);
+  gxVectorSet set;
+  if(set.Create(manifest.c_str(), &quot;days&quot;, DIM, gxvFLOAT32, gxvL2, &quot;example/days&quot;) != gxv_NO_ERROR) {
+    printf(&quot;cannot create the manifest\n&quot;); return 1;
+  }
+  long long next_id = 1;
+  for(unsigned day = 20261109; day &lt;= 20261113; day++) {
+    std::string rel = day_rel(day), full = dir + &quot;/&quot; + rel;
+    std::filesystem::create_directories(std::filesystem::path(full).parent_path(), ec);
+    gxVectorIndex vix;
+    vix.Create(full.c_str(), DIM, gxvFLOAT32, gxvL2, 16, &quot;example/days&quot;, 100);
+    for(unsigned i = 0; i &lt; PER_DAY; i++) {
+      make_vec(g, v);
+      unsigned tags[gxvTagCount] = { 0, 0, day, 0 };
+      vix.Insert(next_id++, v.data(), tags);
+    }
+    vix.Close();
+    if(set.AddFile(rel.c_str()) != gxv_NO_ERROR) { printf(&quot;AddFile: %s\n&quot;, set.Error().c_str()); return 1; }
+  }
+  set.Close();
+  printf(&quot;  %s:\n&quot;, manifest.c_str());
+  {
+    FILE *f = fopen(manifest.c_str(), &quot;r&quot;);
+    char line[512];
+    while(f &amp;&amp; fgets(line, sizeof(line), f)) printf(&quot;    %s&quot;, line);
+    if(f) fclose(f);
+  }
+  if(set.Open(manifest.c_str(), &quot;example/days&quot;) != gxv_NO_ERROR) { printf(&quot;open: %s\n&quot;, set.Error().c_str()); return 1; }
+  check(set.Files().size() == 5, &quot;five files listed&quot;);
+
+  <span class="cm">// 2. One search across the days ---------------------------------------------</span>
+  printf(&quot;2. The 8 nearest across all days, 1 and 4 threads\n&quot;);
+  std::vector&lt;float&gt; q(DIM);
+  make_vec(g, q);
+  std::vector&lt;gxvSetResult&gt; r1, r4;
+  gxvSetSearch o;
+  o.k = 8;
+  o.threads = 1;
+  set.Search(q.data(), o, r1);
+  o.threads = 4;
+  set.Search(q.data(), o, r4);
+  for(auto &amp;x : r1) printf(&quot;    id %5lld  %.3f  %s\n&quot;, x.id, x.distance, set.Files()[x.file].path.c_str());
+  bool same = r1.size() == r4.size();
+  for(size_t i = 0; same &amp;&amp; i &lt; r1.size(); i++) same = r1[i].id == r4[i].id &amp;&amp; r1[i].file == r4[i].file;
+  check(same, &quot;the same results with 1 and 4 threads&quot;);
+
+  <span class="cm">// 3. A day range: files outside it are skipped unopened ---------------------</span>
+  printf(&quot;3. Days 2026-11-11 to 2026-11-12 only\n&quot;);
+  {
+    gxVectorSet fresh;                               <span class="cm">// a new reader: nothing opened yet</span>
+    fresh.Open(manifest.c_str());
+    gxvSetSearch d;
+    d.k = 8;
+    d.day_range = 1;
+    d.day_lo = 20261111;
+    d.day_hi = 20261112;
+    std::vector&lt;gxvSetResult&gt; r;
+    gxvSetStats st;
+    fresh.Search(q.data(), d, r, &amp;st);
+    bool in_range = !r.empty();
+    for(auto &amp;x : r) in_range = in_range &amp;&amp; x.tags[2] &gt;= 20261111 &amp;&amp; x.tags[2] &lt;= 20261112;
+    printf(&quot;  %zu results, %llu file(s) skipped from the manifest, %llu opened\n&quot;, r.size(), st.skipped,
+           fresh.Opened());
+    check(in_range, &quot;every result is from the two days&quot;);
+    check(st.skipped == 3, &quot;the other three days were never opened&quot;);
+  }
+
+  <span class="cm">// 4. An archived day ----------------------------------------------------------</span>
+  printf(&quot;4. 2026-11-09 archived (moved away)\n&quot;);
+  {
+    set.Close();                                     <span class="cm">// Windows cannot move a file that is open: close the set first</span>
+    std::filesystem::create_directories(dir + &quot;/archive&quot;, ec);
+    std::filesystem::rename(dir + &quot;/&quot; + day_rel(20261109), dir + &quot;/archive/20261109.vix&quot;, ec);
+    if(ec) printf(&quot;  cannot move the day away: %s\n&quot;, ec.message().c_str());
+    gxVectorSet reader;
+    reader.Open(manifest.c_str());
+    gxvSetSearch s;
+    s.k = 8;
+    std::vector&lt;gxvSetResult&gt; r;
+    gxvSetStats st;
+    gxvError e = reader.Search(q.data(), s, r, &amp;st);
+    printf(&quot;  search: %s, %zu results, %llu missing\n&quot;, gxVectorIndex::ErrorMessage(e), r.size(), st.missing);
+    check(e == gxv_NO_ERROR &amp;&amp; st.missing == 1, &quot;the missing day is skipped and counted&quot;);
+    s.strict = 1;
+    e = reader.Search(q.data(), s, r, &amp;st);
+    check(e != gxv_NO_ERROR, &quot;with strict set, a missing day is an error&quot;);
+    reader.Close();
+    std::filesystem::rename(dir + &quot;/archive/20261109.vix&quot;, dir + &quot;/&quot; + day_rel(20261109), ec);
+    if(set.Open(manifest.c_str(), &quot;example/days&quot;) != gxv_NO_ERROR) { printf(&quot;reopen: %s\n&quot;, set.Error().c_str()); return 1; }
+  }
+
+  <span class="cm">// 5. The live day: a writer&#x27;s own index in the set -------------------------</span>
+  printf(&quot;5. The live day 2026-11-14, written while the set searches it\n&quot;);
+  {
+    std::string rel = day_rel(20261114), full = dir + &quot;/&quot; + rel;
+    std::filesystem::create_directories(std::filesystem::path(full).parent_path(), ec);
+    gxVectorIndex live;
+    live.Create(full.c_str(), DIM, gxvFLOAT32, gxvL2, 16, &quot;example/days&quot;, 100);
+    set.AddFile(rel.c_str());
+    set.AttachOpen(rel.c_str(), &amp;live);              <span class="cm">// searched as it is, never reopened by the set</span>
+    std::vector&lt;float&gt; target(DIM, 3.0f);            <span class="cm">// far from the other days&#x27; vectors</span>
+    unsigned tags[gxvTagCount] = { 0, 0, 20261114, 0 };
+    live.Insert(999999, target.data(), tags);
+    gxvSetSearch s;
+    s.k = 1;
+    std::vector&lt;gxvSetResult&gt; r;
+    set.Search(target.data(), s, r);
+    check(!r.empty() &amp;&amp; r[0].id == 999999, &quot;the writer&#x27;s newest vector is found at once&quot;);
+    set.Refresh();                                   <span class="cm">// the new counts and tag 2 range into the manifest</span>
+    const gxvSetFile &amp;lf = set.Files().back();
+    printf(&quot;  manifest line for %s: nodes %llu, tag2 %u..%u\n&quot;, lf.path.c_str(), lf.nodes, lf.tag2_min, lf.tag2_max);
+    check(lf.nodes == 1 &amp;&amp; lf.tag2_min == 20261114, &quot;Refresh() wrote the live day&#x27;s counts and range&quot;);
+    set.AttachOpen(rel.c_str(), 0);
+    live.Close();
+  }
+  set.Close();
+
+  printf(failures ? &quot;%d check(s) failed\n&quot; : &quot;All checks pass\n&quot;, failures);
+  return failures ? 1 : 0;
+}
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span></pre>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

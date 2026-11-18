@@ -8,7 +8,7 @@ Each page is described by a dict: file, title, lead, sections (id,
 heading, html) and functions (signature, description). Edit the page
 text here and run the script again rather than editing the .htm files.
 """
-import html, os, re
+import glob, html, os, re
 
 DOCS = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 VERSION = '7.4'
@@ -1565,10 +1565,54 @@ All checks pass
  ]),
 }
 
+def source_listing(src):
+    """examples/<src> as a <pre class="dr-code"> block with its comments highlighted (11/18/2026)"""
+    with open(os.path.join(DOCS, '..', 'examples', src), encoding='utf-8') as f:
+        text = f.read().expandtabs(8)
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if text.startswith('//', i):
+            j = text.find('\n', i)
+            j = n if j < 0 else j
+            out.append('<span class="cm">%s</span>' % html.escape(text[i:j]))
+            i = j
+        elif text.startswith('/*', i):
+            j = text.find('*/', i + 2)
+            j = n if j < 0 else j + 2
+            out.append('<span class="cm">%s</span>' % html.escape(text[i:j]))
+            i = j
+        elif c in '"\'':
+            j = i + 1
+            while j < n and text[j] != c and text[j] != '\n':
+                j += 2 if text[j] == '\\' else 1
+            j = min(j + 1, n)
+            out.append(html.escape(text[i:j]))
+            i = j
+        else:
+            out.append(html.escape(c))
+            i += 1
+    return '<pre class="dr-code">%s</pre>' % ''.join(out).rstrip('\n')
+
 def example_page(name):
     src, title, lead, secs = EXAMPLE_PAGES[name]
-    secs = secs + [('Source', 'Source', '<P>examples/%s, one source file built by examples/CMakeLists.txt as <B>%s</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>' % (src, name))]
+    secs = secs + [('Source', 'Source', '<P>examples/%s, one source file built by examples/CMakeLists.txt as <B>%s</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>\n' % (src, name) + source_listing(src))]
     return dict(file='examples/%s.htm' % name, title=title, lead=lead, sections=secs)
+
+def run_by_tests(name):
+    """TRUE when a test script under tests/ runs the example (ping and telnet_client need a network)"""
+    for path in glob.glob(os.path.join(DOCS, '..', 'tests', '*.sh')):
+        with open(path, encoding='utf-8', errors='replace') as f:
+            if re.search(r'\b%s\b' % re.escape(name), f.read()):
+                return True
+    return False
+
+def listing_page(src, name, desc):
+    """A page for an example without a written page: what it shows and its source (11/18/2026)"""
+    return dict(file='examples/%s.htm' % name, title='%s Example' % name, lead=html.escape(desc), sections=[
+        ('Running', 'Building and Running', '<P>examples/%s, one source file built by examples/CMakeLists.txt as <B>%s</B> (cmake-build/examples/%s on Linux, cmake-build\\examples\\Release\\%s.exe on Windows)%s. See <A HREF="examples.htm#Building">Building and Running</A> for the build commands. The comment at the top of the file describes the program. Back to the <A HREF="examples.htm">example programs</A>.</P>' % (src, name, name, name, ' and run by tests/run_tests.sh' if run_by_tests(name) else '')),
+        ('Source', 'Source', source_listing(src)),
+    ])
 
 def examples_page():
     secs = [('Building', 'Building and Running', '''
@@ -1582,12 +1626,15 @@ cmake-build\\examples\\Release\\db_infohog  # Windows
 <P>The database examples pause for Enter between steps; give them empty input (&lt; /dev/null or &lt; nul) to run straight through. The TLS servers need a certificate and key; see <A HREF="../classes/socket/sdiagram.htm#Certificates">Certificates</A> for making test ones. tests/run_tests.sh builds everything and runs the examples against each other and against mock mail and FTPS servers.</P>
 ''')]
     for title, items in EXAMPLES:
-        rows = ''.join('<div class="dr-fn"><code class="dr-sig">examples/%s</code><p class="dr-desc"><B>%s</B>: %s</p></div>\n' % (f, ('<A HREF="%s.htm">%s</A>' % (n, n)) if n in EXAMPLE_PAGES else n, html.escape(d)) for f, n, d in items)
+        rows = ''.join('<div class="dr-fn"><code class="dr-sig">examples/%s</code><p class="dr-desc"><B>%s</B>: %s</p></div>\n' % (f, '<A HREF="%s.htm">%s</A>' % (n, n), html.escape(d)) for f, n, d in items)
         secs.append((re.sub(r'\W+', '', title), title, rows))
     return dict(file='examples/examples.htm', title='Example Programs', lead='Every example is one source file and is built and tested with this release.', sections=secs)
 
 PAGES.append(examples_page())
 for _name in EXAMPLE_PAGES: PAGES.append(example_page(_name))
+for _title, _items in EXAMPLES:
+    for _src, _name, _desc in _items:
+        if _name not in EXAMPLE_PAGES: PAGES.append(listing_page(_src, _name, _desc))
 
 page(file='utils/utils.htm', title='Utility Programs',
  lead='Command line tools for checking and repairing DataReel database files.',
@@ -1597,7 +1644,7 @@ page(file='utils/utils.htm', title='Utility Programs',
 <LI><A HREF="db_debug.htm">db_debug</A>: analyze, dump and rebuild gxDatabase files.</LI>
 <LI><A HREF="ix_debug.htm">ix_debug</A>: analyze and check gxBtree index files.</LI>
 <LI><A HREF="vix_rebuild.htm">vix_rebuild</A> (7.4): rebuild a vector index from the vector members of records; digests of vector indexes.</LI>
-<LI>dr_digest (7.4): what a database, B-tree or file holds, as one 64-bit digest, whatever its layout (<CODE>dr_digest FILE [--kind btree|bytes|objects]</CODE>).</LI>
+<LI><A HREF="dr_digest.htm">dr_digest</A> (7.4): what a database, B-tree or file holds, as one 64-bit digest, whatever its layout (<CODE>dr_digest FILE [--kind btree|bytes|objects]</CODE>).</LI>
 <LI><A HREF="object_server.htm">object_server and object_client</A>: the database object server and its client, with vector searches (Linux and Windows).</LI>
 <LI><A HREF="hexdump.htm">hexdump</A> (back in 7.4): a file in hex, decimal or as a C array, a binary file rebuilt from its hex dump, CRC-32 and CRC-16 checksums.</LI>
 <LI><A HREF="ffind.htm">ffind</A> (back in 7.4): find, replace and insert strings in text files, or replace a whole section.</LI>
@@ -1655,6 +1702,20 @@ vix_rebuild --digest FILE.vix [--digest-kind logical|bytes]
 ''') + '''
 <P>The rebuild reads every record of the data file in ascending address order and makes the index from their vector members (<A HREF="../classes/database/gxvmember.htm">gxvmember.h</A>), so it is the same file, byte for byte, on every node: what a replicated copy runs as its <CODE>derived_rebuild</CODE>. The header (dimension, element type, metric, M, ef_construction, spec) comes from --like, or from --dim, --element, --metric, --m, --efc and --spec. With --stamp-dir and --lsn it writes the index's stamp and the folder's derived.stamp at that log position. Exit 0 ok, 1 failed, 2 usage.</P>
 <P><CODE>--digest</CODE> prints "logical HASH NODES FILE": a hash of the live nodes in id order (id, stored code, tags), the same for two indexes that hold the same nodes whatever their graphs; <CODE>--digest-kind bytes</CODE> hashes the file's bytes (for rebuild against rebuild). The example <A HREF="../examples/vector_records.htm">vector_records</A> calls the same rebuild from code.</P>
+''')])
+
+page(file='utils/dr_digest.htm', title='dr_digest',
+ lead='What a database file holds, as one 64-bit digest whatever its layout (DataReel 7.4).',
+ sections=[('Usage', 'Usage', code('''
+dr_digest FILE [--kind btree|bytes|objects]
+''') + '''
+<P>It prints one line, "HASH COUNT FILE": the hash as 16 hex digits, then the number of objects, keys or bytes it covers. The kinds:</P>
+<UL>
+<LI><CODE>objects</CODE>: the live objects of a .gxd database file, so two files that hold the same objects give the same digest even when their free space, block order or addresses differ.</LI>
+<LI><CODE>btree</CODE>: the keys of a .btx B-tree index, in key order, whatever the shape of the tree.</LI>
+<LI><CODE>bytes</CODE>: the bytes of any file.</LI>
+</UL>
+<P>Without --kind it is <CODE>btree</CODE> for a .btx file and <CODE>bytes</CODE> for anything else. Exit 0 ok, 1 the file could not be read (the reason on standard error), 2 usage. From code, the same digest is gxDatabaseDigest() of gxddigest.h. It is the same as "gxrepl digest" of the 7.4 betas, so digests taken with either compare. Digests of vector indexes: <A HREF="vix_rebuild.htm">vix_rebuild --digest</A>.</P>
 ''')])
 
 page(file='utils/object_server.htm', title='object_server and object_client',

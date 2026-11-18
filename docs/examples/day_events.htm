@@ -61,6 +61,232 @@ The query matches the events written</PRE>
 
 <h2 id="Source">Source</h2>
 <P>examples/oodb/day_events.cpp, one source file built by examples/CMakeLists.txt as <B>day_events</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>
+<pre class="dr-code"><span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: day_events.cpp</span>
+<span class="cm">// Compiler Used: MSVC, GCC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 11/12/2026</span>
+<span class="cm">// Date Last Modified: 11/12/2026</span>
+<span class="cm">// Copyright (c) 2001-2026 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------- Program Description and Details ------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">/*
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 3 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library. If not, see
+&lt;https://www.gnu.org/licenses/&gt;.
+
+A day-organized event database.
+
+Many programs collect events that are only ever looked at by time: a
+trade log, sensor readings, alerts, news items. A good layout for them
+is one database file per day, in a folder per year and month:
+
+  day_events/2026/11/09/events.gxd
+  day_events/2026/11/10/events.gxd
+  ...
+
+This keeps every file small, makes &quot;today&quot; the only file being written,
+and lets old days be backed up, compressed, copied to another machine
+or deleted one folder at a time without touching the rest. A query for
+a time range opens only the days in the range.
+
+The program:
+ 1. Appends events for several days (including a gap day with no
+    events). Each event is a fixed-size record: a time stamp (seconds
+    since 1970, UTC), a type, a ticker and a short text. Events are
+    appended in time order, so a day file is already sorted by time.
+ 2. Queries a time range that starts in the middle of one day and
+    ends in the middle of a later one. It walks the day folders in
+    the range, skips days with no file, reads each day&#x27;s records in
+    order and stops reading a day as soon as it passes the end time.
+ 3. Checks the query against the same filter run over the list of
+    events it wrote.
+
+For lookups by key (all events for one ticker, say) add a gxBtree
+index file next to each day&#x27;s data file; see examples/database/btree
+and docs/ai/samples/indexed_records.cpp.
+
+Usage: day_events [folder]
+
+  folder  Where to put the day folders (default ./day_events). The
+          program removes and rebuilds it, so do not point it at
+          anything else.
+
+Exits with 0 when the query returns exactly the expected events.
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+#include &quot;gxdlcode.h&quot;
+
+#include &lt;cstdint&gt;
+#include &lt;cstring&gt;
+#include &lt;ctime&gt;
+#include &lt;filesystem&gt;
+#include &lt;iostream&gt;
+#include &lt;string&gt;
+#include &lt;vector&gt;
+#include &quot;gxdbase.h&quot;
+#include &quot;strutil.h&quot;
+#include &quot;systime.h&quot;
+
+using namespace datareel;
+namespace fs = std::filesystem;
+
+struct Event {
+  std::int64_t when;  <span class="cm">// Seconds since 1970-01-01 UTC</span>
+  std::int32_t type;  <span class="cm">// 1 trade, 2 alert, 3 news</span>
+  char ticker[12];
+  char text[44];
+};
+
+<span class="cm">// Seconds since 1970 for a UTC date and time. timegm() is not in the</span>
+<span class="cm">// C++ standard, so count the days from the civil date directly</span>
+<span class="cm">// (the algorithm from Howard Hinnant&#x27;s date library).</span>
+static std::int64_t utc_seconds(int y, int m, int d, int hh, int mm, int ss)
+{
+  y -= m &lt;= 2;
+  const std::int64_t era = (y &gt;= 0 ? y : y - 399) / 400;
+  const unsigned yoe = (unsigned)(y - era * 400);
+  const unsigned doy = (153 * (m + (m &gt; 2 ? -3 : 9)) + 2) / 5 + d - 1;
+  const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  std::int64_t days = era * 146097 + (std::int64_t)doe - 719468;
+  return days * 86400 + hh * 3600 + mm * 60 + ss;
+}
+
+<span class="cm">// The day file that holds events at time t: &lt;root&gt;/YYYY/MM/DD/events.gxd</span>
+static fs::path day_file(const fs::path &amp;root, std::int64_t t)
+{
+  std::string ymd = time_string(&quot;%Y/%m/%d&quot;, (std::time_t)t, true);
+  return root / fs::path(ymd) / &quot;events.gxd&quot;;
+}
+
+<span class="cm">// Append one event to its day&#x27;s file, creating the folders and the</span>
+<span class="cm">// file the first time a day is written</span>
+static bool append(const fs::path &amp;root, const Event &amp;e)
+{
+  fs::path f = day_file(root, e.when);
+  std::error_code ec;
+  fs::create_directories(f.parent_path(), ec);
+  gxDatabase db;
+  std::string name = f.string();
+  if(db.Open(name.c_str()) != gxDBASE_NO_ERROR &amp;&amp;
+     db.Create(name.c_str()) != gxDBASE_NO_ERROR) {
+    std::cerr &lt;&lt; name &lt;&lt; &quot;: &quot; &lt;&lt; db.DatabaseExceptionMessage() &lt;&lt; &quot;\n&quot;;
+    return false;
+  }
+  FAU_t addr = db.Alloc(sizeof(e));
+  bool ok = addr != (FAU_t)0 &amp;&amp; db.Write(&amp;e, sizeof(e), addr) == gxDBASE_NO_ERROR;
+  db.Close();
+  return ok;
+}
+
+<span class="cm">// Every event with from &lt;= when &lt; to, across all the day files in</span>
+<span class="cm">// between. &quot;days_opened&quot; counts the day files that were read.</span>
+static std::vector&lt;Event&gt; query(const fs::path &amp;root, std::int64_t from, std::int64_t to,
+                                int &amp;days_opened)
+{
+  std::vector&lt;Event&gt; out;
+  days_opened = 0;
+  <span class="cm">// Start at midnight UTC of the first day and step one day at a time</span>
+  for(std::int64_t day = from - from % 86400; day &lt; to; day += 86400) {
+    fs::path f = day_file(root, day);
+    if(!fs::exists(f)) continue; <span class="cm">// No events that day</span>
+    gxDatabase db;
+    std::string name = f.string();
+    if(db.Open(name.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) continue;
+    days_opened++;
+    for(FAU_t addr = db.FindFirstObject(); addr != (FAU_t)0; addr = db.FindNextObject(addr)) {
+      Event e;
+      if(db.ObjectLength(addr) != sizeof(e) || db.Read(&amp;e, sizeof(e), addr) != gxDBASE_NO_ERROR)
+        continue;
+      if(e.when &gt;= to) break;      <span class="cm">// The file is in time order: done with this day</span>
+      if(e.when &gt;= from) out.push_back(e);
+    }
+    db.Close();
+  }
+  return out;
+}
+
+static Event make_event(std::int64_t when, int type, const char *ticker, const char *text)
+{
+  Event e;
+  memset(&amp;e, 0, sizeof(e));
+  e.when = when;
+  e.type = type;
+  copy_to(e.ticker, sizeof(e.ticker), ticker);
+  copy_to(e.text, sizeof(e.text), text);
+  return e;
+}
+
+static std::string show(const Event &amp;e)
+{
+  static const char *types[] = {&quot;?&quot;, &quot;trade&quot;, &quot;alert&quot;, &quot;news&quot;};
+  return format(&quot;%s  %-5s %-5s %s&quot;, time_string(&quot;%Y-%m-%d %H:%M:%S&quot;, (std::time_t)e.when, true).c_str(),
+                types[e.type &gt;= 1 &amp;&amp; e.type &lt;= 3 ? e.type : 0], e.ticker, e.text);
+}
+
+int main(int argc, char **argv)
+{
+  fs::path root = argc &gt; 1 ? argv[1] : &quot;day_events&quot;;
+  std::error_code ec;
+  fs::remove_all(root, ec); <span class="cm">// Start from an empty folder each run</span>
+
+  <span class="cm">// 1. Events over five days: Nov 9, 10, 11, (nothing on the 12th), 13.</span>
+  <span class="cm">// Times are UTC; 14:30 UTC is 9:30 AM in New York in November.</span>
+  std::vector&lt;Event&gt; written;
+  const char *tickers[] = {&quot;AMTX&quot;, &quot;SOUN&quot;, &quot;BTCS&quot;};
+  for(int d : {9, 10, 11, 13}) {
+    for(int i = 0; i &lt; 12; i++) {
+      int minutes = 13 * 60 + i * 37; <span class="cm">// 13:00 to about 19:47 UTC</span>
+      Event e = make_event(utc_seconds(2026, 11, d, minutes / 60, minutes % 60, 0),
+                           1 + i % 3, tickers[i % 3], format(&quot;event %d of Nov %d&quot;, i, d).c_str());
+      if(!append(root, e)) return 1;
+      written.push_back(e);
+    }
+  }
+  std::cout &lt;&lt; &quot;Appended &quot; &lt;&lt; written.size() &lt;&lt; &quot; events into day folders under &quot;
+            &lt;&lt; root.string() &lt;&lt; &quot;:\n&quot;;
+  for(auto &amp;p : fs::recursive_directory_iterator(root)) {
+    if(p.is_regular_file()) std::cout &lt;&lt; &quot;  &quot; &lt;&lt; p.path().generic_string() &lt;&lt; &quot;\n&quot;;
+  }
+
+  <span class="cm">// 2. A range from the middle of Nov 10 to the middle of Nov 13</span>
+  std::int64_t from = utc_seconds(2026, 11, 10, 16, 0, 0);
+  std::int64_t to = utc_seconds(2026, 11, 13, 15, 0, 0);
+  int days_opened = 0;
+  std::vector&lt;Event&gt; got = query(root, from, to, days_opened);
+  std::cout &lt;&lt; &quot;Query &quot; &lt;&lt; time_string(&quot;%Y-%m-%d %H:%M&quot;, (std::time_t)from, true) &lt;&lt; &quot; to &quot;
+            &lt;&lt; time_string(&quot;%Y-%m-%d %H:%M&quot;, (std::time_t)to, true) &lt;&lt; &quot; UTC: &quot; &lt;&lt; got.size()
+            &lt;&lt; &quot; events from &quot; &lt;&lt; days_opened &lt;&lt; &quot; day files (Nov 12 has none)\n&quot;;
+  for(const Event &amp;e : got) std::cout &lt;&lt; &quot;  &quot; &lt;&lt; show(e) &lt;&lt; &quot;\n&quot;;
+
+  <span class="cm">// 3. The same filter over what was written</span>
+  std::vector&lt;Event&gt; expect;
+  for(const Event &amp;e : written) if(e.when &gt;= from &amp;&amp; e.when &lt; to) expect.push_back(e);
+  bool ok = got.size() == expect.size() &amp;&amp; days_opened == 3;
+  for(std::size_t i = 0; ok &amp;&amp; i &lt; got.size(); i++) {
+    ok = memcmp(&amp;got[i], &amp;expect[i], sizeof(Event)) == 0;
+  }
+  std::cout &lt;&lt; (ok ? &quot;The query matches the events written&quot; : &quot;The query is WRONG&quot;) &lt;&lt; &quot;\n&quot;;
+  return ok ? 0 : 1;
+}
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span></pre>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

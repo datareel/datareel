@@ -19,7 +19,7 @@
 </header>
 <main class="dr-main">
 <h1>DataReel Replication Administrator's Guide (gxObjRepl)</h1>
-<p>This guide is for the person who runs object replication on two nodes: setting it up, watching it, taking over when the primary fails, and getting back. It covers gxObjRepl as shipped in DataReel 7.4. The class reference is <code>docs/classes/database/gxobjrepl.htm</code>. The tool is <code>utils/objrepl/objrepl.cpp</code>, and the release notes are <code>RELEASE_NOTES_7.4.txt</code>.</p>
+<p>This guide is for the person who runs object replication on two nodes: setting it up, watching it, taking over when the primary fails, and getting back. It covers gxObjRepl as shipped in DataReel 7.4. The class reference is <a href="classes/database/gxobjrepl.htm">gxobjrepl.htm</a>. The tool is <code>utils/objrepl/objrepl.cpp</code>, and the release notes are <code>RELEASE_NOTES_7.4.txt</code>.</p>
 <p>&gt; <strong>7.4:</strong> gxObjRepl replaces gxrepl page shipping, which 7.4 no longer has. A gxrepl binary installed &gt; from a 7.4 beta keeps working as it is, but it is not part of 7.4. The gxrepl guide of the 7.4 betas 1 to 4 is &gt; kept with the gxrepl source in the DataReel repository's history.</p>
 <p>Every example uses throwaway folders under <code>/tmp/objrepl_demo</code>, two node names (<code>n1</code> and <code>n2</code>) and the loopback address. Never try the commands here for the first time on production nodes: run them on a local throwaway setup first. <strong>Test status:</strong> each block marked <strong>(tested)</strong> was run as printed, in order, on a throwaway setup (section 10 says how).</p>
 <h2 id="1WhatGxobjreplReplicates">1. What gxObjRepl replicates</h2>

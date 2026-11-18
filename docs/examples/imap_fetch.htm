@@ -95,6 +95,218 @@ server-&gt;A0005 OK bye</PRE>
 
 <h2 id="Source">Source</h2>
 <P>examples/tls/imap_fetch.cpp, one source file built by examples/CMakeLists.txt as <B>imap_fetch</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>
+<pre class="dr-code"><span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: imap_fetch.cpp</span>
+<span class="cm">// Compiler Used: MSVC, GCC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 04/17/2007</span>
+<span class="cm">// Date Last Modified: 11/16/2026</span>
+<span class="cm">// Copyright (c) 2001-2026 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------- Program Description and Details ------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">/*
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 3 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library. If not, see
+&lt;https://www.gnu.org/licenses/&gt;.
+
+Read a mailbox with gxsIMAPClient (gxsimap.h). Based on the 2007
+IMAP client program that downloads report messages to a spool
+folder: the messages that match a search are listed newest first,
+and with --spool each message&#x27;s text is written to the folder once
+(a message already there is skipped).
+
+Implicit TLS (port 993) is used unless --starttls (port 143, then
+STARTTLS) or --plain (port 143, plain text: a local server or a
+test only) is given. --plain is also what lets Login() send the
+password unencrypted (gxsIMAPClient::AllowPlainLogin()).
+
+Usage: imap_fetch host port user password [--mailbox INBOX]
+       [--search CRITERIA] [-r number] [--spool folder] [--debug]
+       [--starttls | --plain] [--ca ca.pem] [--insecure]
+
+  --search   IMAP search criteria, such as UNSEEN or
+             &#x27;SUBJECT &quot;report&quot;&#x27; (default ALL)
+  -r number  print that whole message
+  --debug    print the session at the end, the password masked
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+#include &quot;gxdlcode.h&quot;
+
+#include &lt;cctype&gt;
+#include &lt;cstdio&gt;
+#include &lt;cstdlib&gt;
+#include &lt;cstring&gt;
+#include &lt;fstream&gt;
+#include &lt;iostream&gt;
+#include &lt;sys/stat.h&gt;
+#include &quot;gxsimap.h&quot;
+#include &quot;strutil.h&quot;
+#include &quot;common_opts.h&quot;
+
+using namespace datareel;
+
+<span class="cm">// 11/17/2026: the first n characters of line equal name, ignoring case (strncasecmp is POSIX only: the Windows build</span>
+<span class="cm">// failed)</span>
+static bool same_name(const std::string &amp;line, const char *name, std::size_t n)
+{
+  for(std::size_t i = 0; i &lt; n; i++) {
+    if(std::tolower((unsigned char)line[i]) != std::tolower((unsigned char)name[i])) return false;
+  }
+  return true;
+}
+
+static std::string header_field(const std::string &amp;header, const char *name)
+{
+  <span class="cm">// The first &quot;Name: value&quot; line of a header (unfolded lines only)</span>
+  std::size_t n = std::strlen(name);
+  std::size_t pos = 0;
+  while(pos &lt; header.size()) {
+    std::size_t eol = header.find(&#x27;\n&#x27;, pos);
+    if(eol == std::string::npos) eol = header.size();
+    std::string line = header.substr(pos, eol - pos);
+    if(!line.empty() &amp;&amp; line.back() == &#x27;\r&#x27;) line.pop_back();
+    if(line.size() &gt; n &amp;&amp; line[n] == &#x27;:&#x27; &amp;&amp; same_name(line, name, n)) {
+      std::size_t v = n + 1;
+      while(v &lt; line.size() &amp;&amp; line[v] == &#x27; &#x27;) v++;
+      return line.substr(v);
+    }
+    pos = eol + 1;
+  }
+  return std::string();
+}
+
+static bool file_has_data(const std::string &amp;fname)
+{
+  struct stat st;
+  return stat(fname.c_str(), &amp;st) == 0 &amp;&amp; st.st_size &gt; 0;
+}
+
+<span class="cm">// 11/16/2026 (beta5, G4-1): the spool file name, &quot;&lt;arrival date&gt;_&lt;number&gt;.txt&quot;. The date is the server&#x27;s text, so</span>
+<span class="cm">// only letters, digits, &quot;-&quot;, &quot;_&quot; and &quot;+&quot; are kept (anything else, &quot;/&quot;, &quot;\&quot;, &quot;.&quot;, &quot;:&quot;, spaces and control</span>
+<span class="cm">// characters, becomes &quot;_&quot;) and it is cut to 60 characters: the name can never leave the spool folder or be a</span>
+<span class="cm">// device or hidden name on any platform.</span>
+static std::string spool_name(const std::string &amp;datetime, int n)
+{
+  std::string s;
+  for(std::size_t i = 0; i &lt; datetime.size() &amp;&amp; s.size() &lt; 60; i++) {
+    unsigned char c = (unsigned char)datetime[i];
+    bool ok = (c &gt;= &#x27;A&#x27; &amp;&amp; c &lt;= &#x27;Z&#x27;) || (c &gt;= &#x27;a&#x27; &amp;&amp; c &lt;= &#x27;z&#x27;) || (c &gt;= &#x27;0&#x27; &amp;&amp; c &lt;= &#x27;9&#x27;) ||
+      c == &#x27;-&#x27; || c == &#x27;_&#x27; || c == &#x27;+&#x27;;
+    s += ok ? (char)c : &#x27;_&#x27;;
+  }
+  return s + &quot;_&quot; + std::to_string(n) + &quot;.txt&quot;;
+}
+
+static int return_error(gxsIMAPClient &amp;client, bool debug)
+{
+  std::cerr &lt;&lt; client.Error() &lt;&lt; &quot;\n&quot;;
+  if(debug) std::cerr &lt;&lt; &quot;\n--- Session ---\n&quot; &lt;&lt; client.ProtoString();
+  client.Close();
+  return 1;
+}
+
+int main(int argc, char **argv)
+{
+  TLSOptions opt;
+  opt.Parse(argc, argv);
+  std::vector&lt;std::string&gt; a;
+  std::string mailbox = &quot;INBOX&quot;, criteria = &quot;ALL&quot;, spool_dir;
+  int retr = 0;
+  bool plain = false, debug = false;
+  for(std::size_t i = 0; i &lt; opt.args.size(); i++) {
+    const std::string &amp;s = opt.args[i];
+    bool more = i + 1 &lt; opt.args.size();
+    if(s == &quot;--mailbox&quot; &amp;&amp; more) mailbox = opt.args[++i];
+    else if(s == &quot;--search&quot; &amp;&amp; more) criteria = opt.args[++i];
+    else if(s == &quot;--spool&quot; &amp;&amp; more) spool_dir = opt.args[++i];
+    else if(s == &quot;-r&quot; &amp;&amp; more) retr = std::atoi(opt.args[++i].c_str());
+    else if(s == &quot;--plain&quot;) plain = true;
+    else if(s == &quot;--debug&quot;) debug = true;
+    else a.push_back(s);
+  }
+  if(a.size() &lt; 4 || (plain &amp;&amp; opt.starttls)) {
+    std::cerr &lt;&lt; &quot;Usage: &quot; &lt;&lt; argv[0] &lt;&lt; &quot; host port user password &quot;
+              &lt;&lt; &quot;[--mailbox INBOX] [--search CRITERIA] [-r number] &quot;
+              &lt;&lt; &quot;[--spool folder] [--debug] [--starttls | --plain] &quot;
+              &lt;&lt; &quot;[--ca ca.pem] [--insecure]\n&quot;;
+    return 1;
+  }
+
+  gxsIMAPClient client;
+  opt.Apply(client);
+  client.SetRecordProto(debug);
+  if(plain) client.AllowPlainLogin(); <span class="cm">// --plain: the password goes unencrypted, by request</span>
+  int port = std::atoi(a[1].c_str());
+  int rv = plain ? client.ConnectPlain(a[0], port) :
+    client.Connect(a[0], port, opt.starttls ? gxsMAIL_STARTTLS : gxsMAIL_IMPLICIT_TLS);
+  if(rv != 0 || client.Login(a[2], a[3]) != 0) return return_error(client, debug);
+  std::cout &lt;&lt; &quot;Connected to &quot; &lt;&lt; a[0] &lt;&lt; &quot; port &quot; &lt;&lt; port
+            &lt;&lt; (client.IsSecure() ? &quot; (TLS)&quot; : &quot; (plain text)&quot;) &lt;&lt; &quot;\n&quot;;
+
+  int num_messages = 0;
+  if(client.SelectMailbox(mailbox, num_messages) != 0) return return_error(client, debug);
+  std::cout &lt;&lt; mailbox &lt;&lt; &quot; has &quot; &lt;&lt; num_messages &lt;&lt; &quot; messages\n&quot;;
+
+  std::vector&lt;unsigned&gt; found;
+  if(client.Search(criteria, found) != 0) return return_error(client, debug);
+  std::cout &lt;&lt; found.size() &lt;&lt; &quot; match &quot; &lt;&lt; criteria &lt;&lt; &quot;\n&quot;;
+
+  <span class="cm">// Newest first, as the 2007 program read them</span>
+  for(auto it = found.rbegin(); it != found.rend(); ++it) {
+    int n = (int)*it;
+    std::string header, datetime, sent_datetime, body;
+    if(client.FetchHeader(n, header, datetime, sent_datetime) != 0) {
+      return return_error(client, debug);
+    }
+    std::cout &lt;&lt; n &lt;&lt; &quot;: &quot; &lt;&lt; header_field(header, &quot;Subject&quot;) &lt;&lt; &quot;\n&quot;
+              &lt;&lt; &quot;   received &quot; &lt;&lt; datetime &lt;&lt; &quot;, sent &quot; &lt;&lt; sent_datetime &lt;&lt; &quot;\n&quot;;
+    if(spool_dir.empty()) continue;
+
+    <span class="cm">// The spool file is named by the arrival time and number</span>
+    std::string fname = spool_dir + &quot;/&quot; + spool_name(datetime, n);
+    if(file_has_data(fname)) {
+      std::cout &lt;&lt; &quot;   already in the spool, skipped\n&quot;;
+      continue;
+    }
+    if(client.FetchBody(n, body) != 0) return return_error(client, debug);
+    std::ofstream out(fname, std::ios::binary);
+    if(!out.write(body.data(), (std::streamsize)body.size()) || !out.flush()) {
+      std::cerr &lt;&lt; &quot;Error writing &quot; &lt;&lt; fname &lt;&lt; &quot;\n&quot;;
+      out.close();
+      std::remove(fname.c_str());
+      continue;
+    }
+    std::cout &lt;&lt; &quot;   saved &quot; &lt;&lt; body.size() &lt;&lt; &quot; bytes to &quot; &lt;&lt; fname &lt;&lt; &quot;\n&quot;;
+  }
+
+  if(retr &gt; 0) {
+    std::string message;
+    if(client.FetchMessage(retr, message) != 0) return return_error(client, debug);
+    std::cout &lt;&lt; &quot;\n--- Message &quot; &lt;&lt; retr &lt;&lt; &quot; ---\n&quot; &lt;&lt; message;
+  }
+
+  if(client.Logout() != 0) return return_error(client, debug);
+  if(debug) std::cout &lt;&lt; &quot;\n--- Session ---\n&quot; &lt;&lt; client.ProtoString();
+  return 0;
+}
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span></pre>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

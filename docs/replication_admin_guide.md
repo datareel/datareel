@@ -2,7 +2,7 @@
 
 This guide is for the person who runs object replication on two nodes: setting it up, watching it, taking over
 when the primary fails, and getting back. It covers gxObjRepl as shipped in DataReel 7.4. The class
-reference is `docs/classes/database/gxobjrepl.htm`. The tool is `utils/objrepl/objrepl.cpp`, and the release
+reference is [gxobjrepl.htm](docs/classes/database/gxobjrepl.htm). The tool is `utils/objrepl/objrepl.cpp`, and the release
 notes are `RELEASE_NOTES_7.4.txt`.
 
 > **7.4:** gxObjRepl replaces gxrepl page shipping, which 7.4 no longer has. A gxrepl binary installed

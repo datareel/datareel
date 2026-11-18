@@ -56,6 +56,223 @@ All checks pass</PRE>
 
 <h2 id="Source">Source</h2>
 <P>examples/general/string_utils.cpp, one source file built by examples/CMakeLists.txt as <B>string_utils</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>
+<pre class="dr-code"><span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: string_utils.cpp</span>
+<span class="cm">// Compiler Used: MSVC, GCC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 11/12/2026</span>
+<span class="cm">// Date Last Modified: 11/12/2026</span>
+<span class="cm">// Copyright (c) 2001-2026 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------- Program Description and Details ------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">/*
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 3 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library. If not, see
+&lt;https://www.gnu.org/licenses/&gt;.
+
+String, base 64 and CRC-32 utilities.
+
+The three small toolkits most programs need around a database:
+
+ strutil.h   Header-only helpers on std::string and std::string_view:
+             trim, case changes, case-blind compare and find,
+             starts_with/ends_with, replace_all, split, printf-style
+             format(), number conversion that never throws, safe
+             copies into fixed char fields, and natural (&quot;file2&quot;
+             before &quot;file10&quot;) ordering.
+ gxs_b64.h   Base 64 (RFC 4648) for binary data in text: a record in
+             a text export, a mail attachment, an HTTP basic
+             authentication header.
+ gxcrc32.h   CRC-32 checksums of a buffer or a whole file, to detect
+             damage when data is stored or sent. (gxDatabase uses the
+             same CRC for its optional per-record checksums.)
+
+Each section prints what it does and checks the result against a known
+answer, so the program also works as a quick self test.
+
+Usage: string_utils [file]
+
+  With a file name it also prints the file&#x27;s CRC-32, computed two ways
+  (the whole stream, and block by block) to show they agree.
+
+Exits with 0 when every check passes.
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+#include &quot;gxdlcode.h&quot;
+
+#include &lt;algorithm&gt;
+#include &lt;cstring&gt;
+#include &lt;fstream&gt;
+#include &lt;iostream&gt;
+#include &lt;string&gt;
+#include &lt;vector&gt;
+#include &quot;gxcrc32.h&quot;
+#include &quot;gxs_b64.h&quot;
+#include &quot;strutil.h&quot;
+
+using namespace datareel;
+
+static int failures = 0;
+
+<span class="cm">// Print a line and count it as a failure if the check did not hold</span>
+static void show(const std::string &amp;what, const std::string &amp;value, bool ok)
+{
+  if(!ok) failures++;
+  std::cout &lt;&lt; format(&quot;  %-34s %s%s\n&quot;, what.c_str(), value.c_str(), ok ? &quot;&quot; : &quot;   &lt;-- WRONG&quot;);
+}
+
+static void strings()
+{
+  std::cout &lt;&lt; &quot;strutil.h\n&quot;;
+  std::string raw = &quot;   AMTX, buy , 100 ,3.25,  opening flush  &quot;;
+  show(&quot;trim(\&quot;&quot; + raw.substr(0, 12) + &quot;...\&quot;)&quot;, &quot;\&quot;&quot; + trim(raw).substr(0, 15) + &quot;...\&quot;&quot;,
+       trim(raw).front() == &#x27;A&#x27; &amp;&amp; trim(raw).back() == &#x27;h&#x27;);
+
+  <span class="cm">// Split a CSV line, then trim each field</span>
+  std::vector&lt;std::string&gt; fields = split(raw, &#x27;,&#x27;);
+  for(auto &amp;f : fields) trim_in_place(f);
+  show(&quot;split + trim&quot;, str_cat(fields.size(), &quot; fields: &quot;, fields[0], &quot;|&quot;, fields[1], &quot;|&quot;,
+                               fields[2], &quot;|&quot;, fields[3], &quot;|&quot;, fields[4]),
+       fields.size() == 5 &amp;&amp; fields[1] == &quot;buy&quot; &amp;&amp; fields[4] == &quot;opening flush&quot;);
+
+  <span class="cm">// Numbers: to_int() and friends return 0 for text that is not a</span>
+  <span class="cm">// number, instead of throwing</span>
+  show(&quot;to_int(\&quot;100\&quot;) + to_double(\&quot;3.25\&quot;)&quot;, format(&quot;%d, %.2f&quot;, to_int(fields[2]), to_double(fields[3])),
+       to_int(fields[2]) == 100 &amp;&amp; to_double(fields[3]) == 3.25);
+  show(&quot;to_int(\&quot;n/a\&quot;)&quot;, format(&quot;%d&quot;, to_int(&quot;n/a&quot;)), to_int(&quot;n/a&quot;) == 0);
+
+  <span class="cm">// Case</span>
+  show(&quot;to_upper(\&quot;buy\&quot;)&quot;, to_upper(fields[1]), to_upper(fields[1]) == &quot;BUY&quot;);
+  show(&quot;iequals(\&quot;Buy\&quot;, \&quot;BUY\&quot;)&quot;, iequals(&quot;Buy&quot;, &quot;BUY&quot;) ? &quot;true&quot; : &quot;false&quot;, iequals(&quot;Buy&quot;, &quot;BUY&quot;));
+  show(&quot;ifind(\&quot;Opening FLUSH\&quot;, \&quot;flush\&quot;)&quot;, format(&quot;%zu&quot;, ifind(&quot;Opening FLUSH&quot;, &quot;flush&quot;)),
+       ifind(&quot;Opening FLUSH&quot;, &quot;flush&quot;) == 8);
+
+  <span class="cm">// Prefixes, suffixes, replace</span>
+  show(&quot;starts_with / ends_with&quot;,
+       str_cat(starts_with(&quot;osa_2026-11-09.log&quot;, &quot;osa_&quot;) ? &quot;true&quot; : &quot;false&quot;, &quot; &quot;,
+               ends_with(&quot;osa_2026-11-09.log&quot;, &quot;.log&quot;) ? &quot;true&quot; : &quot;false&quot;),
+       starts_with(&quot;osa_2026-11-09.log&quot;, &quot;osa_&quot;) &amp;&amp; ends_with(&quot;osa_2026-11-09.log&quot;, &quot;.log&quot;));
+  std::string path = &quot;/data/2026/11/09/events.gxd&quot;;
+  std::size_t n = replace_all(path, &quot;/&quot;, &quot;\\&quot;);
+  show(&quot;replace_all(\&quot;/\&quot; -&gt; \&quot;\\\&quot;)&quot;, str_cat(n, &quot; changes: &quot;, path), n == 5);
+
+  <span class="cm">// Cut a string around a marker</span>
+  std::string url = &quot;https://example.com/api/v1/quotes?symbol=AMTX&quot;;
+  std::string query = url;
+  delete_before_including(query, &quot;?&quot;);
+  show(&quot;delete_before_including(\&quot;?\&quot;)&quot;, query, query == &quot;symbol=AMTX&quot;);
+
+  <span class="cm">// format() is printf with a std::string result</span>
+  show(&quot;format(\&quot;%-6s|%8.3f|\&quot;)&quot;, format(&quot;%-6s|%8.3f|&quot;, &quot;AMTX&quot;, 3.25),
+       format(&quot;%-6s|%8.3f|&quot;, &quot;AMTX&quot;, 3.25) == &quot;AMTX  |   3.250|&quot;);
+
+  <span class="cm">// copy_to() fills a fixed char field (as in a database record) and</span>
+  <span class="cm">// always leaves it null terminated</span>
+  char ticker[5];
+  std::size_t copied = copy_to(ticker, sizeof(ticker), &quot;TOOLONG&quot;);
+  show(&quot;copy_to(char[5], \&quot;TOOLONG\&quot;)&quot;, str_cat(&quot;\&quot;&quot;, ticker, &quot;\&quot; (&quot;, copied, &quot; chars)&quot;),
+       strcmp(ticker, &quot;TOOL&quot;) == 0 &amp;&amp; copied == 4);
+
+  <span class="cm">// Natural order: numbers inside names sort by value</span>
+  std::vector&lt;std::string&gt; files = {&quot;run10.log&quot;, &quot;run2.log&quot;, &quot;run1.log&quot;};
+  std::sort(files.begin(), files.end(), [](const std::string &amp;a, const std::string &amp;b) {
+    return natural_compare(a, b) &lt; 0;
+  });
+  show(&quot;natural_compare sort&quot;, files[0] + &quot; &quot; + files[1] + &quot; &quot; + files[2],
+       files[0] == &quot;run1.log&quot; &amp;&amp; files[1] == &quot;run2.log&quot; &amp;&amp; files[2] == &quot;run10.log&quot;);
+}
+
+static void base64()
+{
+  std::cout &lt;&lt; &quot;gxs_b64.h\n&quot;;
+  <span class="cm">// The RFC 4648 test vector</span>
+  show(&quot;encode(\&quot;foobar\&quot;)&quot;, gxsBase64Encode(&quot;foobar&quot;), gxsBase64Encode(&quot;foobar&quot;) == &quot;Zm9vYmFy&quot;);
+  show(&quot;encode(\&quot;fo\&quot;) (padding)&quot;, gxsBase64Encode(&quot;fo&quot;), gxsBase64Encode(&quot;fo&quot;) == &quot;Zm8=&quot;);
+
+  <span class="cm">// Binary data, including zero bytes, survives the round trip</span>
+  std::string bin;
+  for(int i = 0; i &lt; 256; i++) bin += (char)i;
+  std::string text = gxsBase64Encode(bin.data(), bin.size()), back;
+  bool ok = gxsBase64Decode(text, back) &amp;&amp; back == bin;
+  show(&quot;256 binary bytes round trip&quot;, str_cat(text.size(), &quot; chars of base 64&quot;), ok);
+
+  <span class="cm">// White space is ignored, so wrapped lines decode</span>
+  std::string wrapped = text.substr(0, 76) + &quot;\r\n&quot; + text.substr(76);
+  ok = gxsBase64Decode(wrapped, back) &amp;&amp; back == bin;
+  show(&quot;decode with a line break&quot;, ok ? &quot;same bytes&quot; : &quot;different&quot;, ok);
+
+  <span class="cm">// Characters outside the alphabet are refused</span>
+  show(&quot;decode(\&quot;not*base64\&quot;)&quot;, gxsBase64Decode(&quot;not*base64&quot;, back) ? &quot;accepted&quot; : &quot;refused&quot;,
+       !gxsBase64Decode(&quot;not*base64&quot;, back));
+
+  <span class="cm">// HTTP basic authentication</span>
+  std::string header = gxsBasicAuthenticationEncode(&quot;trader&quot;, &quot;s3cret&quot;);
+  std::string user, pass;
+  ok = gxsBasicAuthenticationDecode(header, user, pass) &amp;&amp; user == &quot;trader&quot; &amp;&amp; pass == &quot;s3cret&quot;;
+  show(&quot;basic auth header&quot;, header, ok &amp;&amp; header == &quot;Basic dHJhZGVyOnMzY3JldA==&quot;);
+}
+
+static void crc32(const char *fname)
+{
+  std::cout &lt;&lt; &quot;gxcrc32.h\n&quot;;
+  <span class="cm">// The standard check value: CRC-32 of &quot;123456789&quot; is CBF43926</span>
+  const char *check = &quot;123456789&quot;;
+  unsigned long crc = calcCRC32(check, (unsigned)strlen(check));
+  show(&quot;CRC-32(\&quot;123456789\&quot;)&quot;, format(&quot;%08lX&quot;, crc), crc == 0xCBF43926UL);
+
+  <span class="cm">// One changed byte gives a different checksum</span>
+  char rec[] = &quot;AMTX buy 100 at 3.25&quot;;
+  unsigned long before = calcCRC32(rec, (unsigned)strlen(rec));
+  rec[13] = &#x27;9&#x27;; <span class="cm">// &quot;100&quot; -&gt; &quot;900&quot;</span>
+  unsigned long after = calcCRC32(rec, (unsigned)strlen(rec));
+  show(&quot;one byte changed&quot;, format(&quot;%08lX -&gt; %08lX&quot;, before, after), before != after);
+
+  <span class="cm">// A file: the whole stream at once, then block by block with the</span>
+  <span class="cm">// one-byte form, which carries the running CRC from call to call</span>
+  if(fname) {
+    std::ifstream in(fname, std::ios::binary);
+    if(!in) {
+      show(str_cat(&quot;file &quot;, fname), &quot;cannot open&quot;, false);
+      return;
+    }
+    unsigned long whole = calcCRC32(in);
+    std::ifstream in2(fname, std::ios::binary);
+    unsigned long running = 0xFFFFFFFFUL;
+    char buf[4096];
+    while(in2.read(buf, sizeof(buf)) || in2.gcount() &gt; 0) {
+      for(std::streamsize i = 0; i &lt; in2.gcount(); i++) running = calcCRC32((unsigned char)buf[i], running);
+    }
+    running ^= 0xFFFFFFFFUL;
+    show(str_cat(&quot;file &quot;, fname), format(&quot;%08lX (stream) %08lX (blocks)&quot;, whole, running), whole == running);
+  }
+}
+
+int main(int argc, char **argv)
+{
+  strings();
+  base64();
+  crc32(argc &gt; 1 ? argv[1] : nullptr);
+  std::cout &lt;&lt; (failures == 0 ? &quot;All checks pass&quot; : str_cat(failures, &quot; checks failed&quot;)) &lt;&lt; &quot;\n&quot;;
+  return failures == 0 ? 0 : 1;
+}
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span></pre>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

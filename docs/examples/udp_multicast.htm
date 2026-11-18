@@ -59,6 +59,199 @@ from 127.0.0.1:52739: multicast 3
 
 <h2 id="Source">Source</h2>
 <P>examples/diagnostics/udp_multicast.cpp, one source file built by examples/CMakeLists.txt as <B>udp_multicast</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>
+<pre class="dr-code"><span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: udp_multicast.cpp</span>
+<span class="cm">// Compiler Used: MSVC, GCC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 11/16/2026</span>
+<span class="cm">// Date Last Modified: 11/16/2026</span>
+<span class="cm">// Copyright (c) 2001-2026 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------- Program Description and Details ------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">/*
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 3 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library. If not, see
+&lt;https://www.gnu.org/licenses/&gt;.
+
+Send and receive IP multicast datagrams with gxSocket (OpenDatagram,
+SendTo, RecvFrom and the multicast socket options). Based on the
+2001 multicast sender and receiver programs. A sender does not have
+to join a group; a receiver joins it to get its datagrams.
+
+PLAIN TEXT: datagrams are not encrypted or authenticated and anyone
+on the network can read or forge them. Use multicast only on a
+trusted local network, for data that is not secret.
+
+Usage: udp_multicast send group port [--count N] [--interval ms]
+                     [--ttl N] [--interface address|index] [text]
+       udp_multicast recv group port [--count N] [--timeout seconds]
+                     [--interface address|index]
+
+  group      an IPv4 group (239.0.0.0/8 is for local use, such as
+             239.255.0.1) or an IPv6 group (ff02::/16 link-local)
+  --ttl      hops the datagrams may cross (1 by default: this subnet)
+  --interface  IPv4: the address of the interface to use (127.0.0.1
+             keeps everything on this host); IPv6: the interface index
+  send sends N datagrams (&quot;text 1&quot;, ...), with loopback on so a
+  receiver on the same host gets them; recv prints each datagram
+  until N arrived (exit 0) or none came for the timeout (exit 1)
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+#include &quot;gxdlcode.h&quot;
+
+#include &lt;chrono&gt;
+#include &lt;cstdlib&gt;
+#include &lt;cstring&gt;
+#include &lt;iostream&gt;
+#include &lt;string&gt;
+#include &lt;thread&gt;
+#include &lt;vector&gt;
+#include &quot;gxsocket.h&quot;
+
+using namespace datareel;
+
+static int usage(const char *prog)
+{
+  std::cerr &lt;&lt; &quot;Usage: &quot; &lt;&lt; prog &lt;&lt; &quot; send group port [--count N] [--interval ms] [--ttl N] &quot;
+            &lt;&lt; &quot;[--interface address|index] [text]\n&quot;
+            &lt;&lt; &quot;       &quot; &lt;&lt; prog &lt;&lt; &quot; recv group port [--count N] [--timeout seconds] &quot;
+            &lt;&lt; &quot;[--interface address|index]\n&quot;;
+  return 1;
+}
+
+int main(int argc, char **argv)
+{
+  if(argc &lt; 4) return usage(argv[0]);
+  std::string mode = argv[1];
+  int count = 5, interval_ms = 200, timeout = 10, ttl = 1;
+  std::string text = &quot;multicast&quot;, iface;
+  std::vector&lt;std::string&gt; pos;
+  for(int i = 2; i &lt; argc; i++) {
+    std::string a = argv[i];
+    if(a == &quot;--count&quot; &amp;&amp; i + 1 &lt; argc) count = std::atoi(argv[++i]);
+    else if(a == &quot;--interval&quot; &amp;&amp; i + 1 &lt; argc) interval_ms = std::atoi(argv[++i]);
+    else if(a == &quot;--timeout&quot; &amp;&amp; i + 1 &lt; argc) timeout = std::atoi(argv[++i]);
+    else if(a == &quot;--ttl&quot; &amp;&amp; i + 1 &lt; argc) ttl = std::atoi(argv[++i]);
+    else if(a == &quot;--interface&quot; &amp;&amp; i + 1 &lt; argc) iface = argv[++i];
+    else pos.push_back(a);
+  }
+  if(pos.size() &lt; 2) return usage(argv[0]);
+  if(count &lt; 1) count = 1;
+  int port = std::atoi(pos[1].c_str());
+
+  std::vector&lt;gxsAddress&gt; group;
+  if(gxsAddress::Resolve(pos[0], port, group, SOCK_DGRAM, AF_UNSPEC) != 0) {
+    std::cerr &lt;&lt; &quot;Cannot resolve &quot; &lt;&lt; pos[0] &lt;&lt; &quot;\n&quot;;
+    return 1;
+  }
+  const gxsAddress &amp;g = group[0];
+  bool v6 = g.Family() == AF_INET6;
+  in_addr if4;
+  if4.s_addr = htonl(INADDR_ANY);
+  unsigned if6 = 0;
+  if(!iface.empty()) {
+    if(v6) if6 = (unsigned)std::atoi(iface.c_str());
+    else if(inet_pton(AF_INET, iface.c_str(), &amp;if4) != 1) {
+      std::cerr &lt;&lt; &quot;Not an IPv4 address: &quot; &lt;&lt; iface &lt;&lt; &quot;\n&quot;;
+      return 1;
+    }
+  }
+
+  gxSocket s;
+  if(mode == &quot;send&quot;) {
+    if(pos.size() &gt; 2) text = pos[2];
+    if(s.OpenDatagram(g.Family()) != 0) {
+      std::cerr &lt;&lt; s.SocketExceptionMessage() &lt;&lt; &quot;\n&quot;;
+      return 1;
+    }
+    int rv;
+    int loop = 1; <span class="cm">// int, not unsigned char: Windows takes a DWORD for these</span>
+
+    if(v6) {
+      rv = s.SetSockOpt(IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &amp;ttl, sizeof(ttl));
+      if(rv == 0) rv = s.SetSockOpt(IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &amp;loop, sizeof(loop));
+      if(rv == 0 &amp;&amp; if6) rv = s.SetSockOpt(IPPROTO_IPV6, IPV6_MULTICAST_IF, &amp;if6, sizeof(if6));
+    }
+    else {
+      rv = s.SetSockOpt(IPPROTO_IP, IP_MULTICAST_TTL, &amp;ttl, sizeof(ttl));
+      if(rv == 0) rv = s.SetSockOpt(IPPROTO_IP, IP_MULTICAST_LOOP, &amp;loop, sizeof(loop));
+      if(rv == 0 &amp;&amp; !iface.empty()) rv = s.SetSockOpt(IPPROTO_IP, IP_MULTICAST_IF, &amp;if4, sizeof(if4));
+    }
+    if(rv != 0) {
+      std::cerr &lt;&lt; &quot;Multicast options: &quot; &lt;&lt; s.SocketExceptionMessage() &lt;&lt; &quot;\n&quot;;
+      return 1;
+    }
+    for(int n = 1; n &lt;= count; n++) {
+      std::string msg = text + &quot; &quot; + std::to_string(n);
+      if(s.SendTo(g, msg.data(), (int)msg.size()) &lt; 0) {
+        std::cerr &lt;&lt; &quot;Send to &quot; &lt;&lt; g.ToString() &lt;&lt; &quot;: &quot; &lt;&lt; s.SocketExceptionMessage() &lt;&lt; &quot;\n&quot;;
+        return 1;
+      }
+      std::cout &lt;&lt; &quot;sent \&quot;&quot; &lt;&lt; msg &lt;&lt; &quot;\&quot; to &quot; &lt;&lt; g.ToString() &lt;&lt; &quot;\n&quot;;
+      if(n &lt; count) std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+    }
+    return 0;
+  }
+  if(mode == &quot;recv&quot;) {
+    <span class="cm">// Bind the port on every address, then join the group</span>
+    if(s.OpenDatagram(g.Family(), port) != 0) {
+      std::cerr &lt;&lt; &quot;Bind port &quot; &lt;&lt; port &lt;&lt; &quot;: &quot; &lt;&lt; s.SocketExceptionMessage() &lt;&lt; &quot;\n&quot;;
+      return 1;
+    }
+    int rv;
+    if(v6) {
+      ipv6_mreq m;
+      std::memset(&amp;m, 0, sizeof(m));
+      m.ipv6mr_multiaddr = ((const sockaddr_in6 *)g.SockAddr())-&gt;sin6_addr;
+      m.ipv6mr_interface = if6;
+      rv = s.SetSockOpt(IPPROTO_IPV6, IPV6_JOIN_GROUP, &amp;m, sizeof(m));
+    }
+    else {
+      ip_mreq m;
+      std::memset(&amp;m, 0, sizeof(m));
+      m.imr_multiaddr = ((const sockaddr_in *)g.SockAddr())-&gt;sin_addr;
+      m.imr_interface = if4;
+      rv = s.SetSockOpt(IPPROTO_IP, IP_ADD_MEMBERSHIP, &amp;m, sizeof(m));
+    }
+    if(rv != 0) {
+      std::cerr &lt;&lt; &quot;Join &quot; &lt;&lt; pos[0] &lt;&lt; &quot;: &quot; &lt;&lt; s.SocketExceptionMessage() &lt;&lt; &quot;\n&quot;;
+      return 1;
+    }
+    std::cout &lt;&lt; &quot;joined &quot; &lt;&lt; pos[0] &lt;&lt; &quot;, receiving on port &quot; &lt;&lt; port &lt;&lt; &quot;\n&quot; &lt;&lt; std::flush;
+    char buf[65536];
+    for(int n = 0; n &lt; count; n++) {
+      gxsAddress from;
+      int bytes = s.RecvFrom(from, buf, (int)sizeof(buf), timeout);
+      if(bytes &lt; 0) {
+        std::cerr &lt;&lt; &quot;no datagram for &quot; &lt;&lt; timeout &lt;&lt; &quot; seconds (&quot; &lt;&lt; n &lt;&lt; &quot; of &quot;
+                  &lt;&lt; count &lt;&lt; &quot; received)\n&quot;;
+        return 1;
+      }
+      std::cout &lt;&lt; &quot;from &quot; &lt;&lt; from.ToString() &lt;&lt; &quot;: &quot; &lt;&lt; std::string(buf, bytes) &lt;&lt; &quot;\n&quot; &lt;&lt; std::flush;
+    }
+    std::cout &lt;&lt; count &lt;&lt; &quot; datagrams received\n&quot;;
+    return 0;   <span class="cm">// Closing the socket leaves the group</span>
+  }
+  return usage(argv[0]);
+}
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span></pre>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

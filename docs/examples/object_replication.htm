@@ -68,6 +68,197 @@ OK: 10 notes replicated, then a switch, the same objects on both nodes</PRE><P>T
 
 <h2 id="Source">Source</h2>
 <P>examples/oodb/object_replication.cpp, one source file built by examples/CMakeLists.txt as <B>object_replication</B> and run by tests/run_tests.sh. The comment at the top of the file describes each step. Back to the <A HREF="examples.htm">example programs</A>.</P>
+<pre class="dr-code"><span class="cm">// ------------------------------- //</span>
+<span class="cm">// -------- Start of File -------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// C++ Source Code File Name: object_replication.cpp</span>
+<span class="cm">// Compiler Used: MSVC, GCC</span>
+<span class="cm">// Produced By: DataReel Software Development Team</span>
+<span class="cm">// File Creation Date: 11/17/2026</span>
+<span class="cm">// Date Last Modified: 11/17/2026</span>
+<span class="cm">// Copyright (c) 2001-2026 DataReel Software Development</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------- Program Description and Details ------------- //</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">/*
+This library is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 3 of the License, or (at your option) any later version.
+
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library. If not, see
+&lt;https://www.gnu.org/licenses/&gt;.
+
+Object replication with gxObjRepl (gxobjrepl.h, DataReel 7.4): a
+primary and a copy, a few commits, then a planned switch.
+
+Two nodes, folders WORK/a and WORK/b, run in this one process (the copy
+serves in a thread), on Linux and Windows alike:
+
+  1. a is the primary and b the copy. a commits three transactions of
+     notes and drains them to b, which reads them back.
+  2. Both stop. The two folders hold the same objects (Digest()).
+  3. A planned switch: Takeover() makes b the primary at epoch 2, and
+     Rejoin() makes a its copy (a&#x27;s copy had every commit, so no full
+     send is needed).
+  4. b commits two more transactions and drains them to a. The digests
+     agree again.
+
+Usage: object_replication PKI WORK [PORT]
+
+  PKI   the certificates of utils/objrepl/objrepl_certs.sh PKI
+        --copy-host 127.0.0.1 --apply (ca.pem, copy.pem/key, the
+        server side; primary.pem/key, the client side)
+  WORK  an empty folder for the two nodes
+  PORT  the first of two ports on 127.0.0.1 (default 24750)
+
+Exit code 0 when every step worked and the digests agree.
+*/</span>
+<span class="cm">// ----------------------------------------------------------- //</span>
+#include &quot;gxdlcode.h&quot;
+
+#include &lt;cstdio&gt;
+#include &lt;cstdlib&gt;
+#include &lt;string&gt;
+#include &lt;thread&gt;
+#include &lt;vector&gt;
+#include &quot;gxobjrepl.h&quot;
+
+using namespace datareel;
+
+static int fail(const char *what, const std::string &amp;why)
+{
+  printf(&quot;FAILED: %s: %s\n&quot;, what, why.c_str());
+  return 1;
+}
+
+<span class="cm">// A node&#x27;s config: the copy listens with the server certificate, the</span>
+<span class="cm">// primary dials with the client certificate</span>
+static gxObjReplConfig node_config(const std::string &amp;pki, const std::string &amp;name,
+                                   const std::string &amp;peer, bool copy, int port)
+{
+  gxObjReplConfig cfg;
+  cfg.name = name;
+  cfg.peer_name = peer;
+  cfg.ca = pki + &quot;/ca.pem&quot;;
+  if(copy) {
+    cfg.cert = pki + &quot;/copy.pem&quot;;
+    cfg.key = pki + &quot;/copy.key&quot;;
+    cfg.listen_port = port;                    <span class="cm">// on 127.0.0.1</span>
+    cfg.allow_cn = &quot;objrepl-primary&quot;;          <span class="cm">// the primary&#x27;s certificate CN</span>
+  }
+  else {
+    cfg.cert = pki + &quot;/primary.pem&quot;;
+    cfg.key = pki + &quot;/primary.key&quot;;
+    cfg.copy = &quot;127.0.0.1:&quot; + std::to_string(port);
+  }
+  cfg.log = [](const std::string &amp;) { };       <span class="cm">// quiet: the example prints its own lines</span>
+  return cfg;
+}
+
+<span class="cm">// Commits n transactions of two notes each on a primary</span>
+static int write_notes(gxObjRepl &amp;p, int first, int n, std::vector&lt;uint64_t&gt; &amp;ids)
+{
+  for(int t = first; t &lt; first + n; t++) {
+    if(p.Begin() != 0) return -1;
+    for(int k = 0; k &lt; 2; k++) {
+      std::string note = &quot;note &quot; + std::to_string(t) + &quot;.&quot; + std::to_string(k);
+      uint64_t id = p.NewId();
+      if(p.Put(&quot;notes&quot;, id, note.data(), (uint32_t)note.size()) != 0) { p.Rollback(); return -1; }
+      ids.push_back(id);
+    }
+    if(p.Commit() != 0) return -1;
+  }
+  return 0;
+}
+
+static std::string digest(const std::string &amp;root)
+{
+  std::string line;
+  if(gxObjRepl::Digest(root, &quot;&quot;, line) != 0) return &quot;(no digest: &quot; + line + &quot;)&quot;;
+  return line;
+}
+
+<span class="cm">// One phase: the copy serves in a thread while the primary writes and</span>
+<span class="cm">// drains, then both close</span>
+static int phase(gxObjRepl &amp;prim, gxObjRepl &amp;copy, int first, int n,
+                 std::vector&lt;uint64_t&gt; &amp;ids)
+{
+  std::thread server([&amp;copy]() { copy.Serve(); });
+  int rc = 0;
+  if(prim.OpenDatabase(&quot;notes&quot;) != 0) rc = fail(&quot;OpenDatabase&quot;, prim.Error());
+  else if(write_notes(prim, first, n, ids) != 0) rc = fail(&quot;commit&quot;, prim.Error());
+  else if(prim.Drain(30) != 0) rc = fail(&quot;drain&quot;, prim.Error());
+  else {
+    printf(&quot;  primary: last commit %llu, the copy has %llu\n&quot;,
+           (unsigned long long)prim.LastSeq(), (unsigned long long)prim.CopyApplied());
+    std::vector&lt;unsigned char&gt; b;
+    if(copy.Get(&quot;notes&quot;, ids.back(), b) != 0) rc = fail(&quot;read on the copy&quot;, copy.Error());
+    else printf(&quot;  the copy reads its newest note: \&quot;%s\&quot;\n&quot;, std::string(b.begin(), b.end()).c_str());
+  }
+  prim.Close();
+  copy.Stop();
+  server.join();
+  copy.Close();
+  return rc;
+}
+
+int main(int argc, char **argv)
+{
+  if(argc &lt; 3) {
+    printf(&quot;Usage: %s PKI WORK [PORT]\n&quot;, argv[0]);
+    return 2;
+  }
+  std::string pki = argv[1], work = argv[2];
+  int port = argc &gt; 3 ? atoi(argv[3]) : 24750;
+  std::string ra = work + &quot;/a&quot;, rb = work + &quot;/b&quot;;
+  std::vector&lt;uint64_t&gt; ids;
+  std::string msg;
+
+  printf(&quot;1. a is the primary, b the copy: three commits\n&quot;);
+  {
+    gxObjRepl a, b;
+    if(b.Open(rb, node_config(pki, &quot;b&quot;, &quot;a&quot;, true, port), gxObjRepl::COPY) != 0) return fail(&quot;open b&quot;, b.Error());
+    if(a.Open(ra, node_config(pki, &quot;a&quot;, &quot;b&quot;, false, port), gxObjRepl::PRIMARY) != 0) return fail(&quot;open a&quot;, a.Error());
+    if(phase(a, b, 1, 3, ids) != 0) return 1;
+  }
+
+  printf(&quot;2. both stopped: the same objects?\n&quot;);
+  std::string da = digest(ra), db = digest(rb);
+  printf(&quot;  a: %s\n  b: %s\n&quot;, da.c_str(), db.c_str());
+  if(da != db) return fail(&quot;digest&quot;, &quot;a and b differ&quot;);
+
+  printf(&quot;3. a planned switch: b takes over, a rejoins as its copy\n&quot;);
+  if(gxObjRepl::Takeover(rb, msg) != 0) return fail(&quot;takeover&quot;, msg);
+  printf(&quot;  %s\n&quot;, msg.c_str());
+  if(gxObjRepl::Rejoin(ra, msg) != 0) return fail(&quot;rejoin&quot;, msg);
+  printf(&quot;  %s\n&quot;, msg.c_str());
+
+  printf(&quot;4. b is the primary, a the copy: two more commits\n&quot;);
+  {
+    gxObjRepl a, b;
+    if(a.Open(ra, node_config(pki, &quot;a&quot;, &quot;b&quot;, true, port + 1), gxObjRepl::COPY) != 0) return fail(&quot;open a&quot;, a.Error());
+    if(b.Open(rb, node_config(pki, &quot;b&quot;, &quot;a&quot;, false, port + 1), gxObjRepl::PRIMARY) != 0) return fail(&quot;open b&quot;, b.Error());
+    printf(&quot;  b is the primary at epoch %llu\n&quot;, (unsigned long long)b.Epoch());
+    if(phase(b, a, 4, 2, ids) != 0) return 1;
+  }
+  da = digest(ra); db = digest(rb);
+  printf(&quot;  a: %s\n  b: %s\n&quot;, da.c_str(), db.c_str());
+  if(da != db) return fail(&quot;digest&quot;, &quot;a and b differ&quot;);
+  printf(&quot;OK: %d notes replicated, then a switch, the same objects on both nodes\n&quot;, (int)ids.size());
+  return 0;
+}
+<span class="cm">// ----------------------------------------------------------- //</span>
+<span class="cm">// ------------------------------- //</span>
+<span class="cm">// --------- End of File --------- //</span>
+<span class="cm">// ------------------------------- //</span></pre>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
