@@ -329,6 +329,15 @@ docs/utils. The guides in docs/ai (also collected in llms-full.txt)
 are short task-oriented descriptions of the API with working code,
 written for AI coding assistants but useful to anyone.
 
+Security and the database port: docs/security_white_paper.html is
+the security design of the library (TLS, mutual TLS, input checks,
+database files, replication, limits, FIPS and quantum computing).
+docs/gxstream_replication_white_paper.html explains gxStream and
+object replication on the IANA-registered port 2073 (gxs-data-port),
+and docs/rfc/draft-gaer-datareel-gxstream-00.txt is the protocol's
+specification, an Internet-Draft for the Independent Submission
+stream.
+
 RELEASE HISTORY
 ---------------
  7.4   11/17/2026 Final release: 7.4 beta 5 plus the fixes and additions

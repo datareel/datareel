@@ -29,8 +29,9 @@ def link_target(url):
         path = PAGES[path]
     elif path.startswith('docs/'):
         path = path[len('docs/'):]
-        # 11/18/2026: a Markdown page in docs/ links to its generated page
-        if path.endswith('.md'):
+        # 11/18/2026: a Markdown page in docs/ links to its generated page, when it has one
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if path.endswith('.md') and os.path.exists(os.path.join(here, path[:-3] + '.html')):
             path = path[:-3] + '.html'
     else:
         path = '../' + path

@@ -34,6 +34,10 @@ and networking engine:
   betas), removed in 7.4 beta 5. The
   [replication administrator's guide](docs/replication_admin_guide.md) covers setup, watching,
   takeover and rejoin, upgrades, and when a plain file copy is enough.
+- **Security and port 2073:** the [security white paper](docs/security_white_paper.md) covers
+  the library's security design, the [gxStream and replication white paper](docs/gxstream_replication_white_paper.md)
+  explains the database protocol on the IANA-registered port 2073 (gxs-data-port), and
+  [draft-gaer-datareel-gxstream-00](docs/rfc/draft-gaer-datareel-gxstream-00.txt) specifies it.
 
 ### Legacy utility classes removed
 
