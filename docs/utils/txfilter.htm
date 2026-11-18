@@ -27,7 +27,8 @@
 <H1>txfilter</H1>
 <p class="dr-lead">Text filter (back in DataReel 7.4, from 6.x).</p>
 <div class="dr-toc-title">Contents</div>
-<P class="dr-toc"><A HREF="#Usage">Usage</A></P>
+<P class="dr-toc"><A HREF="#Usage">Usage</A><BR>
+<A HREF="#Examples">Examples</A></P>
 
 <h2 id="Usage">Usage</h2>
 <PRE>txfilter [switches] file...
@@ -36,6 +37,24 @@
   -u  UNIX line ends (default)   -d  DOS (CR LF)   -D  none
   -o  write the result over the file (default: standard output)</PRE>
 <P>Lines may be of any length. -P keeps bytes 0x80 and up, so UTF-8 text survives. -o writes through a temporary file and a rename.</P>
+
+<h2 id="Examples">Examples</h2>
+<P>report.txt came from a Windows program: DOS line ends, a tab and a control character (0x01) on the last line:</P><PRE>$ hexdump report.txt
+4F 72 64 65 72 20 31 30 30 31 09 41 4D 54 58 0D 	; Order.1001.AMTX.
+0A 54 6F 74 61 6C 3A 20 33 2E 32 35 0D 0A 4E 6F 	; .Total:.3.25..No
+74 65 3A 01 20 64 6F 6E 65 0D 0A                	; te:..done..</PRE><P>The printable characters with UNIX line ends, to standard output (cat -A shows a tab as ^I and a line end as $):</P><PRE>$ txfilter report.txt | cat -A
+Order 1001^IAMTX$
+Total: 3.25$
+Note: done$
+
+$ txfilter -t report.txt | cat -A
+Order 1001AMTX$
+Total: 3.25$
+Note: done$</PRE><P>Clean the file in place and keep DOS line ends:</P><PRE>$ txfilter -d -o report.txt
+$ cat -A report.txt
+Order 1001^IAMTX^M$
+Total: 3.25^M$
+Note: done^M$</PRE><P>For terminal color and cursor codes (ESC sequences) in program output use strip_ansi() of <A HREF="../classes/general/strutil.htm">strutil.h</A>; txfilter removes the ESC character but keeps the rest of the sequence.</P>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

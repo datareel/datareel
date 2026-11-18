@@ -27,7 +27,8 @@
 <H1>object_server and object_client</H1>
 <p class="dr-lead">The database object server example tools: store and read objects, and ask for vector searches (Linux and Windows).</p>
 <div class="dr-toc-title">Contents</div>
-<P class="dr-toc"><A HREF="#Usage">Usage</A></P>
+<P class="dr-toc"><A HREF="#Usage">Usage</A><BR>
+<A HREF="#Examples">Examples</A></P>
 
 <h2 id="Usage">Usage</h2>
 <PRE>object_server PORT CERT KEY CA CLIENT_CN DB_NAME DB_FILE [--stop-file FILE]
@@ -36,6 +37,25 @@ object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME --vinfo
 object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME --vsearch K   &lt; query (whitespace separated floats)</PRE>
 <P>object_server serves one database with mutual TLS (only CLIENT_CN may connect). object_client stores a text object and reads it back, or with --vinfo / --vsearch asks a server whose database names its vectors (a gxObjectDbConfig with <CODE>vectors</CODE>) for the index's description or the K nearest to the query on stdin. The requests: <A HREF="../classes/database/gxdbobject.htm">Object Server Vector Searches</A>; a complete program: <A HREF="../examples/vector_search_service.htm">vector_search_service</A>.</P>
 <P>Stopping the server: Ctrl+C, or TERM on Linux; Ctrl+C, Ctrl+Break or closing the console on Windows; or, on both, creating the file given with <CODE>--stop-file</CODE> (checked every second; a service wrapper or a script uses this). Clients get up to 10 seconds to finish. Windows (7.4): the same programs over Winsock and Schannel, and they work with Linux servers and clients both ways. The multiplex never blocks on a TLS write, so two sides that both send large messages at once do not wait on each other (gxdbmux_test both_ways_large_tls checks this on both systems).</P>
+
+<h2 id="Examples">Examples</h2>
+<P>Test certificates for mutual TLS: a CA, a server certificate for localhost and a client certificate with the CN app1 (testing only):</P><PRE>openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 30 -subj &quot;/CN=Test CA&quot;
+openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj &quot;/CN=localhost&quot;
+printf &quot;subjectAltName=DNS:localhost,IP:127.0.0.1\n&quot; &gt; san.ext
+openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out server.pem -days 30 -extfile san.ext
+openssl req -newkey rsa:2048 -nodes -keyout client.key -out client.csr -subj &quot;/CN=app1&quot;
+openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out client.pem -days 30</PRE><P>Serve the database notes (file notes.gxd) on port 39871 to the client app1 only, and stop when the file stop.now appears:</P><PRE>$ object_server 39871 server.pem server.key ca.pem app1 notes notes.gxd --stop-file stop.now &amp;
+serving database notes on port 39871</PRE><P>Store two objects and read each back:</P><PRE>$ object_client localhost 39871 localhost client.pem client.key ca.pem notes &quot;first note&quot;
+stored 10 bytes at address 128
+read back: first note
+$ object_client localhost 39871 localhost client.pem client.key ca.pem notes &quot;second note&quot;
+stored 11 bytes at address 170
+read back: second note</PRE><P>A database the server does not serve, and a vector request to a database without vectors, are refused (exit 1):</P><PRE>$ object_client localhost 39871 localhost client.pem client.key ca.pem other &quot;x&quot;
+no database other
+$ object_client localhost 39871 localhost client.pem client.key ca.pem notes --vinfo
+vinfo: the server refused the request</PRE><P>Stop the server:</P><PRE>$ touch stop.now
+stop file stop.now seen
+stopped</PRE>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

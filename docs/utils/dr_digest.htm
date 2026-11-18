@@ -27,7 +27,8 @@
 <H1>dr_digest</H1>
 <p class="dr-lead">What a database file holds, as one 64-bit digest whatever its layout (DataReel 7.4).</p>
 <div class="dr-toc-title">Contents</div>
-<P class="dr-toc"><A HREF="#Usage">Usage</A></P>
+<P class="dr-toc"><A HREF="#Usage">Usage</A><BR>
+<A HREF="#Examples">Examples</A></P>
 
 <h2 id="Usage">Usage</h2>
 <PRE>dr_digest FILE [--kind btree|bytes|objects]</PRE>
@@ -38,6 +39,21 @@
 <LI><CODE>bytes</CODE>: the bytes of any file.</LI>
 </UL>
 <P>Without --kind it is <CODE>btree</CODE> for a .btx file and <CODE>bytes</CODE> for anything else. Exit 0 ok, 1 the file could not be read (the reason on standard error), 2 usage. From code, the same digest is gxDatabaseDigest() of gxddigest.h. It is the same as "gxrepl digest" of the 7.4 betas, so digests taken with either compare. Digests of vector indexes: <A HREF="vix_rebuild.htm">vix_rebuild --digest</A>.</P>
+
+<h2 id="Examples">Examples</h2>
+<P>The files of the db_infohog example (contacts.ihd, a database, and contacts.ihx, its B-tree index):</P><PRE>$ dr_digest contacts.ihd --kind objects
+2529221e36f1d836 2 contacts.ihd
+$ dr_digest contacts.ihx --kind btree
+7e8ef133d7365933 2 contacts.ihx
+$ dr_digest contacts.ihd
+cf3f301eee79783d 65888 contacts.ihd</PRE><P>Without --kind a file that does not end in .btx is hashed as bytes (65888 is its size). A database rebuilt with <A HREF="db_debug.htm">db_debug</A> holds the same objects in a different layout: the objects digest stays the same and the bytes digest changes:</P><PRE>$ db_debug contacts.ihd r            (name the new file rebuilt.ihd)
+$ dr_digest rebuilt.ihd --kind objects
+2529221e36f1d836 2 rebuilt.ihd
+$ dr_digest rebuilt.ihd
+d26365d0b030cefb 65518 rebuilt.ihd</PRE><P>Errors:</P><PRE>$ dr_digest missing.gxd
+dr_digest: cannot open missing.gxd          (exit 1)
+$ dr_digest
+Usage: dr_digest FILE [--kind btree|bytes|objects]   (exit 2)</PRE>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

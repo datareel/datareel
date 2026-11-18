@@ -27,7 +27,8 @@
 <H1>hexdump</H1>
 <p class="dr-lead">Hexadecimal file dump (back in DataReel 7.4, from 6.x): show a binary file, rebuild it from the dump, checksums and number conversions.</p>
 <div class="dr-toc-title">Contents</div>
-<P class="dr-toc"><A HREF="#Usage">Usage</A></P>
+<P class="dr-toc"><A HREF="#Usage">Usage</A><BR>
+<A HREF="#Examples">Examples</A></P>
 
 <h2 id="Usage">Usage</h2>
 <PRE>hexdump [switches] infile [outfile]
@@ -37,6 +38,37 @@
   -r     rebuild a binary file from a hex dump: hexdump -r dump.txt out.bin (checked with a CRC-32)
   -xHEX  -XHEX (signed)  -BHEX (binary)  -DDEC: number conversions</PRE>
 <P>The dump: 16 bytes a line as two hex digits each, then a tab, "; " and the printable bytes ("." for the others). The formats and the switches are the 6.x ones, so a dump made by the 6.x hexdump rebuilds with this one and the reverse; the checksums are the 6.x values.</P>
+
+<h2 id="Examples">Examples</h2>
+<P>A small text file, notes.txt, holding two lines: "DataReel 7.4" and "hexdump test".</P><PRE>$ hexdump notes.txt
+44 61 74 61 52 65 65 6C 20 37 2E 34 0A 68 65 78 	; DataReel.7.4.hex
+64 75 6D 70 20 74 65 73 74 0A                   	; dump.test.
+
+$ hexdump -c notes.txt
+notes.txt
+CRC-32 = 0xE92728C4
+
+$ hexdump -C notes.txt
+notes.txt
+CRC-16 = 0xDEA1
+CCITT CRC-16 = 0x3332
+
+$ hexdump -a notes.txt
+unsigned char CArray[26] = {
+  0x44,0x61,0x74,0x61,0x52,0x65,0x65,0x6C,0x20,0x37,0x2E,0x34,0x0A,0x68,0x65,0x78,
+  0x64,0x75,0x6D,0x70,0x20,0x74,0x65,0x73,0x74,0x0A
+};</PRE><P>Save the dump in a file, then rebuild the binary file from it (the rebuilt file is the same, byte for byte):</P><PRE>$ hexdump notes.txt notes.hex
+$ hexdump -r notes.hex notes.bin
+Building new binary file from hex dump text file...
+Finished.
+26 bytes written to notes.bin
+$ cmp notes.txt notes.bin &amp;&amp; echo same
+same</PRE><P>Number conversions:</P><PRE>$ hexdump -xFF
+0xFF = 255
+$ hexdump -D255
+255 = 0xFF
+$ hexdump -B1010
+0x1010 = 0000 0000 0000 0000 0001 0000 0001 0000</PRE>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

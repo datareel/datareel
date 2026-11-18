@@ -27,15 +27,28 @@
 <H1>vix_rebuild</H1>
 <p class="dr-lead">Rebuild a vector index from the vector members of records, and print digests of vector indexes (DataReel 7.4).</p>
 <div class="dr-toc-title">Contents</div>
-<P class="dr-toc"><A HREF="#Usage">Usage</A></P>
+<P class="dr-toc"><A HREF="#Usage">Usage</A><BR>
+<A HREF="#Examples">Examples</A></P>
 
 <h2 id="Usage">Usage</h2>
 <PRE>vix_rebuild --data DATA.gxd --index OUT.vix --member infohog:N|offset:N [--tags A,B,C,D]
             [--like OLD.vix | --dim D --element f32|f16|i8 --metric l2|cosine|ip --m M --efc N --spec TEXT]
-            [--stamp-dir DIR --lsn L [--commit-block NAME@OFFSET]]
 vix_rebuild --digest FILE.vix [--digest-kind logical|bytes]</PRE>
-<P>The rebuild reads every record of the data file in ascending address order and makes the index from their vector members (<A HREF="../classes/database/gxvmember.htm">gxvmember.h</A>), so it is the same file, byte for byte, on every node: what a replicated copy runs as its <CODE>derived_rebuild</CODE>. The header (dimension, element type, metric, M, ef_construction, spec) comes from --like, or from --dim, --element, --metric, --m, --efc and --spec. With --stamp-dir and --lsn it writes the index's stamp and the folder's derived.stamp at that log position. Exit 0 ok, 1 failed, 2 usage.</P>
+<P>The rebuild reads every record of the data file in ascending address order and makes the index from their vector members (<A HREF="../classes/database/gxvmember.htm">gxvmember.h</A>), so it is the same file, byte for byte, on every node: what a replicated copy runs as its <CODE>derived_rebuild</CODE>. The header (dimension, element type, metric, M, ef_construction, spec) comes from --like, or from OUT.vix itself when it exists, or from --dim, --element, --metric, --m, --efc and --spec. Exit 0 ok, 1 failed, 2 usage.</P>
 <P><CODE>--digest</CODE> prints "logical HASH NODES FILE": a hash of the live nodes in id order (id, stored code, tags), the same for two indexes that hold the same nodes whatever their graphs; <CODE>--digest-kind bytes</CODE> hashes the file's bytes (for rebuild against rebuild). The example <A HREF="../examples/vector_records.htm">vector_records</A> calls the same rebuild from code.</P>
+
+<h2 id="Examples">Examples</h2>
+<P>The files of the <A HREF="../examples/vector_records.htm">vector_records</A> example: items.gxd holds 600 records with a float16 vector member at offset 32 and tags at offsets 28 and 24, and items.vix is their index. The logical digest of the index, then a rebuild from the records alone, with the header taken from the old index:</P><PRE>$ vix_rebuild --digest items.vix
+logical bd3c19f6cd85d91c 600 items.vix opt 1
+
+$ vix_rebuild --data items.gxd --index parts.vix --member offset:32 --tags offset:28,-,offset:24,- --like items.vix
+vix_rebuild: parts.vix: 600 records, 600 nodes
+
+$ vix_rebuild --digest parts.vix
+logical bd3c19f6cd85d91c 600 parts.vix opt 3</PRE><P>The logical digests are equal, so the rebuilt index holds the same nodes and tags. "opt" is the optional format bits of the index: 1 keeps tag ranges, 2 marks an index rebuilt from record members. The bytes digests differ, because the two graphs were built in a different order; two rebuilds of the same data have the same bytes digest:</P><PRE>$ vix_rebuild --digest items.vix --digest-kind bytes
+bytes 5bb78b0992e1cb6e 230392 items.vix
+$ vix_rebuild --digest parts.vix --digest-kind bytes
+bytes 05053735863893a0 230392 parts.vix</PRE>
 
 </main>
 <footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>

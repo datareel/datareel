@@ -1664,7 +1664,43 @@ hexdump [switches] infile [outfile]
   -xHEX  -XHEX (signed)  -BHEX (binary)  -DDEC: number conversions
 ''') + '''
 <P>The dump: 16 bytes a line as two hex digits each, then a tab, "; " and the printable bytes ("." for the others). The formats and the switches are the 6.x ones, so a dump made by the 6.x hexdump rebuilds with this one and the reverse; the checksums are the 6.x values.</P>
-''')])
+'''),
+ ('Examples', 'Examples', '<P>A small text file, notes.txt, holding two lines: "DataReel 7.4" and "hexdump test".</P>' + code('''
+$ hexdump notes.txt
+44 61 74 61 52 65 65 6C 20 37 2E 34 0A 68 65 78 	; DataReel.7.4.hex
+64 75 6D 70 20 74 65 73 74 0A                   	; dump.test.
+
+$ hexdump -c notes.txt
+notes.txt
+CRC-32 = 0xE92728C4
+
+$ hexdump -C notes.txt
+notes.txt
+CRC-16 = 0xDEA1
+CCITT CRC-16 = 0x3332
+
+$ hexdump -a notes.txt
+unsigned char CArray[26] = {
+  0x44,0x61,0x74,0x61,0x52,0x65,0x65,0x6C,0x20,0x37,0x2E,0x34,0x0A,0x68,0x65,0x78,
+  0x64,0x75,0x6D,0x70,0x20,0x74,0x65,0x73,0x74,0x0A
+};
+''') + '<P>Save the dump in a file, then rebuild the binary file from it (the rebuilt file is the same, byte for byte):</P>' + code('''
+$ hexdump notes.txt notes.hex
+$ hexdump -r notes.hex notes.bin
+Building new binary file from hex dump text file...
+Finished.
+26 bytes written to notes.bin
+$ cmp notes.txt notes.bin && echo same
+same
+''') + '<P>Number conversions:</P>' + code('''
+$ hexdump -xFF
+0xFF = 255
+$ hexdump -D255
+255 = 0xFF
+$ hexdump -B1010
+0x1010 = 0000 0000 0000 0000 0001 0000 0001 0000
+''')),
+])
 
 page(file='utils/ffind.htm', title='ffind',
  lead='Text search and replace (back in DataReel 7.4, from 6.x).',
@@ -1678,7 +1714,48 @@ ffind [switches] file...
   --SurroundBy=Quotes|SingleQuotes|TEXT  --TerminateWith=TEXT  --TrimLeading=CHARS  --TrimTrailing=CHARS  --NoEscapeSeq
 ''') + '''
 <P>\\n, \\r, \\t and %20 in the strings are converted unless --NoEscapeSeq. The exit code is the number of matches, replacements or insertions (at most 255), as in 6.x. A file that changes is written through a temporary file and a rename. Names with * and ? are expanded by ffind itself, so wildcards work on Windows too. Lines ending in a backslash are joined before the search (-a turns that off).</P>
-''')])
+'''),
+ ('Examples', 'Examples', '<P>A configuration file, app.conf:</P>' + code('''
+host = db1.example.com
+port = 5000
+# backup host = db2.example.com
+log = /var/log/app.log
+''') + '<P>Find a string (the exit code is the number of matches, here 2), count it, or find it whatever its case:</P>' + code('''
+$ ffind -f"host" app.conf
+File name: app.conf String: host
+Found match on line: #1
+File name: app.conf String: host
+Found match on line: #3
+
+$ ffind -F"host" app.conf
+File name: app.conf String: host
+Found 2 matches
+
+$ ffind -i -f"PORT" app.conf
+File name: app.conf String: PORT
+Found match on line: #2
+''') + '<P>Replace a string, then the rest of a line after a string. The file is changed in place:</P>' + code('''
+$ ffind -R"db1.example.com" -W"db3.example.com" app.conf
+Opening file: app.conf
+Replacing: db1.example.com
+With: db3.example.com
+Replaced 1 occurrence(s).
+
+$ ffind -L"port = " -W"5001" app.conf
+Opening file: app.conf
+Replacing line after: port =
+With: 5001
+Replaced 1 occurrence(s).
+
+$ cat app.conf
+host = db3.example.com
+port = 5001
+# backup host = db2.example.com
+log = /var/log/app.log
+''') + '<P>Several files: quote the wildcard so ffind expands it (the same on Windows):</P>' + code('''
+$ ffind -f"host" "app*.conf"
+''')),
+])
 
 page(file='utils/txfilter.htm', title='txfilter',
  lead='Text filter (back in DataReel 7.4, from 6.x).',
@@ -1690,19 +1767,57 @@ txfilter [switches] file...
   -o  write the result over the file (default: standard output)
 ''') + '''
 <P>Lines may be of any length. -P keeps bytes 0x80 and up, so UTF-8 text survives. -o writes through a temporary file and a rename.</P>
-''')])
+'''),
+ ('Examples', 'Examples', '<P>report.txt came from a Windows program: DOS line ends, a tab and a control character (0x01) on the last line:</P>' + code('''
+$ hexdump report.txt
+4F 72 64 65 72 20 31 30 30 31 09 41 4D 54 58 0D 	; Order.1001.AMTX.
+0A 54 6F 74 61 6C 3A 20 33 2E 32 35 0D 0A 4E 6F 	; .Total:.3.25..No
+74 65 3A 01 20 64 6F 6E 65 0D 0A                	; te:..done..
+''') + '<P>The printable characters with UNIX line ends, to standard output (cat -A shows a tab as ^I and a line end as $):</P>' + code('''
+$ txfilter report.txt | cat -A
+Order 1001^IAMTX$
+Total: 3.25$
+Note: done$
+
+$ txfilter -t report.txt | cat -A
+Order 1001AMTX$
+Total: 3.25$
+Note: done$
+''') + '<P>Clean the file in place and keep DOS line ends:</P>' + code('''
+$ txfilter -d -o report.txt
+$ cat -A report.txt
+Order 1001^IAMTX^M$
+Total: 3.25^M$
+Note: done^M$
+''') + '<P>For terminal color and cursor codes (ESC sequences) in program output use strip_ansi() of <A HREF="../classes/general/strutil.htm">strutil.h</A>; txfilter removes the ESC character but keeps the rest of the sequence.</P>'),
+])
 
 page(file='utils/vix_rebuild.htm', title='vix_rebuild',
  lead='Rebuild a vector index from the vector members of records, and print digests of vector indexes (DataReel 7.4).',
  sections=[('Usage', 'Usage', code('''
 vix_rebuild --data DATA.gxd --index OUT.vix --member infohog:N|offset:N [--tags A,B,C,D]
             [--like OLD.vix | --dim D --element f32|f16|i8 --metric l2|cosine|ip --m M --efc N --spec TEXT]
-            [--stamp-dir DIR --lsn L [--commit-block NAME@OFFSET]]
 vix_rebuild --digest FILE.vix [--digest-kind logical|bytes]
 ''') + '''
-<P>The rebuild reads every record of the data file in ascending address order and makes the index from their vector members (<A HREF="../classes/database/gxvmember.htm">gxvmember.h</A>), so it is the same file, byte for byte, on every node: what a replicated copy runs as its <CODE>derived_rebuild</CODE>. The header (dimension, element type, metric, M, ef_construction, spec) comes from --like, or from --dim, --element, --metric, --m, --efc and --spec. With --stamp-dir and --lsn it writes the index's stamp and the folder's derived.stamp at that log position. Exit 0 ok, 1 failed, 2 usage.</P>
+<P>The rebuild reads every record of the data file in ascending address order and makes the index from their vector members (<A HREF="../classes/database/gxvmember.htm">gxvmember.h</A>), so it is the same file, byte for byte, on every node: what a replicated copy runs as its <CODE>derived_rebuild</CODE>. The header (dimension, element type, metric, M, ef_construction, spec) comes from --like, or from OUT.vix itself when it exists, or from --dim, --element, --metric, --m, --efc and --spec. Exit 0 ok, 1 failed, 2 usage.</P>
 <P><CODE>--digest</CODE> prints "logical HASH NODES FILE": a hash of the live nodes in id order (id, stored code, tags), the same for two indexes that hold the same nodes whatever their graphs; <CODE>--digest-kind bytes</CODE> hashes the file's bytes (for rebuild against rebuild). The example <A HREF="../examples/vector_records.htm">vector_records</A> calls the same rebuild from code.</P>
-''')])
+'''),
+ ('Examples', 'Examples', '<P>The files of the <A HREF="../examples/vector_records.htm">vector_records</A> example: items.gxd holds 600 records with a float16 vector member at offset 32 and tags at offsets 28 and 24, and items.vix is their index. The logical digest of the index, then a rebuild from the records alone, with the header taken from the old index:</P>' + code('''
+$ vix_rebuild --digest items.vix
+logical bd3c19f6cd85d91c 600 items.vix opt 1
+
+$ vix_rebuild --data items.gxd --index parts.vix --member offset:32 --tags offset:28,-,offset:24,- --like items.vix
+vix_rebuild: parts.vix: 600 records, 600 nodes
+
+$ vix_rebuild --digest parts.vix
+logical bd3c19f6cd85d91c 600 parts.vix opt 3
+''') + '<P>The logical digests are equal, so the rebuilt index holds the same nodes and tags. "opt" is the optional format bits of the index: 1 keeps tag ranges, 2 marks an index rebuilt from record members. The bytes digests differ, because the two graphs were built in a different order; two rebuilds of the same data have the same bytes digest:</P>' + code('''
+$ vix_rebuild --digest items.vix --digest-kind bytes
+bytes 5bb78b0992e1cb6e 230392 items.vix
+$ vix_rebuild --digest parts.vix --digest-kind bytes
+bytes 05053735863893a0 230392 parts.vix
+''')),
+])
 
 page(file='utils/dr_digest.htm', title='dr_digest',
  lead='What a database file holds, as one 64-bit digest whatever its layout (DataReel 7.4).',
@@ -1716,7 +1831,27 @@ dr_digest FILE [--kind btree|bytes|objects]
 <LI><CODE>bytes</CODE>: the bytes of any file.</LI>
 </UL>
 <P>Without --kind it is <CODE>btree</CODE> for a .btx file and <CODE>bytes</CODE> for anything else. Exit 0 ok, 1 the file could not be read (the reason on standard error), 2 usage. From code, the same digest is gxDatabaseDigest() of gxddigest.h. It is the same as "gxrepl digest" of the 7.4 betas, so digests taken with either compare. Digests of vector indexes: <A HREF="vix_rebuild.htm">vix_rebuild --digest</A>.</P>
-''')])
+'''),
+ ('Examples', 'Examples', '<P>The files of the db_infohog example (contacts.ihd, a database, and contacts.ihx, its B-tree index):</P>' + code('''
+$ dr_digest contacts.ihd --kind objects
+2529221e36f1d836 2 contacts.ihd
+$ dr_digest contacts.ihx --kind btree
+7e8ef133d7365933 2 contacts.ihx
+$ dr_digest contacts.ihd
+cf3f301eee79783d 65888 contacts.ihd
+''') + '<P>Without --kind a file that does not end in .btx is hashed as bytes (65888 is its size). A database rebuilt with <A HREF="db_debug.htm">db_debug</A> holds the same objects in a different layout: the objects digest stays the same and the bytes digest changes:</P>' + code('''
+$ db_debug contacts.ihd r            (name the new file rebuilt.ihd)
+$ dr_digest rebuilt.ihd --kind objects
+2529221e36f1d836 2 rebuilt.ihd
+$ dr_digest rebuilt.ihd
+d26365d0b030cefb 65518 rebuilt.ihd
+''') + '<P>Errors:</P>' + code('''
+$ dr_digest missing.gxd
+dr_digest: cannot open missing.gxd          (exit 1)
+$ dr_digest
+Usage: dr_digest FILE [--kind btree|bytes|objects]   (exit 2)
+''')),
+])
 
 page(file='utils/object_server.htm', title='object_server and object_client',
  lead='The database object server example tools: store and read objects, and ask for vector searches (Linux and Windows).',
@@ -1728,7 +1863,35 @@ object_client HOST PORT SERVER_NAME CERT KEY CA DB_NAME --vsearch K   < query (w
 ''') + '''
 <P>object_server serves one database with mutual TLS (only CLIENT_CN may connect). object_client stores a text object and reads it back, or with --vinfo / --vsearch asks a server whose database names its vectors (a gxObjectDbConfig with <CODE>vectors</CODE>) for the index's description or the K nearest to the query on stdin. The requests: <A HREF="../classes/database/gxdbobject.htm">Object Server Vector Searches</A>; a complete program: <A HREF="../examples/vector_search_service.htm">vector_search_service</A>.</P>
 <P>Stopping the server: Ctrl+C, or TERM on Linux; Ctrl+C, Ctrl+Break or closing the console on Windows; or, on both, creating the file given with <CODE>--stop-file</CODE> (checked every second; a service wrapper or a script uses this). Clients get up to 10 seconds to finish. Windows (7.4): the same programs over Winsock and Schannel, and they work with Linux servers and clients both ways. The multiplex never blocks on a TLS write, so two sides that both send large messages at once do not wait on each other (gxdbmux_test both_ways_large_tls checks this on both systems).</P>
-''')])
+'''),
+ ('Examples', 'Examples', '<P>Test certificates for mutual TLS: a CA, a server certificate for localhost and a client certificate with the CN app1 (testing only):</P>' + code('''
+openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 30 -subj "/CN=Test CA"
+openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj "/CN=localhost"
+printf "subjectAltName=DNS:localhost,IP:127.0.0.1\\n" > san.ext
+openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out server.pem -days 30 -extfile san.ext
+openssl req -newkey rsa:2048 -nodes -keyout client.key -out client.csr -subj "/CN=app1"
+openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out client.pem -days 30
+''') + '<P>Serve the database notes (file notes.gxd) on port 39871 to the client app1 only, and stop when the file stop.now appears:</P>' + code('''
+$ object_server 39871 server.pem server.key ca.pem app1 notes notes.gxd --stop-file stop.now &
+serving database notes on port 39871
+''') + '<P>Store two objects and read each back:</P>' + code('''
+$ object_client localhost 39871 localhost client.pem client.key ca.pem notes "first note"
+stored 10 bytes at address 128
+read back: first note
+$ object_client localhost 39871 localhost client.pem client.key ca.pem notes "second note"
+stored 11 bytes at address 170
+read back: second note
+''') + '<P>A database the server does not serve, and a vector request to a database without vectors, are refused (exit 1):</P>' + code('''
+$ object_client localhost 39871 localhost client.pem client.key ca.pem other "x"
+no database other
+$ object_client localhost 39871 localhost client.pem client.key ca.pem notes --vinfo
+vinfo: the server refused the request
+''') + '<P>Stop the server:</P>' + code('''
+$ touch stop.now
+stop file stop.now seen
+stopped
+''')),
+])
 
 def main():
     for p in PAGES:
