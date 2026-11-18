@@ -28,6 +28,8 @@ GUIDES = [
      'Replacements for the removed classes and the move to TLS-only networking'),
     ('utilities.md', 'Text, CSV, single-instance and file utilities',
      'strip_ansi/AnsiStripper, gxCSVReader/gxCSVWriter, gxProcessLock, hexdump, ffind, txfilter (7.4)'),
+    ('troubleshooting-and-support.md', 'Troubleshooting and support',
+     'Read-only checks, problems by area, when to stop and escalate, the support summary'),
 ]
 
 SAMPLE = re.compile(r'(<!-- sample: (\S+)(?: from="([^"]*)")? -->\n)(.*?)(<!-- end sample -->)',
@@ -79,9 +81,16 @@ def main():
              'keys must be fixed-size (no std::string or pointers). Certificates '
              'are verified by default; there is no plain text HTTP, SMTP, POP3 '
              'or FTP.', '',
+             'AI-assisted use only: before any AI assistance, review your '
+             "agency's or company's AI usage policies and get formal written "
+             'approval from your management team; use only approved enterprise '
+             'AI models; a person reviews and approves every step (see "Before '
+             'you use AI assistance" in AGENTS.md). Naming an AI tool is a '
+             'reference only, not an endorsement.', '',
              '## Guides', '',
-             '- [AGENTS.md](AGENTS.md): Rules for writing code with DataReel and '
-             'for changing the library']
+             '- [AGENTS.md](AGENTS.md): AI-assisted use rules, setup, new builds, '
+             'upgrades, forks, troubleshooting and support, and the rules for '
+             'writing code with DataReel and changing the library']
     for f, title, desc in GUIDES:
         index.append('- [%s](docs/ai/%s): %s' % (title, f, desc))
     index += ['', '## Reference', '',

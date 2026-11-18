@@ -4,14 +4,17 @@
 
 All classes are in namespace datareel. Link with CMake target DataReel::datareel. Network calls return 0 on success; database calls return gxDatabaseError (gxDBASE_NO_ERROR is 0). Records and keys must be fixed-size (no std::string or pointers). Certificates are verified by default; there is no plain text HTTP, SMTP, POP3 or FTP.
 
+AI-assisted use only: before any AI assistance, review your agency's or company's AI usage policies and get formal written approval from your management team; use only approved enterprise AI models; a person reviews and approves every step (see "Before you use AI assistance" in AGENTS.md). Naming an AI tool is a reference only, not an endorsement.
+
 ## Guides
 
-- [AGENTS.md](AGENTS.md): Rules for writing code with DataReel and for changing the library
+- [AGENTS.md](AGENTS.md): AI-assisted use rules, setup, new builds, upgrades, forks, troubleshooting and support, and the rules for writing code with DataReel and changing the library
 - [TLS communications](docs/ai/tls-comms.md): TLS clients and servers, HTTPS, SMTP, POP3, FTPS and gxStream, with complete programs
 - [Object database](docs/ai/object-database.md): gxDatabase block files, gxBtree indexes, POD and InfoHog persistent objects, vector indexes and sets
 - [Building and linking](docs/ai/building.md): CMake options, file format settings, find_package(DataReel), running the tests
 - [Porting from 6.x](docs/ai/porting-from-6x.md): Replacements for the removed classes and the move to TLS-only networking
 - [Text, CSV, single-instance and file utilities](docs/ai/utilities.md): strip_ansi/AnsiStripper, gxCSVReader/gxCSVWriter, gxProcessLock, hexdump, ffind, txfilter (7.4)
+- [Troubleshooting and support](docs/ai/troubleshooting-and-support.md): Read-only checks, problems by area, when to stop and escalate, the support summary
 
 ## Reference
 
