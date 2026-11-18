@@ -254,6 +254,14 @@ DOCUMENTATION
 All documentation is included in the docs sub directory in an HTML
 format, viewable in any Web browser. 
 
+Security and the database port (11/18/2026): docs/security_white_paper.html
+is the security design of DataReel 6.4, and
+docs/gxstream_replication_white_paper.html explains gxStream, gxDatagram
+and replication on the IANA-registered port 2073 (gxs-data-port).
+docs/rfc/draft-gaer-datareel-gxstream-00.txt is the protocol's
+specification, an Internet-Draft for the Independent Submission stream
+that covers DataReel 7.4 and the 6.x legacy transports.
+
 VERSION 6.4.1
 -------------
 DataReel 6.4.1, 11/17/2026, is a bug-fix release of 6.4: gxSocket sets

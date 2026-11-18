@@ -158,6 +158,10 @@ Visual C++, BCC, and DJGPP.
 
 <p>This&nbsp;HTML documentation set include many more example programs that can by used as templates to build applications.&nbsp;</p>
 
+<h2 id="Security">Security and the Database Port</h2>
+
+<p>The <a href="security_white_paper.html">DataReel 6.4 security white paper</a> describes the security design of the library. The <a href="gxstream_replication_white_paper.html">gxStream and replication white paper</a> explains gxStream, gxDatagram and replication on the IANA-registered port 2073 (gxs-data-port), and <a href="rfc/draft-gaer-datareel-gxstream-00.html">draft-gaer-datareel-gxstream-00</a> (<a href="rfc/draft-gaer-datareel-gxstream-00.txt">text</a>) specifies the protocol: an Internet-Draft for the Independent Submission stream that covers DataReel 7.4 and the 6.x legacy transports.</p>
+
 <h2 id="Version641">Version 6.4.1</h2>
 
 <p>DataReel 6.4.1, 11/17/2026, is a bug-fix release of 6.4: gxSocket sets close-on-exec on its sockets, a new thread's state is RUNNING before it starts, Linux timed waits use the monotonic clock, and the sleep functions no longer leak a locked mutex. The API and the file and wire formats are the same as 6.4. See the <a href="release_notes_6_4_1.html">DataReel 6.4.1 Release Notes</a>.</p>

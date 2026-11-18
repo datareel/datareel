@@ -1,0 +1,152 @@
+<!doctype html>
+<!-- ******************************* -->
+<!-- ******** Start of Page ******** -->
+<!-- ******************************* -->
+<!-- *********************************************************** -->
+<!-- HTML Page -->
+<!-- Designed For: FireFox, Chrome, Safari -->
+<!-- Published By: DataReel Software Development -->
+<!-- Content Last Modified: 11/18/2026 -->
+<!-- File Creation Date: 11/18/2026 -->
+<!-- *** -->
+<!-- Package version: 12.3.10 -->
+<!-- *** -->
+<!-- Copyright (c) 1999-2026 DataReel Software Development -->
+<!-- *********************************************************** -->
+<!-- *********** HTML Page Description and Details ************* -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- START OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- This HTML page and its derivatives are copyright (c) 1999-2024, by -->
+<!-- DataReel Software Development. This HTML page and any derivative Web -->
+<!-- objects are published on the Internet for public viewing only. -->
+<!-- Reproduction of any HTML page and/or Web objects published on -->
+<!-- this Website is prohibited unless authorized in writing by -->
+<!-- DataReel Software Development or authorized reseller. Reproduction of any -->
+<!-- third party code used to produce pages on this Website is subject to -->
+<!-- the third party licensing and distribution agreement. -->
+<!-- *** -->
+<!-- THIS SOFTWARE IS PROVIDED AS IS WITHOUT WARRANTY OF ANY KIND. THE -->
+<!-- ENTIRE RISK OF THE QUALITY AND PERFORMANCE OF THIS SOFTWARE IS WITH -->
+<!-- YOU. SHOULD ANY ELEMENT OF THIS SOFTWARE PROVE DEFECTIVE, YOU WILL -->
+<!-- ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR, OR CORRECTION. -->
+<!-- *** -->
+<!-- *********************************************************** -->
+<!-- *************** THIRD PARTY ACKNOWLEDGMENT **************** -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- NONE -->
+<!-- *** -->
+<!-- END OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- HTML Internet page -->
+<!-- *********************************************************** -->
+<!-- PAGE CONTENT STARTS BELOW -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel 6.4 Security Design (White Paper)</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>DataReel 6.4 Security Design (White Paper)</h1>
+<p><strong>Release:</strong> DataReel 6.4 legacy release (6.4.1 and the 6.4.2 branch), 11/18/2026. <strong>Audience:</strong> security reviewers, system administrators and developers who maintain programs built on DataReel 6.x. DataReel 6.4 is the legacy release: it gets bug fixes and security updates only. New programs should use DataReel 7.4, whose security design is in its own white paper (https://datareel.com/clib7/security_white_paper.php). This paper was written from the 6.4 source; each section names the files it describes. When this paper and the code disagree, the code wins: report it (section 11).</p>
+<p>The companion papers are the <a href="gxstream_replication_white_paper.html">gxStream and replication white paper</a>, which explains the database protocol on the IANA-registered port 2073, and its <a href="rfc/draft-gaer-datareel-gxstream-00.html">protocol specification</a> (an Internet-Draft for the Independent Submission stream).</p>
+<h2 id="1WhatDatareel64ProtectsAndFromWhom">1. What DataReel 6.4 protects, and from whom</h2>
+<p>DataReel 6.x is a C++ library: an embedded object database (<code>gxDatabase</code>, <code>gxBtree</code>, <code>POD</code>, <code>InfoHog</code>, the page cache and the <code>gxdJournal</code> write-ahead journal since 6.3, and the relational classes), sockets and TLS (<code>gxSocket</code>, <code>gxSSL</code>, HTTP, SMTP, POP3, FTP, IMAP, telnet and the <code>gxStream</code> and <code>gxDatagram</code> database block protocols), threads, strings, containers, configuration and log files. Its security goals are:</p>
+<ul>
+<li><strong>Authenticated database servers:</strong> a <code>gxStream</code> server refuses to run unless it authenticates its clients with TLS client certificates and an allow list, or the program explicitly opts out.</li>
+<li><strong>TLS where the program asks for it:</strong> <code>gxStream</code> clients and servers, HTTPS, IMAP and the TLS classes use TLS 1.2 or 1.3. A TLS <code>gxStream</code> client checks the server's certificate and host name by default.</li>
+<li><strong>Robust handling of hostile input:</strong> lengths and counts read from files and from the network are checked before use (the 6.3 and 6.4 security fixes).</li>
+<li><strong>Crash-safe database files</strong> with the journal, and detection of accidental damage with block check words and CRC-32 checksums.</li>
+</ul>
+<p>DataReel 6.x does <strong>not</strong> make every connection secure. Unlike DataReel 7, it keeps plain text network classes for compatibility: SMTP, POP3, FTP, HTTP and telnet clients, <code>gxDatagram</code> over UDP, and <code>gxStream</code> over plain TCP when a server opts out of client authentication. It does not encrypt database files at rest, and it does not protect against an attacker who controls the computer a program runs on or who holds a certificate and key a server trusts.</p>
+<h2 id="2Tls">2. TLS</h2>
+<p>Source: <code>include/gxssl.h</code>, <code>src/gxssl.cpp</code>, <code>src/gxsschan.cpp</code>, <code>include/gxstream.h</code>, <code>src/gxstream.cpp</code>.</p>
+<ul>
+<li><strong>Protocol versions:</strong> TLS 1.2 is the lowest version allowed. SSL 2, SSL 3, TLS 1.0, TLS 1.1 and DTLS 1.0 are refused. A program may require TLS 1.3 only.</li>
+<li><strong>TLS libraries:</strong> Linux builds use the operating system's OpenSSL. Windows builds use Schannel by default, or OpenSSL 3.5 LTS (<code>README_windows_openssl.txt</code>). DataReel does not choose cipher suites or key exchange groups; the TLS library and the system's crypto policy do. Since the 10/14/2026 code review (6.0) the default Diffie-Hellman group is the 2048-bit RFC 7919 ffdhe2048 group.</li>
+<li><strong>gxStream clients:</strong> <code>UseTLS(1)</code> or <code>SetClientCert()</code> turns TLS on. The client then checks the server's certificate chain (the system store, or <code>SetServerCAFile()</code>) and host name (<code>SetServerName()</code>, by default the host it connects to) unless the program calls <code>SetVerifyServer(0)</code>. A failed handshake or check closes the socket, so in TLS mode nothing is sent in cleartext. TLS handshakes time out after 60 seconds by default.</li>
+<li><strong>Other TLS clients:</strong> the <code>gxSSL</code> object behind the HTTPS client checks the server's certificate only after <code>RequireVerifyCert()</code>; programs that use HTTPS must call it. The IMAP client uses TLS from the start or STARTTLS, and refuses to log in over plain text unless the program calls <code>AllowPlainLogin(1)</code>; data received before a STARTTLS handshake is discarded.</li>
+<li><strong>Keys:</strong> <code>gxSSL::MakeRSAPrivateKey()</code> writes the private key file readable by its owner only.</li>
+</ul>
+<h2 id="3DatabaseServersOnPort2073">3. Database servers on port 2073</h2>
+<p>Source: <code>include/gxstream.h</code>, <code>src/gxstream.cpp</code>, <code>include/gxheader.h</code>.</p>
+<ul>
+<li><strong>Client authentication is required by default (6.3.1).</strong> <code>StreamServer()</code>, <code>Accept()</code> and <code>AcceptClient()</code> refuse to run unless the server either uses TLS with client certificates (<code>SetServerCert()</code>, <code>SetClientCAFile()</code> and at least one <code>AllowClientFingerprint()</code> or <code>AllowClientCN()</code> entry) or the program calls <code>AllowAnonymousClients(true)</code>. The client CAs are the only CAs trusted for clients (not the system store), and a client must be named in the allow list by its certificate's SHA-256 fingerprint or its subject common name. A client that fails is closed.</li>
+<li><strong>The opt-out is explicit and visible in the code.</strong> With <code>AllowAnonymousClients(true)</code> and no server certificate, the server takes clients over plain TCP, as all 6.x servers did before 6.3.1. Such a server has no confidentiality and no authentication. Use it only on a trusted network, and move it to TLS with client certificates.</li>
+<li><strong>Lengths are checked.</strong> A block length from the peer is checked against <code>SetMaxBlockSize()</code> (64 MB by default) before memory is allocated or data is read, and <code>ReadBlock()</code> overloads take the size of the caller's buffer. Negative lengths and lengths over <code>INT_MAX</code> are refused on send.</li>
+<li><strong>One header layout.</strong> Since 6.4 every platform sends the canonical 32-byte block header that DataReel 7.4 sends. A peer that sends the older 4-byte-word header (a 64-bit Windows or 32-bit build before 6.4) is detected and refused (<code>PeerOldHeader()</code>), not misread. Upgrade both ends together.</li>
+<li><strong>gxDatagram (UDP)</strong> sends the same blocks over UDP, one datagram for the header and one for the body. UDP has no peer authentication and no encryption: any host that can reach the port can send blocks. Lengths are checked against <code>SetMaxBlockSize()</code> before memory is allocated. Use it only on a trusted network segment.</li>
+</ul>
+<h2 id="4ReplicationAndThe7XObjectServer">4. Replication and the 7.x object server</h2>
+<p>Source: <code>dr7features/include/dr7features.h</code>, <code>dr7features/src/dr7features.cpp</code>, <code>docs/replication_6x.html</code>.</p>
+<p>DataReel 6.4 has no replication or object server code of its own. The optional dr7features build (<code>DATAREEL7_FEATURES_DIR</code>, a DataReel 7.4 or later source tree) links the DataReel 7.4 code:</p>
+<ul>
+<li><code>gxv7ObjRepl</code> is DataReel 7.4's <code>gxObjRepl</code>: objects (never file pages) from a primary to a copy over <code>gxStream</code> with mutual TLS, epoch fencing, history digests and alarms, as described in the DataReel 7.4 security white paper. A 6.4 program and a 7.4 program replicate to each other.</li>
+<li><code>gxv7ObjectClient</code> connects to a DataReel 7.4 database object server with mutual TLS for read-only vector searches.</li>
+</ul>
+<p>Their security is DataReel 7.4's, with its limits: a replication peer the copy trusts can raise the copy's epoch or replace its data, and the replication digests detect mistakes, not forgeries.</p>
+<h2 id="5HostileInput">5. Hostile input</h2>
+<p>Source: <code>RELEASE_NOTES_6.3.txt</code>, <code>RELEASE_NOTES_6.4.txt</code>, <code>RELEASE_NOTES_6.4.1.txt</code>, <code>examples_database/fuzz</code>, <code>examples_general/fuzz</code>, <code>examples_socket/stream_fuzz</code>.</p>
+<ul>
+<li><strong>6.3</strong> took the fixes of the DataReel 7.3 security scan (damaged block lengths that looped or read out of place, checksum reads bounded by the file size, journal recovery bounds, file handles on failed opens, owner-only key and log files) and fixed what a sweep of the 6.x-only code found (Base64, string, configuration and other support code). Each fix has a test with a damaged or crafted input (<code>examples_database/damaged</code>, <code>examples_general/security_sweep</code>, <code>examples_general/support_security</code>, <code>examples_socket/comm_security</code>).</li>
+<li><strong>6.3.1</strong> checks block lengths in <code>gxStream</code> and <code>gxDatagram</code> before allocation and adds the TLS client authentication of section 3.</li>
+<li><strong>6.4</strong> sends the canonical block header on every platform and makes journal salts unique.</li>
+<li><strong>6.4.1</strong> fixes socket and thread findings (<code>examples_socket/socket_security</code>, <code>examples_threads/thread_security</code>).</li>
+<li>libFuzzer targets cover the database files, the support code and the stream protocol, and the 6.4 test suite (<code>examples_database/run_db_tests.sh</code>, 39 checks including the damaged-file and security sweeps, the networking and TLS checks and 50 kill -9 crash rounds) passes under AddressSanitizer and UndefinedBehaviorSanitizer.</li>
+</ul>
+<h2 id="6DatabaseFiles">6. Database files</h2>
+<p>Source: <code>include/gxdbase.h</code>, <code>include/gxdjrnl.h</code>.</p>
+<ul>
+<li>Block headers carry a check word, and objects can carry CRC-32 checksums. These detect accidental damage; they are not cryptographic.</li>
+<li>The journal (6.3 and later) makes a group of writes to a data file and its indexes survive a crash or power loss as a whole or not at all. Without it, a crash can leave part of a batch.</li>
+<li>File formats are unchanged across 6.x and shared with DataReel 7 for the same build settings. Database files made on Linux and on Windows are laid out differently and should be used on the system that made them.</li>
+<li>Files are created with the process's umask; the application decides who may read them.</li>
+</ul>
+<h2 id="7UseDatareel64Securely">7. Use DataReel 6.4 securely</h2>
+<ul>
+<li>Run every <code>gxStream</code> server with TLS, client certificates and an allow list; do not call <code>AllowAnonymousClients(true)</code> on a network you do not trust.</li>
+<li>Turn TLS on in every <code>gxStream</code> client (<code>UseTLS(1)</code> or <code>SetClientCert()</code>), and keep server verification on.</li>
+<li>Call <code>RequireVerifyCert()</code> before HTTPS connections. Do not send passwords over the plain text SMTP, POP3, FTP, HTTP or telnet classes; use DataReel 7.4 for TLS mail and file transfer.</li>
+<li>Use <code>gxDatagram</code> only on a trusted network segment, or replace it with <code>gxStream</code> over TLS.</li>
+<li>Firewall port 2073 (TCP and UDP) to the hosts that need it.</li>
+<li>Encrypt sensitive records yourself, or keep the files on an encrypted file system, if they must be protected at rest.</li>
+<li>Plan the move to DataReel 7.4, which has no plain text database transport.</li>
+</ul>
+<h2 id="8LimitsStatedPlainly">8. Limits, stated plainly</h2>
+<ul>
+<li>Plain text transports remain in 6.x for compatibility (section 1). Their traffic can be read and changed by anyone on the path.</li>
+<li><code>gxDatagram</code> cannot authenticate peers, and lost or reordered datagrams leave the two sides out of step.</li>
+<li>No encryption at rest; CRC-32 checksums detect damage, not deliberate changes.</li>
+<li>A certificate a server trusts is trusted with everything that server's program allows.</li>
+<li>TLS choices (cipher suites, groups, revocation) belong to the TLS library and its policy.</li>
+<li>While a program runs, its data and keys are in its memory.</li>
+</ul>
+<h2 id="9Fips1403">9. FIPS 140-3</h2>
+<p>DataReel 6.4 is not a FIPS-validated cryptographic module and has no FIPS-only mode of its own. Its TLS uses the TLS library it is built with: on a RHEL system in FIPS mode, the system OpenSSL's FIPS provider; on Windows, Schannel under the Windows FIPS policy, or OpenSSL 3.5 built with its FIPS provider (<code>README_windows_openssl.txt</code>). DataReel 6.4 should not be described as FIPS compliant or FIPS validated. The plain text transports use no cryptography at all.</p>
+<h2 id="10QuantumComputing">10. Quantum computing</h2>
+<p>DataReel leaves key exchange to the TLS library. OpenSSL 3.5 offers the hybrid X25519MLKEM768 group (ML-KEM, NIST FIPS 203) in TLS 1.3 by default, so peers built with it can agree on keys that a future quantum computer cannot recover from recorded traffic, where the system crypto policy allows it. Certificates are RSA or ECDSA. Plain text transports protect nothing, now or later. For traffic that must stay confidential for years, use TLS 1.3 with OpenSSL 3.5, or move to DataReel 7.4.</p>
+<h2 id="11ReportingASecurityIssue">11. Reporting a security issue</h2>
+<p>Report security issues privately through the contact page (https://datareel.com/contact.php), not in public issue trackers. DataReel 6.4.x gets security fixes; projects maintained by DataReel Software Development report DataReel issues through DataReel's internal handoff process.</p>
+</main>
+<footer class="dr-footer">DataReel 6.4.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
+</html>
+<!-- PAGE CONTENT ENDS ABOVE -->
+<!-- *********************************************************** -->
+<!-- ******************************* -->
+<!-- ********* End of Page ********* -->
+<!-- ******************************* -->

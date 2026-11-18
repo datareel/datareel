@@ -1,0 +1,132 @@
+<!doctype html>
+<!-- ******************************* -->
+<!-- ******** Start of Page ******** -->
+<!-- ******************************* -->
+<!-- *********************************************************** -->
+<!-- HTML Page -->
+<!-- Designed For: FireFox, Chrome, Safari -->
+<!-- Published By: DataReel Software Development -->
+<!-- Content Last Modified: 11/18/2026 -->
+<!-- File Creation Date: 11/18/2026 -->
+<!-- *** -->
+<!-- Package version: 12.3.10 -->
+<!-- *** -->
+<!-- Copyright (c) 1999-2026 DataReel Software Development -->
+<!-- *********************************************************** -->
+<!-- *********** HTML Page Description and Details ************* -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- START OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- This HTML page and its derivatives are copyright (c) 1999-2024, by -->
+<!-- DataReel Software Development. This HTML page and any derivative Web -->
+<!-- objects are published on the Internet for public viewing only. -->
+<!-- Reproduction of any HTML page and/or Web objects published on -->
+<!-- this Website is prohibited unless authorized in writing by -->
+<!-- DataReel Software Development or authorized reseller. Reproduction of any -->
+<!-- third party code used to produce pages on this Website is subject to -->
+<!-- the third party licensing and distribution agreement. -->
+<!-- *** -->
+<!-- THIS SOFTWARE IS PROVIDED AS IS WITHOUT WARRANTY OF ANY KIND. THE -->
+<!-- ENTIRE RISK OF THE QUALITY AND PERFORMANCE OF THIS SOFTWARE IS WITH -->
+<!-- YOU. SHOULD ANY ELEMENT OF THIS SOFTWARE PROVE DEFECTIVE, YOU WILL -->
+<!-- ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR, OR CORRECTION. -->
+<!-- *** -->
+<!-- *********************************************************** -->
+<!-- *************** THIRD PARTY ACKNOWLEDGMENT **************** -->
+<!-- *********************************************************** -->
+<!-- *** -->
+<!-- NONE -->
+<!-- *** -->
+<!-- END OF LICENSING AND DISCLAIMER AGREEMENT -->
+<!-- *** -->
+<!-- HTML Internet page -->
+<!-- *********************************************************** -->
+<!-- PAGE CONTENT STARTS BELOW -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>gxStream and Replication on Port 2073, DataReel 6.4 (White Paper)</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>gxStream and Replication on Port 2073, DataReel 6.4 (White Paper)</h1>
+<p><strong>Release:</strong> DataReel 6.4 legacy release (6.4.1 and the 6.4.2 branch), 11/18/2026. <strong>Audience:</strong> network and security reviewers, firewall administrators, and developers who maintain DataReel 6.x gxStream and gxDatagram programs or replicate 6.x programs' records. This paper was written from the 6.4 source: <code>include/gxstypes.h</code>, <code>include/gxheader.h</code>, <code>include/gxstream.h</code>, <code>src/gxstream.cpp</code>, <code>include/gxdatagm.h</code>, <code>src/gxdatagm.cpp</code>, <code>include/gxsocket.h</code>, <code>src/gxsocket.cpp</code> and <code>dr7features/</code>. When this paper and the code disagree, the code wins.</p>
+<p>The exact wire format is in the <a href="rfc/draft-gaer-datareel-gxstream-00.html">protocol specification</a> (an Internet-Draft for the Independent Submission stream), which covers DataReel 7.4 and the DataReel 6.x legacy transports. The security design of 6.4 is in the <a href="security_white_paper.html">DataReel 6.4 security white paper</a>. DataReel 7.4 has its own version of this paper (https://datareel.com/clib7/gxstream_replication_white_paper.php), with the database object server, the multiplex and replication in full.</p>
+<h2 id="1Port2073">1. Port 2073</h2>
+<p>TCP and UDP port 2073 are registered with IANA for DataReel under the service name <code>gxs-data-port</code>, "DataReel Database Socket". The registration was made in the 1990s, when a protocol description was not required with it; these papers and the specification are that description. The services file entries are in <code>include/gxstypes.h</code>:</p>
+<pre>gxs-data-port   2073/tcp   DataReel Database Socket
+gxs-data-port   2073/udp   DataReel Database Socket</pre>
+<p>The port is <code>gxsDATA_PORT</code>, <code>gxSOCKET_DBS_PORT</code> and <code>gxSOCKET_DEFAULT_PORT</code> (all 2073), and every 6.x <code>gxSocket</code> starts with port 2073 until the program sets another.</p>
+<table>
+<thead><tr><th>Use in DataReel 6.4</th><th>Transport</th></tr></thead>
+<tbody>
+<tr><td><code>gxStream</code> database block clients and servers</td><td>TCP, with TLS and client certificates (or plain TCP when a server opts out)</td></tr>
+<tr><td><code>gxDatagram</code> database block clients and servers</td><td>UDP, plain text</td></tr>
+<tr><td><code>gxv7ObjRepl</code> replication (dr7features, the 7.4 code)</td><td>TCP, mutual TLS; port from the configuration</td></tr>
+<tr><td><code>gxv7ObjectClient</code> and the <code>vector_server</code> tool (dr7features, the 7.4 object server)</td><td>TCP, mutual TLS</td></tr>
+</tbody>
+</table>
+<p>The UDP registration is for <code>gxDatagram</code>. DataReel 7 has no UDP transport.</p>
+<h2 id="2TheGxstreamBlock">2. The gxStream block</h2>
+<p>A block is a 32-byte header followed by <code>block_length</code> bytes of body. Since 6.4 every platform sends the header in one canonical form, four 8-byte little endian words, the same bytes DataReel 7.4 sends:</p>
+<table>
+<thead><tr><th>Word</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td>check word</td><td><code>0xFEFE</code>; anything else is a synchronization error</td></tr>
+<tr><td>length</td><td>the number of body bytes that follow</td></tr>
+<tr><td>status</td><td>byte 0: the data status (<code>V</code>, a block from a remote device); byte 1: the control code; the rest 0</td></tr>
+<tr><td>result</td><td>a 64-bit result carried by a header-only acknowledgment (a file address); otherwise 0</td></tr>
+</tbody>
+</table>
+<p>A receiver refuses a header whose reserved bytes are not zero: that is a peer before 6.4 on 64-bit Windows or a 32-bit build, which sent 4-byte words. <code>PeerOldHeader()</code> reports it; upgrade both ends together.</p>
+<p>Control codes: <code>A</code> add, <code>C</code> change, <code>D</code> delete, <code>R</code> request, <code>S</code> send data, <code>W</code> acknowledge (with a result), <code>L</code> close the connection, <code>K</code> kill the server, <code>T</code> restart the server. A server program must act on <code>K</code> and <code>T</code> only for clients it trusts to administer it.</p>
+<p>The exchanges are the ones <code>gxStream</code> has had since 1999: <code>RequestBlock()</code> sends an <code>R</code> block and reads the reply block; <code>AddBlock()</code>, <code>ChangeBlock()</code> and <code>DeleteBlock()</code> send <code>A</code>, <code>C</code> (then the new contents in an <code>S</code> block) and <code>D</code> blocks; <code>WriteResultBlock64()</code> and <code>ReadResultBlock64()</code> carry a 64-bit result (6.3.1); <code>CloseConnection()</code> sends <code>L</code>. A receiver checks every length against <code>SetMaxBlockSize()</code> (64 MB by default) and against the caller's buffer before it reads.</p>
+<h2 id="3GxstreamOverTcp">3. gxStream over TCP</h2>
+<ul>
+<li><strong>Server:</strong> <code>StreamServer()</code> listens and <code>Accept()</code> or <code>AcceptClient()</code> takes a client. Since 6.3.1 they refuse to run unless the server authenticates its clients: <code>SetServerCert()</code> (TLS), <code>SetClientCAFile()</code> (the only CAs trusted for clients) and at least one <code>AllowClientFingerprint()</code> (SHA-256) or <code>AllowClientCN()</code> entry. A client whose certificate fails is closed. The accepted client's identity is <code>PeerFingerprint()</code> and <code>PeerCN()</code>.</li>
+<li><strong>Client:</strong> <code>StreamClient()</code> connects. With <code>UseTLS(1)</code> or <code>SetClientCert()</code> it runs TLS and checks the server's certificate and host name (<code>SetServerCAFile()</code>, <code>SetServerName()</code>) unless <code>SetVerifyServer(0)</code>. In TLS mode the block functions work only on the TLS connection, so a failed handshake never falls back to cleartext.</li>
+<li><strong>Legacy plain TCP:</strong> a server that calls <code>AllowAnonymousClients(true)</code> without a server certificate exchanges blocks over plain TCP, as 6.x servers did before 6.3.1, and a client without TLS settings connects that way. This mode has no confidentiality, integrity or authentication. The specification lists it as a legacy transport that new deployments must not use, and DataReel 7 does not have it.</li>
+</ul>
+<h2 id="4GxdatagramOverUdp">4. gxDatagram over UDP</h2>
+<p><code>gxDatagram</code> (<code>DatagramServer()</code>, <code>DatagramClient()</code>) sends the same blocks over UDP: one datagram with the 32-byte header, then one datagram with the body (at most 65,507 bytes). The control codes and exchanges are those of <code>gxStream</code>. There is no retransmission, ordering, encryption or authentication: a lost or reordered datagram leaves the two sides out of step, and any host that can reach the port can send blocks. Receivers check the header form and the length against <code>SetMaxBlockSize()</code> before they read the body. Use it only on a trusted network segment.</p>
+<h2 id="5ReplicationAndTheObjectServerDr7Features">5. Replication and the object server (dr7features)</h2>
+<p>DataReel 6.4 has no replication or object server of its own. The optional dr7features build (<code>DATAREEL7_FEATURES_DIR</code>, a DataReel 7.4 or later tree) links the DataReel 7.4 code, so the protocol is exactly DataReel 7.4's:</p>
+<ul>
+<li>**<code>gxv7ObjRepl</code>** is DataReel 7.4's <code>gxObjRepl</code>. The primary connects to the copy with <code>gxStream</code> over mutual TLS and sends objects (never file pages): a hello with its epoch, name, role, last commit and a running digest; the copy's reply; an epoch frame; then one commit at a time, each acknowledged once it is durable on the copy, or a full send when the copy is too far behind. The copy refuses older epochs, gaps, reordering and changed histories with an alarm. A 6.4 program and a 7.4 program (or the 7.4 <code>objrepl</code> tool) replicate to each other on Linux and Windows (<code>docs/replication_6x.html</code>, <code>examples_database/replication_6x</code>). The port is set in the configuration; port 2073 is the registered port for this traffic.</li>
+<li>**<code>gxv7ObjectClient</code>** opens a channel on a DataReel 7.4 database object server (the multiplex on port 2073) and sends read-only vector searches (operations 7 and 8 of the object service). The <code>vector_server</code> tool (<code>dr7features/inner</code>) is that server, serving one database and its vectors.</li>
+</ul>
+<p>The DataReel 7.4 version of this paper and the specification describe the replication frames, the multiplex and the object service in full.</p>
+<h2 id="6Compatibility">6. Compatibility</h2>
+<ul>
+<li>6.4 and 7.4 send the same block header, and their <code>gxStream</code> peers interoperate over TLS, as server and as client (the DataReel 7.4 <code>utils/objrepl/xver</code> tests).</li>
+<li>6.4 does not talk to peers older than 6.4 that were built on Windows or for 32 bits (the old header is refused). 64-bit Linux peers of every release sent the canonical bytes.</li>
+<li>A 6.x plain TCP or UDP peer cannot talk to DataReel 7, which requires TLS.</li>
+</ul>
+<h2 id="7SecuritySummary">7. Security summary</h2>
+<ul>
+<li>Database servers authenticate clients with TLS client certificates and an allow list unless the program opts out explicitly.</li>
+<li>TLS 1.2 or 1.3; TLS clients check the server certificate and host name by default.</li>
+<li>Every length from the peer is checked before memory is allocated or data is read.</li>
+<li>The legacy plain TCP mode and <code>gxDatagram</code> have no security of their own: use them only on trusted networks, firewall port 2073 (TCP and UDP) to the hosts that need it, and plan the move to DataReel 7.4.</li>
+</ul>
+</main>
+<footer class="dr-footer">DataReel 6.4.1 &middot; Copyright (c) 2001-2026 DataReel Software Development &middot; Documentation style updated 10/14/2026</footer>
+</body>
+</html>
+<!-- PAGE CONTENT ENDS ABOVE -->
+<!-- *********************************************************** -->
+<!-- ******************************* -->
+<!-- ********* End of Page ********* -->
+<!-- ******************************* -->
