@@ -17,7 +17,7 @@
   <front>
     <title abbrev="DataReel gxStream">The DataReel gxStream Database Block Protocol and Object Replication over TCP Port 2073</title>
     <seriesInfo name="Internet-Draft" value="draft-gaer-datareel-gxstream-00"/>
-    <author initials="D." surname="Gaer" fullname="D. Gaer">
+    <author initials="D." surname="Gaer" fullname="Douglas Gaer">
       <organization>DataReel Software Development</organization>
       <address>
         <uri>https://datareel.com</uri>
@@ -74,7 +74,9 @@
         (<xref target="object"/>);</li>
         <li>the gxObjRepl replication protocol (<xref target="repl"/>).</li>
       </ul>
-      <t>The UDP assignment of port 2073 is not used by any protocol in this document (<xref target="iana"/>).</t>
+      <t>DataReel 6.x, the legacy release line, can also carry gxStream blocks over plain TCP and over UDP. These
+      legacy transports are described in <xref target="legacy-transports"/> for completeness; they have no
+      authentication or encryption and are NOT RECOMMENDED.</t>
 
       <section anchor="reqs">
         <name>Requirements Language</name>
@@ -590,6 +592,36 @@ reply = u8  ok            ; 1 accepted, 0 refused
       </section>
     </section>
 
+    <section anchor="legacy-transports">
+      <name>Legacy Transports (DataReel 6.x)</name>
+      <t>DataReel 6.x is the legacy release line (bug fixes and security updates only). Its gxStream and gxDatagram
+      classes predate the TLS requirement of <xref target="tls"/>. Since DataReel 6.4 they send the same canonical
+      block header as DataReel 7.4 (<xref target="header"/>) and check received lengths before allocating memory.
+      Both transports below are described so that implementations and network operators can recognize them;
+      neither meets the requirements of this document.</t>
+      <section anchor="legacy-tcp">
+        <name>gxStream over Plain TCP</name>
+        <t>A DataReel 6.x gxStream client uses TLS only when the program enables it. A DataReel 6.4 gxStream server
+        refuses to accept clients unless it either uses TLS with client certificates and an allow list (as in
+        <xref target="tls"/>) or the program explicitly opts out; a server that opts out without a server
+        certificate exchanges blocks over plain TCP. Blocks on such a connection have no confidentiality,
+        integrity or authentication. New deployments MUST NOT use plain TCP, and DataReel 7 does not support
+        it.</t>
+      </section>
+      <section anchor="legacy-udp">
+        <name>gxDatagram over UDP</name>
+        <t>The DataReel 6.x gxDatagram class sends blocks over UDP <xref target="RFC0768"/>: each block is one
+        datagram holding the 32-byte block header, followed by one datagram holding the body (so a body is at most
+        65507 bytes). The control codes and exchanges of <xref target="basic"/> apply. There is no retransmission,
+        ordering, encryption or authentication: any host that can reach the port can send blocks, and a lost or
+        reordered datagram leaves the two sides out of step. Receivers check the header form and the length
+        against a maximum before reading the body.</t>
+        <t>This is the use for which UDP port 2073 was registered. gxDatagram is not part of DataReel 7, and
+        implementations of this document do not use UDP. New deployments MUST NOT use gxDatagram on networks
+        where any host is untrusted.</t>
+      </section>
+    </section>
+
     <section anchor="errors">
       <name>Error Handling</name>
       <ul>
@@ -654,6 +686,9 @@ reply = u8  ok            ; 1 accepted, 0 refused
       </section>
       <section>
         <name>Stored Data</name>
+        <t>The legacy DataReel 6.x transports (<xref target="legacy-transports"/>) carry blocks in cleartext
+        and, over UDP, without any peer authentication. Operators should block them at the network edge and
+        replace them with TLS connections.</t>
         <t>DataReel database files are not encrypted by the library; data is protected on the wire, not at rest.
         Block check words and optional CRC-32 checksums in the files detect accidental damage only.</t>
       </section>
@@ -671,7 +706,9 @@ Description:   DataReel Database Socket
 ]]></artwork>
       <t>This document asks IANA to update the Reference of the TCP assignment to this document, keeping the
       service name, port number, assignee and contact.</t>
-      <t>No protocol in this document uses UDP. This document makes no change to the UDP assignment.</t>
+      <t>The UDP assignment is used only by the legacy DataReel 6.x gxDatagram transport
+      (<xref target="legacy-udp"/>). This document asks IANA to update the Reference of the UDP assignment to
+      this document as well, and otherwise to keep it unchanged while DataReel 6.x is maintained.</t>
       <t>This document creates no new registry. The control codes, multiplex frame kinds, object service
       operations and replication frame kinds are maintained by the DataReel project with its source code.</t>
     </section>
@@ -721,6 +758,12 @@ Description:   DataReel Database Socket
           <author initials="P." surname="Saint-Andre" fullname="P. Saint-Andre"/>
           <author initials="R." surname="Salz" fullname="R. Salz"/><date year="2023" month="November"/></front>
           <seriesInfo name="RFC" value="9525"/><seriesInfo name="DOI" value="10.17487/RFC9525"/>
+        </reference>
+        <reference anchor="RFC0768" target="https://www.rfc-editor.org/info/rfc768">
+          <front><title>User Datagram Protocol</title>
+          <author initials="J." surname="Postel" fullname="J. Postel"/><date year="1980" month="August"/></front>
+          <seriesInfo name="STD" value="6"/><seriesInfo name="RFC" value="768"/>
+          <seriesInfo name="DOI" value="10.17487/RFC0768"/>
         </reference>
         <reference anchor="RFC9293" target="https://www.rfc-editor.org/info/rfc9293">
           <front><title>Transmission Control Protocol (TCP)</title>
@@ -787,6 +830,13 @@ Description:   DataReel Database Socket
       6.4.1 legacy release sends the same block header and interoperates with 7.4 over TLS. Files:
       include/gxheader.h, include/gxstream.h, src/gxstream.cpp, include/gxstls.h, src/gxstls.cpp,
       src/gxdbserver.cpp, src/gxdbmux.cpp, src/gxdbobject.cpp, src/gxobjrepl.cpp.</t>
+      <t>The DataReel 6.4 legacy release (6.4.1 and the 6.4.2 branch) implements the block header and the basic
+      exchanges in its own gxStream class (include/gxstream.h, src/gxstream.cpp), with TLS, client certificates
+      and an allow list as in <xref target="tls"/>, and also the legacy transports of
+      <xref target="legacy-transports"/> (src/gxdatagm.cpp for UDP). Its optional dr7features library links the
+      DataReel 7.4 code for the object service client (vector searches) and for gxObjRepl replication, so a 6.4
+      program and a 7.4 program replicate to each other with the protocol of <xref target="repl"/>. The
+      utils/objrepl/xver tests of DataReel 7.4 check 6.4 and 7.4 peers against each other.</t>
       <t>Known differences between DataReel 7.4 and this document, to be resolved in a later 7.4.x release:</t>
       <ul>
         <li>The high 32 bits of the Length word are not checked on builds where the in-memory length field is

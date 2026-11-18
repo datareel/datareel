@@ -38,7 +38,7 @@ gxs-data-port   2073/udp   DataReel Database Socket</pre>
 <tr><td>Object replication (gxObjRepl)</td><td>uses gxStream framing; the port is set in its configuration (no default in 7.4)</td><td><code>gxobjrepl.h</code></td></tr>
 </tbody>
 </table>
-<p>UDP is not used: no DataReel 7.4 protocol sends datagrams on port 2073.</p>
+<p>UDP is not used by DataReel 7. The UDP registration is for the legacy DataReel 6.x class gxDatagram, which sends the same blocks over UDP (one datagram for the header and one for the body) in cleartext and with no peer authentication. DataReel 6.x gxStream can also run over plain TCP when a server explicitly opts out of client authentication. Both are legacy transports, described in the specification for completeness and not recommended.</p>
 <p><strong>Why a registered port.</strong> gxStream is a long-lived service protocol between hosts that are configured once and then left alone: a database server, its clients and a replication pair. A fixed, registered port lets the services files, firewall rules, SELinux port labels and network monitoring name the traffic as DataReel database traffic, lets clients connect without being told a port, and keeps DataReel from colliding with another program's choice of an unregistered port. gxStream has been DataReel's database block protocol since 1999, and 2073 its port since the registration.</p>
 <h2 id="2TheLayers">2. The layers</h2>
 <pre> +-------------------------------------------------------------+

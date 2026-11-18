@@ -75,37 +75,37 @@ Table of Contents
      1.1.  Requirements Language . . . . . . . . . . . . . . . . . .   4
      1.2.  Terminology . . . . . . . . . . . . . . . . . . . . . . .   4
    2.  Transport . . . . . . . . . . . . . . . . . . . . . . . . . .   4
-     2.1.  TCP . . . . . . . . . . . . . . . . . . . . . . . . . . .   4
+     2.1.  TCP . . . . . . . . . . . . . . . . . . . . . . . . . . .   5
      2.2.  TLS . . . . . . . . . . . . . . . . . . . . . . . . . . .   5
-     2.3.  Timeouts  . . . . . . . . . . . . . . . . . . . . . . . .   5
+     2.3.  Timeouts  . . . . . . . . . . . . . . . . . . . . . . . .   6
    3.  The gxStream Block  . . . . . . . . . . . . . . . . . . . . .   6
      3.1.  Block Header  . . . . . . . . . . . . . . . . . . . . . .   6
      3.2.  Control Codes . . . . . . . . . . . . . . . . . . . . . .   7
-     3.3.  Maximum Block Size  . . . . . . . . . . . . . . . . . . .   8
-   4.  Basic Block Exchanges . . . . . . . . . . . . . . . . . . . .   8
+     3.3.  Maximum Block Size  . . . . . . . . . . . . . . . . . . .   9
+   4.  Basic Block Exchanges . . . . . . . . . . . . . . . . . . . .   9
    5.  The Database Object Server  . . . . . . . . . . . . . . . . .   9
-     5.1.  Legacy Object Sessions  . . . . . . . . . . . . . . . . .   9
-   6.  The Channel Multiplex . . . . . . . . . . . . . . . . . . . .   9
-     6.1.  Frames  . . . . . . . . . . . . . . . . . . . . . . . . .   9
-     6.2.  Session and Channels  . . . . . . . . . . . . . . . . . .  11
-     6.3.  Flow Control  . . . . . . . . . . . . . . . . . . . . . .  12
-   7.  The Object Service  . . . . . . . . . . . . . . . . . . . . .  12
-     7.1.  Requests and Replies  . . . . . . . . . . . . . . . . . .  13
-     7.2.  Vector Searches . . . . . . . . . . . . . . . . . . . . .  14
-   8.  Object Replication (gxObjRepl)  . . . . . . . . . . . . . . .  14
-     8.1.  Connection  . . . . . . . . . . . . . . . . . . . . . . .  14
-     8.2.  Hello and Reply . . . . . . . . . . . . . . . . . . . . .  15
-     8.3.  Frames  . . . . . . . . . . . . . . . . . . . . . . . . .  16
-       8.3.1.  F_COMMIT  . . . . . . . . . . . . . . . . . . . . . .  16
-       8.3.2.  Full Send . . . . . . . . . . . . . . . . . . . . . .  17
-     8.4.  Digests . . . . . . . . . . . . . . . . . . . . . . . . .  18
-     8.5.  Epochs, Takeover and Rejoin . . . . . . . . . . . . . . .  18
-     8.6.  Port  . . . . . . . . . . . . . . . . . . . . . . . . . .  18
-   9.  Error Handling  . . . . . . . . . . . . . . . . . . . . . . .  18
-   10. Security Considerations . . . . . . . . . . . . . . . . . . .  19
-     10.1.  Confidentiality and Integrity  . . . . . . . . . . . . .  19
-     10.2.  Authentication and Authorization . . . . . . . . . . . .  19
-     10.3.  Replication  . . . . . . . . . . . . . . . . . . . . . .  20
+     5.1.  Legacy Object Sessions  . . . . . . . . . . . . . . . . .  10
+   6.  The Channel Multiplex . . . . . . . . . . . . . . . . . . . .  10
+     6.1.  Frames  . . . . . . . . . . . . . . . . . . . . . . . . .  10
+     6.2.  Session and Channels  . . . . . . . . . . . . . . . . . .  12
+     6.3.  Flow Control  . . . . . . . . . . . . . . . . . . . . . .  13
+   7.  The Object Service  . . . . . . . . . . . . . . . . . . . . .  13
+     7.1.  Requests and Replies  . . . . . . . . . . . . . . . . . .  14
+     7.2.  Vector Searches . . . . . . . . . . . . . . . . . . . . .  15
+   8.  Object Replication (gxObjRepl)  . . . . . . . . . . . . . . .  15
+     8.1.  Connection  . . . . . . . . . . . . . . . . . . . . . . .  15
+     8.2.  Hello and Reply . . . . . . . . . . . . . . . . . . . . .  16
+     8.3.  Frames  . . . . . . . . . . . . . . . . . . . . . . . . .  17
+       8.3.1.  F_COMMIT  . . . . . . . . . . . . . . . . . . . . . .  17
+       8.3.2.  Full Send . . . . . . . . . . . . . . . . . . . . . .  18
+     8.4.  Digests . . . . . . . . . . . . . . . . . . . . . . . . .  19
+     8.5.  Epochs, Takeover and Rejoin . . . . . . . . . . . . . . .  19
+     8.6.  Port  . . . . . . . . . . . . . . . . . . . . . . . . . .  19
+   9.  Legacy Transports (DataReel 6.x)  . . . . . . . . . . . . . .  20
+     9.1.  gxStream over Plain TCP . . . . . . . . . . . . . . . . .  20
+     9.2.  gxDatagram over UDP . . . . . . . . . . . . . . . . . . .  20
+   10. Error Handling  . . . . . . . . . . . . . . . . . . . . . . .  20
+   11. Security Considerations . . . . . . . . . . . . . . . . . . .  21
 
 
 
@@ -114,16 +114,19 @@ Gaer                       Expires 22 May 2027                  [Page 2]
 Internet-Draft              DataReel gxStream              November 2026
 
 
-     10.4.  Resource Exhaustion  . . . . . . . . . . . . . . . . . .  20
-     10.5.  Server Control Codes . . . . . . . . . . . . . . . . . .  20
-     10.6.  Stored Data  . . . . . . . . . . . . . . . . . . . . . .  20
-   11. IANA Considerations . . . . . . . . . . . . . . . . . . . . .  20
-   12. References  . . . . . . . . . . . . . . . . . . . . . . . . .  21
-     12.1.  Normative References . . . . . . . . . . . . . . . . . .  21
-     12.2.  Informative References . . . . . . . . . . . . . . . . .  21
-   Appendix A.  Implementation Status  . . . . . . . . . . . . . . .  22
-   Acknowledgments . . . . . . . . . . . . . . . . . . . . . . . . .  23
-   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  23
+     11.1.  Confidentiality and Integrity  . . . . . . . . . . . . .  21
+     11.2.  Authentication and Authorization . . . . . . . . . . . .  21
+     11.3.  Replication  . . . . . . . . . . . . . . . . . . . . . .  21
+     11.4.  Resource Exhaustion  . . . . . . . . . . . . . . . . . .  22
+     11.5.  Server Control Codes . . . . . . . . . . . . . . . . . .  22
+     11.6.  Stored Data  . . . . . . . . . . . . . . . . . . . . . .  22
+   12. IANA Considerations . . . . . . . . . . . . . . . . . . . . .  22
+   13. References  . . . . . . . . . . . . . . . . . . . . . . . . .  23
+     13.1.  Normative References . . . . . . . . . . . . . . . . . .  23
+     13.2.  Informative References . . . . . . . . . . . . . . . . .  24
+   Appendix A.  Implementation Status  . . . . . . . . . . . . . . .  24
+   Acknowledgments . . . . . . . . . . . . . . . . . . . . . . . . .  25
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  25
 
 1.  Introduction
 
@@ -158,9 +161,6 @@ Internet-Draft              DataReel gxStream              November 2026
 
    *  the gxObjRepl replication protocol (Section 8).
 
-   The UDP assignment of port 2073 is not used by any protocol in this
-   document (Section 11).
-
 
 
 
@@ -169,6 +169,11 @@ Gaer                       Expires 22 May 2027                  [Page 3]
 
 Internet-Draft              DataReel gxStream              November 2026
 
+
+   DataReel 6.x, the legacy release line, can also carry gxStream blocks
+   over plain TCP and over UDP.  These legacy transports are described
+   in Section 9 for completeness; they have no authentication or
+   encryption and are NOT RECOMMENDED.
 
 1.1.  Requirements Language
 
@@ -208,13 +213,8 @@ Internet-Draft              DataReel gxStream              November 2026
 
 2.  Transport
 
-2.1.  TCP
 
-   gxStream runs over TCP [RFC9293].  Servers listen on port 2073 unless
-   configured otherwise, and clients connect to port 2073 unless given
-   another port.  A server MAY listen on IPv6 and IPv4 at once.
-   Implementations SHOULD disable the Nagle algorithm on replication
-   connections, since each frame is answered by a small acknowledgment.
+
 
 
 
@@ -225,6 +225,14 @@ Gaer                       Expires 22 May 2027                  [Page 4]
 
 Internet-Draft              DataReel gxStream              November 2026
 
+
+2.1.  TCP
+
+   gxStream runs over TCP [RFC9293].  Servers listen on port 2073 unless
+   configured otherwise, and clients connect to port 2073 unless given
+   another port.  A server MAY listen on IPv6 and IPv4 at once.
+   Implementations SHOULD disable the Nagle algorithm on replication
+   connections, since each frame is answered by a small acknowledgment.
 
 2.2.  TLS
 
@@ -263,14 +271,6 @@ Internet-Draft              DataReel gxStream              November 2026
    A failed handshake, failed certificate check or failed allow list
    check closes the TCP connection.
 
-2.3.  Timeouts
-
-   Every handshake, read and write SHOULD be bounded by a timeout.
-   DataReel 7.4 uses 10 seconds for the handshake and 120 seconds for
-   each block on the database object server, 30 seconds for the
-   replication handshake and hello, and a configurable idle timeout
-   (default 120 seconds) for replication frames.
-
 
 
 
@@ -281,6 +281,14 @@ Gaer                       Expires 22 May 2027                  [Page 5]
 
 Internet-Draft              DataReel gxStream              November 2026
 
+
+2.3.  Timeouts
+
+   Every handshake, read and write SHOULD be bounded by a timeout.
+   DataReel 7.4 uses 10 seconds for the handshake and 120 seconds for
+   each block on the database object server, 30 seconds for the
+   replication handshake and hello, and a configurable idle timeout
+   (default 120 seconds) for replication frames.
 
 3.  The gxStream Block
 
@@ -318,15 +326,7 @@ Internet-Draft              DataReel gxStream              November 2026
       maximum block size before it allocates memory for the body, and
       MUST close the connection if it is larger.
 
-   Status:
-      Byte 0 (the least significant byte) is the data status.  Senders
-      set it to 0x56 ("V", a block received from a remote device);
-      receivers MUST ignore it.  Byte 1 is the control code
-      (Section 3.2).  Bytes 2 to 7 MUST be zero.
 
-   Result:
-      A signed 64-bit value carried by a result block (Section 4); zero
-      in every other block.
 
 
 
@@ -337,6 +337,16 @@ Gaer                       Expires 22 May 2027                  [Page 6]
 
 Internet-Draft              DataReel gxStream              November 2026
 
+
+   Status:
+      Byte 0 (the least significant byte) is the data status.  Senders
+      set it to 0x56 ("V", a block received from a remote device);
+      receivers MUST ignore it.  Byte 1 is the control code
+      (Section 3.2).  Bytes 2 to 7 MUST be zero.
+
+   Result:
+      A signed 64-bit value carried by a result block (Section 4); zero
+      in every other block.
 
    The high four bytes of the Check Word and of the Status word are
    always zero.  A receiver that finds a non-zero byte there has met a
@@ -352,6 +362,37 @@ Internet-Draft              DataReel gxStream              November 2026
 3.2.  Control Codes
 
    The control code is one ASCII character:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Gaer                       Expires 22 May 2027                  [Page 7]
+
+Internet-Draft              DataReel gxStream              November 2026
+
 
    +==========+=============+==========================================+
    | Code     | Name        | Meaning                                  |
@@ -386,14 +427,6 @@ Internet-Draft              DataReel gxStream              November 2026
 
                            Table 1: Control Codes
 
-
-
-
-Gaer                       Expires 22 May 2027                  [Page 7]
-
-Internet-Draft              DataReel gxStream              November 2026
-
-
    Other code values are defined in the DataReel headers for database
    file use or for earlier designs and are not sent by the services in
    this document.  A server MUST close a session that sends a code its
@@ -401,6 +434,21 @@ Internet-Draft              DataReel gxStream              November 2026
    server process: a server MUST NOT act on them unless the client is
    authorized to administer the server; the DataReel 7.4 database object
    server does not act on them and closes the session.
+
+
+
+
+
+
+
+
+
+
+
+Gaer                       Expires 22 May 2027                  [Page 8]
+
+Internet-Draft              DataReel gxStream              November 2026
+
 
 3.3.  Maximum Block Size
 
@@ -443,19 +491,20 @@ Internet-Draft              DataReel gxStream              November 2026
    Close:
       An "L" header.  The receiver closes the session.
 
-
-
-Gaer                       Expires 22 May 2027                  [Page 8]
-
-Internet-Draft              DataReel gxStream              November 2026
-
-
 5.  The Database Object Server
 
    The DataReel database object server carries several services on one
    listener.  After the TLS handshake and the client certificate checks,
    the server reads the session's first block and gives the session to
    the first service that claims it:
+
+
+
+
+Gaer                       Expires 22 May 2027                  [Page 9]
+
+Internet-Draft              DataReel gxStream              November 2026
+
 
    1.  An "S" block whose body is a multiplex HELLO frame (Section 6):
        the multiplex, with the object service on its channels.
@@ -501,7 +550,14 @@ Internet-Draft              DataReel gxStream              November 2026
 
 
 
-Gaer                       Expires 22 May 2027                  [Page 9]
+
+
+
+
+
+
+
+Gaer                       Expires 22 May 2027                 [Page 10]
 
 Internet-Draft              DataReel gxStream              November 2026
 
@@ -557,7 +613,7 @@ Internet-Draft              DataReel gxStream              November 2026
 
 
 
-Gaer                       Expires 22 May 2027                 [Page 10]
+Gaer                       Expires 22 May 2027                 [Page 11]
 
 Internet-Draft              DataReel gxStream              November 2026
 
@@ -613,7 +669,7 @@ Internet-Draft              DataReel gxStream              November 2026
 
 
 
-Gaer                       Expires 22 May 2027                 [Page 11]
+Gaer                       Expires 22 May 2027                 [Page 12]
 
 Internet-Draft              DataReel gxStream              November 2026
 
@@ -669,7 +725,7 @@ Internet-Draft              DataReel gxStream              November 2026
 
 
 
-Gaer                       Expires 22 May 2027                 [Page 12]
+Gaer                       Expires 22 May 2027                 [Page 13]
 
 Internet-Draft              DataReel gxStream              November 2026
 
@@ -725,7 +781,7 @@ Internet-Draft              DataReel gxStream              November 2026
 
 
 
-Gaer                       Expires 22 May 2027                 [Page 13]
+Gaer                       Expires 22 May 2027                 [Page 14]
 
 Internet-Draft              DataReel gxStream              November 2026
 
@@ -781,7 +837,7 @@ Internet-Draft              DataReel gxStream              November 2026
 
 
 
-Gaer                       Expires 22 May 2027                 [Page 14]
+Gaer                       Expires 22 May 2027                 [Page 15]
 
 Internet-Draft              DataReel gxStream              November 2026
 
@@ -837,7 +893,7 @@ Internet-Draft              DataReel gxStream              November 2026
 
 
 
-Gaer                       Expires 22 May 2027                 [Page 15]
+Gaer                       Expires 22 May 2027                 [Page 16]
 
 Internet-Draft              DataReel gxStream              November 2026
 
@@ -893,7 +949,7 @@ Internet-Draft              DataReel gxStream              November 2026
 
 
 
-Gaer                       Expires 22 May 2027                 [Page 16]
+Gaer                       Expires 22 May 2027                 [Page 17]
 
 Internet-Draft              DataReel gxStream              November 2026
 
@@ -949,7 +1005,7 @@ Internet-Draft              DataReel gxStream              November 2026
 
 
 
-Gaer                       Expires 22 May 2027                 [Page 17]
+Gaer                       Expires 22 May 2027                 [Page 18]
 
 Internet-Draft              DataReel gxStream              November 2026
 
@@ -980,7 +1036,7 @@ Internet-Draft              DataReel gxStream              November 2026
 
    These digests detect divergent histories and lost, repeated or
    altered frames caused by faults.  They are not cryptographic and do
-   not authenticate the stream (Section 10.3).
+   not authenticate the stream (Section 11.3).
 
 8.5.  Epochs, Takeover and Rejoin
 
@@ -999,16 +1055,55 @@ Internet-Draft              DataReel gxStream              November 2026
    no default port for replication: the copy's listen address and port
    and the primary's copy address are set in the configuration.
 
-9.  Error Handling
 
 
 
 
 
-Gaer                       Expires 22 May 2027                 [Page 18]
+
+Gaer                       Expires 22 May 2027                 [Page 19]
 
 Internet-Draft              DataReel gxStream              November 2026
 
+
+9.  Legacy Transports (DataReel 6.x)
+
+   DataReel 6.x is the legacy release line (bug fixes and security
+   updates only).  Its gxStream and gxDatagram classes predate the TLS
+   requirement of Section 2.2.  Since DataReel 6.4 they send the same
+   canonical block header as DataReel 7.4 (Section 3.1) and check
+   received lengths before allocating memory.  Both transports below are
+   described so that implementations and network operators can recognize
+   them; neither meets the requirements of this document.
+
+9.1.  gxStream over Plain TCP
+
+   A DataReel 6.x gxStream client uses TLS only when the program enables
+   it.  A DataReel 6.4 gxStream server refuses to accept clients unless
+   it either uses TLS with client certificates and an allow list (as in
+   Section 2.2) or the program explicitly opts out; a server that opts
+   out without a server certificate exchanges blocks over plain TCP.
+   Blocks on such a connection have no confidentiality, integrity or
+   authentication.  New deployments MUST NOT use plain TCP, and DataReel
+   7 does not support it.
+
+9.2.  gxDatagram over UDP
+
+   The DataReel 6.x gxDatagram class sends blocks over UDP [RFC0768]:
+   each block is one datagram holding the 32-byte block header, followed
+   by one datagram holding the body (so a body is at most 65507 bytes).
+   The control codes and exchanges of Section 4 apply.  There is no
+   retransmission, ordering, encryption or authentication: any host that
+   can reach the port can send blocks, and a lost or reordered datagram
+   leaves the two sides out of step.  Receivers check the header form
+   and the length against a maximum before reading the body.
+
+   This is the use for which UDP port 2073 was registered. gxDatagram is
+   not part of DataReel 7, and implementations of this document do not
+   use UDP.  New deployments MUST NOT use gxDatagram on networks where
+   any host is untrusted.
+
+10.  Error Handling
 
    *  Block level: a wrong check word, an oversize length, non-zero
       reserved header bytes, or a read or write failure ends the
@@ -1018,6 +1113,15 @@ Internet-Draft              DataReel gxStream              November 2026
       an over-credit channel, an ERROR or a CLOSE ends that channel
       only.
 
+
+
+
+
+Gaer                       Expires 22 May 2027                 [Page 20]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
    *  Object service: a request error is a reply with status 1 and a
       message; the channel stays open.
 
@@ -1026,9 +1130,9 @@ Internet-Draft              DataReel gxStream              November 2026
       primary connects again on its next attempt and the hello checks
       start over.
 
-10.  Security Considerations
+11.  Security Considerations
 
-10.1.  Confidentiality and Integrity
+11.1.  Confidentiality and Integrity
 
    All traffic is protected by TLS (Section 2.2), and implementations
    refuse to send or accept blocks before the handshake completes, so
@@ -1040,7 +1144,7 @@ Internet-Draft              DataReel gxStream              November 2026
    is protected against a future quantum computer; certificates remain
    RSA or ECDSA.
 
-10.2.  Authentication and Authorization
+11.2.  Authentication and Authorization
 
    Servers authenticate clients by certificate (mutual TLS) and an allow
    list.  Server certificates are checked against the server's name.
@@ -1057,16 +1161,7 @@ Internet-Draft              DataReel gxStream              November 2026
    database it may change, and a client with read access can read
    deleted blocks.  Grant write access only to trusted programs.
 
-
-
-
-
-Gaer                       Expires 22 May 2027                 [Page 19]
-
-Internet-Draft              DataReel gxStream              November 2026
-
-
-10.3.  Replication
+11.3.  Replication
 
    A peer whose certificate the copy accepts is trusted with the stream.
    Such a peer can raise the copy's epoch, which fences out the
@@ -1075,10 +1170,18 @@ Internet-Draft              DataReel gxStream              November 2026
    mistakes (a stale primary, two primaries, a diverged history); they
    do not protect against a compromised key.  Replication keys should be
    dedicated to replication, kept readable only by their owner (DataReel
+
+
+
+Gaer                       Expires 22 May 2027                 [Page 21]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
    refuses a key file that group or others can read), and the copy's
    allow list should name only the primary.
 
-10.4.  Resource Exhaustion
+11.4.  Resource Exhaustion
 
    Every length received is checked against the remaining data and
    against a maximum before memory is allocated.  Servers limit
@@ -1092,20 +1195,25 @@ Internet-Draft              DataReel gxStream              November 2026
    firewall to the hosts that need it, and servers used only locally
    should listen on the loopback address.
 
-10.5.  Server Control Codes
+11.5.  Server Control Codes
 
    The "K" (kill) and "T" (restart) control codes let a client stop or
    restart a server process.  They must not be honored for clients that
    are not authorized administrators; DataReel 7.4 servers do not honor
    them.
 
-10.6.  Stored Data
+11.6.  Stored Data
+
+   The legacy DataReel 6.x transports (Section 9) carry blocks in
+   cleartext and, over UDP, without any peer authentication.  Operators
+   should block them at the network edge and replace them with TLS
+   connections.
 
    DataReel database files are not encrypted by the library; data is
    protected on the wire, not at rest.  Block check words and optional
    CRC-32 checksums in the files detect accidental damage only.
 
-11.  IANA Considerations
+12.  IANA Considerations
 
    IANA has assigned port 2073 for TCP and UDP in the "Service Name and
    Transport Protocol Port Number Registry" [RFC6335]:
@@ -1115,27 +1223,33 @@ Internet-Draft              DataReel gxStream              November 2026
    Transport:     tcp, udp
    Description:   DataReel Database Socket
 
-
-
-Gaer                       Expires 22 May 2027                 [Page 20]
-
-Internet-Draft              DataReel gxStream              November 2026
-
-
    This document asks IANA to update the Reference of the TCP assignment
    to this document, keeping the service name, port number, assignee and
    contact.
 
-   No protocol in this document uses UDP.  This document makes no change
-   to the UDP assignment.
+
+
+Gaer                       Expires 22 May 2027                 [Page 22]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   The UDP assignment is used only by the legacy DataReel 6.x gxDatagram
+   transport (Section 9.2).  This document asks IANA to update the
+   Reference of the UDP assignment to this document as well, and
+   otherwise to keep it unchanged while DataReel 6.x is maintained.
 
    This document creates no new registry.  The control codes, multiplex
    frame kinds, object service operations and replication frame kinds
    are maintained by the DataReel project with its source code.
 
-12.  References
+13.  References
 
-12.1.  Normative References
+13.1.  Normative References
+
+   [RFC0768]  Postel, J., "User Datagram Protocol", STD 6, RFC 768,
+              DOI 10.17487/RFC0768, August 1980,
+              <https://www.rfc-editor.org/info/rfc768>.
 
    [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
               Requirement Levels", BCP 14, RFC 2119,
@@ -1169,14 +1283,14 @@ Internet-Draft              DataReel gxStream              November 2026
               RFC 9525, DOI 10.17487/RFC9525, November 2023,
               <https://www.rfc-editor.org/info/rfc9525>.
 
-12.2.  Informative References
 
 
-
-Gaer                       Expires 22 May 2027                 [Page 21]
+Gaer                       Expires 22 May 2027                 [Page 23]
 
 Internet-Draft              DataReel gxStream              November 2026
 
+
+13.2.  Informative References
 
    [DATAREEL] DataReel Software Development, "DataReel C++ Library,
               Release 7.4", November 2026, <https://datareel.com>.
@@ -1219,20 +1333,27 @@ Appendix A.  Implementation Status
    include/gxstls.h, src/gxstls.cpp, src/gxdbserver.cpp, src/
    gxdbmux.cpp, src/gxdbobject.cpp, src/gxobjrepl.cpp.
 
-   Known differences between DataReel 7.4 and this document, to be
-   resolved in a later 7.4.x release:
+   The DataReel 6.4 legacy release (6.4.1 and the 6.4.2 branch)
+   implements the block header and the basic exchanges in its own
+   gxStream class (include/gxstream.h, src/gxstream.cpp), with TLS,
+   client certificates and an allow list as in Section 2.2, and also the
+   legacy transports of Section 9 (src/gxdatagm.cpp for UDP).  Its
 
 
 
-
-
-
-
-
-Gaer                       Expires 22 May 2027                 [Page 22]
+Gaer                       Expires 22 May 2027                 [Page 24]
 
 Internet-Draft              DataReel gxStream              November 2026
 
+
+   optional dr7features library links the DataReel 7.4 code for the
+   object service client (vector searches) and for gxObjRepl
+   replication, so a 6.4 program and a 7.4 program replicate to each
+   other with the protocol of Section 8.  The utils/objrepl/xver tests
+   of DataReel 7.4 check 6.4 and 7.4 peers against each other.
+
+   Known differences between DataReel 7.4 and this document, to be
+   resolved in a later 7.4.x release:
 
    *  The high 32 bits of the Length word are not checked on builds
       where the in-memory length field is 32 bits wide (Windows, and
@@ -1261,7 +1382,7 @@ Acknowledgments
 
 Author's Address
 
-   D. Gaer
+   Douglas Gaer
    DataReel Software Development
    URI:   https://datareel.com
 
@@ -1276,13 +1397,4 @@ Author's Address
 
 
 
-
-
-
-
-
-
-
-
-
-Gaer                       Expires 22 May 2027                 [Page 23]
+Gaer                       Expires 22 May 2027                 [Page 25]
