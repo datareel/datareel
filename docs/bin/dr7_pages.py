@@ -1768,12 +1768,12 @@ txfilter [switches] file...
 ''') + '''
 <P>Lines may be of any length. -P keeps bytes 0x80 and up, so UTF-8 text survives. -o writes through a temporary file and a rename.</P>
 '''),
- ('Examples', 'Examples', '<P>report.txt came from a Windows program: DOS line ends, a tab and a control character (0x01) on the last line:</P>' + code('''
-$ hexdump report.txt
-4F 72 64 65 72 20 31 30 30 31 09 41 4D 54 58 0D 	; Order.1001.AMTX.
-0A 54 6F 74 61 6C 3A 20 33 2E 32 35 0D 0A 4E 6F 	; .Total:.3.25..No
-74 65 3A 01 20 64 6F 6E 65 0D 0A                	; te:..done..
-''') + '<P>The printable characters with UNIX line ends, to standard output (cat -A shows a tab as ^I and a line end as $):</P>' + code('''
+ ('Examples', 'Examples', '<P>report.txt came from a Windows program: DOS line ends, a tab and a control character (0x01) on the last line. cat -A shows a tab as ^I, a carriage return as ^M, 0x01 as ^A and a line end as $:</P>' + code('''
+$ cat -A report.txt
+Order 1001^IAMTX^M$
+Total: 3.25^M$
+Note:^A done^M$
+''') + '<P>The printable characters with UNIX line ends, to standard output:</P>' + code('''
 $ txfilter report.txt | cat -A
 Order 1001^IAMTX$
 Total: 3.25$
