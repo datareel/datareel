@@ -74,7 +74,7 @@ gxs-data-port   2073/udp   DataReel Database Socket</pre>
 <tbody>
 <tr><td><code>gxStream</code> database block clients and servers</td><td>TCP, with TLS and client certificates (or plain TCP when a server opts out)</td></tr>
 <tr><td><code>gxDatagram</code> database block clients and servers</td><td>UDP, plain text</td></tr>
-<tr><td><code>gxv7ObjRepl</code> replication (dr7features, the 7.4 code)</td><td>TCP, mutual TLS; port from the configuration</td></tr>
+<tr><td><code>gxv7ObjRepl</code> replication (dr7features, the 7.4 code)</td><td>TCP, mutual TLS; port 2073 by default with a DataReel 7.4.1 or later tree</td></tr>
 <tr><td><code>gxv7ObjectClient</code> and the <code>vector_server</code> tool (dr7features, the 7.4 object server)</td><td>TCP, mutual TLS</td></tr>
 </tbody>
 </table>
@@ -104,7 +104,7 @@ gxs-data-port   2073/udp   DataReel Database Socket</pre>
 <h2 id="5ReplicationAndTheObjectServerDr7Features">5. Replication and the object server (dr7features)</h2>
 <p>DataReel 6.4 has no replication or object server of its own. The optional dr7features build (<code>DATAREEL7_FEATURES_DIR</code>, a DataReel 7.4 or later tree) links the DataReel 7.4 code, so the protocol is exactly DataReel 7.4's:</p>
 <ul>
-<li>**<code>gxv7ObjRepl</code>** is DataReel 7.4's <code>gxObjRepl</code>. The primary connects to the copy with <code>gxStream</code> over mutual TLS and sends objects (never file pages): a hello with its epoch, name, role, last commit and a running digest; the copy's reply; an epoch frame; then one commit at a time, each acknowledged once it is durable on the copy, or a full send when the copy is too far behind. The copy refuses older epochs, gaps, reordering and changed histories with an alarm. A 6.4 program and a 7.4 program (or the 7.4 <code>objrepl</code> tool) replicate to each other on Linux and Windows (<code>docs/replication_6x.html</code>, <code>examples_database/replication_6x</code>). The port is set in the configuration; port 2073 is the registered port for this traffic.</li>
+<li>**<code>gxv7ObjRepl</code>** is DataReel 7.4's <code>gxObjRepl</code>. The primary connects to the copy with <code>gxStream</code> over mutual TLS and sends objects (never file pages): a hello with its epoch, name, role, last commit and a running digest; the copy's reply; an epoch frame; then one commit at a time, each acknowledged once it is durable on the copy, or a full send when the copy is too far behind. The copy refuses older epochs, gaps, reordering and changed histories with an alarm. A 6.4 program and a 7.4 program (or the 7.4 <code>objrepl</code> tool) replicate to each other on Linux and Windows (<code>docs/replication_6x.html</code>, <code>examples_database/replication_6x</code>). Replication is a gxStream object stream, so it uses port 2073: with a DataReel 7.4.1 or later tree the copy listens on 2073 and the primary connects to 2073 unless the configuration names another port (with 7.4 the port must be set).</li>
 <li>**<code>gxv7ObjectClient</code>** opens a channel on a DataReel 7.4 database object server (the multiplex on port 2073) and sends read-only vector searches (operations 7 and 8 of the object service). The <code>vector_server</code> tool (<code>dr7features/inner</code>) is that server, serving one database and its vectors.</li>
 </ul>
 <p>The DataReel 7.4 version of this paper and the specification describe the replication frames, the multiplex and the object service in full.</p>
