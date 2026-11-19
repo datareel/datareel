@@ -24,7 +24,7 @@ What uses it in DataReel 7.4:
 | Remote database objects (object service) | carried by the database object server | `gxdbobject.h` |
 | Vector searches (7.4) | carried by the object service | `gxdbobject.h` |
 | 6.x style clients (legacy add/request blocks) | carried by the object service | `gxdbobject.h` |
-| Object replication (gxObjRepl) | uses gxStream framing; the port is set in its configuration (no default in 7.4) | `gxobjrepl.h` |
+| Object replication (gxObjRepl) | the default port of the copy and of the primary's copy address (7.4.1) | `gxobjrepl.h` |
 
 UDP is not used by DataReel 7. The UDP registration is for the legacy DataReel 6.x class gxDatagram, which sends the same blocks over UDP (one datagram for the header and one for the body) in cleartext and with no peer authentication. DataReel 6.x gxStream can also run over plain TCP when a server explicitly opts out of client authentication. Both are legacy transports, described in the specification for completeness and not recommended.
 
@@ -191,7 +191,7 @@ Replication is asynchronous: a commit is durable on the primary when `Commit()` 
 
 ### 7.4 The port
 
-In 7.4 the copy's listen port and the primary's `copy HOST:PORT` setting have no default and are set in the configuration (`docs/replication_admin_guide.md`). Port 2073 is the registered port for this traffic, and sites should use it for replication unless another DataReel service already listens there on that address.
+Replication is a gxStream object stream, so it uses the gxStream port. Since 7.4.1 the copy listens on port 2073 and the primary connects to port 2073 unless the configuration names another port (`listen [ADDR:]PORT`, `copy HOST:PORT`). In 7.4 the port had no default. A host that runs a copy and another gxStream service on the same address gives one of them another port.
 
 ## 8. Compatibility
 

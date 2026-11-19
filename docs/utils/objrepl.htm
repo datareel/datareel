@@ -31,10 +31,10 @@
 <A HREF="#Examples">Examples</A></P>
 
 <h2 id="Usage">Usage</h2>
-<PRE>objrepl primary ROOT --copy HOST:PORT --ca CA --cert CERT --key KEY
+<PRE>objrepl primary ROOT --copy HOST[:PORT] --ca CA --cert CERT --key KEY
                 [--commits N] [--per N] [--dbs N] [--sleep MS] [--seed N] [--drain] [--no-trim]
                 [--drop-linked N] [--unknown-removes N] [--purge] [--defer-target]
-objrepl copy ROOT --listen [ADDR:]PORT --ca CA --cert CERT --key KEY --allow-cn CN
+objrepl copy ROOT [--listen [ADDR:]PORT|ADDR] --ca CA --cert CERT --key KEY --allow-cn CN
 objrepl digest ROOT                every database: ids and content hashes
 objrepl ixcheck ROOT --index ...   each index against the objects
 objrepl check ROOT                 OK / WARN / FAIL (exit 0 / 1 / 2)

@@ -316,7 +316,7 @@ c.Serve();                                   // until Stop() (signal-safe) or Cl
 """)],
  functions=[
  ('Config', 'Configuration', [
-  ('struct gxObjReplConfig { name, peer_name, ca, cert, key, allow_cn, copy, listen_addr, listen_port, links, index, trim, idle_timeout, max_lag, max_behind, min_cert_days, log }', 'name and peer_name: this node and the expected peer; ca, cert, key: TLS with certificates on both sides; allow_cn: the CN of the primary\'s client certificate (copy); copy: HOST:PORT (primary); listen_addr/listen_port (copy); links: "DB:OFFSET:TARGET_DB,..."; index: "NAME:DB:B:OFFSET:LEN" or "NAME:DB:V:OFFSET:DIM", comma separated; idle_timeout: seconds without a frame before the copy drops a connection (120); log: where messages go (stderr).'),
+  ('struct gxObjReplConfig { name, peer_name, ca, cert, key, allow_cn, copy, listen_addr, listen_port, links, index, trim, idle_timeout, max_lag, max_behind, min_cert_days, log }', 'name and peer_name: this node and the expected peer; ca, cert, key: TLS with certificates on both sides; allow_cn: the CN of the primary\'s client certificate (copy); copy: HOST[:PORT] (primary; port 2073 when none is given, 7.4.1); listen_addr/listen_port (copy; 127.0.0.1 and 2073, the registered gxStream port, by default, 7.4.1); links: "DB:OFFSET:TARGET_DB,..."; index: "NAME:DB:B:OFFSET:LEN" or "NAME:DB:V:OFFSET:DIM", comma separated; idle_timeout: seconds without a frame before the copy drops a connection (120); log: where messages go (stderr).'),
   ('bool Set(const std::string &key, const std::string &value, std::string *why = 0) / bool Load(const std::string &fname, std::string *why = 0)', 'One "key value" setting (name, peer-name, copy, listen, ca, cert, key, allow-cn, links, index, max-lag, max-behind, min-cert-days, trim, idle-timeout), or a file of them (# comments). False and why for an unknown key or a bad value.'),
  ]),
  ('Open', 'Open and Close', [
@@ -1822,10 +1822,10 @@ bytes 05053735863893a0 230392 parts.vix
 page(file='utils/objrepl.htm', title='objrepl',
  lead='Object replication between two nodes from the command line: run a copy, check and compare nodes, take over and rejoin, and a test data generator (DataReel 7.4).',
  sections=[('Usage', 'Usage', code('''
-objrepl primary ROOT --copy HOST:PORT --ca CA --cert CERT --key KEY
+objrepl primary ROOT --copy HOST[:PORT] --ca CA --cert CERT --key KEY
                 [--commits N] [--per N] [--dbs N] [--sleep MS] [--seed N] [--drain] [--no-trim]
                 [--drop-linked N] [--unknown-removes N] [--purge] [--defer-target]
-objrepl copy ROOT --listen [ADDR:]PORT --ca CA --cert CERT --key KEY --allow-cn CN
+objrepl copy ROOT [--listen [ADDR:]PORT|ADDR] --ca CA --cert CERT --key KEY --allow-cn CN
 objrepl digest ROOT                every database: ids and content hashes
 objrepl ixcheck ROOT --index ...   each index against the objects
 objrepl check ROOT                 OK / WARN / FAIL (exit 0 / 1 / 2)

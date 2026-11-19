@@ -51,8 +51,8 @@ ls /tmp/objrepl_demo/certs</pre>
 <tbody>
 <tr><td><code>name</code>, <code>peer-name</code></td><td>both</td><td>this node and the peer it expects (empty: any)</td></tr>
 <tr><td><code>ca</code>, <code>cert</code>, <code>key</code></td><td>both</td><td>the CA, this node's certificate and key</td></tr>
-<tr><td><code>copy</code></td><td>primary</td><td>the copy, <code>HOST:PORT</code></td></tr>
-<tr><td><code>listen</code></td><td>copy</td><td><code>[ADDR:]PORT</code> (default address 127.0.0.1)</td></tr>
+<tr><td><code>copy</code></td><td>primary</td><td>the copy, <code>HOST[:PORT]</code>; port 2073 when none is given (7.4.1)</td></tr>
+<tr><td><code>listen</code></td><td>copy</td><td><code>[ADDR:]PORT</code> or <code>ADDR</code> (default 127.0.0.1, port 2073 since 7.4.1: replication is a gxStream object stream, and 2073 is the gxStream port registered with IANA)</td></tr>
 <tr><td><code>allow-cn</code></td><td>copy</td><td>the CN of the primary's client certificate</td></tr>
 <tr><td><code>links</code></td><td>primary</td><td><code>DB:OFFSET:TARGET_DB,...</code>: link fields (8-byte addresses) sent as ids</td></tr>
 <tr><td><code>index</code></td><td>both</td><td><code>NAME:DB:B:OFFSET:LEN</code> (B-tree) or <code>NAME:DB:V:OFFSET:DIM</code> (vector): this node's own indexes</td></tr>

@@ -20,7 +20,8 @@
 <main class="dr-main">
 <h1>DataReel 7.4 Release Notes</h1>
 <div class="dr-toc-title">Contents</div>
-<p class="dr-toc"><a href="#HighlightsOf74">Highlights of 7.4</a><br>
+<p class="dr-toc"><a href="#NewIn74111182026NotReleasedYet">New in 7.4.1 (11/18/2026, not released yet)</a><br>
+<a href="#HighlightsOf74">Highlights of 7.4</a><br>
 <a href="#PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</a><br>
 <a href="#PhaseB11122026HnswGraphSearchMergeRepair">Phase b (11/12/2026): hnsw graph search, merge, repair</a><br>
 <a href="#PhaseC11122026Float16AndInt8VectorsVectorMembers">Phase c (11/12/2026): float16 and int8 vectors, vector members</a><br>
@@ -38,6 +39,11 @@
 <a href="#PlannedForTheNextRelease75">Planned for the next release (7.5)</a></p>
 <p>DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the replication fixes and the security scan below (BETA 3). Beta 2:</p>
 <p>DataReel 7.4 beta 2 (tag 7.4-beta2, 11/14/2026): the OODB with AI extensions. It follows the 11/12/2026 7.4-beta preview (tag 7.4-beta, 171a3f2: vector phases A and B) and adds vector phases C and D (below), the gxrepl fixes F4, F6 and F7, the DataReel 7.3.2 replication fixes and the later ones of rel-7.3.2-next3 (the seal per folder, a stream naming new files verified again, promote-check reading each unit under a shared apply lock, GXREPL_TORN_LOCK_WAIT 15 s), and the gxrepl per-object derived apply (derived_apply = incremental, with object notes and index stamps; off by default: rebuild stays the default and the ship log is unchanged while object notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md). derived_apply = incremental is not yet for production use; fixes land in the next 7.4 build. The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
+<h2 id="NewIn74111182026NotReleasedYet">New in 7.4.1 (11/18/2026, not released yet)</h2>
+<ul>
+<li>gxObjRepl uses port 2073 by default: replication is a gxStream object stream, and 2073 is the gxStream port registered with IANA (gxs-data-port). A copy with no &quot;listen&quot; port listens on 2073, and a primary whose &quot;copy&quot; setting has no port connects to 2073 (gxObjReplConfig::listen_port is 2073, copy is HOST[:PORT]). &quot;listen ADDR&quot; sets only the address. Configs that name a port work as before; a bad copy or listen value is refused at start. utils/objrepl/test_objrepl_config.sh checks both (it needs 127.0.0.1:2073 free).</li>
+<li>Documentation: docs/security_white_paper.md, the security design of the library; docs/gxstream_replication_white_paper.md, gxStream and replication on port 2073; docs/rfc/draft-gaer-datareel-gxstream-00, the protocol&#x27;s specification (an Internet-Draft for the Independent Submission stream, which also covers the DataReel 6.x legacy transports).</li>
+</ul>
 <h2 id="HighlightsOf74">Highlights of 7.4</h2>
 <ul>
 <li>Object replication between Windows and Linux (gxObjRepl, gxobjrepl.h, beta 5): Windows and Linux nodes replicate objects in both directions, with the primary on either side, and takeover and rejoin work across the two platforms. See NEW IN BETA 5.</li>

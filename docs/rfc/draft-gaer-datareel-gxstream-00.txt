@@ -1050,12 +1050,12 @@ Internet-Draft              DataReel gxStream              November 2026
 
 8.6.  Port
 
-   Replication SHOULD use TCP port 2073 unless another gxStream service
-   already listens on that port at the copy's address.  DataReel 7.4 has
-   no default port for replication: the copy's listen address and port
-   and the primary's copy address are set in the configuration.
-
-
+   Replication is a gxStream object stream and uses TCP port 2073.  A
+   copy listens on port 2073, and a primary connects to port 2073,
+   unless configured with another port; a host that runs a copy and
+   another gxStream service on the same address gives one of them
+   another port.  DataReel 7.4.1 makes 2073 the default of both
+   settings; DataReel 7.4 had no default.
 
 
 
@@ -1369,7 +1369,8 @@ Internet-Draft              DataReel gxStream              November 2026
    *  The multiplex server does not require HELLO before OPEN, and does
       not limit the number of channels in a session.
 
-   *  Replication has no default port (Section 8.6).
+   *  DataReel 7.4 had no default replication port; 7.4.1 uses 2073
+      (Section 8.6).
 
    *  Multiplex and object service integers are sent in the host byte
       order.  Every platform DataReel 7.4 supports is little endian, so
@@ -1384,9 +1385,8 @@ Author's Address
 
    Douglas Gaer
    DataReel Software Development
+   Email: datareel@datareel.com
    URI:   https://datareel.com
-
-
 
 
 

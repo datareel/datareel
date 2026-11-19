@@ -15,6 +15,8 @@
 #   expiring   a certificate with 10 days left: streams, and objrepl check says WARN (expires in 9-10 days)
 #   bad conf   an unknown key in objrepl.conf: refused (exit 64)
 #   wrong CN   a primary whose client certificate CN is not the copy's allow-cn: never gets a stream
+#   port 2073  7.4.1: a copy with no listen port listens on 2073 and a primary with "copy HOST" connects there;
+#              bad copy/listen values are refused at start (needs 127.0.0.1:2073 free)
 set -u
 . "$(dirname "$0")/objrepl_proc.sh"   # 11/17/2026: objrepl_stop, objrepl_pid (Windows)
 X=${1:?usage: test_objrepl_config.sh BIN}
@@ -108,6 +110,26 @@ start_refused "key match" "does not match" --cert "$K/primary.pem" --key "$T/p10
 mkdir -p "$T/b"; printf 'name x\nlisen 1234\n' > "$T/b/objrepl.conf"
 out=$("$X" copy "$T/b" 2>&1); rc=$?
 [ $rc -eq 64 ] && echo "$out" | grep -q "objrepl.conf:2: unknown key" && ok "bad conf: refused [$out]" || bad "bad conf" "rc $rc [$out]"
+
+# port 2073 (7.4.1): no port in either config
+if ss -ltn 2>/dev/null | awk '{ print $4 }' | grep -qE '(^|:)2073$'; then
+  bad "port 2073" "port 2073 is in use on this host: stop what listens there and run the test again"
+else
+  mkdir -p "$T/d" "$T/q"
+  printf 'name copyD\nca %s\ncert %s\nkey %s\nallow-cn objrepl-primary\n' "$K/ca.pem" "$K/copy.pem" "$K/copy.key" > "$T/d/objrepl.conf"
+  printf 'name Q1\ncopy 127.0.0.1\nca %s\ncert %s\nkey %s\n' "$K/ca.pem" "$K/primary.pem" "$K/primary.key" > "$T/q/objrepl.conf"
+  "$X" copy "$T/d" >> "$T/copy_d.log" 2>&1 & CPID=$!; sleep 0.5
+  "$X" primary "$T/q" --commits 8 --per 2 --seed 7 > "$T/q1.log" 2>&1; rc=$?
+  stop_copy
+  dq=$("$X" digest "$T/q" 2>/dev/null); dd=$("$X" digest "$T/d" 2>/dev/null)
+  [ $rc -eq 0 ] && grep -q "copy listening on 127.0.0.1:2073 " "$T/copy_d.log" && [ -n "$dq" ] && [ "$dq" == "$dd" ] \
+    && ok "port 2073: the copy listened on 127.0.0.1:2073 and the primary drained to it ($dd)" \
+    || bad "port 2073" "rc $rc [$(tail -n 1 "$T/q1.log")] [$(grep listening "$T/copy_d.log")] [$dq] [$dd]"
+  out1=$("$X" primary "$T/q" --copy 127.0.0.1:x --commits 1 --per 1 2>&1); r1=$?
+  out2=$("$X" copy "$T/d" --listen 127.0.0.1: 2>&1); r2=$?
+  [ $r1 -eq 64 ] && echo "$out1" | grep -q "copy is HOST\[:PORT\]" && [ $r2 -eq 64 ] && echo "$out2" | grep -q "listen is \[ADDR:\]PORT or ADDR" \
+    && ok "port 2073: a bad copy or listen value is refused at start" || bad "port 2073 values" "$r1 [$out1] $r2 [$out2]"
+fi
 
 # wrong CN: a client certificate from the right CA with another CN
 openssl req -newkey rsa:2048 -nodes -subj "/CN=intruder" -keyout "$T/in.key" -out "$T/in.csr" 2>/dev/null

@@ -1104,13 +1104,26 @@ bool gxObjReplConfig::Set(const std::string &k, const std::string &v, std::strin
   unsigned long long u = 0;
   if(k == "name") name = v;
   else if(k == "peer-name") peer_name = v;
-  else if(k == "copy") { if(v.rfind(':') == std::string::npos) return bad("copy is HOST:PORT"); copy = v; }
+  else if(k == "copy") {
+    // 11/18/2026 (7.4.1): HOST[:PORT], port 2073 (gxsDATA_PORT) when none is given
+    size_t c = v.rfind(':');
+    std::string pv = c == std::string::npos ? std::string("2073") : v.substr(c + 1);
+    char *e = 0; long port = strtol(pv.c_str(), &e, 10);
+    if(v.empty() || c == 0 || pv.empty() || !e || *e || port <= 0 || port > 65535) return bad("copy is HOST[:PORT]");
+    copy = v;
+  }
   else if(k == "listen") {
+    // 11/18/2026 (7.4.1): [ADDR:]PORT, or ADDR alone (the port stays 2073 unless set)
+    if(v.empty()) return bad("listen is [ADDR:]PORT or ADDR");
     std::string pv = v; size_t c = v.rfind(':');
     if(c != std::string::npos) { listen_addr = v.substr(0, c); pv = v.substr(c + 1); }
-    char *e = 0; long port = strtol(pv.c_str(), &e, 10);
-    if(pv.empty() || !e || *e || port <= 0 || port > 65535) return bad("listen is [ADDR:]PORT");
-    listen_port = (int)port;
+    else if(!v.empty() && v.find_first_not_of("0123456789") != std::string::npos) { listen_addr = v; pv.clear(); }
+    if(!pv.empty() || c != std::string::npos) {
+      char *e = 0; long port = strtol(pv.c_str(), &e, 10);
+      if(pv.empty() || !e || *e || port <= 0 || port > 65535) return bad("listen is [ADDR:]PORT or ADDR");
+      listen_port = (int)port;
+    }
+    if(listen_addr.empty()) return bad("listen is [ADDR:]PORT or ADDR");
   }
   else if(k == "ca") ca = v;
   else if(k == "cert") cert = v;
@@ -1320,11 +1333,14 @@ struct gxObjRepl::Impl {
 
   // ---------- primary ----------
   bool connect_to(gxStream &st) {
+    // 11/18/2026 (7.4.1): HOST[:PORT], port 2073 (gxsDATA_PORT) when none is given
     size_t c = cfg.copy.rfind(':');
+    std::string host = c == std::string::npos ? cfg.copy : cfg.copy.substr(0, c);
+    int port = c == std::string::npos ? gxsDATA_PORT : atoi(cfg.copy.substr(c + 1).c_str());
     st.Connection().SetCAFile(cfg.ca);
     st.SetClientCert(cfg.cert, cfg.key);
     st.SetTimeOut(30);                                         // the connect and handshake
-    if(st.Connect(cfg.copy.substr(0, c), atoi(cfg.copy.substr(c + 1).c_str())) != 0) return false;
+    if(st.Connect(host, port) != 0) return false;
     st.SetTimeOut(300);   // an ack may follow a long step on the copy (clearing for a full send, a 60 MB commit) (review 2)
     // a frame is a header write and a block write, answered by a small ack: without TCP_NODELAY Nagle holds the
     // block for the peer's delayed ack (about 40 ms per frame on Linux)
@@ -1753,8 +1769,9 @@ int gxObjRepl::Open(const std::string &root, const gxObjReplConfig &cfg, Role ro
   for(auto &x : p->ixdefs) for(auto &l : p->links)             // an index field may not hold a link (an address)
     if(x.db == l.db && l.off < x.off + (x.kind == 'B' ? x.len : 4 * x.len) && x.off < l.off + 8)
       return p->fail("index " + x.name + " overlaps the link field " + l.db + ":" + std::to_string(l.off));
-  if(role == PRIMARY && cfg.copy.empty()) return p->fail("copy (HOST:PORT) is required");
-  if(role == COPY && (cfg.listen_port <= 0 || cfg.allow_cn.empty())) return p->fail("listen and allow-cn are required");
+  if(role == PRIMARY && cfg.copy.empty()) return p->fail("copy (HOST[:PORT]) is required");
+  if(role == COPY && cfg.listen_port <= 0) return p->fail("listen needs a port (default 2073)");
+  if(role == COPY && cfg.allow_cn.empty()) return p->fail("allow-cn is required");
   std::string why;
   if(!check_tls(p->cfg, p->cert_days, why)) return p->fail(why);
   p->s.links = &p->links; p->s.ixdefs = &p->ixdefs;

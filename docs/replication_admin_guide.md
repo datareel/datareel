@@ -76,8 +76,8 @@ as command line options with `--` in front, and the command line wins.
 |---|---|---|
 | `name`, `peer-name` | both | this node and the peer it expects (empty: any) |
 | `ca`, `cert`, `key` | both | the CA, this node's certificate and key |
-| `copy` | primary | the copy, `HOST:PORT` |
-| `listen` | copy | `[ADDR:]PORT` (default address 127.0.0.1) |
+| `copy` | primary | the copy, `HOST[:PORT]`; port 2073 when none is given (7.4.1) |
+| `listen` | copy | `[ADDR:]PORT` or `ADDR` (default 127.0.0.1, port 2073 since 7.4.1: replication is a gxStream object stream, and 2073 is the gxStream port registered with IANA) |
 | `allow-cn` | copy | the CN of the primary's client certificate |
 | `links` | primary | `DB:OFFSET:TARGET_DB,...`: link fields (8-byte addresses) sent as ids |
 | `index` | both | `NAME:DB:B:OFFSET:LEN` (B-tree) or `NAME:DB:V:OFFSET:DIM` (vector): this node's own indexes |

@@ -109,6 +109,11 @@ Changes:
 ==============================================================
 11/16/2026: New in DataReel 7.4, from the objrepl prototype (the
 utils/objrepl tool and its tests run on this class).
+11/18/2026 (7.4.1): port 2073 by default. A copy with no "listen" port
+listens on 2073 and a primary whose "copy" has no port connects to
+2073: replication is a gxStream object stream, and 2073 is the gxStream
+port registered with IANA (gxs-data-port). "listen ADDR" sets only the
+address. Configs that name a port work as before.
 ==============================================================
 */
 // ----------------------------------------------------------- //
@@ -138,9 +143,12 @@ struct GXDLCODE_API gxObjReplConfig {
   // certificates, this node's certificate and key, and (copy) the CN
   // of the primary's client certificate
   std::string ca, cert, key, allow_cn;
-  std::string copy;                 // primary: the copy, HOST:PORT
+  // 11/18/2026 (7.4.1): replication is an object stream, so it uses the
+  // gxStream port registered with IANA, 2073 (gxsDATA_PORT, gxs-data-port),
+  // unless a port is given
+  std::string copy;                 // primary: the copy, HOST[:PORT] (port 2073 if none)
   std::string listen_addr = "127.0.0.1"; // copy
-  int listen_port = 0;              // copy
+  int listen_port = 2073;           // copy (gxsDATA_PORT)
   // "DB:OFFSET:TARGET_DB,...": link fields (8-byte addresses). Only the
   // primary's map matters; it is sent to the copy when it connects
   std::string links;
@@ -160,7 +168,8 @@ struct GXDLCODE_API gxObjReplConfig {
   std::function<void(const std::string &)> log;
 
   // One "key value" setting, key as in the config file (name,
-  // peer-name, copy, listen ([ADDR:]PORT), ca, cert, key, allow-cn,
+  // peer-name, copy (HOST[:PORT]), listen ([ADDR:]PORT or ADDR), ca,
+  // cert, key, allow-cn,
   // links, index, max-lag, max-behind, min-cert-days, trim (0/1),
   // idle-timeout).
   // Returns false (and why) for an unknown key or a bad value

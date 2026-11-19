@@ -29,7 +29,7 @@ replication between two independent object databases, and its test
 data generator.
 
 Usage:
-  objrepl primary ROOT --copy HOST:PORT --ca CA --cert CERT --key KEY
+  objrepl primary ROOT --copy HOST[:PORT] --ca CA --cert CERT --key KEY
                   [--commits N] [--per N] [--dbs N] [--sleep MS]
                   [--seed N] [--drain] [--no-trim]
                   [--drop-linked N] [--unknown-removes N] [--purge]
@@ -39,8 +39,11 @@ Usage:
           the copy, then waits up to 120 s for the copy to have them all.
           Exit 0 (drained), 2 (not drained), 3 (refused), 4 (ROOT is a
           copy), 64 (config or certificates)
-  objrepl copy ROOT --listen [ADDR:]PORT --ca CA --cert CERT --key KEY
+  objrepl copy ROOT [--listen [ADDR:]PORT|ADDR] --ca CA --cert CERT --key KEY
                   --allow-cn CN          until TERM or INT
+          (7.4.1: the copy listens on, and the primary connects to,
+          port 2073, the registered gxStream port, unless a port is
+          given; --listen ADDR sets the address only)
   objrepl digest ROOT       every database: ids and content hashes
   objrepl ixcheck ROOT --index ...   each index against the objects
   objrepl check ROOT        OK / WARN / FAIL (exit 0 / 1 / 2)

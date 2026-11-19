@@ -19,6 +19,24 @@ derived_apply = incremental is not yet for production use; fixes land
 in the next 7.4 build. The file formats of 7.3 are unchanged, and the vector index is a new file type
 built on them.
 
+NEW IN 7.4.1 (11/18/2026, NOT RELEASED YET)
+-------------------------------------------
+- gxObjRepl uses port 2073 by default: replication is a gxStream
+  object stream, and 2073 is the gxStream port registered with IANA
+  (gxs-data-port). A copy with no "listen" port listens on 2073, and a
+  primary whose "copy" setting has no port connects to 2073
+  (gxObjReplConfig::listen_port is 2073, copy is HOST[:PORT]).
+  "listen ADDR" sets only the address. Configs that name a port work
+  as before; a bad copy or listen value is refused at start.
+  utils/objrepl/test_objrepl_config.sh checks both (it needs
+  127.0.0.1:2073 free).
+- Documentation: docs/security_white_paper.md, the security design of
+  the library; docs/gxstream_replication_white_paper.md, gxStream and
+  replication on port 2073; docs/rfc/draft-gaer-datareel-gxstream-00,
+  the protocol's specification (an Internet-Draft for the Independent
+  Submission stream, which also covers the DataReel 6.x legacy
+  transports).
+
 HIGHLIGHTS OF 7.4
 -----------------
 - Object replication between Windows and Linux (gxObjRepl,
