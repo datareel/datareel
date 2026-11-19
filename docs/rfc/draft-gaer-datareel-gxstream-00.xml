@@ -656,10 +656,13 @@ reply = u8  ok            ; 1 accepted, 0 refused
         every database the server serves, in every mode the server's configuration allows for that database. A
         client allowed "write" access can change or delete any object of that database. Deployments that need
         finer authorization should run separate servers or databases per client group.</t>
-        <t>In DataReel 7.4 the object service checks a client-supplied address only by finding a valid block
-        header check word in front of it (<xref target="impl-status"/>). A client with write access can therefore
-        damage the database it may change, and a client with read access can read deleted blocks. Grant write
-        access only to trusted programs.</t>
+        <t>A server MUST accept a client-supplied object address only if it is the start of a live object of
+        that database: the block header in front of it must be valid and not deleted, the block must lie inside
+        the file, and the address must be a block boundary rather than a place inside another object, whose bytes
+        a client may have written to look like a block header. DataReel 7.4 checked only the header's check word,
+        so a client with write access could damage the database it may change and a client with read access could
+        read deleted blocks; DataReel 7.4.1 makes the full check for writable databases
+        (<xref target="impl-status"/>).</t>
       </section>
       <section anchor="sec-repl">
         <name>Replication</name>
@@ -845,8 +848,11 @@ Description:   DataReel Database Socket
         32 bits wide (Windows, and builds without native integer types); the length is truncated instead of
         refused. Such a block then fails the next header check. The multiplex reader also does not check the
         reserved high bytes of the Check Word and Status words.</li>
-        <li>The object service checks a client-supplied object address only by the check word of the block header
-        in front of it; it does not check that the address is the start of a live object.</li>
+        <li>The object service of DataReel 7.4 checked a client-supplied object address only by the check word of
+        the block header in front of it. DataReel 7.4.1 requires a valid, not deleted block inside the file, and
+        for a writable database one of its live objects. A read-only database, opened for each request, does not
+        check that the address is a block boundary: an address behind a block header copied into an object's
+        bytes can still be read there (bytes of the same file only).</li>
         <li>The multiplex server does not require HELLO before OPEN, and does not limit the number of channels in
         a session.</li>
         <li>DataReel 7.4 had no default replication port; 7.4.1 uses 2073 (<xref target="repl-port"/>).</li>

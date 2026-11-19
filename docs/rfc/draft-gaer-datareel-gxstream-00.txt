@@ -116,7 +116,7 @@ Internet-Draft              DataReel gxStream              November 2026
 
      11.1.  Confidentiality and Integrity  . . . . . . . . . . . . .  21
      11.2.  Authentication and Authorization . . . . . . . . . . . .  21
-     11.3.  Replication  . . . . . . . . . . . . . . . . . . . . . .  21
+     11.3.  Replication  . . . . . . . . . . . . . . . . . . . . . .  22
      11.4.  Resource Exhaustion  . . . . . . . . . . . . . . . . . .  22
      11.5.  Server Control Codes . . . . . . . . . . . . . . . . . .  22
      11.6.  Stored Data  . . . . . . . . . . . . . . . . . . . . . .  22
@@ -124,9 +124,9 @@ Internet-Draft              DataReel gxStream              November 2026
    13. References  . . . . . . . . . . . . . . . . . . . . . . . . .  23
      13.1.  Normative References . . . . . . . . . . . . . . . . . .  23
      13.2.  Informative References . . . . . . . . . . . . . . . . .  24
-   Appendix A.  Implementation Status  . . . . . . . . . . . . . . .  24
-   Acknowledgments . . . . . . . . . . . . . . . . . . . . . . . . .  25
-   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  25
+   Appendix A.  Implementation Status  . . . . . . . . . . . . . . .  25
+   Acknowledgments . . . . . . . . . . . . . . . . . . . . . . . . .  26
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  26
 
 1.  Introduction
 
@@ -1155,11 +1155,28 @@ Internet-Draft              DataReel gxStream              November 2026
    that need finer authorization should run separate servers or
    databases per client group.
 
-   In DataReel 7.4 the object service checks a client-supplied address
-   only by finding a valid block header check word in front of it
-   (Appendix A).  A client with write access can therefore damage the
-   database it may change, and a client with read access can read
-   deleted blocks.  Grant write access only to trusted programs.
+   A server MUST accept a client-supplied object address only if it is
+   the start of a live object of that database: the block header in
+   front of it must be valid and not deleted, the block must lie inside
+   the file, and the address must be a block boundary rather than a
+   place inside another object, whose bytes a client may have written to
+   look like a block header.  DataReel 7.4 checked only the header's
+   check word, so a client with write access could damage the database
+   it may change and a client with read access could read deleted
+   blocks; DataReel 7.4.1 makes the full check for writable databases
+   (Appendix A).
+
+
+
+
+
+
+
+
+Gaer                       Expires 22 May 2027                 [Page 21]
+
+Internet-Draft              DataReel gxStream              November 2026
+
 
 11.3.  Replication
 
@@ -1170,14 +1187,6 @@ Internet-Draft              DataReel gxStream              November 2026
    mistakes (a stale primary, two primaries, a diverged history); they
    do not protect against a compromised key.  Replication keys should be
    dedicated to replication, kept readable only by their owner (DataReel
-
-
-
-Gaer                       Expires 22 May 2027                 [Page 21]
-
-Internet-Draft              DataReel gxStream              November 2026
-
-
    refuses a key file that group or others can read), and the copy's
    allow list should name only the primary.
 
@@ -1218,6 +1227,13 @@ Internet-Draft              DataReel gxStream              November 2026
    IANA has assigned port 2073 for TCP and UDP in the "Service Name and
    Transport Protocol Port Number Registry" [RFC6335]:
 
+
+
+Gaer                       Expires 22 May 2027                 [Page 22]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
    Service Name:  gxs-data-port
    Port Number:   2073
    Transport:     tcp, udp
@@ -1226,13 +1242,6 @@ Internet-Draft              DataReel gxStream              November 2026
    This document asks IANA to update the Reference of the TCP assignment
    to this document, keeping the service name, port number, assignee and
    contact.
-
-
-
-Gaer                       Expires 22 May 2027                 [Page 22]
-
-Internet-Draft              DataReel gxStream              November 2026
-
 
    The UDP assignment is used only by the legacy DataReel 6.x gxDatagram
    transport (Section 9.2).  This document asks IANA to update the
@@ -1271,6 +1280,16 @@ Internet-Draft              DataReel gxStream              November 2026
               2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
               May 2017, <https://www.rfc-editor.org/info/rfc8174>.
 
+
+
+
+
+
+Gaer                       Expires 22 May 2027                 [Page 23]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
    [RFC8446]  Rescorla, E., "The Transport Layer Security (TLS) Protocol
               Version 1.3", RFC 8446, DOI 10.17487/RFC8446, August 2018,
               <https://www.rfc-editor.org/info/rfc8446>.
@@ -1282,13 +1301,6 @@ Internet-Draft              DataReel gxStream              November 2026
    [RFC9525]  Saint-Andre, P. and R. Salz, "Service Identity in TLS",
               RFC 9525, DOI 10.17487/RFC9525, November 2023,
               <https://www.rfc-editor.org/info/rfc9525>.
-
-
-
-Gaer                       Expires 22 May 2027                 [Page 23]
-
-Internet-Draft              DataReel gxStream              November 2026
-
 
 13.2.  Informative References
 
@@ -1323,6 +1335,17 @@ Internet-Draft              DataReel gxStream              November 2026
               (DTLS)", BCP 195, RFC 9325, DOI 10.17487/RFC9325, November
               2022, <https://www.rfc-editor.org/info/rfc9325>.
 
+
+
+
+
+
+
+Gaer                       Expires 22 May 2027                 [Page 24]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
 Appendix A.  Implementation Status
 
    This section follows [RFC7942].  The reference implementation is the
@@ -1338,14 +1361,6 @@ Appendix A.  Implementation Status
    gxStream class (include/gxstream.h, src/gxstream.cpp), with TLS,
    client certificates and an allow list as in Section 2.2, and also the
    legacy transports of Section 9 (src/gxdatagm.cpp for UDP).  Its
-
-
-
-Gaer                       Expires 22 May 2027                 [Page 24]
-
-Internet-Draft              DataReel gxStream              November 2026
-
-
    optional dr7features library links the DataReel 7.4 code for the
    object service client (vector searches) and for gxObjRepl
    replication, so a 6.4 program and a 7.4 program replicate to each
@@ -1362,15 +1377,30 @@ Internet-Draft              DataReel gxStream              November 2026
       check.  The multiplex reader also does not check the reserved high
       bytes of the Check Word and Status words.
 
-   *  The object service checks a client-supplied object address only by
-      the check word of the block header in front of it; it does not
-      check that the address is the start of a live object.
+   *  The object service of DataReel 7.4 checked a client-supplied
+      object address only by the check word of the block header in front
+      of it.  DataReel 7.4.1 requires a valid, not deleted block inside
+      the file, and for a writable database one of its live objects.  A
+      read-only database, opened for each request, does not check that
+      the address is a block boundary: an address behind a block header
+      copied into an object's bytes can still be read there (bytes of
+      the same file only).
 
    *  The multiplex server does not require HELLO before OPEN, and does
       not limit the number of channels in a session.
 
    *  DataReel 7.4 had no default replication port; 7.4.1 uses 2073
       (Section 8.6).
+
+
+
+
+
+
+Gaer                       Expires 22 May 2027                 [Page 25]
+
+Internet-Draft              DataReel gxStream              November 2026
+
 
    *  Multiplex and object service integers are sent in the host byte
       order.  Every platform DataReel 7.4 supports is little endian, so
@@ -1397,4 +1427,30 @@ Author's Address
 
 
 
-Gaer                       Expires 22 May 2027                 [Page 25]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Gaer                       Expires 22 May 2027                 [Page 26]
