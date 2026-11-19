@@ -1,5 +1,5 @@
 /* DataReel 7.4 tests (tests/imap_container_check.sh): the IMAP test server container only, never anything else.
-   From the DataReel 6.4 IMAP test server (claude_code_docs imap_test_server, 11/16/2026).
+   From the DataReel 6.4 IMAP test server (11/16/2026).
    Rootless podman with no subordinate ids maps one id (root in the container), so Dovecot cannot switch users,
    groups or owners. Preloaded into Dovecot (LD_PRELOAD and import_environment), this makes those calls succeed
    without changing anything, and tells imap-login and imap (which refuse to run as root) that they are uid 1000.

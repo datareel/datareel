@@ -119,8 +119,8 @@ COMPATIBILITY
 
 SPEED
 -----
-Same workload for every engine (datareel_oodb_bench in
-claude_code_docs): 1,000,000 records, 16-byte keys, 100-byte values,
+Same workload for every engine (the datareel_oodb_bench
+program): 1,000,000 records, 16-byte keys, 100-byte values,
 batches of 1000, 64 MB of cache, no sync except "durable", RHEL 10.2,
 SATA SSD, XFS. Ops/s, median of 3 runs:
 
@@ -133,8 +133,8 @@ SATA SSD, XFS. Ops/s, median of 3 runs:
 
 The ordered scan reads the data file in record order, not key order;
 the embedded SQL database (a typical one, in WAL mode) keeps rows in
-its B-tree leaves. Full report: claude_code_docs
-DATAREEL_72_OODB_FIXES.md.
+its B-tree leaves. The full report is kept in the project's
+development records.
 
 HOW IT WAS TESTED
 -----------------

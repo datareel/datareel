@@ -114,14 +114,14 @@
 <li>Binary: gxdFPTR64, gxDatabase, gxBtree and BtreeCache have new members. Rebuild programs against 7.2 (the vendored copies in OSA and OCA are rebuilt anyway).</li>
 </ul>
 <h2 id="Speed">Speed</h2>
-<p>Same workload for every engine (datareel_oodb_bench in claude_code_docs): 1,000,000 records, 16-byte keys, 100-byte values, batches of 1000, 64 MB of cache, no sync except &quot;durable&quot;, RHEL 10.2, SATA SSD, XFS. Ops/s, median of 3 runs:</p>
+<p>Same workload for every engine (the datareel_oodb_bench program): 1,000,000 records, 16-byte keys, 100-byte values, batches of 1000, 64 MB of cache, no sync except &quot;durable&quot;, RHEL 10.2, SATA SSD, XFS. Ops/s, median of 3 runs:</p>
 <pre>                     key order  random   random   ordered  random   random   durable
                      insert     insert   read     scan     update   delete   insert
  7.1                    83,827   76,453  174,957  218,694  151,092   66,721      265
  7.2, no code change   137,543  128,469  217,368 1,249,539 212,531   86,917      353
  7.2 + journal         663,541  171,869  268,542  652,149  127,558  107,841    1,003
  embedded SQL (WAL)    666,603   90,840  281,075 7,355,031 113,561  132,841    1,660</pre>
-<p>The ordered scan reads the data file in record order, not key order; the embedded SQL database (a typical one, in WAL mode) keeps rows in its B-tree leaves. Full report: claude_code_docs DATAREEL_72_OODB_FIXES.md.</p>
+<p>The ordered scan reads the data file in record order, not key order; the embedded SQL database (a typical one, in WAL mode) keeps rows in its B-tree leaves. The full report is kept in the project&#x27;s development records.</p>
 <h2 id="HowItWasTested">How it was tested</h2>
 <ul>
 <li>tests/run_tests.sh on RHEL 10.2, 41 checks (the new journal_test, every test in both journal modes, included) in five builds: 32-bit, 64-bit, portable types, 64-bit portable types and shared library.</li>

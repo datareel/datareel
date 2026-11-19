@@ -85,7 +85,8 @@ database file:
   the same journal transaction.
 
 See [RELEASE_NOTES_7.4.txt](RELEASE_NOTES_7.4.txt) and
-[docs/ai/object-database.md](docs/ai/object-database.md).
+[docs/ai/object-database.md](docs/ai/object-database.md). Known limits and
+flaky tests are in [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ### Building
 

@@ -368,6 +368,7 @@ cause and the fix (rule 1).
 | What | Command or file |
 | --- | --- |
 | Version | `version.txt`, `RELEASE_NOTES_7.4.txt` |
+| Known issues and flaky tests | `KNOWN_ISSUES.md` |
 | Build options | `cmake-build/CMakeCache.txt` (`DATAREEL_64BIT_DATABASE`, `DATAREEL_NATIVE_TYPES`, `DATAREEL_SSL`) |
 | Library self-test | `tests/run_tests.sh <build folder>` |
 | Data file check | `db_debug file.gxd` (on a copy) |

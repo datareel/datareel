@@ -453,8 +453,8 @@ BETA 3 (11/14/2026)
 - Security scan fixes: S2 a vector search takes its search slot before
   the replicated copy's apply lock (a burst of searches no longer keeps
   the copy's applies busy); S3 the .vixset duplicate check is O(log n).
-- Security scan of this build (claude_code_docs
-  DATAREEL_74_SECURITY_SCAN.md): TSan on the gxrepl suite and the
+- Security scan of this build (report kept in the project's
+  development records): TSan on the gxrepl suite and the
   object server, ASan+UBSan on run_tests, vix_test and the gxrepl suite:
   no reports; static analysis (clang-tidy, gcc -fanalyzer): no real
   issue; libFuzzer on the database, stream, protocol, support and the
