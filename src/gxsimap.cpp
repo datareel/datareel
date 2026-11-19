@@ -30,8 +30,8 @@ Internet Message Access Protocol (IMAP) client class, see gxsimap.h.
 
 Changes:
 ==============================================================
-11/16/2026: First version, based on the 2007 IMAP client by Douglas
-Gaer. Changes from that client: a reply ends only at the line that
+11/16/2026: First version, based on work from the 2007 IMAP client.
+Changes from that client: a reply ends only at the line that
 starts with the command's tag (it ended at "NO" or "BAD" anywhere in
 the text, including message text), NO and BAD replies are errors,
 literals are read by count, arguments are quoted (or sent as literals),

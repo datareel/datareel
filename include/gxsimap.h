@@ -29,8 +29,8 @@ License along with this library. If not, see
 Internet Message Access Protocol (IMAP) client class used by
 applications that read and manage email on an IMAP server, the IMAP
 counterpart of gxsPOP3Client. Written to RFC 3501 (IMAP4rev1) and RFC
-2595 (STARTTLS). Based on the IMAP client written by Douglas Gaer in
-2007 to automate the receipt of email messages.
+2595 (STARTTLS). Based on work from the 2007 IMAP client written to
+automate the receipt of email messages.
 
 Connections are made with TLS from the start (IMAPS, port 993) or in
 plain text (port 143) followed by StartTLS(). TLS needs a library built

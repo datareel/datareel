@@ -96,7 +96,7 @@ BETA 2 (11/16/2026): TLS SETTINGS FROM DATAREEL 7.x
 BETA 2 (11/16/2026): IMAP CLIENT (gxsimap.h, gxsimap.cpp)
 ---------------------------------------------------------
 - New gxsIMAPClient class, the IMAP counterpart of gxsPOP3Client, based
-  on the 2007 IMAP client by Douglas Gaer (RFC 3501, RFC 2595):
+  on work from the 2007 IMAP client (RFC 3501, RFC 2595):
   - ConnectClient() with TLS from the start (port 993) or plain text
     (port 143) and StartTLS();
   - Login(), Logout(), SelectMailbox() (SELECT or EXAMINE),
