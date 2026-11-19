@@ -37,8 +37,8 @@ RFC 8314 - Use of TLS for Email Submission and Access (port 993)
 
 Changes:
 ==============================================================
-04/17/2007: gxsIMAPClient written by Douglas Gaer for a secure IMAP
-client program that downloads report messages to a spool folder.
+04/17/2007: gxsIMAPClient first written for a secure IMAP client
+program that downloads report messages to a spool folder.
 
 11/16/2026: DataReel 7.4 adds gxsIMAPClient to the library, based on
 that 2007 class and released under the LGPL. Its structure and calls are kept (ConnectClient(),
