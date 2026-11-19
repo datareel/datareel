@@ -80,6 +80,10 @@ names a legacy database (legacy_db); without one they are refused.
 Changes:
 ==============================================================
 11/08/2026: New in DataReel 7.3.1 (phase 2 step 4).
+11/18/2026 (7.4.1): an object address a client sends (REQUEST, CHANGE,
+DELETE) must be the start of a normal block inside the file, and for a
+writable database one of its live objects; 7.4 checked only the check
+word in front of it (gxdbobject.cpp, gxdo_block_ok()).
 ==============================================================
 */
 // ----------------------------------------------------------- //

@@ -30,6 +30,17 @@ NEW IN 7.4.1 (11/18/2026, NOT RELEASED YET)
   as before; a bad copy or listen value is refused at start.
   utils/objrepl/test_objrepl_config.sh checks both (it needs
   127.0.0.1:2073 free).
+- Security fix, the object service (gxdbobject.cpp): an address a
+  client sends must be the start of a normal (not deleted) block inside
+  the file, and for a writable database one of its live objects (the
+  server keeps the list, made when the database opens). 7.4 checked
+  only the check word of the block header in front of the address, so
+  a client allowed to write could copy a block header into its own
+  object and CHANGE or DELETE at the address behind it, writing past
+  that object into the next ones; REQUEST could read past an object or
+  read deleted blocks. Only clients that passed mutual TLS and the
+  allow list could do it. tests/object_service_test.cpp (19 checks,
+  10 of them fail on 7.4) runs in run_tests.sh.
 - Documentation: docs/security_white_paper.md, the security design of
   the library; docs/gxstream_replication_white_paper.md, gxStream and
   replication on port 2073; docs/rfc/draft-gaer-datareel-gxstream-00,

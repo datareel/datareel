@@ -47,6 +47,7 @@ Database objects over the network (gxdbobject.h).
 #include <string.h>
 #include <filesystem>
 #include <system_error>
+#include <set>
 
 namespace datareel {
 
@@ -95,7 +96,39 @@ struct gxObjectService::Db {
   std::mutex m;
   std::unique_ptr<gxDatabase> db; // Writable databases stay open
   std::unique_ptr<gxdJournal> j;
+  // 11/18/2026 (7.4.1): the addresses of the live objects of a writable
+  // database (this server is its only writer), made when it opens and
+  // kept with each committed add and delete. A client's address must be
+  // one of them (see gxdo_block_ok())
+  std::set<uint64_t> live;
 };
+
+// 11/18/2026 (7.4.1): may a client's address be used as an object? The
+// block header in front of it must be a valid header (check word and
+// reserved bytes) of a normal (not deleted) block that lies inside the
+// heap. Before, only the check word was tested, so an address inside an
+// object whose bytes held a fake header let CHANGE write past the end of
+// that object into the next ones, and REQUEST read past it or read
+// deleted blocks. A writable database also requires the address to be
+// one of its live objects (Db::live), which a fake header cannot pass. A
+// read-only database (opened for each request) has no such list, so a
+// fake header inside an object can still pass there; it reads bytes of
+// that file only, changes nothing, and stays inside the file.
+static bool gxdo_block_ok(gxDatabase *db, uint64_t addr, __ULWORD__ &len)
+{
+  len = 0;
+  FAU_t bhs = (FAU_t)db->BlockHeaderSize();
+  FAU_t heap = (FAU_t)db->GetHeapStart(), eof = (FAU_t)db->GetEOF();
+  FAU_t a = (FAU_t)addr;
+  if(addr == 0 || a <= (FAU_t)0 || (uint64_t)a != addr) return false;   // FAU_t is 32 bits in the 32-bit engine
+  if(a < heap + bhs || a > eof) return false;
+  gxBlockHeader h;
+  if(db->ReadBlockHdr(h, a - bhs) != gxDBASE_NO_ERROR || !db->TestBlockHeader(h)) return false;
+  if((__SBYTE__)(((__ULWORD__)h.block_status) & 0xFF) != gxNormalBlock) return false;
+  if((FAU_t)(__ULWORD__)h.block_length < bhs || (a - bhs) + (FAU_t)(__ULWORD__)h.block_length > eof) return false;
+  len = db->ObjectLength(a);
+  return len != 0;
+}
 
 static void p64(std::vector<unsigned char> &v, uint64_t x)
 { unsigned char b[8]; memcpy(b, &x, 8); v.insert(v.end(), b, b + 8); }
@@ -194,6 +227,9 @@ int gxObjectService::Request(const std::string &name, bool write, uint8_t op,
 	d->j.reset(); d->db->Close(); d->db.reset();
 	err = "cannot open the journal " + d->cfg.journal; return -1;
       }
+      // 11/18/2026 (7.4.1): the live objects, the only addresses a client may name
+      d->live.clear();
+      for(FAU_t a = d->db->FindFirstObject(); a != (FAU_t)0; a = d->db->FindNextObject(a)) d->live.insert((uint64_t)a);
     }
     db = d->db.get();
   }
@@ -210,6 +246,13 @@ int gxObjectService::Request(const std::string &name, bool write, uint8_t op,
   size_t off = 0;
   uint64_t addr = 0;
   int rc = 0;
+  // 11/18/2026 (7.4.1): see gxdo_block_ok()
+  __ULWORD__ olen = 0;
+  auto object_ok = [&](uint64_t x) {
+    if(d->write && !d->live.count(x)) return false;
+    return gxdo_block_ok(db, x, olen);
+  };
+  uint64_t added = 0, deleted = 0;   // kept in Db::live once committed
   if(changes && d->j->Begin() != gxDBASE_NO_ERROR) { err = "cannot begin a transaction"; return -1; }
   switch(op) {
   case gxOBJ_ADD: {
@@ -220,11 +263,13 @@ int gxObjectService::Request(const std::string &name, bool write, uint8_t op,
       err = "cannot add the object"; rc = -1; break;
     }
     p64(reply, (uint64_t)a);
+    added = (uint64_t)a;
     break;
   }
   case gxOBJ_REQUEST: {
     if(!g64(body, off, addr) || addr == 0) { err = "bad request"; rc = -1; break; }
-    __ULWORD__ n = db->ObjectLength((FAU_t)addr);
+    if(!object_ok(addr)) { err = "no object at that address"; rc = -1; break; }
+    __ULWORD__ n = olen;
     std::vector<unsigned char> buf(n);
     if(n == 0 || db->Read(buf.data(), n, (FAU_t)addr) != gxDBASE_NO_ERROR) { err = "no object at that address"; rc = -1; break; }
     pbytes(reply, buf.data(), n);
@@ -233,13 +278,16 @@ int gxObjectService::Request(const std::string &name, bool write, uint8_t op,
   case gxOBJ_CHANGE: {
     uint64_t n = 0;
     if(!g64(body, off, addr) || !g64(body, off, n) || body.size() - off != n || addr == 0) { err = "bad request"; rc = -1; break; }
-    if(db->ObjectLength((FAU_t)addr) != (__ULWORD__)n) { err = "the new object must have the old length"; rc = -1; break; }
+    if(!object_ok(addr)) { err = "no object at that address"; rc = -1; break; }
+    if(olen != (__ULWORD__)n) { err = "the new object must have the old length"; rc = -1; break; }
     if(db->Write(body.data() + off, (__ULWORD__)n, (FAU_t)addr) != gxDBASE_NO_ERROR) { err = "cannot change the object"; rc = -1; }
     break;
   }
   case gxOBJ_DELETE:
     if(!g64(body, off, addr) || addr == 0) { err = "bad request"; rc = -1; break; }
+    if(!object_ok(addr)) { err = "no object at that address"; rc = -1; break; }
     if(!db->Delete((FAU_t)addr)) { err = "cannot delete the object"; rc = -1; }
+    else deleted = addr;
     break;
   case gxOBJ_FIRST:
     p64(reply, (uint64_t)db->FindFirstObject());
@@ -254,6 +302,10 @@ int gxObjectService::Request(const std::string &name, bool write, uint8_t op,
   if(changes) {
     if(rc == 0 && d->j->Commit() != gxDBASE_NO_ERROR) { err = "commit failed"; rc = -1; }
     if(rc != 0) d->j->Rollback();
+    else {                                        // 11/18/2026 (7.4.1)
+      if(added) d->live.insert(added);
+      if(deleted) d->live.erase(deleted);
+    }
   }
   if(!d->write) rodb.Close();
   return rc;

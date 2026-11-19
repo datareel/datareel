@@ -45,6 +45,12 @@ target_link_libraries(proto_security_test PRIVATE DataReel::datareel)
 set_target_properties(proto_security_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 
+# 11/18/2026 (7.4.1): the object service's address checks (a fake block header inside an object)
+add_executable(object_service_test object_service_test.cpp)
+target_link_libraries(object_service_test PRIVATE DataReel::datareel)
+set_target_properties(object_service_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+
 add_executable(support_security_test support_security_test.cpp)
 target_link_libraries(support_security_test PRIVATE DataReel::datareel)
 set_target_properties(support_security_test PROPERTIES

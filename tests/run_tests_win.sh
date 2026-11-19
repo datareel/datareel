@@ -87,7 +87,7 @@ mkdir -p "$WORK/run_replication_copy" && cd "$WORK/run_replication_copy" &&
     "$(cygpath -w "$E")" "$(cygpath -w "$U")" "$(cygpath -w "$WORK/run_replication_copy/w")"
 # 11/17/2026 (7.4, from 6.4.1): sockets are not inherited by programs this one runs
 mkdir -p "$WORK/run_cloexec" && cd "$WORK/run_cloexec" && check socket_cloexec_test "$T/socket_cloexec_test" $((PORT + 60))
-for t in stream_security_test proto_security_test support_security_test; do
+for t in stream_security_test proto_security_test support_security_test object_service_test; do   # 11/18/2026: object_service_test
   mkdir -p "$WORK/run_$t" && cd "$WORK/run_$t" && check $t "$T/$t"
 done
 # 11/17/2026 (7.4): PEM keys with Schannel where no user is signed in (this runs over SSH; the service run is

@@ -250,7 +250,7 @@ check object_client_roundtrip sh -c "'$BUILD/utils/object_client' 127.0.0.1 $PO 
 check object_client_wrong_cert_refused sh -c "! '$BUILD/utils/object_client' 127.0.0.1 $PO 127.0.0.1 pki/copy.pem pki/copy.key pki/ca.pem notes x"
 touch stop.now
 check object_server_stop_file sh -c "for i in \$(seq 50); do kill -0 $OSPID 2>/dev/null || break; sleep 0.2; done; ! kill -0 $OSPID 2>/dev/null && grep -q '^stopped' server.log"
-for t in stream_security_test proto_security_test support_security_test; do
+for t in stream_security_test proto_security_test support_security_test object_service_test; do   # 11/18/2026: object_service_test
   mkdir -p "$WORK/run_$t" && cd "$WORK/run_$t" && check $t "$BUILD/tests/$t"
 done
 cd "$WORK"

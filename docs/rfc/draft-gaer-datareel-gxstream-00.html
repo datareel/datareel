@@ -2515,10 +2515,13 @@ reply = u8  ok            ; 1 accepted, 0 refused
         every database the server serves, in every mode the server's configuration allows for that database. A
         client allowed "write" access can change or delete any object of that database. Deployments that need
         finer authorization should run separate servers or databases per client group.<a href="#section-11.2-1" class="pilcrow">¶</a></p>
-<p id="section-11.2-2">In DataReel 7.4 the object service checks a client-supplied address only by finding a valid block
-        header check word in front of it (<a href="#impl-status" class="auto internal xref">Appendix A</a>). A client with write access can therefore
-        damage the database it may change, and a client with read access can read deleted blocks. Grant write
-        access only to trusted programs.<a href="#section-11.2-2" class="pilcrow">¶</a></p>
+<p id="section-11.2-2">A server MUST accept a client-supplied object address only if it is the start of a live object of
+        that database: the block header in front of it must be valid and not deleted, the block must lie inside
+        the file, and the address must be a block boundary rather than a place inside another object, whose bytes
+        a client may have written to look like a block header. DataReel 7.4 checked only the header's check word,
+        so a client with write access could damage the database it may change and a client with read access could
+        read deleted blocks; DataReel 7.4.1 makes the full check for writable databases
+        (<a href="#impl-status" class="auto internal xref">Appendix A</a>).<a href="#section-11.2-2" class="pilcrow">¶</a></p>
 </section>
 <div id="sec-repl">
 <section id="section-11.3">
@@ -2688,8 +2691,11 @@ Description:   DataReel Database Socket
         refused. Such a block then fails the next header check. The multiplex reader also does not check the
         reserved high bytes of the Check Word and Status words.<a href="#appendix-A-4.1" class="pilcrow">¶</a>
 </li>
-        <li class="normal" id="appendix-A-4.2">The object service checks a client-supplied object address only by the check word of the block header
-        in front of it; it does not check that the address is the start of a live object.<a href="#appendix-A-4.2" class="pilcrow">¶</a>
+        <li class="normal" id="appendix-A-4.2">The object service of DataReel 7.4 checked a client-supplied object address only by the check word of
+        the block header in front of it. DataReel 7.4.1 requires a valid, not deleted block inside the file, and
+        for a writable database one of its live objects. A read-only database, opened for each request, does not
+        check that the address is a block boundary: an address behind a block header copied into an object's
+        bytes can still be read there (bytes of the same file only).<a href="#appendix-A-4.2" class="pilcrow">¶</a>
 </li>
         <li class="normal" id="appendix-A-4.3">The multiplex server does not require HELLO before OPEN, and does not limit the number of channels in
         a session.<a href="#appendix-A-4.3" class="pilcrow">¶</a>
