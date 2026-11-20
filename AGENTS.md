@@ -158,13 +158,13 @@ Manual: `README.txt` and `docs/ai/building.md`.
 
 1. Download the release from
    https://datareel.com/downloads/datareel7_downloads.php: the source
-   (`datareel-7.4.tar.gz` or `datareel-7.4.zip`) or, on Windows, a prebuilt
-   static library (`datareel-7.4-windows-x64-schannel.zip`, 64-bit
+   (`datareel-7.4.1.tar.gz` or `datareel-7.4.1.zip`) or, on Windows, a prebuilt
+   static library (`datareel-7.4.1-windows-x64-schannel.zip`, 64-bit
    database engine, or `-x86-schannel.zip`, 32-bit engine), each with its
    `.sha256sum` file.
 2. Check it before unpacking, and stop if it fails:
-   `sha256sum -c datareel-7.4.tar.gz.sha256sum` (Linux) or
-   `Get-FileHash datareel-7.4.zip -Algorithm SHA256` compared with the
+   `sha256sum -c datareel-7.4.1.tar.gz.sha256sum` (Linux) or
+   `Get-FileHash datareel-7.4.1.zip -Algorithm SHA256` compared with the
    `.sha256sum` file (Windows PowerShell).
 3. Install the build tools: on RHEL `dnf install gcc-c++ cmake
    openssl-devel` (the person runs it, as root or with sudo); on Windows
