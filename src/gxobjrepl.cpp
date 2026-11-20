@@ -71,6 +71,7 @@ the frame.
 #include <thread>
 #include <chrono>
 #include <filesystem>
+#include <condition_variable>
 #include "gxobjrepl.h"
 #include "gxdbase.h"
 #include "gxbtree.h"
@@ -93,6 +94,7 @@ the frame.
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/file.h>
+#include <poll.h>
 #endif
 
 #ifdef __BCC32__
@@ -1084,6 +1086,71 @@ bool check_tls(const gxObjReplConfig &c, long &days_left, std::string &why)
 #endif
 }
 
+// 11/19/2026 (7.4.1): the primary's bound on one exchange (a frame out and the copy's answer in). The socket timeouts
+// bound each send and each read, but not the whole: a copy stalled on a slow disk held a Pump() in a socket read for
+// 10+ minutes. Past the deadline this thread shuts the socket down (it does not close it), which ends a blocked send
+// or read at once on every platform; the exchange then fails and the connection is dropped. One thread per node,
+// started at the first exchange. The socket is closed only after Disarm(), so the shutdown never hits a reused one
+struct ExchangeGuard {
+  std::mutex m;
+  std::condition_variable c;
+  std::thread t;
+  bool quit = false, armed = false, fired = false;
+  gxsSocket_t fd = gxsINVALID_SOCKET;
+  std::chrono::steady_clock::time_point deadline;
+  void Arm(gxsSocket_t f, int seconds) {
+    std::lock_guard<std::mutex> g(m);
+    if(!t.joinable()) t = std::thread([this] { run(); });
+    fd = f; deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds); armed = true; fired = false;
+    c.notify_one();
+  }
+  bool Disarm() {                                  // true: the deadline passed and the socket was shut down
+    std::lock_guard<std::mutex> g(m);
+    armed = false; bool f = fired; fired = false; fd = gxsINVALID_SOCKET;
+    return f;
+  }
+  void run() {
+    std::unique_lock<std::mutex> l(m);
+    while(!quit) {
+      if(!armed) { c.wait(l); continue; }
+      if(std::chrono::steady_clock::now() >= deadline) {
+	if(fd != gxsINVALID_SOCKET) shutdown(fd, 2);   // SHUT_RDWR / SD_BOTH
+	fired = true; armed = false;
+	continue;
+      }
+      c.wait_until(l, deadline);
+    }
+  }
+  ~ExchangeGuard() {
+    { std::lock_guard<std::mutex> g(m); quit = true; c.notify_one(); }
+    if(t.joinable()) t.join();
+  }
+};
+
+// 11/19/2026 (7.4.1): waits up to MS for socket A or the listener B to be readable. Returns 1 (A readable, whether
+// or not B is), 2 (only B: a connection waits to be accepted), 0 (neither) or -1 (an error)
+int wait_two(gxsSocket_t a, gxsSocket_t b, int ms)
+{
+#if defined(_WIN32)
+  fd_set fds; FD_ZERO(&fds); FD_SET(a, &fds); FD_SET(b, &fds);
+  timeval tv; tv.tv_sec = ms / 1000; tv.tv_usec = (ms % 1000) * 1000;
+  int rv = select(0, &fds, 0, 0, &tv);
+  if(rv < 0) return -1;
+  if(rv == 0) return 0;
+  return FD_ISSET(a, &fds) ? 1 : 2;
+#else
+  pollfd p[2];
+  p[0].fd = a; p[0].events = POLLIN; p[0].revents = 0;
+  p[1].fd = b; p[1].events = POLLIN; p[1].revents = 0;
+  int rv;
+  do { rv = poll(p, 2, ms); } while(rv < 0 && errno == EINTR);
+  if(rv < 0) return -1;
+  if(rv == 0) return 0;
+  if(p[0].revents) return 1;                       // data, a close or an error on A: its read says which
+  return (p[1].revents & POLLIN) ? 2 : -1;
+#endif
+}
+
 struct Link {
   gxStream *st = 0; uint64_t copy_applied = 0, copy_digest = 0; bool copy_in_snapshot = false; bool refused = false;
   long snapshots = 0; time_t last_contact = 0;
@@ -1136,6 +1203,7 @@ bool gxObjReplConfig::Set(const std::string &k, const std::string &v, std::strin
   else if(k == "min-cert-days") { if(!num(u)) return bad("min-cert-days is a number"); min_cert_days = (long)u; }
   else if(k == "trim") { if(v != "0" && v != "1") return bad("trim is 0 or 1"); trim = v == "1"; }
   else if(k == "idle-timeout") { if(!num(u) || u > 86400) return bad("idle-timeout is seconds (0 = none)"); idle_timeout = (int)u; }
+  else if(k == "ack-timeout") { if(!num(u) || u < 1 || u > 86400) return bad("ack-timeout is seconds (1 to 86400)"); ack_timeout = (int)u; }
   else return bad("unknown key " + k);
   return true;
 }
@@ -1205,6 +1273,7 @@ struct gxObjRepl::Impl {
   // it), a catch-up holds addresses of outbox entries only, and a full send keeps what it has not sent yet as it was
   // at its base (snap_keep())
   std::mutex pumpmu;
+  ExchangeGuard guard;                // primary: the deadline of one exchange (cfg.ack_timeout)
   std::atomic<int> pumping{0}, closing{0};
   std::atomic<unsigned long> gen{0};
   std::vector<LinkDef> pending_links; // copy: the link map of a primary not yet accepted (F_EPOCH adopts it)
@@ -1339,9 +1408,12 @@ struct gxObjRepl::Impl {
     int port = c == std::string::npos ? gxsDATA_PORT : atoi(cfg.copy.substr(c + 1).c_str());
     st.Connection().SetCAFile(cfg.ca);
     st.SetClientCert(cfg.cert, cfg.key);
-    st.SetTimeOut(30);                                         // the connect and handshake
+    int ack = cfg.ack_timeout > 0 ? cfg.ack_timeout : 300;
+    st.SetTimeOut(ack < 30 ? ack : 30);                       // the connect and handshake
     if(st.Connect(host, port) != 0) return false;
-    st.SetTimeOut(300);   // an ack may follow a long step on the copy (clearing for a full send, a 60 MB commit) (review 2)
+    // an ack may follow a long step on the copy (clearing for a full send, a 60 MB commit) (review 2). 7.4.1: the
+    // whole exchange is bounded by ack-timeout too (io())
+    st.SetTimeOut(ack);
     // a frame is a header write and a block write, answered by a small ack: without TCP_NODELAY Nagle holds the
     // block for the peer's delayed ack (about 40 ms per frame on Linux)
     st.Connection().Socket().SetNoDelay(true);
@@ -1417,11 +1489,23 @@ struct gxObjRepl::Impl {
     unsigned long g = gen;
     bool ok;
     io_net_failed = false; io_old_header = false;
-    if(hold) ok = send_frame(*st, f) && recv_frame(*st, in);
-    else { Unlocked u(mu); ok = send_frame(*st, f) && recv_frame(*st, in); }
+    int ack = cfg.ack_timeout > 0 ? cfg.ack_timeout : 300;
+    bool late = false;
+    if(hold) {
+      guard.Arm(st->Connection().Socket().GetSocket(), ack);
+      ok = send_frame(*st, f) && recv_frame(*st, in);
+      late = guard.Disarm();
+    }
+    else {
+      Unlocked u(mu);
+      guard.Arm(st->Connection().Socket().GetSocket(), ack);
+      ok = send_frame(*st, f) && recv_frame(*st, in);
+      late = guard.Disarm();
+    }
     mu.at("pump");
+    if(late) { ok = false; say("no answer from the copy in " + std::to_string(ack) + " s (ack-timeout): connection dropped"); }
     if(closing || g != gen || !s.is_open) { err = "the node was closed while pumping"; return false; }
-    if(!ok) { io_net_failed = true; io_old_header = st->PeerOldHeader() != 0; L.drop(); return false; }
+    if(!ok) { io_net_failed = !late; io_old_header = !late && st->PeerOldHeader() != 0; L.drop(); return false; }
     return true;
   }
   bool io_net_failed = false, io_old_header = false;   // the last io(): the connection failed, the peer's header was old
@@ -2070,6 +2154,9 @@ int gxObjRepl::Impl::serve()
 #ifdef GXREPL_TEST_HOOKS
   drop_every = getenv("OBJREPL_TEST_DROP_EVERY") ? atol(getenv("OBJREPL_TEST_DROP_EVERY")) : 0;
   bool kill_in_fixup = getenv("OBJREPL_TEST_KILL_IN_FIXUP") != 0;
+  // 7.4.1: a copy that stalls (a slow disk) for SECS seconds before it applies frame AT, once, not reading its socket
+  long stall_at = getenv("OBJREPL_TEST_STALL_AT") ? atol(getenv("OBJREPL_TEST_STALL_AT")) : 0;
+  long stall_secs = getenv("OBJREPL_TEST_STALL_SECS") ? atol(getenv("OBJREPL_TEST_STALL_SECS")) : 0;
 #endif
   auto status = [&](bool force, const std::string &state, bool connected) {
     mon.set("role", "copy"); mon.set("name", cfg.name); mon.set("epoch", (unsigned long long)s.st.epoch);
@@ -2095,13 +2182,25 @@ int gxObjRepl::Impl::serve()
       if(idle > 0 && time(0) - since >= idle) return -2;
     }
   };
+  // 11/19/2026 (7.4.1): a connection accepted while another was being served (see the frame loop), served next
+  std::unique_ptr<gxStream> next;
+  // the TLS accept, with its client certificate check: 0 = an authenticated connection in X
+  auto accept_one = [&](gxStream &x) -> int {
+    x.SetTimeOut(30);                                          // the handshake and the hello: a stalled client is dropped
+    return srv.Accept(x);
+  };
   status(true, "listening", false);
   sl.unlock();
   while(!stop) {
-    if(wait(srv.Listener(), 0) <= 0) { if(stop) break; continue; }
-    gxStream st;
-    st.SetTimeOut(30);                                         // the handshake and the hello: a stalled client is dropped
-    if(srv.Accept(st) != 0) continue;
+    std::unique_ptr<gxStream> cur;
+    if(next) cur = std::move(next);
+    else {
+      if(wait(srv.Listener(), 0) <= 0) { if(stop) break; continue; }
+      cur.reset(new gxStream);
+      if(accept_one(*cur) != 0) continue;
+    }
+    gxStream &st = *cur;
+    st.SetTimeOut(30);
     st.Connection().Socket().SetNoDelay(true);                // the acks go out at once (see connect_to)
     std::vector<unsigned char> b;
     if(!recv_frame(st, b)) {
@@ -2146,9 +2245,37 @@ int gxObjRepl::Impl::serve()
     long frames = 0;
     bool accepted = false;                                     // F_EPOCH seen on this connection
     while(!stop) {
-      int w = wait(st.Connection().Socket(), cfg.idle_timeout);
+      // 11/19/2026 (7.4.1): the listener is watched too. A primary connects again only when it has given up on this
+      // connection (its ack-timeout passed, it restarted, or the network lost this one without a close), so a new
+      // connection that passes the TLS client check replaces this one at once. Before, it waited in the listen
+      // queue until this one went idle for idle-timeout seconds, and the primary's tries piled up there unaccepted
+      // (CLOSE-WAIT, their TLS hello unread). One that fails the check is closed, and this one goes on
+      int w;
+      {
+	time_t since = time(0);
+	for(;;) {
+	  if(stop) { w = 0; break; }
+	  int r = wait_two(st.Connection().Socket().GetSocket(), srv.Listener().GetSocket(), 500);
+	  if(r == 1) { w = 1; break; }
+	  if(r < 0) { w = -1; break; }
+	  if(r == 2) {
+	    std::unique_ptr<gxStream> nx(new gxStream);
+	    if(accept_one(*nx) == 0) { next = std::move(nx); w = -3; break; }
+	    continue;                                          // not authenticated: closed, this one goes on
+	  }
+	  if(cfg.idle_timeout > 0 && time(0) - since >= cfg.idle_timeout) { w = -2; break; }
+	}
+      }
       if(w == -2) { say("copy: no frame from " + pname + " in " + std::to_string(cfg.idle_timeout) + " s: connection dropped"); break; }
+      if(w == -3) { say("copy: " + pname + " connected again: the old connection is dropped"); break; }
       if(w <= 0 || !recv_frame(st, b)) break;
+#ifdef GXREPL_TEST_HOOKS
+      if(stall_at && (long)frames_total + 1 == stall_at && stall_secs > 0) {
+	say("copy: test stall of " + std::to_string(stall_secs) + " s before frame " + std::to_string(stall_at));
+	for(long i = 0; i < stall_secs * 10 && !stop; i++) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	stall_at = 0;
+      }
+#endif
       if(waiting > 0) std::this_thread::sleep_for(std::chrono::microseconds(300));   // readers first (see step_aside)
       std::unique_lock<ObjMutex> fl(mu);         // the frame: applied with the node held
       // the ack goes out after the lock is given up (11/16/2026: readers waited for the socket write too)

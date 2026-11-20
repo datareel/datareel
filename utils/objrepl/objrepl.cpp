@@ -53,7 +53,8 @@ Usage:
   objrepl takeover ROOT     a copy becomes primary: epoch + 1
   objrepl rejoin ROOT       a former primary becomes a copy (full send)
   Common: --name N --peer-name N --links SPEC --index SPEC --max-lag N
-  --max-behind S --min-cert-days N --idle-timeout S --config FILE. Any of them may come
+  --max-behind S --min-cert-days N --idle-timeout S --ack-timeout S (7.4.1, primary)
+  --config FILE. Any of them may come
   from ROOT/objrepl.conf (or --config FILE), one "key value" line each
   (the option without "--"); the command line wins.
   Certificates: utils/objrepl/objrepl_certs.sh.
@@ -298,7 +299,8 @@ int main(int argc, char **argv)
   for(int i = 3; i + 1 < argc; i++) if(std::string(argv[i]) == "--config") { conf = argv[i + 1]; conf_given = true; }
   if((conf_given || access(conf.c_str(), F_OK) == 0) && !cfg.Load(conf, &why)) { fprintf(stderr, "%s\n", why.c_str()); return 64; }
   static const std::set<std::string> keys = {"name", "peer-name", "copy", "listen", "ca", "cert", "key", "allow-cn",
-					     "links", "index", "max-lag", "max-behind", "min-cert-days", "idle-timeout"};
+					     "links", "index", "max-lag", "max-behind", "min-cert-days", "idle-timeout",
+					     "ack-timeout"};
   for(int i = 3; i < argc; i++) {
     std::string a = argv[i];
     auto val = [&]() { return i + 1 < argc ? std::string(argv[++i]) : std::string(); };

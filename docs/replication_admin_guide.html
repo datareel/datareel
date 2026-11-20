@@ -58,6 +58,7 @@ ls /tmp/objrepl_demo/certs</pre>
 <tr><td><code>index</code></td><td>both</td><td><code>NAME:DB:B:OFFSET:LEN</code> (B-tree) or <code>NAME:DB:V:OFFSET:DIM</code> (vector): this node's own indexes</td></tr>
 <tr><td><code>max-lag</code>, <code>max-behind</code>, <code>min-cert-days</code></td><td>both</td><td><code>check</code> thresholds: commits, seconds, certificate days (100, 60, 30)</td></tr>
 <tr><td><code>idle-timeout</code></td><td>both</td><td>seconds without a frame before a connection is dropped (120)</td></tr>
+<tr><td><code>ack-timeout</code></td><td>primary</td><td>7.4.1: seconds one frame and its answer may take in all before the connection is dropped and Pump() returns (300)</td></tr>
 <tr><td><code>trim</code></td><td>primary</td><td>1: drop outbox entries the copy has (default)</td></tr>
 </tbody>
 </table>

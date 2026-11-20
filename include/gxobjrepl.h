@@ -161,6 +161,12 @@ struct GXDLCODE_API gxObjReplConfig {
   // (a primary that lost power leaves it half open); the primary
   // reconnects before using a connection idle half as long
   int idle_timeout = 120;
+  // 7.4.1: primary: seconds a frame's send and the copy's answer may
+  // take in all; past that the connection is shut down and dropped, so
+  // Pump() returns (a copy stalled on a slow disk held it in a socket
+  // read for 10+ minutes). The connect and handshake take at most
+  // 30 s, or this when it is less
+  int ack_timeout = 300;
   unsigned long long max_lag = 100; // Check(): commits behind
   unsigned long long max_behind = 60; // Check(): seconds
   long min_cert_days = 30;          // Check(): certificate days left
@@ -171,7 +177,7 @@ struct GXDLCODE_API gxObjReplConfig {
   // peer-name, copy (HOST[:PORT]), listen ([ADDR:]PORT or ADDR), ca,
   // cert, key, allow-cn,
   // links, index, max-lag, max-behind, min-cert-days, trim (0/1),
-  // idle-timeout).
+  // idle-timeout, ack-timeout).
   // Returns false (and why) for an unknown key or a bad value
   bool Set(const std::string &key, const std::string &value,
 	   std::string *why = 0);
