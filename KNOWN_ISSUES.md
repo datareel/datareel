@@ -46,6 +46,9 @@ bug.
   once" case, under heavy load.
 - `imap_container` in `tests/run_tests.sh`: the Dovecot test container
   sometimes starts too slowly.
+- Windows only: `test_objrepl_check.sh` "stopping clean" (the status
+  file read empty once in a full Windows pass on 11/20/2026; three runs
+  on its own passed).
 - 32-bit builds only: `stream_blocks` and
   `stream_client_identity_logged` in `tests/run_tests.sh`, under load.
 
