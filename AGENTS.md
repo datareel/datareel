@@ -17,7 +17,7 @@ file points to them instead of repeating them. When this file and the
 code disagree, the code wins: say so to the person you work for.
 
 **Release status.** DataReel 7.4 is the main, fully supported release
-(https://datareel.com/clib7/). DataReel 6.4.1 is the legacy release: it
+(https://datareel.com/clib7/). DataReel 6.4.2 is the legacy release: it
 gets bug fixes and security updates only, and no new features. New
 projects should use DataReel 7; propose 6.x only for existing 6.x code.
 
@@ -150,12 +150,12 @@ BUILDING WITH CMAKE, BUILDING WINDOWS STATIC LIBRARY and DLL).
 
 1. Download the release from
    https://datareel.com/downloads/datareel_downloads.php: the source
-   (`datareel-6.4.1.tar.gz` or `datareel-6.4.1.zip`) or, on Windows, a
-   prebuilt static library (`datareel-6.4.1-windows-x64-schannel.zip` or
+   (`datareel-6.4.2.tar.gz` or `datareel-6.4.2.zip`) or, on Windows, a
+   prebuilt static library (`datareel-6.4.2-windows-x64-schannel.zip` or
    `-x86-schannel.zip`), each with its `.sha256sum` file.
 2. Check it before unpacking, and stop if it fails:
-   `sha256sum -c datareel-6.4.1.tar.gz.sha256sum` (Linux) or
-   `Get-FileHash datareel-6.4.1.zip -Algorithm SHA256` compared with the
+   `sha256sum -c datareel-6.4.2.tar.gz.sha256sum` (Linux) or
+   `Get-FileHash datareel-6.4.2.zip -Algorithm SHA256` compared with the
    `.sha256sum` file (Windows PowerShell).
 3. Install the build tools: on RHEL `dnf install gcc-c++ make
    openssl-devel` (and `cmake` for the CMake build), run by the person;
@@ -209,7 +209,7 @@ Rules when changing DataReel 6.x itself:
 The file formats are unchanged across 6.x. Some releases add class
 members, so every program that links DataReel must be recompiled and
 relinked against the new release (the release notes for each version
-say so). Read the release notes from the version in use up to 6.4.1.
+say so). Read the release notes from the version in use up to 6.4.2.
 
 ### 5.2 From 6.x to DataReel 7.4
 
@@ -264,7 +264,7 @@ cause and the fix (rule 1).
 
 | What | Command or file |
 | --- | --- |
-| Version | `version.txt`, `RELEASE_NOTES_6.4.1.txt` |
+| Version | `version.txt`, `RELEASE_NOTES_6.4.2.txt` |
 | Build settings | `env/linux.env`, the CMake cache, `USE_OPEN_SSL` |
 | Database tests | `examples_database/run_db_tests.sh` |
 | Data file check | `db_debug file` (on a copy) |

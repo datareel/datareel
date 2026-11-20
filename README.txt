@@ -1,4 +1,4 @@
-DataReel 6.4.1 Readme File
+DataReel 6.4.2 Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -261,6 +261,15 @@ and replication on the IANA-registered port 2073 (gxs-data-port).
 docs/rfc/draft-gaer-datareel-gxstream-00.txt is the protocol's
 specification, an Internet-Draft for the Independent Submission stream
 that covers DataReel 7.4 and the 6.x legacy transports.
+
+VERSION 6.4.2
+-------------
+DataReel 6.4.2, 11/20/2026, is a maintenance release of 6.4.1: LGPL 3 license
+headers, the security and gxStream/replication white papers, the port
+2073 protocol draft, and the AI-assisted development files (AGENTS.md,
+CLAUDE.md, GEMINI.md). No library code changed. See
+RELEASE_NOTES_6.4.2.txt. The shared library is built as
+libdatareel.so.6.4.2.
 
 VERSION 6.4.1
 -------------
