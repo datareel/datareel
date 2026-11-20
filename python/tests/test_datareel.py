@@ -79,6 +79,7 @@ class ReaderTest(Base):
         self.assertEqual(datareel.engine_bits(), 64)
         self.assertTrue(datareel.library_version().startswith("7."))
         self.assertTrue(datareel.__version__.startswith("7.5"))
+        self.assertTrue(issubclass(datareel.Primary, object))
 
     def test_state_and_objects(self):
         with datareel.Reader(self.p, INDEX) as r:
@@ -168,6 +169,192 @@ class ReaderTest(Base):
                 f.read(1)
         with self.assertRaises(datareel.Error):
             datareel.BlockFile(os.path.join(self.tmp, "nosuch.gxd"))
+
+
+class PrimaryTest(Base):
+    """7.5 beta 2: a primary written from Python, checked by the C++ library and a C++ copy."""
+
+    def settings(self, port=1):
+        return {"copy": "127.0.0.1:%d" % port, "ca": os.path.join(self.pki, "ca.pem"),
+                "cert": os.path.join(self.pki, "primary.pem"), "key": os.path.join(self.pki, "primary.key"),
+                "index": INDEX}
+
+    def write_like_cpp(self, p, n, start=1):
+        """The C++ writer's layout (test_gxobjrepl_reader write): one big object rewritten by each commit and one
+        vec object per commit, so the C++ checks apply to what Python wrote."""
+        big = p.ids("big")
+        bid = big[0] if big else 0
+        for k in range(start, n + 1):
+            with p.transaction():
+                if not bid:
+                    bid = p.new_id()
+                p.put("big", bid, struct.pack("<Q", k) + bytes(((k * 7 + i) & 0xFF) for i in range(8, BIG)))
+                p.put("vec", p.new_id(), struct.pack("<Q4f", k, float(k), 0, 0, 0))
+
+    def test_write_then_cpp_checks(self):
+        root = os.path.join(self.tmp, "pyp")
+        with datareel.Primary(root, settings=self.settings(), quiet=True) as p:
+            p.open_database("big")
+            p.open_database("vec")
+            self.write_like_cpp(p, 200)
+            self.assertEqual(p.last_seq, 200)
+            self.assertEqual(p.epoch, 1)
+            self.assertEqual(len(p.ids("vec")), 200)
+            ids = p.find_key("k0", struct.pack("<Q", 77))
+            self.assertEqual(len(ids), 1)
+            self.assertEqual(p.nearest("v0", [77, 0, 0, 0], 1)[0], (ids[0], 0.0))
+            self.assertEqual(p.pump(), 1)                       # no copy at port 1: away
+        out = subprocess.run([prog("test_gxobjrepl_reader"), "final", root, "200"], stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True)
+        self.assertEqual(out.returncode, 0, out.stdout)        # the C++ reader: whole commits, 200 of them
+        ix = subprocess.run([prog("objrepl"), "ixcheck", root, "--index", INDEX], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True)
+        self.assertEqual(ix.returncode, 0, ix.stdout)          # every index entry matches the objects
+        self.assertEqual(ix.stdout.count("consistent"), 2, ix.stdout)
+
+    def test_killed_python_primary(self):
+        """A Python primary killed (KILL) in the middle of its commits: the next open replays the journal, and
+        what the files hold is whole commits ("big" names as many commits as "vec" holds)."""
+        root = os.path.join(self.tmp, "pykill")
+        code = ("import datareel, struct, sys\n"
+                "st = %r\n"
+                "p = datareel.Primary(%r, settings=st, quiet=True)\n"
+                "p.open_database('big'); p.open_database('vec')\n"
+                "bid = 0\n"
+                "for k in range(1, 100000):\n"
+                "    p.begin()\n"
+                "    bid = bid or p.new_id()\n"
+                "    p.put('big', bid, struct.pack('<Q', k) + bytes(((k * 7 + i) & 0xFF) for i in range(8, %d)))\n"
+                "    p.put('vec', p.new_id(), struct.pack('<Q4f', k, float(k), 0, 0, 0))\n"
+                "    p.commit()\n"
+                "    if k == 300: print('300', flush=True)\n") % (self.settings(), root, BIG)
+        w = subprocess.Popen([sys.executable, "-I", "-c", code], stdout=subprocess.PIPE, text=True)
+        self.assertEqual(w.stdout.readline().strip(), "300")
+        time.sleep(0.5)
+        w.kill()
+        w.wait()
+        w.stdout.close()
+        out = subprocess.run([prog("test_gxobjrepl_reader"), "final", root], stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True)
+        self.assertEqual(out.returncode, 0, out.stdout)
+        with datareel.Primary(root, settings=self.settings(), quiet=True) as p:   # and it opens to write again
+            n = p.last_seq
+            self.assertGreaterEqual(n, 300)
+            self.write_like_cpp(p, n + 5, start=n + 1)
+            self.assertEqual(p.last_seq, n + 5)
+
+    def test_transactions(self):
+        root = os.path.join(self.tmp, "pyt")
+        with datareel.Primary(root, settings=self.settings(), quiet=True) as p:
+            p.open_database("ev")
+            with p.transaction():
+                a, b = p.new_id(), p.new_id()
+                p.put("ev", a, b"first")
+                p.put("ev", b, b"second")
+            with self.assertRaises(ValueError):
+                with p.transaction():
+                    p.put("ev", a, b"changed")
+                    raise ValueError("drop it")
+            self.assertEqual(p.get("ev", a), b"first")          # rolled back
+            self.assertEqual(p.last_seq, 1)
+            p.begin()
+            p.put("ev", a, b"changed")
+            self.assertEqual(p.get("ev", a), b"changed")        # the open transaction's own change
+            p.rollback()
+            self.assertEqual(p.get("ev", a), b"first")
+            with p.transaction():
+                p.remove("ev", b)
+            self.assertFalse(p.is_live("ev", b))
+            self.assertIsNone(p.get("ev", b))
+            self.assertEqual(p.ids("ev", tombstones=True), [b])
+            with p.transaction():
+                p.purge("ev", b)
+            self.assertEqual(p.ids("ev", tombstones=True), [])
+            with self.assertRaises(datareel.Error):
+                p.put("ev", a, b"x")                            # outside a transaction
+            with self.assertRaises(datareel.Error):
+                with p.transaction():
+                    p.put("ev", 0, b"x")                        # id 0
+            self.assertEqual(p.last_seq, 3)
+        with self.assertRaises(datareel.Error):
+            p.get("ev", a)                                      # closed
+        with datareel.Reader(root) as r:
+            self.assertEqual(r.seq, 3)
+            self.assertEqual(r.get("ev", a), b"first")
+            self.assertEqual(r.ids("ev"), [a])
+
+    def test_settings_and_refusals(self):
+        with self.assertRaises(datareel.Error):
+            datareel.Primary(os.path.join(self.tmp, "bad"), settings={"nosuchkey": 1}, quiet=True)
+        with self.assertRaises(datareel.Error):
+            datareel.Primary(os.path.join(self.tmp, "bad2"), settings={"index": "not a spec"}, quiet=True)
+        conf = os.path.join(self.tmp, "objrepl.conf")
+        with open(conf, "w") as f:
+            f.write("".join("%s %s\n" % kv for kv in self.settings().items()))
+        root = os.path.join(self.tmp, "pyconf")
+        with datareel.Primary(root, config=conf, settings={"name": "pyprimary"}, quiet=True) as p:
+            p.open_database("ev")
+            with p.transaction():
+                p.put("ev", p.new_id(), b"x")
+            with self.assertRaises(datareel.Error):
+                datareel.Primary(root, settings=self.settings(), quiet=True)   # one process (object) per node
+        # a copy's folder is never written as a primary
+        c = os.path.join(self.tmp, "acopy")
+        port = free_port()
+        log = open(os.path.join(self.tmp, "acopy.log"), "w")
+        cp = subprocess.Popen([prog("objrepl"), "copy", c, "--listen", "127.0.0.1:%d" % port,
+                               "--ca", os.path.join(self.pki, "ca.pem"), "--cert", os.path.join(self.pki, "copy.pem"),
+                               "--key", os.path.join(self.pki, "copy.key"), "--allow-cn", "objrepl-primary"],
+                              stdout=log, stderr=subprocess.STDOUT)
+        try:
+            for _ in range(100):
+                if os.path.exists(os.path.join(c, "state.gxd")):
+                    break
+                time.sleep(0.1)
+        finally:
+            cp.terminate()
+            cp.wait(30)
+            log.close()
+        with self.assertRaises(datareel.Error) as e:
+            datareel.Primary(c, settings=self.settings(), quiet=True)
+        self.assertIn("copy", str(e.exception))
+
+    def test_replicates_to_cpp_copy(self):
+        port = free_port()
+        root, c = os.path.join(self.tmp, "pyrep"), os.path.join(self.tmp, "pyrep_copy")
+        os.makedirs(c)
+        log = open(os.path.join(self.tmp, "pyrep_copy.log"), "w")
+        cp = subprocess.Popen([prog("objrepl"), "copy", c, "--listen", "127.0.0.1:%d" % port,
+                               "--ca", os.path.join(self.pki, "ca.pem"), "--cert", os.path.join(self.pki, "copy.pem"),
+                               "--key", os.path.join(self.pki, "copy.key"), "--allow-cn", "objrepl-primary",
+                               "--index", INDEX], stdout=log, stderr=subprocess.STDOUT)
+        try:
+            for _ in range(100):
+                with open(os.path.join(self.tmp, "pyrep_copy.log")) as f:
+                    if "listening" in f.read():
+                        break
+                time.sleep(0.1)
+            with datareel.Primary(root, settings=self.settings(port), quiet=True) as p:
+                p.open_database("big")
+                p.open_database("vec")
+                self.write_like_cpp(p, 150)
+                self.assertEqual(p.drain(60), 0)
+                self.assertEqual(p.copy_applied, 150)
+                with p.transaction():
+                    p.remove("vec", p.ids("vec")[0])
+                self.assertEqual(p.drain(60), 0)
+            with datareel.Reader(c, INDEX) as r:
+                self.assertEqual(r.role, "copy")
+                self.assertEqual(r.seq, 151)
+                self.assertEqual(len(r.ids("vec")), 149)
+                self.assertEqual(check_big(self, r.get("big", r.ids("big")[0])), 150)
+                self.assertEqual(len(r.find_key("k0", struct.pack("<Q", 99))), 1)
+        finally:
+            cp.terminate()
+            cp.wait(30)
+            log.close()
+        dig = lambda d: subprocess.run([prog("objrepl"), "digest", d], stdout=subprocess.PIPE, text=True).stdout
+        self.assertEqual(dig(root), dig(c))                    # the C++ copy equals the Python primary
 
 
 class LiveTest(Base):
