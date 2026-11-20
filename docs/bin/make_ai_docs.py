@@ -108,6 +108,7 @@ def main():
               '- [Python package](python/README.md): the datareel pip package (7.5 beta 1), '
               'its [user\'s manual](python/docs/users-manual.md), [build guide](python/docs/building.md) '
               'and [AGENTS.md](python/AGENTS.md)',
+              '- [Release notes, all 7.x](RELEASE_NOTES.txt): every 7.x release in one file, newest first',
               '- [Release notes 7.5](RELEASE_NOTES_7.5.txt): 7.5 beta 1, the datareel Python module',
               '- [Release notes 7.4](RELEASE_NOTES_7.4.txt): Vector extensions: '
               'vector index file, exact and HNSW nearest-neighbor search',

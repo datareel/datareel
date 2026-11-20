@@ -102,7 +102,8 @@ tests/run_tests.sh
 The examples in `examples/` show typed objects, journal crash recovery, a day-organized
 event database, replication, trading sessions and the string utilities; each has a page
 under `docs/examples`. The full documentation starts at [docs/index.html](docs/index.html),
-and [README.txt](README.txt) has the complete release notes index.
+[README.txt](README.txt) has the complete release notes index, and
+[RELEASE_NOTES.txt](RELEASE_NOTES.txt) has every 7.x release's notes in one file, newest first.
 
 ### Coming next
 
