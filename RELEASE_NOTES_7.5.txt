@@ -1,0 +1,46 @@
+DataReel 7.5 Beta 1 Release Notes (the Python module), 11/20/2026
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.5 beta 1 adds the datareel Python module, a package that
+installs with pip. It is built from this repository (python/) on top of
+7.4.1, so everything in 7.4.1 is in it (RELEASE_NOTES_7.4.txt, "NEW IN
+7.4.1"). The file formats and the gxStream and gxObjRepl wire formats
+are those of 7.4.
+
+NEW IN 7.5 BETA 1
+-----------------
+- python/: the datareel package (version 7.5b1). Read only in this
+  beta:
+  - Reader(root, index=""): a gxObjRepl node folder read from another
+    process while the node runs (gxObjReplReader, 7.4.1): get, is_live,
+    ids, databases, find_key, nearest, refresh, and the seq, epoch and
+    role of the commit read. Whole commits only.
+  - VectorIndex(path, spec=None): a .vix file read only: search (with
+    tag filters, exact or graph), get, dim, count, spec, metric.
+  - BlockFile(path): a .gxd file read only: addresses() and read().
+  - Query vectors as lists of numbers or float32 buffers (array('f'),
+    numpy float32). Calls that read files release the GIL.
+- The extension uses the plain CPython C API: no third-party packages
+  to build or to run. setup.py builds it with CMake (python/
+  CMakeLists.txt), with the DataReel library inside it (static, the
+  64-bit engine); it links the system OpenSSL 3.
+- Tests: python/tests/run_python_tests.sh builds the wheel and the C++
+  test programs, installs the wheel in a throwaway virtual environment
+  and runs python/tests/test_datareel.py: a node written by the C++
+  library read through every call, readers in Python threads while a
+  C++ primary writes 2000 commits and while a copy applies 800, the
+  node's vector index file and a block file. Built on RHEL 9 (UBI 9,
+  CPython 3.12); the same wheel passes on RHEL 10.
+
+LIMITS OF BETA 1
+----------------
+- Read only. Writing from Python (a gxObjRepl primary) is planned for a
+  later beta.
+- The 64-bit database engine only.
+- Linux x86_64, CPython 3.12. Windows wheels are not built yet.
+
+PLANNED FOR LATER 7.5 BETAS
+---------------------------
+- Writes: a gxObjRepl primary from Python (Begin, Put, Remove, Commit,
+  Pump).
+- Windows wheels.

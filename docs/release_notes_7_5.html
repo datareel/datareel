@@ -1,0 +1,54 @@
+<!doctype html>
+<!-- Generated from RELEASE_NOTES_7.5.txt by docs/bin/txt2html.py -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel 7.5 Beta 1 Release Notes</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>DataReel 7.5 Beta 1 Release Notes</h1>
+<div class="dr-toc-title">Contents</div>
+<p class="dr-toc"><a href="#NewIn75Beta1">New in 7.5 beta 1</a><br>
+<a href="#LimitsOfBeta1">Limits of beta 1</a><br>
+<a href="#PlannedForLater75Betas">Planned for later 7.5 betas</a></p>
+<p>DataReel 7.5 beta 1 adds the datareel Python module, a package that installs with pip. It is built from this repository (python/) on top of 7.4.1, so everything in 7.4.1 is in it (<a href="release_notes_7_4.html">RELEASE_NOTES_7.4.txt</a>, &quot;NEW IN 7.4.1&quot;). The file formats and the gxStream and gxObjRepl wire formats are those of 7.4.</p>
+<h2 id="NewIn75Beta1">New in 7.5 beta 1</h2>
+<ul>
+<li>python/: the datareel package (version 7.5b1). Read only in this beta:
+<ul>
+<li>Reader(root, index=&quot;&quot;): a gxObjRepl node folder read from another process while the node runs (gxObjReplReader, 7.4.1): get, is_live, ids, databases, find_key, nearest, refresh, and the seq, epoch and role of the commit read. Whole commits only.</li>
+<li>VectorIndex(path, spec=None): a .vix file read only: search (with tag filters, exact or graph), get, dim, count, spec, metric.</li>
+<li>BlockFile(path): a .gxd file read only: addresses() and read().</li>
+<li>Query vectors as lists of numbers or float32 buffers (array(&#x27;f&#x27;), numpy float32). Calls that read files release the GIL.</li>
+</ul>
+</li>
+<li>The extension uses the plain CPython C API: no third-party packages to build or to run. setup.py builds it with CMake (python/ CMakeLists.txt), with the DataReel library inside it (static, the 64-bit engine); it links the system OpenSSL 3.</li>
+<li>Tests: python/tests/run_python_tests.sh builds the wheel and the C++ test programs, installs the wheel in a throwaway virtual environment and runs python/tests/test_datareel.py: a node written by the C++ library read through every call, readers in Python threads while a C++ primary writes 2000 commits and while a copy applies 800, the node&#x27;s vector index file and a block file. Built on RHEL 9 (UBI 9, CPython 3.12); the same wheel passes on RHEL 10.</li>
+</ul>
+<h2 id="LimitsOfBeta1">Limits of beta 1</h2>
+<ul>
+<li>Read only. Writing from Python (a gxObjRepl primary) is planned for a later beta.</li>
+<li>The 64-bit database engine only.</li>
+<li>Linux x86_64, CPython 3.12. Windows wheels are not built yet.</li>
+</ul>
+<h2 id="PlannedForLater75Betas">Planned for later 7.5 betas</h2>
+<ul>
+<li>Writes: a gxObjRepl primary from Python (Begin, Put, Remove, Commit, Pump).</li>
+<li>Windows wheels.</li>
+</ul>
+</main>
+<footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+</body>
+</html>

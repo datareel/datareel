@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "datareel"
+version = "7.5b1"
+description = "DataReel object database for Python: read gxObjRepl nodes, vector indexes and block files written by the DataReel C++ library"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "LGPL-3.0-or-later"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Topic :: Database",
+    "Operating System :: POSIX :: Linux",
+]
+
+[project.urls]
+Homepage = "https://datareel.com"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["datareel"]
