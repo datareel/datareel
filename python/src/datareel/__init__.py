@@ -24,6 +24,12 @@ clear_alarm(root), index_check(root, index)
     (for a standalone test node made from a copy: it never follows its old primary again); a former
     primary made a copy waiting for a full send; OK/WARN/FAIL from the status and alarm files; the alarm
     set aside; each index checked against the objects.
+Database(path, create=False, readonly=False), BTree(path, key_size, create=False, order=16, readonly=False),
+Journal(path, write_back=False), create_vector_index(...), merge_vector_indexes(...)
+    7.5 beta 2, the database layer: gxDatabase block files (alloc, write, read, delete), gxBtree index
+    files of fixed-size byte keys with an 8-byte value (insert, delete, find, prefix, range), vector
+    index writes (VectorIndex(path, write=True): insert, update, delete, repair, verify), and gxdJournal
+    transactions over any of them (attach, begin, commit, rollback; transaction(journal)).
 Error
     Raised when DataReel cannot do what was asked (the message says why).
 
@@ -32,12 +38,14 @@ numpy using the record layout the C++ programs use. The 64-bit database engine o
 """
 import contextlib
 
-from ._datareel import (Error, Reader, VectorIndex, BlockFile, Copy, library_version, engine_bits, _Primary,
-                        status, digest, takeover, rejoin, check, clear_alarm, index_check)
+from ._datareel import (Error, Reader, VectorIndex, BlockFile, Copy, Database, BTree, Journal, library_version,
+                        engine_bits, _Primary, status, digest, takeover, rejoin, check, clear_alarm, index_check,
+                        create_vector_index, merge_vector_indexes)
 
 __version__ = "7.5b2"
-__all__ = ["Error", "Primary", "Copy", "Reader", "VectorIndex", "BlockFile", "library_version", "engine_bits",
-           "status", "digest", "takeover", "rejoin", "check", "clear_alarm", "index_check", "__version__"]
+__all__ = ["Error", "Primary", "Copy", "Reader", "VectorIndex", "BlockFile", "Database", "BTree", "Journal",
+           "library_version", "engine_bits", "status", "digest", "takeover", "rejoin", "check", "clear_alarm",
+           "index_check", "create_vector_index", "merge_vector_indexes", "transaction", "__version__"]
 
 
 class Primary(_Primary):
@@ -60,3 +68,16 @@ class Primary(_Primary):
             self.rollback()
             raise
         self.commit()
+
+
+@contextlib.contextmanager
+def transaction(journal):
+    """with datareel.transaction(j): ... -- j.begin(), then j.commit() when the block ends, or j.rollback() when
+    it raises (the exception goes on)."""
+    journal.begin()
+    try:
+        yield journal
+    except BaseException:
+        journal.rollback()
+        raise
+    journal.commit()

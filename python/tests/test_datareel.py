@@ -473,6 +473,191 @@ class ReplicationTest(Base):
             self.assertEqual(p.id_at("items", 12345), 0)
 
 
+class DatabaseLayerTest(unittest.TestCase):
+    """7.5 beta 2: gxDatabase, gxBtree with byte keys, vector index writes and gxdJournal from Python."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="dr_pydb_")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def path(self, name):
+        return os.path.join(self.tmp, name)
+
+    def test_database(self):
+        with datareel.Database(self.path("a.gxd"), create=True) as db:
+            a = db.alloc(100)
+            db.write(a, b"hello")
+            db.write(a, b"world", 5)
+            self.assertEqual(db.read(a, 10), b"helloworld")
+            self.assertGreaterEqual(db.length(a), 100)
+            b = db.alloc(50)
+            self.assertEqual(db.addresses(), [a, b])
+            db.delete(b)
+            self.assertEqual(db.addresses(), [a])
+            c = db.alloc(40)
+            self.assertEqual(db.addresses(), [a, c])
+            with self.assertRaises(datareel.Error):
+                db.write(a, b"x" * 1000)                        # past the object
+        with datareel.Database(self.path("a.gxd"), readonly=True) as db:
+            self.assertEqual(db.read(db.addresses()[0], 10), b"helloworld")
+            with self.assertRaises(datareel.Error):
+                db.write(db.addresses()[0], b"no")
+        # BlockFile (beta 1) reads the same file
+        with datareel.BlockFile(self.path("a.gxd")) as f:
+            self.assertEqual(f.read(f.addresses()[0])[:10], b"helloworld")
+
+    def test_btree(self):
+        with datareel.BTree(self.path("k.btx"), 8, create=True) as t:
+            for i in range(1, 501):
+                self.assertTrue(t.insert(struct.pack(">Q", i), i * 10))
+            self.assertFalse(t.insert(struct.pack(">Q", 5), 50))  # the same key and value
+            self.assertTrue(t.insert(struct.pack(">Q", 5), 51))   # the same key, another value
+            self.assertEqual(t.count(), 501)
+            self.assertEqual(t.find(struct.pack(">Q", 5)), [50, 51])
+            self.assertEqual(t.find(struct.pack(">Q", 999)), [])
+            self.assertTrue(t.contains(struct.pack(">Q", 7), 70))
+            r = t.range(struct.pack(">Q", 10), struct.pack(">Q", 13))
+            self.assertEqual([v for _, v in r], [100, 110, 120])
+            self.assertEqual(len(t.range(limit=4)), 4)
+            self.assertTrue(t.delete(struct.pack(">Q", 5), 51))
+            self.assertFalse(t.delete(struct.pack(">Q", 5), 51))
+        with datareel.BTree(self.path("k.btx"), 8, readonly=True) as t:
+            self.assertEqual(t.count(), 500)
+            self.assertEqual(t.key_size, 8)
+        with datareel.BTree(self.path("s.btx"), 16, create=True) as t:
+            for name in [b"apple", b"apricot", b"banana", b"avocado"]:
+                t.insert(name, len(name))
+            self.assertEqual([k.rstrip(b"\0") for k, _ in t.prefix(b"ap")], [b"apple", b"apricot"])
+            with self.assertRaises(datareel.Error):
+                t.insert(b"x" * 17)
+
+    def test_btree_reads_a_node_index(self):
+        # a gxObjRepl B-tree index file is 32 key bytes + the object id: BTree(path, 32) reads it
+        pki = os.path.join(self.tmp, "pki")
+        subprocess.check_call([CERTS, pki, "--copy-host", "127.0.0.1", "--days", "30", "--apply"], stdout=subprocess.DEVNULL)
+        node = self.path("node")
+        subprocess.check_call([prog("test_gxobjrepl_reader"), "write", node, pki, "50"], stdout=subprocess.DEVNULL)
+        with datareel.Reader(node, INDEX) as r:
+            want = r.find_key("k0", struct.pack("<Q", 20))
+        with datareel.BTree(os.path.join(node, "vec.k0.ix.btx"), 32, readonly=True) as t:
+            self.assertEqual(t.count(), 50)
+            self.assertEqual(t.find(struct.pack("<Q", 20)), want)
+
+    def test_vector_index_writes(self):
+        p = self.path("v.vix")
+        datareel.create_vector_index(p, 3, metric="l2", spec="test/v1")
+        with datareel.VectorIndex(p, "test/v1", write=True) as v:
+            for i in range(1, 201):
+                v.insert(i, [float(i), 0, 0], tags=[i % 4, 0, 0, i])
+            self.assertEqual(v.count, 200)
+            self.assertEqual(v.search([10.2, 0, 0], k=1)[0][0], 10)
+            self.assertEqual(v.search([10.2, 0, 0], k=3, tags={0: 3})[0][0], 11)
+            v.update(10, [500.0, 0, 0])
+            self.assertEqual(v.search([500, 0, 0], k=1)[0][0], 10)
+            v.delete(11)
+            self.assertNotIn(11, [h[0] for h in v.search([11, 0, 0], k=5)])
+            with self.assertRaises(datareel.Error):
+                v.insert(12, [1, 2, 3])                         # a duplicate id
+            with self.assertRaises(datareel.Error):
+                v.insert(999, [1, 2])                           # the wrong dimension
+            v.repair()
+            self.assertEqual(v.verify()[0], 0)
+            v.flush()
+        with datareel.VectorIndex(p, "test/v1") as v:
+            self.assertEqual(v.count, 199)
+            with self.assertRaises(datareel.Error):
+                v.insert(1000, [1, 2, 3])                       # read only
+        # merge two day files
+        q = self.path("w.vix")
+        datareel.create_vector_index(q, 3, spec="test/v1")
+        with datareel.VectorIndex(q, "test/v1", write=True) as v:
+            for i in range(1001, 1051):
+                v.insert(i, [float(i), 1, 0])
+        out = self.path("merged.vix")
+        datareel.merge_vector_indexes(out, [p, q], spec="test/v1")
+        with datareel.VectorIndex(out, "test/v1") as v:
+            self.assertEqual(v.count, 249)
+            self.assertEqual(v.search([1020, 1, 0], k=1)[0][0], 1020)
+
+    def test_journal(self):
+        j = datareel.Journal(self.path("j.jnl"))
+        db = datareel.Database(self.path("j.gxd"), create=True)
+        t = datareel.BTree(self.path("j.btx"), 8, create=True)
+        datareel.create_vector_index(self.path("j.vix"), 2)
+        v = datareel.VectorIndex(self.path("j.vix"), write=True)
+        for f in (db, t, v):
+            j.attach(f)
+        with datareel.transaction(j):
+            a = db.alloc(16)
+            db.write(a, b"committed")
+            t.insert(struct.pack(">Q", 1), a)
+            v.insert(1, [1.0, 1.0])
+        with self.assertRaises(KeyError):
+            with datareel.transaction(j):
+                db.write(a, b"rolledbak")
+                t.insert(struct.pack(">Q", 2), a)
+                v.insert(2, [2.0, 2.0])
+                raise KeyError("undo")
+        self.assertEqual(db.read(a, 9), b"committed")
+        self.assertEqual(t.count(), 1)
+        self.assertEqual(v.count, 1)                           # the index was read again after the rollback
+        with self.assertRaises(datareel.Error):
+            db.close()                                          # attached: close the journal first
+        j.begin()
+        with self.assertRaises(datareel.Error):
+            j.attach(t)                                         # attach inside a transaction
+        j.rollback()
+        j.close()
+        for f in (v, t, db):
+            f.close()
+        with datareel.Database(self.path("j.gxd"), readonly=True) as d2:
+            self.assertEqual(d2.read(a, 9), b"committed")
+
+    def test_journal_crash(self):
+        """A Python writer killed (KILL) mid-transaction: the next Journal() replays what was committed, and the
+        data file and the B-tree agree."""
+        d = self.path("crash")
+        os.makedirs(d)
+        code = ("import datareel, struct\n"
+                "j = datareel.Journal(%r)\n"
+                "db = datareel.Database(%r, create=True)\n"
+                "t = datareel.BTree(%r, 8, create=True)\n"
+                "j.attach(db); j.attach(t)\n"
+                "for k in range(1, 1000000):\n"
+                "    j.begin()\n"
+                "    for i in range(10):\n"
+                "        n = k * 10 + i\n"
+                "        a = db.alloc(64); db.write(a, struct.pack('>Q', n) * 8); t.insert(struct.pack('>Q', n), a)\n"
+                "    j.commit()\n"
+                "    if k == 50: print('50', flush=True)\n") % (os.path.join(d, "c.jnl"), os.path.join(d, "c.gxd"),
+                                                               os.path.join(d, "c.btx"))
+        w = subprocess.Popen([sys.executable, "-I", "-c", code], stdout=subprocess.PIPE, text=True)
+        self.assertEqual(w.stdout.readline().strip(), "50")
+        time.sleep(0.3)
+        w.kill()
+        w.wait()
+        w.stdout.close()
+        j = datareel.Journal(os.path.join(d, "c.jnl"))         # replays the committed transactions
+        db = datareel.Database(os.path.join(d, "c.gxd"))
+        t = datareel.BTree(os.path.join(d, "c.btx"), 8)
+        j.attach(db)
+        j.attach(t)
+        addrs = db.addresses()
+        entries = t.range()
+        self.assertEqual(len(addrs) % 10, 0)                    # whole transactions only
+        self.assertEqual(len(entries), len(addrs))
+        self.assertGreaterEqual(len(addrs), 500)
+        for k, a in entries:
+            self.assertEqual(db.read(a, 8), k)                  # each key names its own record
+        j.close()
+        t.close()
+        db.close()
+
+
 class LiveTest(Base):
     """Reads while the C++ program writes, from Python threads (the GIL is released during reads)."""
 

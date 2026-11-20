@@ -52,6 +52,9 @@ safe: use one per thread.
 #include "gxobjrepl.h"
 #include "gxvindex.h"
 #include "gxdbase.h"
+#include "gxbtree.h"
+#include "gxdjrnl.h"
+#include "gxderror.h"
 
 using namespace datareel;
 
@@ -295,6 +298,8 @@ static PyTypeObject ReaderType = { PyVarObject_HEAD_INIT(0, 0) };
 struct VixObject {
   PyObject_HEAD
   gxVectorIndex *vx;
+  int attached;                    // 7.5 beta 2: attached to an open Journal
+  int writable;
 };
 
 static void Vix_dealloc(VixObject *self)
@@ -312,14 +317,15 @@ static PyObject *Vix_new(PyTypeObject *type, PyObject *, PyObject *)
 
 static int Vix_init(VixObject *self, PyObject *args, PyObject *kw)
 {
-  static const char *kwlist[] = {"path", "spec", 0};
-  PyObject *p = 0; const char *spec = 0;
-  if(!PyArg_ParseTupleAndKeywords(args, kw, "O&|z", (char **)kwlist, PyUnicode_FSConverter, &p, &spec)) return -1;
+  static const char *kwlist[] = {"path", "spec", "write", 0};
+  PyObject *p = 0; const char *spec = 0; int write = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "O&|zp", (char **)kwlist, PyUnicode_FSConverter, &p, &spec, &write)) return -1;
   std::string path(PyBytes_AS_STRING(p)), sp(spec ? spec : "");
   Py_DECREF(p);
+  self->writable = write;
   gxvError e;
   Py_BEGIN_ALLOW_THREADS
-  e = self->vx->Open(path.c_str(), gxDBASE_READONLY, spec ? sp.c_str() : 0);
+  e = self->vx->Open(path.c_str(), write ? gxDBASE_READWRITE : gxDBASE_READONLY, spec ? sp.c_str() : 0);
   Py_END_ALLOW_THREADS
   if(e != gxv_NO_ERROR) {
     raise("cannot open " + path + (e == gxv_SPEC_MISMATCH ? ": the spec differs" : "") + " (gxvError " + std::to_string((int)e) + ")");
@@ -383,7 +389,95 @@ static PyObject *Vix_get(VixObject *self, PyObject *args)
   return Py_BuildValue("(N(IIII))", l, tags[0], tags[1], tags[2], tags[3]);
 }
 
-static PyObject *Vix_close(VixObject *self, PyObject *) { self->vx->Close(); Py_RETURN_NONE; }
+// 7.5 beta 2: writes (VectorIndex(path, write=True))
+static bool vec_arg(VixObject *self, PyObject *q, std::vector<float> &v)
+{
+  if(!floats(q, v)) return false;
+  if(v.size() != self->vx->Dim()) { raise("the vector has " + std::to_string(v.size()) + " values, the index " + std::to_string(self->vx->Dim())); return false; }
+  return true;
+}
+static bool tags_arg(PyObject *t, unsigned tags[gxvTagCount], bool &given)
+{
+  given = false; for(unsigned i = 0; i < gxvTagCount; i++) tags[i] = 0;
+  if(!t || t == Py_None) return true;
+  PyObject *seq = PySequence_Fast(t, "tags is a sequence of up to 4 unsigned integers");
+  if(!seq) return false;
+  Py_ssize_t n = PySequence_Fast_GET_SIZE(seq);
+  if(n > (Py_ssize_t)gxvTagCount) { Py_DECREF(seq); raise("at most 4 tags"); return false; }
+  for(Py_ssize_t i = 0; i < n; i++) { tags[i] = (unsigned)PyLong_AsUnsignedLong(PySequence_Fast_GET_ITEM(seq, i)); if(PyErr_Occurred()) { Py_DECREF(seq); return false; } }
+  Py_DECREF(seq); given = true; return true;
+}
+static PyObject *vix_err(const char *what, gxvError e)
+{
+  static const char *names[] = {"", "not open", "database error", "bad file", "bad version", "bad argument", "unsupported",
+				"spec mismatch", "duplicate id", "id not found", "not finite", "read only", "out of range", "index full"};
+  std::string n = (int)e >= 0 && (int)e < (int)(sizeof(names) / sizeof(names[0])) ? names[(int)e] : "";
+  return raise(std::string(what) + " failed: gxvError " + std::to_string((int)e) + (n.empty() ? "" : " (" + n + ")"));
+}
+static PyObject *Vix_insert_or_update(VixObject *self, PyObject *args, PyObject *kw, bool update)
+{
+  static const char *kwlist[] = {"id", "vector", "tags", 0};
+  long long id; PyObject *q, *t = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "LO|O", (char **)kwlist, &id, &q, &t)) return 0;
+  VIX_OPEN(self);
+  if(!self->writable) return raise("the vector index is open read only (VectorIndex(path, write=True))");
+  std::vector<float> v; unsigned tags[gxvTagCount]; bool given;
+  if(!vec_arg(self, q, v) || !tags_arg(t, tags, given)) return 0;
+  gxvError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = update ? self->vx->Update(id, v.data(), given ? tags : 0) : self->vx->Insert(id, v.data(), given ? tags : 0);
+  Py_END_ALLOW_THREADS
+  if(e != gxv_NO_ERROR) return vix_err(update ? "update" : "insert", e);
+  Py_RETURN_NONE;
+}
+static PyObject *Vix_insert(VixObject *self, PyObject *args, PyObject *kw) { return Vix_insert_or_update(self, args, kw, false); }
+static PyObject *Vix_update(VixObject *self, PyObject *args, PyObject *kw) { return Vix_insert_or_update(self, args, kw, true); }
+static PyObject *Vix_delete(VixObject *self, PyObject *args)
+{
+  long long id; if(!PyArg_ParseTuple(args, "L", &id)) return 0;
+  VIX_OPEN(self);
+  if(!self->writable) return raise("the vector index is open read only (VectorIndex(path, write=True))");
+  gxvError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = self->vx->Delete(id);
+  Py_END_ALLOW_THREADS
+  if(e != gxv_NO_ERROR) return vix_err("delete", e);
+  Py_RETURN_NONE;
+}
+static PyObject *Vix_flush(VixObject *self, PyObject *)
+{
+  VIX_OPEN(self); gxvError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = self->vx->Flush();
+  Py_END_ALLOW_THREADS
+  if(e != gxv_NO_ERROR) return vix_err("flush", e);
+  Py_RETURN_NONE;
+}
+static PyObject *Vix_repair(VixObject *self, PyObject *)
+{
+  VIX_OPEN(self);
+  if(!self->writable) return raise("the vector index is open read only (VectorIndex(path, write=True))");
+  gxvError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = self->vx->Repair();
+  Py_END_ALLOW_THREADS
+  if(e != gxv_NO_ERROR) return vix_err("repair", e);
+  Py_RETURN_NONE;
+}
+static PyObject *Vix_verify(VixObject *self, PyObject *)
+{
+  VIX_OPEN(self);
+  std::string report; unsigned long n;
+  Py_BEGIN_ALLOW_THREADS
+  n = self->vx->Verify(0, 0, 0, &report);
+  Py_END_ALLOW_THREADS
+  return Py_BuildValue("(ks)", n, report.c_str());
+}
+static PyObject *Vix_close(VixObject *self, PyObject *)
+{
+  if(self->attached) return raise("the vector index is attached to a journal: close the journal");
+  self->vx->Close(); Py_RETURN_NONE;
+}
 static PyObject *Vix_enter(VixObject *self, PyObject *) { Py_INCREF(self); return (PyObject *)self; }
 static PyObject *Vix_exit(VixObject *self, PyObject *) { self->vx->Close(); Py_RETURN_FALSE; }
 static PyObject *Vix_dim(VixObject *self, void *) { return PyLong_FromUnsignedLong(self->vx->Dim()); }
@@ -400,6 +494,12 @@ static PyMethodDef Vix_methods[] = {
    "search(query, k=10, ef=64, exact=False, tags=None) -> [(id, distance, (t0, t1, t2, t3))], closest first. "
    "tags: {tag: value} or {tag: (lo, hi)}"},
   {"get", (PyCFunction)Vix_get, METH_VARARGS, "get(id) -> (vector, tags), or None"},
+  {"insert", (PyCFunction)(void (*)(void))Vix_insert, METH_VARARGS | METH_KEYWORDS, "insert(id, vector, tags=None): a new vector (write=True)"},
+  {"update", (PyCFunction)(void (*)(void))Vix_update, METH_VARARGS | METH_KEYWORDS, "update(id, vector, tags=None)"},
+  {"delete", (PyCFunction)Vix_delete, METH_VARARGS, "delete(id): a tombstone (searches no longer find it)"},
+  {"flush", (PyCFunction)Vix_flush, METH_NOARGS, "flush(): the nodes to the file"},
+  {"repair", (PyCFunction)Vix_repair, METH_NOARGS, "repair(): rebuild the graph from the live nodes and write it"},
+  {"verify", (PyCFunction)Vix_verify, METH_NOARGS, "verify() -> (problems, report): the file against the copy in memory"},
   {"close", (PyCFunction)Vix_close, METH_NOARGS, "close()"},
   {"__enter__", (PyCFunction)Vix_enter, METH_NOARGS, ""},
   {"__exit__", (PyCFunction)Vix_exit, METH_VARARGS, ""},
@@ -808,6 +908,474 @@ static PyGetSetDef Copy_getset[] = {
 };
 static PyTypeObject CopyType = { PyVarObject_HEAD_INIT(0, 0) };
 
+// ---------- 7.5 beta 2: the database layer (gxDatabase, gxBtree with byte keys, gxdJournal) ----------
+static gxDatabaseAccessMode access_mode(int readonly) { return readonly ? gxDBASE_READONLY : gxDBASE_READWRITE; }
+
+// Database(path, create=False, readonly=False): a gxDatabase block file
+struct DatabaseObject {
+  PyObject_HEAD
+  gxDatabase *db;
+  int attached;                    // attached to an open Journal: closed by the journal's close()
+};
+static void Database_dealloc(DatabaseObject *self)
+{
+  if(self->db) { if(!self->attached) self->db->Close(); else self->db = 0; }
+  delete self->db;
+  Py_TYPE(self)->tp_free((PyObject *)self);
+}
+static PyObject *Database_new(PyTypeObject *type, PyObject *, PyObject *)
+{
+  DatabaseObject *self = (DatabaseObject *)type->tp_alloc(type, 0);
+  if(self) { self->db = new gxDatabase; self->attached = 0; }
+  return (PyObject *)self;
+}
+static int Database_init(DatabaseObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"path", "create", "readonly", 0};
+  PyObject *p = 0; int create = 0, ro = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "O&|pp", (char **)kwlist, PyUnicode_FSConverter, &p, &create, &ro)) return -1;
+  std::string path(PyBytes_AS_STRING(p)); Py_DECREF(p);
+  gxDatabaseError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = create ? self->db->Create(path.c_str()) : self->db->Open(path.c_str(), access_mode(ro));
+  Py_END_ALLOW_THREADS
+  if(e != gxDBASE_NO_ERROR) { raise((create ? "cannot create " : "cannot open ") + path + ": " + self->db->DatabaseExceptionMessage()); return -1; }
+  return 0;
+}
+#define DB_OPEN(self) if(!(self)->db || !(self)->db->IsOpen()) return raise("the database is closed")
+#define DB_ERR(self, e) if((e) != gxDBASE_NO_ERROR) return raise((self)->db->DatabaseExceptionMessage())
+
+static PyObject *Database_alloc(DatabaseObject *self, PyObject *args)
+{
+  unsigned long long n; if(!PyArg_ParseTuple(args, "K", &n)) return 0;
+  DB_OPEN(self);
+  if(n == 0 || n > 0x7fffffffULL) return raise("alloc() size is 1 to 2 GB");
+  FAU_t a;
+  Py_BEGIN_ALLOW_THREADS
+  a = self->db->Alloc((__ULWORD__)n);
+  Py_END_ALLOW_THREADS
+  if(!a) return raise(std::string("alloc failed: ") + self->db->DatabaseExceptionMessage());
+  return PyLong_FromUnsignedLongLong((unsigned long long)a);
+}
+// write(address, data, offset=0): the bytes at offset into the object (the object must hold them)
+static PyObject *Database_write(DatabaseObject *self, PyObject *args)
+{
+  unsigned long long a, off = 0; Py_buffer b;
+  if(!PyArg_ParseTuple(args, "Ky*|K", &a, &b, &off)) return 0;
+  if(!self->db || !self->db->IsOpen()) { PyBuffer_Release(&b); return raise("the database is closed"); }
+  __ULWORD__ cap = self->db->ObjectLength((FAU_t)a);
+  if(cap == 0 || off + (unsigned long long)b.len > cap) { PyBuffer_Release(&b); return raise("write past the object at " + std::to_string(a) + " (it holds " + std::to_string((unsigned long long)cap) + " bytes)"); }
+  std::vector<unsigned char> v((const unsigned char *)b.buf, (const unsigned char *)b.buf + b.len);
+  PyBuffer_Release(&b);
+  gxDatabaseError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = self->db->Write(v.data(), (__ULWORD__)v.size(), (FAU_t)(a + off));
+  Py_END_ALLOW_THREADS
+  DB_ERR(self, e);
+  Py_RETURN_NONE;
+}
+static PyObject *Database_read(DatabaseObject *self, PyObject *args)
+{
+  unsigned long long a; long long n = -1; if(!PyArg_ParseTuple(args, "K|L", &a, &n)) return 0;
+  DB_OPEN(self);
+  __ULWORD__ cap = self->db->ObjectLength((FAU_t)a);
+  if(cap == 0) return raise("no object at address " + std::to_string(a));
+  __ULWORD__ len = (n < 0 || (unsigned long long)n > cap) ? cap : (__ULWORD__)n;
+  std::vector<unsigned char> v(len); gxDatabaseError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = self->db->Read(v.data(), len, (FAU_t)a);
+  Py_END_ALLOW_THREADS
+  DB_ERR(self, e);
+  return PyBytes_FromStringAndSize((const char *)v.data(), (Py_ssize_t)v.size());
+}
+static PyObject *Database_length(DatabaseObject *self, PyObject *args)
+{
+  unsigned long long a; if(!PyArg_ParseTuple(args, "K", &a)) return 0;
+  DB_OPEN(self);
+  return PyLong_FromUnsignedLongLong((unsigned long long)self->db->ObjectLength((FAU_t)a));
+}
+static PyObject *Database_delete(DatabaseObject *self, PyObject *args)
+{
+  unsigned long long a; if(!PyArg_ParseTuple(args, "K", &a)) return 0;
+  DB_OPEN(self);
+  int ok;
+  Py_BEGIN_ALLOW_THREADS
+  ok = self->db->Delete((FAU_t)a);
+  Py_END_ALLOW_THREADS
+  if(!ok) return raise("cannot delete the object at " + std::to_string(a) + ": " + self->db->DatabaseExceptionMessage());
+  Py_RETURN_NONE;
+}
+static PyObject *Database_addresses(DatabaseObject *self, PyObject *)
+{
+  DB_OPEN(self);
+  std::vector<unsigned long long> a;
+  Py_BEGIN_ALLOW_THREADS
+  for(FAU_t x = self->db->FindFirstObject(); x != (FAU_t)0; x = self->db->FindNextObject(x)) a.push_back((unsigned long long)x);
+  Py_END_ALLOW_THREADS
+  PyObject *l = PyList_New((Py_ssize_t)a.size());
+  if(!l) return 0;
+  for(size_t i = 0; i < a.size(); i++) PyList_SET_ITEM(l, (Py_ssize_t)i, PyLong_FromUnsignedLongLong(a[i]));
+  return l;
+}
+static PyObject *Database_flush(DatabaseObject *self, PyObject *)
+{
+  DB_OPEN(self); gxDatabaseError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = self->db->Flush();
+  Py_END_ALLOW_THREADS
+  DB_ERR(self, e); Py_RETURN_NONE;
+}
+static PyObject *Database_sync(DatabaseObject *self, PyObject *)
+{
+  DB_OPEN(self); gxDatabaseError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = self->db->Sync(1);
+  Py_END_ALLOW_THREADS
+  DB_ERR(self, e); Py_RETURN_NONE;
+}
+static PyObject *Database_close(DatabaseObject *self, PyObject *)
+{
+  if(self->attached) return raise("the database is attached to a journal: close the journal")
+  ;
+  if(self->db) {
+    Py_BEGIN_ALLOW_THREADS
+    self->db->Close();
+    Py_END_ALLOW_THREADS
+  }
+  Py_RETURN_NONE;
+}
+static PyObject *Database_enter(DatabaseObject *self, PyObject *) { Py_INCREF(self); return (PyObject *)self; }
+static PyObject *Database_exit(DatabaseObject *self, PyObject *)
+{
+  if(!self->attached && self->db) { Py_BEGIN_ALLOW_THREADS self->db->Close(); Py_END_ALLOW_THREADS }
+  Py_RETURN_FALSE;
+}
+static PyMethodDef Database_methods[] = {
+  {"alloc", (PyCFunction)Database_alloc, METH_VARARGS, "alloc(size) -> the address of a new object of at least SIZE bytes (deleted blocks are reused)"},
+  {"write", (PyCFunction)Database_write, METH_VARARGS, "write(address, data, offset=0): bytes into the object at ADDRESS"},
+  {"read", (PyCFunction)Database_read, METH_VARARGS, "read(address, size=-1) -> the object's bytes (all of its block by default)"},
+  {"length", (PyCFunction)Database_length, METH_VARARGS, "length(address) -> the bytes the object's block holds (0: no object)"},
+  {"delete", (PyCFunction)Database_delete, METH_VARARGS, "delete(address): the block is free for reuse"},
+  {"addresses", (PyCFunction)Database_addresses, METH_NOARGS, "addresses() -> every object's address, in file order"},
+  {"flush", (PyCFunction)Database_flush, METH_NOARGS, "flush(): write the header and buffers"},
+  {"sync", (PyCFunction)Database_sync, METH_NOARGS, "sync(): flush and fsync the file"},
+  {"close", (PyCFunction)Database_close, METH_NOARGS, "close()"},
+  {"__enter__", (PyCFunction)Database_enter, METH_NOARGS, ""},
+  {"__exit__", (PyCFunction)Database_exit, METH_VARARGS, ""},
+  {0, 0, 0, 0}
+};
+static PyTypeObject DatabaseType = { PyVarObject_HEAD_INIT(0, 0) };
+
+// a gxBtree key: KEY_SIZE bytes compared as bytes (memcmp), then an 8-byte unsigned value (an address or an id)
+// compared as a number. The same layout as the gxObjRepl index files (32 bytes + the object id)
+class BytesKey : public DatabaseKeyB {
+public:
+  BytesKey(size_t n) : DatabaseKeyB(0), n(n), d(n + 8, 0) { db_key = d.data(); }
+  size_t KeySize() { return n + 8; }
+  int CompareKey(const DatabaseKeyB &o) const {
+    const unsigned char *k = (const unsigned char *)o.db_key;
+    int c = memcmp(d.data(), k, n);
+    if(c) return c < 0 ? -1 : 1;
+    uint64_t a = value(), b; memcpy(&b, k + n, 8);
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+  int operator==(const DatabaseKeyB &o) const { return CompareKey(o) == 0; }
+  int operator>(const DatabaseKeyB &o) const { return CompareKey(o) > 0; }
+  void set(const unsigned char *k, size_t kn, uint64_t v) { memset(d.data(), 0, n); memcpy(d.data(), k, kn < n ? kn : n); memcpy(d.data() + n, &v, 8); }
+  uint64_t value() const { uint64_t v; memcpy(&v, d.data() + n, 8); return v; }
+  PyObject *key_bytes() const { return PyBytes_FromStringAndSize((const char *)d.data(), (Py_ssize_t)n); }
+  size_t n;
+  std::vector<unsigned char> d;
+};
+
+static bool bt_is_open(gxBtree *b) { return b && b->gxDatabasePtr() && b->gxDatabasePtr()->IsOpen(); }
+struct BTreeObject {
+  PyObject_HEAD
+  BytesKey *type;
+  gxBtree *bt;
+  size_t n;
+  int attached;
+};
+static void BTree_dealloc(BTreeObject *self)
+{
+  if(self->bt && !self->attached) self->bt->Close();
+  if(!self->attached) { delete self->bt; delete self->type; }    // an attached tree lives as long as its journal's refs
+  Py_TYPE(self)->tp_free((PyObject *)self);
+}
+static PyObject *BTree_new(PyTypeObject *type, PyObject *, PyObject *)
+{
+  BTreeObject *self = (BTreeObject *)type->tp_alloc(type, 0);
+  if(self) { self->type = 0; self->bt = 0; self->n = 0; self->attached = 0; }
+  return (PyObject *)self;
+}
+// BTree(path, key_size, create=False, order=16, readonly=False)
+static int BTree_init(BTreeObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"path", "key_size", "create", "order", "readonly", 0};
+  PyObject *p = 0; unsigned key_size; int create = 0, order = 16, ro = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "O&I|pip", (char **)kwlist, PyUnicode_FSConverter, &p, &key_size, &create, &order, &ro)) return -1;
+  std::string path(PyBytes_AS_STRING(p)); Py_DECREF(p);
+  if(key_size < 1 || key_size > 4096) { raise("key_size is 1 to 4096 bytes"); return -1; }
+  if(order < 3 || order > 1024) { raise("order is 3 to 1024"); return -1; }
+  self->n = key_size;
+  self->type = new BytesKey(key_size);
+  self->bt = new gxBtree(*self->type, (BtreeNodeOrder_t)order);
+  gxDatabaseError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = create ? self->bt->Create(path.c_str()) : self->bt->Open(path.c_str(), access_mode(ro));
+  Py_END_ALLOW_THREADS
+  if(e != gxDBASE_NO_ERROR) { raise((create ? "cannot create " : "cannot open ") + path + ": " + gxDatabaseExceptionMessage(e)); return -1; }
+  return 0;
+}
+#define BT_OPEN(self) if(!(self)->bt || !bt_is_open((self)->bt)) return raise("the B-tree is closed")
+static bool key_arg(BTreeObject *self, Py_buffer &b, BytesKey &k, uint64_t v)
+{
+  if((size_t)b.len > self->n) { PyBuffer_Release(&b); raise("the key is longer than key_size (" + std::to_string(self->n) + ")"); return false; }
+  k.set((const unsigned char *)b.buf, (size_t)b.len, v);
+  PyBuffer_Release(&b);
+  return true;
+}
+static PyObject *BTree_insert(BTreeObject *self, PyObject *args)
+{
+  Py_buffer b; unsigned long long v = 0; if(!PyArg_ParseTuple(args, "y*|K", &b, &v)) return 0;
+  if(!self->bt || !bt_is_open(self->bt)) { PyBuffer_Release(&b); return raise("the B-tree is closed"); }
+  BytesKey k(self->n), c(self->n);
+  if(!key_arg(self, b, k, v)) return 0;
+  int ok;
+  Py_BEGIN_ALLOW_THREADS
+  ok = self->bt->Insert(k, c);
+  Py_END_ALLOW_THREADS
+  return PyBool_FromLong(ok != 0);                     // False: that key and value are there already
+}
+static PyObject *BTree_delete(BTreeObject *self, PyObject *args)
+{
+  Py_buffer b; unsigned long long v = 0; if(!PyArg_ParseTuple(args, "y*|K", &b, &v)) return 0;
+  if(!self->bt || !bt_is_open(self->bt)) { PyBuffer_Release(&b); return raise("the B-tree is closed"); }
+  BytesKey k(self->n), c(self->n);
+  if(!key_arg(self, b, k, v)) return 0;
+  int ok;
+  Py_BEGIN_ALLOW_THREADS
+  ok = self->bt->Delete(k, c);
+  Py_END_ALLOW_THREADS
+  return PyBool_FromLong(ok != 0);                     // False: not there
+}
+static PyObject *BTree_contains(BTreeObject *self, PyObject *args)
+{
+  Py_buffer b; unsigned long long v = 0; if(!PyArg_ParseTuple(args, "y*|K", &b, &v)) return 0;
+  if(!self->bt || !bt_is_open(self->bt)) { PyBuffer_Release(&b); return raise("the B-tree is closed"); }
+  BytesKey k(self->n), c(self->n);
+  if(!key_arg(self, b, k, v)) return 0;
+  return PyBool_FromLong(self->bt->Find(k, c) != 0);
+}
+// entries from the first one at or past (KEY, FROM_VALUE) while LIMIT and the key still starts with PREFIX
+static PyObject *scan(BTreeObject *self, const unsigned char *start, size_t sn, uint64_t from_value,
+		      const unsigned char *prefix, size_t pn, const unsigned char *stop, size_t stn, long limit)
+{
+  BytesKey k(self->n), c(self->n);
+  PyObject *l = PyList_New(0);
+  if(!l) return 0;
+  int ok;
+  if(start) { k.set(start, sn, from_value); ok = self->bt->PartialFind(k, c); }
+  else ok = self->bt->FindFirst(k);
+  for(; ok && limit != 0; ok = self->bt->FindNext(k, c)) {
+    if(pn && memcmp(k.d.data(), prefix, pn) != 0) break;
+    if(stn && memcmp(k.d.data(), stop, std::min(stn, self->n)) >= 0) break;
+    PyObject *t = Py_BuildValue("(NK)", k.key_bytes(), (unsigned long long)k.value());
+    if(!t || PyList_Append(l, t) < 0) { Py_XDECREF(t); Py_DECREF(l); return 0; }
+    Py_DECREF(t);
+    if(limit > 0) limit--;
+  }
+  return l;
+}
+static PyObject *BTree_find(BTreeObject *self, PyObject *args)
+{
+  Py_buffer b; if(!PyArg_ParseTuple(args, "y*", &b)) return 0;
+  if(!self->bt || !bt_is_open(self->bt)) { PyBuffer_Release(&b); return raise("the B-tree is closed"); }
+  if((size_t)b.len > self->n) { PyBuffer_Release(&b); return raise("the key is longer than key_size"); }
+  std::vector<unsigned char> key(self->n, 0); memcpy(key.data(), b.buf, (size_t)b.len); PyBuffer_Release(&b);
+  PyObject *all = scan(self, key.data(), self->n, 0, key.data(), self->n, 0, 0, -1);
+  if(!all) return 0;
+  PyObject *vals = PyList_New(PyList_GET_SIZE(all));
+  for(Py_ssize_t i = 0; vals && i < PyList_GET_SIZE(all); i++) {
+    PyObject *v = PyTuple_GET_ITEM(PyList_GET_ITEM(all, i), 1); Py_INCREF(v); PyList_SET_ITEM(vals, i, v);
+  }
+  Py_DECREF(all);
+  return vals;
+}
+static PyObject *BTree_prefix(BTreeObject *self, PyObject *args)
+{
+  Py_buffer b; long limit = -1; if(!PyArg_ParseTuple(args, "y*|l", &b, &limit)) return 0;
+  if(!self->bt || !bt_is_open(self->bt)) { PyBuffer_Release(&b); return raise("the B-tree is closed"); }
+  if((size_t)b.len > self->n) { PyBuffer_Release(&b); return raise("the prefix is longer than key_size"); }
+  std::vector<unsigned char> pre((const unsigned char *)b.buf, (const unsigned char *)b.buf + b.len); PyBuffer_Release(&b);
+  return scan(self, pre.data(), pre.size(), 0, pre.data(), pre.size(), 0, 0, limit);
+}
+// range(start=None, stop=None, limit=-1): entries with start <= key < stop (keys compared as bytes)
+static PyObject *BTree_range(BTreeObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"start", "stop", "limit", 0};
+  PyObject *so = Py_None, *eo = Py_None; long limit = -1;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "|OOl", (char **)kwlist, &so, &eo, &limit)) return 0;
+  BT_OPEN(self);
+  std::vector<unsigned char> s, e;
+  if(so != Py_None) { char *p; Py_ssize_t n; if(PyBytes_AsStringAndSize(so, &p, &n) < 0) return 0; s.assign(p, p + n); }
+  if(eo != Py_None) { char *p; Py_ssize_t n; if(PyBytes_AsStringAndSize(eo, &p, &n) < 0) return 0; e.assign(p, p + n); }
+  if(s.size() > self->n || e.size() > self->n) return raise("a range bound is longer than key_size");
+  return scan(self, s.empty() ? 0 : s.data(), s.size(), 0, 0, 0, e.empty() ? 0 : e.data(), e.size(), limit);
+}
+static PyObject *BTree_count(BTreeObject *self, PyObject *)
+{
+  BT_OPEN(self);
+  BytesKey k(self->n), c(self->n); unsigned long long n = 0;
+  Py_BEGIN_ALLOW_THREADS
+  for(int ok = self->bt->FindFirst(k); ok; ok = self->bt->FindNext(k, c)) n++;
+  Py_END_ALLOW_THREADS
+  return PyLong_FromUnsignedLongLong(n);
+}
+static PyObject *BTree_flush(BTreeObject *self, PyObject *)
+{
+  BT_OPEN(self); gxDatabaseError e = self->bt->Flush();
+  if(e != gxDBASE_NO_ERROR) return raise(gxDatabaseExceptionMessage(e));
+  Py_RETURN_NONE;
+}
+static PyObject *BTree_close(BTreeObject *self, PyObject *)
+{
+  if(self->attached) return raise("the B-tree is attached to a journal: close the journal");
+  if(self->bt) self->bt->Close();
+  Py_RETURN_NONE;
+}
+static PyObject *BTree_enter(BTreeObject *self, PyObject *) { Py_INCREF(self); return (PyObject *)self; }
+static PyObject *BTree_exit(BTreeObject *self, PyObject *) { if(self->bt && !self->attached) self->bt->Close(); Py_RETURN_FALSE; }
+static PyObject *BTree_key_size(BTreeObject *self, void *) { return PyLong_FromSize_t(self->n); }
+static PyMethodDef BTree_methods[] = {
+  {"insert", (PyCFunction)BTree_insert, METH_VARARGS, "insert(key, value=0) -> True, or False when that key and value are there already"},
+  {"delete", (PyCFunction)BTree_delete, METH_VARARGS, "delete(key, value=0) -> True, or False when it was not there"},
+  {"contains", (PyCFunction)BTree_contains, METH_VARARGS, "contains(key, value=0) -> bool"},
+  {"find", (PyCFunction)BTree_find, METH_VARARGS, "find(key) -> the values stored under KEY (zero padded to key_size)"},
+  {"prefix", (PyCFunction)BTree_prefix, METH_VARARGS, "prefix(prefix, limit=-1) -> [(key, value)] whose key starts with PREFIX, in key order"},
+  {"range", (PyCFunction)(void (*)(void))BTree_range, METH_VARARGS | METH_KEYWORDS, "range(start=None, stop=None, limit=-1) -> [(key, value)] with start <= key < stop"},
+  {"count", (PyCFunction)BTree_count, METH_NOARGS, "count() -> entries"},
+  {"flush", (PyCFunction)BTree_flush, METH_NOARGS, "flush()"},
+  {"close", (PyCFunction)BTree_close, METH_NOARGS, "close()"},
+  {"__enter__", (PyCFunction)BTree_enter, METH_NOARGS, ""},
+  {"__exit__", (PyCFunction)BTree_exit, METH_VARARGS, ""},
+  {0, 0, 0, 0}
+};
+static PyGetSetDef BTree_getset[] = { {"key_size", (getter)BTree_key_size, 0, "key bytes (the value is 8 more)", 0}, {0, 0, 0, 0, 0} };
+static PyTypeObject BTreeType = { PyVarObject_HEAD_INIT(0, 0) };
+
+// Journal(path): gxdJournal over Database, BTree and VectorIndex files
+struct JournalObject {
+  PyObject_HEAD
+  gxdJournal *j;
+  PyObject *files;                 // the attached objects (kept alive while the journal is open)
+};
+static void journal_release(JournalObject *self)
+{
+  if(!self->files) return;
+  for(Py_ssize_t i = 0; i < PyList_GET_SIZE(self->files); i++) {
+    PyObject *o = PyList_GET_ITEM(self->files, i);
+    if(PyObject_TypeCheck(o, &DatabaseType)) ((DatabaseObject *)o)->attached = 0;
+    else if(PyObject_TypeCheck(o, &BTreeType)) ((BTreeObject *)o)->attached = 0;
+    else if(PyObject_TypeCheck(o, &VixType)) ((VixObject *)o)->attached = 0;
+  }
+  Py_CLEAR(self->files);
+}
+static void Journal_dealloc(JournalObject *self)
+{
+  if(self->j) self->j->Close();
+  journal_release(self);
+  delete self->j;
+  Py_TYPE(self)->tp_free((PyObject *)self);
+}
+static PyObject *Journal_new(PyTypeObject *type, PyObject *, PyObject *)
+{
+  JournalObject *self = (JournalObject *)type->tp_alloc(type, 0);
+  if(self) { self->j = new gxdJournal; self->files = PyList_New(0); }
+  return (PyObject *)self;
+}
+static int Journal_init(JournalObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"path", "write_back", 0};
+  PyObject *p = 0; int wb = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "O&|p", (char **)kwlist, PyUnicode_FSConverter, &p, &wb)) return -1;
+  std::string path(PyBytes_AS_STRING(p)); Py_DECREF(p);
+  gxDatabaseError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = self->j->Open(path.c_str());
+  Py_END_ALLOW_THREADS
+  if(e != gxDBASE_NO_ERROR) { raise("cannot open the journal " + path + ": " + gxdJournal::RecoverError()); return -1; }
+  if(wb) self->j->SetWriteMode(gxdJOURNAL_WRITE_BACK);
+  return 0;
+}
+static PyObject *Journal_attach(JournalObject *self, PyObject *args)
+{
+  PyObject *o; if(!PyArg_ParseTuple(args, "O", &o)) return 0;
+  if(self->j->InTransaction()) return raise("attach() inside a transaction: attach every file before begin()");
+  gxDatabaseError e;
+  if(PyObject_TypeCheck(o, &DatabaseType)) { DatabaseObject *d = (DatabaseObject *)o; if(!d->db->IsOpen()) return raise("the database is closed"); e = self->j->Attach(d->db); if(e == gxDBASE_NO_ERROR) d->attached = 1; }
+  else if(PyObject_TypeCheck(o, &BTreeType)) { BTreeObject *t = (BTreeObject *)o; if(!t->bt || !bt_is_open(t->bt)) return raise("the B-tree is closed"); e = self->j->Attach(t->bt); if(e == gxDBASE_NO_ERROR) t->attached = 1; }
+  else if(PyObject_TypeCheck(o, &VixType)) { VixObject *v = (VixObject *)o; if(!v->vx->IsOpen()) return raise("the vector index is closed"); e = self->j->Attach(v->vx->Database()); if(e == gxDBASE_NO_ERROR) v->attached = 1; }
+  else return raise("attach() takes a Database, BTree or VectorIndex");
+  if(e != gxDBASE_NO_ERROR) return raise(std::string("attach failed: ") + gxDatabaseExceptionMessage(e));
+  PyList_Append(self->files, o);
+  Py_RETURN_NONE;
+}
+#define J_CALL(expr) do { gxDatabaseError e_; Py_BEGIN_ALLOW_THREADS e_ = (expr); Py_END_ALLOW_THREADS \
+  if(e_ != gxDBASE_NO_ERROR) return raise(std::string(#expr) + ": " + gxDatabaseExceptionMessage(e_)); Py_RETURN_NONE; } while(0)
+static PyObject *Journal_begin(JournalObject *self, PyObject *) { J_CALL(self->j->Begin()); }
+static PyObject *Journal_commit(JournalObject *self, PyObject *args)
+{
+  int durable = 1; if(!PyArg_ParseTuple(args, "|p", &durable)) return 0;
+  J_CALL(self->j->Commit(durable));
+}
+static PyObject *Journal_rollback(JournalObject *self, PyObject *)
+{
+  gxDatabaseError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = self->j->Rollback();
+  Py_END_ALLOW_THREADS
+  if(e != gxDBASE_NO_ERROR) return raise(std::string("rollback: ") + gxDatabaseExceptionMessage(e));
+  // a vector index keeps its nodes in memory: read them again from the restored file
+  for(Py_ssize_t i = 0; i < PyList_GET_SIZE(self->files); i++) {
+    PyObject *o = PyList_GET_ITEM(self->files, i);
+    if(PyObject_TypeCheck(o, &VixType)) ((VixObject *)o)->vx->Reload();
+  }
+  Py_RETURN_NONE;
+}
+static PyObject *Journal_checkpoint(JournalObject *self, PyObject *) { J_CALL(self->j->Checkpoint()); }
+static PyObject *Journal_close(JournalObject *self, PyObject *)
+{
+  gxDatabaseError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = self->j->Close();
+  Py_END_ALLOW_THREADS
+  journal_release(self);
+  if(e != gxDBASE_NO_ERROR) return raise(std::string("close: ") + gxDatabaseExceptionMessage(e));
+  Py_RETURN_NONE;
+}
+static PyObject *Journal_in_transaction(JournalObject *self, void *) { return PyBool_FromLong(self->j->InTransaction()); }
+static PyObject *Journal_recovered(JournalObject *self, void *) { return PyLong_FromUnsignedLong(self->j->Recovered()); }
+static PyObject *Journal_enter(JournalObject *self, PyObject *) { Py_INCREF(self); return (PyObject *)self; }
+static PyObject *Journal_exit(JournalObject *self, PyObject *a) { PyObject *r = Journal_close(self, a); if(!r) return 0; Py_DECREF(r); Py_RETURN_FALSE; }
+static PyMethodDef Journal_methods[] = {
+  {"attach", (PyCFunction)Journal_attach, METH_VARARGS, "attach(file): a Database, BTree or VectorIndex (before begin())"},
+  {"begin", (PyCFunction)Journal_begin, METH_NOARGS, "begin()"},
+  {"commit", (PyCFunction)Journal_commit, METH_VARARGS, "commit(durable=True): every attached file's changes, all or none; durable: synced when it returns"},
+  {"rollback", (PyCFunction)Journal_rollback, METH_NOARGS, "rollback(): the files as they were at begin()"},
+  {"checkpoint", (PyCFunction)Journal_checkpoint, METH_NOARGS, "checkpoint(): write committed pages to the files and empty the journal"},
+  {"close", (PyCFunction)Journal_close, METH_NOARGS, "close(): checkpoint and close; then close the files"},
+  {"__enter__", (PyCFunction)Journal_enter, METH_NOARGS, ""},
+  {"__exit__", (PyCFunction)Journal_exit, METH_VARARGS, ""},
+  {0, 0, 0, 0}
+};
+static PyGetSetDef Journal_getset[] = {
+  {"in_transaction", (getter)Journal_in_transaction, 0, "a transaction is open", 0},
+  {"recovered", (getter)Journal_recovered, 0, "committed transactions the open replayed (after a crash)", 0},
+  {0, 0, 0, 0, 0}
+};
+static PyTypeObject JournalType = { PyVarObject_HEAD_INIT(0, 0) };
+
 // ---------- the module ----------
 static PyObject *mod_library_version(PyObject *, PyObject *) { return PyUnicode_FromString(DATAREEL_VERSION_STRING); }
 static PyObject *mod_engine(PyObject *, PyObject *) { return PyLong_FromLong(sizeof(FAU_t) * 8); }
@@ -856,6 +1424,50 @@ static PyObject *mod_takeover(PyObject *, PyObject *args)
   Py_END_ALLOW_THREADS
   if(rc != 0) return raise(msg);
   return PyUnicode_FromString(msg.c_str());
+}
+
+// create_vector_index(path, dim, metric="l2", element="float32", m=16, spec=None, ef_construction=200)
+static PyObject *mod_create_vix(PyObject *, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"path", "dim", "metric", "element", "m", "spec", "ef_construction", 0};
+  PyObject *p = 0; unsigned dim, m = 16, efc = 200; const char *metric = "l2", *elem = "float32", *spec = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "O&I|ssIzI", (char **)kwlist, PyUnicode_FSConverter, &p, &dim, &metric, &elem, &m, &spec, &efc)) return 0;
+  std::string path(PyBytes_AS_STRING(p)); Py_DECREF(p);
+  std::string mt(metric), el(elem), sp(spec ? spec : "");
+  gxvMetric me = mt == "l2" ? gxvL2 : mt == "cosine" ? gxvCOSINE : mt == "ip" ? gxvIP : (gxvMetric)0;
+  gxvElementType et = el == "float32" ? gxvFLOAT32 : el == "float16" ? gxvFLOAT16 : el == "int8" ? gxvINT8 : (gxvElementType)0;
+  if(!me) return raise("metric is l2, cosine or ip");
+  if(!et) return raise("element is float32, float16 or int8");
+  gxVectorIndex v; gxvError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = v.Create(path.c_str(), dim, et, me, m, spec ? sp.c_str() : 0, efc);
+  if(e == gxv_NO_ERROR) v.Close();
+  Py_END_ALLOW_THREADS
+  if(e != gxv_NO_ERROR) return vix_err("create", e);
+  Py_RETURN_NONE;
+}
+// merge_vector_indexes(out, inputs, spec=None, m=0, ef_construction=200) -> report
+static PyObject *mod_merge_vix(PyObject *, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"out", "inputs", "spec", "m", "ef_construction", 0};
+  PyObject *o = 0, *in; const char *spec = 0; unsigned m = 0, efc = 200;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "O&O|zII", (char **)kwlist, PyUnicode_FSConverter, &o, &in, &spec, &m, &efc)) return 0;
+  std::string out(PyBytes_AS_STRING(o)), sp(spec ? spec : ""); Py_DECREF(o);
+  PyObject *seq = PySequence_Fast(in, "inputs is a list of .vix paths");
+  if(!seq) return 0;
+  std::vector<std::string> files;
+  for(Py_ssize_t i = 0; i < PySequence_Fast_GET_SIZE(seq); i++) {
+    PyObject *b = 0;
+    if(!PyUnicode_FSConverter(PySequence_Fast_GET_ITEM(seq, i), &b)) { Py_DECREF(seq); return 0; }
+    files.push_back(PyBytes_AS_STRING(b)); Py_DECREF(b);
+  }
+  Py_DECREF(seq);
+  std::string report; gxvError e;
+  Py_BEGIN_ALLOW_THREADS
+  e = gxVectorIndex::Merge(out.c_str(), files, spec ? sp.c_str() : 0, m, efc, &report);
+  Py_END_ALLOW_THREADS
+  if(e != gxv_NO_ERROR) return vix_err("merge", e);
+  return PyUnicode_FromString(report.c_str());
 }
 
 static PyObject *mod_rejoin(PyObject *, PyObject *args)
@@ -921,6 +1533,10 @@ static PyObject *mod_check(PyObject *, PyObject *args, PyObject *kw)
 }
 
 static PyMethodDef module_methods[] = {
+  {"create_vector_index", (PyCFunction)(void (*)(void))mod_create_vix, METH_VARARGS | METH_KEYWORDS,
+   "create_vector_index(path, dim, metric='l2', element='float32', m=16, spec=None, ef_construction=200): a new .vix file"},
+  {"merge_vector_indexes", (PyCFunction)(void (*)(void))mod_merge_vix, METH_VARARGS | METH_KEYWORDS,
+   "merge_vector_indexes(out, inputs, spec=None, m=0, ef_construction=200) -> report: one index from many (the day files)"},
   {"rejoin", mod_rejoin, METH_VARARGS, "rejoin(root) -> message: a former primary (or a copy of another history) becomes a copy waiting for a full send"},
   {"clear_alarm", mod_clear_alarm, METH_VARARGS, "clear_alarm(root) -> message: the node's alarm file is set aside"},
   {"index_check", mod_index_check, METH_VARARGS, "index_check(root, index) -> (consistent, report): each index against the objects"},
@@ -956,6 +1572,14 @@ PyMODINIT_FUNC PyInit__datareel(void)
 	    Vix_methods, Vix_getset,
 	    "VectorIndex(path, spec=None) - a .vix file, read only. Use it on files no process is writing; "
 	    "for a running node use Reader.nearest().")) return 0;
+  if(!ready(DatabaseType, "datareel.Database", sizeof(DatabaseObject), (destructor)Database_dealloc, Database_new, (initproc)Database_init,
+	    Database_methods, 0, "Database(path, create=False, readonly=False): a gxDatabase block file, read and write")) return 0;
+  if(!ready(BTreeType, "datareel.BTree", sizeof(BTreeObject), (destructor)BTree_dealloc, BTree_new, (initproc)BTree_init,
+	    BTree_methods, BTree_getset, "BTree(path, key_size, create=False, order=16, readonly=False): a gxBtree index file of "
+	    "KEY_SIZE-byte keys (compared as bytes) with an 8-byte value each")) return 0;
+  if(!ready(JournalType, "datareel.Journal", sizeof(JournalObject), (destructor)Journal_dealloc, Journal_new, (initproc)Journal_init,
+	    Journal_methods, Journal_getset, "Journal(path, write_back=False): a gxdJournal: atomic, crash-safe transactions over "
+	    "attached Database, BTree and VectorIndex files")) return 0;
   if(!ready(CopyType, "datareel.Copy", sizeof(PrimaryObject), (destructor)Primary_dealloc, Primary_new, (initproc)Copy_init,
 	    Copy_methods, Copy_getset,
 	    "Copy(root, config=None, settings=None, quiet=False): a gxObjRepl copy node: serve() applies what the primary "
@@ -976,7 +1600,10 @@ PyMODINIT_FUNC PyInit__datareel(void)
      PyModule_AddObjectRef(m, "VectorIndex", (PyObject *)&VixType) < 0 ||
      PyModule_AddObjectRef(m, "BlockFile", (PyObject *)&BlockType) < 0 ||
      PyModule_AddObjectRef(m, "_Primary", (PyObject *)&PrimaryType) < 0 ||
-     PyModule_AddObjectRef(m, "Copy", (PyObject *)&CopyType) < 0) { Py_DECREF(m); return 0; }
+     PyModule_AddObjectRef(m, "Copy", (PyObject *)&CopyType) < 0 ||
+     PyModule_AddObjectRef(m, "Database", (PyObject *)&DatabaseType) < 0 ||
+     PyModule_AddObjectRef(m, "BTree", (PyObject *)&BTreeType) < 0 ||
+     PyModule_AddObjectRef(m, "Journal", (PyObject *)&JournalType) < 0) { Py_DECREF(m); return 0; }
   return m;
 }
 // ----------------------------------------------------------- //
