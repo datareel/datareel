@@ -871,6 +871,241 @@ class LiveTest(Base):
             copy.wait(30)
             log.close()
 
+PY_WRITER = r"""
+import struct, sys, datareel
+root, pki, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
+st = {"copy": "127.0.0.1:1", "ca": pki + "/ca.pem", "cert": pki + "/primary.pem", "key": pki + "/primary.key",
+      "index": "k0:vec:B:0:8,v0:vec:V:8:4"}
+with datareel.Node(root, st, role="primary", quiet=True) as p:
+    p.open_database("big")
+    p.open_database("vec")
+    big = p.ids("big")
+    bid = big[0] if big else 0
+    for k in range(len(p.ids("vec")) + 1, n + 1):
+        with p.transaction():
+            if not bid:
+                bid = p.new_id()
+            p.put("big", bid, struct.pack("<Q", k) + bytes(((k * 7 + i) & 0xFF) for i in range(8, 12000)))
+            p.put("vec", p.new_id(), struct.pack("<Q4f", k, float(k), 0, 0, 0))
+print("write: done %d" % n)
+"""
+
+PY_COPY = r"""
+import signal, sys, threading, datareel
+root, pki, port = sys.argv[1], sys.argv[2], sys.argv[3]
+st = {"listen": "127.0.0.1:" + port, "ca": pki + "/ca.pem", "cert": pki + "/copy.pem", "key": pki + "/copy.key",
+      "allow-cn": "objrepl-primary", "index": "k0:vec:B:0:8,v0:vec:V:8:4"}
+c = datareel.Node(root, st, role="copy", quiet=True)
+signal.signal(signal.SIGTERM, lambda *a: c.stop())
+t = threading.Thread(target=c.serve)
+t.start()
+print("listening", flush=True)
+while t.is_alive():
+    t.join(0.2)           # back in Python often, so SIGTERM's handler runs
+c.close()
+"""
+
+
+def applied(root):
+    """the copy's applied_seq from its objrepl.status file (the copy is running)"""
+    try:
+        with open(os.path.join(root, "objrepl.status")) as f:
+            for line in f:
+                w = line.split()
+                if len(w) == 2 and w[0] == "applied_seq":
+                    return int(w[1])
+    except (OSError, ValueError):
+        pass
+    return 0
+
+
+class HandoffTest(Base):
+    """7.5 beta 2 (the OSA handoff): paging and range reads, the node's own index spec, lock-wait, Node()/detach(),
+    a C++ primary to a Python copy (full send, incremental, a killed copy), C++ and Python writers taking turns on one
+    folder, and a Reader while a Python writer commits."""
+
+    def settings(self, extra=None):
+        st = {"copy": "127.0.0.1:1", "ca": os.path.join(self.pki, "ca.pem"),
+              "cert": os.path.join(self.pki, "primary.pem"), "key": os.path.join(self.pki, "primary.key"),
+              "index": INDEX}
+        st.update(extra or {})
+        return st
+
+    def test_paging_range_and_spec(self):
+        with datareel.Reader(self.p) as r:            # no spec: read from the node's .def files
+            self.assertEqual(sorted(r.index_spec.split(",")), sorted(INDEX.split(",")))
+            all_ids = r.ids("vec")
+            self.assertEqual(len(all_ids), 300)
+            pages, after = [], 0
+            while True:
+                page = r.ids("vec", after=after, limit=37)
+                if not page:
+                    break
+                self.assertLessEqual(len(page), 37)
+                pages += page
+                after = page[-1]
+            self.assertEqual(pages, all_ids)
+            self.assertEqual(r.ids("vec", after=all_ids[-1]), [])
+            self.assertEqual(r.ids("vec", limit=5), all_ids[:5])
+            self.assertEqual(r.ids("vec", tombstones=True, limit=10), [])
+            # the keys are compared as bytes (these 8-byte keys are little-endian, so by their low byte first)
+            self.assertEqual(len(r.find_range("k0", b"")), 300)
+            self.assertEqual(len(r.find_range("k0", b"", limit=7)), 7)
+            got = r.find_range("k0", b"\x10", b"\x20")             # low byte 16..31: keys 16..31 and 272..287
+            keys = sorted(struct.unpack_from("<Q", r.get("vec", i))[0] for i in got)
+            self.assertEqual(keys, sorted(list(range(16, 32)) + list(range(272, 288))))
+            self.assertEqual(r.find_range("k0", b"\x10", b"\x10"), [])
+            with self.assertRaises(datareel.Error):
+                r.find_range("v0", b"")                            # not a B-tree index
+            with self.assertRaises(datareel.Error):
+                r.find_range("k0", bytes(9))                       # longer than the key
+            self.assertEqual(datareel.Reader(self.p, INDEX).index_spec, INDEX)
+
+    def test_lock_wait_node_detach(self):
+        root = os.path.join(self.tmp, "lockw")
+        with datareel.Node(root, self.settings(), quiet=True) as p:
+            self.assertEqual((p.role, p.seq), ("primary", 0))
+            p.open_database("vec")
+            with p.transaction():
+                for k in range(1, 51):
+                    p.put("vec", p.new_id(), struct.pack("<Q4f", k, float(k), 0, 0, 0))
+            self.assertEqual(p.seq, 1)
+            self.assertEqual(p.ids("vec", limit=3), p.ids("vec")[:3])
+            self.assertEqual(p.ids("vec", after=p.ids("vec")[47]), p.ids("vec")[48:])
+            t0 = time.time()
+            with self.assertRaises(datareel.Error):
+                datareel.Primary(root, settings=self.settings(), quiet=True)      # lock-wait 0: at once
+            self.assertLess(time.time() - t0, 1.0)
+            t0 = time.time()
+            with self.assertRaises(datareel.Error):
+                datareel.Primary(root, settings=self.settings({"lock-wait": "2"}), quiet=True)
+            self.assertGreaterEqual(time.time() - t0, 1.8)
+            with self.assertRaises(datareel.Error):
+                datareel.Node(root, self.settings(), role="witness")
+        # a Python copy of it, stopped, then a file copy of that detached into an independent writable node
+        port = free_port()
+        c = os.path.join(self.tmp, "lockw_c")
+        k = lambda f: os.path.join(self.pki, f)
+        cc = datareel.Node(c, {"listen": "127.0.0.1:%d" % port, "ca": k("ca.pem"), "cert": k("copy.pem"),
+                               "key": k("copy.key"), "allow-cn": "objrepl-primary", "index": INDEX}, role="copy",
+                           quiet=True)
+        t = threading.Thread(target=cc.serve)
+        t.start()
+        time.sleep(0.3)
+        try:
+            with datareel.Node(root, self.settings({"copy": "127.0.0.1:%d" % port}), quiet=True) as p:
+                self.assertEqual(p.drain(60), 0)
+            self.assertEqual((cc.role, cc.seq), ("copy", 1))
+        finally:
+            cc.stop()
+            t.join(30)
+            cc.close()
+        test = os.path.join(self.tmp, "lockw_test")
+        shutil.copytree(c, test)
+        self.assertEqual(datareel.status(test)["role"], "copy")
+        self.assertIn("epoch", datareel.detach(test))
+        self.assertEqual(datareel.status(test)["role"], "primary")
+        with datareel.Node(test, self.settings(), quiet=True) as p:
+            with p.transaction():
+                p.put("vec", p.new_id(), struct.pack("<Q4f", 77, 77.0, 0, 0, 0))
+            self.assertEqual(len(p.ids("vec")), 51)
+        self.assertEqual(datareel.digest(c)[0], datareel.digest(root)[0])     # the copy it came from is unchanged
+
+    def start_py_copy(self, root, port, log):
+        with open(log.name) as f:
+            seen = f.read().count("listening")        # the log is shared by every start: wait for a new line
+        cp = subprocess.Popen([sys.executable, "-I", "-c", PY_COPY, root, self.pki, str(port)],
+                              stdout=log, stderr=subprocess.STDOUT)
+        for _ in range(300):
+            with open(log.name) as f:
+                if f.read().count("listening") > seen:
+                    break
+            time.sleep(0.1)
+        time.sleep(0.3)
+        return cp
+
+    def test_cpp_primary_to_python_copy(self):
+        port = free_port()
+        p, c = os.path.join(self.tmp, "c2p"), os.path.join(self.tmp, "c2p_copy")
+        log = open(os.path.join(self.tmp, "c2p_copy.log"), "a")
+        cp = self.start_py_copy(c, port, log)
+        try:
+            # 1. a full send to a new copy: 100 commits made before the copy was there, then 100 more
+            out = subprocess.run([prog("test_gxobjrepl_reader"), "write", p, self.pki, "100"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.assertEqual(out.returncode, 0, out.stdout)
+            w = write(p, self.pki, 200, port)
+            self.assertEqual(w.wait(120), 0, w.communicate()[0])
+            cp.terminate()
+            self.assertEqual(cp.wait(30), 0)
+            with datareel.Reader(c) as r:
+                self.assertEqual((r.role, r.seq), ("copy", 200))
+            with datareel.Node(c, {"listen": "127.0.0.1:%d" % free_port(), "ca": os.path.join(self.pki, "ca.pem"),
+                                   "cert": os.path.join(self.pki, "copy.pem"), "key": os.path.join(self.pki, "copy.key"),
+                                   "allow-cn": "objrepl-primary", "index": INDEX}, role="copy", quiet=True) as cc:
+                self.assertEqual((cc.role, cc.seq), ("copy", 200))
+            self.assertEqual(datareel.digest(p)[0], datareel.digest(c)[0])
+            # 2. incremental: the copy restarts and gets only the new commits
+            cp = self.start_py_copy(c, port, log)
+            w = write(p, self.pki, 300, port)
+            self.assertEqual(w.wait(120), 0, w.communicate()[0])
+            self.assertEqual(datareel.digest(p)[0], datareel.digest(c)[0])
+            # 3. the copy is killed while it applies, restarted, and catches up
+            w = write(p, self.pki, 900, port)
+            for _ in range(300):
+                if applied(c) >= 400:
+                    break
+                time.sleep(0.05)
+            cp.kill()
+            cp.wait(30)
+            cp = self.start_py_copy(c, port, log)
+            self.assertEqual(w.wait(300), 0, w.communicate()[0])
+            cp.terminate()
+            self.assertEqual(cp.wait(30), 0)
+        finally:
+            if cp.poll() is None:
+                cp.kill()
+                cp.wait(30)
+            log.close()
+        with open(log.name) as f:
+            copylog = f.read()
+        self.assertEqual(datareel.digest(p)[0], datareel.digest(c)[0], copylog[-2000:])
+        ok, report = datareel.index_check(c, INDEX)
+        self.assertTrue(ok, report)
+        fin = subprocess.run([prog("test_gxobjrepl_reader"), "final", c, "900"], stdout=subprocess.PIPE, text=True)
+        self.assertEqual(fin.returncode, 0, fin.stdout)
+
+    def test_cpp_and_python_writers_take_turns(self):
+        root = os.path.join(self.tmp, "turns")
+        for n, who in ((50, "cpp"), (100, "py"), (150, "cpp"), (200, "py")):
+            if who == "cpp":
+                out = subprocess.run([prog("test_gxobjrepl_reader"), "write", root, self.pki, str(n)],
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            else:
+                out = subprocess.run([sys.executable, "-I", "-c", PY_WRITER, root, self.pki, str(n)],
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.assertEqual(out.returncode, 0, out.stdout)
+            fin = subprocess.run([prog("test_gxobjrepl_reader"), "final", root, str(n)], stdout=subprocess.PIPE,
+                                 text=True)
+            self.assertEqual(fin.returncode, 0, "%s to %d: %s" % (who, n, fin.stdout))
+            ok, report = datareel.index_check(root, INDEX)
+            self.assertTrue(ok, report)
+        dig = subprocess.run([prog("objrepl"), "digest", root], stdout=subprocess.PIPE, text=True).stdout
+        self.assertEqual(datareel.digest(root)[0] + "\n", dig)
+
+    def test_reader_while_python_writes(self):
+        root = os.path.join(self.tmp, "pylive")
+        w = subprocess.Popen([sys.executable, "-I", "-c", PY_WRITER, root, self.pki, "1500"],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        s = LiveTest.read_while(self, root, w)
+        out = w.communicate()[0]
+        self.assertEqual(w.returncode, 0, out)
+        self.assertEqual(s["bad"], [])
+        self.assertGreater(s["reads"], 10)
+        self.assertGreater(s["keys"], 10)
+        fin = subprocess.run([prog("test_gxobjrepl_reader"), "final", root, "1500"], stdout=subprocess.PIPE, text=True)
+        self.assertEqual(fin.returncode, 0, fin.stdout)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

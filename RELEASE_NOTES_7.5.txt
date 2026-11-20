@@ -46,6 +46,21 @@ NEW IN 7.5 BETA 2
 - Examples 12 (block file and B-tree in journal transactions), 13
   (vector day files and a merge) and 14 (a Python primary and copy, a
   failover and a rejoin).
+- From the OSA beta 2 handoff: Reader.ids(db, after=, limit=) pages a
+  large database from the id index (gxObjReplReader::IdsAfter), so a
+  walk never holds the read lock long; Reader.find_range(index, lo,
+  hi=None, limit=0) (gxObjReplReader::FindRange) for B-tree key ranges;
+  Reader(root) with no spec reads the node's .def files, and
+  Reader.index_spec shows it; the "lock-wait" setting
+  (gxObjReplConfig::lock_wait, C++ default 5 s, Python default 0, so a
+  held root fails at once); datareel.Node(root, config, role=),
+  datareel.detach(root), and seq/role on Primary and Copy. Primary and
+  Copy ids() take after= and limit= too.
+- More tests: a C++ primary to a Python copy (a full send to a new
+  copy, incremental after a restart, and a copy killed with KILL while
+  it applies, restarted and caught up: equal digests, ixcheck, the C++
+  final check), C++ and Python writers taking turns on one folder, and
+  a Reader while a Python writer commits.
 - Package version 7.5b2; library version "7.5 beta2".
 
 NEW IN 7.5 BETA 1

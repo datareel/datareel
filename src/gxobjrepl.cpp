@@ -579,6 +579,7 @@ struct Node {
   // against a serving copy was overwritten by the copy's next state write)
   // wait_ms: how long to keep trying while the lock is held (review 4: a Status() replaying the journal held it for
   // a moment and a node starting then failed); a node held by a running process is still refused after that
+  int lock_wait_ms = 5000;          // 7.5: gxObjReplConfig::lock_wait (Open() of a root another process holds)
   bool lock(int wait_ms = 5000) {
     std::string f = path(root, "objrepl.lock");
     for(int waited = 0;; waited += 50) {
@@ -624,7 +625,7 @@ struct Node {
   bool open(const std::string &r, bool prim, bool have_lock = false) {
     root = r; primary = prim; opens++;
     std::error_code ec; fs::create_directories(root, ec);
-    if(!have_lock && !lock()) return false;
+    if(!have_lock && !lock(lock_wait_ms)) return false;
     if(j.Open(path(root, "node.jnl").c_str()) != gxDBASE_NO_ERROR) { unlock(); return fail(std::string("cannot open the journal: ") + gxdJournal::RecoverError()); }
     j.SetCheckpointSize(CKPT_HARD);                            // the checkpoints come at CKPT_SOFT (checkpoint_soon())
     // write-back: a commit's pages reach the files when commit() (or gxObjRepl::Impl::jcommit()) writes them, after
@@ -1206,6 +1207,7 @@ bool gxObjReplConfig::Set(const std::string &k, const std::string &v, std::strin
   else if(k == "min-cert-days") { if(!num(u)) return bad("min-cert-days is a number"); min_cert_days = (long)u; }
   else if(k == "trim") { if(v != "0" && v != "1") return bad("trim is 0 or 1"); trim = v == "1"; }
   else if(k == "idle-timeout") { if(!num(u) || u > 86400) return bad("idle-timeout is seconds (0 = none)"); idle_timeout = (int)u; }
+  else if(k == "lock-wait") { if(!num(u) || u > 3600) return bad("lock-wait is seconds (0 to 3600)"); lock_wait = (int)u; }
   else if(k == "ack-timeout") { if(!num(u) || u < 1 || u > 86400) return bad("ack-timeout is seconds (1 to 86400)"); ack_timeout = (int)u; }
   else return bad("unknown key " + k);
   return true;
@@ -1863,6 +1865,7 @@ int gxObjRepl::Open(const std::string &root, const gxObjReplConfig &cfg, Role ro
   if(!check_tls(p->cfg, p->cert_days, why)) return p->fail(why);
   p->s.links = &p->links; p->s.ixdefs = &p->ixdefs;
   p->s.log = [this](const std::string &m) { p->say(m); };
+  p->s.lock_wait_ms = cfg.lock_wait * 1000;
   if(!p->s.open(root, role == PRIMARY)) { std::string e = p->s.err; p->s.close(); return p->fail(e); }
   p->mon.root = root;
   p->durable_seq = p->s.st.next_seq - 1;
@@ -2982,11 +2985,37 @@ uint64_t gxObjReplReader::Seq() const { return p->seq(); }
 uint64_t gxObjReplReader::Epoch() const { return p->have_state ? p->st.epoch : 0; }
 int gxObjReplReader::Role() const { return !p->have_state ? 0 : p->st.role == ROLE_PRIMARY ? gxObjRepl::PRIMARY : p->st.role == ROLE_COPY ? gxObjRepl::COPY : 0; }
 
+// 7.5: the index spec a node wrote beside its index files: DB.NAME.ix.btx.def ("B:OFF:LEN") and DB.NAME.vix.def
+// ("V:OFF:DIM"), in name order
+static std::string spec_from_defs(const std::string &root)
+{
+  std::string spec;
+  for(auto &f : list_dir(root)) {
+    std::string rest; char kind = 0;
+    if(ends_with(f, ".ix.btx.def")) { rest = f.substr(0, f.size() - 11); kind = 'B'; }
+    else if(ends_with(f, ".vix.def")) { rest = f.substr(0, f.size() - 8); kind = 'V'; }
+    else continue;
+    size_t dot = rest.find('.');
+    if(dot == std::string::npos) continue;
+    std::string db = rest.substr(0, dot), name = rest.substr(dot + 1);
+    std::string d = read_file(path(root, f));
+    while(!d.empty() && (d.back() == '\n' || d.back() == '\r' || d.back() == ' ')) d.pop_back();
+    if(d.size() < 2 || d[0] != kind || d[1] != ':') continue;
+    std::string entry = name + ":" + db + ":" + d;
+    std::vector<IxDef> one;
+    if(!parse_ix(entry, one)) continue;
+    spec += (spec.empty() ? "" : ",") + entry;
+  }
+  return spec;
+}
+
 int gxObjReplReader::Open(const std::string &root, const std::string &index)
 {
   Close();
   p->err.clear();
-  if(!parse_ix(index, p->ixdefs)) return p->fail("bad index (NAME:DB:B|V:OFFSET:LEN,...)");
+  // 7.5: no INDEX: the node's own spec, from its .def files
+  std::string ix = index.empty() ? spec_from_defs(root) : index;
+  if(!parse_ix(ix, p->ixdefs)) return p->fail("bad index (NAME:DB:B|V:OFFSET:LEN,...)");
   if(!exists(path(root, "state.gxd"))) return p->fail("no state in " + root + " (not a node folder)");
   p->root = root; p->is_open = true;
   // a copy in a full send opens (its reads fail until the send ends); a folder with no readable state does not
@@ -3037,6 +3066,64 @@ int gxObjReplReader::IsLive(const std::string &db, uint64_t id)
   if(f < 0) return -1;
   return f == 1 && !(h.flags & OF_TOMB) ? 1 : 0;
 }
+// 7.5: a page of ids in id order, from the id index (the lock is held for the page only)
+int gxObjReplReader::IdsAfter(const std::string &db, uint64_t after, size_t limit, std::vector<uint64_t> &ids,
+			      gxObjRepl::Which which)
+{
+  ids.clear();
+  gxdJournalReadLock rl;
+  if(p->begin(rl) != 0) return -1;
+  gxDatabase d; IdKey type; gxBtree bt(type, ORDER);
+  int o = p->open_db(db, d, bt);
+  if(o <= 0) return o;
+  IdKey k(after + 1, 0), c;
+  uint64_t last = 0;
+  for(int ok = after == UINT64_MAX ? 0 : bt.PartialFind(k, c); ok && (!limit || ids.size() < limit); ok = bt.FindNext(k, c)) {
+    if(k.d.id <= after || k.d.id == last) continue;
+    ObjHead h;
+    if(d.Read(&h, sizeof(h), (FAU_t)k.d.addr) != gxDBASE_NO_ERROR || h.id != k.d.id || (h.flags & OF_STUB)) continue;
+    bool tomb = (h.flags & OF_TOMB) != 0;
+    if(tomb == (which == gxObjRepl::TOMBSTONES)) { ids.push_back(k.d.id); last = k.d.id; }
+  }
+  bt.Close(); d.Close();
+  return 0;
+}
+// 7.5: ids whose B-tree key K has LO <= K < HI (keys compared as bytes, LO and HI zero padded to the key length;
+// an empty HI: no upper bound), in key order, at most LIMIT (0: all)
+int gxObjReplReader::FindRange(const std::string &index, const void *lo, unsigned nlo, const void *hi, unsigned nhi,
+			       std::vector<uint64_t> &ids, size_t limit)
+{
+  ids.clear();
+  gxdJournalReadLock rl;
+  if(p->begin(rl) != 0) return -1;
+  const IxDef *d = p->ix(index, 'B');
+  if(!d) return p->fail("no B-tree index " + index);
+  if(nlo > d->len || nhi > d->len) return p->fail("a bound is longer than the index's key");
+  Ix x; x.def = *d;
+  std::string f = x.file(p->root);
+  if(exists(f + ".building")) return p->fail("the index " + index + " is being built");
+  if(!exists(f)) return 0;
+  if(x.bt.Open(f.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) return p->fail("cannot open " + f);
+  unsigned char hk[32] = {0};
+  if(nhi) memcpy(hk, hi, nhi);
+  IxKey k, c;
+  if(nlo) memcpy(k.d.k, lo, nlo);
+  k.d.id = 0;
+  for(int ok = x.bt.PartialFind(k, c); ok && (!limit || ids.size() < limit); ok = x.bt.FindNext(k, c)) {
+    if(nhi && memcmp(k.d.k, hk, sizeof(hk)) >= 0) break;
+    ids.push_back(k.d.id);
+  }
+  x.bt.Close();
+  return 0;
+}
+std::string gxObjReplReader::IndexSpec() const
+{
+  std::string s;
+  for(auto &d : p->ixdefs) s += (s.empty() ? "" : ",") + d.name + ":" + d.db + ":" + std::string(1, d.kind) + ":" +
+			      std::to_string(d.off) + ":" + std::to_string(d.len);
+  return s;
+}
+
 int gxObjReplReader::Ids(const std::string &db, std::vector<uint64_t> &ids, gxObjRepl::Which which)
 {
   ids.clear();

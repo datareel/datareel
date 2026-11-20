@@ -86,7 +86,8 @@ in advisory mode, with no tool execution by the agent.
    do it. Every change goes in a transaction (`with p.transaction():`), encoded with the C++ readers'
    record layout.
 2. **DEV reads PROD; it writes only standalone test nodes.** A test node is a file copy of a stopped copy's
-   folder made a primary with `datareel.takeover()` (user's manual, section 5a). Never run `takeover()`
+   folder made a primary with `datareel.detach()` (the same call as `takeover()`; user's manual, section
+   5a). Never run `detach()` or `takeover()`
    on a production copy (the standby): that ends its replication. Give a test node no `copy` setting that
    points at a production node.
 3. **A running node is read with `Reader` only.** `BlockFile` and `VectorIndex` are for files no process
@@ -97,8 +98,10 @@ in advisory mode, with no tool execution by the agent.
    format or numpy dtype from it (user's manual, example 5). Never guess a layout from the bytes; ask the
    person for the header.
 5. **Give `Reader` the node's own index spec** (`gxObjReplConfig::index`, the `index` line in
-   `ROOT/objrepl.conf`). Keys for `find_key()` are the index's bytes, in the C++ field's size and byte
-   order.
+   `ROOT/objrepl.conf`), or since beta 2 none: `Reader(root)` reads it from the node's `.def` files
+   (`r.index_spec`). Keys for `find_key()` and `find_range()` are the index's bytes, in the C++ field's
+   size and byte order. Walk a large database in pages (`ids(db, after=last, limit=1000)`), not with one
+   `ids()` call.
 6. **Retry a refused call, do not work around it.** `datareel.Error` with "a full send is under way" or
    "cannot open ROOT/NAME.gxd" can come for a moment while the node changes; wait and call again. Any
    other error goes to the person with the full message.
@@ -117,8 +120,9 @@ in advisory mode, with no tool execution by the agent.
 | `datareel.Copy(root, ...)` (beta 2) | a copy node: `serve()` until `stop()`, reads | a copy this process runs |
 | `datareel.Database`, `BTree`, `Journal`, vector writes (beta 2) | block files, B-tree indexes, journal transactions, `.vix` writes and merges | files this process owns |
 | `datareel.Stream`, `StreamServer`, `ObjectClient` (beta 2) | gxStream over TLS (port 2073), the object server's object service | network peers with certificates |
-| `status`, `digest`, `takeover`, `rejoin`, `check`, `clear_alarm`, `index_check` | node folder tools, as the `objrepl` tool | folders no process holds (check: any time) |
-| `datareel.Reader(root, index="")` | a gxObjRepl node (primary or copy): `get`, `is_live`, `ids`, `databases`, `find_key`, `nearest`, `refresh`; `seq`, `epoch`, `role` | while the node runs, or when none runs |
+| `datareel.Node(root, config, role=)` (beta 2) | a `Primary` or a `Copy` (`role="copy"`) | as those |
+| `status`, `digest`, `takeover`, `detach`, `rejoin`, `check`, `clear_alarm`, `index_check` | node folder tools, as the `objrepl` tool | folders no process holds (check: any time) |
+| `datareel.Reader(root, index="")` | a gxObjRepl node (primary or copy): `get`, `is_live`, `ids` (pages: `after`, `limit`), `databases`, `find_key`, `find_range`, `nearest`, `refresh`; `seq`, `epoch`, `role`, `index_spec` | while the node runs, or when none runs |
 | `datareel.VectorIndex(path, spec=None)` | a `.vix` file: `search` (tags, exact or graph), `get`; `dim`, `count`, `spec`, `metric` | files no process is writing |
 | `datareel.BlockFile(path)` | a `.gxd` file: `addresses`, `read` | files no process is writing |
 

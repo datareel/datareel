@@ -177,13 +177,15 @@ static PyObject *Reader_is_live(ReaderObject *self, PyObject *args)
 
 static PyObject *Reader_ids(ReaderObject *self, PyObject *args, PyObject *kw)
 {
-  static const char *kwlist[] = {"db", "tombstones", 0};
-  const char *db; int tombs = 0;
-  if(!PyArg_ParseTupleAndKeywords(args, kw, "s|p", (char **)kwlist, &db, &tombs)) return 0;
+  static const char *kwlist[] = {"db", "tombstones", "after", "limit", 0};
+  const char *db; int tombs = 0; unsigned long long after = 0, limit = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "s|pKK", (char **)kwlist, &db, &tombs, &after, &limit)) return 0;
   READER_OPEN(self);
   std::vector<uint64_t> ids; int rc; std::string d(db);
+  gxObjRepl::Which w = tombs ? gxObjRepl::TOMBSTONES : gxObjRepl::LIVE;
   Py_BEGIN_ALLOW_THREADS
-  rc = self->r->Ids(d, ids, tombs ? gxObjRepl::TOMBSTONES : gxObjRepl::LIVE);
+  // 7.5 beta 2: AFTER or LIMIT: one page from the id index (a short lock); otherwise every id
+  rc = (after || limit) ? self->r->IdsAfter(d, after, (size_t)limit, ids, w) : self->r->Ids(d, ids, w);
   Py_END_ALLOW_THREADS
   if(rc != 0) return raise(self->r->Error());
   return id_list(ids);
@@ -218,6 +220,24 @@ static PyObject *Reader_find_key(ReaderObject *self, PyObject *args)
   std::vector<uint64_t> ids; int rc; std::string ix(index);
   Py_BEGIN_ALLOW_THREADS
   rc = self->r->FindKey(ix, k.data(), (unsigned)k.size(), ids);
+  Py_END_ALLOW_THREADS
+  if(rc != 0) return raise(self->r->Error());
+  return id_list(ids);
+}
+
+// find_range(index, lo, hi=None, limit=0) -> ids with lo <= key < hi, in key order
+static PyObject *Reader_find_range(ReaderObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"index", "lo", "hi", "limit", 0};
+  const char *index; Py_buffer lo; PyObject *hi_o = Py_None; unsigned long long limit = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "sy*|OK", (char **)kwlist, &index, &lo, &hi_o, &limit)) return 0;
+  std::vector<unsigned char> l((const unsigned char *)lo.buf, (const unsigned char *)lo.buf + lo.len), h;
+  PyBuffer_Release(&lo);
+  if(hi_o != Py_None) { char *p; Py_ssize_t n; if(PyBytes_AsStringAndSize(hi_o, &p, &n) < 0) return 0; h.assign(p, p + n); }
+  READER_OPEN(self);
+  std::vector<uint64_t> ids; int rc; std::string ix(index);
+  Py_BEGIN_ALLOW_THREADS
+  rc = self->r->FindRange(ix, l.data(), (unsigned)l.size(), h.data(), (unsigned)h.size(), ids, (size_t)limit);
   Py_END_ALLOW_THREADS
   if(rc != 0) return raise(self->r->Error());
   return id_list(ids);
@@ -271,13 +291,15 @@ static PyObject *Reader_role(ReaderObject *self, void *)
   return PyUnicode_FromString(r == gxObjRepl::PRIMARY ? "primary" : r == gxObjRepl::COPY ? "copy" : "none");
 }
 static PyObject *Reader_is_open(ReaderObject *self, void *) { return PyBool_FromLong(self->r->IsOpen()); }
+static PyObject *Reader_index_spec(ReaderObject *self, void *) { return PyUnicode_FromString(self->r->IndexSpec().c_str()); }
 
 static PyMethodDef Reader_methods[] = {
   {"get", (PyCFunction)Reader_get, METH_VARARGS, "get(db, id) -> bytes, or None when the object is not live"},
   {"is_live", (PyCFunction)Reader_is_live, METH_VARARGS, "is_live(db, id) -> bool"},
-  {"ids", (PyCFunction)(void (*)(void))Reader_ids, METH_VARARGS | METH_KEYWORDS, "ids(db, tombstones=False) -> sorted list of ids"},
+  {"ids", (PyCFunction)(void (*)(void))Reader_ids, METH_VARARGS | METH_KEYWORDS, "ids(db, tombstones=False, after=0, limit=0) -> sorted ids; with AFTER or LIMIT one page (a short read)"},
   {"databases", (PyCFunction)Reader_databases, METH_NOARGS, "databases() -> list of database names"},
   {"find_key", (PyCFunction)Reader_find_key, METH_VARARGS, "find_key(index, key: bytes) -> ids whose B-tree key starts with key"},
+  {"find_range", (PyCFunction)(void (*)(void))Reader_find_range, METH_VARARGS | METH_KEYWORDS, "find_range(index, lo, hi=None, limit=0) -> ids with lo <= key < hi, in key order"},
   {"nearest", (PyCFunction)(void (*)(void))Reader_nearest, METH_VARARGS | METH_KEYWORDS, "nearest(index, query, k=10) -> [(id, distance)], closest first"},
   {"refresh", (PyCFunction)Reader_refresh, METH_NOARGS, "refresh(): read the node's state now"},
   {"release_vectors", (PyCFunction)Reader_release_vectors, METH_NOARGS, "release_vectors(): close the vector indexes nearest() loaded"},
@@ -292,6 +314,7 @@ static PyGetSetDef Reader_getset[] = {
   {"epoch", (getter)Reader_epoch, 0, "the node's epoch as of the last call", 0},
   {"role", (getter)Reader_role, 0, "'primary', 'copy' or 'none'", 0},
   {"is_open", (getter)Reader_is_open, 0, "whether the reader is open", 0},
+  {"index_spec", (getter)Reader_index_spec, 0, "the index spec in use (read from the node's .def files when none was given)", 0},
   {0, 0, 0, 0, 0}
 };
 
@@ -631,6 +654,7 @@ static int node_init(PrimaryObject *self, PyObject *args, PyObject *kw, gxObjRep
   std::string root(PyBytes_AS_STRING(root_o)), conf = conf_o ? std::string(PyBytes_AS_STRING(conf_o)) : std::string();
   Py_DECREF(root_o); Py_XDECREF(conf_o);
   gxObjReplConfig cfg; std::string why;
+  cfg.lock_wait = 0;              // 7.5 beta 2: a root another process holds fails at once (settings may change it)
   if(!conf.empty() && !cfg.Load(conf, &why)) { raise(why); return -1; }
   if(settings && settings != Py_None) {
     if(!PyDict_Check(settings)) { raise("settings is a dict of \"key\": value"); return -1; }
@@ -751,15 +775,20 @@ static PyObject *Primary_is_live(PrimaryObject *self, PyObject *args)
 }
 static PyObject *Primary_ids(PrimaryObject *self, PyObject *args, PyObject *kw)
 {
-  static const char *kwlist[] = {"db", "tombstones", 0};
-  const char *db; int tombs = 0;
-  if(!PyArg_ParseTupleAndKeywords(args, kw, "s|p", (char **)kwlist, &db, &tombs)) return 0;
+  static const char *kwlist[] = {"db", "tombstones", "after", "limit", 0};
+  const char *db; int tombs = 0; unsigned long long after = 0, limit = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "s|pKK", (char **)kwlist, &db, &tombs, &after, &limit)) return 0;
   PRIMARY_OPEN(self);
   std::vector<uint64_t> ids; std::string d(db);
   Py_BEGIN_ALLOW_THREADS
   ids = self->r->Ids(d, tombs ? gxObjRepl::TOMBSTONES : gxObjRepl::LIVE);
   Py_END_ALLOW_THREADS
   std::sort(ids.begin(), ids.end());
+  if(after || limit) {
+    auto it = std::upper_bound(ids.begin(), ids.end(), (uint64_t)after);
+    std::vector<uint64_t> page(it, limit && (size_t)(ids.end() - it) > limit ? it + (ptrdiff_t)limit : ids.end());
+    return id_list(page);
+  }
   return id_list(ids);
 }
 static PyObject *Primary_databases(PrimaryObject *self, PyObject *)
@@ -852,6 +881,7 @@ static PyObject *Copy_serve(PrimaryObject *self, PyObject *)
 static PyObject *Copy_stop(PrimaryObject *self, PyObject *) { self->r->Stop(); Py_RETURN_NONE; }
 static PyObject *Copy_in_snapshot(PrimaryObject *self, void *) { return PyBool_FromLong(self->r->IsOpen() && self->r->InSnapshot()); }
 static PyObject *Copy_applied_seq(PrimaryObject *self, void *) { return PyLong_FromUnsignedLongLong(self->r->IsOpen() ? self->r->AppliedSeq() : 0); }
+static PyObject *Copy_role(PrimaryObject *, void *) { return PyUnicode_FromString("copy"); }
 
 static PyMethodDef Primary_methods[] = {
   {"address_of", (PyCFunction)Primary_address_of, METH_VARARGS, "address_of(db, id) -> this node's address of the object, for a link field (0 if none)"},
@@ -868,7 +898,7 @@ static PyMethodDef Primary_methods[] = {
   {"drain", (PyCFunction)Primary_drain, METH_VARARGS, "drain(seconds=60) -> 0 when the copy has every commit, 2 when it does not after SECONDS, 3 refused"},
   {"get", (PyCFunction)Primary_get, METH_VARARGS, "get(db, id) -> bytes, or None (also sees this transaction's changes)"},
   {"is_live", (PyCFunction)Primary_is_live, METH_VARARGS, "is_live(db, id) -> bool"},
-  {"ids", (PyCFunction)(void (*)(void))Primary_ids, METH_VARARGS | METH_KEYWORDS, "ids(db, tombstones=False) -> sorted ids"},
+  {"ids", (PyCFunction)(void (*)(void))Primary_ids, METH_VARARGS | METH_KEYWORDS, "ids(db, tombstones=False, after=0, limit=0) -> sorted ids (with AFTER or LIMIT: one page)"},
   {"databases", (PyCFunction)Primary_databases, METH_NOARGS, "databases() -> names"},
   {"find_key", (PyCFunction)Primary_find_key, METH_VARARGS, "find_key(index, key) -> ids"},
   {"nearest", (PyCFunction)(void (*)(void))Primary_nearest, METH_VARARGS | METH_KEYWORDS, "nearest(index, query, k=10) -> [(id, distance)]"},
@@ -891,7 +921,7 @@ static PyMethodDef Copy_methods[] = {
   {"stop", (PyCFunction)Copy_stop, METH_NOARGS, "stop(): serve() returns within half a second (any thread)"},
   {"get", (PyCFunction)Primary_get, METH_VARARGS, "get(db, id) -> bytes, or None"},
   {"is_live", (PyCFunction)Primary_is_live, METH_VARARGS, "is_live(db, id) -> bool"},
-  {"ids", (PyCFunction)(void (*)(void))Primary_ids, METH_VARARGS | METH_KEYWORDS, "ids(db, tombstones=False) -> sorted ids"},
+  {"ids", (PyCFunction)(void (*)(void))Primary_ids, METH_VARARGS | METH_KEYWORDS, "ids(db, tombstones=False, after=0, limit=0) -> sorted ids (with AFTER or LIMIT: one page)"},
   {"databases", (PyCFunction)Primary_databases, METH_NOARGS, "databases() -> names"},
   {"find_key", (PyCFunction)Primary_find_key, METH_VARARGS, "find_key(index, key) -> ids"},
   {"nearest", (PyCFunction)(void (*)(void))Primary_nearest, METH_VARARGS | METH_KEYWORDS, "nearest(index, query, k=10) -> [(id, distance)]"},
@@ -904,6 +934,8 @@ static PyMethodDef Copy_methods[] = {
 };
 static PyGetSetDef Copy_getset[] = {
   {"applied_seq", (getter)Copy_applied_seq, 0, "the last commit applied", 0},
+  {"seq", (getter)Copy_applied_seq, 0, "the last commit applied (applied_seq)", 0},
+  {"role", (getter)Copy_role, 0, "\"copy\"", 0},
   {"epoch", (getter)Primary_epoch, 0, "the node's epoch", 0},
   {"in_snapshot", (getter)Copy_in_snapshot, 0, "a full send is under way", 0},
   {"is_open", (getter)Primary_is_open, 0, "whether the copy is open", 0},

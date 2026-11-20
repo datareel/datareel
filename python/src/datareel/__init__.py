@@ -51,7 +51,8 @@ __version__ = "7.5b2"
 __all__ = ["Error", "Primary", "Copy", "Reader", "VectorIndex", "BlockFile", "Database", "BTree", "Journal",
            "Stream", "StreamServer", "ObjectClient",
            "library_version", "engine_bits", "status", "digest", "takeover", "rejoin", "check", "clear_alarm",
-           "index_check", "create_vector_index", "merge_vector_indexes", "transaction", "__version__"]
+           "index_check", "create_vector_index", "merge_vector_indexes", "transaction", "Node", "detach",
+           "__version__"]
 
 
 class Primary(_Primary):
@@ -62,6 +63,15 @@ class Primary(_Primary):
     "name", "peer-name", "trim", "idle-timeout", "ack-timeout" ...), which win over the file. QUIET drops
     the node's messages (by default they go to stderr).
     """
+
+    @property
+    def seq(self):
+        """the last commit (last_seq)"""
+        return self.last_seq
+
+    @property
+    def role(self):
+        return "primary"
 
     @contextlib.contextmanager
     def transaction(self):
@@ -87,3 +97,21 @@ def transaction(journal):
         journal.rollback()
         raise
     journal.commit()
+
+
+def Node(root, config=None, role="primary", quiet=False):
+    """Node(root, config, role="primary"|"copy"): a Primary or a Copy. CONFIG is a dict of settings or the path
+    of an objrepl.conf file."""
+    kw = {"settings": config} if isinstance(config, dict) else {"config": config}
+    if role == "primary":
+        return Primary(root, quiet=quiet, **kw)
+    if role == "copy":
+        return Copy(root, quiet=quiet, **kw)
+    raise Error("role is primary or copy")
+
+
+def detach(root):
+    """A stopped copy becomes an independent primary (takeover() at the next epoch): it never follows its old
+    primary again, and the old primary refuses it. Open it with Primary() and give it no copy setting that
+    points at a production node; nothing it writes goes back. Returns takeover()'s message."""
+    return takeover(root)

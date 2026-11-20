@@ -167,6 +167,9 @@ struct GXDLCODE_API gxObjReplConfig {
   // read for 10+ minutes). The connect and handshake take at most
   // 30 s, or this when it is less
   int ack_timeout = 300;
+  // 7.5: Open(): seconds to wait for a root another process holds
+  // before failing ("ROOT is in use by another process"); 0 fails at once
+  int lock_wait = 5;
   unsigned long long max_lag = 100; // Check(): commits behind
   unsigned long long max_behind = 60; // Check(): seconds
   long min_cert_days = 30;          // Check(): certificate days left
@@ -177,7 +180,7 @@ struct GXDLCODE_API gxObjReplConfig {
   // peer-name, copy (HOST[:PORT]), listen ([ADDR:]PORT or ADDR), ca,
   // cert, key, allow-cn,
   // links, index, max-lag, max-behind, min-cert-days, trim (0/1),
-  // idle-timeout, ack-timeout).
+  // idle-timeout, ack-timeout, lock-wait).
   // Returns false (and why) for an unknown key or a bad value
   bool Set(const std::string &key, const std::string &value,
 	   std::string *why = 0);
@@ -355,7 +358,8 @@ private:
 
 public:
   // ROOT: a node folder (state.gxd must be there). INDEX: the node's
-  // index spec (gxObjReplConfig::index), for FindKey() and Nearest().
+  // index spec (gxObjReplConfig::index), for FindKey() and Nearest();
+  // 7.5: empty reads the spec from the node's .def files.
   // Returns 0, or -1 with Error()
   int Open(const std::string &root, const std::string &index = std::string());
   void Close();
@@ -372,6 +376,19 @@ public:
   int Ids(const std::string &db, std::vector<uint64_t> &ids,
 	  gxObjRepl::Which which = gxObjRepl::LIVE);
   int Databases(std::vector<std::string> &dbs);
+  // 7.5: a page of ids in id order: the first LIMIT (0: all) ids past
+  // AFTER (0: from the start), read from the id index, so a large
+  // database is walked in short calls that each hold the lock briefly
+  int IdsAfter(const std::string &db, uint64_t after, size_t limit, std::vector<uint64_t> &ids,
+	       gxObjRepl::Which which = gxObjRepl::LIVE);
+  // 7.5: ids whose key in B-tree index INDEX is >= LO and < HI (bytes,
+  // zero padded to the index's key length; NHI 0: no upper bound), in
+  // key order, at most LIMIT (0: all)
+  int FindRange(const std::string &index, const void *lo, unsigned nlo, const void *hi, unsigned nhi,
+		std::vector<uint64_t> &ids, size_t limit = 0);
+  // 7.5: the index spec in use (Open() without one reads the node's
+  // .def files: DB.NAME.ix.btx.def "B:OFF:LEN", DB.NAME.vix.def "V:OFF:DIM")
+  std::string IndexSpec() const;
   int FindKey(const std::string &index, const void *key, unsigned n, std::vector<uint64_t> &ids);
   int Nearest(const std::string &index, const float *q, unsigned k, std::vector<gxObjReplHit> &hits);
   void ReleaseVectors();

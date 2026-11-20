@@ -2024,7 +2024,11 @@ Build needs `gcc-c++ cmake openssl-devel python3.12-devel python3.12-setuptools 
 | --- | --- |
 | Read a gxObjRepl node, running or not | `Reader(root, index_spec)` |
 | Objects of a database | `Reader.ids(db)`, `Reader.get(db, id)` (bytes or None) |
+| Walk a large database in pages (beta 2) | `Reader.ids(db, after=last_id, limit=1000)` until `[]` |
 | Objects by an index key | `Reader.find_key(index, key_bytes)` |
+| A key range (beta 2) | `Reader.find_range(index, lo, hi=None, limit=0)` (bytes compared byte by byte) |
+| The node's own index spec (beta 2) | `Reader(root)` with no spec; `r.index_spec` |
+| A standalone test node from a stopped copy (beta 2) | file copy, then `datareel.detach(test_root)`, then `Primary(test_root, ...)` |
 | Similar vectors in a running node | `Reader.nearest(index, query, k)` |
 | Search a closed `.vix` file, with tag filters | `VectorIndex(path, spec).search(query, k, tags=...)` |
 | Walk a closed `.gxd` file | `BlockFile(path).addresses()`, `.read(address)` |

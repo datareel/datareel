@@ -641,7 +641,7 @@ a standalone test node from a copy and write to that:
 
 1. Copy a stopped copy's folder (or a PROD backup of one) to a new folder with an ordinary file copy
    (`cp -a`, rsync). Never copy a running node's folder.
-2. `datareel.takeover(TEST)` makes the test folder a primary at the next epoch. It never follows the old
+2. `datareel.detach(TEST)` (or `datareel.takeover(TEST)`, the same call) makes the test folder a primary at the next epoch. It never follows the old
    primary again, and nothing the test node writes reaches PROD: give it no `copy` setting that points at
    a production node (`"copy": "127.0.0.1:1"` is fine).
 3. `datareel.Primary(TEST, settings=...)` writes it like any primary. `datareel.digest()` tells it apart
@@ -650,7 +650,7 @@ a standalone test node from a copy and write to that:
 ```python
 import shutil, datareel
 shutil.copytree("/backups/news_copy", "/dev/test/news")      # a stopped copy, not a running node
-datareel.takeover("/dev/test/news")                            # now a primary at epoch N + 1
+datareel.detach("/dev/test/news")                              # now a primary at epoch N + 1
 with datareel.Primary("/dev/test/news", settings=test_settings) as p:
     with p.transaction():
         p.put("events", p.new_id(), record_bytes)
@@ -920,21 +920,37 @@ own `ssl`, `http.client`, `smtplib`, `poplib`, `imaplib` and `ftplib`, which spe
 ### datareel.Reader(root, index="")
 
 A gxObjRepl node folder, read only, while the node runs in another process (or none runs). `index` is the
-node's index spec, needed for `find_key()` and `nearest()`. Raises `datareel.Error` when the folder is not
+node's index spec, needed for `find_key()`, `find_range()` and `nearest()`; since beta 2 an empty `index`
+reads the spec the node wrote beside its index files (`DB.NAME.ix.btx.def`, `DB.NAME.vix.def`), and
+`index_spec` shows the spec in use. Raises `datareel.Error` when the folder is not
 a node or the spec is bad. A context manager (`with`), or call `close()`.
 
 | Call | Returns |
 | --- | --- |
 | `get(db, id)` | the object's bytes, or `None` when it is not live (removed or never there) |
 | `is_live(db, id)` | `True` or `False` |
-| `ids(db, tombstones=False)` | the sorted ids of the live objects (or of the tombstones); `[]` for a database that is not there |
+| `ids(db, tombstones=False, after=0, limit=0)` | the sorted ids of the live objects (or of the tombstones); `[]` for a database that is not there. Beta 2: with `after` or `limit`, one page: at most `limit` ids greater than `after`, read from the id index, so a large database is walked in short calls (each holds the node's read lock only for its page) |
 | `databases()` | the database names |
 | `find_key(index, key)` | ids whose key in B-tree index `index` starts with the bytes `key` (at most 32) |
+| `find_range(index, lo, hi=None, limit=0)` | beta 2: ids whose key in B-tree index `index` is `>= lo` and `< hi` (bytes, compared byte by byte, zero padded to the key length; `hi=None`: no upper bound), in key order, at most `limit` (0: all). Store numbers big-endian in key fields when you want numeric ranges |
 | `nearest(index, query, k=10)` | `[(id, distance)]`, closest first, from vector index `index` |
 | `refresh()` | reads the node's state now (`seq`, `epoch`, `role`) |
 | `release_vectors()` | closes the vector indexes `nearest()` loaded |
 | `close()` | |
-| `seq`, `epoch`, `role`, `is_open` | the commit the last call read; the epoch; `'primary'`, `'copy'` or `'none'` |
+| `seq`, `epoch`, `role`, `is_open`, `index_spec` | the commit the last call read; the epoch; `'primary'`, `'copy'` or `'none'`; the spec in use |
+
+Paging a large database:
+
+```python
+after = 0
+while True:
+    page = r.ids("events", after=after, limit=1000)
+    if not page:
+        break
+    for i in page:
+        handle(r.get("events", i))           # None: removed since the page was read
+    after = page[-1]
+```
 
 `nearest()` keeps the vector index in memory and reads it again when the node has moved past the commit
 it was loaded at. On a busy node with a large index, search in batches between commits, or search a
@@ -958,12 +974,19 @@ A gxObjRepl primary in this process (see section 5a). A context manager (`with`)
 | `get`, `is_live`, `ids`, `databases`, `find_key`, `nearest` | as `Reader`, and they see the open transaction's own changes |
 | `close()` | checkpoints and closes (an open transaction is rolled back) |
 | `last_seq`, `epoch`, `copy_applied`, `is_open` | the last commit, the epoch, the copy's applied commit as last heard |
+| `seq`, `role` | beta 2: `last_seq`, and `'primary'` |
+
+A root another process holds is refused at once from Python (`lock-wait` 0); set `"lock-wait": "SECONDS"`
+(0 to 3600) to wait that long first. The C++ library waits 5 seconds by default.
+
+`datareel.Node(root, config=None, role="primary", quiet=False)` (beta 2) opens a `Primary` or (`role="copy"`)
+a `Copy`; `config` is a settings dict or the path of an objrepl.conf file.
 
 ### datareel.Copy(root, config=None, settings=None, quiet=False) (beta 2)
 
 A gxObjRepl copy in this process (section 5b): `serve()` (blocks until `stop()`, which any thread may call),
 `stop()`, the reads `get`, `is_live`, `ids`, `databases`, `find_key`, `nearest`, `address_of`, `id_at`,
-`close()`; `applied_seq`, `epoch`, `in_snapshot`, `is_open`.
+`close()`; `applied_seq` (also `seq`), `role` (`'copy'`), `epoch`, `in_snapshot`, `is_open`.
 
 ### Database, BTree, Journal, create_vector_index, merge_vector_indexes (beta 2)
 
@@ -982,7 +1005,9 @@ Node folder tools for a folder no process holds, as the C++ `objrepl` tool's `st
 `takeover`: `status()` returns a dict (`epoch`, `next_seq`, `acked_seq`, `applied_seq`, `in_snapshot`,
 `role`, `digest`); `digest()` returns `(line, detail)`, where two nodes with the same objects have the same
 line (pass the node's link map as `links` when it has one); `takeover()` makes a stopped copy a primary at
-the next epoch and returns the tool's message.
+the next epoch and returns the tool's message. `datareel.detach(root)` (beta 2) is the same call under the
+name the standalone-test-node steps use (section 5a): the stopped copy becomes an independent primary that
+never follows its old primary again.
 
 ### datareel.VectorIndex(path, spec=None)
 
