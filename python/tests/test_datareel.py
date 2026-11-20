@@ -381,6 +381,98 @@ class PrimaryTest(Base):
             datareel.status(os.path.join(self.tmp, "nosuchnode"))
 
 
+class ReplicationTest(Base):
+    """7.5 beta 2: both nodes in Python (a Primary and a Copy), a failover and a rejoin, and the folder tools."""
+
+    def node_settings(self, role, port):
+        k = lambda f: os.path.join(self.pki, f)
+        if role == "primary":
+            return {"copy": "127.0.0.1:%d" % port, "ca": k("ca.pem"), "cert": k("primary.pem"),
+                    "key": k("primary.key"), "index": INDEX}
+        return {"listen": "127.0.0.1:%d" % port, "ca": k("ca.pem"), "cert": k("copy.pem"), "key": k("copy.key"),
+                "allow-cn": "objrepl-primary", "index": INDEX}
+
+    def start_copy(self, root, port):
+        c = datareel.Copy(root, settings=self.node_settings("copy", port), quiet=True)
+        t = threading.Thread(target=c.serve)
+        t.start()
+        time.sleep(0.3)
+        return c, t
+
+    def write(self, p, keys):
+        with p.transaction():
+            for k in keys:
+                p.put("vec", p.new_id(), struct.pack("<Q4f", k, float(k), 0, 0, 0))
+
+    def test_python_primary_and_copy_failover_rejoin(self):
+        port = free_port()
+        a, b = os.path.join(self.tmp, "rep_a"), os.path.join(self.tmp, "rep_b")
+        c, t = self.start_copy(b, port)
+        try:
+            with datareel.Primary(a, settings=self.node_settings("primary", port), quiet=True) as p:
+                p.open_database("vec")
+                for i in range(20):
+                    self.write(p, range(i * 10 + 1, i * 10 + 11))
+                self.assertEqual(p.drain(60), 0)
+                self.assertEqual(p.copy_applied, 20)
+            self.assertEqual(c.applied_seq, 20)
+            self.assertEqual(len(c.ids("vec")), 200)
+            self.assertEqual(len(c.find_key("k0", struct.pack("<Q", 150))), 1)
+            self.assertFalse(c.in_snapshot)
+            with self.assertRaises(datareel.Error):
+                datareel.Copy(b, settings=self.node_settings("copy", free_port()), quiet=True)   # held
+        finally:
+            c.stop()
+            t.join(30)
+            c.close()
+        self.assertFalse(t.is_alive())
+        self.assertEqual(datareel.digest(a)[0], datareel.digest(b)[0])
+        ok, report = datareel.index_check(b, INDEX)
+        self.assertTrue(ok, report)
+        level, line = datareel.check(b, settings={"max-behind": "100000"})
+        self.assertIn(level, (0, 1), line)
+        # failover: B takes over, A rejoins as B's copy and gets a full send
+        datareel.takeover(b)
+        msg = datareel.rejoin(a)
+        self.assertIn("full send", msg)
+        port2 = free_port()
+        ca, ta = self.start_copy(a, port2)
+        try:
+            with datareel.Primary(b, settings=self.node_settings("primary", port2), quiet=True) as p:
+                self.assertEqual(p.epoch, 2)
+                self.write(p, [9001, 9002])
+                self.assertEqual(p.drain(60), 0)
+        finally:
+            ca.stop()
+            ta.join(30)
+            ca.close()
+        self.assertEqual(datareel.status(a)["role"], "copy")
+        self.assertEqual(datareel.status(b)["role"], "primary")
+        self.assertEqual(datareel.digest(a)[0], datareel.digest(b)[0])
+        with datareel.Reader(a, INDEX) as r:
+            self.assertEqual(len(r.ids("vec")), 202)
+        self.assertEqual(datareel.clear_alarm(a) is not None, True)
+
+    def test_links(self):
+        root = os.path.join(self.tmp, "links")
+        st = dict(self.node_settings("primary", 1))
+        st["links"] = "orders:0:items"
+        st["index"] = ""
+        with datareel.Primary(root, settings=st, quiet=True) as p:
+            p.open_database("items")
+            p.open_database("orders")
+            with p.transaction():
+                item = p.new_id()
+                p.put("items", item, b"widget" + bytes(10))
+            with p.transaction():
+                order = p.new_id()
+                p.put("orders", order, struct.pack("<Q", p.address_of("items", item)) + b"order-1")
+            a = struct.unpack_from("<Q", p.get("orders", order))[0]
+            self.assertNotEqual(a, 0)
+            self.assertEqual(p.id_at("items", a), item)
+            self.assertEqual(p.id_at("items", 12345), 0)
+
+
 class LiveTest(Base):
     """Reads while the C++ program writes, from Python threads (the GIL is released during reads)."""
 

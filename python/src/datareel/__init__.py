@@ -14,10 +14,16 @@ VectorIndex(path, spec=None)
     exact=False, tags=None), get(id); dim, count, spec, metric.
 BlockFile(path)
     A .gxd block file, read only (a file no process is writing): addresses(), read(address).
-status(root), digest(root, links=""), takeover(root)
+Copy(root, config=None, settings=None, quiet=False)
+    7.5 beta 2: a gxObjRepl copy node in this process: serve() (blocks; run it in a thread) applies what
+    the primary sends until stop(); reads as the primary's; applied_seq, epoch, in_snapshot.
+status(root), digest(root, links=""), takeover(root), rejoin(root), check(root, settings=None, config=None),
+clear_alarm(root), index_check(root, index)
     7.5 beta 2, node folder tools (no process holds ROOT): the node's state as a dict; its content
     digest (equal on two nodes with the same objects); a stopped copy made a primary at the next epoch
-    (for a standalone test node made from a copy: it never follows its old primary again).
+    (for a standalone test node made from a copy: it never follows its old primary again); a former
+    primary made a copy waiting for a full send; OK/WARN/FAIL from the status and alarm files; the alarm
+    set aside; each index checked against the objects.
 Error
     Raised when DataReel cannot do what was asked (the message says why).
 
@@ -26,12 +32,12 @@ numpy using the record layout the C++ programs use. The 64-bit database engine o
 """
 import contextlib
 
-from ._datareel import (Error, Reader, VectorIndex, BlockFile, library_version, engine_bits, _Primary,
-                        status, digest, takeover)
+from ._datareel import (Error, Reader, VectorIndex, BlockFile, Copy, library_version, engine_bits, _Primary,
+                        status, digest, takeover, rejoin, check, clear_alarm, index_check)
 
 __version__ = "7.5b2"
-__all__ = ["Error", "Primary", "Reader", "VectorIndex", "BlockFile", "library_version", "engine_bits",
-           "status", "digest", "takeover", "__version__"]
+__all__ = ["Error", "Primary", "Copy", "Reader", "VectorIndex", "BlockFile", "library_version", "engine_bits",
+           "status", "digest", "takeover", "rejoin", "check", "clear_alarm", "index_check", "__version__"]
 
 
 class Primary(_Primary):

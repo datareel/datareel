@@ -519,7 +519,7 @@ static PyObject *Primary_new(PyTypeObject *type, PyObject *, PyObject *)
 // Primary(root, config=None, settings=None): CONFIG an objrepl.conf file, SETTINGS a dict of "key": value (the
 // gxObjReplConfig keys: copy, ca, cert, key, index, links, name, peer-name, trim, idle-timeout, ack-timeout ...);
 // settings win over the file. Messages go to stderr unless quiet=True
-static int Primary_init(PrimaryObject *self, PyObject *args, PyObject *kw)
+static int node_init(PrimaryObject *self, PyObject *args, PyObject *kw, gxObjRepl::Role role)
 {
   static const char *kwlist[] = {"root", "config", "settings", "quiet", 0};
   PyObject *root_o = 0, *conf_o = 0, *settings = 0; int quiet = 0;
@@ -544,14 +544,18 @@ static int Primary_init(PrimaryObject *self, PyObject *args, PyObject *kw)
   if(quiet) cfg.log = [](const std::string &) {};
   int rc;
   Py_BEGIN_ALLOW_THREADS
-  rc = self->r->Open(root, cfg, gxObjRepl::PRIMARY);
+  rc = self->r->Open(root, cfg, role);
   Py_END_ALLOW_THREADS
-  if(rc == 4) { raise(root + " is a copy: a copy is not written to (see takeover)"); return -1; }
+  if(rc == 4 && role == gxObjRepl::PRIMARY) { raise(root + " is a copy: a copy is not written to (see takeover)"); return -1; }
+  if(rc == 4) { raise(root + " is a primary: it does not run as a copy (see rejoin)"); return -1; }
   if(rc != 0) { raise(self->r->Error()); return -1; }
   return 0;
 }
 
-#define PRIMARY_OPEN(self) if(!(self)->r->IsOpen()) return raise("the primary is closed")
+static int Primary_init(PrimaryObject *self, PyObject *args, PyObject *kw) { return node_init(self, args, kw, gxObjRepl::PRIMARY); }
+static int Copy_init(PrimaryObject *self, PyObject *args, PyObject *kw) { return node_init(self, args, kw, gxObjRepl::COPY); }
+
+#define PRIMARY_OPEN(self) if(!(self)->r->IsOpen()) return raise("the node is closed")
 // a call that returns 0 or -1 (Error()), made without the GIL
 #define PRIMARY_CALL(self, expr) do { int rc_; Py_BEGIN_ALLOW_THREADS rc_ = (expr); Py_END_ALLOW_THREADS \
   if(rc_ != 0) return raise((self)->r->Error()); Py_RETURN_NONE; } while(0)
@@ -718,7 +722,37 @@ static PyObject *Primary_epoch(PrimaryObject *self, void *) { return PyLong_From
 static PyObject *Primary_copy_applied(PrimaryObject *self, void *) { return PyLong_FromUnsignedLongLong(self->r->IsOpen() ? self->r->CopyApplied() : 0); }
 static PyObject *Primary_is_open(PrimaryObject *self, void *) { return PyBool_FromLong(self->r->IsOpen()); }
 
+// links: an 8-byte link field holds this node's address of the target object
+static PyObject *Primary_address_of(PrimaryObject *self, PyObject *args)
+{
+  const char *db; unsigned long long id; if(!PyArg_ParseTuple(args, "sK", &db, &id)) return 0;
+  PRIMARY_OPEN(self); std::string d(db);
+  return PyLong_FromUnsignedLongLong((unsigned long long)self->r->AddressOf(d, id));
+}
+static PyObject *Primary_id_at(PrimaryObject *self, PyObject *args)
+{
+  const char *db; unsigned long long a; if(!PyArg_ParseTuple(args, "sK", &db, &a)) return 0;
+  PRIMARY_OPEN(self); std::string d(db);
+  return PyLong_FromUnsignedLongLong(self->r->IdAt(d, (FAU_t)a));
+}
+// copy: serve() blocks (without the GIL) until stop(), from another thread or a signal handler
+static PyObject *Copy_serve(PrimaryObject *self, PyObject *)
+{
+  PRIMARY_OPEN(self);
+  int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = self->r->Serve();
+  Py_END_ALLOW_THREADS
+  if(rc != 0) return raise(self->r->Error());
+  Py_RETURN_NONE;
+}
+static PyObject *Copy_stop(PrimaryObject *self, PyObject *) { self->r->Stop(); Py_RETURN_NONE; }
+static PyObject *Copy_in_snapshot(PrimaryObject *self, void *) { return PyBool_FromLong(self->r->IsOpen() && self->r->InSnapshot()); }
+static PyObject *Copy_applied_seq(PrimaryObject *self, void *) { return PyLong_FromUnsignedLongLong(self->r->IsOpen() ? self->r->AppliedSeq() : 0); }
+
 static PyMethodDef Primary_methods[] = {
+  {"address_of", (PyCFunction)Primary_address_of, METH_VARARGS, "address_of(db, id) -> this node's address of the object, for a link field (0 if none)"},
+  {"id_at", (PyCFunction)Primary_id_at, METH_VARARGS, "id_at(db, address) -> the object id at this node's address (0 if none)"},
   {"open_database", (PyCFunction)Primary_open_database, METH_VARARGS, "open_database(db): open or create a database (outside a transaction)"},
   {"begin", (PyCFunction)Primary_begin, METH_NOARGS, "begin(): start a transaction"},
   {"new_id", (PyCFunction)Primary_new_id, METH_NOARGS, "new_id() -> an object id no database here has used"},
@@ -748,6 +782,31 @@ static PyGetSetDef Primary_getset[] = {
   {0, 0, 0, 0, 0}
 };
 static PyTypeObject PrimaryType = { PyVarObject_HEAD_INIT(0, 0) };
+
+static PyMethodDef Copy_methods[] = {
+  {"serve", (PyCFunction)Copy_serve, METH_NOARGS, "serve(): listen and apply what the primary sends until stop() (blocks; run it in a thread)"},
+  {"stop", (PyCFunction)Copy_stop, METH_NOARGS, "stop(): serve() returns within half a second (any thread)"},
+  {"get", (PyCFunction)Primary_get, METH_VARARGS, "get(db, id) -> bytes, or None"},
+  {"is_live", (PyCFunction)Primary_is_live, METH_VARARGS, "is_live(db, id) -> bool"},
+  {"ids", (PyCFunction)(void (*)(void))Primary_ids, METH_VARARGS | METH_KEYWORDS, "ids(db, tombstones=False) -> sorted ids"},
+  {"databases", (PyCFunction)Primary_databases, METH_NOARGS, "databases() -> names"},
+  {"find_key", (PyCFunction)Primary_find_key, METH_VARARGS, "find_key(index, key) -> ids"},
+  {"nearest", (PyCFunction)(void (*)(void))Primary_nearest, METH_VARARGS | METH_KEYWORDS, "nearest(index, query, k=10) -> [(id, distance)]"},
+  {"address_of", (PyCFunction)Primary_address_of, METH_VARARGS, "address_of(db, id) -> this node's address (0 if none)"},
+  {"id_at", (PyCFunction)Primary_id_at, METH_VARARGS, "id_at(db, address) -> the object id (0 if none)"},
+  {"close", (PyCFunction)Primary_close, METH_NOARGS, "close(): stops serve() and closes"},
+  {"__enter__", (PyCFunction)Primary_enter, METH_NOARGS, ""},
+  {"__exit__", (PyCFunction)Primary_exit, METH_VARARGS, ""},
+  {0, 0, 0, 0}
+};
+static PyGetSetDef Copy_getset[] = {
+  {"applied_seq", (getter)Copy_applied_seq, 0, "the last commit applied", 0},
+  {"epoch", (getter)Primary_epoch, 0, "the node's epoch", 0},
+  {"in_snapshot", (getter)Copy_in_snapshot, 0, "a full send is under way", 0},
+  {"is_open", (getter)Primary_is_open, 0, "whether the copy is open", 0},
+  {0, 0, 0, 0, 0}
+};
+static PyTypeObject CopyType = { PyVarObject_HEAD_INIT(0, 0) };
 
 // ---------- the module ----------
 static PyObject *mod_library_version(PyObject *, PyObject *) { return PyUnicode_FromString(DATAREEL_VERSION_STRING); }
@@ -799,7 +858,73 @@ static PyObject *mod_takeover(PyObject *, PyObject *args)
   return PyUnicode_FromString(msg.c_str());
 }
 
+static PyObject *mod_rejoin(PyObject *, PyObject *args)
+{
+  PyObject *r = 0; if(!PyArg_ParseTuple(args, "O&", PyUnicode_FSConverter, &r)) return 0;
+  std::string root(PyBytes_AS_STRING(r)); Py_DECREF(r);
+  std::string msg; int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = gxObjRepl::Rejoin(root, msg);
+  Py_END_ALLOW_THREADS
+  if(rc != 0) return raise(msg);
+  return PyUnicode_FromString(msg.c_str());
+}
+static PyObject *mod_clear_alarm(PyObject *, PyObject *args)
+{
+  PyObject *r = 0; if(!PyArg_ParseTuple(args, "O&", PyUnicode_FSConverter, &r)) return 0;
+  std::string root(PyBytes_AS_STRING(r)); Py_DECREF(r);
+  std::string msg; int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = gxObjRepl::ClearAlarm(root, msg);
+  Py_END_ALLOW_THREADS
+  if(rc != 0) return raise(msg);
+  return PyUnicode_FromString(msg.c_str());
+}
+static PyObject *mod_index_check(PyObject *, PyObject *args)
+{
+  PyObject *r = 0; const char *ix;
+  if(!PyArg_ParseTuple(args, "O&s", PyUnicode_FSConverter, &r, &ix)) return 0;
+  std::string root(PyBytes_AS_STRING(r)), spec(ix); Py_DECREF(r);
+  std::string report; int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = gxObjRepl::IndexCheck(root, spec, report);
+  Py_END_ALLOW_THREADS
+  return Py_BuildValue("(Os)", rc == 0 ? Py_True : Py_False, report.c_str());
+}
+// check(root, settings=None, config=None) -> (level, line): 0 OK, 1 WARN, 2 FAIL, from the status and alarm files
+static PyObject *mod_check(PyObject *, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"root", "settings", "config", 0};
+  PyObject *r = 0, *settings = 0, *conf_o = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "O&|OO&", (char **)kwlist, PyUnicode_FSConverter, &r, &settings,
+				  PyUnicode_FSConverter, &conf_o)) return 0;
+  std::string root(PyBytes_AS_STRING(r)), conf = conf_o ? std::string(PyBytes_AS_STRING(conf_o)) : std::string();
+  Py_DECREF(r); Py_XDECREF(conf_o);
+  gxObjReplConfig cfg; std::string why;
+  if(!conf.empty() && !cfg.Load(conf, &why)) return raise(why);
+  if(settings && settings != Py_None) {
+    if(!PyDict_Check(settings)) return raise("settings is a dict of \"key\": value");
+    PyObject *k, *v; Py_ssize_t pos = 0;
+    while(PyDict_Next(settings, &pos, &k, &v)) {
+      PyObject *ks = PyObject_Str(k), *vs = PyObject_Str(v);
+      if(!ks || !vs) { Py_XDECREF(ks); Py_XDECREF(vs); return 0; }
+      bool ok = cfg.Set(PyUnicode_AsUTF8(ks), PyUnicode_AsUTF8(vs), &why);
+      Py_DECREF(ks); Py_DECREF(vs);
+      if(!ok) return raise(why);
+    }
+  }
+  std::string line; int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = gxObjRepl::Check(root, cfg, line);
+  Py_END_ALLOW_THREADS
+  return Py_BuildValue("(is)", rc, line.c_str());
+}
+
 static PyMethodDef module_methods[] = {
+  {"rejoin", mod_rejoin, METH_VARARGS, "rejoin(root) -> message: a former primary (or a copy of another history) becomes a copy waiting for a full send"},
+  {"clear_alarm", mod_clear_alarm, METH_VARARGS, "clear_alarm(root) -> message: the node's alarm file is set aside"},
+  {"index_check", mod_index_check, METH_VARARGS, "index_check(root, index) -> (consistent, report): each index against the objects"},
+  {"check", (PyCFunction)(void (*)(void))mod_check, METH_VARARGS | METH_KEYWORDS, "check(root, settings=None, config=None) -> (0 OK / 1 WARN / 2 FAIL, line)"},
   {"status", mod_status, METH_VARARGS, "status(root) -> dict (epoch, next_seq, acked_seq, applied_seq, in_snapshot, role, digest) of a node no process holds"},
   {"digest", mod_digest, METH_VARARGS, "digest(root, links='') -> (line, detail): ids and contents with links as ids; two nodes with the same objects give the same line"},
   {"takeover", mod_takeover, METH_VARARGS, "takeover(root) -> message: a stopped copy becomes a primary at the next epoch (it never follows its old primary again)"},
@@ -831,6 +956,10 @@ PyMODINIT_FUNC PyInit__datareel(void)
 	    Vix_methods, Vix_getset,
 	    "VectorIndex(path, spec=None) - a .vix file, read only. Use it on files no process is writing; "
 	    "for a running node use Reader.nearest().")) return 0;
+  if(!ready(CopyType, "datareel.Copy", sizeof(PrimaryObject), (destructor)Primary_dealloc, Primary_new, (initproc)Copy_init,
+	    Copy_methods, Copy_getset,
+	    "Copy(root, config=None, settings=None, quiet=False): a gxObjRepl copy node: serve() applies what the primary "
+	    "sends until stop(); reads as Reader. Settings: listen, ca, cert, key, allow-cn, index, name, peer-name ...")) return 0;
   PrimaryType.tp_flags = Py_TPFLAGS_BASETYPE;   // datareel.Primary (Python) adds transaction()
   if(!ready(PrimaryType, "datareel._Primary", sizeof(PrimaryObject), (destructor)Primary_dealloc, Primary_new, (initproc)Primary_init,
 	    Primary_methods, Primary_getset,
@@ -846,7 +975,8 @@ PyMODINIT_FUNC PyInit__datareel(void)
      PyModule_AddObjectRef(m, "Reader", (PyObject *)&ReaderType) < 0 ||
      PyModule_AddObjectRef(m, "VectorIndex", (PyObject *)&VixType) < 0 ||
      PyModule_AddObjectRef(m, "BlockFile", (PyObject *)&BlockType) < 0 ||
-     PyModule_AddObjectRef(m, "_Primary", (PyObject *)&PrimaryType) < 0) { Py_DECREF(m); return 0; }
+     PyModule_AddObjectRef(m, "_Primary", (PyObject *)&PrimaryType) < 0 ||
+     PyModule_AddObjectRef(m, "Copy", (PyObject *)&CopyType) < 0) { Py_DECREF(m); return 0; }
   return m;
 }
 // ----------------------------------------------------------- //
