@@ -47,6 +47,7 @@ safe: use one per thread.
 #include <string>
 #include <vector>
 #include <string.h>
+#include <algorithm>
 #include "gxdlcode.h"
 #include "gxobjrepl.h"
 #include "gxvindex.h"
@@ -491,6 +492,263 @@ static PyMethodDef Block_methods[] = {
 };
 static PyTypeObject BlockType = { PyVarObject_HEAD_INIT(0, 0) };
 
+// ---------- Primary (7.5 beta 2): a gxObjRepl primary, written from Python ----------
+struct PrimaryObject {
+  PyObject_HEAD
+  gxObjRepl *r;
+};
+
+static void Primary_dealloc(PrimaryObject *self)
+{
+  if(self->r) {
+    Py_BEGIN_ALLOW_THREADS
+    self->r->Close();
+    Py_END_ALLOW_THREADS
+    delete self->r;
+  }
+  Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static PyObject *Primary_new(PyTypeObject *type, PyObject *, PyObject *)
+{
+  PrimaryObject *self = (PrimaryObject *)type->tp_alloc(type, 0);
+  if(self) self->r = new gxObjRepl;
+  return (PyObject *)self;
+}
+
+// Primary(root, config=None, settings=None): CONFIG an objrepl.conf file, SETTINGS a dict of "key": value (the
+// gxObjReplConfig keys: copy, ca, cert, key, index, links, name, peer-name, trim, idle-timeout, ack-timeout ...);
+// settings win over the file. Messages go to stderr unless quiet=True
+static int Primary_init(PrimaryObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"root", "config", "settings", "quiet", 0};
+  PyObject *root_o = 0, *conf_o = 0, *settings = 0; int quiet = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "O&|O&Op", (char **)kwlist, PyUnicode_FSConverter, &root_o,
+				  PyUnicode_FSConverter, &conf_o, &settings, &quiet)) return -1;
+  std::string root(PyBytes_AS_STRING(root_o)), conf = conf_o ? std::string(PyBytes_AS_STRING(conf_o)) : std::string();
+  Py_DECREF(root_o); Py_XDECREF(conf_o);
+  gxObjReplConfig cfg; std::string why;
+  if(!conf.empty() && !cfg.Load(conf, &why)) { raise(why); return -1; }
+  if(settings && settings != Py_None) {
+    if(!PyDict_Check(settings)) { raise("settings is a dict of \"key\": value"); return -1; }
+    PyObject *k, *v; Py_ssize_t pos = 0;
+    while(PyDict_Next(settings, &pos, &k, &v)) {
+      PyObject *ks = PyObject_Str(k), *vs = PyBool_Check(v) ? PyUnicode_FromString(v == Py_True ? "1" : "0") : PyObject_Str(v);
+      if(!ks || !vs) { Py_XDECREF(ks); Py_XDECREF(vs); return -1; }
+      const char *kc = PyUnicode_AsUTF8(ks), *vc = PyUnicode_AsUTF8(vs);
+      bool ok = kc && vc && cfg.Set(kc, vc, &why);
+      Py_DECREF(ks); Py_DECREF(vs);
+      if(!ok) { if(!PyErr_Occurred()) raise(why); return -1; }
+    }
+  }
+  if(quiet) cfg.log = [](const std::string &) {};
+  int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = self->r->Open(root, cfg, gxObjRepl::PRIMARY);
+  Py_END_ALLOW_THREADS
+  if(rc == 4) { raise(root + " is a copy: a copy is not written to (see takeover)"); return -1; }
+  if(rc != 0) { raise(self->r->Error()); return -1; }
+  return 0;
+}
+
+#define PRIMARY_OPEN(self) if(!(self)->r->IsOpen()) return raise("the primary is closed")
+// a call that returns 0 or -1 (Error()), made without the GIL
+#define PRIMARY_CALL(self, expr) do { int rc_; Py_BEGIN_ALLOW_THREADS rc_ = (expr); Py_END_ALLOW_THREADS \
+  if(rc_ != 0) return raise((self)->r->Error()); Py_RETURN_NONE; } while(0)
+
+static PyObject *Primary_open_database(PrimaryObject *self, PyObject *args)
+{
+  const char *db; if(!PyArg_ParseTuple(args, "s", &db)) return 0;
+  PRIMARY_OPEN(self); std::string d(db);
+  PRIMARY_CALL(self, self->r->OpenDatabase(d));
+}
+static PyObject *Primary_begin(PrimaryObject *self, PyObject *) { PRIMARY_OPEN(self); PRIMARY_CALL(self, self->r->Begin()); }
+static PyObject *Primary_commit(PrimaryObject *self, PyObject *) { PRIMARY_OPEN(self); PRIMARY_CALL(self, self->r->Commit()); }
+static PyObject *Primary_rollback(PrimaryObject *self, PyObject *) { PRIMARY_OPEN(self); PRIMARY_CALL(self, self->r->Rollback()); }
+
+static PyObject *Primary_new_id(PrimaryObject *self, PyObject *)
+{
+  PRIMARY_OPEN(self);
+  uint64_t id;
+  Py_BEGIN_ALLOW_THREADS
+  id = self->r->NewId();
+  Py_END_ALLOW_THREADS
+  if(!id) return raise(self->r->Error());
+  return PyLong_FromUnsignedLongLong(id);
+}
+
+static PyObject *Primary_put(PrimaryObject *self, PyObject *args)
+{
+  const char *db; unsigned long long id; Py_buffer b;
+  if(!PyArg_ParseTuple(args, "sKy*", &db, &id, &b)) return 0;
+  if(!self->r->IsOpen()) { PyBuffer_Release(&b); return raise("the primary is closed"); }
+  if(b.len > 0xffffffffLL) { PyBuffer_Release(&b); return raise("an object is at most 32 MB"); }
+  std::vector<unsigned char> v((const unsigned char *)b.buf, (const unsigned char *)b.buf + b.len);
+  PyBuffer_Release(&b);
+  std::string d(db);
+  PRIMARY_CALL(self, self->r->Put(d, id, v.data(), (uint32_t)v.size()));
+}
+
+static PyObject *Primary_remove(PrimaryObject *self, PyObject *args)
+{
+  const char *db; unsigned long long id; if(!PyArg_ParseTuple(args, "sK", &db, &id)) return 0;
+  PRIMARY_OPEN(self); std::string d(db);
+  PRIMARY_CALL(self, self->r->Remove(d, id));
+}
+static PyObject *Primary_purge(PrimaryObject *self, PyObject *args)
+{
+  const char *db; unsigned long long id; if(!PyArg_ParseTuple(args, "sK", &db, &id)) return 0;
+  PRIMARY_OPEN(self); std::string d(db);
+  PRIMARY_CALL(self, self->r->Purge(d, id));
+}
+
+// pump() -> 0 the copy has every commit, 1 behind or away, 3 refused (an alarm); drain(seconds) the same, waiting
+static PyObject *Primary_pump(PrimaryObject *self, PyObject *)
+{
+  PRIMARY_OPEN(self);
+  int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = self->r->Pump();
+  Py_END_ALLOW_THREADS
+  if(rc < 0) return raise(self->r->Error());
+  return PyLong_FromLong(rc);
+}
+static PyObject *Primary_drain(PrimaryObject *self, PyObject *args)
+{
+  int seconds = 60; if(!PyArg_ParseTuple(args, "|i", &seconds)) return 0;
+  PRIMARY_OPEN(self);
+  int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = self->r->Drain(seconds);
+  Py_END_ALLOW_THREADS
+  if(rc < 0) return raise(self->r->Error());
+  return PyLong_FromLong(rc);
+}
+
+static PyObject *Primary_get(PrimaryObject *self, PyObject *args)
+{
+  const char *db; unsigned long long id; if(!PyArg_ParseTuple(args, "sK", &db, &id)) return 0;
+  PRIMARY_OPEN(self);
+  std::vector<unsigned char> b; int rc; std::string d(db);
+  Py_BEGIN_ALLOW_THREADS
+  rc = self->r->Get(d, id, b);
+  Py_END_ALLOW_THREADS
+  if(rc != 0) Py_RETURN_NONE;
+  return PyBytes_FromStringAndSize((const char *)b.data(), (Py_ssize_t)b.size());
+}
+static PyObject *Primary_is_live(PrimaryObject *self, PyObject *args)
+{
+  const char *db; unsigned long long id; if(!PyArg_ParseTuple(args, "sK", &db, &id)) return 0;
+  PRIMARY_OPEN(self); std::string d(db);
+  return PyBool_FromLong(self->r->IsLive(d, id));
+}
+static PyObject *Primary_ids(PrimaryObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"db", "tombstones", 0};
+  const char *db; int tombs = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "s|p", (char **)kwlist, &db, &tombs)) return 0;
+  PRIMARY_OPEN(self);
+  std::vector<uint64_t> ids; std::string d(db);
+  Py_BEGIN_ALLOW_THREADS
+  ids = self->r->Ids(d, tombs ? gxObjRepl::TOMBSTONES : gxObjRepl::LIVE);
+  Py_END_ALLOW_THREADS
+  std::sort(ids.begin(), ids.end());
+  return id_list(ids);
+}
+static PyObject *Primary_databases(PrimaryObject *self, PyObject *)
+{
+  PRIMARY_OPEN(self);
+  std::vector<std::string> v = self->r->Databases();
+  PyObject *l = PyList_New((Py_ssize_t)v.size());
+  if(!l) return 0;
+  for(size_t i = 0; i < v.size(); i++) PyList_SET_ITEM(l, (Py_ssize_t)i, PyUnicode_FromString(v[i].c_str()));
+  return l;
+}
+static PyObject *Primary_find_key(PrimaryObject *self, PyObject *args)
+{
+  const char *index; Py_buffer key;
+  if(!PyArg_ParseTuple(args, "sy*", &index, &key)) return 0;
+  if(!self->r->IsOpen()) { PyBuffer_Release(&key); return raise("the primary is closed"); }
+  if(key.len > 32) { PyBuffer_Release(&key); return raise("a key is at most 32 bytes"); }
+  std::vector<unsigned char> k((const unsigned char *)key.buf, (const unsigned char *)key.buf + key.len);
+  PyBuffer_Release(&key);
+  std::vector<uint64_t> ids; int rc; std::string ix(index);
+  Py_BEGIN_ALLOW_THREADS
+  rc = self->r->FindKey(ix, k.data(), (unsigned)k.size(), ids);
+  Py_END_ALLOW_THREADS
+  if(rc != 0) return raise(self->r->Error());
+  return id_list(ids);
+}
+static PyObject *Primary_nearest(PrimaryObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"index", "query", "k", 0};
+  const char *index; PyObject *q; unsigned k = 10;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "sO|I", (char **)kwlist, &index, &q, &k)) return 0;
+  PRIMARY_OPEN(self);
+  std::vector<float> v;
+  if(!floats(q, v)) return 0;
+  if(v.empty()) return raise("an empty query vector");
+  std::vector<gxObjReplHit> hits; int rc; std::string ix(index);
+  Py_BEGIN_ALLOW_THREADS
+  rc = self->r->Nearest(ix, v.data(), k, hits);
+  Py_END_ALLOW_THREADS
+  if(rc != 0) return raise(self->r->Error());
+  PyObject *l = PyList_New((Py_ssize_t)hits.size());
+  if(!l) return 0;
+  for(size_t i = 0; i < hits.size(); i++) PyList_SET_ITEM(l, (Py_ssize_t)i, Py_BuildValue("(Kd)", (unsigned long long)hits[i].id, (double)hits[i].distance));
+  return l;
+}
+static PyObject *Primary_close(PrimaryObject *self, PyObject *)
+{
+  Py_BEGIN_ALLOW_THREADS
+  self->r->Close();
+  Py_END_ALLOW_THREADS
+  Py_RETURN_NONE;
+}
+static PyObject *Primary_enter(PrimaryObject *self, PyObject *) { Py_INCREF(self); return (PyObject *)self; }
+static PyObject *Primary_exit(PrimaryObject *self, PyObject *)
+{
+  Py_BEGIN_ALLOW_THREADS
+  self->r->Close();
+  Py_END_ALLOW_THREADS
+  Py_RETURN_FALSE;
+}
+static PyObject *Primary_last_seq(PrimaryObject *self, void *) { return PyLong_FromUnsignedLongLong(self->r->IsOpen() ? self->r->LastSeq() : 0); }
+static PyObject *Primary_epoch(PrimaryObject *self, void *) { return PyLong_FromUnsignedLongLong(self->r->IsOpen() ? self->r->Epoch() : 0); }
+static PyObject *Primary_copy_applied(PrimaryObject *self, void *) { return PyLong_FromUnsignedLongLong(self->r->IsOpen() ? self->r->CopyApplied() : 0); }
+static PyObject *Primary_is_open(PrimaryObject *self, void *) { return PyBool_FromLong(self->r->IsOpen()); }
+
+static PyMethodDef Primary_methods[] = {
+  {"open_database", (PyCFunction)Primary_open_database, METH_VARARGS, "open_database(db): open or create a database (outside a transaction)"},
+  {"begin", (PyCFunction)Primary_begin, METH_NOARGS, "begin(): start a transaction"},
+  {"new_id", (PyCFunction)Primary_new_id, METH_NOARGS, "new_id() -> an object id no database here has used"},
+  {"put", (PyCFunction)Primary_put, METH_VARARGS, "put(db, id, data): add or update an object (bytes-like, at most 32 MB)"},
+  {"remove", (PyCFunction)Primary_remove, METH_VARARGS, "remove(db, id): the object becomes a tombstone"},
+  {"purge", (PyCFunction)Primary_purge, METH_VARARGS, "purge(db, id): free a tombstone for good"},
+  {"commit", (PyCFunction)Primary_commit, METH_NOARGS, "commit(): durable when it returns, with its outbox entry"},
+  {"rollback", (PyCFunction)Primary_rollback, METH_NOARGS, "rollback(): drop the open transaction"},
+  {"pump", (PyCFunction)Primary_pump, METH_NOARGS, "pump() -> 0 (the copy has everything), 1 (behind or away) or 3 (refused)"},
+  {"drain", (PyCFunction)Primary_drain, METH_VARARGS, "drain(seconds=60) -> 0 when the copy has every commit, else 1 or 3"},
+  {"get", (PyCFunction)Primary_get, METH_VARARGS, "get(db, id) -> bytes, or None (also sees this transaction's changes)"},
+  {"is_live", (PyCFunction)Primary_is_live, METH_VARARGS, "is_live(db, id) -> bool"},
+  {"ids", (PyCFunction)(void (*)(void))Primary_ids, METH_VARARGS | METH_KEYWORDS, "ids(db, tombstones=False) -> sorted ids"},
+  {"databases", (PyCFunction)Primary_databases, METH_NOARGS, "databases() -> names"},
+  {"find_key", (PyCFunction)Primary_find_key, METH_VARARGS, "find_key(index, key) -> ids"},
+  {"nearest", (PyCFunction)(void (*)(void))Primary_nearest, METH_VARARGS | METH_KEYWORDS, "nearest(index, query, k=10) -> [(id, distance)]"},
+  {"close", (PyCFunction)Primary_close, METH_NOARGS, "close(): checkpoint and close (an open transaction is rolled back)"},
+  {"__enter__", (PyCFunction)Primary_enter, METH_NOARGS, ""},
+  {"__exit__", (PyCFunction)Primary_exit, METH_VARARGS, ""},
+  {0, 0, 0, 0}
+};
+static PyGetSetDef Primary_getset[] = {
+  {"last_seq", (getter)Primary_last_seq, 0, "the last commit", 0},
+  {"epoch", (getter)Primary_epoch, 0, "the node's epoch", 0},
+  {"copy_applied", (getter)Primary_copy_applied, 0, "the copy's applied commit, as last heard", 0},
+  {"is_open", (getter)Primary_is_open, 0, "whether the primary is open", 0},
+  {0, 0, 0, 0, 0}
+};
+static PyTypeObject PrimaryType = { PyVarObject_HEAD_INIT(0, 0) };
+
 // ---------- the module ----------
 static PyObject *mod_library_version(PyObject *, PyObject *) { return PyUnicode_FromString(DATAREEL_VERSION_STRING); }
 static PyObject *mod_engine(PyObject *, PyObject *) { return PyLong_FromLong(sizeof(FAU_t) * 8); }
@@ -509,7 +767,7 @@ static struct PyModuleDef module_def = {
 static bool ready(PyTypeObject &t, const char *name, Py_ssize_t size, destructor dealloc, newfunc nf, initproc init,
 		  PyMethodDef *m, PyGetSetDef *gs, const char *doc)
 {
-  t.tp_name = name; t.tp_basicsize = size; t.tp_dealloc = dealloc; t.tp_flags = Py_TPFLAGS_DEFAULT;
+  t.tp_name = name; t.tp_basicsize = size; t.tp_dealloc = dealloc; t.tp_flags |= Py_TPFLAGS_DEFAULT;
   t.tp_new = nf; t.tp_init = init; t.tp_methods = m; t.tp_getset = gs; t.tp_doc = doc;
   return PyType_Ready(&t) == 0;
 }
@@ -524,6 +782,10 @@ PyMODINIT_FUNC PyInit__datareel(void)
 	    Vix_methods, Vix_getset,
 	    "VectorIndex(path, spec=None) - a .vix file, read only. Use it on files no process is writing; "
 	    "for a running node use Reader.nearest().")) return 0;
+  PrimaryType.tp_flags = Py_TPFLAGS_BASETYPE;   // datareel.Primary (Python) adds transaction()
+  if(!ready(PrimaryType, "datareel._Primary", sizeof(PrimaryObject), (destructor)Primary_dealloc, Primary_new, (initproc)Primary_init,
+	    Primary_methods, Primary_getset,
+	    "_Primary(root, config=None, settings=None, quiet=False): a gxObjRepl primary (see datareel.Primary)")) return 0;
   if(!ready(BlockType, "datareel.BlockFile", sizeof(BlockObject), (destructor)Block_dealloc, Block_new, (initproc)Block_init,
 	    Block_methods, 0,
 	    "BlockFile(path) - a .gxd file, read only: its objects by address. Use it on files no process is writing.")) return 0;
@@ -534,7 +796,8 @@ PyMODINIT_FUNC PyInit__datareel(void)
      PyModule_AddObjectRef(m, "Error", DataReelError) < 0 ||
      PyModule_AddObjectRef(m, "Reader", (PyObject *)&ReaderType) < 0 ||
      PyModule_AddObjectRef(m, "VectorIndex", (PyObject *)&VixType) < 0 ||
-     PyModule_AddObjectRef(m, "BlockFile", (PyObject *)&BlockType) < 0) { Py_DECREF(m); return 0; }
+     PyModule_AddObjectRef(m, "BlockFile", (PyObject *)&BlockType) < 0 ||
+     PyModule_AddObjectRef(m, "_Primary", (PyObject *)&PrimaryType) < 0) { Py_DECREF(m); return 0; }
   return m;
 }
 // ----------------------------------------------------------- //
