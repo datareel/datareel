@@ -11,7 +11,7 @@ text here and run the script again rather than editing the .htm files.
 import glob, html, os, re
 
 DOCS = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
-VERSION = '7.4'
+VERSION = '7.5 beta 1'
 
 HEAD = '''<!doctype html>
 <!-- ******************************* -->

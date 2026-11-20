@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>DataReel 7.4 Release Notes</title>
+<title>DataReel 7.4.1 Release Notes</title>
 <link rel="stylesheet" href="css/datareel.css">
 <link rel="icon" href="images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
@@ -18,9 +18,9 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>DataReel 7.4 Release Notes</h1>
+<h1>DataReel 7.4.1 Release Notes</h1>
 <div class="dr-toc-title">Contents</div>
-<p class="dr-toc"><a href="#NewIn74111192026NotReleasedYet">New in 7.4.1 (11/19/2026, not released yet)</a><br>
+<p class="dr-toc"><a href="#NewIn74111202026">New in 7.4.1 (11/20/2026)</a><br>
 <a href="#HighlightsOf74">Highlights of 7.4</a><br>
 <a href="#PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</a><br>
 <a href="#PhaseB11122026HnswGraphSearchMergeRepair">Phase b (11/12/2026): hnsw graph search, merge, repair</a><br>
@@ -39,7 +39,7 @@
 <a href="#PlannedForTheNextRelease75">Planned for the next release (7.5)</a></p>
 <p>DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the replication fixes and the security scan below (BETA 3). Beta 2:</p>
 <p>DataReel 7.4 beta 2 (tag 7.4-beta2, 11/14/2026): the OODB with AI extensions. It follows the 11/12/2026 7.4-beta preview (tag 7.4-beta, 171a3f2: vector phases A and B) and adds vector phases C and D (below), the gxrepl fixes F4, F6 and F7, the DataReel 7.3.2 replication fixes and the later ones of rel-7.3.2-next3 (the seal per folder, a stream naming new files verified again, promote-check reading each unit under a shared apply lock, GXREPL_TORN_LOCK_WAIT 15 s), and the gxrepl per-object derived apply (derived_apply = incremental, with object notes and index stamps; off by default: rebuild stays the default and the ship log is unchanged while object notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md). derived_apply = incremental is not yet for production use; fixes land in the next 7.4 build. The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
-<h2 id="NewIn74111192026NotReleasedYet">New in 7.4.1 (11/19/2026, not released yet)</h2>
+<h2 id="NewIn74111202026">New in 7.4.1 (11/20/2026)</h2>
 <ul>
 <li>gxObjRepl uses port 2073 by default: replication is a gxStream object stream, and 2073 is the gxStream port registered with IANA (gxs-data-port). A copy with no &quot;listen&quot; port listens on 2073, and a primary whose &quot;copy&quot; setting has no port connects to 2073 (gxObjReplConfig::listen_port is 2073, copy is HOST[:PORT]). &quot;listen ADDR&quot; sets only the address. Configs that name a port work as before; a bad copy or listen value is refused at start. utils/objrepl/test_objrepl_config.sh checks both (it needs 127.0.0.1:2073 free).</li>
 <li>Security fix, the object service (gxdbobject.cpp): an address a client sends must be the start of a normal (not deleted) block inside the file, and for a writable database one of its live objects (the server keeps the list, made when the database opens). 7.4 checked only the check word of the block header in front of the address, so a client allowed to write could copy a block header into its own object and CHANGE or DELETE at the address behind it, writing past that object into the next ones; REQUEST could read past an object or read deleted blocks. Only clients that passed mutual TLS and the allow list could do it. tests/object_service_test.cpp (19 checks, 10 of them fail on 7.4) runs in run_tests.sh.</li>
@@ -419,6 +419,6 @@
 <li>The Python module as a package that installs with pip.</li>
 </ul>
 </main>
-<footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 beta 1 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

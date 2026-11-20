@@ -19,7 +19,7 @@ https://datareel.com/clib7/. This file points to them instead of
 repeating them. When this file and the code disagree, the code wins:
 say so to the person you work for.
 
-DataReel 7.4 is the main, fully supported release. DataReel 6.4.1 is
+DataReel 7.4.1 is the main, fully supported release. DataReel 6.4.2 is
 the legacy release: bug fixes and security updates only, no new
 features (it has its own `AGENTS.md`).
 

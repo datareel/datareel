@@ -8,8 +8,8 @@ There are two release tracks:
 
 | Track | For | API |
 |---|---|---|
-| **DataReel 7.x** (7.4, released 11/17/2026: the main, fully supported release) | New projects, modern C++ pipelines, AI-assisted development | Database, vector index, sockets, replication, on standard C++ (`std::`) |
-| **DataReel 6.4.1** (the legacy release: bug fixes and security updates only, no new features) | Existing 6.x systems where moving to 7.x is too large a rewrite | The full 6.x API plus the vector index and replication, backported |
+| **DataReel 7.x** (7.4.1, released 11/20/2026: the main, fully supported release) | New projects, modern C++ pipelines, AI-assisted development | Database, vector index, sockets, replication, on standard C++ (`std::`) |
+| **DataReel 6.4.2** (the legacy release: bug fixes and security updates only, no new features) | Existing 6.x systems where moving to 7.x is too large a rewrite | The full 6.x API plus the vector index and replication, backported |
 
 Online documentation: [Version 7](https://datareel.com/clib7/) and [Version 6 (legacy)](https://datareel.com/clib/).
 
@@ -113,7 +113,7 @@ and [README.txt](README.txt) has the complete release notes index.
   [build guide](python/docs/building.md), [python/AGENTS.md](python/AGENTS.md) for AI-assisted work
   and [RELEASE_NOTES_7.5.txt](RELEASE_NOTES_7.5.txt).
 
-## DataReel 6.4.1: the legacy version
+## DataReel 6.4.2: the legacy version
 
 ### Why
 
@@ -144,5 +144,5 @@ DataReel 6.4 keeps the full 6.x API and adds the main 7.x data features:
 
 | Release | Use it for | API | Main features |
 |---|---|---|---|
-| **DataReel 6.4.1** | Existing 6.x systems (DRCM, file encryption, password database) | Full 6.x API plus the backported features | Backward compatible; vector index and replication |
+| **DataReel 6.4.2** | Existing 6.x systems (DRCM, file encryption, password database) | Full 6.x API plus the backported features | Backward compatible; vector index and replication |
 | **DataReel 7.x** | New builds, modern C++ pipelines, AI-assisted development (for example market anomaly databases) | Database, vector, sockets and replication | Lean modern C++, OODB plus vector search, database sockets, replication |
