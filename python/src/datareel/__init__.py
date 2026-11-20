@@ -14,6 +14,10 @@ VectorIndex(path, spec=None)
     exact=False, tags=None), get(id); dim, count, spec, metric.
 BlockFile(path)
     A .gxd block file, read only (a file no process is writing): addresses(), read(address).
+status(root), digest(root, links=""), takeover(root)
+    7.5 beta 2, node folder tools (no process holds ROOT): the node's state as a dict; its content
+    digest (equal on two nodes with the same objects); a stopped copy made a primary at the next epoch
+    (for a standalone test node made from a copy: it never follows its old primary again).
 Error
     Raised when DataReel cannot do what was asked (the message says why).
 
@@ -22,11 +26,12 @@ numpy using the record layout the C++ programs use. The 64-bit database engine o
 """
 import contextlib
 
-from ._datareel import Error, Reader, VectorIndex, BlockFile, library_version, engine_bits, _Primary
+from ._datareel import (Error, Reader, VectorIndex, BlockFile, library_version, engine_bits, _Primary,
+                        status, digest, takeover)
 
 __version__ = "7.5b2"
 __all__ = ["Error", "Primary", "Reader", "VectorIndex", "BlockFile", "library_version", "engine_bits",
-           "__version__"]
+           "status", "digest", "takeover", "__version__"]
 
 
 class Primary(_Primary):

@@ -45,6 +45,11 @@ NEW IN 7.5 BETA 2
   reopened, and replication from a Python primary to a C++ copy with
   equal digests. Examples 10 (write objects) and 11 (an event log with
   a rolled back batch and a copy) in python/examples, run by the tests.
+- Node folder tools: datareel.status(root), datareel.digest(root,
+  links=""), datareel.takeover(root), as the objrepl tool's status,
+  digest and takeover. With takeover(), DEV makes a standalone test
+  node from a file copy of a stopped copy and writes it from Python,
+  while it only reads the production nodes (user's manual, section 5a).
 - Package version 7.5b2; library version "7.5 beta2".
 
 NEW IN 7.5 BETA 1

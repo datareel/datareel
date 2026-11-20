@@ -355,6 +355,30 @@ class PrimaryTest(Base):
             log.close()
         dig = lambda d: subprocess.run([prog("objrepl"), "digest", d], stdout=subprocess.PIPE, text=True).stdout
         self.assertEqual(dig(root), dig(c))                    # the C++ copy equals the Python primary
+        self.assertEqual(datareel.digest(root)[0], datareel.digest(c)[0])
+        self.assertEqual(datareel.digest(root)[0] + "\n", dig(root))   # the same digest as the C++ tool
+        # a standalone test node made from the (stopped) copy: a file copy of the folder, then takeover, then
+        # Python writes to it; the copy it came from is not changed
+        st = datareel.status(c)
+        self.assertEqual((st["role"], st["applied_seq"]), ("copy", 151))
+        test = os.path.join(self.tmp, "pyrep_test")
+        shutil.copytree(c, test)
+        with self.assertRaises(datareel.Error):
+            datareel.Primary(test, settings=self.settings(), quiet=True)   # still a copy
+        msg = datareel.takeover(test)
+        self.assertIn("epoch", msg)
+        st = datareel.status(test)
+        self.assertEqual((st["role"], st["epoch"]), ("primary", 2))
+        before = datareel.digest(c)[0]
+        with datareel.Primary(test, settings=self.settings(), quiet=True) as p:
+            self.assertEqual(len(p.ids("vec")), 149)
+            with p.transaction():
+                p.put("vec", p.new_id(), struct.pack("<Q4f", 999, 999.0, 0, 0, 0))
+            self.assertEqual(p.find_key("k0", struct.pack("<Q", 999)) != [], True)
+        self.assertNotEqual(datareel.digest(test)[0], before)
+        self.assertEqual(datareel.digest(c)[0], before)
+        with self.assertRaises(datareel.Error):
+            datareel.status(os.path.join(self.tmp, "nosuchnode"))
 
 
 class LiveTest(Base):

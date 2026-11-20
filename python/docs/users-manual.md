@@ -633,6 +633,29 @@ What to know when Python writes:
 - A copy's folder is never opened as a primary (`datareel.Error`). After a failover, the old primary
   comes back as a copy with `objrepl rejoin`.
 
+### Standalone test nodes made from PROD (DEV reads PROD, writes only its own copies)
+
+DEV code reads production nodes with `Reader` and never writes them. To try writes against real data, make
+a standalone test node from a copy and write to that:
+
+1. Copy a stopped copy's folder (or a PROD backup of one) to a new folder with an ordinary file copy
+   (`cp -a`, rsync). Never copy a running node's folder.
+2. `datareel.takeover(TEST)` makes the test folder a primary at the next epoch. It never follows the old
+   primary again, and nothing the test node writes reaches PROD: give it no `copy` setting that points at
+   a production node (`"copy": "127.0.0.1:1"` is fine).
+3. `datareel.Primary(TEST, settings=...)` writes it like any primary. `datareel.digest()` tells it apart
+   from the copy it came from.
+
+```python
+import shutil, datareel
+shutil.copytree("/backups/news_copy", "/dev/test/news")      # a stopped copy, not a running node
+datareel.takeover("/dev/test/news")                            # now a primary at epoch N + 1
+with datareel.Primary("/dev/test/news", settings=test_settings) as p:
+    with p.transaction():
+        p.put("events", p.new_id(), record_bytes)
+print(datareel.status("/dev/test/news"))                       # role primary, the new epoch and seqs
+```
+
 ## 6. Reference
 
 ### datareel.Reader(root, index="")
@@ -676,6 +699,14 @@ A gxObjRepl primary in this process (see section 5a). A context manager (`with`)
 | `get`, `is_live`, `ids`, `databases`, `find_key`, `nearest` | as `Reader`, and they see the open transaction's own changes |
 | `close()` | checkpoints and closes (an open transaction is rolled back) |
 | `last_seq`, `epoch`, `copy_applied`, `is_open` | the last commit, the epoch, the copy's applied commit as last heard |
+
+### datareel.status(root), datareel.digest(root, links=""), datareel.takeover(root) (beta 2)
+
+Node folder tools for a folder no process holds, as the C++ `objrepl` tool's `status`, `digest` and
+`takeover`: `status()` returns a dict (`epoch`, `next_seq`, `acked_seq`, `applied_seq`, `in_snapshot`,
+`role`, `digest`); `digest()` returns `(line, detail)`, where two nodes with the same objects have the same
+line (pass the node's link map as `links` when it has one); `takeover()` makes a stopped copy a primary at
+the next epoch and returns the tool's message.
 
 ### datareel.VectorIndex(path, spec=None)
 

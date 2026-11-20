@@ -85,24 +85,28 @@ in advisory mode, with no tool execution by the agent.
    Writing to a production node from Python is the person's decision, made explicitly; propose it, do not
    do it. Every change goes in a transaction (`with p.transaction():`), encoded with the C++ readers'
    record layout.
-2. **A running node is read with `Reader` only.** `BlockFile` and `VectorIndex` are for files no process
+2. **DEV reads PROD; it writes only standalone test nodes.** A test node is a file copy of a stopped copy's
+   folder made a primary with `datareel.takeover()` (user's manual, section 5a). Never run `takeover()`
+   on a production copy (the standby): that ends its replication. Give a test node no `copy` setting that
+   points at a production node.
+3. **A running node is read with `Reader` only.** `BlockFile` and `VectorIndex` are for files no process
    is writing (closed day files, merged files, copies of a stopped node). Opening a running node's files
    with them can read half-written pages.
-3. **Decode with the C++ record layout.** Objects come back as the bytes the C++ program stored. Get the
+4. **Decode with the C++ record layout.** Objects come back as the bytes the C++ program stored. Get the
    struct from the program's header (field order, sizes, byte order, padding) and build the `struct`
    format or numpy dtype from it (user's manual, example 5). Never guess a layout from the bytes; ask the
    person for the header.
-4. **Give `Reader` the node's own index spec** (`gxObjReplConfig::index`, the `index` line in
+5. **Give `Reader` the node's own index spec** (`gxObjReplConfig::index`, the `index` line in
    `ROOT/objrepl.conf`). Keys for `find_key()` are the index's bytes, in the C++ field's size and byte
    order.
-5. **Retry a refused call, do not work around it.** `datareel.Error` with "a full send is under way" or
+6. **Retry a refused call, do not work around it.** `datareel.Error` with "a full send is under way" or
    "cannot open ROOT/NAME.gxd" can come for a moment while the node changes; wait and call again. Any
    other error goes to the person with the full message.
-6. **No package installs without approval.** Building needs only packages from the Red Hat repositories
+7. **No package installs without approval.** Building needs only packages from the Red Hat repositories
    (`python/docs/building.md`); pip downloads nothing (`--no-build-isolation --no-deps`). Do not add
    third-party packages to the build. numpy is optional for the examples only.
-7. **Never stop, restart or reconfigure the C++ node** to make a Python read work. Readers do not need it.
-8. **Tests are never skipped.** `python/tests/run_python_tests.sh` must pass in full before a wheel is
+8. **Never stop, restart or reconfigure the C++ node** to make a Python read work. Readers do not need it.
+9. **Tests are never skipped.** `python/tests/run_python_tests.sh` must pass in full before a wheel is
    used. A test that fails once on a loaded machine is run again on its own and reported either way.
 
 ## 2. What the module is

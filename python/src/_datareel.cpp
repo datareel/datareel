@@ -753,7 +753,56 @@ static PyTypeObject PrimaryType = { PyVarObject_HEAD_INIT(0, 0) };
 static PyObject *mod_library_version(PyObject *, PyObject *) { return PyUnicode_FromString(DATAREEL_VERSION_STRING); }
 static PyObject *mod_engine(PyObject *, PyObject *) { return PyLong_FromLong(sizeof(FAU_t) * 8); }
 
+// 7.5 beta 2: node folder tools (no node open on ROOT), as the objrepl tool's status, digest and takeover
+static PyObject *mod_status(PyObject *, PyObject *args)
+{
+  PyObject *r = 0; if(!PyArg_ParseTuple(args, "O&", PyUnicode_FSConverter, &r)) return 0;
+  std::string root(PyBytes_AS_STRING(r)); Py_DECREF(r);
+  std::string line; int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = gxObjRepl::Status(root, line);
+  Py_END_ALLOW_THREADS
+  if(rc != 0) return raise(line.empty() ? "no state in " + root : line + " (" + root + ")");
+  PyObject *d = PyDict_New(); if(!d) return 0;
+  // "epoch E next_seq N acked_seq A applied_seq P in_snapshot S role R digest H"
+  std::vector<std::string> w; size_t i = 0;
+  while(i < line.size()) { size_t j = line.find(' ', i); if(j == std::string::npos) j = line.size(); if(j > i) w.push_back(line.substr(i, j - i)); i = j + 1; }
+  for(size_t k = 0; k + 1 < w.size(); k += 2) {
+    const std::string &key = w[k], &val = w[k + 1];
+    PyObject *v = (key == "role" || key == "digest") ? PyUnicode_FromString(val.c_str()) : PyLong_FromString(val.c_str(), 0, 10);
+    if(!v) { PyErr_Clear(); v = PyUnicode_FromString(val.c_str()); }
+    PyDict_SetItemString(d, key.c_str(), v); Py_DECREF(v);
+  }
+  return d;
+}
+static PyObject *mod_digest(PyObject *, PyObject *args)
+{
+  PyObject *r = 0; const char *links = "";
+  if(!PyArg_ParseTuple(args, "O&|s", PyUnicode_FSConverter, &r, &links)) return 0;
+  std::string root(PyBytes_AS_STRING(r)), lk(links); Py_DECREF(r);
+  std::string line, detail; int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = gxObjRepl::Digest(root, lk, line, &detail);
+  Py_END_ALLOW_THREADS
+  if(rc != 0) return raise(line);
+  return Py_BuildValue("(ss)", line.c_str(), detail.c_str());
+}
+static PyObject *mod_takeover(PyObject *, PyObject *args)
+{
+  PyObject *r = 0; if(!PyArg_ParseTuple(args, "O&", PyUnicode_FSConverter, &r)) return 0;
+  std::string root(PyBytes_AS_STRING(r)); Py_DECREF(r);
+  std::string msg; int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = gxObjRepl::Takeover(root, msg);
+  Py_END_ALLOW_THREADS
+  if(rc != 0) return raise(msg);
+  return PyUnicode_FromString(msg.c_str());
+}
+
 static PyMethodDef module_methods[] = {
+  {"status", mod_status, METH_VARARGS, "status(root) -> dict (epoch, next_seq, acked_seq, applied_seq, in_snapshot, role, digest) of a node no process holds"},
+  {"digest", mod_digest, METH_VARARGS, "digest(root, links='') -> (line, detail): ids and contents with links as ids; two nodes with the same objects give the same line"},
+  {"takeover", mod_takeover, METH_VARARGS, "takeover(root) -> message: a stopped copy becomes a primary at the next epoch (it never follows its old primary again)"},
   {"library_version", mod_library_version, METH_NOARGS, "the DataReel C++ library version this module was built from"},
   {"engine_bits", mod_engine, METH_NOARGS, "64 for the 64-bit database engine, 32 otherwise"},
   {0, 0, 0, 0}

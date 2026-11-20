@@ -504,6 +504,16 @@ copy: up to date applied 3</pre>
 <li><code>pump()</code> after commits, or <code>drain(seconds)</code> at the end, sends the copy what it lacks. Commits are durable on the primary whether or not a copy is there.</li>
 <li>A copy's folder is never opened as a primary (<code>datareel.Error</code>). After a failover, the old primary comes back as a copy with <code>objrepl rejoin</code>.</li>
 </ul>
+<h3 id="StandaloneTestNodesMadeFromProdDevReadsProdWritesOnlyItsOwnCopies">Standalone test nodes made from PROD (DEV reads PROD, writes only its own copies)</h3>
+<p>DEV code reads production nodes with <code>Reader</code> and never writes them. To try writes against real data, make a standalone test node from a copy and write to that:</p>
+<p>1. Copy a stopped copy's folder (or a PROD backup of one) to a new folder with an ordinary file copy (<code>cp -a</code>, rsync). Never copy a running node's folder. 2. <code>datareel.takeover(TEST)</code> makes the test folder a primary at the next epoch. It never follows the old primary again, and nothing the test node writes reaches PROD: give it no <code>copy</code> setting that points at a production node (<code>&quot;copy&quot;: &quot;127.0.0.1:1&quot;</code> is fine). 3. <code>datareel.Primary(TEST, settings=...)</code> writes it like any primary. <code>datareel.digest()</code> tells it apart from the copy it came from.</p>
+<pre>import shutil, datareel
+shutil.copytree(&quot;/backups/news_copy&quot;, &quot;/dev/test/news&quot;)      # a stopped copy, not a running node
+datareel.takeover(&quot;/dev/test/news&quot;)                            # now a primary at epoch N + 1
+with datareel.Primary(&quot;/dev/test/news&quot;, settings=test_settings) as p:
+    with p.transaction():
+        p.put(&quot;events&quot;, p.new_id(), record_bytes)
+print(datareel.status(&quot;/dev/test/news&quot;))                       # role primary, the new epoch and seqs</pre>
 <h2 id="6Reference">6. Reference</h2>
 <h3 id="DatareelReaderRootIndex">datareel.Reader(root, index="")</h3>
 <p>A gxObjRepl node folder, read only, while the node runs in another process (or none runs). <code>index</code> is the node's index spec, needed for <code>find_key()</code> and <code>nearest()</code>. Raises <code>datareel.Error</code> when the folder is not a node or the spec is bad. A context manager (<code>with</code>), or call <code>close()</code>.</p>
@@ -542,6 +552,8 @@ copy: up to date applied 3</pre>
 <tr><td><code>last_seq</code>, <code>epoch</code>, <code>copy_applied</code>, <code>is_open</code></td><td>the last commit, the epoch, the copy's applied commit as last heard</td></tr>
 </tbody>
 </table>
+<h3 id="DatareelStatusRootDatareelDigestRootLinksDatareelTakeoverRootBeta2">datareel.status(root), datareel.digest(root, links=""), datareel.takeover(root) (beta 2)</h3>
+<p>Node folder tools for a folder no process holds, as the C++ <code>objrepl</code> tool's <code>status</code>, <code>digest</code> and <code>takeover</code>: <code>status()</code> returns a dict (<code>epoch</code>, <code>next_seq</code>, <code>acked_seq</code>, <code>applied_seq</code>, <code>in_snapshot</code>, <code>role</code>, <code>digest</code>); <code>digest()</code> returns <code>(line, detail)</code>, where two nodes with the same objects have the same line (pass the node's link map as <code>links</code> when it has one); <code>takeover()</code> makes a stopped copy a primary at the next epoch and returns the tool's message.</p>
 <h3 id="DatareelVectorindexPathSpecNone">datareel.VectorIndex(path, spec=None)</h3>
 <p>A <code>.vix</code> file opened read only. With <code>spec</code>, a file whose spec differs is refused.</p>
 <table>
