@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>DataReel 7.4 Readme</title>
+<title>DataReel 7.4.1 Readme</title>
 <link rel="stylesheet" href="css/datareel.css">
 <link rel="icon" href="images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
@@ -18,7 +18,7 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html" aria-current="page">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>DataReel 7.4 Readme</h1>
+<h1>DataReel 7.4.1 Readme</h1>
 <div class="dr-toc-title">Contents</div>
 <p class="dr-toc"><a href="#Overview">Overview</a><br>
 <a href="#WhatDatareelIsGoodFor">What DataReel is good for</a><br>
@@ -42,8 +42,8 @@
 <li>Stable, portable file formats: files written by DataReel releases going back to 2001 still open, byte for byte.</li>
 </ul>
 <p>The library has no dependencies except the system TLS library (OpenSSL on Linux, Schannel or OpenSSL on Windows).</p>
-<p>DataReel 7.4, released 11/17/2026, is the current DataReel release. DataReel 7 is the main, fully supported release line. DataReel 6 (6.4.1) is the legacy release line: it is still supported with bug fixes and security updates, but gets no new features. Online documentation: <a href="https://datareel.com/clib7/">https://datareel.com/clib7/</a> (Version 7) and <a href="https://datareel.com/clib/">https://datareel.com/clib/</a> (Version 6, legacy).</p>
-<p><a href="readme.html">README.md</a> is a short overview of DataReel and its two release tracks: DataReel 7.x (main) and DataReel 6.4.1 (legacy).</p>
+<p>DataReel 7.4.1, released 11/20/2026, is the current DataReel release (7.4 with fixes: see &quot;NEW IN 7.4.1&quot; in <a href="release_notes_7_4.html">RELEASE_NOTES_7.4.txt</a>). DataReel 7 is the main, fully supported release line. DataReel 6 (6.4.2) is the legacy release line: it is still supported with bug fixes and security updates, but gets no new features. Online documentation: <a href="https://datareel.com/clib7/">https://datareel.com/clib7/</a> (Version 7) and <a href="https://datareel.com/clib/">https://datareel.com/clib/</a> (Version 6, legacy).</p>
+<p><a href="readme.html">README.md</a> is a short overview of DataReel and its two release tracks: DataReel 7.x (main) and DataReel 6.4.2 (legacy).</p>
 <p>The DataReel development package was produced by independent work and contract work released to the public through non-exclusive license agreements. The initial work began independently in 1997 and was augmented from 1999 to 2004 by code produced under contract to support various applications. Bug fixes, enhancements and additions are welcome through the DataReel website:</p>
 <p><a href="https://datareel.com/downloads/datareel/">https://datareel.com/downloads/datareel/</a> <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a></p>
 <h2 id="WhatDatareelIsGoodFor">What DataReel is good for</h2>
@@ -186,7 +186,13 @@
 <p>Open <a href="index.html">docs/index.html</a> in a browser. The class library pages are under docs/classes, the examples under docs/examples and the utilities under docs/utils. The guides in <a href="ai/README.md">docs/ai</a> (also collected in <a href="../llms-full.txt">llms-full.txt</a>) are short task-oriented descriptions of the API with working code, written for AI coding assistants but useful to anyone.</p>
 <p>Security and the database port: <a href="security_white_paper.html">docs/security_white_paper.html</a> is the security design of the library (TLS, mutual TLS, input checks, database files, replication, limits, FIPS and quantum computing). <a href="gxstream_replication_white_paper.html">docs/gxstream_replication_white_paper.html</a> explains gxStream and object replication on the IANA-registered port 2073 (gxs-data-port), and docs/rfc/draft-gaer-datareel-gxstream-00.txt is the protocol&#x27;s specification, an Internet-Draft for the Independent Submission stream.</p>
 <h2 id="ReleaseHistory">Release history</h2>
-<pre> 7.4   11/17/2026 Final release: 7.4 beta 5 plus the fixes and additions
+<pre> 7.4.1 11/20/2026 Fix release: the object service address check
+                  (security), gxObjRepl port 2073 by default, a stalled
+                  copy no longer holds the primary, reconnects taken at
+                  once, gxObjReplReader (read-only access from another
+                  process), KNOWN_ISSUES.md (&quot;NEW IN 7.4.1&quot; in
+                  RELEASE_NOTES_7.4.txt).
+ 7.4   11/17/2026 Final release: 7.4 beta 5 plus the fixes and additions
                   listed under &quot;NEW IN 7.4 (AFTER BETA 5)&quot; in
                   RELEASE_NOTES_7.4.txt.
        11/16/2026 Beta 5: object replication between Windows and Linux
@@ -225,6 +231,6 @@
                   CODE_REVIEW_FIXES.txt)</pre>
 <p>Release notes for the earlier versions are in <a href="release_notes_6_2.html">docs/release_notes_6_2.html</a>, <a href="release_notes_6_1.html">docs/release_notes_6_1.html</a> and <a href="release_notes_6_0.html">docs/release_notes_6_0.html</a>.</p>
 </main>
-<footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.4.1 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

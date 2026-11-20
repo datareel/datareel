@@ -4,8 +4,8 @@ DataReel Copyright (c) 2001-2026 DataReel Software Development
 DataReel 7.3.1 fixes the problems a security scan found; see
 RELEASE_NOTES_7.3.1.txt.
 
-DataReel 7.3 is a beta release. DataReel 7.4 (11/17/2026) is now the
-stable release, and DataReel 6.4.1 the legacy release (bug fixes and
+DataReel 7.3 is a beta release. DataReel 7.4.1 (11/20/2026) is now the
+stable release, and DataReel 6.4.2 the legacy release (bug fixes and
 security updates only); please report problems through
 https://datareel.com/contact.php.
 

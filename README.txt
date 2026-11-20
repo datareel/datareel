@@ -1,4 +1,4 @@
-DataReel 7.4 Readme File
+DataReel 7.4.1 Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -43,15 +43,16 @@ rest:
 The library has no dependencies except the system TLS library
 (OpenSSL on Linux, Schannel or OpenSSL on Windows).
 
-DataReel 7.4, released 11/17/2026, is the current DataReel release.
+DataReel 7.4.1, released 11/20/2026, is the current DataReel release
+(7.4 with fixes: see "NEW IN 7.4.1" in RELEASE_NOTES_7.4.txt).
 DataReel 7 is the main, fully supported release line. DataReel 6
-(6.4.1) is the legacy release line: it is still supported with bug
+(6.4.2) is the legacy release line: it is still supported with bug
 fixes and security updates, but gets no new features. Online documentation:
 https://datareel.com/clib7/ (Version 7) and https://datareel.com/clib/
 (Version 6, legacy).
 
 README.md is a short overview of DataReel and its two release tracks:
-DataReel 7.x (main) and DataReel 6.4.1 (legacy).
+DataReel 7.x (main) and DataReel 6.4.2 (legacy).
 
 The DataReel development package was produced by independent work and
 contract work released to the public through non-exclusive license
@@ -340,6 +341,12 @@ stream.
 
 RELEASE HISTORY
 ---------------
+ 7.4.1 11/20/2026 Fix release: the object service address check
+                  (security), gxObjRepl port 2073 by default, a stalled
+                  copy no longer holds the primary, reconnects taken at
+                  once, gxObjReplReader (read-only access from another
+                  process), KNOWN_ISSUES.md ("NEW IN 7.4.1" in
+                  RELEASE_NOTES_7.4.txt).
  7.4   11/17/2026 Final release: 7.4 beta 5 plus the fixes and additions
                   listed under "NEW IN 7.4 (AFTER BETA 5)" in
                   RELEASE_NOTES_7.4.txt.

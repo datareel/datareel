@@ -33,7 +33,7 @@ HEAD = '''<!doctype html>
 <main class="dr-main">
 '''
 FOOT = '''</main>
-<footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.4.1 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>
 '''

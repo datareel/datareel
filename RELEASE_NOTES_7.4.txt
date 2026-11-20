@@ -1,4 +1,4 @@
-DataReel 7.4 Release Notes (vector extensions), 11/17/2026
+DataReel 7.4.1 Release Notes (vector extensions), 11/20/2026 (7.4: 11/17/2026)
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the
@@ -19,8 +19,8 @@ derived_apply = incremental is not yet for production use; fixes land
 in the next 7.4 build. The file formats of 7.3 are unchanged, and the vector index is a new file type
 built on them.
 
-NEW IN 7.4.1 (11/19/2026, NOT RELEASED YET)
--------------------------------------------
+NEW IN 7.4.1 (11/20/2026)
+-------------------------
 - gxObjRepl uses port 2073 by default: replication is a gxStream
   object stream, and 2073 is the gxStream port registered with IANA
   (gxs-data-port). A copy with no "listen" port listens on 2073, and a

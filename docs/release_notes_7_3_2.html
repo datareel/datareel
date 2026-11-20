@@ -24,7 +24,7 @@
 <a href="#Build">Build</a><br>
 <a href="#Tests">Tests</a></p>
 <p>DataReel 7.3.3 fixes more database replication (gxrepl) problems found in production; see <a href="release_notes_7_3_3.html">RELEASE_NOTES_7.3.3.txt</a>.</p>
-<p>DataReel 7.3.2 is a beta bug fix release of 7.3.1. DataReel 7.4 (11/17/2026) is now the stable release, and DataReel 6.4.1 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
+<p>DataReel 7.3.2 is a beta bug fix release of 7.3.1. DataReel 7.4.1 (11/20/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
 <p>7.3.2 fixes database replication (gxrepl, utils/gxrepl) problems found while it ran in production between two nodes. Database file formats are unchanged, replication protocol 3 is unchanged (a 7.3.1 node and a 7.3.2 node talk to each other, but run the same version on both), and the API changes are additions. Rebuild programs against 7.3.2.</p>
 <p>The library version is 7.3.2 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.3.2); the soname stays libdatareel.so.7.</p>
 <h2 id="ReplicationFixes">Replication fixes</h2>
@@ -96,6 +96,6 @@
 <li>utils/gxrepl/test_gxrepl.py: new tests for each fix (test_late_reply_never_desyncs_a_channel, test_slow_rebuild_never_stalls_the_other_sets, test_seal_and_position_never_split, the test_staged_fill_* tests with a GXREPL_TEST_HOOKS build, and the test_dead_copy_folder_* tests).</li>
 </ul>
 </main>
-<footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.4.1 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>
