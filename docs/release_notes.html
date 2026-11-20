@@ -37,6 +37,10 @@
 <li>Writes from Python: datareel.Primary(root, config=None, settings=None, quiet=False) opens a node as a gxObjRepl primary in the Python process: open_database, begin, commit, rollback, transaction() (commit, or rollback when the block raises), new_id, put, remove, purge, pump, drain, and the primary&#x27;s reads (get, is_live, ids, databases, find_key, nearest); last_seq, epoch, copy_applied. Settings are the objrepl.conf keys, as a dict or a file. Calls release the GIL.</li>
 <li>Tests: Python writes checked by the C++ reader and objrepl ixcheck, transactions and rollback, refusals (a copy&#x27;s folder, a node another writer holds, bad settings), a Python primary killed with KILL and reopened, and replication from a Python primary to a C++ copy with equal digests. Examples 10 (write objects) and 11 (an event log with a rolled back batch and a copy) in python/examples, run by the tests.</li>
 <li>Node folder tools: datareel.status(root), datareel.digest(root, links=&quot;&quot;), datareel.takeover(root), as the objrepl tool&#x27;s status, digest and takeover. With takeover(), DEV makes a standalone test node from a file copy of a stopped copy and writes it from Python, while it only reads the production nodes (user&#x27;s manual, section 5a).</li>
+<li>Replication from Python: datareel.Copy (serve() until stop(), the reads, applied_seq, in_snapshot), rejoin(), check(), clear_alarm(), index_check(), and address_of()/id_at() for link fields. Tested with both nodes in Python: drain, equal digests, a takeover and a rejoin.</li>
+<li>The database layer from Python: Database (gxDatabase block files), BTree (gxBtree index files of KEY_SIZE-byte keys and an 8-byte value; BTree(path, 32) reads a gxObjRepl index file), Journal (gxdJournal transactions over attached files; datareel.transaction(journal)), and vector index writes: create_vector_index(), VectorIndex(path, write=True) insert/update/delete/repair/verify, merge_vector_indexes(). A Python writer killed mid-transaction leaves whole transactions.</li>
+<li>gxStream from Python: Stream (a TLS client), StreamServer (mutual TLS), ObjectClient (the object server&#x27;s object service: add, request, change, delete, addresses, vector_info, vector_search). object_server takes --vectors FILE. Tested against C++ objrepl and object_server.</li>
+<li>Examples 12 (block file and B-tree in journal transactions), 13 (vector day files and a merge) and 14 (a Python primary and copy, a failover and a rejoin).</li>
 <li>Package version 7.5b2; library version &quot;7.5 beta2&quot;.</li>
 </ul>
 <h3 id="v7_5_NewIn75Beta1">New in 7.5 beta 1</h3>
@@ -54,7 +58,7 @@
 </ul>
 <h3 id="v7_5_LimitsOfBeta2">Limits of beta 2</h3>
 <ul>
-<li>Python is a gxObjRepl primary only: a copy, takeover and rejoin run with the C++ objrepl tool.</li>
+<li>Not wrapped: InfoHog and POD persistent objects, the 6.x-style gxStream block requests, and the network clients Python&#x27;s standard library has (HTTPS, SMTP, POP3, IMAP, FTPS).</li>
 <li>The 64-bit database engine only.</li>
 <li>Linux x86_64, CPython 3.12. Windows wheels are not built yet.</li>
 </ul>

@@ -150,6 +150,31 @@ class Examples(unittest.TestCase):
         self.assertIn("role copy seq 3", out2)
         self.assertIn("database log objects 3 tombstones 1", out2)
 
+    def test_ex12_journal_btree(self):
+        out = self.ok("ex12_journal_btree.py", os.path.join(self.tmp, "ex12"))
+        self.assertIn("rolled back: GAMMA is not there", out)
+        self.assertIn("records 5 keys 5", out)
+        self.assertIn("ACME 20261118 10.5\nACME 20261119 11.0\nACME 20261120 10.75", out)
+        self.assertIn("ACME 11/19 to 11/20: [11.0, 10.75]", out)
+
+    def test_ex13_vector_files_write(self):
+        out = self.ok("ex13_vector_files_write.py", os.path.join(self.tmp, "ex13"))
+        self.assertEqual(out.count("vectors 99 problems 0"), 3)
+        self.assertIn("month: vectors 297 metric cosine", out)
+        self.assertIn("nearest to (1, 0, 0, 0): [20261118000, 20261119000, 20261120000]", out)
+        self.assertIn("only 11/19: [20261119]", out)
+
+    def test_ex14_primary_and_copy(self):
+        import socket
+        s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+        out = self.ok("ex14_primary_and_copy.py", os.path.join(self.tmp, "ex14"), self.pki, port)
+        self.assertIn("A drained: True copy applied 5", out)
+        self.assertIn("B holds 50 objects at seq 5", out)
+        self.assertIn("A and B equal: True", out)
+        self.assertIn("is primary at epoch 2", out)
+        self.assertIn("B epoch 2 drained: True", out)
+        self.assertIn("roles: copy primary equal: True", out)
+
     def test_ex9(self):
         out = self.ok("ex9_threads.py", self.node, 4)
         self.assertIn("threads 4 objects checked 300 of 300", out)

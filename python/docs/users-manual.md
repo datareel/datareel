@@ -7,8 +7,9 @@ no export file in between, and since 7.5 beta 2 it can also be the primary that 
 replicates it to a C++ copy.
 
 Contents: 1. Install. 2. Ideas you need. 3. A demo node. 4. Simple examples (1 to 4). 5. Detailed examples
-(5 to 9). 5a. Writing from Python (examples 10 and 11, beta 2). 6. Reference. 7. Errors and what to do.
-8. Limits of beta 2.
+(5 to 9). 5a. Writing from Python (examples 10 and 11). 5b. Replication from Python (example 14). 5c. The
+database layer: block files, B-trees, journals and vector files (examples 12 and 13). 5d. gxStream and the
+object server. 6. Reference. 7. Errors and what to do. 8. Limits of beta 2.
 
 ## 1. Install
 
@@ -656,6 +657,264 @@ with datareel.Primary("/dev/test/news", settings=test_settings) as p:
 print(datareel.status("/dev/test/news"))                       # role primary, the new epoch and seqs
 ```
 
+## 5b. Replication from Python (7.5 beta 2)
+
+Both nodes of a replicated pair can run in Python. `datareel.Copy(root, settings=...)` is a copy node: its
+settings are the copy's `objrepl.conf` keys (`listen`, `ca`, `cert`, `key`, `allow-cn`, `index`, `name`,
+`peer-name`). `serve()` applies what the primary sends until `stop()`; it blocks, so run it in a thread (the
+GIL is released while it waits and applies). The copy reads like the primary: `get`, `ids`, `find_key`,
+`nearest`, and `applied_seq`. For a failover, `datareel.takeover(copy_root)` makes the stopped copy the
+primary and `datareel.rejoin(old_root)` brings the old primary back as its copy (a full send when their
+histories differ).
+
+### Example 14: a primary and a copy in Python, a failover and a rejoin
+
+<!-- sample: python/examples/ex14_primary_and_copy.py -->
+```python
+# python/examples/ex14_primary_and_copy.py
+"""Example 14 (detailed, 7.5 beta 2): replication with both nodes in Python: a copy serving in a thread, a
+primary writing and draining to it, then a failover (takeover) and the old primary brought back (rejoin).
+
+    python ex14_primary_and_copy.py DIR PKI [PORT]
+"""
+import os
+import struct
+import sys
+import threading
+import time
+import datareel
+
+d, pki = sys.argv[1], sys.argv[2]
+port = int(sys.argv[3]) if len(sys.argv) > 3 else 20741
+k = lambda f: os.path.join(pki, f)
+INDEX = "k0:ev:B:0:8"
+primary = {"copy": "127.0.0.1:%d" % port, "ca": k("ca.pem"), "cert": k("primary.pem"), "key": k("primary.key"),
+           "index": INDEX}
+copy = {"listen": "127.0.0.1:%d" % port, "ca": k("ca.pem"), "cert": k("copy.pem"), "key": k("copy.key"),
+        "allow-cn": "objrepl-primary", "index": INDEX}
+a, b = os.path.join(d, "node_a"), os.path.join(d, "node_b")
+
+
+def serve(root):
+    c = datareel.Copy(root, settings=copy, quiet=True)
+    t = threading.Thread(target=c.serve)
+    t.start()
+    time.sleep(0.3)
+    return c, t
+
+
+c, t = serve(b)                                        # B: the copy
+with datareel.Primary(a, settings=primary, quiet=True) as p:   # A: the primary
+    p.open_database("ev")
+    for batch in range(5):
+        with p.transaction():
+            for i in range(10):
+                n = batch * 10 + i
+                p.put("ev", p.new_id(), struct.pack("<Qd", n, n * 1.5))
+    print("A drained:", p.drain(30) == 0, "copy applied", p.copy_applied)
+print("B holds", len(c.ids("ev")), "objects at seq", c.applied_seq)
+c.stop(); t.join(); c.close()
+print("A and B equal:", datareel.digest(a)[0] == datareel.digest(b)[0])
+
+print(datareel.takeover(b))                            # A is gone: B becomes the primary
+print(datareel.rejoin(a))                              # A comes back as B's copy
+c, t = serve(a)
+with datareel.Primary(b, settings=primary, quiet=True) as p:
+    with p.transaction():
+        p.put("ev", p.new_id(), struct.pack("<Qd", 100, 150.0))
+    print("B epoch", p.epoch, "drained:", p.drain(30) == 0)
+c.stop(); t.join(); c.close()
+print("roles:", datareel.status(a)["role"], datareel.status(b)["role"],
+      "equal:", datareel.digest(a)[0] == datareel.digest(b)[0])
+```
+<!-- end sample -->
+
+```
+$ python3.12 ex14_primary_and_copy.py /tmp/ex14 /tmp/demo/pki 20741
+A drained: True copy applied 5
+B holds 50 objects at seq 5
+A and B equal: True
+/tmp/ex14/node_b is primary at epoch 2 (applied 5)
+/tmp/ex14/node_a is a copy at epoch 1, following on from seq 5 (its copy had every commit: no full send)
+B epoch 2 drained: True
+roles: copy primary equal: True
+```
+
+`datareel.check(root, settings=...)` gives OK, WARN or FAIL (0, 1, 2) and a line from the node's status and
+alarm files, as `objrepl check`; `datareel.clear_alarm(root)` sets an alarm aside once it is dealt with;
+`datareel.index_check(root, index)` checks every index against the objects.
+
+## 5c. The database layer: block files, B-trees, journals and vector files (7.5 beta 2)
+
+Below gxObjRepl, Python reaches the same files C++ programs build by hand:
+
+- `datareel.Database(path, create=False, readonly=False)`: a gxDatabase block file: `alloc(size)` returns the
+  address of a new block, `write(address, data, offset=0)`, `read(address, size=-1)`, `length(address)`,
+  `delete(address)`, `addresses()`.
+- `datareel.BTree(path, key_size, create=False, order=16, readonly=False)`: a gxBtree index file whose entries
+  are a `key_size`-byte key (compared as bytes) and an 8-byte value: `insert(key, value)`, `delete`, `find`,
+  `contains`, `prefix`, `range(start, stop)`, `count`. A gxObjRepl node's B-tree index file has this layout
+  with 32-byte keys and the object id as the value, so `BTree(path, 32, readonly=True)` reads one.
+  Store numbers big endian in keys when they must sort as numbers.
+- `datareel.Journal(path)` with `attach(file)` and `begin`/`commit`/`rollback` (or `with
+  datareel.transaction(j):`): the changes to every attached `Database`, `BTree` and `VectorIndex` are one
+  transaction, durable when `commit()` returns, and a crashed program's committed transactions are replayed
+  by the next `Journal(path)`. Open the journal before the files, attach every file before the first
+  `begin()`, and close the journal before the files.
+- Vector files: `datareel.create_vector_index(path, dim, metric="l2", element="float32", m=16, spec=None)`,
+  then `VectorIndex(path, spec, write=True)` with `insert(id, vector, tags=None)`, `update`, `delete`,
+  `repair()`, `verify()`; `datareel.merge_vector_indexes(out, inputs, spec=None)` builds one index from many
+  (the day files of a month).
+
+### Example 12: a block file and a B-tree in journal transactions
+
+<!-- sample: python/examples/ex12_journal_btree.py -->
+```python
+# python/examples/ex12_journal_btree.py
+"""Example 12 (detailed, 7.5 beta 2): a block file and a B-tree index written together in journal transactions.
+
+The C++ pattern of a gxDatabase data file with a gxBtree index, from Python: each record is a block in the data
+file, its key goes in the B-tree with the block's address, and a gxdJournal makes both changes one transaction.
+A transaction that fails is rolled back in both files; a crash leaves whole transactions only.
+
+    python ex12_journal_btree.py DIR
+"""
+import os
+import struct
+import sys
+import datareel
+
+d = sys.argv[1]
+os.makedirs(d, exist_ok=True)
+REC = struct.Struct("<16sQd")                          # C++: struct { char sym[16]; uint64_t day; double close; }
+KEY = 24                                               # B-tree key: the symbol (16 bytes), then the day (8, big endian)
+
+
+def key(sym, day):
+    return sym.ljust(16, b"\0") + struct.pack(">Q", day)   # big endian: bytes sort as numbers
+
+
+j = datareel.Journal(os.path.join(d, "prices.jnl"))   # open the journal first: it replays a crashed run
+db = datareel.Database(os.path.join(d, "prices.gxd"), create=not os.path.exists(os.path.join(d, "prices.gxd")))
+ix = datareel.BTree(os.path.join(d, "prices.btx"), KEY, create=not os.path.exists(os.path.join(d, "prices.btx")))
+j.attach(db)
+j.attach(ix)
+
+with datareel.transaction(j):
+    for sym, day, close in [(b"ACME", 20261118, 10.5), (b"ACME", 20261119, 11.0), (b"ACME", 20261120, 10.75),
+                            (b"BETA", 20261119, 99.0), (b"BETA", 20261120, 101.5)]:
+        a = db.alloc(REC.size)
+        db.write(a, REC.pack(sym, day, close))
+        ix.insert(key(sym, day), a)
+try:
+    with datareel.transaction(j):
+        a = db.alloc(REC.size)
+        db.write(a, REC.pack(b"GAMMA", 20261120, 1.0))
+        ix.insert(key(b"GAMMA", 20261120), a)
+        raise ValueError("a bad batch")
+except ValueError:
+    print("rolled back: GAMMA is", "there" if ix.prefix(b"GAMMA") else "not there")
+
+print("records", len(db.addresses()), "keys", ix.count())
+for k, a in ix.prefix(b"ACME".ljust(16, b"\0")):       # ACME, every day, in day order
+    sym, day, close = REC.unpack(db.read(a, REC.size))
+    print(sym.rstrip(b"\0").decode(), day, close)
+rows = ix.range(key(b"ACME", 20261119), key(b"ACME", 20261121))
+print("ACME 11/19 to 11/20:", [REC.unpack(db.read(a, REC.size))[2] for _, a in rows])
+j.close()                                              # checkpoint, then close the files
+ix.close()
+db.close()
+```
+<!-- end sample -->
+
+```
+$ python3.12 ex12_journal_btree.py /tmp/ex12
+rolled back: GAMMA is not there
+records 5 keys 5
+ACME 20261118 10.5
+ACME 20261119 11.0
+ACME 20261120 10.75
+ACME 11/19 to 11/20: [11.0, 10.75]
+```
+
+### Example 13: vector day files, a merge and tag filters
+
+<!-- sample: python/examples/ex13_vector_files_write.py -->
+```python
+# python/examples/ex13_vector_files_write.py
+"""Example 13 (detailed, 7.5 beta 2): write vector index files from Python: day files with tags, an update, a
+delete, a check, and a merge into one month file.
+
+    python ex13_vector_files_write.py DIR
+"""
+import os
+import random
+import sys
+import datareel
+
+d = sys.argv[1]
+os.makedirs(d, exist_ok=True)
+SPEC = "example/prices/v1"                             # files of another spec are refused when opened with this one
+rnd = random.Random(13)
+days = []
+for day in (20261118, 20261119, 20261120):
+    path = os.path.join(d, "day_%d.vix" % day)
+    datareel.create_vector_index(path, 4, metric="cosine", spec=SPEC)
+    with datareel.VectorIndex(path, SPEC, write=True) as v:
+        for i in range(100):
+            oid = day * 1000 + i                       # ids are unique across the day files
+            v.insert(oid, [rnd.uniform(-1, 1) for _ in range(4)], tags=[i % 3, 0, day, 0])
+        v.update(day * 1000, [1.0, 0.0, 0.0, 0.0])     # a new vector for an id
+        v.delete(day * 1000 + 99)
+        problems, report = v.verify()
+        print(os.path.basename(path), "vectors", v.count, "problems", problems)
+    days.append(path)
+
+month = os.path.join(d, "month_202611.vix")
+datareel.merge_vector_indexes(month, days, spec=SPEC)
+with datareel.VectorIndex(month, SPEC) as v:
+    print("month: vectors", v.count, "metric", v.metric)
+    hits = v.search([1.0, 0.0, 0.0, 0.0], k=3)
+    print("nearest to (1, 0, 0, 0):", [h[0] for h in hits])
+    hits = v.search([1.0, 0.0, 0.0, 0.0], k=3, tags={2: 20261119})
+    print("only 11/19:", sorted({h[2][2] for h in hits}))
+```
+<!-- end sample -->
+
+```
+$ python3.12 ex13_vector_files_write.py /tmp/ex13
+day_20261118.vix vectors 99 problems 0
+day_20261119.vix vectors 99 problems 0
+day_20261120.vix vectors 99 problems 0
+month: vectors 297 metric cosine
+nearest to (1, 0, 0, 0): [20261118000, 20261119000, 20261120000]
+only 11/19: [20261119]
+```
+
+## 5d. gxStream and the object server (7.5 beta 2)
+
+- `datareel.Stream(host, port=2073, ca=None, cert=None, key=None, timeout=30)` connects to a gxStream server
+  over TLS (the server's certificate is checked against `ca`; `cert` and `key` are this client's, which
+  gxStream servers require): `write_block(data)`, `read_block()`.
+- `datareel.StreamServer(port, cert, key, client_ca, allow_cn=None, address="127.0.0.1")` listens with
+  mutual TLS: clients need a certificate from `client_ca`, and with `allow_cn` one of those names.
+  `accept(timeout=None)` returns a `Stream` (its `peer` is the client's CN and fingerprint), or `None` after
+  the timeout; a client that fails the checks raises `datareel.Error` and is closed.
+- `datareel.ObjectClient(host, port, db, ca, cert, key, server_name=None, write=False)` talks to the database
+  object service of a DataReel object server (`object_server`): `add(data)` returns the address,
+  `request(address)`, `change(address, data)` (the same length), `delete(address)`, `addresses()`,
+  `vector_info()` and `vector_search(query, k=10, tags=None)` when the server has vectors
+  (`object_server ... --vectors FILE`).
+
+```python
+with datareel.ObjectClient("db1.example", 2073, "notes", "ca.pem", "client.pem", "client.key", write=True) as oc:
+    a = oc.add(b"a note")
+    print(oc.request(a), oc.vector_search([0.1, 0.2], k=5))
+```
+
+The other network clients of the C++ library (HTTPS, SMTP, POP3, IMAP, FTPS) are not wrapped: use Python's
+own `ssl`, `http.client`, `smtplib`, `poplib`, `imaplib` and `ftplib`, which speak the same protocols.
+
 ## 6. Reference
 
 ### datareel.Reader(root, index="")
@@ -700,7 +959,24 @@ A gxObjRepl primary in this process (see section 5a). A context manager (`with`)
 | `close()` | checkpoints and closes (an open transaction is rolled back) |
 | `last_seq`, `epoch`, `copy_applied`, `is_open` | the last commit, the epoch, the copy's applied commit as last heard |
 
-### datareel.status(root), datareel.digest(root, links=""), datareel.takeover(root) (beta 2)
+### datareel.Copy(root, config=None, settings=None, quiet=False) (beta 2)
+
+A gxObjRepl copy in this process (section 5b): `serve()` (blocks until `stop()`, which any thread may call),
+`stop()`, the reads `get`, `is_live`, `ids`, `databases`, `find_key`, `nearest`, `address_of`, `id_at`,
+`close()`; `applied_seq`, `epoch`, `in_snapshot`, `is_open`.
+
+### Database, BTree, Journal, create_vector_index, merge_vector_indexes (beta 2)
+
+See section 5c. `VectorIndex(path, spec=None, write=False)`: with `write=True` also `insert(id, vector,
+tags=None)`, `update(id, vector, tags=None)`, `delete(id)`, `flush()`, `repair()`, `verify()` -> `(problems,
+report)`. `Journal(path, write_back=False)`: `attach`, `begin`, `commit(durable=True)`, `rollback`,
+`checkpoint`, `close`; `in_transaction`, `recovered`. `datareel.transaction(journal)` is the `with` form.
+
+### Stream, StreamServer, ObjectClient (beta 2)
+
+See section 5d.
+
+### datareel.status(root), datareel.digest(root, links=""), datareel.takeover(root), rejoin(root), check(root, settings=None, config=None), clear_alarm(root), index_check(root, index) (beta 2)
 
 Node folder tools for a folder no process holds, as the C++ `objrepl` tool's `status`, `digest` and
 `takeover`: `status()` returns a dict (`epoch`, `next_seq`, `acked_seq`, `applied_seq`, `in_snapshot`,
@@ -751,8 +1027,9 @@ is not thread safe: give each thread its own.
 
 ## 8. Limits of beta 2
 
-- Python writes as a gxObjRepl primary. A copy (`Serve()`), takeover and rejoin from Python are not in
-  beta 2: run the C++ `objrepl` tool for those.
+- Not wrapped: InfoHog and POD persistent objects (use `Database` and `BTree` with your own record layout),
+  the 6.x-style gxStream block requests, and the network clients Python's standard library has (HTTPS,
+  SMTP, POP3, IMAP, FTPS).
 - The 64-bit database engine only (the one gxObjRepl nodes use).
 - Linux x86_64 and CPython 3.12 wheels. Windows wheels are not built yet.
 - `VectorIndex` and `BlockFile` are for files no process is writing.

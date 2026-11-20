@@ -58,6 +58,14 @@ with datareel.BlockFile("/data/old_day.gxd") as f:
   exact=False, tags=None)` returns `[(id, distance, tags)]`; `get(id)`, `dim`, `count`, `spec`,
   `metric`.
 - `BlockFile(path)` opens a `.gxd` file read only: `addresses()` and `read(address)`.
+- `Copy(root, ...)` (beta 2) runs a copy node (`serve()` in a thread, `stop()`); `takeover()`, `rejoin()`,
+  `check()`, `clear_alarm()`, `index_check()`, `status()` and `digest()` are the `objrepl` tool's node
+  commands.
+- `Database`, `BTree`, `Journal` (beta 2): gxDatabase block files, gxBtree index files of byte keys,
+  gxdJournal transactions over them; `create_vector_index()`, `VectorIndex(path, write=True)` and
+  `merge_vector_indexes()` write vector files.
+- `Stream`, `StreamServer`, `ObjectClient` (beta 2): gxStream over TLS on port 2073, and the object
+  service of a DataReel object server (objects and vector searches).
 - A query vector can be a list of numbers or any float32 buffer (`array('f')`, a numpy float32 array).
 - Calls that read files release the GIL. Use one object per thread.
 

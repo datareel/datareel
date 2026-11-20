@@ -114,6 +114,10 @@ in advisory mode, with no tool execution by the agent.
 | Class | Does | When |
 | --- | --- | --- |
 | `datareel.Primary(root, config=None, settings=None, quiet=False)` (beta 2) | writes a node as a gxObjRepl primary: transactions, `put`, `remove`, `purge`, `new_id`, `pump`, `drain`, and reads | when this Python process is the node's only writer |
+| `datareel.Copy(root, ...)` (beta 2) | a copy node: `serve()` until `stop()`, reads | a copy this process runs |
+| `datareel.Database`, `BTree`, `Journal`, vector writes (beta 2) | block files, B-tree indexes, journal transactions, `.vix` writes and merges | files this process owns |
+| `datareel.Stream`, `StreamServer`, `ObjectClient` (beta 2) | gxStream over TLS (port 2073), the object server's object service | network peers with certificates |
+| `status`, `digest`, `takeover`, `rejoin`, `check`, `clear_alarm`, `index_check` | node folder tools, as the `objrepl` tool | folders no process holds (check: any time) |
 | `datareel.Reader(root, index="")` | a gxObjRepl node (primary or copy): `get`, `is_live`, `ids`, `databases`, `find_key`, `nearest`, `refresh`; `seq`, `epoch`, `role` | while the node runs, or when none runs |
 | `datareel.VectorIndex(path, spec=None)` | a `.vix` file: `search` (tags, exact or graph), `get`; `dim`, `count`, `spec`, `metric` | files no process is writing |
 | `datareel.BlockFile(path)` | a `.gxd` file: `addresses`, `read` | files no process is writing |
