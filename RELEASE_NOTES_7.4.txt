@@ -19,7 +19,7 @@ derived_apply = incremental is not yet for production use; fixes land
 in the next 7.4 build. The file formats of 7.3 are unchanged, and the vector index is a new file type
 built on them.
 
-NEW IN 7.4.1 (11/18/2026, NOT RELEASED YET)
+NEW IN 7.4.1 (11/19/2026, NOT RELEASED YET)
 -------------------------------------------
 - gxObjRepl uses port 2073 by default: replication is a gxStream
   object stream, and 2073 is the gxStream port registered with IANA
@@ -41,6 +41,34 @@ NEW IN 7.4.1 (11/18/2026, NOT RELEASED YET)
   read deleted blocks. Only clients that passed mutual TLS and the
   allow list could do it. tests/object_service_test.cpp (19 checks,
   10 of them fail on 7.4) runs in run_tests.sh.
+- gxObjRepl fixes (11/19/2026), seen with a copy on a slow disk:
+  - The primary's Pump() could wait in a socket read for 10+ minutes.
+    One exchange (a frame and the copy's answer) now has a total
+    deadline, the new ack-timeout setting (default 300 s; objrepl
+    --ack-timeout S). Past it the connection is shut down and dropped
+    and Pump() returns. The connect and handshake take at most 30 s,
+    or ack-timeout when that is less.
+  - The copy served one connection at a time and did not watch its
+    listener, so the primary's new connections waited unaccepted
+    (CLOSE-WAIT, the TLS hello unread) until the old connection went
+    idle for idle-timeout seconds. The copy now takes a new
+    connection that passes the TLS client check at once and drops the
+    old one; one that fails the check is closed.
+  utils/objrepl/test_objrepl_stall.sh (a test build: -DGXREPL_TEST_HOOKS=ON)
+  fails on 7.4 and passes on 7.4.1.
+- New: gxObjReplReader (gxobjrepl.h), read-only access to a node's
+  databases from other processes while the node runs (gxObjRepl holds
+  a node folder for one process). Get, IsLive, Ids, Databases, FindKey
+  and Nearest, each under the node journal's shared lock, so a call
+  sees whole commits only; Seq() names the commit read. A call opens
+  and closes the files it needs; a loaded vector index stays in memory
+  and is read again when the node moves on. The 64-bit engine only.
+  utils/objrepl/test_objrepl_reader.sh.
+- gxdJournal: SetWriteLock(1) now covers write-back mode as well
+  (WriteCommitted() and checkpoints), and Recover() holds the lock
+  while it replays, so a gxdJournalReadLock reader never sees a batch
+  half written. gxObjRepl nodes turn the write lock on.
+- KNOWN_ISSUES.md: the known limits, untested areas and flaky tests.
 - Documentation: docs/security_white_paper.md, the security design of
   the library; docs/gxstream_replication_white_paper.md, gxStream and
   replication on port 2073; docs/rfc/draft-gaer-datareel-gxstream-00,

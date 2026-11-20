@@ -20,7 +20,7 @@
 <main class="dr-main">
 <h1>DataReel 7.4 Release Notes</h1>
 <div class="dr-toc-title">Contents</div>
-<p class="dr-toc"><a href="#NewIn74111182026NotReleasedYet">New in 7.4.1 (11/18/2026, not released yet)</a><br>
+<p class="dr-toc"><a href="#NewIn74111192026NotReleasedYet">New in 7.4.1 (11/19/2026, not released yet)</a><br>
 <a href="#HighlightsOf74">Highlights of 7.4</a><br>
 <a href="#PhaseA11122026VectorIndexFileExactSearch">Phase a (11/12/2026): vector index file, exact search</a><br>
 <a href="#PhaseB11122026HnswGraphSearchMergeRepair">Phase b (11/12/2026): hnsw graph search, merge, repair</a><br>
@@ -39,10 +39,19 @@
 <a href="#PlannedForTheNextRelease75">Planned for the next release (7.5)</a></p>
 <p>DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the replication fixes and the security scan below (BETA 3). Beta 2:</p>
 <p>DataReel 7.4 beta 2 (tag 7.4-beta2, 11/14/2026): the OODB with AI extensions. It follows the 11/12/2026 7.4-beta preview (tag 7.4-beta, 171a3f2: vector phases A and B) and adds vector phases C and D (below), the gxrepl fixes F4, F6 and F7, the DataReel 7.3.2 replication fixes and the later ones of rel-7.3.2-next3 (the seal per folder, a stream naming new files verified again, promote-check reading each unit under a shared apply lock, GXREPL_TORN_LOCK_WAIT 15 s), and the gxrepl per-object derived apply (derived_apply = incremental, with object notes and index stamps; off by default: rebuild stays the default and the ship log is unchanged while object notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md). derived_apply = incremental is not yet for production use; fixes land in the next 7.4 build. The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
-<h2 id="NewIn74111182026NotReleasedYet">New in 7.4.1 (11/18/2026, not released yet)</h2>
+<h2 id="NewIn74111192026NotReleasedYet">New in 7.4.1 (11/19/2026, not released yet)</h2>
 <ul>
 <li>gxObjRepl uses port 2073 by default: replication is a gxStream object stream, and 2073 is the gxStream port registered with IANA (gxs-data-port). A copy with no &quot;listen&quot; port listens on 2073, and a primary whose &quot;copy&quot; setting has no port connects to 2073 (gxObjReplConfig::listen_port is 2073, copy is HOST[:PORT]). &quot;listen ADDR&quot; sets only the address. Configs that name a port work as before; a bad copy or listen value is refused at start. utils/objrepl/test_objrepl_config.sh checks both (it needs 127.0.0.1:2073 free).</li>
 <li>Security fix, the object service (gxdbobject.cpp): an address a client sends must be the start of a normal (not deleted) block inside the file, and for a writable database one of its live objects (the server keeps the list, made when the database opens). 7.4 checked only the check word of the block header in front of the address, so a client allowed to write could copy a block header into its own object and CHANGE or DELETE at the address behind it, writing past that object into the next ones; REQUEST could read past an object or read deleted blocks. Only clients that passed mutual TLS and the allow list could do it. tests/object_service_test.cpp (19 checks, 10 of them fail on 7.4) runs in run_tests.sh.</li>
+<li>gxObjRepl fixes (11/19/2026), seen with a copy on a slow disk: utils/objrepl/test_objrepl_stall.sh (a test build: -DGXREPL_TEST_HOOKS=ON) fails on 7.4 and passes on 7.4.1.
+<ul>
+<li>The primary&#x27;s Pump() could wait in a socket read for 10+ minutes. One exchange (a frame and the copy&#x27;s answer) now has a total deadline, the new ack-timeout setting (default 300 s; objrepl --ack-timeout S). Past it the connection is shut down and dropped and Pump() returns. The connect and handshake take at most 30 s, or ack-timeout when that is less.</li>
+<li>The copy served one connection at a time and did not watch its listener, so the primary&#x27;s new connections waited unaccepted (CLOSE-WAIT, the TLS hello unread) until the old connection went idle for idle-timeout seconds. The copy now takes a new connection that passes the TLS client check at once and drops the old one; one that fails the check is closed.</li>
+</ul>
+</li>
+<li>New: gxObjReplReader (gxobjrepl.h), read-only access to a node&#x27;s databases from other processes while the node runs (gxObjRepl holds a node folder for one process). Get, IsLive, Ids, Databases, FindKey and Nearest, each under the node journal&#x27;s shared lock, so a call sees whole commits only; Seq() names the commit read. A call opens and closes the files it needs; a loaded vector index stays in memory and is read again when the node moves on. The 64-bit engine only. utils/objrepl/test_objrepl_reader.sh.</li>
+<li>gxdJournal: SetWriteLock(1) now covers write-back mode as well (WriteCommitted() and checkpoints), and Recover() holds the lock while it replays, so a gxdJournalReadLock reader never sees a batch half written. gxObjRepl nodes turn the write lock on.</li>
+<li>KNOWN_ISSUES.md: the known limits, untested areas and flaky tests.</li>
 <li>Documentation: docs/security_white_paper.md, the security design of the library; docs/gxstream_replication_white_paper.md, gxStream and replication on port 2073; docs/rfc/draft-gaer-datareel-gxstream-00, the protocol&#x27;s specification (an Internet-Draft for the Independent Submission stream, which also covers the DataReel 6.x legacy transports).</li>
 </ul>
 <h2 id="HighlightsOf74">Highlights of 7.4</h2>

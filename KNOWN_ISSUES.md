@@ -6,13 +6,19 @@ happens and what to do about it today.
 
 ## Limits
 
-- **A gxObjRepl root has one process at a time.** `gxObjRepl::Open()`
-  takes an exclusive lock on `ROOT/objrepl.lock` (flock on POSIX, a
-  share-none handle on Windows), so a second process cannot open the
-  same root, even to read. A program that needs readers in other
-  processes keeps its own database files next to the replication root,
-  or serves reads from the process that holds the root. 7.4 has no
-  read-only open for a second process.
+- **A gxObjRepl root has one writing process.** `gxObjRepl::Open()`
+  takes an exclusive lock on `ROOT/objrepl.lock`, so a second process
+  cannot open the same root as a node. Since 7.4.1 other processes read
+  a running node with `gxObjReplReader` (gxobjrepl.h): whole commits
+  only, at most a few commits behind the node, and the 64-bit engine
+  only. A reader call can be refused while the node creates a new
+  database file or a copy takes a full send; try it again.
+- **Reader vector searches load the index.** `gxObjReplReader::Nearest()`
+  keeps a vector index in memory and reads it again after the node
+  commits, so frequent searches on a busy node with a large index read
+  the whole index often. On Windows the loaded index file stays open
+  until `ReleaseVectors()`, which can make a copy's full send fail
+  while it is held.
 - **Commit size.** One gxObjRepl commit holds at most 60 MB of changes,
   and one object at most 32 MB. Split larger batches into several
   commits.

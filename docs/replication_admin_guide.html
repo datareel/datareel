@@ -147,12 +147,13 @@ kill $(cat $D/n1.pid)</pre>
 <li><code>Open()</code> of a node with many databases opens them, and builds any missing index, under the lock: readers wait for it once, at startup.</li>
 <li>A copy's SNAP_BEGIN (the start of a full send) still holds the lock while it sets the old data aside, but readers fail at once ("a full send is under way") rather than wait.</li>
 <li>An object is at most 32 MB, and a commit's changes at most 60 MB.</li>
+<li>7.4.1: one process opens a node; other processes read it with <code>gxObjReplReader</code> (whole commits only, 64-bit engine). See KNOWN_ISSUES.md.</li>
 <li>Index fields may not overlap link fields.</li>
 <li>With the 32-bit engine each database file is limited to 2 GB (FAU_t); 1M-object stores need the 64-bit engine. Mixed 32/64-bit nodes replicate. Not tested: a 32-bit Windows build.</li>
 <li>The property test (<code>prop_objrepl</code>) and the wire fuzzer (<code>fuzz_objrepl</code>) are POSIX only; the API test, the <code>objrepl</code> tool and its test scripts run on Windows and Linux.</li>
 </ul>
 <h2 id="8TheJournalAndTheLock">8. The journal and the lock</h2>
-<p>Each node writes through one gxdJournal (<code>ROOT/node.jnl</code>) in write-back mode: a commit's pages reach the files only after its batch is durable in the journal, as with write-through. This lets the journal sync run without the node's lock, so readers keep going during it. Checkpoints sync the files the same way. <code>Begin()</code>, <code>Close()</code> and a soft checkpoint wait until no commit's sync is running. <code>Pump()</code> gives the lock up for its network I/O. Do not copy a running node's folder: use <code>objrepl digest</code> to compare, and rejoin to rebuild a copy.</p>
+<p>Each node writes through one gxdJournal (<code>ROOT/node.jnl</code>) in write-back mode: a commit's pages reach the files only after its batch is durable in the journal, as with write-through. This lets the journal sync run without the node's lock, so readers keep going during it. Checkpoints sync the files the same way. <code>Begin()</code>, <code>Close()</code> and a soft checkpoint wait until no commit's sync is running. <code>Pump()</code> gives the lock up for its network I/O. Do not copy a running node's folder: use <code>objrepl digest</code> to compare, and rejoin to rebuild a copy. 7.4.1: the journal's write lock is on, so <code>gxObjReplReader</code> in another process reads whole commits only; a primary's exchange with its copy ends after <code>ack-timeout</code>, and a copy takes a reconnecting primary at once.</p>
 <h2 id="9WhenAPlainFileCopyIsEnough">9. When a plain file copy is enough</h2>
 <p>You do not always need replication. A plain copy of the database folder is enough when all of these hold:</p>
 <ul>

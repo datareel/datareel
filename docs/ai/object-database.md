@@ -649,6 +649,11 @@ crashed primary. See `docs/classes/database/gxobjrepl.htm` and the
 `objrepl` tool (`utils/objrepl/`). gxrepl page shipping and the
 journal's ship log were removed in 7.4 beta 5; a copy that loses a
 vector index can make it again from its own records (`vix_rebuild`).
+7.4.1: a node folder is open in one process; other processes read it
+with `gxObjReplReader` (Get, Ids, FindKey, Nearest), which reads whole
+commits under the node journal's shared lock (64-bit engine only).
+Never open a running node's files with gxDatabase or gxBtree directly:
+they can be read mid-batch.
 
 ## Checking and repairing files
 

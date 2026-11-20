@@ -44,7 +44,7 @@ objrepl engine                     the database engine (exit 0 for 64-bit, 1 for
 objrepl takeover ROOT              a copy becomes primary: epoch + 1
 objrepl rejoin ROOT                a former primary becomes a copy
 Common: --name N --peer-name N --links SPEC --index SPEC --max-lag N --max-behind S
-        --min-cert-days N --idle-timeout S --config FILE</PRE>
+        --min-cert-days N --idle-timeout S --ack-timeout S --config FILE</PRE>
 <P>A node is a folder (ROOT). Any option may come from ROOT/objrepl.conf (or --config FILE), one "key value" line each, the option without "--"; the command line wins. The keys are listed in the <A HREF="../replication_admin_guide.html">administrator's guide</A>, section 2.3. <CODE>objrepl primary</CODE> is a test data generator: it writes test commits (adds, updates, removes, linked objects), sends them to the copy and waits up to 120 s for the copy to have them all, exit 0 (drained), 2 (not drained), 3 (refused), 4 (ROOT is a copy) or 64 (configuration or certificates). Programs write through the <A HREF="../classes/database/gxobjrepl.htm">gxObjRepl</A> API instead. <CODE>objrepl copy</CODE> runs until TERM or INT (Ctrl+C or Ctrl+Break on Windows), or until ROOT/objrepl.stop appears.</P>
 
 <h2 id="Examples">Examples</h2>
