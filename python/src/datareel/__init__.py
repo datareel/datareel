@@ -30,6 +30,10 @@ Journal(path, write_back=False), create_vector_index(...), merge_vector_indexes(
     files of fixed-size byte keys with an 8-byte value (insert, delete, find, prefix, range), vector
     index writes (VectorIndex(path, write=True): insert, update, delete, repair, verify), and gxdJournal
     transactions over any of them (attach, begin, commit, rollback; transaction(journal)).
+Stream(host, port=2073, ...), StreamServer(port, cert, key, client_ca, ...), ObjectClient(host, port, db, ...)
+    7.5 beta 2, gxStream over TLS (port 2073, gxs-data-port): blocks to and from C++ gxStream programs, and
+    the object service of a DataReel object server (add, request, change, delete, addresses, vector_info,
+    vector_search).
 Error
     Raised when DataReel cannot do what was asked (the message says why).
 
@@ -38,12 +42,14 @@ numpy using the record layout the C++ programs use. The 64-bit database engine o
 """
 import contextlib
 
-from ._datareel import (Error, Reader, VectorIndex, BlockFile, Copy, Database, BTree, Journal, library_version,
+from ._datareel import (Error, Reader, VectorIndex, BlockFile, Copy, Database, BTree, Journal, Stream, StreamServer,
+                        ObjectClient, library_version,
                         engine_bits, _Primary, status, digest, takeover, rejoin, check, clear_alarm, index_check,
                         create_vector_index, merge_vector_indexes)
 
 __version__ = "7.5b2"
 __all__ = ["Error", "Primary", "Copy", "Reader", "VectorIndex", "BlockFile", "Database", "BTree", "Journal",
+           "Stream", "StreamServer", "ObjectClient",
            "library_version", "engine_bits", "status", "digest", "takeover", "rejoin", "check", "clear_alarm",
            "index_check", "create_vector_index", "merge_vector_indexes", "transaction", "__version__"]
 

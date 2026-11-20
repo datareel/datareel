@@ -83,10 +83,17 @@ int main(int argc, char **argv)
 {
   // 11/17/2026 (7.4): --stop-file F: stop when F appears (a service wrapper, a script, or Windows, where a console
   // program gets no SIGTERM); Ctrl+C, Ctrl+Break and closing the console stop it too
-  std::string stop_file;
-  if(argc == 10 && strcmp(argv[8], "--stop-file") == 0) { stop_file = argv[9]; argc = 8; }
+  // 11/20/2026 (7.5): --vectors V: the database also answers vector searches from V (a .vix file or a .vixset)
+  std::string stop_file, vectors;
+  for(int i = 8; i + 1 < argc; ) {
+    if(strcmp(argv[i], "--stop-file") == 0) stop_file = argv[i + 1];
+    else if(strcmp(argv[i], "--vectors") == 0) vectors = argv[i + 1];
+    else break;
+    for(int k = i; k + 2 < argc; k++) argv[k] = argv[k + 2];
+    argc -= 2;
+  }
   if(argc != 8) {
-    fprintf(stderr, "usage: object_server PORT CERT KEY CA CLIENT_CN DB_NAME DB_FILE [--stop-file FILE]\n");
+    fprintf(stderr, "usage: object_server PORT CERT KEY CA CLIENT_CN DB_NAME DB_FILE [--stop-file FILE] [--vectors VIX]\n");
     return 64;
   }
   gxDatabaseServerConfig c;
@@ -94,7 +101,7 @@ int main(int argc, char **argv)
   c.cert = argv[2]; c.key = argv[3]; c.ca = argv[4];
   c.allow_cn.push_back(argv[5]);
   gxObjectDbConfig db;
-  db.name = argv[6]; db.path = argv[7]; db.access = "write";
+  db.name = argv[6]; db.path = argv[7]; db.access = "write"; db.vectors = vectors;
   gxObjectService objects(std::vector<gxObjectDbConfig>(1, db));
   MuxObjects mux(objects);
   gxDatabaseServer server(c);

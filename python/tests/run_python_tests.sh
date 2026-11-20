@@ -21,7 +21,7 @@ DATAREEL_JOBS=$JOBS "$PY" -m pip wheel "$SRC/python" --no-build-isolation --no-d
 ls "$WORK/dist"
 echo "== C++ test programs (64-bit engine)"
 cmake -S "$SRC" -B "$WORK/cpp" -DCMAKE_BUILD_TYPE=Release -DDATAREEL_64BIT_DATABASE=ON -DDATAREEL_BUILD_EXAMPLES=ON > "$WORK/cpp.log" 2>&1
-cmake --build "$WORK/cpp" -j "$JOBS" --target objrepl test_gxobjrepl_reader >> "$WORK/cpp.log" 2>&1 \
+cmake --build "$WORK/cpp" -j "$JOBS" --target objrepl test_gxobjrepl_reader object_server >> "$WORK/cpp.log" 2>&1 \
   || { tail -n 30 "$WORK/cpp.log"; echo "FAIL the C++ test programs did not build"; exit 1; }
 BIN=$(dirname "$(find "$WORK/cpp" -name test_gxobjrepl_reader -type f | head -n 1)")
 echo "== virtual environment"

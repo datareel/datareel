@@ -658,6 +658,123 @@ class DatabaseLayerTest(unittest.TestCase):
         db.close()
 
 
+class StreamTest(Base):
+    """7.5 beta 2: gxStream over TLS between Python and Python, from a C++ program, and the C++ object server."""
+
+    def k(self, f):
+        return os.path.join(self.pki, f)
+
+    def test_python_server_and_client(self):
+        port = free_port()
+        got = {}
+        with datareel.StreamServer(port, self.k("copy.pem"), self.k("copy.key"), self.k("ca.pem"),
+                                   allow_cn="objrepl-primary") as srv:
+            def serve():
+                s = srv.accept(timeout=20)
+                got["peer"] = s.peer
+                b = s.read_block()
+                s.write_block(b[::-1])
+                s.write_block(b"x" * 300000)
+                s.close()
+                got["refused"] = None
+                try:
+                    srv.accept(timeout=20)
+                except datareel.Error as e:
+                    got["refused"] = str(e)
+            t = threading.Thread(target=serve)
+            t.start()
+            with datareel.Stream("127.0.0.1", port, ca=self.k("ca.pem"), cert=self.k("primary.pem"),
+                                 key=self.k("primary.key")) as c:
+                c.write_block(b"hello gxstream")
+                self.assertEqual(c.read_block(), b"maertsxg olleh")
+                self.assertEqual(len(c.read_block()), 300000)
+            with self.assertRaises(datareel.Error):
+                # the copy's certificate is not in the allow list: the server closes it
+                c2 = datareel.Stream("127.0.0.1", port, ca=self.k("ca.pem"), cert=self.k("copy.pem"),
+                                     key=self.k("copy.key"))
+                c2.write_block(b"x")
+                c2.read_block()
+            t.join(30)
+        self.assertEqual(got["peer"][0], "objrepl-primary")
+        self.assertIsNotNone(got["refused"])
+        with self.assertRaises(datareel.Error):
+            datareel.Stream("127.0.0.1", free_port(), ca=self.k("ca.pem"), timeout=3)     # nothing listening
+
+    def test_cpp_primary_to_python_server(self):
+        # a C++ objrepl primary connects to a Python gxStream server: its first block (the hello) arrives whole
+        port = free_port()
+        got = {}
+        with datareel.StreamServer(port, self.k("copy.pem"), self.k("copy.key"), self.k("ca.pem"),
+                                   allow_cn="objrepl-primary") as srv:
+            def serve():
+                s = srv.accept(timeout=30)
+                got["peer"] = s.peer[0]
+                got["hello"] = s.read_block()
+                s.close()
+            t = threading.Thread(target=serve)
+            t.start()
+            pp = subprocess.Popen([prog("objrepl"), "primary", os.path.join(self.tmp, "cpp_p"), "--copy",
+                                   "127.0.0.1:%d" % port, "--ca", self.k("ca.pem"), "--cert", self.k("primary.pem"),
+                                   "--key", self.k("primary.key"), "--commits", "1", "--name", "cppP"],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            t.join(60)
+            pp.terminate()                                      # it would wait for an answer to its hello
+            pp.wait(30)
+        self.assertEqual(got["peer"], "objrepl-primary")
+        self.assertIn(b"cppP", got["hello"])                    # the primary's name travels in its hello
+
+    def test_object_client(self):
+        port = free_port()
+        d = os.path.join(self.tmp, "objsrv")
+        os.makedirs(d)
+        vix = os.path.join(d, "notes.vix")
+        datareel.create_vector_index(vix, 2, spec="notes/v1")
+        with datareel.VectorIndex(vix, write=True) as v:
+            for i in range(1, 51):
+                v.insert(i, [float(i), 0.0], tags=[i % 2, 0, 0, 0])
+        log = open(os.path.join(d, "server.log"), "w")
+        srv = subprocess.Popen([os.path.join(BIN, "object_server"), str(port), self.k("copy.pem"), self.k("copy.key"),
+                                self.k("ca.pem"), "objrepl-primary", "notes", os.path.join(d, "notes.gxd"),
+                                "--stop-file", os.path.join(d, "stop.now"), "--vectors", vix],
+                               stdout=log, stderr=subprocess.STDOUT)
+        try:
+            for _ in range(100):
+                try:
+                    socket.create_connection(("127.0.0.1", port), 0.2).close()
+                    break
+                except OSError:
+                    time.sleep(0.1)
+            with datareel.ObjectClient("127.0.0.1", port, "notes", self.k("ca.pem"), self.k("primary.pem"),
+                                       self.k("primary.key"), write=True) as oc:
+                a = oc.add(b"first note")
+                b = oc.add(b"second note")
+                self.assertEqual(oc.request(a), b"first note")
+                oc.change(a, b"FIRST NOTE")
+                self.assertEqual(oc.request(a), b"FIRST NOTE")
+                with self.assertRaises(datareel.Error):
+                    oc.change(a, b"a different length")
+                self.assertEqual(oc.addresses(), [a, b])
+                oc.delete(b)
+                self.assertEqual(oc.addresses(), [a])
+                with self.assertRaises(datareel.Error):
+                    oc.request(b)
+                info = oc.vector_info()
+                self.assertEqual((info["dim"], info["nodes"], info["spec"]), (2, 50, "notes/v1"))
+                hits = oc.vector_search([10.2, 0.0], k=3)
+                self.assertEqual([h[0] for h in hits], [10, 11, 9])
+                self.assertEqual(oc.vector_search([10.2, 0.0], k=1, tags={0: 1})[0][0], 11)
+            with self.assertRaises(datareel.Error):
+                datareel.ObjectClient("127.0.0.1", port, "notes", self.k("ca.pem"), self.k("copy.pem"),
+                                      self.k("copy.key"))        # not the allowed client
+        finally:
+            open(os.path.join(d, "stop.now"), "w").close()
+            try:
+                srv.wait(30)
+            except subprocess.TimeoutExpired:
+                srv.kill()
+            log.close()
+
+
 class LiveTest(Base):
     """Reads while the C++ program writes, from Python threads (the GIL is released during reads)."""
 

@@ -55,6 +55,9 @@ safe: use one per thread.
 #include "gxbtree.h"
 #include "gxdjrnl.h"
 #include "gxderror.h"
+#include "gxstream.h"
+#include "gxdbmux.h"
+#include "gxdbobject.h"
 
 using namespace datareel;
 
@@ -1376,6 +1379,348 @@ static PyGetSetDef Journal_getset[] = {
 };
 static PyTypeObject JournalType = { PyVarObject_HEAD_INIT(0, 0) };
 
+// ---------- 7.5 beta 2: gxStream (TLS on port 2073) and the database object service client ----------
+struct StreamObject {
+  PyObject_HEAD
+  gxStream *st;
+};
+static void Stream_dealloc(StreamObject *self)
+{
+  if(self->st) { Py_BEGIN_ALLOW_THREADS self->st->Close(); Py_END_ALLOW_THREADS delete self->st; }
+  Py_TYPE(self)->tp_free((PyObject *)self);
+}
+static PyObject *Stream_new(PyTypeObject *type, PyObject *, PyObject *)
+{
+  StreamObject *self = (StreamObject *)type->tp_alloc(type, 0);
+  if(self) self->st = new gxStream;
+  return (PyObject *)self;
+}
+static std::string fs_arg(PyObject *o)
+{
+  if(!o || o == Py_None) return std::string();
+  PyObject *b = 0;
+  if(!PyUnicode_FSConverter(o, &b)) return std::string();
+  std::string s(PyBytes_AS_STRING(b)); Py_DECREF(b);
+  return s;
+}
+// Stream(host, port=2073, ca=None, cert=None, key=None, timeout=30): a gxStream client over TLS. The server's
+// certificate is checked against CA (the system store without it) and HOST; CERT and KEY are this client's
+// certificate (gxStream servers require one)
+static int Stream_init(StreamObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"host", "port", "ca", "cert", "key", "timeout", 0};
+  const char *host; int port = gxsDATA_PORT, timeout = 30; PyObject *ca = 0, *cert = 0, *key = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "s|iOOOi", (char **)kwlist, &host, &port, &ca, &cert, &key, &timeout)) return -1;
+  if(!host) return -1;
+  std::string h(host), caf = fs_arg(ca), cf = fs_arg(cert), kf = fs_arg(key);
+  if(PyErr_Occurred()) return -1;
+  if(!caf.empty()) self->st->Connection().SetCAFile(caf);
+  if(!cf.empty()) self->st->SetClientCert(cf, kf);
+  self->st->SetTimeOut(timeout);
+  int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = self->st->Connect(h, port);
+  Py_END_ALLOW_THREADS
+  if(rc != 0) { raise("cannot connect to " + h + " port " + std::to_string(port) + ": " + self->st->Error()); return -1; }
+  return 0;
+}
+static PyObject *Stream_write_block(StreamObject *self, PyObject *args)
+{
+  Py_buffer b; if(!PyArg_ParseTuple(args, "y*", &b)) return 0;
+  std::vector<unsigned char> v((const unsigned char *)b.buf, (const unsigned char *)b.buf + b.len);
+  PyBuffer_Release(&b);
+  if(v.size() > (size_t)self->st->MaxBlockSize()) return raise("a block is at most " + std::to_string(self->st->MaxBlockSize()) + " bytes");
+  int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = self->st->WriteBlock(v.data(), (int)v.size());
+  Py_END_ALLOW_THREADS
+  if(rc != 0) return raise("write_block: " + self->st->Error());
+  Py_RETURN_NONE;
+}
+static PyObject *Stream_read_block(StreamObject *self, PyObject *)
+{
+  gxBlockHeader gx; std::vector<unsigned char> v; int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = self->st->ReadHeader(gx);
+  if(rc == 0) rc = self->st->ReadBlock(v, gx);
+  Py_END_ALLOW_THREADS
+  if(rc != 0) return raise("read_block: " + (self->st->Error().empty() ? std::string("the connection closed") : self->st->Error()));
+  return PyBytes_FromStringAndSize((const char *)v.data(), (Py_ssize_t)v.size());
+}
+static PyObject *Stream_peer(StreamObject *self, void *)
+{
+  return Py_BuildValue("(ss)", self->st->Connection().PeerCN().c_str(), self->st->Connection().PeerFingerprint().c_str());
+}
+static PyObject *Stream_close(StreamObject *self, PyObject *) { Py_BEGIN_ALLOW_THREADS self->st->Close(); Py_END_ALLOW_THREADS Py_RETURN_NONE; }
+static PyObject *Stream_enter(StreamObject *self, PyObject *) { Py_INCREF(self); return (PyObject *)self; }
+static PyObject *Stream_exit(StreamObject *self, PyObject *) { Py_BEGIN_ALLOW_THREADS self->st->Close(); Py_END_ALLOW_THREADS Py_RETURN_FALSE; }
+static PyMethodDef Stream_methods[] = {
+  {"write_block", (PyCFunction)Stream_write_block, METH_VARARGS, "write_block(data): one gxStream block"},
+  {"read_block", (PyCFunction)Stream_read_block, METH_NOARGS, "read_block() -> the next block's bytes (waits up to the timeout)"},
+  {"close", (PyCFunction)Stream_close, METH_NOARGS, "close()"},
+  {"__enter__", (PyCFunction)Stream_enter, METH_NOARGS, ""},
+  {"__exit__", (PyCFunction)Stream_exit, METH_VARARGS, ""},
+  {0, 0, 0, 0}
+};
+static PyGetSetDef Stream_getset[] = { {"peer", (getter)Stream_peer, 0, "(CN, SHA-256 fingerprint) of the client's certificate, on a stream StreamServer.accept() returned", 0}, {0, 0, 0, 0, 0} };
+static PyTypeObject StreamType = { PyVarObject_HEAD_INIT(0, 0) };
+
+// StreamServer(port, cert, key, client_ca, allow_cn=None, address="127.0.0.1"): a gxStream server; clients must
+// present a certificate from CLIENT_CA, and with ALLOW_CN one of those names
+struct StreamServerObject {
+  PyObject_HEAD
+  gxStreamServer *srv;
+};
+static void StreamServer_dealloc(StreamServerObject *self)
+{
+  if(self->srv) { self->srv->Listener().Close(); delete self->srv; }
+  Py_TYPE(self)->tp_free((PyObject *)self);
+}
+static PyObject *StreamServer_new(PyTypeObject *type, PyObject *, PyObject *)
+{
+  StreamServerObject *self = (StreamServerObject *)type->tp_alloc(type, 0);
+  if(self) self->srv = new gxStreamServer;
+  return (PyObject *)self;
+}
+static int StreamServer_init(StreamServerObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"port", "cert", "key", "client_ca", "allow_cn", "address", 0};
+  int port; PyObject *cert, *key, *ca, *allow = Py_None; const char *addr = "127.0.0.1";
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "iOOO|Os", (char **)kwlist, &port, &cert, &key, &ca, &allow, &addr)) return -1;
+  std::string cf = fs_arg(cert), kf = fs_arg(key), caf = fs_arg(ca);
+  if(PyErr_Occurred()) return -1;
+  self->srv->SetClientCAFile(caf);
+  if(allow != Py_None) {
+    PyObject *seq = PyUnicode_Check(allow) ? PyTuple_Pack(1, allow) : PySequence_Tuple(allow);
+    if(!seq) return -1;
+    for(Py_ssize_t i = 0; i < PyTuple_GET_SIZE(seq); i++) {
+      const char *cn = PyUnicode_AsUTF8(PyTuple_GET_ITEM(seq, i));
+      if(!cn || self->srv->AllowClientCN(cn) != 0) { Py_DECREF(seq); if(!PyErr_Occurred()) raise("bad allow_cn"); return -1; }
+    }
+    Py_DECREF(seq);
+  } else self->srv->AllowAnonymousClients(true);       // any certificate the client CA issued
+  std::string a(addr); int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = self->srv->Listen(port, cf, kf, std::string(), a);
+  Py_END_ALLOW_THREADS
+  if(rc != 0) { raise("cannot listen on " + a + ":" + std::to_string(port) + ": " + self->srv->Error()); return -1; }
+  return 0;
+}
+// accept(timeout=None) -> Stream, or None after TIMEOUT seconds (a client that fails the checks is closed)
+static PyObject *StreamServer_accept(StreamServerObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"timeout", "stream_timeout", 0};
+  PyObject *to = Py_None; int stream_timeout = 30;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "|Oi", (char **)kwlist, &to, &stream_timeout)) return 0;
+  int ms = -1;
+  if(to != Py_None) { double t = PyFloat_AsDouble(to); if(PyErr_Occurred()) return 0; ms = (int)(t * 1000); }
+  StreamObject *s = (StreamObject *)StreamType.tp_alloc(&StreamType, 0);
+  if(!s) return 0;
+  s->st = new gxStream;
+  s->st->SetTimeOut(stream_timeout);
+  int rc, w = 1;
+  Py_BEGIN_ALLOW_THREADS
+  if(ms >= 0) w = self->srv->Listener().WaitReadable(ms);
+  rc = w > 0 ? self->srv->Accept(*s->st) : 1;
+  Py_END_ALLOW_THREADS
+  if(w <= 0) { Py_DECREF(s); Py_RETURN_NONE; }
+  if(rc != 0) { std::string e = self->srv->Error(); Py_DECREF(s); return raise("accept: " + e); }
+  return (PyObject *)s;
+}
+static PyObject *StreamServer_close(StreamServerObject *self, PyObject *) { self->srv->Listener().Close(); Py_RETURN_NONE; }
+static PyObject *StreamServer_enter(StreamServerObject *self, PyObject *) { Py_INCREF(self); return (PyObject *)self; }
+static PyObject *StreamServer_exit(StreamServerObject *self, PyObject *) { self->srv->Listener().Close(); Py_RETURN_FALSE; }
+static PyMethodDef StreamServer_methods[] = {
+  {"accept", (PyCFunction)(void (*)(void))StreamServer_accept, METH_VARARGS | METH_KEYWORDS, "accept(timeout=None, stream_timeout=30) -> Stream, or None after TIMEOUT seconds"},
+  {"close", (PyCFunction)StreamServer_close, METH_NOARGS, "close()"},
+  {"__enter__", (PyCFunction)StreamServer_enter, METH_NOARGS, ""},
+  {"__exit__", (PyCFunction)StreamServer_exit, METH_VARARGS, ""},
+  {0, 0, 0, 0}
+};
+static PyTypeObject StreamServerType = { PyVarObject_HEAD_INIT(0, 0) };
+
+// ObjectClient(host, port, db, ca, cert, key, server_name=None, write=False): the database object service of a
+// DataReel object server (object_server, gxdbobject.h) over one multiplex channel
+struct ObjectClientObject {
+  PyObject_HEAD
+  gxStream *st;
+  gxdMuxSession *mux;
+};
+static void ObjectClient_dealloc(ObjectClientObject *self)
+{
+  Py_BEGIN_ALLOW_THREADS
+  if(self->mux) { self->mux->Shutdown(); delete self->mux; }
+  delete self->st;
+  Py_END_ALLOW_THREADS
+  Py_TYPE(self)->tp_free((PyObject *)self);
+}
+static PyObject *ObjectClient_new(PyTypeObject *type, PyObject *, PyObject *)
+{
+  ObjectClientObject *self = (ObjectClientObject *)type->tp_alloc(type, 0);
+  if(self) { self->st = new gxStream; self->mux = 0; }
+  return (PyObject *)self;
+}
+static int ObjectClient_init(ObjectClientObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"host", "port", "db", "ca", "cert", "key", "server_name", "write", 0};
+  const char *host, *db, *sn = 0; int port, write = 0; PyObject *ca, *cert, *key;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "sisOOO|zp", (char **)kwlist, &host, &port, &db, &ca, &cert, &key, &sn, &write)) return -1;
+  std::string h(host), d(db), name(sn ? sn : host), caf = fs_arg(ca), cf = fs_arg(cert), kf = fs_arg(key);
+  if(PyErr_Occurred()) return -1;
+  gxsTLSConnection &c = self->st->Connection();
+  c.SetCAFile(caf); c.SetClientCert(cf, kf); c.SetVerifyPeer(true);
+  std::string err; int rc = 0;
+  Py_BEGIN_ALLOW_THREADS
+  gxSocket sock;
+  if(sock.Connect(h, port, 10) != 0 || c.AttachClient(std::move(sock), name) != 0) { err = "cannot connect: " + c.Error(); rc = -1; }
+  else {
+    self->mux = new gxdMuxSession(gxdMuxStreamTransport(*self->st));
+    self->mux->Start();
+    if(self->mux->Hello(err) != 0 || self->mux->Open(1, "object", d, write ? "write" : "read", 0, err) != 0) rc = -1;
+  }
+  Py_END_ALLOW_THREADS
+  if(rc != 0) { raise(err); return -1; }
+  return 0;
+}
+static PyObject *obj_call(ObjectClientObject *self, uint8_t op, const std::vector<unsigned char> &body, std::vector<unsigned char> &res)
+{
+  if(!self->mux) { raise("not connected"); return 0; }
+  std::vector<unsigned char> m(1, op), back; m.insert(m.end(), body.begin(), body.end());
+  std::string err; int rc; uint64_t seq;
+  Py_BEGIN_ALLOW_THREADS
+  rc = self->mux->Send(1, m, gxdMUX_LAST, err);
+  if(rc == 0) rc = self->mux->ReceiveMessage(1, back, seq, 30000, err);
+  Py_END_ALLOW_THREADS
+  if(rc != 0) { raise(err.empty() ? std::string("the connection closed") : err); return 0; }
+  if(back.empty()) { raise("an empty reply"); return 0; }
+  if(back[0] != 0) {
+    std::string why = "the server refused the request";
+    uint32_t l; if(back.size() >= 5) { memcpy(&l, back.data() + 1, 4); if(back.size() >= 5 + (size_t)l) why = std::string((const char *)back.data() + 5, l); }
+    raise(why); return 0;
+  }
+  res.assign(back.begin() + 1, back.end());
+  return Py_None;
+}
+static void p64v(std::vector<unsigned char> &v, uint64_t x) { unsigned char b[8]; memcpy(b, &x, 8); v.insert(v.end(), b, b + 8); }
+static void p32v(std::vector<unsigned char> &v, uint32_t x) { unsigned char b[4]; memcpy(b, &x, 4); v.insert(v.end(), b, b + 4); }
+static uint64_t g64v(const std::vector<unsigned char> &v, size_t o) { uint64_t x = 0; if(o + 8 <= v.size()) memcpy(&x, v.data() + o, 8); return x; }
+static uint32_t g32v(const std::vector<unsigned char> &v, size_t o) { uint32_t x = 0; if(o + 4 <= v.size()) memcpy(&x, v.data() + o, 4); return x; }
+
+static PyObject *ObjectClient_add(ObjectClientObject *self, PyObject *args)
+{
+  Py_buffer b; if(!PyArg_ParseTuple(args, "y*", &b)) return 0;
+  std::vector<unsigned char> body, res; p64v(body, (uint64_t)b.len);
+  body.insert(body.end(), (const unsigned char *)b.buf, (const unsigned char *)b.buf + b.len); PyBuffer_Release(&b);
+  if(!obj_call(self, gxOBJ_ADD, body, res)) return 0;
+  return PyLong_FromUnsignedLongLong(g64v(res, 0));
+}
+static PyObject *ObjectClient_request(ObjectClientObject *self, PyObject *args)
+{
+  unsigned long long a; if(!PyArg_ParseTuple(args, "K", &a)) return 0;
+  std::vector<unsigned char> body, res; p64v(body, a);
+  if(!obj_call(self, gxOBJ_REQUEST, body, res)) return 0;
+  uint64_t n = g64v(res, 0);
+  if(res.size() < 8 + n) return raise("a short reply");
+  return PyBytes_FromStringAndSize((const char *)res.data() + 8, (Py_ssize_t)n);
+}
+static PyObject *ObjectClient_change(ObjectClientObject *self, PyObject *args)
+{
+  unsigned long long a; Py_buffer b; if(!PyArg_ParseTuple(args, "Ky*", &a, &b)) return 0;
+  std::vector<unsigned char> body, res; p64v(body, a); p64v(body, (uint64_t)b.len);
+  body.insert(body.end(), (const unsigned char *)b.buf, (const unsigned char *)b.buf + b.len); PyBuffer_Release(&b);
+  if(!obj_call(self, gxOBJ_CHANGE, body, res)) return 0;
+  Py_RETURN_NONE;
+}
+static PyObject *ObjectClient_delete(ObjectClientObject *self, PyObject *args)
+{
+  unsigned long long a; if(!PyArg_ParseTuple(args, "K", &a)) return 0;
+  std::vector<unsigned char> body, res; p64v(body, a);
+  if(!obj_call(self, gxOBJ_DELETE, body, res)) return 0;
+  Py_RETURN_NONE;
+}
+static PyObject *ObjectClient_addresses(ObjectClientObject *self, PyObject *)
+{
+  std::vector<unsigned char> body, res;
+  PyObject *l = PyList_New(0); if(!l) return 0;
+  if(!obj_call(self, gxOBJ_FIRST, body, res)) { Py_DECREF(l); return 0; }
+  for(uint64_t a = g64v(res, 0); a; ) {
+    PyObject *x = PyLong_FromUnsignedLongLong(a); PyList_Append(l, x); Py_DECREF(x);
+    body.clear(); p64v(body, a);
+    if(!obj_call(self, gxOBJ_NEXT, body, res)) { Py_DECREF(l); return 0; }
+    a = g64v(res, 0);
+  }
+  return l;
+}
+static PyObject *ObjectClient_vector_info(ObjectClientObject *self, PyObject *)
+{
+  std::vector<unsigned char> body, res;
+  if(!obj_call(self, gxOBJ_VECTOR_INFO, body, res)) return 0;
+  uint32_t sl = g32v(res, 36);
+  std::string spec = 40 + (size_t)sl <= res.size() ? std::string((const char *)res.data() + 40, sl) : std::string();
+  return Py_BuildValue("{s:I,s:I,s:I,s:I,s:K,s:K,s:s}", "dim", g32v(res, 4), "element", g32v(res, 8), "metric", g32v(res, 12),
+		       "files", g32v(res, 16), "nodes", (unsigned long long)g64v(res, 20), "deleted", (unsigned long long)g64v(res, 28), "spec", spec.c_str());
+}
+// vector_search(query, k=10, ef=0, tags=None) -> [(id, distance, tags, file)]
+static PyObject *ObjectClient_vector_search(ObjectClientObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"query", "k", "ef", "tags", 0};
+  PyObject *q, *tags = 0; unsigned k = 10, ef = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "O|IIO", (char **)kwlist, &q, &k, &ef, &tags)) return 0;
+  std::vector<float> v; if(!floats(q, v)) return 0;
+  uint32_t mask = 0, lo[4] = {0, 0, 0, 0}, hi[4] = {0, 0, 0, 0};
+  if(tags && tags != Py_None) {
+    if(!PyDict_Check(tags)) return raise("tags is a dict {tag: value or (lo, hi)}");
+    PyObject *key, *val; Py_ssize_t pos = 0;
+    while(PyDict_Next(tags, &pos, &key, &val)) {
+      long i = PyLong_AsLong(key);
+      if(i < 0 || i > 3) { if(!PyErr_Occurred()) raise("a tag number is 0 to 3"); return 0; }
+      if(PyTuple_Check(val) && PyTuple_GET_SIZE(val) == 2) { lo[i] = (uint32_t)PyLong_AsUnsignedLong(PyTuple_GET_ITEM(val, 0)); hi[i] = (uint32_t)PyLong_AsUnsignedLong(PyTuple_GET_ITEM(val, 1)); }
+      else lo[i] = hi[i] = (uint32_t)PyLong_AsUnsignedLong(val);
+      if(PyErr_Occurred()) return 0;
+      mask |= 1u << i;
+    }
+  }
+  std::vector<unsigned char> body, res;
+  p32v(body, 1); p32v(body, k); p32v(body, ef); p32v(body, (uint32_t)v.size()); p32v(body, 0); p32v(body, mask);
+  for(int i = 0; i < 4; i++) p32v(body, lo[i]);
+  for(int i = 0; i < 4; i++) p32v(body, hi[i]);
+  p32v(body, 0); p32v(body, 0);
+  body.insert(body.end(), (const unsigned char *)v.data(), (const unsigned char *)v.data() + 4 * v.size());
+  if(!obj_call(self, gxOBJ_VECTOR_SEARCH, body, res)) return 0;
+  uint32_t n = g32v(res, 4); size_t o = 16;
+  PyObject *l = PyList_New(0); if(!l) return 0;
+  for(uint32_t i = 0; i < n && o + 32 <= res.size(); i++, o += 32) {
+    long long id; float d; uint32_t t[4], f;
+    memcpy(&id, res.data() + o, 8); memcpy(&d, res.data() + o + 8, 4); memcpy(t, res.data() + o + 12, 16); memcpy(&f, res.data() + o + 28, 4);
+    PyObject *x = Py_BuildValue("(Ld(IIII)I)", id, (double)d, t[0], t[1], t[2], t[3], f);
+    PyList_Append(l, x); Py_DECREF(x);
+  }
+  return l;
+}
+static PyObject *ObjectClient_close(ObjectClientObject *self, PyObject *)
+{
+  Py_BEGIN_ALLOW_THREADS
+  if(self->mux) { self->mux->Shutdown(); delete self->mux; self->mux = 0; }
+  Py_END_ALLOW_THREADS
+  Py_RETURN_NONE;
+}
+static PyObject *ObjectClient_enter(ObjectClientObject *self, PyObject *) { Py_INCREF(self); return (PyObject *)self; }
+static PyObject *ObjectClient_exit(ObjectClientObject *self, PyObject *a) { PyObject *r = ObjectClient_close(self, a); Py_XDECREF(r); Py_RETURN_FALSE; }
+static PyMethodDef ObjectClient_methods[] = {
+  {"add", (PyCFunction)ObjectClient_add, METH_VARARGS, "add(data) -> the new object's address (a write channel)"},
+  {"request", (PyCFunction)ObjectClient_request, METH_VARARGS, "request(address) -> the object's bytes"},
+  {"change", (PyCFunction)ObjectClient_change, METH_VARARGS, "change(address, data): the same length as the object"},
+  {"delete", (PyCFunction)ObjectClient_delete, METH_VARARGS, "delete(address)"},
+  {"addresses", (PyCFunction)ObjectClient_addresses, METH_NOARGS, "addresses() -> every object's address (FIRST/NEXT)"},
+  {"vector_info", (PyCFunction)ObjectClient_vector_info, METH_NOARGS, "vector_info() -> the database's vector index (dim, element, metric, files, nodes, deleted, spec)"},
+  {"vector_search", (PyCFunction)(void (*)(void))ObjectClient_vector_search, METH_VARARGS | METH_KEYWORDS, "vector_search(query, k=10, ef=0, tags=None) -> [(id, distance, tags, file)]"},
+  {"close", (PyCFunction)ObjectClient_close, METH_NOARGS, "close()"},
+  {"__enter__", (PyCFunction)ObjectClient_enter, METH_NOARGS, ""},
+  {"__exit__", (PyCFunction)ObjectClient_exit, METH_VARARGS, ""},
+  {0, 0, 0, 0}
+};
+static PyTypeObject ObjectClientType = { PyVarObject_HEAD_INIT(0, 0) };
+
 // ---------- the module ----------
 static PyObject *mod_library_version(PyObject *, PyObject *) { return PyUnicode_FromString(DATAREEL_VERSION_STRING); }
 static PyObject *mod_engine(PyObject *, PyObject *) { return PyLong_FromLong(sizeof(FAU_t) * 8); }
@@ -1580,6 +1925,15 @@ PyMODINIT_FUNC PyInit__datareel(void)
   if(!ready(JournalType, "datareel.Journal", sizeof(JournalObject), (destructor)Journal_dealloc, Journal_new, (initproc)Journal_init,
 	    Journal_methods, Journal_getset, "Journal(path, write_back=False): a gxdJournal: atomic, crash-safe transactions over "
 	    "attached Database, BTree and VectorIndex files")) return 0;
+  if(!ready(StreamType, "datareel.Stream", sizeof(StreamObject), (destructor)Stream_dealloc, Stream_new, (initproc)Stream_init,
+	    Stream_methods, Stream_getset, "Stream(host, port=2073, ca=None, cert=None, key=None, timeout=30): a gxStream client "
+	    "over TLS: write_block(), read_block()")) return 0;
+  if(!ready(StreamServerType, "datareel.StreamServer", sizeof(StreamServerObject), (destructor)StreamServer_dealloc, StreamServer_new,
+	    (initproc)StreamServer_init, StreamServer_methods, 0, "StreamServer(port, cert, key, client_ca, allow_cn=None, "
+	    "address='127.0.0.1'): a gxStream server (mutual TLS): accept() -> Stream")) return 0;
+  if(!ready(ObjectClientType, "datareel.ObjectClient", sizeof(ObjectClientObject), (destructor)ObjectClient_dealloc, ObjectClient_new,
+	    (initproc)ObjectClient_init, ObjectClient_methods, 0, "ObjectClient(host, port, db, ca, cert, key, server_name=None, "
+	    "write=False): the object service of a DataReel object server")) return 0;
   if(!ready(CopyType, "datareel.Copy", sizeof(PrimaryObject), (destructor)Primary_dealloc, Primary_new, (initproc)Copy_init,
 	    Copy_methods, Copy_getset,
 	    "Copy(root, config=None, settings=None, quiet=False): a gxObjRepl copy node: serve() applies what the primary "
@@ -1603,7 +1957,10 @@ PyMODINIT_FUNC PyInit__datareel(void)
      PyModule_AddObjectRef(m, "Copy", (PyObject *)&CopyType) < 0 ||
      PyModule_AddObjectRef(m, "Database", (PyObject *)&DatabaseType) < 0 ||
      PyModule_AddObjectRef(m, "BTree", (PyObject *)&BTreeType) < 0 ||
-     PyModule_AddObjectRef(m, "Journal", (PyObject *)&JournalType) < 0) { Py_DECREF(m); return 0; }
+     PyModule_AddObjectRef(m, "Journal", (PyObject *)&JournalType) < 0 ||
+     PyModule_AddObjectRef(m, "Stream", (PyObject *)&StreamType) < 0 ||
+     PyModule_AddObjectRef(m, "StreamServer", (PyObject *)&StreamServerType) < 0 ||
+     PyModule_AddObjectRef(m, "ObjectClient", (PyObject *)&ObjectClientType) < 0) { Py_DECREF(m); return 0; }
   return m;
 }
 // ----------------------------------------------------------- //
