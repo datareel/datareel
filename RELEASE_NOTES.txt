@@ -1,0 +1,1903 @@
+DataReel 7 Release Notes (all 7.x releases)
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+Every DataReel 7.x release, newest first. Made by docs/bin/make_release_notes.py from
+the per-release files RELEASE_NOTES_7.*.txt; edit those, not this file.
+
+CONTENTS
+--------
+- DataReel 7.4.1 Release Notes (vector extensions), 11/20/2026 (7.4: 11/17/2026) (RELEASE_NOTES_7.4.txt)
+- DataReel 7.3.3 Beta Release Notes, 11/14/2026 (RELEASE_NOTES_7.3.3.txt)
+- DataReel 7.3.2 Beta Release Notes, 11/14/2026 (RELEASE_NOTES_7.3.2.txt)
+- DataReel 7.3.1 Beta Release Notes, 11/01/2026 (RELEASE_NOTES_7.3.1.txt)
+- DataReel 7.3 Beta Release Notes, 10/31/2026 (RELEASE_NOTES_7.3.txt)
+- DataReel 7.2 Beta Release Notes, 10/31/2026 (RELEASE_NOTES_7.2.txt)
+- DataReel 7.1 Beta Release Notes, 10/31/2026 (RELEASE_NOTES_7.1.txt)
+- DataReel 7.0 Beta Release Notes, 10/26/2026 (RELEASE_NOTES_7.0.txt)
+
+========================================================================
+RELEASE_NOTES_7.4.txt
+========================================================================
+
+DataReel 7.4.1 Release Notes (vector extensions), 11/20/2026 (7.4: 11/17/2026)
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the
+replication fixes and the security scan below (BETA 3). Beta 2:
+
+DataReel 7.4 beta 2 (tag 7.4-beta2, 11/14/2026): the OODB with AI
+extensions. It follows the 11/12/2026 7.4-beta preview (tag 7.4-beta,
+171a3f2: vector phases A and B) and adds vector phases C and D
+(below), the gxrepl fixes F4, F6 and F7, the DataReel 7.3.2
+replication fixes and the later ones of rel-7.3.2-next3 (the seal per
+folder, a stream naming new files verified again, promote-check
+reading each unit under a shared apply lock, GXREPL_TORN_LOCK_WAIT 15
+s), and the gxrepl per-object derived apply (derived_apply =
+incremental, with object notes and index stamps; off by default:
+rebuild stays the default and the ship log is unchanged while object
+notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md).
+derived_apply = incremental is not yet for production use; fixes land
+in the next 7.4 build. The file formats of 7.3 are unchanged, and the vector index is a new file type
+built on them.
+
+NEW IN 7.4.1 (11/20/2026)
+-------------------------
+- gxObjRepl uses port 2073 by default: replication is a gxStream
+  object stream, and 2073 is the gxStream port registered with IANA
+  (gxs-data-port). A copy with no "listen" port listens on 2073, and a
+  primary whose "copy" setting has no port connects to 2073
+  (gxObjReplConfig::listen_port is 2073, copy is HOST[:PORT]).
+  "listen ADDR" sets only the address. Configs that name a port work
+  as before; a bad copy or listen value is refused at start.
+  utils/objrepl/test_objrepl_config.sh checks both (it needs
+  127.0.0.1:2073 free).
+- Security fix, the object service (gxdbobject.cpp): an address a
+  client sends must be the start of a normal (not deleted) block inside
+  the file, and for a writable database one of its live objects (the
+  server keeps the list, made when the database opens). 7.4 checked
+  only the check word of the block header in front of the address, so
+  a client allowed to write could copy a block header into its own
+  object and CHANGE or DELETE at the address behind it, writing past
+  that object into the next ones; REQUEST could read past an object or
+  read deleted blocks. Only clients that passed mutual TLS and the
+  allow list could do it. tests/object_service_test.cpp (19 checks,
+  10 of them fail on 7.4) runs in run_tests.sh.
+- gxObjRepl fixes (11/19/2026), seen with a copy on a slow disk:
+  - The primary's Pump() could wait in a socket read for 10+ minutes.
+    One exchange (a frame and the copy's answer) now has a total
+    deadline, the new ack-timeout setting (default 300 s; objrepl
+    --ack-timeout S). Past it the connection is shut down and dropped
+    and Pump() returns. The connect and handshake take at most 30 s,
+    or ack-timeout when that is less.
+  - The copy served one connection at a time and did not watch its
+    listener, so the primary's new connections waited unaccepted
+    (CLOSE-WAIT, the TLS hello unread) until the old connection went
+    idle for idle-timeout seconds. The copy now takes a new
+    connection that passes the TLS client check at once and drops the
+    old one; one that fails the check is closed.
+  utils/objrepl/test_objrepl_stall.sh (a test build: -DGXREPL_TEST_HOOKS=ON)
+  fails on 7.4 and passes on 7.4.1.
+- New: gxObjReplReader (gxobjrepl.h), read-only access to a node's
+  databases from other processes while the node runs (gxObjRepl holds
+  a node folder for one process). Get, IsLive, Ids, Databases, FindKey
+  and Nearest, each under the node journal's shared lock, so a call
+  sees whole commits only; Seq() names the commit read. A call opens
+  and closes the files it needs; a loaded vector index stays in memory
+  and is read again when the node moves on. The 64-bit engine only.
+  utils/objrepl/test_objrepl_reader.sh.
+- gxdJournal: SetWriteLock(1) now covers write-back mode as well
+  (WriteCommitted() and checkpoints), and Recover() holds the lock
+  while it replays, so a gxdJournalReadLock reader never sees a batch
+  half written. gxObjRepl nodes turn the write lock on.
+- KNOWN_ISSUES.md: the known limits, untested areas and flaky tests.
+- Documentation: docs/security_white_paper.md, the security design of
+  the library; docs/gxstream_replication_white_paper.md, gxStream and
+  replication on port 2073; docs/rfc/draft-gaer-datareel-gxstream-00,
+  the protocol's specification (an Internet-Draft for the Independent
+  Submission stream, which also covers the DataReel 6.x legacy
+  transports).
+
+HIGHLIGHTS OF 7.4
+-----------------
+- Object replication between Windows and Linux (gxObjRepl,
+  gxobjrepl.h, beta 5): Windows and Linux nodes replicate objects in
+  both directions, with the primary on either side, and takeover and
+  rejoin work across the two platforms. See NEW IN BETA 5.
+- The vector index (gxvindex.h): exact and graph search, float32,
+  float16 and int8 vectors, vector members of records, day sets and
+  vector searches through the database object server (phases A to D).
+- One database file layout on every platform (beta 5): files and
+  record addresses move between Windows, Linux, 32-bit and 64-bit
+  builds, and files of the old 4-byte layout keep working.
+- Network classes and examples: an IMAP client (gxsIMAPClient),
+  https_check, and UDP broadcast and multicast.
+- Removed in beta 5: gxrepl page-shipping replication (see NEW IN
+  BETA 5).
+
+PHASE A (11/12/2026): VECTOR INDEX FILE, EXACT SEARCH
+------------------------------------------------------
+New headers gxvindex.h (gxVectorIndex, gxvFilter, gxvResult) and
+gxvkern.h (distance kernels); sources src/gxvindex.cpp and
+src/gxvkern.cpp; test program utils/vix_test.
+
+1. gxVectorIndex keeps vectors in a ".vix" file, which is an ordinary
+   gxDatabase file: a 256-byte static area (magic "GXVIX74", version,
+   dimension, element type, metric, M / M0, ef_construction, node
+   size, entry node, counts and a 63-character spec) and one
+   fixed-size block per node (64-bit object id, flags, level, four
+   32-bit tags, upper-level block, neighbor slots, vector). The graph
+   of phase B uses the neighbor slots already reserved in every node,
+   so phase A files open unchanged later.
+
+2. Insert / Update / Delete (a tombstone) / Get / Contains, each a few
+   writes to the file. Attach the index to a gxdJournal with
+   j.Attach(vix.Database()) and a commit carries an object, its B-tree
+   keys and its vector together; Rollback() then Reload().
+
+3. Exact(query, k, results, filter): the k nearest live nodes, sorted
+   by distance then id. gxvFilter tests tag ranges (equality is a
+   range of one, so session, kind and a date upper bound are all
+   tags) and an optional accept callback. (Search() was Exact() until
+   phase B.)
+
+4. Metrics: squared L2, cosine (vectors stored unit length, distance
+   1 - cosine) and inner product (minus the dot product). Float32
+   only in phase A; float16 and int8 come in phase C. Dimension 1 to
+   4096. NaN and infinite values are refused.
+
+5. Spec guard: Create(..., spec) stores a text such as
+   "anomaly/shock/v1/<builder hash>"; Open(name, mode, spec) refuses a
+   file with another spec, so vectors from a different feature
+   builder never mix in one index.
+
+6. Concurrency: the ids, tags and vectors stay in memory while the
+   index is open, so searches never read the file. Searches share a
+   lock; writers take it exclusively and go ahead of new searches
+   (writer preference), so steady searching never stalls inserts.
+
+7. Kernels: 8 partial sums in a fixed order, the same on the SSE2
+   path and the plain C path (bit-identical results); plain C-style
+   functions so the 6.x version shares them word for word.
+
+8. Verify(resolve, data, bad, report) compares the file with memory
+   and asks the caller whether each node's object still exists.
+
+Tests (vix_test, 32-bit and 64-bit database engines): kernels against
+the written-out order; Exact against a brute-force reference for all
+three metrics with tag, range and callback filters and equal-distance
+order; create / insert / update / delete / reinsert / reopen / read
+only / spec mismatch / bad files; journal commit and rollback; three
+reader threads searching during 20,000 inserts and deletes (clean
+under ThreadSanitizer); 45 kill -9 rounds during committed batches:
+every round recovered exactly the committed batches, never a partial
+one.
+
+Measured (4-core VM, dimension 79, k = 20): insert about 5 us; exact
+search of 30,000 vectors 0.9 ms p50, 150,000 6.7 ms, 1,000,000 55 ms
+(memory bound); opening 1,000,000 nodes 2.3 s. Sub-millisecond search
+over large sets is phase B's graph.
+
+PHASE B (11/12/2026): HNSW GRAPH SEARCH, MERGE, REPAIR
+------------------------------------------------------
+1. Search(query, k, results, ef, filter) walks an HNSW graph kept in
+   the neighbor slots of each node plus an upper-level block for the
+   nodes above level 0. A node's level is an integer hash of its id,
+   so the same inserts in the same order build the same graph on every
+   node. Up to 4096 nodes, and for filters (or tombstones) that leave
+   fewer than about 5% of the nodes, Search() is Exact().
+
+2. Filtered graph search: every node is a stepping stone, only live
+   nodes that pass the filter are results.
+
+3. Live inserts: Insert() works out its links under the shared lock
+   (searches keep running), writes the file, then takes the exclusive
+   lock only to link the node (microseconds). Per-node arrays grow in
+   fixed chunks, so growing never copies what is there.
+
+4. Update() with the same vector rewrites the tags in place; with a new
+   vector it deletes the node and inserts a new one in one step.
+   Deleted nodes stay in the graph until Repair().
+
+5. Repair() rebuilds the graph from the live nodes and writes it.
+   Merge(out, inputs, spec) builds one index from many files (the day
+   files of a month): same dimension, metric and spec, ids unique
+   across them, tombstones left out, every link written once.
+
+6. Phase A files open unchanged: the graph is built in memory at Open()
+   (GraphSaved() = 0) and Repair() saves it. A damaged link in a saved
+   graph is handled the same way. Verify() also checks every link
+   against the file.
+
+7. Fix: the 256-byte header was written at FAU 256 (gxDatabase
+   StaticArea() returns the static area's size, not its address), so
+   the first node block overlapped header bytes 96-255. It now sits at
+   FileHeaderSize(). Phase A was never installed, so no file has the
+   old layout.
+
+Tests (vix_test, 32-bit and 64-bit database engines, 11,897 checks):
+recall against Exact for all three metrics (20,000 clustered vectors:
+1.000 / 1.000 / 0.996 at ef 64), filtered recall, a selective filter
+equal to Exact, the graph read back from the file gives the same
+answers, the same inserts build the same graph, deletes (no deleted
+node returned) and updates, Repair(), a phase A file and a damaged link
+rebuilt and repaired, Merge() of three day files (and its refusals),
+45 kill -9 rounds on each engine (all recovered exactly, Verify() clean
+including every link), three searchers during 20,000 inserts and
+deletes, clean under ThreadSanitizer.
+
+Gate (vix_test --gate 1000000, 4-core VM, dimension 96, M 16,
+ef_construction 200, k 20; one thread inserting in journal batches of
+100 while three threads search):
+- Clustered vectors (1000 centers, like real features): build 526 s
+  (0.5 ms an insert); quiet ef 64 recall 0.987, p50 0.17 ms, p99
+  0.34 ms; live: 1,053 inserts a second during 425,758 searches, p50
+  0.18 ms, p99 0.61 ms (p99.9 1.4 ms); recall after 0.986; ef 128
+  recall 0.999 at p99 0.53 ms. Gate met.
+- Uniform random vectors (pure noise, the worst case for any graph
+  index): p99 0.84 ms live but recall only 0.23 at ef 64; at 50,000
+  nodes ef 64 / 256 / 1024 give 0.58 / 0.88 / 0.99. Noise has no near
+  neighbors to find; real feature vectors are not like this, but a
+  feature builder whose vectors look like noise needs a larger ef or
+  Exact().
+- Opening the 1,000,000-node file (nodes and graph): 8.6 s.
+
+Build fix (11/12/2026, found on RHEL 10): GCC fuses a*b + c into one
+multiply-add (FMA) instruction on x86-64-v3, RHEL 10's baseline, which
+changed the last bit of some distances and failed vix_test's bit-exact
+kernel check. gxvkern.cpp and vix_test.cpp now turn contraction off
+with a pragma, and the CMake files also build them with
+-ffp-contract=off. The crash test now waits until the child has
+created and synced the file before it starts the kill timer, so a slow
+machine no longer kills the child before its first commit.
+
+PHASE C (11/12/2026): FLOAT16 AND INT8 VECTORS, VECTOR MEMBERS
+--------------------------------------------------------------
+1. Element types gxvFLOAT16 and gxvINT8 (types 2 and 3 in the header).
+   A node stores its vector as a code: float32 4 * dim bytes; float16
+   2 * dim bytes (IEEE binary16, round to nearest even, subnormals
+   kept); int8 dim signed bytes and a float32 scale per vector
+   (s = max|v| / 127, q = clamp(lrintf(v / s), -127, 127), each value
+   within s / 2). Node size = 48 + 8 * M0 + the code bytes; the header
+   check follows the type. gxvFLOAT32 files are byte-identical to
+   before (no version change); a library that does not know a type
+   refuses it with gxv_UNSUPPORTED.
+2. gxvCOSINE vectors are normalized, then stored. Every distance, in
+   inserts as well as searches, uses the decoded vector, so Insert(),
+   Repair() and Merge() build the same graph (vix_test checks it for
+   every type and metric). Queries are not rounded. Get() returns the
+   decoded vector; Update() compares stored codes.
+3. float16 values above 65504 in size are refused with the new error
+   gxv_OUT_OF_RANGE (added at the end of gxvError).
+4. gxvkern.h: gxv_f16_from_float(), gxv_float_from_f16(),
+   gxv_i8_encode(), gxv_i8_decode() (plain C, for the 6.x version).
+5. Vector members: a record carries its vector in the index's stored
+   form. MakeMember() returns MemberSize() bytes: a 12-byte head
+   ("GXVM", element type, dimension, CRC-32 of the spec) and the code.
+   Store it as an InfoHog member or a fixed char field of a POD
+   record. InsertMember() / UpdateMember() put the code in the index
+   unchanged, so record and node hold the same bytes, and refuse a
+   member of another type or dimension (gxv_BAD_ARG) or spec
+   (gxv_SPEC_MISMATCH). MemberVector() decodes one; MemberMatches()
+   compares a record's member with its node (for a Verify() resolver).
+   Rename(old_id, new_id) follows a record that moved: an InfoHog
+   record that grows gets a new address. Write the record and the index
+   in one gxdJournal transaction (attach the data file, its index files
+   and the .vix): a crash leaves both or neither.
+
+Tests (vix_test): search, graph, reopen, rebuild, delete, Repair,
+Merge and crash tests for all three types; all 63,488 finite float16
+values converted both ways, rounding ties, subnormals and the 65504
+limit; the int8 error bound; InfoHog records with a vector member and
+their index under one journal (changes, moves, rollback, 10 kill -9
+rounds per type) and a POD record with a vector field. 53,469 checks.
+Recall at ef 200 against the exact answer on the float32 vectors
+(20,000 clustered points, dimension 32): float16 0.994 to 1.000; int8
+0.980 (L2), 0.985 (inner product) and 0.947 (cosine: unit vectors in
+tight clusters, where neighbors differ by less than a quantization
+step).
+
+Gate (vix_test --gate 1000000 --dim 96 --type ..., the same set and
+machine as phase B; the build times are rough, other jobs shared the
+machine):
+
+  type   build   file    memory  quiet ef 64          vs float32  live (1 writer, 3 searchers)
+                                 recall  p50   p99    exact ef 64 inserts/s  p50    p99
+  f32    923 s   697 MB  779 MB  0.987  0.16  0.34    -           990        0.19   0.50
+  f16    1308 s  515 MB  592 MB  0.987  0.35  0.67    0.986       488        0.42   1.11
+  i8     753 s   427 MB  506 MB  0.976  0.16  0.34    0.955       1,091      0.17   0.41
+
+  (times in ms; ef 128 recall 0.999 for all three; against float32
+  exact at ef 200: f16 0.999, i8 0.973)
+
+Memory and file size include the graph (M0 = 32 links per node),
+which is now the larger part: the vectors take 384 / 192 / 100 bytes a
+node. float16 searches take about twice as long because each value is
+converted with a function call; a faster float16 decode (proved to give
+the same bits) is a possible later step. int8 is as fast as float32
+and the smallest; use float32 or float16 where recall must stay above
+0.98.
+
+PHASE D (11/14/2026): SPEED, GROWTH, SETS, VECTOR SEARCH SERVICE, VECTORS UNDER GXREPL
+-------------------------------------------------------------------------------------
+1. float16 speed: a 65,536-entry table decodes a half (proved against
+   the scalar conversion for every one of the 65,536 bit patterns), and
+   gxv_l2sq_f16() / gxv_dot_f16() decode 8 values at a time into the
+   same 8-lane sums as the float32 kernels, so the distances are the
+   same bits as decode-then-kernel (checked for dimensions 1 to 96 and
+   4096). At 200,000 x 96 a float16 search now takes about as long as a
+   float32 one (p50 0.146 ms against 0.137 ms; before: about twice as
+   long). Files and results are unchanged.
+2. int8 cosine: the decoded vector is normalized again, so cosine
+   distances use unit vectors. Known limit, stated plainly: at
+   1,000,000 x 96 the int8 cosine recall against float32 exact is
+   0.9505 at ef 64 (0.972 at ef 200), just over the 0.95 bar. For
+   cosine at that scale use float16 (0.986) or search with ef 128 or
+   more.
+3. Format fields for growth (static area offsets 140-255, zero in the
+   files of phases A-C, which open unchanged and search the same: the
+   test opens files made by the phase C library, 32-bit and 64-bit):
+   features_required (a bit this library does not know makes the file
+   gxv_UNSUPPORTED), features_optional (bit 0 tag ranges kept, bit 1
+   derived from record members), codec (0; 1 is kept for product
+   quantization), graph layout (0), partition id and count, tag_min[4]
+   and tag_max[4] (the range of each tag over every node inserted:
+   written with the counts in the caller's transaction, never narrowed
+   by Delete(), worked out again by Repair() and Merge(); an empty index
+   holds 0xFFFFFFFF..0), and 56 reserved bytes (written as zero, ignored
+   when read). TagRange(), TagRangeExcludes(), SetPartition(),
+   SetFromMembers(). New error gxv_INDEX_FULL at 4,294,967,280 nodes.
+4. gxVectorSet (gxvset.h): many .vix files searched as one: day files,
+   partitions, or both, listed in a plain-text manifest
+   "<name>.vixset" (set, version, spec, dim, element, metric, codec,
+   and per file its relative path, node counts, the range of tag 2 (the
+   day, yyyymmdd) and a CRC-32 of the header fields that never change).
+   Unknown lines are errors, paths are relative with no "..", writes go
+   to a temporary file and are renamed. Files open lazily (read-only, an
+   LRU of max_open), a search with a day range skips the files outside
+   it unopened, searches run on several threads, and the results are
+   sorted by distance, then file, then id: the same for any number of
+   threads, and the order of a per-day merge that keeps the earlier day
+   on a tie. The live day: a file that changed since it was read is read
+   again (a file replaced by a rename is opened again), or a writer puts
+   its own open index in the set with AttachOpen(). A listed file that
+   is missing (an archived day) is skipped and counted, unless strict.
+   gxVectorSet::OpenFile() treats one .vix as a set of one.
+5. The object server answers vector searches (gxdbobject.h): a [db NAME]
+   with "vectors = <.vixset or .vix>" takes op 7 VECTOR_SEARCH (k up to
+   1000, ef up to 4096, a tag filter, a day range, strict) and op 8
+   VECTOR_INFO on its channels, read-only. The reply starts with the
+   request version, and names the result files by their paths relative
+   to the manifest. vector_threads (2) and vector_max_concurrent (4: one
+   more waits up to 5 s, then is answered "busy"). Vectors inside a set
+   the server copies are searched under the set's apply lock.
+   object_client --vinfo and --vsearch K show the use.
+6. Vectors under gxrepl: a vector index can be derived from the vector
+   members of its data file's records (gxvmember.h), so a replicated
+   copy never needs the .vix bytes. The set names it "derived"; the
+   writer leaves it out of its ship log (gxdShipLog::SetExclude), the
+   file sync never sends it, and the copy rebuilds it with
+   utils/vix_rebuild as its derived_rebuild:
+
+     derived = vectors.vix
+     derived_rebuild = vix_rebuild --data {dir}/data.gxd
+         --index {dir}/vectors.vix --member infohog:1 --tags -,-,infohog:2,-
+         --dim 96 --spec news/v1 --stamp-dir {dir} --lsn {lsn}
+
+   The node id is the record's address; a record without a valid
+   member is not in the index; the rebuild goes in ascending address
+   order, so two rebuilds of the same data are the same file byte for
+   byte, and it marks the file derived from members. While the copy's
+   index is behind, "gxrepl torn" warns (INDEXES), never TORN.
+   vix_rebuild --digest prints a logical digest (the live nodes in id
+   order: id, stored code, tags; equal for a primary's index built in
+   commit order and a copy's rebuild) or, with --digest-kind bytes, a
+   file digest (equal for two rebuilds). The "gxvmember" extractor
+   (gxrextract.h) does the same object by object for the per-object
+   derived apply, which comes with that work.
+
+Growth and its limits (facts, for planning):
+- Every node's id, tags, stored vector and graph links stay in memory
+  while the index is open: about 0.5 to 0.8 GB per million vectors at
+  dimension 96 (0.51 GB int8, 0.58 GB float16, 0.78 GB float32), so a
+  node needs a few hundred bytes of RAM whatever the disk holds.
+- Node numbers are 32-bit in memory: one file holds at most
+  4,294,967,280 nodes, deleted ones included (gxv_INDEX_FULL; Repair()
+  or Merge() into a new file drops the deleted ones).
+- One writer per index file at a time (searches run beside it).
+- gxVectorSet is the way past one file and one machine's memory per
+  file: day files or partitions, opened as needed and skipped by their
+  day range, with at most max_open in memory at once.
+- The codec field (product quantization) and the partition fields are
+  in the format now, so later releases can add them without a new file
+  version.
+
+Tests: vix_test (32-bit and 64-bit engines, crash rounds on) adds the
+format fields, the phase C files, gxVectorSet (recall over 5 day files
+against brute force, LRU 2 of 5, 1, 3 and 4 threads equal, the live
+file read-only and attached, missing and replaced files, bad manifests,
+paths with spaces), the gxvmember extractor and the rebuild from POD
+and real InfoHog records (logical equal to the index, two rebuilds the
+same bytes). The gxrepl suite adds the vector search service (remote
+answers equal local ones, bad requests refused, missing files, the busy
+cap, a copy searched under its apply lock) and a derived vector index
+(no .vix in the ship log, torn never TORN, the copy's rebuild logical
+equal to the primary's index after adds, updates and deletes with reused
+blocks, and byte equal to a rebuild of the primary's data).
+
+GXREPL FIXES FROM THE 11/12 STALL (11/13/2026)
+----------------------------------------------
+- A request with no reply in time (or a reply that does not parse)
+  closes its multiplexed channel and marks it broken; the set opens a
+  fresh channel and the late reply is never read, so it can no longer
+  shift every later request onto the wrong reply ("bad reply").
+- An apply waits for apply.jnl at most GXREPL_APPLY_LOCK_WAIT (5 s,
+  non-blocking tries) and answers "busy", so a long derived index
+  rebuild no longer holds back the other applies; the client retries
+  on its next pass.
+- The derived rebuild and the ssh tunnel children run with only stdio
+  open (close_range): they no longer inherit gxrepl.lock or ship-log
+  state descriptors.
+- An older reader race (not from the stall fixes): the applied
+  position is now written inside the apply lock with the pages and the
+  seal, and the torn check re-reads a seal mismatch for up to
+  GXREPL_TORN_RECHECK_SEC (10 s), so a promote-check no longer sees a
+  seal ahead of the copy while an apply is in flight (test
+  test_seal_and_position_never_split).
+- Staged unit copies: a unit's files are copied into a reflinked stage
+  (.gxrepl/stage/<unit>/) and swapped in, commit block last, when its
+  commit block arrives, so a link lost mid-unit leaves the copy whole
+  at its last sealed commit; "gxrepl promote [--apply]" recovers the
+  apply journal, finishes a begun swap and reports what was lost.
+  Crash test hooks only with -DGXREPL_TEST_HOOKS=ON (test builds).
+  Upgrade notes:
+  - Every long-lived reader of a replicated folder (an application that
+    keeps a copy's commit.bin or any of its data files open across a
+    staged swap) must reopen the file when its inode changes: the swap
+    replaces the file, so an old handle keeps reading the previous copy.
+  - Failover and failback scripts should run "gxrepl promote --apply"
+    before a node takes over, so stages left by a cut link do not block
+    the failback.
+  - Set max_message to 16 MB on both ends (gxrepl.conf). For derived
+    sets that change all day, consider derived_delay and
+    derived_busy_rebuild at 1800.
+  - Build releases with GXREPL_TEST_HOOKS OFF (the default); only the
+    test builds turn it on.
+- Tests: test_late_reply_never_desyncs_a_channel (the server stopped
+  past the client timeout; the old build stays on "bad reply") and
+  test_slow_rebuild_never_stalls_the_other_sets (another set copies
+  during a 20 s rebuild, gxrepl's own shared holds are never reported
+  as a local writer, the rebuild child inherits nothing of gxrepl's).
+
+BETA 3 (11/14/2026)
+-------------------
+- gxrepl drain-verify, reviewed (the beta 2 fix below, plus):
+  - no verify cascade: during a stream's verify, the open, gap and
+    unreadable records it catches up on (at or below the position it
+    started from, of its own log) never queue it again; one later open
+    does, once;
+  - an lsn that is not known, and "the copy's position is gone",
+    always queue a verify;
+  - the copy's position gone from the log resets it to resync, so the
+    file sync goes on by pieces (before: "gave up after 6 tries" pass
+    after pass);
+  - a stream's log made again (purged and reopened under the same name,
+    as osa_ingest's late pass does) is seen: the source's cached readers
+    reopen on a new log.id, a verify running on the old log runs again,
+    and a drain reads only the log the copy's position is on
+    (gxReplLocal::ReadLogOf; pull mode later).
+  Every writer open gets its verify (the protocol's rule); one restart
+  costs at most one verify and one derived rebuild.
+- gxrepl: a day folder archived and reopened during a verify (osa_ingest's
+  late pass) never seals stale data. A file update that would move the
+  copy's position to another log queues the stream's verify again, and
+  the seal guard applies a folder's commit block only when its stream
+  needs no other verify (and never one of another log than the verify
+  started on); a data file gone during its sync fails it; the source's
+  reader reopens on log.id's content. Before, the copy could be sealed
+  and "in step" at the source's generation with a stale data file (in
+  the night-1 test 17 of 50 on the 7.3.x code of the .53 install).
+- gxrepl per-object derived apply (still not for production use):
+  A1 one guarded index step (crash guard and breaker) for ApplyLog and
+  ApplyFiles, A2, A3.
+- Security scan fixes: S2 a vector search takes its search slot before
+  the replicated copy's apply lock (a burst of searches no longer keeps
+  the copy's applies busy); S3 the .vixset duplicate check is O(log n).
+- Security scan of this build (report kept in the project's
+  development records): TSan on the gxrepl suite and the
+  object server, ASan+UBSan on run_tests, vix_test and the gxrepl suite:
+  no reports; static analysis (clang-tidy, gcc -fanalyzer): no real
+  issue; libFuzzer on the database, stream, protocol, support and the
+  new replication target (ship log records, configs, .vixset, .vix,
+  vector requests, stamps); a secret scan of the tree and history.
+- New tests: test_drain_verify_* (restart burst, position gone and log
+  made again during the stream's own verify), test_log_remade_by_a_
+  nightly_reopen, test_drain_never_reads_a_new_log_as_the_old_one.
+- Install the library and the gxrepl binary together.
+
+GXREPL: A WRITER'S OPEN OR GAP RECORD ALWAYS GETS ITS VERIFY (11/14/2026)
+-------------------------------------------------------------------------
+The same fix as DataReel 7.3.4 (branch gxrepl-drain-verify).
+- The problem: a writer killed after its batch is committed in its
+  journal but before the ship log has it leaves pages that the next
+  writer's journal recovery writes into the files with no ship log
+  record. Only the verify its open record asks for brings them to the
+  copy, and three places applied an open or gap record without that
+  verify: the two drains inside a file sync dropped the drain's flag,
+  and a file update (which carries the records from the copy's
+  position to the pieces') was applied without looking at its
+  records' types. The copy then stayed "in step" at the source's
+  generation and seal with stale data pages. Found by the 7.4 beta 2
+  test runs; in the code since gxrepl protocol 2 (11/08/2026).
+- The fix: the drain itself puts the stream on the verify list for an
+  open or gap record and for a position gone from the log, the file
+  sync keeps the drain's flag, and the file sync checks the records of
+  every file update it applies. A stream that gets such a record while
+  it is being verified is verified once more in the next pass. Each
+  part alone covers its own path.
+- In "gxrepl once", a verify that the pass itself queued runs in a
+  later pass, so that pass returns 1 ("not in step"): run it again.
+- gxReplClient has new members: install the library and the gxrepl
+  binary together.
+- Tests: test_drain_verify_* (the recovered batch reaches the copy;
+  each part alone; both parts off loses the pages; one verify per
+  stream; a clean writer restart adds none; an open record during the
+  stream's own verify), test_diff_pieces_against_a_racing_commit,
+  test_position_gone_from_the_same_log_verifies. Test builds only:
+  GXDJRNL_TEST_KILL_BEFORE_SHIP, GXREPL_TEST_SYNC_FILE_HOLD[_ON],
+  GXREPL_TEST_DIFF_STATUS2, GXREPL_TEST_DIFF_HOLD,
+  GXREPL_TEST_CRASH_IN_APPLY, GXREPL_TEST_NO_CALLER_VERIFY,
+  GXREPL_TEST_NO_DRAIN_VERIFY.
+
+LICENSE (11/12/2026)
+--------------------
+Every source header now says LGPL version 3 or later, matching the
+LICENSE file (the headers said 2.1 or later), and points to
+https://www.gnu.org/licenses/ instead of the old FSF postal address.
+
+FIXES AFTER BETA 3 (11/15/2026, docs-7.4)
+-----------------------------------------
+- gxrepl digest --kind btree (gxReplDigest) walked a B-tree with
+  FindFirst()/FindNext() and a raw byte compare. FindNext() finds its
+  place again with the compare, and the byte order is not the tree's
+  own when keys tie on a name and an integer (a record address) breaks
+  the tie: the walk skipped keys (663 records digested as 256 keys).
+  The digest now walks the nodes in order with no compare; trees whose
+  two orders agreed digest exactly as before. run_tests:
+  gxrepl_digest_repeated_names.
+
+BETA 4 (11/16/2026)
+-------------------
+Replication (gxrepl) on an incremental set (derived_apply =
+incremental), the hardening items, and the review fixes:
+- The recovery gap: a writer's open record (its journal may have
+  recovered a batch that has no record) or a gap record sends the
+  stream's folders back to a rebuild and holds the stream: every batch
+  of it is rebuilt until the stream's verify is done. The hold goes
+  only when the client says the verify compared files (an older client,
+  or a verify that compared none, leaves it). "gxrepl derived status"
+  and status.json ("holds") show the holds; a hold that cannot be read
+  goes with the next such verify, a hold whose stream was purged is
+  reported and "gxrepl derived rebuild" removes it; a hold that cannot
+  be written turns the set's breaker on.
+- The open record says what the writer's journal recovered (0: a clean
+  restart, no rebuild). The static gxdJournal::Recover() leaves
+  <journal>.recovered before it replays a batch, so a recovery done
+  before the writer's Open() reaches the open record too; when that
+  marker cannot be written (on any platform) it refuses to replay and
+  keeps the journal.
+- Stamp-keeping fill: a verify's fill whose pages are all what its
+  records write, or what the copy already holds, keeps the folder's
+  index stamps (no rebuild); any other fill drops them.
+- Pull mode reads only the copy's own log (an older server falls back
+  to a verify). A reader that sees the newest log segment shorter than
+  its header (the writer is creating it) reads nothing yet instead of
+  starting a full resync. A record bigger than max_message asks for a
+  verify like any other, and its resyncs are bounded. The dead-folder
+  sweep removes a folder left sealed "copying" with no database file
+  for GXREPL_COPYING_ABANDONED_SEC (3600 s).
+- The late-pass hollow seal: a new log's verify that lists no file while
+  its folder has database files waits until the log lists them (said
+  once); records that would build a missing file without its first
+  page are refused and the stream resyncs. Promote-check's
+  stage times use localtime_r (thread safety only: no time was wrong).
+- Before turning derived_apply = incremental on, every program that
+  journals into a replicated set and gxrepl on both nodes must run 7.4
+  beta 4: an older writer's static Recover() leaves no marker, and an
+  older client's verify never clears a hold.
+- The digest fix above (FIXES AFTER BETA 3) is in beta 4.
+
+ONE FILE LAYOUT ON EVERY PLATFORM (11/15/2026, beta 5)
+-----------------------------------------------------
+Before 7.4 beta 5 the database file headers held gxUINT32/gxINT32
+fields (unsigned long, long), 8 bytes on 64-bit Linux and 4 on 64-bit
+Windows and in 32-bit builds, so .gxd, .btx and .vix files (and record
+addresses) did not move between them. Now:
+- Every platform writes one layout, the canonical one: the 64-bit Linux
+  layout. Linux files are byte for byte what 7.x and 6.x write (the
+  files of a 7.4 beta 3 build and a beta 5 build with the same writer
+  are identical; OSA's data files read the same). The header fields are
+  packed explicitly (gxdbase.h: DiskLongSize(), DiskFAUSize()); the
+  structs in memory are unchanged.
+- Files in the old 4-byte layout (written by 64-bit Windows and 32-bit
+  builds before beta 5) are found when opened and then read AND written
+  in that layout, so their object addresses never move: the file
+  header, block headers, file and record locks, stats, checksums,
+  B-tree headers and nodes, InfoHog records (object header, member
+  count and lengths), gxPersistent strings and object headers, and the
+  InfoHog members of vector records. A file with no block (64-bit
+  FAU builds) cannot show its layout: canonical is taken
+  (LayoutGuessed()); gxVectorIndex then looks for its header in the old
+  place as well, and SetOpenLayout(4) opens one in the old layout.
+- gxd_upgrade IN.gxd OUT.gxd [--map MAP] [--records raw|infohog]: an
+  old-layout data file rewritten as a new canonical file, only when it
+  is run. Object addresses change (MAP lists OLD NEW), every object is
+  read back and compared, B-tree and vector index files are refused
+  (rebuild them from the upgraded data file).
+- SetCreateLayout(4) (or GXD_CREATE_LAYOUT=4) creates a file in the old
+  layout, for readers older than beta 5 only.
+- A database folder copied as files (the replication_copy example)
+  keeps the layout it has.
+- vix_test's phase C files (made on 64-bit Linux) are compared on every
+  platform again.
+- tests/data/old_layout: files written by the 64-bit and 32-bit FAU
+  Windows builds of beta 3; run_tests reads them with the digests
+  Windows printed, writes them byte for byte with GXD_CREATE_LAYOUT=4,
+  writes more to an old file (it stays old, its indexes equal a
+  rebuild) and upgrades one.
+Still per platform: the application's own record and key types. A
+native gx type (gxUINT32, gxINT32) or, in a 32-bit FAU build, a FAU in a
+record or key keeps its platform's size; use fixed-width types
+(uint32_t, int64_t) in records that move between platforms. The
+gxStream and object server message framing is one form on every
+platform too (see NEW IN BETA 5).
+
+NEW IN BETA 5 (11/16/2026)
+--------------------------
+- Object replication between Windows and Linux (gxObjRepl,
+  gxobjrepl.h). The unique feature of 7.4:
+  - Mixed Windows and Linux nodes replicate objects both ways, with
+    the primary on either side. Takeover and rejoin work across the
+    platforms.
+  - One canonical 32-byte gxStream block header on every platform
+    (the form 64-bit Linux always sent).
+  - A peer that sends the old header with 4-byte words (Windows and
+    32-bit builds before beta 5) is refused with
+    gxSOCKET_BLOCKHEADER_ERROR (PeerOldHeader()), and gxObjRepl raises
+    an alarm.
+  - Mutual TLS with each platform's own TLS library through gxSSL:
+    OpenSSL on Linux, the Windows Schannel library on Windows.
+  - From DataReel 6.4, programs built with the matching stream header
+    can talk to 7.4 replication.
+  - Tested Linux to Windows and Windows to Linux: takeover and rejoin
+    with identical digests and index digests in every run, a
+    2,500-commit stress run each way, and old Windows builds refused
+    both ways.
+  - Upgrade: every node must run a 7.4 beta 5 build (see UPGRADING TO
+    7.4 BETA 5).
+  - With the 32-bit engine each database file is limited to 2 GB
+    (FAU_t); 1M-object stores need the 64-bit engine. Mixed 32/64-bit
+    nodes replicate. Not tested: a 32-bit Windows build.
+- gxrepl page-shipping replication is removed. 7.4 replication is
+  gxObjRepl.
+  - A gxrepl binary installed from a 7.4 beta keeps working as it is,
+    but it is not part of 7.4 and is no longer built.
+  - The journal's ship log is gone: EnableShipLog(), DisableShipLog(),
+    ShipLog(), EnableObjectNotes(), ApplyPages() and the
+    "<journal>.recovered" marker. A program that called
+    EnableShipLog() drops the call. gxdJournal::Recover() keeps its
+    signature (its mark argument is ignored), and RecoverError() stays.
+  - Also gone: gxrepl.h, gxdrepl.h, gxdstage.h, gxdstamp.h,
+    gxrextract.h, the replication example and its pages.
+  - The database digest stays, as gxDatabaseDigest() and
+    gxDatabaseHash() (gxddigest.h) and the dr_digest tool. The values
+    are the same as gxrepl's digest printed.
+- Fixes for every program (they came with gxObjRepl):
+  - gxdJournal header salts: processes forked from one parent in the
+    same second could write the same salt, and Recover() could then
+    replay the previous session's records. The salt now mixes the OS
+    random source, a fine clock, the process id and a counter. The
+    journal format is unchanged.
+  - gxDatabase::ReclaimBestFit() reuses best-fit blocks. Before, only
+    exact fits were reused and the file grew. First fit (the default)
+    is unchanged.
+- Fixes found by the beta 5 Windows run:
+  - db_debug (gxDatabaseDebugManager::BlockSearch()) copied a block
+    header of the file's size into the struct in memory: on Windows a
+    canonical header is larger than the struct, so the copy overran
+    it on the stack, and no block was ever found (the walk, search and
+    rebuild saw an empty file). The header is now read in the file's
+    layout. The same in the db_debug block walk (db_walk.h). A new
+    check walks an old-layout file on Linux (layout_detect_test).
+  - The imap_fetch example built on Linux only (strncasecmp).
+- Known issue of beta 4, fixed here: the library's version string
+  (DATAREEL_VERSION_STRING, include/gxdlcode.h) still said "7.4 beta3",
+  so beta 4's gxrepl reports 7.4 beta3. It says "7.4 beta5" now, and
+  tools/check_release_version.sh TAG (also a run_tests check without a
+  tag) fails when the version string, version.txt and the release notes
+  title do not match the release.
+- gxsIMAPClient (gxsimap.h): an IMAP4rev1 mail client, based on the
+  IMAP client class of a 2007 program that downloads report messages
+  to a spool folder, released under the LGPL. Implicit TLS (port
+  993), STARTTLS (port 143), or plain text (port 143) only when asked
+  for by name with ConnectPlain(). Login, select and examine, list
+  mailboxes, search, fetch the header, text or whole message and the
+  arrival time, delete and expunge, any other command, and a recorded
+  session with the password masked. Replies are read to their own
+  tagged completion and message data as literals, so a message can
+  hold any text; the 2007 client's calls are kept. A server that
+  announces LOGINDISABLED is never sent a password, and Login() on a
+  plain text connection is refused, with nothing sent, unless the
+  program calls AllowPlainLogin() first.
+- Example imap_fetch: search a mailbox, list the matches newest first
+  and save each message's text to a spool folder once (from cron).
+  Spool file names keep only letters, digits, "-", "_" and "+" of the
+  server's arrival date, so they never leave the folder. --plain is
+  the opt-in for a plain text login.
+- Example https_check, based on the 2007 HTTP ping and header
+  programs: a list of web sites checked over TLS, with the status,
+  times, size, redirects and the response headers.
+- Examples udp_broadcast and udp_multicast, based on the 2001
+  broadcast and multicast programs: plain (non-TLS) UDP broadcast,
+  and IPv4/IPv6 multicast with group joins, for trusted local
+  networks only.
+- A file of the other database engine (written with 32-bit file
+  addresses, or with 64-bit ones) is refused with
+  gxDBASE_FILE_ENGINE_ERROR. Before, a build with 32-bit file addresses
+  opened a 64-bit engine's file without an error (its check compared
+  only "GXDBASE", the start of "GXDBASE64").
+- The layout detection reads the first block's length both ways and
+  takes the old 4-byte layout only when that length fits the file and
+  the canonical one does not: a damaged first block is never taken
+  for the old layout (tests/layout_detect_test).
+- The header documentation (Database Headers) explains the on-disk
+  layout and byte order: every header field is written little endian,
+  field by field, on every machine.
+- Tests: the IMAP client against a mock server (TLS, STARTTLS, plain
+  text, a plain text login without the opt-in, 8-bit logins,
+  LOGINDISABLED, message bodies that look like replies, spool names
+  from a hostile arrival date) and against a local IMAP server in a
+  container; gxdbmux_test (the multiplex and wire frames) in run_tests;
+  https_check
+  against the example HTTPS server; broadcast and multicast on this
+  host.
+
+NEW IN 7.4 (AFTER BETA 5)
+-------------------------
+- objrepl_certs.sh makes its certificates under Git Bash on Windows
+  too: Git Bash rewrote openssl's "/CN=..." subject into a path, so no
+  certificates were made (MSYS_NO_PATHCONV is now set for openssl).
+- Windows TLS servers without an interactive sign-in (Schannel): a
+  PEM key is imported into the user key store, then held in memory,
+  then the machine store, and the error names each place tried, so a
+  server started over a key-based SSH login or as a Windows service
+  loads its PEM certificate and key. Key names are per process, so two
+  servers using one certificate no longer delete each other's key.
+  Tests: tls_key_test, tests/tls_key_service.cmd (SSH and LocalService
+  service runs).
+- gxSocket: sockets are close-on-exec on POSIX and not inherited on
+  Windows (Connect, Listen, Accept, OpenDatagram and gxsPing), so a
+  child process no longer holds a server's port open (the 6.4.1 fix).
+  Test: socket_cloexec_test.
+- The database object server tools on Windows: object_server and
+  object_client build and run on Windows as on Linux. The multiplex
+  (gxdbmux) runs over Winsock (WSAPoll, with a loopback pair for
+  wake-ups) and non-blocking Schannel; gxdbserver and gxdbobject are
+  portable; object_server takes --stop-file. Tested Linux and Windows
+  in all four client/server combinations; gxdbmux_test adds a large
+  two-way run over TLS and --peer-serve/--peer-connect for two
+  machines.
+- The build without native types (DATAREEL_NATIVE_TYPES=OFF) is tested
+  (the 64-bit suites, a 32-bit build and run_tests) and kept. OFF
+  changes only the in-memory gx integer and float types: the library's
+  files and the wire keep the canonical layout.
+- gxObjRepl: while a node closes, its status says "stopping" (with
+  stopping_since), then "stopped" with close_secs; objrepl check warns
+  about a long stop.
+- New classes:
+  - gxCSVReader and gxCSVWriter (gxcsv.h): RFC 4180 CSV, with the
+    csv_merge example (two spreadsheets merged on a key column).
+  - gxProcessLock (gxproclock.h): a single-instance lock, with
+    service_example (a daemon on POSIX, a Windows service).
+  - strip_ansi() and AnsiStripper (strutil.h): VT220/ANSI terminal
+    control sequences out of text, such as captured device output.
+- gxSerialComm on Windows: software flow control (scommSOFT_FLOW and
+  scommXON_XOFF) now turns XON/XOFF on (DC1/DC3); every other flow
+  setting turns it off. Before, "soft" flow control on Windows was
+  none: DC1/DC3 arrived as data and nothing was held.
+- New examples and tools:
+  - serial_read: read a serial port as binary or hex, with limits and
+    hangup handling (pty test on Linux). On Windows reads return
+    within 100 ms (--seconds and Ctrl+C on time), standard output is
+    binary, and COM10 and up open as \\.\COMn (tested on a real COM
+    port).
+  - dir_upload: watch a folder and upload new files over FTPS (a
+    settle time, a .part name renamed when complete, a size check).
+  - hexdump, ffind and txfilter, the 6.x file utilities for 7.x.
+  - dr_bench section 6: TLS handshakes and throughput over the
+    loopback.
+- Tests: odirect_test (a replicated node read with O_DIRECT and the
+  page cache dropped equals the plain reads, with the same digest and
+  index checks); longer waits in the objrepl test harness for slow
+  disks; run_tests takes its port base from DR_TEST_PORT. The objrepl
+  test scripts stop a copy through one helper (objrepl_proc.sh): on
+  Windows with ROOT/objrepl.stop and its Windows process id (a clean
+  stop, as on Linux), so the scripts give the same results on both.
+  test_objrepl_check's faked "stopping" status names a process by its
+  Windows pid under Git Bash, as objrepl check reads it.
+
+UPGRADING TO 7.4 BETA 5
+-----------------------
+- Never set GXD_CREATE_LAYOUT in production. It makes new files in the
+  old 4-byte layout, for readers older than beta 5 only (tests and a
+  move away from old readers).
+- Build every binary from one tree: the library, its tools and every
+  program that links it. A program built from an older beta tree
+  writes the old stream header.
+- Old-header peers are refused. Upgrade every node of a replicated set
+  and every object server client to a beta 5 build.
+- A program that called the journal's EnableShipLog() or
+  EnableObjectNotes() drops the call (see NEW IN BETA 5).
+
+PLANNED FOR THE NEXT RELEASE (7.5)
+----------------------------------
+These are planned features, not part of 7.4:
+- The Python module as a package that installs with pip.
+
+========================================================================
+RELEASE_NOTES_7.3.3.txt
+========================================================================
+
+DataReel 7.3.3 Beta Release Notes, 11/14/2026
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.3.3 is a beta bug fix release of 7.3.2. DataReel 7.4.1
+(11/20/2026) is now the stable release, and DataReel 6.4.2 the legacy
+release (bug fixes and security updates only); please report problems
+through https://datareel.com/contact.php.
+
+7.3.3 fixes more database replication (gxrepl, utils/gxrepl) problems
+found while it ran in production between two nodes. Database file
+formats and replication protocol 3 are unchanged, and the API changes
+are additions. A copy's seal gains a field that a 7.3.2 gxrepl reads and
+ignores. Run the same version on both nodes, and rebuild programs
+against 7.3.3.
+
+The library version is 7.3.3 (version.txt, DATAREEL_VERSION_STRING in
+gxdlcode.h, libdatareel.so.7.3.3); the soname stays libdatareel.so.7.
+
+REPLICATION FIXES
+-----------------
+1. Seal per folder. A copy's unit seal is now "log G L S C": C is the
+   ship log record that last changed that folder, while L stays the
+   stream's applied position. Derived indexes (derived = GLOB, stamped
+   in <folder>/derived.stamp) are compared with C, both in "gxrepl torn"
+   and in the {lsn} that derived_rebuild is given.
+   Before, every record of a stream moved L in the seals of all of the
+   stream's folders, so the indexes of folders that had not changed
+   looked stale and were rebuilt again and again. In production that was
+   most of about six rebuilds an hour, each under the apply lock.
+   - A seal without C (written by 7.3.2) reads as C = L. After an
+     upgrade, each folder is rebuilt once and then keeps its indexes.
+   - A 7.3.2 gxrepl reads a 4-field seal and ignores C.
+   - These all set C to the record that made the change:
+     - a verify repair, including a size-only change;
+     - a delete of a data file;
+     - a new log under the same stream name;
+     - a fill.
+     Two streams' numbering is never mixed.
+
+2. A delete's reseal comes first. When a data file of a log-sealed
+   folder is deleted, the seal is rewritten with C = L before the file
+   is unlinked. This happens under the apply lock, after any pending
+   journal batch is recovered. A crash in between costs one extra
+   rebuild, never a stale index.
+
+3. A verify sees files named during its pass. The client read each
+   stream's file list once per pass. If a stream named a new file (a
+   new unit's commit block) while its verify ran, that file was not
+   verified, and the unit could stay "copying" until the next verify.
+   The list is now read again after a stream's verify, and the stream is
+   verified again in the same pass if files joined it (at most 3 times).
+
+4. "gxrepl torn" (promote-check) reads each unit under a shared lock on
+   the set's apply.jnl.
+   - The lock is taken per unit, only around that unit's small reads:
+     commit block, seal, applied position, derived state and stamp.
+     Nothing is hashed under it. Measured on production sets, the
+     longest hold was 0.054 ms.
+   - While it holds the lock no apply is in flight, so the timed
+     re-reads are not needed.
+   - The waits share a budget per set, GXREPL_TORN_LOCK_WAIT (default
+     15 s). Past it, the rest of the set is read unlocked with the old
+     re-reads and a WARNING line; the exit code is unchanged.
+   - GXREPL_TORN_LOCK_STATS=1 prints the lock counts and hold times.
+   - gxReplTornLockStats and a 4-argument gxReplTornCopies are new. The
+     old signatures are kept.
+
+5. ApplyFiles writes the streams' applied positions inside the apply
+   lock, after any staged swap, as ApplyLog has done since 7.3.2. Before,
+   the positions were written after the lock was released, while the
+   batch's "log G L" seals were already written. Even a locked reader
+   could then see "sealed at record L, the copy applied up to L-1" (a
+   false TORN).
+
+TESTS
+-----
+- utils/gxrepl/test_gxrepl.py, new tests:
+  - test_derived_seal_per_folder
+  - test_delete_reseals_before_unlink
+  - test_verify_sees_files_named_during_its_pass
+  - test_promote_check_reads_under_the_apply_lock
+- test_commit_block_kill_storm reads its verdict and "gxrepl torn" under
+  the shared lock, as the staged storm has since 7.3.2.
+- The full gxrepl suite passes (GXREPL_TEST_HOOKS build, RHEL 10.2).
+
+========================================================================
+RELEASE_NOTES_7.3.2.txt
+========================================================================
+
+DataReel 7.3.2 Beta Release Notes, 11/14/2026
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.3.3 fixes more database replication (gxrepl) problems found
+in production; see RELEASE_NOTES_7.3.3.txt.
+
+DataReel 7.3.2 is a beta bug fix release of 7.3.1. DataReel 7.4.1
+(11/20/2026) is now the stable release, and DataReel 6.4.2 the legacy
+release (bug fixes and security updates only); please report problems
+through https://datareel.com/contact.php.
+
+7.3.2 fixes database replication (gxrepl, utils/gxrepl) problems found
+while it ran in production between two nodes. Database file formats
+are unchanged, replication protocol 3 is unchanged (a 7.3.1 node and a
+7.3.2 node talk to each other, but run the same version on both), and
+the API changes are additions. Rebuild programs against 7.3.2.
+
+The library version is 7.3.2 (version.txt, DATAREEL_VERSION_STRING in
+gxdlcode.h, libdatareel.so.7.3.2); the soname stays libdatareel.so.7.
+
+REPLICATION FIXES
+-----------------
+1. Channels resync after a timeout. A channel whose request had no
+   reply in time, or whose reply did not parse, is now closed and
+   marked broken (gxReplRemote::ChannelBroken), and the set's thread
+   opens a fresh channel. Before, after a network outage every set
+   read the previous request's late reply ("bad reply") until the
+   client was restarted.
+
+2. The apply lock is bounded. An apply takes apply.jnl with a bounded
+   wait (GXREPL_APPLY_LOCK_WAIT, default 5 s) and answers "busy"
+   instead of blocking behind a long derived index rebuild, so a slow
+   rebuild never stalls the other sets.
+
+3. Derived index rebuild and ssh tunnel children start with only
+   stdin, stdout and stderr open (no inherited sockets or locks).
+
+4. The seal, the commit block and the applied position are never read
+   split. ApplyLog writes a stream's applied position inside the same
+   apply.jnl transaction as the records' pages and the unit seal, and
+   "gxrepl torn" (promote-check) re-reads a seal that does not match
+   the applied position for up to GXREPL_TORN_RECHECK_SEC (10 s), so
+   an apply in flight is not reported as torn. Before, a promote-check
+   run during steady commits could report "sealed at record N, the
+   copy applied up to N-1".
+
+5. Staged unit copies. A unit (a folder with a commit block) that must
+   be copied whole is now written into a reflinked stage
+   (<set root>/.gxrepl/stage/<unit>/) and swapped in when its commit
+   block arrives: the commit block is marked odd, the data files are
+   renamed in, then the commit block lands. A lost link part way
+   through a copy leaves the copy whole at its last sealed commit
+   instead of torn. A stage is used only by the copy that began it, is
+   reused for the same generation, and is skipped (the copy is made in
+   place, as in 7.3.1) for ship-log sets, a unit with no copy yet, an
+   unsealed unit, a unit over stage_max_bytes (16 GiB), a file system
+   without reflinks (FICLONE), or when the stages of all sets would
+   leave too little free space.
+
+6. gxrepl promote [--apply]. Run on a copy before it takes over as the
+   writer: it recovers apply.jnl, finishes a swap that was begun,
+   discards the other stages and says what each discard loses. Exit 0
+   = whole, 1 = torn, 3 = promote incomplete (try again), 2 = config.
+   gxReplPromote() is the library call. "gxrepl torn" stays read-only
+   and lists open stages as STAGED warnings. "gxrepl serve
+   --accept-both" runs promote --apply before it starts serving.
+   GXREPL_PROMOTE_LOCK_WAIT (default 480 s) bounds its wait for a
+   running apply.
+
+7. Dead copy folders. When the source removes a unit folder (for
+   example a day folder archived at night), the copy used to delete
+   only the files gxrepl copies; derived indexes, derived.stamp and
+   other files gxrepl does not copy stayed behind, and promote-check
+   refused the copy (UNSEALED) until the folder was removed by hand.
+   Now a sealed unit whose last copied file goes is removed whole: its
+   stage, the files gxrepl does not copy, the folder, its derived
+   state and then its seal, under the apply lock after journal
+   recovery. A server sweep (every GXREPL_SWEEP_SEC, 60 s) and the
+   start-up recovery remove dead folders left by an older gxrepl or a
+   stop part way (gxReplSweepDeadCopies()).
+   It never removes an unsealed folder, a "copying" seal, a folder
+   with a commit block, a copied file, a sub-folder, a configured
+   writer lock, or any file that is not derived, default-excluded or
+   derived.stamp; never while the set's writer holds its locks; and
+   only on a node that is purely the set's copy (accept = target, or
+   a pulling client). The sweeps leave a folder changed in the last
+   GXREPL_DEAD_QUIET_SEC (600 s).
+
+BUILD
+-----
+- CMake option GXREPL_TEST_HOOKS (OFF): test-only crash and failure
+  hooks in gxdJournal and gxrepl for the test suite. Never build a
+  production gxrepl with it; "gxrepl version" then ends with
+  ", test hooks".
+
+TESTS
+-----
+- utils/gxrepl/test_gxrepl.py: new tests for each fix
+  (test_late_reply_never_desyncs_a_channel,
+  test_slow_rebuild_never_stalls_the_other_sets,
+  test_seal_and_position_never_split, the test_staged_fill_* tests
+  with a GXREPL_TEST_HOOKS build, and the test_dead_copy_folder_*
+  tests).
+
+========================================================================
+RELEASE_NOTES_7.3.1.txt
+========================================================================
+
+DataReel 7.3.1 Beta Release Notes, 11/01/2026
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.3.2 fixes database replication (gxrepl) problems found in
+production; see RELEASE_NOTES_7.3.2.txt.
+
+DataReel 7.3.1 is a beta bug fix release of 7.3. DataReel 7.4.1
+(11/20/2026) is now the stable release, and DataReel 6.4.2 the legacy
+release (bug fixes and security updates only); please report problems
+through https://datareel.com/contact.php.
+
+7.3.1 fixes the problems found by a security scan of the object
+database code (gxDatabase, gxBtree, BtreeCache, gxdJournal, the page
+cache and the file I/O layer) and by a full sweep of the rest of the
+library (TLS, the gxStream database protocol, HTTP, SMTP, POP3, FTPS,
+telnet, RS-232, ping, config, log file, thread pool and the repair
+tools), and adds mutual TLS to gxStream database servers. The file
+formats are unchanged and the API changes are additions. Rebuild
+programs against 7.3.1.
+
+The library version is 7.3.1 (version.txt, DATAREEL_VERSION_STRING in
+gxdlcode.h, libdatareel.so.7.3.1); the soname stays libdatareel.so.7.
+
+FIXES
+-----
+1. gxDatabase::TotalBlocks() on a damaged file: a block length of
+   zero looped for ever, tiny lengths rescanned the same bytes again
+   and again, and in the 64-bit engine a huge length wrapped the
+   address back to an earlier block (an endless count). Lengths
+   shorter than a block header or past the end of the file are now
+   skipped like any bad block. (Found by fuzzing.)
+
+2. gxDatabase::CalcChecksum(): the end of file came from the file
+   header, so a damaged header could ask for a buffer of any size. It
+   is now limited by the real file size. (Found by fuzzing.)
+
+3. gxDatabase::Close(): a file that failed the signature test in
+   Open() was never closed, leaking one file descriptor or handle per
+   failed open (a bug since 6.x). Close() now closes any open file and
+   still never writes a header to a file that failed the checks.
+   (Found by LeakSanitizer.)
+
+4. gxdJournal::Recover(): pages past a file's committed size are
+   skipped, so a damaged page number cannot become a wrapped file
+   offset, and a commit record with a file size the file address type
+   cannot hold ends the replay. (Found by static analysis and fuzzing.)
+
+5. gxDatabase::WriteObjectChecksum() returned an uninitialised value
+   when the file was not open. (Found by static analysis.)
+
+SECURITY SWEEP FIXES (summary; the full list with tests is in
+DATAREEL_73_FULL_SECURITY_SWEEP.md in the project notes)
+- TLS: a failed handshake or certificate check closes the socket (no
+  plaintext fallback); handshakes, reads and writes honour the
+  connection timeout (gxSocket::SetIOTimeout); FTPS data connections
+  check the server certificate when the session is not resumed;
+  Close() no longer waits for the peer; SIGPIPE no longer stops
+  servers; size truncations removed; private key files written 0600.
+- gxStream: refuses non-TLS connections; 64-bit result addresses;
+  the stream_server example validates requested blocks and obeys a
+  remote shutdown only with --allow-remote-shutdown.
+- HTTP: interim response flood, strict status/headers/framing (no
+  Content-Length + chunked), control characters, redirect header
+  leaks, body size caps. URL DecodeStrict(). FTP SIZE and PASV/EPSV
+  parsing; SMTP address injection; POP3 and FTP size caps. The HTTPS
+  server example refuses dotfiles, symlink escapes and device names.
+- Telnet pattern search bounds, lone IAC, subnegotiation and option
+  loops; RS-232 endless reads/writes, block overflow, termios restore
+  (DTR), O_ASYNC (SIGIO stopped the program), Windows error checks;
+  ping reply checks; gxConfig key matching and CR/LF; LogFile mode
+  0640 and CR/LF; ThreadPool start/stop; db_debug damaged files.
+
+Mutual TLS for gxStream database servers (gxstls.h, gxstream.h, gxssl.h)
+   Section text for RELEASE_NOTES_7.3.1.txt, 11/01/2026.
+
+   gxStream servers now require client certificates and accept only
+   the clients in an allow list. The check is on by default for
+   database servers and off for other TLS servers.
+
+   Servers
+   - New gxStreamServer (gxstream.h), a gxsTLSServer for gxStream
+     clients. Before Listen(), call SetClientCAFile("client_ca.pem")
+     and allow clients with AllowClientFingerprint(sha256) and/or
+     AllowClientCN(name). Listen() fails, with Error() saying why,
+     if the client CA file or the allow list is missing. An open
+     server needs an explicit AllowAnonymousClients(true).
+     Accept(gxStream &) accepts a client into a stream.
+   - New gxsTLSServer functions: SetClientCAFile(), ClientCAFile(),
+     AllowClientFingerprint(), AllowClientCN(),
+     ClearClientAllowList(), AllowedFingerprints(), AllowedCNs(),
+     SetRequireClientAuth(), RequireClientAuth(),
+     AllowAnonymousClients(), AnonymousClientsAllowed() and the
+     static NormalizeFingerprint().
+   - With a client CA file set, the server asks every client for a
+     certificate. Only the CAs in that file are trusted for client
+     certificates, not the system store. After the handshake
+     Accept() checks that a certificate was sent, that its chain
+     verifies, and that its SHA-256 fingerprint or subject CN is in
+     the allow list. If any check fails the connection is closed
+     and Accept() returns -1 (fail closed). With a client CA file and
+     an empty allow list (possible only on a plain gxsTLSServer), any
+     certificate from those CAs is accepted.
+   - Fingerprints are 32 hex bytes, with or without colons and in
+     either case; the "sha256 Fingerprint=" prefix printed by
+     "openssl x509 -noout -fingerprint -sha256" is skipped. CN
+     matches are exact and case sensitive. A certificate with no CN,
+     more than one CN, or a NUL in the CN matches only by
+     fingerprint.
+   - The accepted gxsTLSConnection reports the client's identity:
+     ClientAuthenticated(), PeerFingerprint() (upper case hex with
+     colons) and PeerCN() (UTF-8). These come from the client's
+     certificate, so escape control characters before logging them.
+   - A plain gxsTLSServer (HTTPS server, tls_echo_server and other
+     TLS servers) does not ask for client certificates unless
+     SetClientCAFile() is called. Only gxStreamServer, or a server
+     that calls SetRequireClientAuth(true), refuses to start without
+     the setup. A program that serves gxStream with a plain
+     gxsTLSServer keeps working but has no client check; switch it
+     to gxStreamServer.
+   - Call Accept() for every client. AttachServer() with the server
+     context checks the certificate chain (OpenSSL) but not the
+     allow list.
+
+   Clients
+   - New gxStream::SetClientCert(cert, key, passphrase), the same as
+     Connection().SetClientCert(), sets the certificate and key sent
+     to the server. Set it before Connect(). With TLS 1.3 a refused
+     client finds out on its first read or write after Connect(),
+     not in Connect() itself.
+   - Schannel (Windows) clients load the certificate and key the
+     same way as Schannel servers: a PEM or DER certificate with a
+     PEM/DER PKCS#8, RSA or EC key (the key is imported into the
+     current user's key store while the context exists), or a .pfx
+     or .p12 file passed as the certificate with an empty key file.
+
+   gxSSL
+   - New SetClientCAList()/ClientCAList(), VerifyClientCert() and
+     GetPeerCertIdentity() (OpenSSL and Schannel). OpenSSL servers
+     use SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, send the
+     client CA names and set a session ID context so resumed
+     sessions still work. Schannel servers request client
+     certificates with ASC_REQ_MUTUAL_AUTH and check the chain the
+     same way VerifyCert() checks a server against a CA list: the
+     root must be in the client CA list and the SSL policy is
+     checked for client authentication. The fingerprint comes from
+     CryptHashCertificate2(SHA256).
+
+   Examples and tests
+   - stream_server has new options --client-ca FILE,
+     --allow-fingerprint SHA256 and --allow-cn NAME (repeatable), and
+     --open for an open server. Without them it refuses to start. It
+     logs each client's CN and fingerprint. stream_client has --cert
+     FILE --key FILE.
+   - run_tests.sh makes a client CA and two client certificates and
+     adds stream_client_identity_logged, stream_no_client_cert_refused,
+     stream_wrong_client_cert_refused,
+     stream_server_refuses_without_auth_config and stream_open_server.
+     run_tests_win.sh runs the same checks; its CERT_DIR now also
+     needs client_ca.pem, client_ok.pem/.key and client_bad.pem/.key.
+
+   Compatibility
+   - Source compatible: all changes are new functions and a new
+     class. gxSSL, gxsTLSConnection and gxsTLSServer have new
+     members, so programs built against 7.3 must be rebuilt.
+   - Existing stream_server command lines must add --client-ca and
+     an allow option (or --open), and clients need --cert/--key.
+   - The Schannel code was written without a Windows compiler at hand
+     and needs a build and run_tests_win.sh run on Windows before
+     release. Depending on the Windows ClientAuthTrustMode setting,
+     Schannel may also check client certificates against the
+     machine's trusted roots during the handshake.
+
+NOTE: a journal names the files it repairs. Recovering a journal that
+someone else wrote can write to any file the program may write, the
+same trust the program gives its database files. Keep journal files in
+a folder only the database owner can write.
+
+TESTS
+-----
+- tests/journal_test has a security_fixes test for 1, 3 and 4.
+- tests/fuzz has libFuzzer targets for damaged data files, index files
+  and journals (fuzz_db.cpp, gen_seeds.cpp, build_fuzz.sh).
+- tests/run_tests.sh: 49 checks passed on RHEL 10.2 in the default,
+  64-bit, 64-bit portable type and shared library builds, and under
+  AddressSanitizer and UndefinedBehaviorSanitizer. Windows 11 (MSVC):
+  the database examples, journal_test and damaged_files pass in
+  32-bit, 64-bit and 64-bit portable type builds.
+
+The scan itself (tools, fuzzing statistics, reproducers) is described
+in DATAREEL_73_SECURITY_SCAN.md in the project notes.
+
+DATABASE REPLICATION (added 11/07/2026, beta)
+---------------------------------------------
+gxrepl keeps folders of object databases the same on two nodes over a
+gxStream TLS connection, TCP port 2073 (gxsDATA_PORT) by default, with
+an SSH tunnel as the fallback when the port is closed. See
+utils/gxrepl/README.md.
+
+- gxdJournal::EnableShipLog(set_root, stream) / DisableShipLog(): each
+  commit also appends the committed pages to a ship log
+  (<set_root>/.gxrepl/log/<stream>/), under the journal's write lock,
+  before the pages reach the files. Write-through mode only.
+- gxdJournal::ApplyPages(jname, files): applies pages received from
+  another node as one journal transaction (crash safe, then Recover).
+- gxdrepl.h: gxdShipLog (writer), gxdShipLogReader, the record parsers
+  and gxdReplHash.
+- gxrepl.h: gxReplConfig, gxReplServer, gxReplClient and the local and
+  remote sources and targets.
+- utils/gxrepl: the gxrepl program and gxrepl_testwriter (tests).
+- CMake option DATAREEL_ZLIB (ON): compresses replication messages
+  with zlib when it is found.
+
+No file format changes: a database written with the ship log is an
+ordinary database, and the log lives in its own folder. POSIX only.
+
+11/08/2026 changes (replication protocol 2; both nodes must run the
+same version, a mismatch is refused in the hello):
+- Databases only. gxrepl carries DataReel database files (.gxd, .btx)
+  and the files a set names with "include" (a database's commit block,
+  sources list, exports). The sender never offers another file, the
+  receiver refuses one (SafePath: "not a database file"), deletes
+  touch only database files, and hidden names are never copied. Flat
+  files belong to the host's file sync (OSA: DRCM's rsync over ssh).
+  Port 2073 carries database traffic only.
+- Safe reads without a ship log: a database in a folder with a journal
+  is read under gxdJournalReadLock; a published folder (no journal) is
+  checked before and after each read, and a file that changed while it
+  was read is read again (diff status 3), never sent torn.
+- Power-off safety: a gxdJournal with the ship log enabled fdatasyncs
+  each ship record before the commit's pages reach the files (unless
+  its sync level is OFF). The ship log's small files, the copy's
+  applied-position files and the status file are written with fsync,
+  rename and a folder sync. The folders of files an apply creates are
+  synced. A torn ship-log tail is cut back to the last whole record.
+- A reconnect verifies only the files the ship-log streams cover;
+  other database files get the size and mtime scan, and the full hash
+  verify runs when full_verify_interval says so (or SIGHUP, once).
+- The client writes its status file every 5 seconds during a pass.
+
+Database object server (11/08/2026, phase 2; replication protocol 3):
+- gxdbserver.h: gxDatabaseServer, one TLS listener on the database
+  port shared by services (client certificates, handshakes off the
+  accept loop, session limits); a session goes to the service that
+  claims its first block.
+- gxdbmux.h: gxdMuxSession, many databases over one connection: a
+  channel per database with its own order, bounded queue, credit flow
+  control and errors; one I/O thread per connection (non-blocking, so
+  both sides can send at once); deficit round-robin between channels.
+- gxrepl: the replication service of the server. The client opens a
+  channel per set and runs each set on its own thread (the server has
+  an applier thread per channel); a refused set ends only its channel.
+  Durable ACK after a log apply, and the ACK floor in the ship log
+  (acked/<copy>): an old segment goes only when every copy has it, up
+  to the size cap.
+- gxsTLSConnection::TakeBuffered().
+- gxdbobject.h: gxObjectService, database objects over the network on
+  the same server: [db NAME] databases, multiplex channels (service
+  object, read or write) with ADD, REQUEST, CHANGE, DELETE, FIRST,
+  NEXT; writes through the database journal; replicated copies are
+  read-only and read under the apply journal lock (an apply holds it
+  exclusively); 6.x style A/R clients on legacy_db. Examples:
+  utils/dbserver/object_server.cpp, object_client.cpp.
+
+Power-loss tests and fixes (11/09/2026, phase 2 step 5):
+- utils/gxrepl/powerloss_shim.c: a test-only LD_PRELOAD library that
+  keeps what a disk would still have after a power cut (a file's bytes
+  when it is fsynced, a folder's entries when the folder is fsynced).
+  test_gxrepl.py cuts the writer's node, the server's node or both at
+  random moments, rebuilds the folders from that image only, and checks
+  the copies, the retention floor and the object service.
+- gxdFPTRCreate() now syncs the folder after it creates a file (POSIX).
+  Before, a new database or journal could be lost in a power cut with
+  every commit made to it, since commits synced only the file.
+- The ship-log purge skips acked/<copy>.gxrtmp, which a crash in the
+  middle of a floor write leaves; it was read as another copy's floor.
+- gxrepl deletes now sync the folders they removed files from.
+- The design document (docs/DATABASE_OBJECT_SERVER_DESIGN.md) section
+  11 specifies protocol 3: sessions, the multiplex frame, replication
+  and objects on channels, the retention floor, and the status files.
+
+Replication fixes from the 11/10 reviews (gxrepl-var-r3):
+- The ship-log reader keeps two cursors (the end scan and the last read)
+  and a sparse lsn -> offset index, so a Read() never rescans a segment.
+  A Diff request's 4 MB / 100 ms read-lock budget counts the log read.
+  Measured: the slowest writer commit during a full verify of a 256 MB
+  live file was 204 ms at load 31 (2078 ms with the old whole-file lock).
+- A ship-log record bigger than max_message (an osa_ingest rebuild writes
+  one of 500 MB) is never sent or even read: READLOG status 2, the copy's
+  position is reset and the stream's files are resynced in pieces.
+- commit_block copies: the copy's commit block is marked odd (protocol op
+  15, MARKGEN) before a unit's files change and stays odd until a whole
+  commit is in; "gxrepl torn" / "gxrepl.sh promote-check" lists torn copies
+  (exit 1) so a fail over does not promote them. A heartbeat write to the
+  commit block is not a change. Measured: an unlocked 8 MB writer at 5
+  commits/s and a 434 MB folder with a commit every 2 s both keep copying
+  whole commits.
+- Stream purge: an acked/<copy> file that cannot be read keeps the stream
+  even when another copy ACKed it; a stream whose one segment every copy
+  applied starts a new segment when its writer opens, so retention can
+  trim it. ship_log_max_total is in bytes.
+- "gxrepl version" names the git head of the DataReel sources (+dirty)
+  and the build time (gxrepl_version.cmake), or "unknown".
+
+Ship-log volume and whole copies (11/10, gxrepl-var-r4 / r4d):
+- Volume. Commit records are zlib-compressed (type 4, gxdShipCommitZ:
+  raw size, a CRC-32 of the raw payload checked after inflate, zlib) when
+  that is smaller; readers take both types (gxdParseShipCommitRecord), so
+  older logs still read. GXDSHIP_COMPRESS=0 turns it off. Derived indexes
+  (per set "derived = GLOB") are left out of the records at the writer
+  (gxdShipLog::SetExclude; OSA: osa_ingest --ship-log-derived) and rebuilt
+  on the copy ("derived_rebuild = CMD {dir} [{lsn}]", "derived_delay").
+  Measured on OSA's realtime day, per 50-line commit: 1,477,740 bytes of
+  pages, 179 KB compressed, 8.9 KB with both (167x less): about 9 KB per
+  commit, about 100 MB a day for the realtime set instead of 15-20 GB
+  shipped as pages. No measurable CPU.
+- Limits. A record counts against max_message by its stored size, or its
+  inflated size when that is bigger; keep max_message above the largest
+  record (a bigger one is never sent: the copy resyncs its files, and at
+  256 KB in the tests the copy fell 68 records behind on such resyncs).
+  AppendCommit refuses a record over 1 GB raw (the size is a u32): it
+  logs a gap and the copy verifies the stream.
+- The commit block travels in the record. gxdShipLog::SetCommitBlock()
+  gives the writer's commit block (as it is once the commit lands) to the
+  next commit record, as its last file; the copy applies the pages, the
+  commit block and the unit's seal "log G L S" (generation, lsn, stream)
+  in one apply.jnl transaction. A record that changes a unit without its
+  commit block seals it "copying-log" (torn until a record carries the
+  block); a fill out of step with the copy's stream seals it "copying"
+  until the commit block, sent after the folder's files, lands. The source
+  serves a ship-log folder's commit block from its log, never its file,
+  and never one older than a later record that changed the folder.
+- "gxrepl torn" (promote-check) requires, for a ship-log unit, the seal's
+  generation = the commit block's and the seal's lsn = the stream's
+  applied lsn, and for derived indexes a stamp (<folder>/derived.stamp:
+  "gen G lsn L records N keys K") at that generation and lsn with keys =
+  records. Old-format logs (no commit block) apply but are UNSEALED.
+- Busy days (r4e, 11/11): missing or stale derived indexes are a warning
+  ("INDEXES", exit 0), not torn: a take over's writer rebuilds them; a
+  rebuild that failed stays torn. "derived_busy_rebuild" (default 900 s)
+  rebuilds a folder that is never quiet for derived_delay anyway, under
+  the apply lock.
+
+========================================================================
+RELEASE_NOTES_7.3.txt
+========================================================================
+
+DataReel 7.3 Beta Release Notes, 10/31/2026
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.3.1 fixes the problems a security scan found; see
+RELEASE_NOTES_7.3.1.txt.
+
+DataReel 7.3 is a beta release. DataReel 7.4.1 (11/20/2026) is now the
+stable release, and DataReel 6.4.2 the legacy release (bug fixes and
+security updates only); please report problems through
+https://datareel.com/contact.php.
+
+7.3 makes reads and key-order scans faster. Everything in 7.2 (the
+journal, the page cache, positional I/O, the hashed B-tree cache) is
+unchanged; see RELEASE_NOTES_7.2.txt.
+
+The library version is 7.3 (version.txt, DATAREEL_VERSION_STRING in
+gxdlcode.h, libdatareel.so.7.3). The shared library soname
+(libdatareel.so.7) and the database file format are unchanged, and
+find_package(DataReel 7) finds 7.3. Programs built against 7.2 must be
+rebuilt (gxdPageCache and gxBtree have new members).
+
+WHAT CHANGED
+------------
+1. Memory-mapped reads (gxdpcache.h, gxdfptr.h)
+   The page cache reads clean data that is not in a cached page
+   straight from a read-only memory map of the file (mmap() on Linux,
+   CreateFileMapping()/MapViewOfFile() on Windows). Reading a record
+   costs no system call and no page copy. The map is renewed as the
+   file grows. EnablePageCache(bytes, use_map = 1); pass 0 to read
+   pages with pread()/ReadFile() as in 7.2. New: gxdFPTRMap(),
+   gxdFPTRUnmap(). Programs that measure their memory will see the
+   file pages they read in their resident size: that is the shared
+   operating system cache, not memory the program allocated.
+
+2. FindNext() in one compare (gxbtree.h)
+   When FindNext() is given the key it returned last and the index
+   file is unchanged, the next key comes from the same leaf with one
+   compare and a copy, without a binary search or a walk from the
+   root.
+
+3. Journal checksum in four lanes (gxdjrnl.cpp)
+   The page checksum used to find torn journal writes runs about four
+   times faster. The journal file format is unchanged.
+
+SPEED
+-----
+1,000,000 records, 16-byte keys, 100-byte values, batches of 1000,
+64 MB of cache, RHEL 10.2, SATA SSD, XFS. Ops/s, median of 3 runs,
+DataReel with the journal against a typical embedded SQL database in
+WAL mode ("SQL DB"):
+
+                          7.2        7.3     SQL DB
+ insert in key order    663,541    621,995    625,131
+ insert in random order 171,869    167,241     79,408
+ random read            268,542    424,557    235,514
+ key-order scan (1)     652,149  3,278,787  6,766,442
+ key-order scan (2)          -   7,648,578  7,172,378
+ random update          127,558    127,502     94,242
+ random delete          107,841    101,968    108,082
+ durable insert           1,003      1,253      1,496
+
+ (1) records inserted in random order: DataReel's index points into
+     a separate data file, which the scan reads in record order
+ (2) records inserted in key order
+
+A scan of records inserted in random order stays behind the SQL
+database, which stores rows inside its B-tree. Closing that gap needs a
+clustered index (records stored in the index leaves), which would be
+a new file type; it is not part of 7.3.
+
+HOW IT WAS TESTED
+-----------------
+- tests/run_tests.sh on RHEL 10.2: 41 checks passed in the 32-bit,
+  64-bit and 64-bit portable type builds (journal_test runs every
+  test in both journal modes, now with memory-mapped reads).
+- Windows 11, MSVC (VS 2026), Schannel: the nine database examples,
+  journal_test and damaged_files pass in 32-bit, 64-bit and 64-bit
+  portable type builds.
+- datareel_oodb_bench crash_test.sh: 45 kill -9 rounds with the
+  journal (write-through, write-back, with BtreeCache): no committed
+  record lost, no partial batch.
+- The nine database examples write byte-identical files with 7.2.
+
+========================================================================
+RELEASE_NOTES_7.2.txt
+========================================================================
+
+DataReel 7.2 Beta Release Notes, 10/31/2026
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.3 followed on the same day with memory-mapped reads and
+faster scans; see RELEASE_NOTES_7.3.txt.
+
+DataReel 7.2 is a beta release. DataReel 7.4.1 (11/20/2026) is now the
+stable release, and DataReel 6.4.2 the legacy release (bug fixes and
+security updates only); please report problems through
+https://datareel.com/contact.php.
+
+The library version is 7.2 (version.txt, DATAREEL_VERSION_STRING in
+gxdlcode.h, libdatareel.so.7.2). The shared library soname
+(libdatareel.so.7) and the database file format version are
+unchanged, and find_package(DataReel 7) finds 7.2. Programs built
+against 7.1 must be rebuilt (see COMPATIBILITY).
+
+7.2 makes the object database fast and crash safe without changing
+the database or index file formats. Files written by 7.2 open in 7.1,
+7.0 and 6.2, and the other way around.
+
+WHAT CHANGED
+------------
+1. File I/O without stdio (gxdfptr.h, gxdfp64.h)
+   Linux reads and writes with pread()/pwrite(), Windows (MSVC) with
+   ReadFile()/WriteFile() and an OVERLAPPED offset, at a position kept
+   in the stream, for both the 32-bit and 64-bit engines. A seek no
+   longer costs a system call (it was about 20 system calls per
+   database operation), and there is no stdio buffer to discard.
+   New functions: gxdFPTRReadAt(), gxdFPTRWriteAt(), gxdFPTRSync(),
+   gxdFPTRTruncate(), gxdFPTRAllocate(). gxdFPTRSeek(gxDBASE_SEEK_END)
+   now seeks from the end of the file (it seeked from the current
+   position). On Linux gxdFPTRFlush() has nothing to flush: writes go
+   straight to the kernel. gxdFPTR64 keeps its FILE *fptr member (a
+   stream on the same descriptor) so fileno(GetFP()->fptr) still works.
+
+2. Real durability (gxdbase.h)
+   gxDatabase::Sync(int full = 0) forces the file to disk (fdatasync,
+   or fsync with full set; FlushFileBuffers on Windows).
+   SetSyncOnFlush(1) makes Flush() sync as well. Before 7.2 Flush()
+   stopped at the operating system's buffers.
+
+3. Page cache (gxdpcache.h)
+   gxDatabase::EnablePageCache(bytes) keeps 4 KB pages of the file in
+   memory; every gxDatabase read and write uses it, so B-tree nodes,
+   block headers and objects are read from memory once loaded. Outside
+   a transaction it writes through, so the file is the same as without
+   it. Use it only while one gxDatabase object owns the file.
+
+4. Atomic, crash and power loss safe transactions (gxdjrnl.h)
+   gxdJournal is a write-ahead log for a group of files (a data file
+   and its index files):
+
+     gxdJournal j;
+     j.Open("orders.jnl");          // replays committed work
+     db.Open("orders.gxd"); btx.Open("orders.btx");
+     j.Attach(&db); j.Attach(&btx); // and a BtreeCache if used
+     j.Begin(); ... j.Commit();      // Commit(1): synced, durable
+     j.Close();                     // checkpoint, then close the files
+
+   A commit appends the changed pages to the journal with one sync,
+   then writes them to the files without a sync, so other processes
+   reading the files see the batch when Commit() returns
+   (write-through, the default). A checkpoint syncs the files and
+   empties the journal when it passes 8 MB and on Close(), which also
+   truncates it. After a program crash or power loss Open() writes
+   every committed transaction to the files and drops one that did not
+   commit, so a batch is all or nothing. Commit(0) skips the journal
+   sync: safe from a program crash, but in write-through mode a power
+   loss can leave part of that batch in the files. Rollback() drops the
+   open transaction.
+
+   SetWriteMode(gxdJOURNAL_WRITE_BACK) keeps committed pages in memory
+   until a checkpoint (64 MB): fewer writes for a program that is the
+   only user of the files, but other processes do not see the data
+   until then. SetSyncLevel(OFF) skips the checkpoint syncs for
+   Commit(0) work, like the "no sync" setting of embedded SQL databases.
+
+   Readers in other processes see whole batches after Commit()
+   returns. A reader that runs while a commit writes its pages can see
+   part of the batch: use the application's own change counter, or
+   SetWriteLock(1) in the writer and gxdJournalReadLock (a shared
+   flock()/LockFileEx() lock on the journal file) in the readers.
+
+5. B-tree cache (btcache.h)
+   BtreeCache::FindBucket() used a linear walk of the buckets, so a big
+   cache was slower than a small one (a 64 MB cache made random reads
+   33 times slower). It is a hash lookup now. BtreeCache::Flush()
+   writes the dirty buckets and keeps them, instead of emptying them.
+   New: BtreeCache::Discard(). With the B-tree and its BtreeCache
+   attached to a gxdJournal the cached B-tree is crash safe.
+
+   NOTE: without the journal, a crash in the middle of a batch can
+   still lose B-tree keys, as in 7.1 (cached nodes reach the file in
+   cache order, and each node change is a separate write). Use
+   gxdJournal for any index that must survive a crash or power loss.
+
+6. B-tree reads (gxbtree.h)
+   A node is read and written with one call each (it was three).
+   Find(), FindFirst() and FindNext() reuse one node kept in the
+   gxBtree, so a walk in key order reads the next key from the same
+   leaf instead of searching from the root, while the file has not
+   been written since (gxDatabase::WriteCount()).
+
+7. Padding bytes
+   gxFileHeader, gxBlockHeader and gxBtreeHeader zero their padding
+   bytes, which were written to files with whatever the memory held.
+
+COMPATIBILITY
+-------------
+- Database and index files: unchanged. The nine database examples
+  write byte-identical files with 7.1 and 7.2 in the 32-bit and 64-bit
+  engines.
+- Source: the gxDatabase, gxBtree, BtreeCache, POD and InfoHog APIs
+  are unchanged; everything new is added.
+- Binary: gxdFPTR64, gxDatabase, gxBtree and BtreeCache have new
+  members. Rebuild programs against 7.2 (the vendored copies in OSA
+  and OCA are rebuilt anyway).
+
+SPEED
+-----
+Same workload for every engine (the datareel_oodb_bench
+program): 1,000,000 records, 16-byte keys, 100-byte values,
+batches of 1000, 64 MB of cache, no sync except "durable", RHEL 10.2,
+SATA SSD, XFS. Ops/s, median of 3 runs:
+
+                     key order  random   random   ordered  random   random   durable
+                     insert     insert   read     scan     update   delete   insert
+ 7.1                    83,827   76,453  174,957  218,694  151,092   66,721      265
+ 7.2, no code change   137,543  128,469  217,368 1,249,539 212,531   86,917      353
+ 7.2 + journal         663,541  171,869  268,542  652,149  127,558  107,841    1,003
+ embedded SQL (WAL)    666,603   90,840  281,075 7,355,031 113,561  132,841    1,660
+
+The ordered scan reads the data file in record order, not key order;
+the embedded SQL database (a typical one, in WAL mode) keeps rows in
+its B-tree leaves. The full report is kept in the project's
+development records.
+
+HOW IT WAS TESTED
+-----------------
+- tests/run_tests.sh on RHEL 10.2, 41 checks (the new journal_test,
+  every test in both journal modes, included) in five builds: 32-bit, 64-bit, portable types, 64-bit
+  portable types and shared library.
+- tests/journal_test: same bytes with and without the cache and
+  journal; commit; rollback with and without BtreeCache; 20 crash
+  images taken at random points; 20 journals cut or overwritten past
+  their last sync; 20 data and index files mixing pages from before
+  and after a checkpoint.
+- Windows 11, MSVC (VS 2026), Schannel: library, examples, the nine
+  database examples, journal_test and damaged_files pass in 32-bit,
+  64-bit and 64-bit portable type builds.
+- datareel_oodb_bench crash_test.sh (kill -9 of a writer): 0 committed
+  records lost and no partial batch in 60 rounds with the journal.
+
+========================================================================
+RELEASE_NOTES_7.1.txt
+========================================================================
+
+DataReel 7.1 Beta Release Notes, 10/31/2026
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.2 followed on the same day with the journal, the page
+cache and faster I/O; see RELEASE_NOTES_7.2.txt.
+
+DataReel 7.1 is a beta release. DataReel 7.4.1 (11/20/2026) is now the
+stable release, and DataReel 6.4.2 the legacy release (bug fixes and
+security updates only); please report problems through
+https://datareel.com/contact.php.
+
+DataReel is an object database (OODB) and cross platform
+communications toolkit for C++. 7.1 removes the gxRDBMS relational
+tables so the library is made of its two parts: the object database
+(gxDatabase, gxBtree, POD, InfoHog and the database utilities) and
+TLS networking. Everything else is unchanged from 7.0; see
+RELEASE_NOTES_7.0.txt for the move from 6.x to DataReel 7.
+
+The library version is 7.1 (version.txt, DATAREEL_VERSION_STRING in
+gxdlcode.h, libdatareel.so.7.1). The shared library soname
+(libdatareel.so.7) and the database file format version
+(gxDatabaseVersionNumber 4630) are unchanged, and
+find_package(DataReel 7) finds 7.1.
+
+REMOVED, AND WHAT TO USE INSTEAD
+--------------------------------
+ gxRDBMS relational tables        An embedded SQL database
+ (gxrdbms.h, gxrdbhdr.h,
+ gxrdbdef.h), db_rdbms example
+
+- The 18 gxRDBMS error codes in gxDatabaseError (gxDBASE_BAD_TABLE
+  to gxDBASE_ILLEGAL_CHAR) are kept as gxDBASE_RESERVED_1 to
+  gxDBASE_RESERVED_18, with the message "Database exception: Reserved
+  error code", so the values of the other codes do not change. Code
+  that named the old constants must drop them.
+- CDate stays as a portable 4-byte date type.
+
+FILE FORMATS
+------------
+Database, index and InfoHog files are unchanged and are byte-for-byte
+identical to the files 7.0 and 6.2 write. gxRDBMS table files can no
+longer be opened; read them with 6.2 or 7.0 and move the data to an
+embedded SQL database.
+
+HOW THE RELEASE WAS TESTED
+--------------------------
+- tests/run_tests.sh on RHEL 10.2: 40 checks (the 42 of 7.0 less the
+  two gxRDBMS checks) passed in the default 32-bit native type build
+  and in a 64-bit engine, portable type build, with no compiler
+  warnings.
+- Open Stock Analysis and Open Crypto Analysis built against 7.1 with
+  no warnings; the OSA read_trend_forecast parity test gave identical
+  output to the 7.0 build in all 51 cases.
+
+========================================================================
+RELEASE_NOTES_7.0.txt
+========================================================================
+
+DataReel 7.0 Beta Release Notes, 10/26/2026
+DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.0 is a beta release. DataReel 7.4.1 (11/20/2026) is now the
+stable release, and DataReel 6.4.2 the legacy release (bug fixes and
+security updates only); please report problems through
+https://datareel.com/contact.php.
+
+DataReel 7.1 removed the gxRDBMS relational tables; see
+RELEASE_NOTES_7.1.txt.
+
+DataReel 7.0 is a modernization release. The library now requires
+C++17, uses the C++ standard library for strings, containers,
+threads, files and time, and keeps the parts the standard library does
+not have: the object database, TLS networking and the portable file
+formats. Every network protocol except telnet and ping uses TLS.
+
+Database, index, InfoHog and gxRDBMS files are unchanged. The same
+programs built against 6.2 and 7.0 write byte-for-byte identical
+files, and 7.0 reads files written by 6.2.
+
+The library version is 7.0 (version.txt, DATAREEL_VERSION_STRING in
+gxdlcode.h, libdatareel.so.7.0). The database file format version
+(gxDatabaseVersionNumber 4630) is unchanged.
+
+REQUIREMENTS
+------------
+- A C++17 compiler: GCC 8 or later (RHEL 8, 9, 10) or Visual Studio
+  2022 or 2026.
+- CMake 3.16 or later (the Linux makefile in build/ is still there).
+- TLS library: OpenSSL 1.1.1 or later on Linux; Windows Schannel (the
+  default) or OpenSSL 3.x on Windows.
+
+REMOVED, AND WHAT TO USE INSTEAD
+--------------------------------
+ UString, gxString, gxStringw     std::string, std::wstring, and the
+                                  helpers in strutil.h
+ strutil C string functions       strutil.h std::string helpers
+ MemoryBuffer, MemoryBlock        std::vector<unsigned char>
+ gxList, gxListB, gxBStree        std::list, std::vector, std::set,
+                                  std::map
+ DiskFileB, futils                std::fstream, std::filesystem
+ SysTime                          systime.h functions, std::chrono
+ gxThread, gxThreadAPIWrapper,    std::thread or std::jthread
+ thread helpers, gThreadT
+ gxMutex, gxCondition,            std::mutex, std::condition_variable,
+ gxSemaphore                      std::counting_semaphore (C++20)
+ thrPool                          datareel::ThreadPool (thrpool.h)
+ gxDeviceCache, device buckets    (no replacement; the B-tree and
+                                  database caches remain)
+ FString                          char arrays or std::array
+ gxIP32, gxMAC48                  gxsAddress, std::string
+ gxDatagram                       gxSocket::OpenDatagram()/SendTo()
+ gxsHTML, gxsXML, gxsRSS parsers  a dedicated parser (pugixml,
+                                  libxml2)
+ HyperText, PostScriptDrv,        std::format/std::ostream
+ asprint report writers
+ Terminal (curses/ANSI.SYS)       ncurses directly
+ Ehandler, ostrbase               exceptions, std::ostream
+ leaktest (MSVC CRT)              AddressSanitizer, valgrind
+ gxsSocketUtils (gxsutils.h)      (moved into gxsPing)
+ wserror (Winsock messages)       gxSocket::SocketExceptionMessage()
+ gxrdbsql.h (empty placeholder)   An embedded SQL database if you need SQL
+ stdafx.h, gxdlincs.h, wxincs.h,  (not needed)
+ wx2incs.h
+ hexdump, ffind, txfilter utils   xxd, find, sed, PowerShell
+ MSVC nmake, Borland, MinGW and   CMake
+ Intel makefiles; dll/, winslib/
+
+REWRITTEN CLASSES
+-----------------
+Networking
+- gxSocket supports IPv4 and IPv6. Connect(host, port, timeout) tries
+  every address a name resolves to; Listen(port) listens on one dual-
+  stack socket; Accept() returns the client as a new gxSocket (the
+  old remote_socket/RemoteRecv/RemoteSend server model is gone).
+  Windows builds use Winsock 2.
+- gxSSL requires TLS 1.2 or later. gxSSLMethod is now gxSSL_TLS,
+  gxSSL_TLSv1_2, gxSSL_TLSv1_3 or gxSSL_DTLS. The system certificate
+  store is loaded, VerifyCert() checks subject alternative names and
+  IP addresses, and clients verify certificates by default.
+  MakeDHParms(), LoadDHParms(), MakeRSAEphKey() and gxRandom were
+  removed; MakeRSAPrivateKey() makes 3072-bit keys by default.
+- New gxsTLSConnection and gxsTLSServer (gxstls.h) are the
+  connections every protocol uses.
+- gxsHTTPClient is HTTPS only (gxsHTTPSClient was merged into it), with
+  a gxsHTTPMessage request/response type that also serves HTTPS
+  servers.
+- gxsSMTPClient, gxsPOP3Client and gxsFTPClient only connect with
+  TLS: implicit TLS or STARTTLS/STLS/AUTH TLS. A server that does not
+  offer TLS is refused. FTPS data connections use PROT P and reuse the
+  control connection's TLS session.
+- gxStream runs over a gxsTLSConnection; the block format is the same.
+  Block lengths from the network are limited (SetMaxBlockSize()).
+- gxsPing supports IPv6, needs no root on Linux when unprivileged ICMP
+  sockets are enabled, and uses IcmpSendEcho on Windows.
+- gxsTelnetClient is unchanged apart from the new gxSocket. It is the
+  one plain text protocol left.
+
+General
+- gxConfig, LogFile (now thread safe), CDate, the base 64 functions
+  and the URL parser use std::string. strutil.h, systime.h, logfile.h,
+  gxconfig.h and thrpool.h are in the datareel namespace.
+
+Database
+- gxRDBMS, InfoHog, gxDatabaseDebugManager and gxDatabaseCache use
+  std::string and std::vector internally. gxRDBMS::Search() and
+  SortOrderList() fill a std::set<gxrdDatabaseRecord>.
+
+NAMESPACE
+---------
+Every class, type, constant and function is declared in namespace
+datareel. gxdlcode.h, which every DataReel header includes, adds
+"using namespace datareel;" so 6.x code that uses unqualified names
+still compiles. Define DATAREEL_NO_GLOBAL_NAMES before including any
+DataReel header to keep the names out of the global namespace and
+qualify them (datareel::gxDatabase).
+
+BUG AND SECURITY FIXES
+----------------------
+- BtreeBucket::ReadNode() (the cached B-tree) trusted the key count in
+  the index file; a damaged or crafted file overflowed the heap. This
+  is the cached version of the gxBtree::ReadNode() fix in 6.1.
+- The cached B-tree walks stop after gxBtreeMaxNodeReads node reads,
+  like the uncached walks in 6.2.
+- InfoHog::Read() and gxPersistent::ReadString() checked lengths read
+  from the file through a signed cast, so very large lengths passed
+  the check. gxDatabase::CalcChecksum() could allocate a huge buffer
+  from a damaged block header. All now return an error.
+- gxrdDatabaseRecord::Compare() did not match a search string without
+  a null against a stored string with its null, so gxRDBMS searches on
+  CHAR fields found nothing.
+- gxDatabase::FindNextObject() and FindNextBlock() skipped a block
+  when given an object address and returned the last block again at
+  the end of the file, so a walk never ended. The next and previous
+  navigation functions were rewritten: the offset is an object or
+  block address, each returns 0 at the end, and FindPrevBlock() no
+  longer skips deleted blocks (FindPrevObject() does).
+- The B-tree cache did not work on index files opened read only.
+- gxTelnetClient's terminal type, long database file names and the
+  serial block server could overflow buffers or allocate without
+  limit.
+- Table header padding bytes are zeroed instead of left over memory.
+- The SMTP Date header is RFC 5322 (numeric time zone).
+- The old OpenSSL PRNG seeding from gxRandom tables was removed; the
+  operating system seeds OpenSSL.
+
+PORTING FROM 6.x
+----------------
+1. Build with CMake (or the new build/makefile) and C++17.
+2. Replace gxString/UString with std::string. Most member calls have a
+   strutil.h function: TrimLeadingSpaces() -> trim_left_in_place(s),
+   DeleteBeforeIncluding(x) -> delete_before_including(s, x),
+   Atoi() -> to_int(s), IFind() -> ifind(s, p), ToUpper() ->
+   s = to_upper(s), FilterChar(c) -> erase_char(s, c), and
+   "s << a << 42" -> str_append(s, a, 42). Find() returns
+   std::string::npos instead of -1.
+3. Replace MemoryBuffer with std::vector<unsigned char> (m_buf() ->
+   data(), length() -> size(), Load(p, n) -> assign(p, p + n)).
+4. Replace the thread classes with std::thread, std::mutex and
+   std::condition_variable, and thrPool with datareel::ThreadPool.
+5. Network code: open TLS connections with gxsTLSConnection or the
+   protocol clients. Servers use gxsTLSServer with a certificate and
+   key. Test servers with self-signed certificates need SetCAFile()
+   on the client (or SetVerifyPeer(false) for tests only).
+6. gxConfig::Load() and the Write functions return bool (true on
+   success); GetStrValue() returns const char* or null.
+7. LogFile no longer derives from DiskFileB; use Open(), WriteLine(),
+   Write() and operator<<.
+8. CDate::c_str() is now str() and returns std::string.
+9. Keep DATAREEL_64BIT_DATABASE and DATAREEL_NATIVE_TYPES the same as
+   your 6.x build so your files keep their layout.
+
+GUIDES FOR AI CODING ASSISTANTS
+-------------------------------
+AGENTS.md, llms.txt, llms-full.txt and docs/ai describe how to use
+DataReel for TLS communications and object databases, with complete
+sample programs (docs/ai/samples) that tests/run_tests.sh builds and
+runs. docs/bin/make_ai_docs.py copies the samples into the guides and
+rebuilds llms.txt and llms-full.txt.
+
+HOW THE RELEASE WAS TESTED
+--------------------------
+- tests/run_tests.sh on RHEL 10: 42 checks covering every database
+  example, InfoHog, gxRDBMS, TLS echo over IPv4 and IPv6, certificate
+  rejection, HTTPS (including path traversal and http:// refusal),
+  gxStream, SMTP (implicit TLS, STARTTLS, refusing a server without
+  STARTTLS), POP3 (implicit TLS and STLS) and FTPS (explicit and
+  implicit, upload, list, download) and the AI guide samples, in
+  32-bit and 64-bit engine,
+  native and portable type, and static and shared library builds.
+- tests/damaged_files read thousands of randomly damaged database,
+  index and InfoHog files without a crash or endless loop, and ran
+  clean under valgrind.
+- The database examples, InfoHog and gxRDBMS programs were run with
+  6.2 and 7.0 and wrote identical files; 7.0 opened the 6.2 files.
+- Windows 11 with Visual Studio 2026, with both Schannel and OpenSSL
+  3.5: every example and test passed, including HTTPS to a public site
+  through the Windows certificate store, the mail and FTPS clients
+  against the Linux mock servers, and a Linux OpenSSL client with a
+  Windows Schannel server.
+
+SUPPORTED PLATFORMS
+-------------------
+- Linux: Red Hat Enterprise Linux 10 (the default build platform), 9
+  and 8, with the system OpenSSL.
+- Windows: Windows 11 and Windows Server 2022 and 2025, 64-bit, with
+  Visual Studio 2022 or 2026, using Schannel or OpenSSL 3.5.x LTS.

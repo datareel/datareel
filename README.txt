@@ -114,7 +114,8 @@ WHAT CHANGED IN DATAREEL 7
 See RELEASE_NOTES_7.0.txt for the full list and for porting notes,
 RELEASE_NOTES_7.1.txt, RELEASE_NOTES_7.2.txt, RELEASE_NOTES_7.3.txt,
 RELEASE_NOTES_7.3.1.txt, RELEASE_NOTES_7.3.2.txt, RELEASE_NOTES_7.3.3.txt
-and RELEASE_NOTES_7.4.txt for the changes in 7.1 to 7.4. In short:
+and RELEASE_NOTES_7.4.txt for the changes in 7.1 to 7.4 (RELEASE_NOTES.txt
+has every 7.x release's notes in one file, newest first). In short:
 
 - C++17 is required. Strings, lists, trees, threads, mutexes, files
   and time now come from the standard library. The UString/gxString,
@@ -341,6 +342,8 @@ stream.
 
 RELEASE HISTORY
 ---------------
+RELEASE_NOTES.txt has the notes of every 7.x release in one file.
+
  7.4.1 11/20/2026 Fix release: the object service address check
                   (security), gxObjRepl port 2073 by default, a stalled
                   copy no longer holds the primary, reconnects taken at

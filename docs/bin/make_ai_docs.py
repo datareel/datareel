@@ -95,6 +95,7 @@ def main():
         index.append('- [%s](docs/ai/%s): %s' % (title, f, desc))
     index += ['', '## Reference', '',
               '- [Readme](README.txt): What the library is for, building, file formats',
+              '- [Release notes, all 7.x](RELEASE_NOTES.txt): every 7.x release in one file, newest first',
               '- [Release notes 7.4](RELEASE_NOTES_7.4.txt): Vector extensions: '
               'vector index file, exact and HNSW nearest-neighbor search',
               '- [Release notes 7.3.3](RELEASE_NOTES_7.3.3.txt): Database '

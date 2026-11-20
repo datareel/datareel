@@ -19,6 +19,7 @@ AI-assisted use only: before any AI assistance, review your agency's or company'
 ## Reference
 
 - [Readme](README.txt): What the library is for, building, file formats
+- [Release notes, all 7.x](RELEASE_NOTES.txt): every 7.x release in one file, newest first
 - [Release notes 7.4](RELEASE_NOTES_7.4.txt): Vector extensions: vector index file, exact and HNSW nearest-neighbor search
 - [Release notes 7.3.3](RELEASE_NOTES_7.3.3.txt): Database replication fixes (seal per folder, promote-check under the apply lock)
 - [Release notes 7.3.2](RELEASE_NOTES_7.3.2.txt): Database replication fixes (channel resync, staged copies, promote)
