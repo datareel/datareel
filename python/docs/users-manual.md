@@ -1,17 +1,19 @@
-# The datareel Python module: user's manual (DataReel 7.5 beta 1)
+# The datareel Python module: user's manual (DataReel 7.5 beta 2)
 
-The `datareel` module reads, from Python, the object databases that programs written with the DataReel
-C++ library keep: gxObjRepl nodes (a primary or its copy) while they run, vector index files (`.vix`)
-and block files (`.gxd`). Python code reads the same stores the production C++ programs write, with no
-C++ helper and no export file in between. Beta 1 is read only.
+The `datareel` module reads and writes, from Python, the object databases that programs written with the
+DataReel C++ library keep: gxObjRepl nodes (a primary or its copy), vector index files (`.vix`) and block
+files (`.gxd`). Python code reads the same stores the production C++ programs write, with no C++ helper and
+no export file in between, and since 7.5 beta 2 it can also be the primary that writes a node and
+replicates it to a C++ copy.
 
 Contents: 1. Install. 2. Ideas you need. 3. A demo node. 4. Simple examples (1 to 4). 5. Detailed examples
-(5 to 9). 6. Reference. 7. Errors and what to do. 8. Limits of beta 1.
+(5 to 9). 5a. Writing from Python (examples 10 and 11, beta 2). 6. Reference. 7. Errors and what to do.
+8. Limits of beta 2.
 
 ## 1. Install
 
 ```
-python3.12 -m pip install --no-index datareel-7.5b1-cp312-cp312-linux_x86_64.whl
+python3.12 -m pip install --no-index datareel-7.5b2-cp312-cp312-linux_x86_64.whl
 python3.12 -c "import datareel; print(datareel.__version__, datareel.library_version())"
 ```
 
@@ -34,9 +36,12 @@ it, see `python/docs/building.md`.
 - **Whole commits only.** A `Reader` reads while the node runs. Each call takes the node journal's shared
   lock, so it sees only whole commits, never half of one. `reader.seq` names the commit the last call
   read (a primary's last commit, a copy's last applied one). Two calls may see different commits.
-- **One process writes.** The C++ node holds its folder for one process. Readers never block it for
-  long and never write. Never open a running node's files with `BlockFile` or `VectorIndex`: use
-  `Reader`.
+- **One process writes.** A node folder is held by one process at a time: the C++ program, or (beta 2)
+  the Python program that opened it with `datareel.Primary`. Readers never block it for long and never
+  write. Never open a running node's files with `BlockFile` or `VectorIndex`: use `Reader`.
+- **Transactions** (beta 2). A `Primary` changes objects only inside a transaction: `begin()`, then
+  `put`/`remove`/`purge`, then `commit()` (durable when it returns) or `rollback()`. `with p.transaction():`
+  does that for you and rolls back when the block raises.
 
 ## 3. A demo node
 
@@ -479,6 +484,155 @@ $ python3.12 ex9_threads.py /tmp/demo/node 4
 threads 4 objects checked 300 of 300 in 0.05 s
 ```
 
+## 5a. Writing from Python (7.5 beta 2)
+
+`datareel.Primary(root, config=None, settings=None, quiet=False)` opens (or makes) a node folder as a
+gxObjRepl primary in this Python process. `settings` is a dict of the node's configuration keys, the same
+ones `objrepl.conf` holds (`copy`, `ca`, `cert`, `key`, `index`, `links`, `name`, `peer-name`, `trim`,
+`idle-timeout`, `ack-timeout`); `config` names an `objrepl.conf` file instead, and `settings` wins over it.
+A primary always needs its certificates, even before any copy listens. `quiet=True` drops the node's
+messages, which otherwise go to stderr.
+
+### Example 10: write objects, then read them back
+
+<!-- sample: python/examples/ex10_write_objects.py -->
+```python
+# python/examples/ex10_write_objects.py
+"""Example 10 (simple, 7.5 beta 2): write objects from Python as a gxObjRepl primary, then read them back.
+
+A primary needs the node's certificates even when no copy is listening (it connects when you pump()). The
+demo node's certificates are in the folder make_demo_node.sh made (PKI). ROOT is a new folder for this node.
+
+    python ex10_write_objects.py ROOT PKI
+"""
+import os
+import struct
+import sys
+import datareel
+
+root, pki = sys.argv[1], sys.argv[2]
+settings = {
+    "copy": "127.0.0.1:2073",                          # the copy (nobody listens in this example)
+    "ca": os.path.join(pki, "ca.pem"),
+    "cert": os.path.join(pki, "primary.pem"),
+    "key": os.path.join(pki, "primary.key"),
+    "index": "k0:events:B:0:8",                        # a B-tree on the 8-byte key at offset 0
+}
+EVENT = struct.Struct("<Qd16s")                        # C++: struct { uint64_t key; double value; char name[16]; }
+
+with datareel.Primary(root, settings=settings, quiet=True) as p:
+    p.open_database("events")                          # before the first transaction
+    with p.transaction():                              # one commit: all of it or none of it
+        for key, value, name in [(1, 10.5, b"open"), (2, 11.25, b"high"), (3, 9.75, b"low")]:
+            p.put("events", p.new_id(), EVENT.pack(key, value, name))
+    print("committed: last_seq", p.last_seq, "objects", len(p.ids("events")))
+    oid = p.find_key("k0", struct.pack("<Q", 2))[0]
+    key, value, name = EVENT.unpack(p.get("events", oid))
+    print("key 2:", value, name.rstrip(b"\0").decode())
+
+with datareel.Reader(root, "k0:events:B:0:8") as r:     # any other process can read it the same way
+    print("reader: seq", r.seq, "objects", len(r.ids("events")))
+```
+<!-- end sample -->
+
+```
+$ python3.12 ex10_write_objects.py /tmp/ex10 /tmp/demo/pki
+committed: last_seq 1 objects 3
+key 2: 11.25 high
+reader: seq 1 objects 3
+```
+
+### Example 11: an event log with updates, removes, a rolled back batch and a copy
+
+<!-- sample: python/examples/ex11_event_log.py -->
+```python
+# python/examples/ex11_event_log.py
+"""Example 11 (detailed, 7.5 beta 2): an event log written from Python: batches, updates, removes, a rolled
+back batch, and replication to a copy.
+
+Each batch is one transaction. A batch that fails half way is rolled back, so the node never holds part of
+it. With COPY_PORT, a C++ copy (objrepl copy ... --listen 127.0.0.1:COPY_PORT) receives every commit:
+pump() after a commit sends what the copy lacks, drain() waits until it has everything.
+
+    python ex11_event_log.py ROOT PKI [COPY_PORT]
+"""
+import os
+import struct
+import sys
+import datareel
+
+root, pki = sys.argv[1], sys.argv[2]
+port = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+INDEX = "k0:log:B:0:8,v0:log:V:8:2"                    # key at 0; a 2-float vector at 8
+REC = struct.Struct("<Q2f8s")                          # C++: struct { uint64_t seq; float v[2]; char kind[8]; }
+settings = {"copy": "127.0.0.1:%d" % port, "ca": os.path.join(pki, "ca.pem"),
+            "cert": os.path.join(pki, "primary.pem"), "key": os.path.join(pki, "primary.key"), "index": INDEX}
+
+
+class BadEvent(Exception):
+    pass
+
+
+def write_batch(p, start, events):
+    """events: (x, y, kind) tuples; a kind longer than 8 bytes fails the whole batch"""
+    ids = []
+    with p.transaction():
+        for i, (x, y, kind) in enumerate(events):
+            if len(kind) > 8:
+                raise BadEvent("kind %r is longer than 8 bytes" % kind)
+            oid = p.new_id()
+            p.put("log", oid, REC.pack(start + i, x, y, kind))
+            ids.append(oid)
+    return ids
+
+
+with datareel.Primary(root, settings=settings, quiet=True) as p:
+    p.open_database("log")
+    ids = write_batch(p, 1, [(1.0, 1.0, b"trade"), (2.0, 1.5, b"quote"), (3.0, 0.5, b"trade")])
+    ids += write_batch(p, 4, [(4.0, 2.0, b"quote")])
+    try:
+        write_batch(p, 5, [(5.0, 5.0, b"trade"), (6.0, 6.0, b"not-a-kind")])
+    except BadEvent as e:
+        print("rolled back:", e)
+    with p.transaction():                              # an update and a remove in one commit
+        seq, x, y, kind = REC.unpack(p.get("log", ids[1]))
+        p.put("log", ids[1], REC.pack(seq, x, y + 10.0, kind))
+        p.remove("log", ids[2])
+    print("last_seq", p.last_seq, "live", len(p.ids("log")), "tombstones", len(p.ids("log", tombstones=True)))
+    near = p.nearest("v0", [2.0, 11.0], k=1)[0]
+    print("nearest to (2, 11): seq", REC.unpack(p.get("log", near[0]))[0])
+    rc = p.drain(30)                                   # 0: the copy has every commit; 2: not in 30 s; 3: refused
+    print("copy:", "up to date" if rc == 0 else "away (rc %d)" % rc, "applied", p.copy_applied)
+```
+<!-- end sample -->
+
+With a C++ copy listening (`objrepl copy /tmp/copy --listen 127.0.0.1:20731 --ca ... --allow-cn
+objrepl-primary`, see the replication administrator's guide):
+
+```
+$ python3.12 ex11_event_log.py /tmp/ex11 /tmp/demo/pki 20731
+rolled back: kind b'not-a-kind' is longer than 8 bytes
+last_seq 3 live 3 tombstones 1
+nearest to (2, 11): seq 2
+copy: up to date applied 3
+```
+
+Without a copy, `drain(30)` waits the 30 seconds and the last line says `copy: away (rc 2) applied 0`;
+the commits stay in the node's outbox until a copy takes them.
+
+What to know when Python writes:
+
+- Encode objects with the same layout the C++ readers use (`struct.pack`, or numpy `tobytes()` with the
+  dtype of example 5). Index fields must be at the offsets the index spec names.
+- `new_id()` gives ids no database of the node has used; keep the ids you need to update or remove
+  objects later, or find them through an index.
+- `commit()` is durable when it returns. A Python program killed mid-transaction loses only that
+  transaction: the next open replays the journal (the tests kill one with KILL and check).
+- `pump()` after commits, or `drain(seconds)` at the end, sends the copy what it lacks. Commits are durable
+  on the primary whether or not a copy is there.
+- A copy's folder is never opened as a primary (`datareel.Error`). After a failover, the old primary
+  comes back as a copy with `objrepl rejoin`.
+
 ## 6. Reference
 
 ### datareel.Reader(root, index="")
@@ -504,6 +658,25 @@ a node or the spec is bad. A context manager (`with`), or call `close()`.
 it was loaded at. On a busy node with a large index, search in batches between commits, or search a
 merged `.vix` file with `VectorIndex`.
 
+### datareel.Primary(root, config=None, settings=None, quiet=False) (beta 2)
+
+A gxObjRepl primary in this process (see section 5a). A context manager (`with`), or call `close()`.
+
+| Call | Does |
+| --- | --- |
+| `open_database(db)` | opens or makes database `db` (outside a transaction) |
+| `begin()`, `commit()`, `rollback()` | a transaction; `commit()` is durable when it returns |
+| `with p.transaction():` | `begin()`, then `commit()`, or `rollback()` when the block raises |
+| `new_id()` | an object id no database of the node has used |
+| `put(db, id, data)` | adds or updates an object (bytes-like, at most 32 MB; a commit at most 60 MB) |
+| `remove(db, id)` | the object becomes a tombstone |
+| `purge(db, id)` | frees a tombstone for good (refused while a live link names it) |
+| `pump()` | sends the copy what it lacks: 0 it has every commit, 1 behind or away, 3 refused (an alarm) |
+| `drain(seconds=60)` | pumps until the copy has every commit: 0, 2 (not in time) or 3 |
+| `get`, `is_live`, `ids`, `databases`, `find_key`, `nearest` | as `Reader`, and they see the open transaction's own changes |
+| `close()` | checkpoints and closes (an open transaction is rolled back) |
+| `last_seq`, `epoch`, `copy_applied`, `is_open` | the last commit, the epoch, the copy's applied commit as last heard |
+
 ### datareel.VectorIndex(path, spec=None)
 
 A `.vix` file opened read only. With `spec`, a file whose spec differs is refused.
@@ -522,7 +695,7 @@ A `.gxd` file opened read only: `addresses()` (every object's address, in file o
 
 ### Module
 
-`datareel.__version__` (`"7.5b1"`), `datareel.library_version()` (the C++ library, `"7.5 beta1"`),
+`datareel.__version__` (`"7.5b2"`), `datareel.library_version()` (the C++ library, `"7.5 beta2"`),
 `datareel.engine_bits()` (64), `datareel.Error` (a `RuntimeError`).
 
 Query vectors are lists or tuples of numbers, or any float32 buffer (`array('f')`, a numpy `float32` array).
@@ -540,10 +713,15 @@ is not thread safe: give each thread its own.
 | `the index NAME is being built` | the node is building a new index | wait for the build |
 | `cannot open FILE: the spec differs` | the `.vix` file was made with another spec | use the right file or spec |
 | `the query has N values, the index M` | the query's length is not the index's `dim` | |
+| `Put() outside a transaction` | `put`/`remove`/`purge` without `begin()` | use `with p.transaction():` |
+| `ROOT is in use by another process` | another process (or another `Primary`) holds the node | one writer per node; readers use `Reader` |
+| `ROOT is a copy: a copy is not written to` | the folder is a copy | write to the primary; after a failover use takeover/rejoin |
+| `id 0 is not an object id` | `put` with id 0 | use `new_id()` |
 
-## 8. Limits of beta 1
+## 8. Limits of beta 2
 
-- Read only. Writing from Python (a gxObjRepl primary) is planned for a later beta.
+- Python writes as a gxObjRepl primary. A copy (`Serve()`), takeover and rejoin from Python are not in
+  beta 2: run the C++ `objrepl` tool for those.
 - The 64-bit database engine only (the one gxObjRepl nodes use).
 - Linux x86_64 and CPython 3.12 wheels. Windows wheels are not built yet.
 - `VectorIndex` and `BlockFile` are for files no process is writing.

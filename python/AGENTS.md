@@ -1,6 +1,6 @@
 # DataReel 7.5 Python module: AI-assisted builds, use and support
 
-This file is for AI-assisted work with the `datareel` Python module (DataReel 7.5 beta 1), the
+This file is for AI-assisted work with the `datareel` Python module (DataReel 7.5 beta 2), the
 pip package that reads the object databases the DataReel C++ library writes. It tells an AI agent
 how to assist a site's own developers and administrators to build the wheel, install it, write Python
 code that reads DataReel stores, and troubleshoot. The agent assists; it never acts autonomously
@@ -79,9 +79,12 @@ in advisory mode, with no tool execution by the agent.
 
 ## 1. Rules for agents (read these first)
 
-1. **Beta 1 is read only.** The module reads; it never writes a DataReel file. Do not write Python code
-   that changes a `.gxd`, `.btx`, `.vix` or node file by other means (open(..., "r+b"), mmap writes):
-   that damages the database. Writes go through the C++ program that owns the store.
+1. **Writes go through `datareel.Primary` only (beta 2).** Never change a `.gxd`, `.btx`, `.vix` or node
+   file by other means (open(..., "r+b"), mmap writes): that damages the database. A node has one writer:
+   never open as a `Primary` a node that a C++ program (or another Python process) runs, and never a copy.
+   Writing to a production node from Python is the person's decision, made explicitly; propose it, do not
+   do it. Every change goes in a transaction (`with p.transaction():`), encoded with the C++ readers'
+   record layout.
 2. **A running node is read with `Reader` only.** `BlockFile` and `VectorIndex` are for files no process
    is writing (closed day files, merged files, copies of a stopped node). Opening a running node's files
    with them can read half-written pages.
@@ -104,8 +107,9 @@ in advisory mode, with no tool execution by the agent.
 
 ## 2. What the module is
 
-| Class | Reads | When |
+| Class | Does | When |
 | --- | --- | --- |
+| `datareel.Primary(root, config=None, settings=None, quiet=False)` (beta 2) | writes a node as a gxObjRepl primary: transactions, `put`, `remove`, `purge`, `new_id`, `pump`, `drain`, and reads | when this Python process is the node's only writer |
 | `datareel.Reader(root, index="")` | a gxObjRepl node (primary or copy): `get`, `is_live`, `ids`, `databases`, `find_key`, `nearest`, `refresh`; `seq`, `epoch`, `role` | while the node runs, or when none runs |
 | `datareel.VectorIndex(path, spec=None)` | a `.vix` file: `search` (tags, exact or graph), `get`; `dim`, `count`, `spec`, `metric` | files no process is writing |
 | `datareel.BlockFile(path)` | a `.gxd` file: `addresses`, `read` | files no process is writing |
@@ -129,7 +133,7 @@ describes. Show the person each command first (section 0).
 ## 4. Using it in a project
 
 1. Install the wheel in the project's virtual environment:
-   `python -m pip install --no-index datareel-7.5b1-cp312-cp312-linux_x86_64.whl`.
+   `python -m pip install --no-index datareel-7.5b2-cp312-cp312-linux_x86_64.whl`.
 2. Find the store's facts: the node folder, its index spec, the C++ record struct of each database.
 3. Start from the user's manual examples: example 1 (open and list), 2 (decode), 3 (keys), 4 (vectors),
    5 (layout class and rows), 6 (follow a running node), 7 (vector files), 8 (block files), 9 (threads).

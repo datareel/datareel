@@ -602,7 +602,7 @@ static PyObject *Primary_purge(PrimaryObject *self, PyObject *args)
   PRIMARY_CALL(self, self->r->Purge(d, id));
 }
 
-// pump() -> 0 the copy has every commit, 1 behind or away, 3 refused (an alarm); drain(seconds) the same, waiting
+// pump() -> 0 the copy has every commit, 1 behind or away, 3 refused (an alarm); drain(seconds) -> 0, 2 (not drained in time) or 3
 static PyObject *Primary_pump(PrimaryObject *self, PyObject *)
 {
   PRIMARY_OPEN(self);
@@ -728,7 +728,7 @@ static PyMethodDef Primary_methods[] = {
   {"commit", (PyCFunction)Primary_commit, METH_NOARGS, "commit(): durable when it returns, with its outbox entry"},
   {"rollback", (PyCFunction)Primary_rollback, METH_NOARGS, "rollback(): drop the open transaction"},
   {"pump", (PyCFunction)Primary_pump, METH_NOARGS, "pump() -> 0 (the copy has everything), 1 (behind or away) or 3 (refused)"},
-  {"drain", (PyCFunction)Primary_drain, METH_VARARGS, "drain(seconds=60) -> 0 when the copy has every commit, else 1 or 3"},
+  {"drain", (PyCFunction)Primary_drain, METH_VARARGS, "drain(seconds=60) -> 0 when the copy has every commit, 2 when it does not after SECONDS, 3 refused"},
   {"get", (PyCFunction)Primary_get, METH_VARARGS, "get(db, id) -> bytes, or None (also sees this transaction's changes)"},
   {"is_live", (PyCFunction)Primary_is_live, METH_VARARGS, "is_live(db, id) -> bool"},
   {"ids", (PyCFunction)(void (*)(void))Primary_ids, METH_VARARGS | METH_KEYWORDS, "ids(db, tombstones=False) -> sorted ids"},

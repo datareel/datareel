@@ -18,7 +18,7 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>Building the datareel Python package (DataReel 7.5 beta 1)</h1>
+<h1>Building the datareel Python package (DataReel 7.5 beta 2)</h1>
 <p>This guide builds the <code>datareel</code> wheel from the DataReel source, tests it, and installs it. The package is one C++ extension (<code>datareel._datareel</code>) plus a small Python wrapper. The DataReel C++ library is built from the same source tree and linked into the extension, so the wheel needs no DataReel install on the target machine.</p>
 <h2 id="WhatYouNeed">What you need</h2>
 <table>
@@ -36,7 +36,7 @@
 <h2 id="BuildTheWheel">Build the wheel</h2>
 <p>From the top of the DataReel source tree (branch <code>7.5-beta</code>):</p>
 <pre>python3.12 -m pip wheel python/ --no-build-isolation --no-deps -w dist/</pre>
-<p><code>--no-build-isolation</code> uses the setuptools and wheel already installed, so pip downloads nothing. The result is <code>dist/datareel-7.5b1-cp312-cp312-linux_x86_64.whl</code>.</p>
+<p><code>--no-build-isolation</code> uses the setuptools and wheel already installed, so pip downloads nothing. The result is <code>dist/datareel-7.5b2-cp312-cp312-linux_x86_64.whl</code>.</p>
 <p>What happens inside:</p>
 <p>1. <code>python/setup.py</code> runs CMake on <code>python/CMakeLists.txt</code> in pip's build folder. 2. That project adds the DataReel source as a subproject with the 64-bit database engine (<code>DATAREEL_64BIT_DATABASE=ON</code>), builds it as a static library with position independent code, and builds <code>_datareel</code> with CMake's <code>Python3_add_library</code>. 3. setup.py copies the extension into the wheel next to <code>datareel/__init__.py</code>.</p>
 <p>Settings:</p>
@@ -64,14 +64,14 @@ podman run --rm -v &quot;$PWD&quot;:/w:Z drpy-ubi9 bash -c \
 <p>Every test must pass. A test that fails once on a loaded machine is run again on its own before it is treated as a bug; never skip one.</p>
 <p>To test a wheel on another machine (RHEL 10, for example), install it in a virtual environment and run the two test files with <code>DR_TEST_BIN</code> set to a folder that holds the C++ <code>objrepl</code> and <code>test_gxobjrepl_reader</code> programs (a 64-bit engine build of DataReel) and <code>DR_TEST_CERTS_SH</code> set to <code>utils/objrepl/objrepl_certs.sh</code>:</p>
 <pre>python3.12 -m venv /tmp/drvenv
-/tmp/drvenv/bin/python -m pip install --no-index --no-deps dist/datareel-7.5b1-cp312-cp312-linux_x86_64.whl
+/tmp/drvenv/bin/python -m pip install --no-index --no-deps dist/datareel-7.5b2-cp312-cp312-linux_x86_64.whl
 cd /tmp
 DR_TEST_BIN=$BUILD/utils DR_TEST_CERTS_SH=$SRC/utils/objrepl/objrepl_certs.sh \
   /tmp/drvenv/bin/python -I $SRC/python/tests/test_datareel.py</pre>
 <h2 id="Install">Install</h2>
-<pre>python3.12 -m pip install --no-index datareel-7.5b1-cp312-cp312-linux_x86_64.whl
+<pre>python3.12 -m pip install --no-index datareel-7.5b2-cp312-cp312-linux_x86_64.whl
 python3.12 -c &quot;import datareel; print(datareel.__version__, datareel.library_version())&quot;</pre>
-<p>The second line prints <code>7.5b1 7.5 beta1</code>. Install into a virtual environment, or with <code>--user</code>, rather than into the system Python.</p>
+<p>The second line prints <code>7.5b2 7.5 beta2</code>. Install into a virtual environment, or with <code>--user</code>, rather than into the system Python.</p>
 <h2 id="Problems">Problems</h2>
 <table>
 <thead><tr><th>What you see</th><th>Why</th><th>What to do</th></tr></thead>
@@ -84,9 +84,9 @@ python3.12 -c &quot;import datareel; print(datareel.__version__, datareel.librar
 <tr><td><code>datareel.Error: cannot lock .../node.jnl (gxObjReplReader needs the 64-bit engine)</code></td><td>not seen with this wheel (it is always 64-bit)</td><td>report it with the full message</td></tr>
 </tbody>
 </table>
-<h2 id="NotInBeta1">Not in beta 1</h2>
+<h2 id="NotInBeta2">Not in beta 2</h2>
 <p>Windows wheels and wheels for other Python versions are not built yet. The extension's source builds with any CPython 3.10 or later that has its headers, but only 3.12 is tested.</p>
 </main>
-<footer class="dr-footer">DataReel 7.5 beta 1 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 beta 2 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

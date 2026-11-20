@@ -1,10 +1,11 @@
-# datareel for Python (DataReel 7.5 beta 1)
+# datareel for Python (DataReel 7.5 beta 2)
 
-Read the object databases that the DataReel C++ library writes, from Python, without a C++ helper
-or an export file. This beta is read only.
+Read and write the object databases of the DataReel C++ library from Python, without a C++ helper
+or an export file. Beta 2 adds writes: a Python program can be a gxObjRepl primary that replicates to a
+C++ copy.
 
 ```
-pip install datareel-7.5b1-cp312-cp312-linux_x86_64.whl
+pip install datareel-7.5b2-cp312-cp312-linux_x86_64.whl
 ```
 
 ```python
@@ -42,6 +43,11 @@ with datareel.BlockFile("/data/old_day.gxd") as f:
 
 ## What it does
 
+- `Primary(root, config=None, settings=None, quiet=False)` (beta 2) opens a node as a gxObjRepl primary in
+  this process: `open_database`, `begin`/`commit`/`rollback` (or `with p.transaction():`), `new_id`,
+  `put`, `remove`, `purge`, `pump`, `drain`, and the reads below. Commits are durable when `commit()`
+  returns; `pump()`/`drain()` send them to the copy.
+
 - `Reader(root, index="")` reads a gxObjRepl node (a primary or a copy) from another process while
   the node runs. Each call reads under the node journal's shared lock, so it sees whole commits only:
   `get(db, id)` (None when the object is not live), `is_live`, `ids(db, tombstones=False)`,
@@ -59,9 +65,9 @@ Objects come back as the bytes the C++ program stored. Decode them with `struct`
 program's record layout. In a gxObjRepl node, `Reader.get()` returns the object's own bytes;
 `BlockFile.read()` returns the whole block, with gxObjRepl's 40-byte record head in front.
 
-## Limits (beta 1)
+## Limits (beta 2)
 
-- Read only. Writes (a gxObjRepl primary from Python) are planned for a later beta.
+- Python is a primary only: a copy, takeover and rejoin run with the C++ `objrepl` tool.
 - The 64-bit database engine only (the engine nodes and OSA use).
 - Linux x86_64 and CPython 3.12 wheels, built on RHEL 9 (UBI 9) and tested on RHEL 9 and 10. The
   wheel links the system OpenSSL 3 (`libssl.so.3`); the DataReel library is inside the extension.

@@ -1,4 +1,4 @@
-# Building the datareel Python package (DataReel 7.5 beta 1)
+# Building the datareel Python package (DataReel 7.5 beta 2)
 
 This guide builds the `datareel` wheel from the DataReel source, tests it, and installs it. The package
 is one C++ extension (`datareel._datareel`) plus a small Python wrapper. The DataReel C++ library is built
@@ -28,7 +28,7 @@ python3.12 -m pip wheel python/ --no-build-isolation --no-deps -w dist/
 ```
 
 `--no-build-isolation` uses the setuptools and wheel already installed, so pip downloads nothing. The
-result is `dist/datareel-7.5b1-cp312-cp312-linux_x86_64.whl`.
+result is `dist/datareel-7.5b2-cp312-cp312-linux_x86_64.whl`.
 
 What happens inside:
 
@@ -85,7 +85,7 @@ two test files with `DR_TEST_BIN` set to a folder that holds the C++ `objrepl` a
 
 ```
 python3.12 -m venv /tmp/drvenv
-/tmp/drvenv/bin/python -m pip install --no-index --no-deps dist/datareel-7.5b1-cp312-cp312-linux_x86_64.whl
+/tmp/drvenv/bin/python -m pip install --no-index --no-deps dist/datareel-7.5b2-cp312-cp312-linux_x86_64.whl
 cd /tmp
 DR_TEST_BIN=$BUILD/utils DR_TEST_CERTS_SH=$SRC/utils/objrepl/objrepl_certs.sh \
   /tmp/drvenv/bin/python -I $SRC/python/tests/test_datareel.py
@@ -94,11 +94,11 @@ DR_TEST_BIN=$BUILD/utils DR_TEST_CERTS_SH=$SRC/utils/objrepl/objrepl_certs.sh \
 ## Install
 
 ```
-python3.12 -m pip install --no-index datareel-7.5b1-cp312-cp312-linux_x86_64.whl
+python3.12 -m pip install --no-index datareel-7.5b2-cp312-cp312-linux_x86_64.whl
 python3.12 -c "import datareel; print(datareel.__version__, datareel.library_version())"
 ```
 
-The second line prints `7.5b1 7.5 beta1`. Install into a virtual environment, or with `--user`, rather
+The second line prints `7.5b2 7.5 beta2`. Install into a virtual environment, or with `--user`, rather
 than into the system Python.
 
 ## Problems
@@ -112,7 +112,7 @@ than into the system Python.
 | `ImportError: libssl.so.3` on the target | OpenSSL 3 missing there | RHEL 9 and 10 have it; older systems are not supported |
 | `datareel.Error: cannot lock .../node.jnl (gxObjReplReader needs the 64-bit engine)` | not seen with this wheel (it is always 64-bit) | report it with the full message |
 
-## Not in beta 1
+## Not in beta 2
 
 Windows wheels and wheels for other Python versions are not built yet. The extension's source builds with
 any CPython 3.10 or later that has its headers, but only 3.12 is tested.

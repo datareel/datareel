@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>DataReel 7.5 Beta 1 Release Notes</title>
+<title>DataReel 7.5 Beta 2 Release Notes</title>
 <link rel="stylesheet" href="css/datareel.css">
 <link rel="icon" href="images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
@@ -18,12 +18,19 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>DataReel 7.5 Beta 1 Release Notes</h1>
+<h1>DataReel 7.5 Beta 2 Release Notes</h1>
 <div class="dr-toc-title">Contents</div>
-<p class="dr-toc"><a href="#NewIn75Beta1">New in 7.5 beta 1</a><br>
-<a href="#LimitsOfBeta1">Limits of beta 1</a><br>
+<p class="dr-toc"><a href="#NewIn75Beta2">New in 7.5 beta 2</a><br>
+<a href="#NewIn75Beta1">New in 7.5 beta 1</a><br>
+<a href="#LimitsOfBeta2">Limits of beta 2</a><br>
 <a href="#PlannedForLater75Betas">Planned for later 7.5 betas</a></p>
-<p>DataReel 7.5 beta 1 adds the datareel Python module, a package that installs with pip. It is built from this repository (python/) on top of 7.4.1, so everything in 7.4.1 is in it (<a href="release_notes_7_4.html">RELEASE_NOTES_7.4.txt</a>, &quot;NEW IN 7.4.1&quot;). The file formats and the gxStream and gxObjRepl wire formats are those of 7.4.</p>
+<p>DataReel 7.5 adds the datareel Python module, a package that installs with pip. It is built from this repository (python/) on top of 7.4.1, so everything in 7.4.1 is in it (<a href="release_notes_7_4.html">RELEASE_NOTES_7.4.txt</a>, &quot;NEW IN 7.4.1&quot;). The file formats and the gxStream and gxObjRepl wire formats are those of 7.4.</p>
+<h2 id="NewIn75Beta2">New in 7.5 beta 2</h2>
+<ul>
+<li>Writes from Python: datareel.Primary(root, config=None, settings=None, quiet=False) opens a node as a gxObjRepl primary in the Python process: open_database, begin, commit, rollback, transaction() (commit, or rollback when the block raises), new_id, put, remove, purge, pump, drain, and the primary&#x27;s reads (get, is_live, ids, databases, find_key, nearest); last_seq, epoch, copy_applied. Settings are the objrepl.conf keys, as a dict or a file. Calls release the GIL.</li>
+<li>Tests: Python writes checked by the C++ reader and objrepl ixcheck, transactions and rollback, refusals (a copy&#x27;s folder, a node another writer holds, bad settings), a Python primary killed with KILL and reopened, and replication from a Python primary to a C++ copy with equal digests. Examples 10 (write objects) and 11 (an event log with a rolled back batch and a copy) in python/examples, run by the tests.</li>
+<li>Package version 7.5b2; library version &quot;7.5 beta2&quot;.</li>
+</ul>
 <h2 id="NewIn75Beta1">New in 7.5 beta 1</h2>
 <ul>
 <li>python/: the datareel package (version 7.5b1). Read only in this beta:
@@ -37,18 +44,17 @@
 <li>The extension uses the plain CPython C API: no third-party packages to build or to run. setup.py builds it with CMake (python/ CMakeLists.txt), with the DataReel library inside it (static, the 64-bit engine); it links the system OpenSSL 3.</li>
 <li>Tests: python/tests/run_python_tests.sh builds the wheel and the C++ test programs, installs the wheel in a throwaway virtual environment and runs python/tests/test_datareel.py: a node written by the C++ library read through every call, readers in Python threads while a C++ primary writes 2000 commits and while a copy applies 800, the node&#x27;s vector index file and a block file. Built on RHEL 9 (UBI 9, CPython 3.12); the same wheel passes on RHEL 10.</li>
 </ul>
-<h2 id="LimitsOfBeta1">Limits of beta 1</h2>
+<h2 id="LimitsOfBeta2">Limits of beta 2</h2>
 <ul>
-<li>Read only. Writing from Python (a gxObjRepl primary) is planned for a later beta.</li>
+<li>Python is a gxObjRepl primary only: a copy, takeover and rejoin run with the C++ objrepl tool.</li>
 <li>The 64-bit database engine only.</li>
 <li>Linux x86_64, CPython 3.12. Windows wheels are not built yet.</li>
 </ul>
 <h2 id="PlannedForLater75Betas">Planned for later 7.5 betas</h2>
 <ul>
-<li>Writes: a gxObjRepl primary from Python (Begin, Put, Remove, Commit, Pump).</li>
 <li>Windows wheels.</li>
 </ul>
 </main>
-<footer class="dr-footer">DataReel 7.5 beta 1 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 beta 2 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

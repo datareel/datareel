@@ -6,7 +6,7 @@ the per-release files RELEASE_NOTES_7.*.txt; edit those, not this file.
 
 CONTENTS
 --------
-- DataReel 7.5 Beta 1 Release Notes (the Python module), 11/20/2026 (RELEASE_NOTES_7.5.txt)
+- DataReel 7.5 Beta 2 Release Notes (the Python module), 11/20/2026 (RELEASE_NOTES_7.5.txt)
 - DataReel 7.4.1 Release Notes (vector extensions), 11/20/2026 (7.4: 11/17/2026) (RELEASE_NOTES_7.4.txt)
 - DataReel 7.3.3 Beta Release Notes, 11/14/2026 (RELEASE_NOTES_7.3.3.txt)
 - DataReel 7.3.2 Beta Release Notes, 11/14/2026 (RELEASE_NOTES_7.3.2.txt)
@@ -20,14 +20,32 @@ CONTENTS
 RELEASE_NOTES_7.5.txt
 ========================================================================
 
-DataReel 7.5 Beta 1 Release Notes (the Python module), 11/20/2026
+DataReel 7.5 Beta 2 Release Notes (the Python module), 11/20/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
-DataReel 7.5 beta 1 adds the datareel Python module, a package that
+DataReel 7.5 adds the datareel Python module, a package that
 installs with pip. It is built from this repository (python/) on top of
 7.4.1, so everything in 7.4.1 is in it (RELEASE_NOTES_7.4.txt, "NEW IN
 7.4.1"). The file formats and the gxStream and gxObjRepl wire formats
 are those of 7.4.
+
+NEW IN 7.5 BETA 2
+-----------------
+- Writes from Python: datareel.Primary(root, config=None,
+  settings=None, quiet=False) opens a node as a gxObjRepl primary in
+  the Python process: open_database, begin, commit, rollback,
+  transaction() (commit, or rollback when the block raises), new_id,
+  put, remove, purge, pump, drain, and the primary's reads (get,
+  is_live, ids, databases, find_key, nearest); last_seq, epoch,
+  copy_applied. Settings are the objrepl.conf keys, as a dict or a
+  file. Calls release the GIL.
+- Tests: Python writes checked by the C++ reader and objrepl ixcheck,
+  transactions and rollback, refusals (a copy's folder, a node another
+  writer holds, bad settings), a Python primary killed with KILL and
+  reopened, and replication from a Python primary to a C++ copy with
+  equal digests. Examples 10 (write objects) and 11 (an event log with
+  a rolled back batch and a copy) in python/examples, run by the tests.
+- Package version 7.5b2; library version "7.5 beta2".
 
 NEW IN 7.5 BETA 1
 -----------------
@@ -54,17 +72,15 @@ NEW IN 7.5 BETA 1
   node's vector index file and a block file. Built on RHEL 9 (UBI 9,
   CPython 3.12); the same wheel passes on RHEL 10.
 
-LIMITS OF BETA 1
+LIMITS OF BETA 2
 ----------------
-- Read only. Writing from Python (a gxObjRepl primary) is planned for a
-  later beta.
+- Python is a gxObjRepl primary only: a copy, takeover and rejoin run
+  with the C++ objrepl tool.
 - The 64-bit database engine only.
 - Linux x86_64, CPython 3.12. Windows wheels are not built yet.
 
 PLANNED FOR LATER 7.5 BETAS
 ---------------------------
-- Writes: a gxObjRepl primary from Python (Begin, Put, Remove, Commit,
-  Pump).
 - Windows wheels.
 
 ========================================================================

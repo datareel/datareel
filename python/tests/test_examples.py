@@ -113,6 +113,43 @@ class Examples(unittest.TestCase):
         self.assertIn("'live': 300", out)
         self.assertEqual(len(re.findall(r"^address \d+ id \d+ version \d+ bytes 24 first 8 ", out, re.M)), 3)
 
+    def test_ex10_write(self):
+        root = os.path.join(self.tmp, "ex10")
+        out = self.ok("ex10_write_objects.py", root, self.pki)
+        self.assertIn("committed: last_seq 1 objects 3", out)
+        self.assertIn("key 2: 11.25 high", out)
+        self.assertIn("reader: seq 1 objects 3", out)
+
+    def test_ex11_event_log_with_copy(self):
+        import socket
+        s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+        root, c = os.path.join(self.tmp, "ex11"), os.path.join(self.tmp, "ex11_copy")
+        os.makedirs(c)
+        log = open(os.path.join(self.tmp, "ex11_copy.log"), "w")
+        cp = subprocess.Popen([os.path.join(BIN, "objrepl"), "copy", c, "--listen", "127.0.0.1:%d" % port,
+                               "--ca", os.path.join(self.pki, "ca.pem"), "--cert", os.path.join(self.pki, "copy.pem"),
+                               "--key", os.path.join(self.pki, "copy.key"), "--allow-cn", "objrepl-primary"],
+                              stdout=log, stderr=subprocess.STDOUT)
+        try:
+            import time
+            for _ in range(100):
+                with open(os.path.join(self.tmp, "ex11_copy.log")) as f:
+                    if "listening" in f.read():
+                        break
+                time.sleep(0.1)
+            out = self.ok("ex11_event_log.py", root, self.pki, port)
+        finally:
+            cp.terminate()
+            cp.wait(30)
+            log.close()
+        self.assertIn("rolled back: kind b'not-a-kind' is longer than 8 bytes", out)
+        self.assertIn("last_seq 3 live 3 tombstones 1", out)
+        self.assertIn("nearest to (2, 11): seq 2", out)
+        self.assertIn("copy: up to date applied 3", out)
+        out2 = self.ok("ex1_open_and_list.py", c)
+        self.assertIn("role copy seq 3", out2)
+        self.assertIn("database log objects 3 tombstones 1", out2)
+
     def test_ex9(self):
         out = self.ok("ex9_threads.py", self.node, 4)
         self.assertIn("threads 4 objects checked 300 of 300", out)
