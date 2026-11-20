@@ -52,6 +52,9 @@ LINKS = {
   'CODE_REVIEW_FIXES.txt': 'code_review_fixes.html',
   'README_windows_openssl.txt': '../README_windows_openssl.txt',
   'README.md': 'readme.html',
+  'python/README.md': 'python_readme.html',
+  'python/docs/users-manual.md': 'python_users_manual.html',
+  'python/docs/building.md': 'python_building.html',
   'AGENTS.md': '../AGENTS.md',
   'llms-full.txt': '../llms-full.txt',
 }

@@ -1,6 +1,7 @@
 #!/bin/bash
 # run_python_tests.sh - DataReel 7.5 beta: builds the datareel wheel and the C++ test programs, installs the wheel
-# in a throwaway virtual environment and runs python/tests/test_datareel.py. Throwaway folders only.
+# in a throwaway virtual environment and runs python/tests/test_datareel.py and test_examples.py (every program in
+# python/examples). Throwaway folders only.
 #
 #   python/tests/run_python_tests.sh WORK [PYTHON]      (from the repository top; PYTHON: python3.12 by default)
 #
@@ -30,4 +31,7 @@ rm -rf "$WORK/venv"
   || { cat "$WORK/install.log"; echo "FAIL the wheel did not install"; exit 1; }
 echo "== tests"
 cd "$WORK"      # not the source tree: the installed package is the one tested
-DR_TEST_BIN="$BIN" DR_TEST_CERTS_SH="$SRC/utils/objrepl/objrepl_certs.sh" "$WORK/venv/bin/python" -I "$SRC/python/tests/test_datareel.py" -v
+export DR_TEST_BIN="$BIN" DR_TEST_CERTS_SH="$SRC/utils/objrepl/objrepl_certs.sh"
+"$WORK/venv/bin/python" -I "$SRC/python/tests/test_datareel.py" -v
+echo "== the examples (python/examples, as the user's manual runs them)"
+"$WORK/venv/bin/python" -I "$SRC/python/tests/test_examples.py" -v

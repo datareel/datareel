@@ -7,7 +7,7 @@ name = "datareel"
 version = "7.5b1"
 description = "DataReel object database for Python: read gxObjRepl nodes, vector indexes and block files written by the DataReel C++ library"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = {text = "LGPL-3.0-or-later"}
 classifiers = [
     "Development Status :: 4 - Beta",

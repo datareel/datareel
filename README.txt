@@ -221,6 +221,7 @@ PACKAGE MAP
  lib/            Library install folder used by build/makefile
  docs/           HTML documentation (start with docs/index.html)
  docs/ai/        Usage guides for AI coding assistants
+ python/         7.5: the datareel Python package, its docs and tests
  AGENTS.md       Rules for AI assistants that write code with DataReel
  llms.txt        Index of the documentation for AI tools
  llms-full.txt   The AI guides in one file
@@ -340,6 +341,9 @@ stream.
 
 RELEASE HISTORY
 ---------------
+ 7.5   11/20/2026 Beta 1 (branch 7.5-beta): the datareel Python module,
+                  a pip package, read only (python/, python/docs/
+                  users-manual.md, RELEASE_NOTES_7.5.txt).
  7.4   11/17/2026 Final release: 7.4 beta 5 plus the fixes and additions
                   listed under "NEW IN 7.4 (AFTER BETA 5)" in
                   RELEASE_NOTES_7.4.txt.

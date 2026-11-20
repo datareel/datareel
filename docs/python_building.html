@@ -1,0 +1,92 @@
+<!doctype html>
+<!-- Generated from building.md by docs/bin/md2html.py -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>Building the DataReel Python Package</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>Building the datareel Python package (DataReel 7.5 beta 1)</h1>
+<p>This guide builds the <code>datareel</code> wheel from the DataReel source, tests it, and installs it. The package is one C++ extension (<code>datareel._datareel</code>) plus a small Python wrapper. The DataReel C++ library is built from the same source tree and linked into the extension, so the wheel needs no DataReel install on the target machine.</p>
+<h2 id="WhatYouNeed">What you need</h2>
+<table>
+<thead><tr><th>Item</th><th>RHEL 9 and RHEL 10 package</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>C++17 compiler</td><td><code>gcc-c++</code></td><td>GCC 11 (RHEL 9) or GCC 14 (RHEL 10)</td></tr>
+<tr><td>CMake 3.16 or later</td><td><code>cmake</code></td><td>setup.py runs it</td></tr>
+<tr><td>OpenSSL 3 headers</td><td><code>openssl-devel</code></td><td>the wheel links the system <code>libssl.so.3</code></td></tr>
+<tr><td>Python 3.12 and its headers</td><td><code>python3.12</code>, <code>python3.12-devel</code></td><td><code>Python.h</code></td></tr>
+<tr><td>setuptools and wheel</td><td><code>python3.12-setuptools</code>, <code>python3.12-wheel</code></td><td>from the Red Hat repositories</td></tr>
+<tr><td>pip</td><td><code>python3.12-pip</code></td><td></td></tr>
+</tbody>
+</table>
+<p>No third-party Python packages are needed to build or to run the module: the extension uses the plain CPython C API. numpy is optional; the examples use it when it is installed.</p>
+<h2 id="BuildTheWheel">Build the wheel</h2>
+<p>From the top of the DataReel source tree (branch <code>7.5-beta</code>):</p>
+<pre>python3.12 -m pip wheel python/ --no-build-isolation --no-deps -w dist/</pre>
+<p><code>--no-build-isolation</code> uses the setuptools and wheel already installed, so pip downloads nothing. The result is <code>dist/datareel-7.5b1-cp312-cp312-linux_x86_64.whl</code>.</p>
+<p>What happens inside:</p>
+<p>1. <code>python/setup.py</code> runs CMake on <code>python/CMakeLists.txt</code> in pip's build folder. 2. That project adds the DataReel source as a subproject with the 64-bit database engine (<code>DATAREEL_64BIT_DATABASE=ON</code>), builds it as a static library with position independent code, and builds <code>_datareel</code> with CMake's <code>Python3_add_library</code>. 3. setup.py copies the extension into the wheel next to <code>datareel/__init__.py</code>.</p>
+<p>Settings:</p>
+<ul>
+<li><code>DATAREEL_JOBS=N</code> sets the parallel build jobs (default 2). Keep it low on a shared machine.</li>
+<li><code>DATAREEL_SOURCE=DIR</code> builds from another DataReel source tree (the folder that holds <code>include/</code> and <code>src/</code>). By default it is the folder above <code>python/</code>.</li>
+</ul>
+<h2 id="BuildInAContainerNoPackagesOnTheHost">Build in a container (no packages on the host)</h2>
+<p>When the build machine should not get the development packages (a production host, or RHEL 10 without <code>python3.12-devel</code>), build in a UBI 9 container. A wheel built on RHEL 9 runs on RHEL 9 and RHEL 10.</p>
+<pre>cat &gt; Containerfile &lt;&lt;&#x27;END&#x27;
+FROM registry.access.redhat.com/ubi9:latest
+RUN dnf -y install gcc-c++ cmake make openssl openssl-devel python3.12 python3.12-devel \
+    python3.12-pip python3.12-setuptools python3.12-wheel diffutils findutils &amp;&amp; dnf clean all
+END
+podman build -t drpy-ubi9 .
+podman run --rm -v &quot;$PWD&quot;:/w:Z drpy-ubi9 bash -c \
+  &#x27;cd /w &amp;&amp; python3.12 -m pip wheel python/ --no-build-isolation --no-deps -w dist/&#x27;</pre>
+<h2 id="TestIt">Test it</h2>
+<p><code>python/tests/run_python_tests.sh</code> builds the wheel and the C++ test programs, installs the wheel in a throwaway virtual environment, and runs both test files from outside the source tree:</p>
+<pre>python/tests/run_python_tests.sh /tmp/drpy          # WORK folder; PYTHON is python3.12 by default</pre>
+<ul>
+<li><code>python/tests/test_datareel.py</code>: a node written by the C++ library, read through every call; readers in Python threads while a C++ primary writes 2000 commits and while a copy applies 800; the node's vector index file; a block file.</li>
+<li><code>python/tests/test_examples.py</code>: runs every program in <code>python/examples/</code> against a demo node and checks what it prints, including example 6 following a running C++ writer.</li>
+</ul>
+<p>Every test must pass. A test that fails once on a loaded machine is run again on its own before it is treated as a bug; never skip one.</p>
+<p>To test a wheel on another machine (RHEL 10, for example), install it in a virtual environment and run the two test files with <code>DR_TEST_BIN</code> set to a folder that holds the C++ <code>objrepl</code> and <code>test_gxobjrepl_reader</code> programs (a 64-bit engine build of DataReel) and <code>DR_TEST_CERTS_SH</code> set to <code>utils/objrepl/objrepl_certs.sh</code>:</p>
+<pre>python3.12 -m venv /tmp/drvenv
+/tmp/drvenv/bin/python -m pip install --no-index --no-deps dist/datareel-7.5b1-cp312-cp312-linux_x86_64.whl
+cd /tmp
+DR_TEST_BIN=$BUILD/utils DR_TEST_CERTS_SH=$SRC/utils/objrepl/objrepl_certs.sh \
+  /tmp/drvenv/bin/python -I $SRC/python/tests/test_datareel.py</pre>
+<h2 id="Install">Install</h2>
+<pre>python3.12 -m pip install --no-index datareel-7.5b1-cp312-cp312-linux_x86_64.whl
+python3.12 -c &quot;import datareel; print(datareel.__version__, datareel.library_version())&quot;</pre>
+<p>The second line prints <code>7.5b1 7.5 beta1</code>. Install into a virtual environment, or with <code>--user</code>, rather than into the system Python.</p>
+<h2 id="Problems">Problems</h2>
+<table>
+<thead><tr><th>What you see</th><th>Why</th><th>What to do</th></tr></thead>
+<tbody>
+<tr><td><code>fatal error: Python.h: No such file or directory</code></td><td>no Python headers</td><td>install <code>python3.12-devel</code>, or build in the container</td></tr>
+<tr><td><code>Could NOT find OpenSSL</code></td><td>no OpenSSL headers</td><td>install <code>openssl-devel</code></td></tr>
+<tr><td><code>invalid command &#x27;bdist_wheel&#x27;</code></td><td>no wheel package</td><td>install <code>python3.12-wheel</code></td></tr>
+<tr><td><code>the DataReel source is not at ...</code></td><td><code>python/</code> was copied without the rest of the tree</td><td>build from the whole tree, or set <code>DATAREEL_SOURCE</code></td></tr>
+<tr><td><code>ImportError: libssl.so.3</code> on the target</td><td>OpenSSL 3 missing there</td><td>RHEL 9 and 10 have it; older systems are not supported</td></tr>
+<tr><td><code>datareel.Error: cannot lock .../node.jnl (gxObjReplReader needs the 64-bit engine)</code></td><td>not seen with this wheel (it is always 64-bit)</td><td>report it with the full message</td></tr>
+</tbody>
+</table>
+<h2 id="NotInBeta1">Not in beta 1</h2>
+<p>Windows wheels and wheels for other Python versions are not built yet. The extension's source builds with any CPython 3.10 or later that has its headers, but only 3.12 is tested.</p>
+</main>
+<footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+</body>
+</html>

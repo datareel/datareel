@@ -30,6 +30,16 @@ with datareel.BlockFile("/data/old_day.gxd") as f:
         rec = f.read(a)
 ```
 
+## Documentation
+
+- `python/docs/users-manual.md`: the user's manual: ideas, a demo node, simple examples (1 to 4),
+  detailed examples (5 to 9), the reference, errors and limits.
+- `python/docs/building.md`: the build guide: packages, the wheel, a container build, the tests.
+- `python/examples/`: the example programs (`make_demo_node.sh` makes a node to run them on).
+- `python/AGENTS.md` (with `CLAUDE.md` and `GEMINI.md`): AI-assisted builds, use and support;
+  `docs/ai/python.md` is the task guide for AI tools (also in `llms-full.txt`).
+- HTML pages: `docs/python_readme.html`, `docs/python_users_manual.html`, `docs/python_building.html`.
+
 ## What it does
 
 - `Reader(root, index="")` reads a gxObjRepl node (a primary or a copy) from another process while

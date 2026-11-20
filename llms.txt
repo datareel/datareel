@@ -15,10 +15,13 @@ AI-assisted use only: before any AI assistance, review your agency's or company'
 - [Porting from 6.x](docs/ai/porting-from-6x.md): Replacements for the removed classes and the move to TLS-only networking
 - [Text, CSV, single-instance and file utilities](docs/ai/utilities.md): strip_ansi/AnsiStripper, gxCSVReader/gxCSVWriter, gxProcessLock, hexdump, ffind, txfilter (7.4)
 - [Troubleshooting and support](docs/ai/troubleshooting-and-support.md): Read-only checks, problems by area, when to stop and escalate, the support summary
+- [The datareel Python module (7.5 beta)](docs/ai/python.md): Build the pip package, read gxObjRepl nodes, vector index files and block files from Python
 
 ## Reference
 
 - [Readme](README.txt): What the library is for, building, file formats
+- [Python package](python/README.md): the datareel pip package (7.5 beta 1), its [user's manual](python/docs/users-manual.md), [build guide](python/docs/building.md) and [AGENTS.md](python/AGENTS.md)
+- [Release notes 7.5](RELEASE_NOTES_7.5.txt): 7.5 beta 1, the datareel Python module
 - [Release notes 7.4](RELEASE_NOTES_7.4.txt): Vector extensions: vector index file, exact and HNSW nearest-neighbor search
 - [Release notes 7.3.3](RELEASE_NOTES_7.3.3.txt): Database replication fixes (seal per folder, promote-check under the apply lock)
 - [Release notes 7.3.2](RELEASE_NOTES_7.3.2.txt): Database replication fixes (channel resync, staged copies, promote)

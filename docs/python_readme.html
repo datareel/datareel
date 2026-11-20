@@ -1,0 +1,78 @@
+<!doctype html>
+<!-- Generated from README.md by docs/bin/md2html.py -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel Python Package</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>datareel for Python (DataReel 7.5 beta 1)</h1>
+<p>Read the object databases that the DataReel C++ library writes, from Python, without a C++ helper or an export file. This beta is read only.</p>
+<pre>pip install datareel-7.5b1-cp312-cp312-linux_x86_64.whl</pre>
+<pre>import struct
+import datareel
+
+# A gxObjRepl node folder, while the node runs in another process (or none runs).
+# index: the node&#x27;s index spec, for find_key() and nearest().
+with datareel.Reader(&quot;/data/osa/news&quot;, &quot;k0:events:B:0:8,v0:events:V:8:96&quot;) as r:
+    print(r.role, r.seq, r.databases())
+    for oid in r.ids(&quot;events&quot;)[:10]:
+        rec = r.get(&quot;events&quot;, oid)            # bytes, exactly as the C++ program stored them
+    ids = r.find_key(&quot;k0&quot;, struct.pack(&quot;&lt;Q&quot;, 20261120))
+    hits = r.nearest(&quot;v0&quot;, query_vector, k=10) # [(id, distance)], closest first
+
+# A .vix vector index file that no process is writing (a day file, a merged month)
+with datareel.VectorIndex(&quot;/data/news_202611.vix&quot;) as v:
+    hits = v.search(query_vector, k=20, tags={0: 3, 2: (20261101, 20261130)})
+
+# A .gxd block file that no process is writing
+with datareel.BlockFile(&quot;/data/old_day.gxd&quot;) as f:
+    for a in f.addresses():
+        rec = f.read(a)</pre>
+<h2 id="Documentation">Documentation</h2>
+<ul>
+<li><code>python/docs/users-manual.md</code>: the user's manual: ideas, a demo node, simple examples (1 to 4), detailed examples (5 to 9), the reference, errors and limits.</li>
+<li><code>python/docs/building.md</code>: the build guide: packages, the wheel, a container build, the tests.</li>
+<li><code>python/examples/</code>: the example programs (<code>make_demo_node.sh</code> makes a node to run them on).</li>
+<li><code>python/AGENTS.md</code> (with <code>CLAUDE.md</code> and <code>GEMINI.md</code>): AI-assisted builds, use and support; <code>docs/ai/python.md</code> is the task guide for AI tools (also in <code>llms-full.txt</code>).</li>
+<li>HTML pages: <code>docs/python_readme.html</code>, <code>docs/python_users_manual.html</code>, <code>docs/python_building.html</code>.</li>
+</ul>
+<h2 id="WhatItDoes">What it does</h2>
+<ul>
+<li><code>Reader(root, index=&quot;&quot;)</code> reads a gxObjRepl node (a primary or a copy) from another process while the node runs. Each call reads under the node journal's shared lock, so it sees whole commits only: <code>get(db, id)</code> (None when the object is not live), <code>is_live</code>, <code>ids(db, tombstones=False)</code>, <code>databases()</code>, <code>find_key(index, key_bytes)</code>, <code>nearest(index, query, k=10)</code>, <code>refresh()</code>, and the <code>seq</code>, <code>epoch</code> and <code>role</code> of the commit read. A call can raise <code>datareel.Error</code> for a moment while the node creates a database file or a copy takes a full send: try it again.</li>
+<li><code>VectorIndex(path, spec=None)</code> opens a <code>.vix</code> file read only: <code>search(query, k=10, ef=64, exact=False, tags=None)</code> returns <code>[(id, distance, tags)]</code>; <code>get(id)</code>, <code>dim</code>, <code>count</code>, <code>spec</code>, <code>metric</code>.</li>
+<li><code>BlockFile(path)</code> opens a <code>.gxd</code> file read only: <code>addresses()</code> and <code>read(address)</code>.</li>
+<li>A query vector can be a list of numbers or any float32 buffer (<code>array(&#x27;f&#x27;)</code>, a numpy float32 array).</li>
+<li>Calls that read files release the GIL. Use one object per thread.</li>
+</ul>
+<p>Objects come back as the bytes the C++ program stored. Decode them with <code>struct</code> or numpy using that program's record layout. In a gxObjRepl node, <code>Reader.get()</code> returns the object's own bytes; <code>BlockFile.read()</code> returns the whole block, with gxObjRepl's 40-byte record head in front.</p>
+<h2 id="LimitsBeta1">Limits (beta 1)</h2>
+<ul>
+<li>Read only. Writes (a gxObjRepl primary from Python) are planned for a later beta.</li>
+<li>The 64-bit database engine only (the engine nodes and OSA use).</li>
+<li>Linux x86_64 and CPython 3.12 wheels, built on RHEL 9 (UBI 9) and tested on RHEL 9 and 10. The wheel links the system OpenSSL 3 (<code>libssl.so.3</code>); the DataReel library is inside the extension.</li>
+<li><code>VectorIndex</code> and <code>BlockFile</code> are for files no process is writing. For a running node use <code>Reader</code>.</li>
+</ul>
+<h2 id="Building">Building</h2>
+<p>From the repository top, with a C++17 compiler, CMake 3.16+, the OpenSSL headers and the Python headers (<code>python3.12-devel</code>):</p>
+<pre>python3.12 -m pip wheel python/ --no-build-isolation --no-deps -w dist/
+python/tests/run_python_tests.sh /tmp/drpy      # builds, installs in a venv, runs the tests</pre>
+<p><code>DATAREEL_JOBS=N</code> sets the build's parallel jobs (default 2).</p>
+<h2 id="License">License</h2>
+<p>LGPL 3 or later, as the DataReel library (see LICENSE at the repository top).</p>
+</main>
+<footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+</body>
+</html>

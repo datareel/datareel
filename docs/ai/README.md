@@ -27,6 +27,11 @@ upgrades, forks and support, then:
   hexdump, ffind, txfilter (7.4).
 - [Troubleshooting and support](troubleshooting-and-support.md):
   read-only checks, problems by area, when to stop, the support summary.
+- [The datareel Python module](python.md) (7.5 beta): build the pip
+  package, read gxObjRepl nodes, vector index files and block files
+  from Python. Its programs are in `python/examples/` and run by
+  `python/tests/run_python_tests.sh`; the rules for agents are in
+  `python/AGENTS.md`.
 
 `samples/` holds the programs the guides include. After changing one,
 run `python3 docs/bin/make_ai_docs.py` to refresh the guides,

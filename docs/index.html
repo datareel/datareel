@@ -126,6 +126,7 @@
  lib/            Library install folder used by build/makefile
  docs/           HTML documentation (start with docs/index.html)
  docs/ai/        Usage guides for AI coding assistants
+ python/         7.5: the datareel Python package, its docs and tests
  AGENTS.md       Rules for AI assistants that write code with DataReel
  llms.txt        Index of the documentation for AI tools
  llms-full.txt   The AI guides in one file</pre>
@@ -186,7 +187,10 @@
 <p>Open <a href="index.html">docs/index.html</a> in a browser. The class library pages are under docs/classes, the examples under docs/examples and the utilities under docs/utils. The guides in <a href="ai/README.md">docs/ai</a> (also collected in <a href="../llms-full.txt">llms-full.txt</a>) are short task-oriented descriptions of the API with working code, written for AI coding assistants but useful to anyone.</p>
 <p>Security and the database port: <a href="security_white_paper.html">docs/security_white_paper.html</a> is the security design of the library (TLS, mutual TLS, input checks, database files, replication, limits, FIPS and quantum computing). <a href="gxstream_replication_white_paper.html">docs/gxstream_replication_white_paper.html</a> explains gxStream and object replication on the IANA-registered port 2073 (gxs-data-port), and docs/rfc/draft-gaer-datareel-gxstream-00.txt is the protocol&#x27;s specification, an Internet-Draft for the Independent Submission stream.</p>
 <h2 id="ReleaseHistory">Release history</h2>
-<pre> 7.4   11/17/2026 Final release: 7.4 beta 5 plus the fixes and additions
+<pre> 7.5   11/20/2026 Beta 1 (branch 7.5-beta): the datareel Python module,
+                  a pip package, read only (python/, python/docs/
+                  users-manual.md, RELEASE_NOTES_7.5.txt).
+ 7.4   11/17/2026 Final release: 7.4 beta 5 plus the fixes and additions
                   listed under &quot;NEW IN 7.4 (AFTER BETA 5)&quot; in
                   RELEASE_NOTES_7.4.txt.
        11/16/2026 Beta 5: object replication between Windows and Linux

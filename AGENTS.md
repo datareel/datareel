@@ -457,6 +457,7 @@ are.
 | `examples/tls/` | TLS echo, HTTPS, SMTP, POP3, FTPS, gxStream programs |
 | `examples/general/` | gxConfig, LogFile, ThreadPool |
 | `docs/ai/` | Task guides and their sample programs |
+| `python/` | 7.5 beta: the `datareel` Python package; its own `AGENTS.md`, `docs/` (user's manual, build guide), `examples/`, `tests/` |
 | `docs/classes/` | HTML reference for each class |
 | `tests/` | `run_tests.sh`, mock mail/FTPS servers, damaged file test |
 | `utils/` | `db_debug`, `ix_debug`, `dr_digest`, `gxd_upgrade` and other file tools |

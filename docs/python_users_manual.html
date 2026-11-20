@@ -1,0 +1,445 @@
+<!doctype html>
+<!-- Generated from users-manual.md by docs/bin/md2html.py -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="datareel-docs-modern">
+<title>DataReel Python User&#x27;s Manual</title>
+<link rel="stylesheet" href="css/datareel.css">
+<link rel="icon" href="images/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
+<link rel="apple-touch-icon" href="images/datareel_icon_apple_touch.png">
+<script src="js/datareel.js"></script>
+</head>
+<body class="dr-doc">
+<header class="dr-header">
+  <a class="dr-brand" href="index.html"><img class="dr-logo-light" src="images/datareel_logo.svg" alt="DataReel" width="173" height="48"><img class="dr-logo-dark" src="images/datareel_logo_dark.svg" alt="DataReel" width="173" height="48"><span>C++ Toolkit Documentation</span></a>
+  <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
+</header>
+<main class="dr-main">
+<h1>The datareel Python module: user's manual (DataReel 7.5 beta 1)</h1>
+<p>The <code>datareel</code> module reads, from Python, the object databases that programs written with the DataReel C++ library keep: gxObjRepl nodes (a primary or its copy) while they run, vector index files (<code>.vix</code>) and block files (<code>.gxd</code>). Python code reads the same stores the production C++ programs write, with no C++ helper and no export file in between. Beta 1 is read only.</p>
+<p>Contents: 1. Install. 2. Ideas you need. 3. A demo node. 4. Simple examples (1 to 4). 5. Detailed examples (5 to 9). 6. Reference. 7. Errors and what to do. 8. Limits of beta 1.</p>
+<h2 id="1Install">1. Install</h2>
+<pre>python3.12 -m pip install --no-index datareel-7.5b1-cp312-cp312-linux_x86_64.whl
+python3.12 -c &quot;import datareel; print(datareel.__version__, datareel.library_version())&quot;</pre>
+<p>The wheel runs on RHEL 9 and RHEL 10 (x86_64, CPython 3.12) and needs only the system OpenSSL 3. To build it, see <code>python/docs/building.md</code>.</p>
+<h2 id="2IdeasYouNeed">2. Ideas you need</h2>
+<ul>
+<li><strong>A node</strong> is a folder that one C++ process keeps open with <code>gxObjRepl</code> (gxobjrepl.h): its databases (<code>NAME.gxd</code> with <code>NAME.id.btx</code>), its indexes, its journal (<code>node.jnl</code>) and its state. A node is a <strong>primary</strong> (the application writes to it) or a <strong>copy</strong> (it applies what its primary sends).</li>
+<li><strong>Objects</strong> have a 64-bit id. The module returns an object as the bytes the C++ program stored. You decode them with <code>struct</code> or numpy, using the C++ program's record layout (example 5).</li>
+<li><strong>A removed object</strong> stays as a <strong>tombstone</strong> with its id; <code>get()</code> returns <code>None</code> for it, and <code>ids(db, tombstones=True)</code> lists them.</li>
+<li><strong>Indexes</strong> belong to the node: B-tree indexes on up to 32 bytes at an offset of the object, and vector indexes on floats at an offset. The node's <strong>index spec</strong> names them, for example <code>k0:vec:B:0:8,v0:vec:V:8:4</code> ("k0 is a B-tree on 8 bytes at offset 0 of database vec; v0 is a vector index on 4 floats at offset 8"). Give <code>Reader</code> the same spec the node uses.</li>
+<li><strong>Whole commits only.</strong> A <code>Reader</code> reads while the node runs. Each call takes the node journal's shared lock, so it sees only whole commits, never half of one. <code>reader.seq</code> names the commit the last call read (a primary's last commit, a copy's last applied one). Two calls may see different commits.</li>
+<li><strong>One process writes.</strong> The C++ node holds its folder for one process. Readers never block it for long and never write. Never open a running node's files with <code>BlockFile</code> or <code>VectorIndex</code>: use <code>Reader</code>.</li>
+</ul>
+<h2 id="3ADemoNode">3. A demo node</h2>
+<p>Every example runs against a demo node that a C++ program writes. With a 64-bit engine build of DataReel in <code>$BUILD</code> (<code>cmake -DDATAREEL_64BIT_DATABASE=ON</code>, which builds <code>utils/test_gxobjrepl_reader</code>):</p>
+<pre>python/examples/make_demo_node.sh $BUILD /tmp/demo 300</pre>
+<p>The node <code>/tmp/demo/node</code> has two databases. <code>big</code> holds one 12000-byte object that every commit rewrites. <code>vec</code> gets one object per commit: <code>struct { uint64_t key; float v[4]; }</code> with key = the commit number and v = (key, 0, 0, 0). Its index spec is <code>k0:vec:B:0:8,v0:vec:V:8:4</code>.</p>
+<h2 id="4SimpleExamples">4. Simple examples</h2>
+<h3 id="Example1OpenANodeAndSeeWhatIsInIt">Example 1: open a node and see what is in it</h3>
+<p>&lt;!-- sample: python/examples/ex1_open_and_list.py --&gt;</p>
+<pre># python/examples/ex1_open_and_list.py
+&quot;&quot;&quot;Example 1 (simple): open a node and see what is in it.
+
+    python ex1_open_and_list.py NODE
+&quot;&quot;&quot;
+import sys
+import datareel
+
+root = sys.argv[1]
+with datareel.Reader(root) as r:                 # read only; the node may be running
+    print(&quot;role&quot;, r.role, &quot;seq&quot;, r.seq, &quot;epoch&quot;, r.epoch)
+    for db in r.databases():
+        print(&quot;database&quot;, db, &quot;objects&quot;, len(r.ids(db)), &quot;tombstones&quot;, len(r.ids(db, tombstones=True)))</pre>
+<p>&lt;!-- end sample --&gt;</p>
+<pre>$ python3.12 ex1_open_and_list.py /tmp/demo/node
+role primary seq 300 epoch 1
+database big objects 1 tombstones 0
+database vec objects 300 tombstones 0</pre>
+<h3 id="Example2ReadObjectsAndDecodeThem">Example 2: read objects and decode them</h3>
+<p>&lt;!-- sample: python/examples/ex2_get_and_decode.py --&gt;</p>
+<pre># python/examples/ex2_get_and_decode.py
+&quot;&quot;&quot;Example 2 (simple): read objects and decode their bytes with struct.
+
+The C++ program stored each &quot;vec&quot; object as  struct { uint64_t key; float v[4]; }  (24 bytes, little endian).
+
+    python ex2_get_and_decode.py NODE
+&quot;&quot;&quot;
+import struct
+import sys
+import datareel
+
+VEC = struct.Struct(&quot;&lt;Q4f&quot;)                      # the C++ record layout
+
+with datareel.Reader(sys.argv[1]) as r:
+    ids = r.ids(&quot;vec&quot;)
+    for oid in ids[:5]:
+        b = r.get(&quot;vec&quot;, oid)                    # bytes, or None when the object is not live
+        key, *v = VEC.unpack_from(b)
+        print(&quot;id&quot;, oid, &quot;key&quot;, key, &quot;vector&quot;, v)
+    print(&quot;not there:&quot;, r.get(&quot;vec&quot;, 1))         # an id no object has: None</pre>
+<p>&lt;!-- end sample --&gt;</p>
+<pre>$ python3.12 ex2_get_and_decode.py /tmp/demo/node
+id 1099511627778 key 1 vector [1.0, 0.0, 0.0, 0.0]
+id 1099511627779 key 2 vector [2.0, 0.0, 0.0, 0.0]
+...
+not there: None</pre>
+<p>Ids come from the node: the epoch in the high bits, then a counter.</p>
+<h3 id="Example3FindObjectsByKey">Example 3: find objects by key</h3>
+<p>&lt;!-- sample: python/examples/ex3_find_key.py --&gt;</p>
+<pre># python/examples/ex3_find_key.py
+&quot;&quot;&quot;Example 3 (simple): find objects by an index key.
+
+find_key() takes the key as the bytes the C++ index holds (here an 8-byte little-endian number) and returns the
+ids whose key starts with those bytes.
+
+    python ex3_find_key.py NODE KEY
+&quot;&quot;&quot;
+import struct
+import sys
+import datareel
+
+root, key = sys.argv[1], int(sys.argv[2])
+with datareel.Reader(root, &quot;k0:vec:B:0:8,v0:vec:V:8:4&quot;) as r:   # the node&#x27;s index spec
+    ids = r.find_key(&quot;k0&quot;, struct.pack(&quot;&lt;Q&quot;, key))
+    print(&quot;key&quot;, key, &quot;ids&quot;, ids)
+    for oid in ids:
+        print(&quot;  object&quot;, struct.unpack_from(&quot;&lt;Q4f&quot;, r.get(&quot;vec&quot;, oid)))</pre>
+<p>&lt;!-- end sample --&gt;</p>
+<pre>$ python3.12 ex3_find_key.py /tmp/demo/node 42
+key 42 ids [1099511627819]
+  object (42, 42.0, 0.0, 0.0, 0.0)</pre>
+<p>The key bytes must be the bytes the index holds: the same size and byte order as the C++ field. A shorter key finds every key that starts with it (a prefix search).</p>
+<h3 id="Example4NearestVectors">Example 4: nearest vectors</h3>
+<p>&lt;!-- sample: python/examples/ex4_nearest.py --&gt;</p>
+<pre># python/examples/ex4_nearest.py
+&quot;&quot;&quot;Example 4 (simple): the objects whose vectors are nearest to a query.
+
+    python ex4_nearest.py NODE X
+&quot;&quot;&quot;
+import sys
+import datareel
+
+root, x = sys.argv[1], float(sys.argv[2])
+with datareel.Reader(root, &quot;k0:vec:B:0:8,v0:vec:V:8:4&quot;) as r:
+    for oid, distance in r.nearest(&quot;v0&quot;, [x, 0.0, 0.0, 0.0], k=3):
+        print(&quot;id&quot;, oid, &quot;distance&quot;, distance)</pre>
+<p>&lt;!-- end sample --&gt;</p>
+<pre>$ python3.12 ex4_nearest.py /tmp/demo/node 10.2
+id 1099511627787 distance 0.03999992460012436
+id 1099511627788 distance 0.6400002837181091
+id 1099511627786 distance 1.4399995803833008</pre>
+<p>The distance is the index's metric: for <code>l2</code> the squared distance, (10.2 - 10)^2 = 0.04 here.</p>
+<h2 id="5DetailedExamples">5. Detailed examples</h2>
+<h3 id="Example5ARecordLayoutClassAndAWholeDatabaseAsRows">Example 5: a record layout class, and a whole database as rows</h3>
+<p>&lt;!-- sample: python/examples/ex5_record_layout.py --&gt;</p>
+<pre># python/examples/ex5_record_layout.py
+&quot;&quot;&quot;Example 5 (detailed): a record layout class for a C++ struct, and a whole database as rows.
+
+A C++ program stores fixed-size records (DataReel&#x27;s rule: no pointers, no std::string). Describe the struct once,
+with the same field order, sizes and byte order, and decode every object with it. With numpy installed the same
+layout becomes a structured dtype and the rows one array; without numpy the example uses plain struct.
+
+    C++:  struct VecRec { uint64_t key; float v[4]; };   // 24 bytes
+
+    python ex5_record_layout.py NODE
+&quot;&quot;&quot;
+import struct
+import sys
+import datareel
+
+
+class Layout:
+    &quot;&quot;&quot;Fields as (name, struct code, count); &#x27;&lt;&#x27; little endian, no padding (pack the C++ struct the same way).&quot;&quot;&quot;
+
+    def __init__(self, *fields):
+        self.fields = fields
+        self.st = struct.Struct(&quot;&lt;&quot; + &quot;&quot;.join(&quot;%d%s&quot; % (n, c) for _, c, n in fields))
+
+    def decode(self, b):
+        vals = list(self.st.unpack_from(b))
+        row = {}
+        for name, _, n in self.fields:
+            row[name] = vals[0] if n == 1 else tuple(vals[:n])
+            del vals[:n]
+        return row
+
+    def numpy_dtype(self):
+        import numpy as np
+        return np.dtype([(name, &quot;&lt;&quot; + code, (n,)) if n &gt; 1 else (name, &quot;&lt;&quot; + code) for name, code, n in self.fields])
+
+
+VEC = Layout((&quot;key&quot;, &quot;Q&quot;, 1), (&quot;v&quot;, &quot;f&quot;, 4))
+
+with datareel.Reader(sys.argv[1]) as r:
+    ids = r.ids(&quot;vec&quot;)
+    blobs = [r.get(&quot;vec&quot;, oid) for oid in ids]
+    seq = r.seq
+
+blobs = [b for b in blobs if b is not None]       # an object removed between ids() and get()
+rows = [VEC.decode(b) for b in blobs]
+print(&quot;seq&quot;, seq, &quot;rows&quot;, len(rows))
+print(&quot;first&quot;, rows[0])
+print(&quot;keys from&quot;, min(x[&quot;key&quot;] for x in rows), &quot;to&quot;, max(x[&quot;key&quot;] for x in rows))
+print(&quot;mean of v[0]&quot;, sum(x[&quot;v&quot;][0] for x in rows) / len(rows))
+try:
+    import numpy as np
+    a = np.frombuffer(b&quot;&quot;.join(b[:VEC.st.size] for b in blobs), dtype=VEC.numpy_dtype())
+    print(&quot;numpy rows&quot;, len(a), &quot;mean of v[0]&quot;, float(a[&quot;v&quot;][:, 0].mean()))
+except ImportError:
+    print(&quot;numpy is not installed: struct only&quot;)</pre>
+<p>&lt;!-- end sample --&gt;</p>
+<pre>$ python3.12 ex5_record_layout.py /tmp/demo/node
+seq 300 rows 300
+first {&#x27;key&#x27;: 1, &#x27;v&#x27;: (1.0, 0.0, 0.0, 0.0)}
+keys from 1 to 300
+mean of v[0] 150.5
+numpy rows 300 mean of v[0] 150.5          (or: numpy is not installed: struct only)</pre>
+<p>Match the C++ struct exactly: field order, sizes, byte order and padding. A C++ struct with padding (an <code>int32_t</code> before a <code>double</code>, for example) needs the pad bytes in the layout too (<code>&quot;4x&quot;</code> in struct). DataReel records never hold pointers or <code>std::string</code>, so every record is fixed size.</p>
+<h3 id="Example6FollowARunningNode">Example 6: follow a running node</h3>
+<p>&lt;!-- sample: python/examples/ex6_follow_node.py --&gt;</p>
+<pre># python/examples/ex6_follow_node.py
+&quot;&quot;&quot;Example 6 (detailed): follow a node while its C++ writer runs, and read each new object once.
+
+Each call sees whole commits only, and seq names the commit the call read, so a reader that remembers the ids it
+has seen can pick up new objects as commits arrive. A call may be refused for a moment (datareel.Error) while
+the node creates a database file or a copy takes a full send: wait and try again.
+
+    python ex6_follow_node.py NODE [SECONDS]
+&quot;&quot;&quot;
+import struct
+import sys
+import time
+import datareel
+
+root = sys.argv[1]
+seconds = float(sys.argv[2]) if len(sys.argv) &gt; 2 else 5.0
+
+
+def open_reader(root, wait=30.0):
+    t0 = time.time()
+    while True:
+        try:
+            return datareel.Reader(root)
+        except datareel.Error:                    # no node folder yet
+            if time.time() - t0 &gt; wait:
+                raise
+            time.sleep(0.1)
+
+
+seen, last_seq, new_total = set(), -1, 0
+with open_reader(root) as r:
+    t0 = time.time()
+    while time.time() - t0 &lt; seconds:
+        try:
+            r.refresh()
+            if r.seq == last_seq:
+                time.sleep(0.2)                   # nothing committed since the last look
+                continue
+            ids = r.ids(&quot;vec&quot;)
+            last_seq = r.seq
+        except datareel.Error as e:
+            print(&quot;refused for now:&quot;, e)
+            time.sleep(0.2)
+            continue
+        new = [i for i in ids if i not in seen]
+        for oid in new:
+            b = r.get(&quot;vec&quot;, oid)
+            if b is not None:
+                seen.add(oid)
+                new_total += 1
+        if new:
+            print(&quot;seq&quot;, last_seq, &quot;new objects&quot;, len(new), &quot;last key&quot;, struct.unpack_from(&quot;&lt;Q&quot;, r.get(&quot;vec&quot;, new[-1]))[0])
+print(&quot;followed&quot;, new_total, &quot;objects up to seq&quot;, last_seq)</pre>
+<p>&lt;!-- end sample --&gt;</p>
+<p>Run it while a C++ writer commits (here the demo writer making 1500 commits in another shell):</p>
+<pre>$ python3.12 ex6_follow_node.py /tmp/live 25
+seq 68 new objects 68 last key 68
+seq 71 new objects 3 last key 71
+seq 72 new objects 1 last key 72
+...
+followed 1500 objects up to seq 1500</pre>
+<p>The counts per line depend on timing. <code>refresh()</code> reads the node's state; a new <code>seq</code> means new commits. For large databases, keep your own position (the last key or time you read) in an index and use <code>find_key()</code> instead of listing every id.</p>
+<h3 id="Example7VectorIndexFilesTagFiltersAndRecall">Example 7: vector index files, tag filters and recall</h3>
+<p>&lt;!-- sample: python/examples/ex7_vector_files.py --&gt;</p>
+<pre># python/examples/ex7_vector_files.py
+&quot;&quot;&quot;Example 7 (detailed): search a vector index file directly: graph or exact, tag filters, recall.
+
+VectorIndex opens a .vix file that no process is writing (a day file, a merged month, a copy of a stopped node).
+For a running node use Reader.nearest(). search() returns (id, distance, (tag0, tag1, tag2, tag3)), closest
+first; tags filters on the 4 integer tags the C++ program stored with each vector: {tag: value} or
+{tag: (lo, hi)}. Queries may be lists or float32 buffers (array(&#x27;f&#x27;), numpy float32 arrays).
+
+    python ex7_vector_files.py FILE.vix [SPEC]
+&quot;&quot;&quot;
+import array
+import random
+import sys
+import datareel
+
+path = sys.argv[1]
+spec = sys.argv[2] if len(sys.argv) &gt; 2 else None   # when given, a file with another spec is refused
+with datareel.VectorIndex(path, spec) as v:
+    print(&quot;dim&quot;, v.dim, &quot;vectors&quot;, v.count, &quot;metric&quot;, v.metric, &quot;spec&quot;, v.spec)
+    rnd = random.Random(7)
+    queries = [array.array(&quot;f&quot;, [rnd.uniform(0, 300)] + [0.0] * (v.dim - 1)) for _ in range(20)]
+    agree = 0
+    for q in queries:
+        graph = [h[0] for h in v.search(q, k=5)]
+        exact = [h[0] for h in v.search(q, k=5, exact=True)]
+        agree += len(set(graph) &amp; set(exact))
+    print(&quot;recall@5 of the graph search against exact: %.3f&quot; % (agree / (5.0 * len(queries))))
+    hit = v.search(queries[0], k=1)[0]
+    vec, tags = v.get(hit[0])
+    print(&quot;nearest&quot;, hit[0], &quot;distance %.3f&quot; % hit[1], &quot;vector&quot;, vec, &quot;tags&quot;, tags)
+    print(&quot;only tag 0 = 0:&quot;, len(v.search(queries[0], k=5, tags={0: 0})), &quot;hits&quot;)
+    print(&quot;only tag 0 in 1..9:&quot;, len(v.search(queries[0], k=5, tags={0: (1, 9)})), &quot;hits&quot;)</pre>
+<p>&lt;!-- end sample --&gt;</p>
+<pre>$ python3.12 ex7_vector_files.py /tmp/demo/node/vec.v0.vix objrepl/v0/8/4
+dim 4 vectors 300 metric l2 spec objrepl/v0/8/4
+recall@5 of the graph search against exact: 1.000
+nearest 1099511627874 distance 0.022 vector [97.0, 0.0, 0.0, 0.0] tags (0, 0, 0, 0)
+only tag 0 = 0: 5 hits
+only tag 0 in 1..9: 0 hits</pre>
+<p>Indexes of up to 4096 vectors, and very selective filters, are always searched exactly. A gxObjRepl node names its vector index specs <code>objrepl/NAME/OFFSET/DIM</code>. The demo node is stopped here; for a running node use <code>Reader.nearest()</code>.</p>
+<h3 id="Example8WalkABlockFile">Example 8: walk a block file</h3>
+<p>&lt;!-- sample: python/examples/ex8_block_file.py --&gt;</p>
+<pre># python/examples/ex8_block_file.py
+&quot;&quot;&quot;Example 8 (detailed): walk a .gxd block file and read gxObjRepl records with their record head.
+
+BlockFile opens a .gxd file that no process is writing. read(address) returns the whole block. In a gxObjRepl
+node every block starts with a 40-byte record head, then the object&#x27;s bytes:
+
+    struct ObjHead { uint64_t id; uint32_t version, len, flags, reason; uint64_t seen_seq, fwd; };
+    flags: 1 = tombstone, 2 = forwarding stub (an object that moved)
+
+    python ex8_block_file.py FILE.gxd
+&quot;&quot;&quot;
+import struct
+import sys
+import datareel
+
+HEAD = struct.Struct(&quot;&lt;QIIIIQQ&quot;)
+counts = {&quot;live&quot;: 0, &quot;tombstone&quot;: 0, &quot;stub&quot;: 0}
+with datareel.BlockFile(sys.argv[1]) as f:
+    addrs = f.addresses()
+    for a in addrs:
+        b = f.read(a)
+        oid, version, n, flags, reason, seen_seq, fwd = HEAD.unpack_from(b)
+        kind = &quot;stub&quot; if flags &amp; 2 else &quot;tombstone&quot; if flags &amp; 1 else &quot;live&quot;
+        counts[kind] += 1
+        if kind == &quot;live&quot; and counts[&quot;live&quot;] &lt;= 3:
+            body = b[HEAD.size:HEAD.size + n]
+            print(&quot;address&quot;, a, &quot;id&quot;, oid, &quot;version&quot;, version, &quot;bytes&quot;, n, &quot;first 8&quot;, body[:8].hex())
+print(&quot;blocks&quot;, len(addrs), counts)</pre>
+<p>&lt;!-- end sample --&gt;</p>
+<pre>$ python3.12 ex8_block_file.py /tmp/demo/node/vec.gxd
+address 136 id 1099511627778 version 1 bytes 24 first 8 0100000000000000
+address 232 id 1099511627779 version 1 bytes 24 first 8 0200000000000000
+address 328 id 1099511627780 version 1 bytes 24 first 8 0300000000000000
+blocks 300 {&#x27;live&#x27;: 300, &#x27;tombstone&#x27;: 0, &#x27;stub&#x27;: 0}</pre>
+<p><code>BlockFile</code> works on any DataReel <code>.gxd</code> file, not only gxObjRepl databases: other programs' blocks start with their own records. Use it on files no process is writing (a copied or archived file, a day file that is closed).</p>
+<h3 id="Example9SeveralThreads">Example 9: several threads</h3>
+<p>&lt;!-- sample: python/examples/ex9_threads.py --&gt;</p>
+<pre># python/examples/ex9_threads.py
+&quot;&quot;&quot;Example 9 (detailed): read from several threads at once.
+
+The module releases the GIL while it reads files, so threads read in parallel. Objects are not thread safe:
+give each thread its own Reader.
+
+    python ex9_threads.py NODE [THREADS]
+&quot;&quot;&quot;
+import concurrent.futures
+import struct
+import sys
+import time
+import datareel
+
+root = sys.argv[1]
+nthreads = int(sys.argv[2]) if len(sys.argv) &gt; 2 else 4
+INDEX = &quot;k0:vec:B:0:8,v0:vec:V:8:4&quot;
+
+with datareel.Reader(root) as r:
+    ids = r.ids(&quot;vec&quot;)
+
+
+def work(part):
+    found = 0
+    with datareel.Reader(root, INDEX) as r:      # one Reader per thread
+        for oid in part:
+            key = struct.unpack_from(&quot;&lt;Q&quot;, r.get(&quot;vec&quot;, oid))[0]
+            if r.find_key(&quot;k0&quot;, struct.pack(&quot;&lt;Q&quot;, key)) == [oid]:
+                found += 1
+    return found
+
+
+parts = [ids[i::nthreads] for i in range(nthreads)]
+t0 = time.time()
+with concurrent.futures.ThreadPoolExecutor(nthreads) as pool:
+    total = sum(pool.map(work, parts))
+print(&quot;threads&quot;, nthreads, &quot;objects checked&quot;, total, &quot;of&quot;, len(ids), &quot;in %.2f s&quot; % (time.time() - t0))</pre>
+<p>&lt;!-- end sample --&gt;</p>
+<pre>$ python3.12 ex9_threads.py /tmp/demo/node 4
+threads 4 objects checked 300 of 300 in 0.05 s</pre>
+<h2 id="6Reference">6. Reference</h2>
+<h3 id="DatareelReaderRootIndex">datareel.Reader(root, index="")</h3>
+<p>A gxObjRepl node folder, read only, while the node runs in another process (or none runs). <code>index</code> is the node's index spec, needed for <code>find_key()</code> and <code>nearest()</code>. Raises <code>datareel.Error</code> when the folder is not a node or the spec is bad. A context manager (<code>with</code>), or call <code>close()</code>.</p>
+<table>
+<thead><tr><th>Call</th><th>Returns</th></tr></thead>
+<tbody>
+<tr><td><code>get(db, id)</code></td><td>the object's bytes, or <code>None</code> when it is not live (removed or never there)</td></tr>
+<tr><td><code>is_live(db, id)</code></td><td><code>True</code> or <code>False</code></td></tr>
+<tr><td><code>ids(db, tombstones=False)</code></td><td>the sorted ids of the live objects (or of the tombstones); <code>[]</code> for a database that is not there</td></tr>
+<tr><td><code>databases()</code></td><td>the database names</td></tr>
+<tr><td><code>find_key(index, key)</code></td><td>ids whose key in B-tree index <code>index</code> starts with the bytes <code>key</code> (at most 32)</td></tr>
+<tr><td><code>nearest(index, query, k=10)</code></td><td><code>[(id, distance)]</code>, closest first, from vector index <code>index</code></td></tr>
+<tr><td><code>refresh()</code></td><td>reads the node's state now (<code>seq</code>, <code>epoch</code>, <code>role</code>)</td></tr>
+<tr><td><code>release_vectors()</code></td><td>closes the vector indexes <code>nearest()</code> loaded</td></tr>
+<tr><td><code>close()</code></td><td></td></tr>
+<tr><td><code>seq</code>, <code>epoch</code>, <code>role</code>, <code>is_open</code></td><td>the commit the last call read; the epoch; <code>&#x27;primary&#x27;</code>, <code>&#x27;copy&#x27;</code> or <code>&#x27;none&#x27;</code></td></tr>
+</tbody>
+</table>
+<p><code>nearest()</code> keeps the vector index in memory and reads it again when the node has moved past the commit it was loaded at. On a busy node with a large index, search in batches between commits, or search a merged <code>.vix</code> file with <code>VectorIndex</code>.</p>
+<h3 id="DatareelVectorindexPathSpecNone">datareel.VectorIndex(path, spec=None)</h3>
+<p>A <code>.vix</code> file opened read only. With <code>spec</code>, a file whose spec differs is refused.</p>
+<table>
+<thead><tr><th>Call</th><th>Returns</th></tr></thead>
+<tbody>
+<tr><td><code>search(query, k=10, ef=64, exact=False, tags=None)</code></td><td><code>[(id, distance, (t0, t1, t2, t3))]</code>, closest first. <code>ef</code>: the graph search width. <code>exact=True</code>: a full scan. <code>tags</code>: <code>{tag: value}</code> or <code>{tag: (lo, hi)}</code> for tags 0 to 3</td></tr>
+<tr><td><code>get(id)</code></td><td><code>(vector, tags)</code>, or <code>None</code></td></tr>
+<tr><td><code>close()</code></td><td></td></tr>
+<tr><td><code>dim</code>, <code>count</code>, <code>spec</code>, <code>metric</code></td><td>values per vector, live vectors, the spec text, <code>&#x27;l2&#x27;</code>, <code>&#x27;cosine&#x27;</code> or <code>&#x27;ip&#x27;</code></td></tr>
+</tbody>
+</table>
+<h3 id="DatareelBlockfilePath">datareel.BlockFile(path)</h3>
+<p>A <code>.gxd</code> file opened read only: <code>addresses()</code> (every object's address, in file order), <code>read(address)</code> (the whole block's bytes), <code>close()</code>.</p>
+<h3 id="Module">Module</h3>
+<p><code>datareel.__version__</code> (<code>&quot;7.5b1&quot;</code>), <code>datareel.library_version()</code> (the C++ library, <code>&quot;7.5 beta1&quot;</code>), <code>datareel.engine_bits()</code> (64), <code>datareel.Error</code> (a <code>RuntimeError</code>).</p>
+<p>Query vectors are lists or tuples of numbers, or any float32 buffer (<code>array(&#x27;f&#x27;)</code>, a numpy <code>float32</code> array). Calls that read files release the GIL, so threads read in parallel. A <code>Reader</code>, <code>VectorIndex</code> or <code>BlockFile</code> is not thread safe: give each thread its own.</p>
+<h2 id="7ErrorsAndWhatToDo">7. Errors and what to do</h2>
+<table>
+<thead><tr><th>Message</th><th>Meaning</th><th>What to do</th></tr></thead>
+<tbody>
+<tr><td><code>no state in ROOT (not a node folder)</code></td><td>the folder is not a gxObjRepl node</td><td>check the path</td></tr>
+<tr><td><code>a full send is under way</code></td><td>the copy is receiving a full send</td><td>wait and try again</td></tr>
+<tr><td><code>cannot open ROOT/NAME.gxd</code></td><td>the node is creating that database right now, or the file is damaged</td><td>try again; if it stays, run <code>objrepl check ROOT</code></td></tr>
+<tr><td><code>no B-tree index NAME</code>, <code>no vector index NAME</code></td><td>the name is not in the spec you gave <code>Reader</code></td><td>give the node's index spec</td></tr>
+<tr><td><code>the index NAME is being built</code></td><td>the node is building a new index</td><td>wait for the build</td></tr>
+<tr><td><code>cannot open FILE: the spec differs</code></td><td>the <code>.vix</code> file was made with another spec</td><td>use the right file or spec</td></tr>
+<tr><td><code>the query has N values, the index M</code></td><td>the query's length is not the index's <code>dim</code></td><td></td></tr>
+</tbody>
+</table>
+<h2 id="8LimitsOfBeta1">8. Limits of beta 1</h2>
+<ul>
+<li>Read only. Writing from Python (a gxObjRepl primary) is planned for a later beta.</li>
+<li>The 64-bit database engine only (the one gxObjRepl nodes use).</li>
+<li>Linux x86_64 and CPython 3.12 wheels. Windows wheels are not built yet.</li>
+<li><code>VectorIndex</code> and <code>BlockFile</code> are for files no process is writing.</li>
+</ul>
+</main>
+<footer class="dr-footer">DataReel 7.4 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+</body>
+</html>

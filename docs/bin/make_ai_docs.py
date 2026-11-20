@@ -30,7 +30,12 @@ GUIDES = [
      'strip_ansi/AnsiStripper, gxCSVReader/gxCSVWriter, gxProcessLock, hexdump, ffind, txfilter (7.4)'),
     ('troubleshooting-and-support.md', 'Troubleshooting and support',
      'Read-only checks, problems by area, when to stop and escalate, the support summary'),
+    ('python.md', 'The datareel Python module (7.5 beta)',
+     'Build the pip package, read gxObjRepl nodes, vector index files and block files from Python'),
 ]
+
+# 11/20/2026 (7.5): other Markdown files whose samples are refreshed too (not in llms-full.txt)
+OTHER_DOCS = ['python/docs/users-manual.md']
 
 SAMPLE = re.compile(r'(<!-- sample: (\S+)(?: from="([^"]*)")? -->\n)(.*?)(<!-- end sample -->)',
                     re.S)
@@ -50,12 +55,15 @@ def sample_text(path, start):
         lines.pop()
     return '\n'.join(lines)
 
-def refresh_guide(fname):
-    path = os.path.join(AI, fname)
+def refresh_guide(fname, folder=AI):
+    path = os.path.join(folder, fname)
     text = open(path, encoding='utf-8').read()
     def repl(m):
         code = sample_text(m.group(2), m.group(3))
         src = m.group(2) + (' (license header omitted)' if m.group(3) else '')
+        # 11/20/2026 (7.5): Python samples are fenced as python with a # comment
+        if m.group(2).endswith('.py'):
+            return '%s```python\n# %s\n%s\n```\n%s' % (m.group(1), src, code, m.group(5))
         return '%s```cpp\n// %s\n%s\n```\n%s' % (m.group(1), src, code, m.group(5))
     new = SAMPLE.sub(repl, text)
     if new != text:
@@ -68,6 +76,8 @@ def strip_markers(text):
 
 def main():
     guides = {f: refresh_guide(f) for f, _, _ in GUIDES}
+    for f in OTHER_DOCS:
+        refresh_guide(f, TOP)
 
     index = ['# DataReel 7', '',
              '> DataReel 7 is an object database (OODB) and cross platform '
@@ -95,6 +105,10 @@ def main():
         index.append('- [%s](docs/ai/%s): %s' % (title, f, desc))
     index += ['', '## Reference', '',
               '- [Readme](README.txt): What the library is for, building, file formats',
+              '- [Python package](python/README.md): the datareel pip package (7.5 beta 1), '
+              'its [user\'s manual](python/docs/users-manual.md), [build guide](python/docs/building.md) '
+              'and [AGENTS.md](python/AGENTS.md)',
+              '- [Release notes 7.5](RELEASE_NOTES_7.5.txt): 7.5 beta 1, the datareel Python module',
               '- [Release notes 7.4](RELEASE_NOTES_7.4.txt): Vector extensions: '
               'vector index file, exact and HNSW nearest-neighbor search',
               '- [Release notes 7.3.3](RELEASE_NOTES_7.3.3.txt): Database '

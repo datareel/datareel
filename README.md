@@ -108,8 +108,10 @@ and [README.txt](README.txt) has the complete release notes index.
 
 - **7.5 beta 1 (branch 7.5-beta):** the `datareel` Python module, a pip package built from this
   repository (`python/`). Read only in beta 1: gxObjRepl nodes while they run, vector indexes and
-  block files. See [python/README.md](python/README.md) and
-  [RELEASE_NOTES_7.5.txt](RELEASE_NOTES_7.5.txt).
+  block files. See [python/README.md](python/README.md), the
+  [user's manual](python/docs/users-manual.md) with simple and detailed examples, the
+  [build guide](python/docs/building.md), [python/AGENTS.md](python/AGENTS.md) for AI-assisted work
+  and [RELEASE_NOTES_7.5.txt](RELEASE_NOTES_7.5.txt).
 
 ## DataReel 6.4.1: the legacy version
 
