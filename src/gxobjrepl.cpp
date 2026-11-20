@@ -630,6 +630,9 @@ struct Node {
     // write-back: a commit's pages reach the files when commit() (or gxObjRepl::Impl::jcommit()) writes them, after
     // the journal is synced, so a commit can be synced without the node's lock (11/16/2026)
     j.SetWriteMode(gxdJOURNAL_WRITE_BACK);
+    // 7.4.1: page writes under the journal's write lock, so gxObjReplReader in another process never reads a batch
+    // half written
+    j.SetWriteLock(1);
     is_open = true;                                            // from here close() undoes what was opened
     // an interrupted set-aside (review 4): the files still here are originals not moved yet; they go into prev.tmp
     // (never over a file already there) and prev.tmp becomes prev, before this open makes any node file
@@ -2267,7 +2270,7 @@ int gxObjRepl::Impl::serve()
 	}
       }
       if(w == -2) { say("copy: no frame from " + pname + " in " + std::to_string(cfg.idle_timeout) + " s: connection dropped"); break; }
-      if(w == -3) { say("copy: " + pname + " connected again: the old connection is dropped"); break; }
+      if(w == -3) { say("copy: a new connection passed the TLS client check: the connection from " + pname + " is dropped"); break; }
       if(w <= 0 || !recv_frame(st, b)) break;
 #ifdef GXREPL_TEST_HOOKS
       if(stall_at && (long)frames_total + 1 == stall_at && stall_secs > 0) {
@@ -2905,6 +2908,211 @@ int gxObjRepl::Rejoin(const std::string &root, std::string &msg)
 	 " (the last its copy acknowledged) are replaced by what the new primary has" : "");
   s.close();
   return rc;
+}
+
+// ---------- gxObjReplReader: read only, from another process (11/19/2026, 7.4.1) ----------
+struct gxObjReplReader::Impl {
+  std::string root;
+  std::vector<IxDef> ixdefs;
+  bool is_open = false;
+  std::string err;
+  State st;
+  bool have_state = false;
+  struct VIx { IxDef def; gxVectorIndex vx; uint64_t seq = 0, epoch = 0; bool loaded = false; };
+  std::map<std::string, std::unique_ptr<VIx>> vix;
+  int fail(const std::string &w) { err = w; return -1; }
+  uint64_t seq() const { return !have_state ? 0 : st.role == ROLE_PRIMARY ? st.next_seq - 1 : st.applied_seq; }
+  bool read_state() {
+    gxDatabase db; State s;
+    if(db.Open(path(root, "state.gxd").c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { fail("no state in " + root); return false; }
+    bool ok = db.Read(&s, sizeof(s), (FAU_t)db.FileHeaderSize()) == gxDBASE_NO_ERROR && s.magic == STATE_MAGIC;
+    db.Close();
+    if(!ok) { fail("no state in " + root); return false; }
+    st = s; have_state = true;
+    return true;
+  }
+  // the start of every call: a journal left by a node that stopped is replayed (none runs), then the journal's shared
+  // lock (held by the caller until it returns: no batch is being written to the files meanwhile) and the state
+  int begin(gxdJournalReadLock &rl) {
+    err.clear();
+    if(!is_open) return fail("not open");
+    settle(root);
+    std::string jn = path(root, "node.jnl");
+    if(exists(jn) && rl.Lock(jn.c_str()) != gxDBASE_NO_ERROR) return fail("cannot lock " + jn + " (gxObjReplReader needs the 64-bit engine)");
+    if(!read_state()) return -1;
+    if(st.in_snapshot) return fail("a full send is under way");
+    return 0;
+  }
+  const IxDef *ix(const std::string &name, char kind) const {
+    for(auto &d : ixdefs) if(d.name == name && d.kind == kind) return &d;
+    return 0;
+  }
+  // the record of ID in DB (db and its id index open): 1 found (rec, h), 0 not there, -1 an error
+  int find(gxDatabase &db, gxBtree &bt, uint64_t id, std::vector<unsigned char> &rec, ObjHead &h) {
+    IdKey k(id, 0), c;
+    for(int ok = bt.PartialFind(k, c); ok; ok = bt.FindNext(k, c)) {
+      if(k.d.id != id) break;
+      FAU_t a = (FAU_t)k.d.addr;
+      __ULWORD__ n = db.ObjectLength(a);
+      rec.resize(n);
+      if(n < sizeof(ObjHead) || db.Read(rec.data(), n, a) != gxDBASE_NO_ERROR) return fail("cannot read an object");
+      memcpy(&h, rec.data(), sizeof(h));
+      if(h.id != id || h.len > n - sizeof(h)) return fail("a damaged record");
+      if(h.flags & OF_STUB) continue;
+      return 1;
+    }
+    return 0;
+  }
+  // DB's files, read only: 1 open, 0 no such database, -1 an error
+  int open_db(const std::string &name, gxDatabase &db, gxBtree &bt) {
+    if(!good_name(name)) return fail("bad database name " + name);
+    std::string g = path(root, name + ".gxd"), x = path(root, name + ".id.btx");
+    if(!exists(g)) return 0;
+    if(db.Open(g.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) return fail("cannot open " + g);
+    if(bt.Open(x.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { db.Close(); return fail("cannot open " + x); }
+    return 1;
+  }
+};
+
+gxObjReplReader::gxObjReplReader() : p(new Impl) { }
+gxObjReplReader::~gxObjReplReader() { Close(); delete p; }
+std::string gxObjReplReader::Error() const { return p->err; }
+int gxObjReplReader::IsOpen() const { return p->is_open; }
+uint64_t gxObjReplReader::Seq() const { return p->seq(); }
+uint64_t gxObjReplReader::Epoch() const { return p->have_state ? p->st.epoch : 0; }
+int gxObjReplReader::Role() const { return !p->have_state ? 0 : p->st.role == ROLE_PRIMARY ? gxObjRepl::PRIMARY : p->st.role == ROLE_COPY ? gxObjRepl::COPY : 0; }
+
+int gxObjReplReader::Open(const std::string &root, const std::string &index)
+{
+  Close();
+  p->err.clear();
+  if(!parse_ix(index, p->ixdefs)) return p->fail("bad index (NAME:DB:B|V:OFFSET:LEN,...)");
+  if(!exists(path(root, "state.gxd"))) return p->fail("no state in " + root + " (not a node folder)");
+  p->root = root; p->is_open = true;
+  // a copy in a full send opens (its reads fail until the send ends); a folder with no readable state does not
+  if(Refresh() != 0 && !p->have_state) { std::string e = p->err; Close(); p->err = e; return -1; }
+  p->err.clear();
+  return 0;
+}
+void gxObjReplReader::Close()
+{
+  ReleaseVectors();
+  p->is_open = false; p->have_state = false; p->ixdefs.clear(); p->root.clear();
+}
+void gxObjReplReader::ReleaseVectors()
+{
+  for(auto &v : p->vix) if(v.second->loaded) v.second->vx.Close();
+  p->vix.clear();
+}
+int gxObjReplReader::Refresh()
+{
+  gxdJournalReadLock rl;
+  return p->begin(rl);
+}
+int gxObjReplReader::Get(const std::string &db, uint64_t id, std::vector<unsigned char> &bytes)
+{
+  bytes.clear();
+  gxdJournalReadLock rl;
+  if(p->begin(rl) != 0) return -1;
+  gxDatabase d; IdKey type; gxBtree bt(type, ORDER);
+  int o = p->open_db(db, d, bt);
+  if(o <= 0) return -1;
+  std::vector<unsigned char> rec; ObjHead h;
+  int f = p->find(d, bt, id, rec, h);
+  bt.Close(); d.Close();
+  if(f <= 0 || (h.flags & OF_TOMB)) return -1;
+  bytes.assign(rec.begin() + sizeof(h), rec.begin() + sizeof(h) + h.len);
+  return 0;
+}
+int gxObjReplReader::IsLive(const std::string &db, uint64_t id)
+{
+  gxdJournalReadLock rl;
+  if(p->begin(rl) != 0) return -1;
+  gxDatabase d; IdKey type; gxBtree bt(type, ORDER);
+  int o = p->open_db(db, d, bt);
+  if(o <= 0) return o;
+  std::vector<unsigned char> rec; ObjHead h;
+  int f = p->find(d, bt, id, rec, h);
+  bt.Close(); d.Close();
+  if(f < 0) return -1;
+  return f == 1 && !(h.flags & OF_TOMB) ? 1 : 0;
+}
+int gxObjReplReader::Ids(const std::string &db, std::vector<uint64_t> &ids, gxObjRepl::Which which)
+{
+  ids.clear();
+  gxdJournalReadLock rl;
+  if(p->begin(rl) != 0) return -1;
+  if(!good_name(db)) return p->fail("bad database name " + db);
+  std::string g = path(p->root, db + ".gxd");
+  if(!exists(g)) return 0;
+  gxDatabase d;
+  if(d.Open(g.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) return p->fail("cannot open " + g);
+  for(FAU_t a = d.FindFirstObject(); a != (FAU_t)0; a = d.FindNextObject(a)) {
+    ObjHead h;
+    if(d.Read(&h, sizeof(h), a) != gxDBASE_NO_ERROR || (h.flags & OF_STUB)) continue;
+    bool tomb = (h.flags & OF_TOMB) != 0;
+    if(tomb == (which == gxObjRepl::TOMBSTONES)) ids.push_back(h.id);
+  }
+  d.Close();
+  std::sort(ids.begin(), ids.end());
+  return 0;
+}
+int gxObjReplReader::Databases(std::vector<std::string> &dbs)
+{
+  dbs.clear();
+  gxdJournalReadLock rl;
+  if(p->begin(rl) != 0) return -1;
+  for(auto &n : list_dir(p->root))
+    if(ends_with(n, ".gxd")) { std::string nm = n.substr(0, n.size() - 4); if(good_name(nm)) dbs.push_back(nm); }
+  return 0;
+}
+int gxObjReplReader::FindKey(const std::string &index, const void *key, unsigned n, std::vector<uint64_t> &ids)
+{
+  ids.clear();
+  gxdJournalReadLock rl;
+  if(p->begin(rl) != 0) return -1;
+  const IxDef *d = p->ix(index, 'B');
+  if(!d) return p->fail("no B-tree index " + index);
+  if(n > d->len) return p->fail("the key is longer than the index's");
+  Ix x; x.def = *d;
+  std::string f = x.file(p->root);
+  if(exists(f + ".building")) return p->fail("the index " + index + " is being built");
+  if(!exists(f)) return 0;                                     // no objects yet
+  if(x.bt.Open(f.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) return p->fail("cannot open " + f);
+  IxKey k, c;
+  memcpy(k.d.k, key, n); k.d.id = 0;
+  for(int ok = x.bt.PartialFind(k, c); ok; ok = x.bt.FindNext(k, c)) {
+    int cmp = memcmp(k.d.k, key, n);
+    if(cmp > 0) break;
+    if(cmp == 0) ids.push_back(k.d.id);
+  }
+  x.bt.Close();
+  return 0;
+}
+int gxObjReplReader::Nearest(const std::string &index, const float *q, unsigned k, std::vector<gxObjReplHit> &hits)
+{
+  hits.clear();
+  gxdJournalReadLock rl;
+  if(p->begin(rl) != 0) return -1;
+  const IxDef *d = p->ix(index, 'V');
+  if(!d) return p->fail("no vector index " + index);
+  Ix x; x.def = *d;
+  std::string f = x.file(p->root);
+  if(exists(f + ".building")) return p->fail("the index " + index + " is being built");
+  auto &v = p->vix[index];
+  if(!v) { v.reset(new Impl::VIx); v->def = *d; }
+  uint64_t now = p->seq();
+  // the node moved on: opened again by name (a full send replaces the file, so Reload() of the old one would not do)
+  if(v->loaded && (v->seq != now || v->epoch != p->st.epoch)) { v->vx.Close(); v->loaded = false; }
+  if(!v->loaded) {
+    if(!exists(f)) return 0;                                   // no objects yet
+    if(v->vx.Open(f.c_str(), gxDBASE_READONLY, x.spec().c_str()) != gxv_NO_ERROR) return p->fail("cannot open " + f);
+    v->loaded = true; v->seq = now; v->epoch = p->st.epoch;
+  }
+  std::vector<gxvResult> r;
+  if(v->vx.Search(q, k, r) != gxv_NO_ERROR) return p->fail("the search failed");
+  for(auto &e : r) hits.push_back({(uint64_t)e.id, e.distance});
+  return 0;
 }
 
 } // namespace datareel

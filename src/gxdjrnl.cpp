@@ -261,6 +261,10 @@ gxDatabaseError gxdJournal::Recover(const char *jname,
   if(!gxdFPTRExists(jname)) return gxDBASE_NO_ERROR;
   gxdFPTR *jfp = gxdFPTROpen(jname, gxDBASE_READWRITE);
   if(!jfp) return gxDBASE_FILE_OPEN_ERROR;
+  // 11/19/2026 (7.4.1): the replay writes pages to the files: readers
+  // holding a gxdJournalReadLock wait for it (closing the journal
+  // releases the lock; a build without file locks goes on without it)
+  gxdFPTRLock(jfp, 1);
 
   // Read the header
   std::vector<std::string> paths;
@@ -636,14 +640,20 @@ gxDatabaseError gxdJournal::WriteCommitted()
 {
   if(in_txn) return jerror = gxDBASE_FILE_NOT_READY;
   gxDatabaseError err = gxDBASE_NO_ERROR;
+  // 11/19/2026 (7.4.1): SetWriteLock(1) covers these page writes too
+  // (it covered only write-through commits), so a reader holding a
+  // gxdJournalReadLock never sees a write-back batch half written
+  int locked = 0;
   for(size_t i = 0; i < files.size(); i++) {
     gxdPageCache *pc = files[i].f->PageCache();
     size_t n = pc->LoggedPages();
     if(n == 0) continue;
+    if(write_lock && !locked) { gxdFPTRLock(jfp, 1); locked = 1; }
     if(pc->WriteLoggedPages() != 0) err = gxDBASE_FILE_WRITE_ERROR;
     files[i].written = 1;
     pages_written += n;
   }
+  if(locked) gxdFPTRUnlock(jfp);
   return jerror = err;
 }
 
@@ -706,14 +716,23 @@ gxDatabaseError gxdJournal::Checkpoint()
     if(gxdFPTRSync(jfp, 0) != 0) return jerror = gxDBASE_FILE_WRITE_ERROR;
   }
   unsynced = 0;
+  // 11/19/2026 (7.4.1): every file's pages first, under the write lock
+  // (see WriteCommitted()), then the syncs without it, so readers do
+  // not wait for the syncs
+  int locked = 0, werr = 0;
   for(size_t i = 0; i < files.size(); i++) {
     gxdPageCache *pc = files[i].f->PageCache();
     size_t n = pc->LoggedPages();
     if(n) {
-      if(pc->WriteLoggedPages() != 0) return jerror = gxDBASE_FILE_WRITE_ERROR;
+      if(write_lock && !locked) { gxdFPTRLock(jfp, 1); locked = 1; }
+      if(pc->WriteLoggedPages() != 0) { werr = 1; break; }
       pages_written += n;
       files[i].written = 1;
     }
+  }
+  if(locked) gxdFPTRUnlock(jfp);
+  if(werr) return jerror = gxDBASE_FILE_WRITE_ERROR;
+  for(size_t i = 0; i < files.size(); i++) {
     if(!files[i].written) continue;
     if(sync && (gxdFPTRSync(files[i].f->GetFP(), 0) != 0))
       return jerror = gxDBASE_FILE_WRITE_ERROR;

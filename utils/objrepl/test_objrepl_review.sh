@@ -67,7 +67,8 @@ t=$("$X" takeover "$T/p1" 2>&1); tr=$?; mkdir -p "$T/empty"; t2=$("$X" takeover 
 [ $tr -ne 0 ] && [ $tr2 -ne 0 ] && echo "$t" | grep -q "not a copy" && st p1 | grep -q "role primary" && st p1 | grep -q "next_seq 7 " \
   && ok "2 takeover: refused for a primary [$t] and for an unused folder" || bad "2 takeover" "primary $tr [$t] empty $tr2 [$t2]"
 
-# 3 idle: P1 stopped on an open connection; the copy drops it after 3 s; P9 is answered (refused by name) at once
+# 3 idle: P1 stopped on an open connection; P9 is answered (refused by name) at once. 7.4.1: the copy takes P9's
+# connection as soon as it passes the TLS check and drops P1's then; before, it dropped P1's after idle-timeout (3 s)
 start_copy a $P --name copyA --peer-name P1 --idle-timeout 3
 "$X" primary "$T/p1" --copy 127.0.0.1:$P "${PTLS[@]}" --name P1 --commits 100000 --per 1 --sleep 50 > "$T/p1_idle.log" 2>&1 & BG=$!   # the binary itself (its pid)
 f0=$(awk '$1=="frames"{print $2}' "$T/a/objrepl.status"); for i in $(seq 1 100); do f=$(awk '$1=="frames"{print $2}' "$T/a/objrepl.status"); [ "${f:-0}" -gt $(( ${f0:-0} + 3 )) ] && break; sleep 0.1; done   # streaming (not inside its handshake)
@@ -75,8 +76,8 @@ kill -STOP $BG
 s0=$(date +%s); timeout 60 "$X" primary "$T/x" --copy 127.0.0.1:$P "${PTLS[@]}" --name P9 --commits 1 --per 1 > "$T/p9.log" 2>&1; r=$?; s1=$(date +%s)
 kill -CONT $BG; kill -KILL $BG; wait $BG 2>/dev/null; BG=""
 stop_copy; "$X" clear-alarm "$T/a" > /dev/null; "$X" clear-alarm "$T/x" > /dev/null
-[ $r -eq 3 ] && [ $((s1 - s0)) -le 15 ] && grep -q "connection dropped" "$T/copy_a.log" \
-  && ok "3 idle: the stopped primary's connection dropped after 3 s; P9 answered in $((s1 - s0)) s (refused by name)" || bad "3 idle" "rc $r in $((s1 - s0)) s; copy log: $(tail -n 4 "$T/copy_a.log" | tr '\n' '|')"
+[ $r -eq 3 ] && [ $((s1 - s0)) -le 15 ] && grep -qE "connection dropped|connection from P1 is dropped" "$T/copy_a.log" \
+  && ok "3 idle: the stopped primary's connection dropped; P9 answered in $((s1 - s0)) s (refused by name)" || bad "3 idle" "rc $r in $((s1 - s0)) s; copy log: $(tail -n 4 "$T/copy_a.log" | tr '\n' '|')"
 # bring a and b back to p1's state (p1 committed while a streamed)
 start_copy a $P --name copyA; prim p1 $P --name P1 --commits 0 --drain > /dev/null 2>&1; stop_copy
 start_copy b $((P + 1)) --name copyB; prim p1 $((P + 1)) --name P1 --commits 0 --drain > /dev/null 2>&1; stop_copy

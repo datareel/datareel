@@ -207,6 +207,8 @@ public:
   // Hold an exclusive lock on the journal file while a commit writes its
   // pages to the database files. Readers in other processes that take a
   // gxdJournalReadLock never see a batch half written. Off by default.
+  // 7.4.1: in write-back mode too (WriteCommitted() and checkpoints);
+  // Recover() always holds it while it replays
   void SetWriteLock(int lock) { write_lock = lock; }
 
   // NORMAL (the default) syncs the journal and the database files at

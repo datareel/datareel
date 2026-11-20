@@ -316,6 +316,81 @@ private:
   Impl *p;
 };
 
+// 11/19/2026 (7.4.1): read-only access to a node's databases from
+// another process, while the node runs (gxObjRepl holds ROOT for one
+// process at a time). Each call reads under the node journal's shared
+// lock (gxdJournalReadLock on ROOT/node.jnl; the node takes it
+// exclusive only while it writes a batch's pages to the files), so a
+// call sees whole commits only: the files as of a recent commit, which
+// Seq() names (a primary's last commit, a copy's applied one). A
+// running node writes a commit's pages right after it is durable, or
+// with the next commit while another of its threads has a transaction
+// open, so a reader is at most a few commits behind the node itself.
+// Every call opens the files it needs and closes them before it
+// returns, so a reader never holds a node's file open between calls (a
+// copy replaces its files in a full send; Windows would refuse that
+// while another process held them). The one exception is a vector
+// index Nearest() has loaded: it stays in memory, its file open, and is
+// read again when the node has moved past the commit it was loaded at
+// (ReleaseVectors() closes them). With no node running, a journal left
+// by a node that stopped is replayed first (as Digest() does).
+// The 64-bit engine only (the journal lock needs it). Not thread safe:
+// one reader per thread.
+//
+//   gxObjReplReader r;
+//   if(r.Open("copy", "k0:events:B:0:8,v0:events:V:8:96") != 0) ... r.Error()
+//   std::vector<unsigned char> b;
+//   if(r.Get("events", id, b) == 0) ...
+//   r.FindKey("k0", key, 8, ids);
+//   r.Nearest("v0", q, 10, hits);
+class GXDLCODE_API gxObjReplReader
+{
+public:
+  gxObjReplReader();
+  ~gxObjReplReader();
+
+private:
+  gxObjReplReader(const gxObjReplReader &);
+  void operator=(const gxObjReplReader &);
+
+public:
+  // ROOT: a node folder (state.gxd must be there). INDEX: the node's
+  // index spec (gxObjReplConfig::index), for FindKey() and Nearest().
+  // Returns 0, or -1 with Error()
+  int Open(const std::string &root, const std::string &index = std::string());
+  void Close();
+  int IsOpen() const;
+  std::string Error() const;
+
+  // Each returns -1 (with Error()) when the node cannot be read now:
+  // no state, a copy in a full send ("a full send is under way"), a
+  // file that cannot be opened (also a database the node is creating
+  // at that moment: try again). Get(): 0, or -1 when the object is not
+  // live (Error() empty)
+  int Get(const std::string &db, uint64_t id, std::vector<unsigned char> &bytes);
+  int IsLive(const std::string &db, uint64_t id);       // 1, 0, or -1
+  int Ids(const std::string &db, std::vector<uint64_t> &ids,
+	  gxObjRepl::Which which = gxObjRepl::LIVE);
+  int Databases(std::vector<std::string> &dbs);
+  int FindKey(const std::string &index, const void *key, unsigned n, std::vector<uint64_t> &ids);
+  int Nearest(const std::string &index, const float *q, unsigned k, std::vector<gxObjReplHit> &hits);
+  void ReleaseVectors();
+
+  // The node's state as of the last call: the commit it read at, the
+  // epoch, the role (gxObjRepl::PRIMARY or COPY)
+  uint64_t Seq() const;
+  uint64_t Epoch() const;
+  int Role() const;
+  // Reads the state now (under the lock). Returns 0, or -1 with Error()
+  int Refresh();
+
+public:
+  struct Impl;
+
+private:
+  Impl *p;
+};
+
 } // namespace datareel
 
 #ifdef __BCC32__

@@ -81,10 +81,10 @@ dt=$(( $(date +%s) - t0 ))
 [ $PPID1_STOPPED = 1 ] && kill -CONT $PPID1
 wait $PPID1; qrc=$?; PPID1=""
 stop_copy
-if [ $rrc -eq 3 ] && [ $dt -lt 20 ] && [ $qrc -eq 0 ] && same q b && { [ $PPID1_STOPPED = 0 ] || grep -q "connected again" "$T/copy_b.log"; }; then
+if [ $rrc -eq 3 ] && [ $dt -lt 20 ] && [ $qrc -eq 0 ] && same q b && { [ $PPID1_STOPPED = 0 ] || grep -q "connection from .* is dropped" "$T/copy_b.log"; }; then
   ok "reconnect: the copy took the new connection in ${dt} s (idle-timeout 60), refused that primary (exit 3), and the first primary, resumed, finished: equal"
 else
-  bad "reconnect" "second primary rc $rrc in ${dt} s, first primary rc $qrc, said $(grep -c 'connected again' "$T/copy_b.log") $(tail -n 1 "$T/q.log")"
+  bad "reconnect" "second primary rc $rrc in ${dt} s, first primary rc $qrc, said $(grep -c 'is dropped' "$T/copy_b.log") $(tail -n 1 "$T/q.log")"
 fi
 
 echo "$PASS passed, $FAIL failed"

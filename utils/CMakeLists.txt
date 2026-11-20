@@ -21,6 +21,9 @@ target_link_libraries(test_gxobjrepl_api PRIVATE DataReel::datareel)
 if(WIN32)
   target_link_libraries(test_gxobjrepl_api PRIVATE ws2_32)
 endif()
+# 11/19/2026 (7.4.1): gxObjReplReader, read only from another process (test_objrepl_reader.sh)
+add_executable(test_gxobjrepl_reader objrepl/test_gxobjrepl_reader.cpp)
+target_link_libraries(test_gxobjrepl_reader PRIVATE DataReel::datareel)
 
 # 11/16/2026: gxObjRepl's property test and fuzzer (fork, sockets): POSIX only
 if(NOT WIN32)
