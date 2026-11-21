@@ -302,7 +302,10 @@ public: // Folders, without an open node
   static int Digest(const std::string &root, const std::string &links,
 		    std::string &line, std::string *detail = 0);
   // Each index against entries rebuilt from the objects, and a digest
-  // of its contents. Returns 0 when all are consistent, 5 when not
+  // of its contents. Returns 0 when all are consistent, 5 when not.
+  // 7.5 beta 3: INDEX may be a full spec, index names only ("k0,v0",
+  // looked up in the node's .def files) or empty (every index the node
+  // has); a spec that is none of these returns 64 with the reason
   static int IndexCheck(const std::string &root, const std::string &index,
 			std::string &report);
   // OK / WARN / FAIL in one line from ROOT/objrepl.status and the

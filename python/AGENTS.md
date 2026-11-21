@@ -147,7 +147,7 @@ describes. Show the person each command first (section 0).
 ## 4. Using it in a project
 
 1. Install the wheel in the project's virtual environment:
-   `python -m pip install --no-index datareel-7.5b3-cp312-cp312-linux_x86_64.whl`.
+   `python -m pip install --no-index datareel-7.5b3.post1-cp312-cp312-linux_x86_64.whl`.
 2. Find the store's facts: the node folder, its index spec, the C++ record struct of each database.
 3. Start from the user's manual examples: example 1 (open and list), 2 (decode), 3 (keys), 4 (vectors),
    5 (layout class and rows), 6 (follow a running node), 7 (vector files), 8 (block files), 9 (threads).

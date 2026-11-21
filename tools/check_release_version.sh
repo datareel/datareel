@@ -38,11 +38,14 @@ vt=$(tr -d ' \r\n' < "$SRC/version.txt" 2>/dev/null)
 
 # The release notes title: "DataReel 7.4 Beta 5 Release Notes" for "7.4 beta5", "DataReel 7.4 Release Notes" for "7.4"
 title="DataReel $base"
+# a patch of a beta (11/21/2026): "7.5 beta3-patch1" -> tag 7.5-beta3-patch1, title "DataReel 7.5 Beta 3 Patch 1"
+patch=""
+case "$pre" in *-patch[0-9]*) patch=${pre##*-patch}; pre=${pre%-patch*};; esac
 if [ -n "$pre" ]; then
   stage=$(echo "$pre" | sed 's/[0-9]*$//'); num=$(echo "$pre" | sed 's/^[a-z]*//')
   title="$title $(echo "${stage:0:1}" | tr a-z A-Z)${stage:1}${num:+ $num}"
 fi
-title="$title Release Notes"
+title="$title${patch:+ Patch $patch} Release Notes"
 notes="$SRC/RELEASE_NOTES_$maj.$min.txt"
 if [ -f "$notes" ]; then
   first=$(head -1 "$notes")

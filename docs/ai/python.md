@@ -10,7 +10,7 @@ and since beta 2 a node written from Python as a gxObjRepl primary (`Primary`). 
 ```
 python3.12 -m pip wheel python/ --no-build-isolation --no-deps -w dist/     # from the source top
 python/tests/run_python_tests.sh /tmp/drpy                                  # every test must pass
-python3.12 -m pip install --no-index dist/datareel-7.5b3-cp312-cp312-linux_x86_64.whl
+python3.12 -m pip install --no-index dist/datareel-7.5b3.post1-cp312-cp312-linux_x86_64.whl
 ```
 
 Build needs `gcc-c++ cmake openssl-devel python3.12-devel python3.12-setuptools python3.12-wheel`

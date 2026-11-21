@@ -188,7 +188,9 @@
 <p>Security and the database port: <a href="security_white_paper.html">docs/security_white_paper.html</a> is the security design of the library (TLS, mutual TLS, input checks, database files, replication, limits, FIPS and quantum computing). <a href="gxstream_replication_white_paper.html">docs/gxstream_replication_white_paper.html</a> explains gxStream and object replication on the IANA-registered port 2073 (gxs-data-port), and docs/rfc/draft-gaer-datareel-gxstream-00.txt is the protocol&#x27;s specification, an Internet-Draft for the Independent Submission stream.</p>
 <h2 id="ReleaseHistory">Release history</h2>
 <p><a href="release_notes.html">RELEASE_NOTES.txt</a> has the notes of every 7.x release in one file.</p>
-<pre> 7.5   11/20/2026 Beta 3: the incremental rejoin and the schema check
+<pre> 7.5   11/21/2026 Beta 3 Patch 1 (tag 7.5-beta3-patch1): index_check by
+                  index name (OSA), Database static area (OCA).
+       11/20/2026 Beta 3 (tag 7.5-beta3): the incremental rejoin and the schema check
                   (gxObjRepl, objrepl and Python: rejoin, swap).
        11/20/2026 Beta 2 (tag 7.5-beta2): writes from Python (datareel.Primary, a
                   gxObjRepl primary that replicates to a C++ copy).

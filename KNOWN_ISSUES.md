@@ -47,6 +47,8 @@ bug.
 
 - `utils/objrepl/test_objrepl_iofaults.sh`: the "primary fsync EIO
   once" case, under heavy load.
+- `utils/objrepl/test_objrepl_review.sh` case 3 "idle", at a load of 20 (it failed once in 46 s on
+  11/21/2026 and passed on its own right after).
 - `imap_container` in `tests/run_tests.sh`: the Dovecot test container
   sometimes starts too slowly.
 - Windows only: `test_objrepl_check.sh` "stopping clean" (the status

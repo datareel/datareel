@@ -21,7 +21,7 @@
 <h1>DataReel 7 Release Notes (all 7.x releases)</h1>
 <p>Every DataReel 7.x release, newest first. Each release also has its own page and text file.</p>
 <div class="dr-toc-title">Releases</div>
-<p class="dr-toc"><a href="#v7_5">DataReel 7.5 Beta 3 Release Notes (the Python module), 11/20/2026</a><br>
+<p class="dr-toc"><a href="#v7_5">DataReel 7.5 Beta 3 Patch 1 Release Notes (the Python module), 11/21/2026</a><br>
 <a href="#v7_4">DataReel 7.4.1 Release Notes (vector extensions), 11/20/2026 (7.4: 11/17/2026)</a><br>
 <a href="#v7_3_3">DataReel 7.3.3 Beta Release Notes, 11/14/2026</a><br>
 <a href="#v7_3_2">DataReel 7.3.2 Beta Release Notes, 11/14/2026</a><br>
@@ -30,8 +30,13 @@
 <a href="#v7_2">DataReel 7.2 Beta Release Notes, 10/31/2026</a><br>
 <a href="#v7_1">DataReel 7.1 Beta Release Notes, 10/31/2026</a><br>
 <a href="#v7_0">DataReel 7.0 Beta Release Notes, 10/26/2026</a></p>
-<h2 id="v7_5">DataReel 7.5 Beta 3 Release Notes (the Python module), 11/20/2026</h2>
+<h2 id="v7_5">DataReel 7.5 Beta 3 Patch 1 Release Notes (the Python module), 11/21/2026</h2>
 <p>DataReel 7.5 adds the datareel Python module, a package that installs with pip. It is built from this repository (python/) on top of 7.4.1, so everything in 7.4.1 is in it (<a href="#v7_4">RELEASE_NOTES_7.4.txt</a>, &quot;NEW IN 7.4.1&quot;). The file formats and the gxStream and gxObjRepl wire formats are those of 7.4.</p>
+<h3 id="v7_5_NewIn75Beta3Patch1Tag75Beta3Patch111212026">NEW IN 7.5 BETA 3 PATCH 1 (tag 7.5-beta3-patch1, 11/21/2026)</h3>
+<ul>
+<li>index_check / objrepl ixcheck take index names only (&quot;rt_day&quot;, looked up in the node&#x27;s .def files) or none (every index the node has). A spec that names no index of the node, or that cannot be read, is a usage error with its own message (IndexCheck returns 64; Python raises datareel.Error), no longer &quot;bad index&quot;, which looked like a damaged index (reported from OSA, 11/20).</li>
+<li>datareel.Database(path, create=True, static_size=N): the static area of gxDatabase::Create(fname, static_size) from Python, with read_static(offset=0, size=-1), write_static(data, offset=0) and the static_size property (asked for by OCA, 11/20). Bounds checked; journaled like any write when the file is attached to a Journal.</li>
+</ul>
 <h3 id="v7_5_NewIn75Beta3">New in 7.5 beta 3</h3>
 <ul>
 <li>The incremental rejoin (gxObjRepl, C++ and Python): when both nodes wrote after a split (a standby took over while the old primary kept writing, the OSA emergency path), objrepl rejoin / datareel.rejoin() keeps the old primary&#x27;s data and the list of objects its unacknowledged commits changed. The new primary checks that the two histories match at the seq it took over at (ROOT/epochs, written at each takeover) and sends only the objects either node changed since then (its change list, ROOT/objrepl.changes.gxd), then its digest log past the split: equal digests, with no full send. A full send instead when the histories differ, when the change set is more than rejoin-max-share percent of the objects (default 50), or with objrepl rejoin --full / datareel.rejoin(root, incremental=False). A node killed in the middle keeps waiting and finishes on the next connect.</li>
@@ -39,7 +44,7 @@
 <li>Status: last_rejoin (incremental or full send) and last_rejoin_objects on the primary. objrepl: --schema, --rejoin-max-share, --drain-secs (the generator&#x27;s final drain).</li>
 <li>Wire: new fields at the end of the hello and its reply, and frames F_RJ_SET, F_RJ_BATCH and F_RJ_END. 7.4.1 and 7.5 beta 2 nodes work with beta 3 nodes as before (tested both ways).</li>
 <li>Tests: utils/objrepl/test_objrepl_rejoin.sh (the emergency path and back, the schema refusal, rebuild and swap, another history, the share limit, --full, a node killed inside a batch and inside the end, and with OBJREPL_OLD_BIN a 7.4.1 node both ways), and Python tests: a C++ production primary and a Python DEV copy that detaches and writes, the rejoin and the roles going back; a Python primary under a C++ new primary; the schema refusal, rebuild and swap from Python.</li>
-<li>Package version 7.5b3; library version &quot;7.5 beta3&quot;.</li>
+<li>Package version 7.5b3 (patch 1: 7.5b3.post1); library version &quot;7.5 beta3&quot; (patch 1: &quot;7.5 beta3-patch1&quot;).</li>
 </ul>
 <h3 id="v7_5_NewIn75Beta2">New in 7.5 beta 2</h3>
 <ul>

@@ -1,4 +1,4 @@
-DataReel 7.5 Beta 3 Release Notes (the Python module), 11/20/2026
+DataReel 7.5 Beta 3 Patch 1 Release Notes (the Python module), 11/21/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 DataReel 7.5 adds the datareel Python module, a package that
@@ -6,6 +6,20 @@ installs with pip. It is built from this repository (python/) on top of
 7.4.1, so everything in 7.4.1 is in it (RELEASE_NOTES_7.4.txt, "NEW IN
 7.4.1"). The file formats and the gxStream and gxObjRepl wire formats
 are those of 7.4.
+
+NEW IN 7.5 BETA 3 PATCH 1 (tag 7.5-beta3-patch1, 11/21/2026)
+-------------------------------------------------------------
+- index_check / objrepl ixcheck take index names only ("rt_day", looked
+  up in the node's .def files) or none (every index the node has). A
+  spec that names no index of the node, or that cannot be read, is a
+  usage error with its own message (IndexCheck returns 64; Python
+  raises datareel.Error), no longer "bad index", which looked like a
+  damaged index (reported from OSA, 11/20).
+- datareel.Database(path, create=True, static_size=N): the static area
+  of gxDatabase::Create(fname, static_size) from Python, with
+  read_static(offset=0, size=-1), write_static(data, offset=0) and the
+  static_size property (asked for by OCA, 11/20). Bounds checked;
+  journaled like any write when the file is attached to a Journal.
 
 NEW IN 7.5 BETA 3
 -----------------
@@ -45,7 +59,8 @@ NEW IN 7.5 BETA 3
   a C++ production primary and a Python DEV copy that detaches and
   writes, the rejoin and the roles going back; a Python primary under a
   C++ new primary; the schema refusal, rebuild and swap from Python.
-- Package version 7.5b3; library version "7.5 beta3".
+- Package version 7.5b3 (patch 1: 7.5b3.post1); library version "7.5 beta3"
+  (patch 1: "7.5 beta3-patch1").
 
 NEW IN 7.5 BETA 2
 -----------------

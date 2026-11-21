@@ -966,13 +966,17 @@ static PyObject *Database_new(PyTypeObject *type, PyObject *, PyObject *)
 }
 static int Database_init(DatabaseObject *self, PyObject *args, PyObject *kw)
 {
-  static const char *kwlist[] = {"path", "create", "readonly", 0};
-  PyObject *p = 0; int create = 0, ro = 0;
-  if(!PyArg_ParseTupleAndKeywords(args, kw, "O&|pp", (char **)kwlist, PyUnicode_FSConverter, &p, &create, &ro)) return -1;
+  static const char *kwlist[] = {"path", "create", "readonly", "static_size", 0};
+  PyObject *p = 0; int create = 0, ro = 0; unsigned long long ssz = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "O&|ppK", (char **)kwlist, PyUnicode_FSConverter, &p, &create, &ro, &ssz)) return -1;
   std::string path(PyBytes_AS_STRING(p)); Py_DECREF(p);
+  // 7.5 beta 3 patch 1: STATIC_SIZE bytes of static area after the file header (Create() only), for an application's
+  // own fixed record (a header, a state block), as gxDatabase::Create(fname, static_size)
+  if(ssz && !create) { raise("static_size is set when the file is created (create=True)"); return -1; }
+  if(ssz > 0x7fffffffULL) { raise("static_size is at most 2 GB"); return -1; }
   gxDatabaseError e;
   Py_BEGIN_ALLOW_THREADS
-  e = create ? self->db->Create(path.c_str()) : self->db->Open(path.c_str(), access_mode(ro));
+  e = create ? self->db->Create(path.c_str(), (FAU_t)ssz) : self->db->Open(path.c_str(), access_mode(ro));
   Py_END_ALLOW_THREADS
   if(e != gxDBASE_NO_ERROR) { raise((create ? "cannot create " : "cannot open ") + path + ": " + self->db->DatabaseExceptionMessage()); return -1; }
   return 0;
@@ -1023,6 +1027,55 @@ static PyObject *Database_read(DatabaseObject *self, PyObject *args)
   DB_ERR(self, e);
   return PyBytes_FromStringAndSize((const char *)v.data(), (Py_ssize_t)v.size());
 }
+// 7.5 beta 3 patch 1: the static area (static_size bytes after the file header, zero filled when created)
+static unsigned long long db_static_size(DatabaseObject *self) { return (unsigned long long)self->db->StaticArea(); }
+static PyObject *Database_read_static(DatabaseObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"offset", "size", 0};
+  unsigned long long off = 0; long long n = -1;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "|KL", (char **)kwlist, &off, &n)) return 0;
+  DB_OPEN(self);
+  unsigned long long sz = db_static_size(self);
+  if(off > sz) return raise("offset " + std::to_string(off) + " is past the static area (" + std::to_string(sz) + " bytes)");
+  unsigned long long len = n < 0 ? sz - off : (unsigned long long)n;
+  if(off + len > sz) return raise("the read goes past the static area (" + std::to_string(sz) + " bytes)");
+  std::vector<unsigned char> v((size_t)len); gxDatabaseError e = gxDBASE_NO_ERROR;
+  if(len) {
+    Py_BEGIN_ALLOW_THREADS
+    e = self->db->Read(v.data(), (__ULWORD__)len, (FAU_t)(self->db->FileHeaderSize() + off));
+    Py_END_ALLOW_THREADS
+  }
+  DB_ERR(self, e);
+  return PyBytes_FromStringAndSize((const char *)v.data(), (Py_ssize_t)v.size());
+}
+static PyObject *Database_write_static(DatabaseObject *self, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"data", "offset", 0};
+  Py_buffer b; unsigned long long off = 0;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "y*|K", (char **)kwlist, &b, &off)) return 0;
+  std::vector<unsigned char> v((const unsigned char *)b.buf, (const unsigned char *)b.buf + b.len);
+  PyBuffer_Release(&b);
+  DB_OPEN(self);
+  unsigned long long sz = db_static_size(self);
+  if(off + v.size() > sz) return raise("the write goes past the static area (" + std::to_string(sz) + " bytes; create the file with static_size)");
+  gxDatabaseError e = gxDBASE_NO_ERROR;
+  if(!v.empty()) {
+    Py_BEGIN_ALLOW_THREADS
+    e = self->db->Write(v.data(), (__ULWORD__)v.size(), (FAU_t)(self->db->FileHeaderSize() + off));
+    Py_END_ALLOW_THREADS
+  }
+  DB_ERR(self, e);
+  Py_RETURN_NONE;
+}
+static PyObject *Database_static_size(DatabaseObject *self, void *)
+{
+  if(!self->db || !self->db->IsOpen()) return raise("the database is closed");
+  return PyLong_FromUnsignedLongLong(db_static_size(self));
+}
+static PyGetSetDef Database_getset[] = {
+  {"static_size", (getter)Database_static_size, 0, "the bytes of static area (static_size at create; 0 for none)", 0},
+  {0, 0, 0, 0, 0}
+};
 static PyObject *Database_length(DatabaseObject *self, PyObject *args)
 {
   unsigned long long a; if(!PyArg_ParseTuple(args, "K", &a)) return 0;
@@ -1089,6 +1142,8 @@ static PyMethodDef Database_methods[] = {
   {"alloc", (PyCFunction)Database_alloc, METH_VARARGS, "alloc(size) -> the address of a new object of at least SIZE bytes (deleted blocks are reused)"},
   {"write", (PyCFunction)Database_write, METH_VARARGS, "write(address, data, offset=0): bytes into the object at ADDRESS"},
   {"read", (PyCFunction)Database_read, METH_VARARGS, "read(address, size=-1) -> the object's bytes (all of its block by default)"},
+  {"read_static", (PyCFunction)(void (*)(void))Database_read_static, METH_VARARGS | METH_KEYWORDS, "read_static(offset=0, size=-1) -> bytes of the static area"},
+  {"write_static", (PyCFunction)(void (*)(void))Database_write_static, METH_VARARGS | METH_KEYWORDS, "write_static(data, offset=0): bytes into the static area (in a Journal transaction when the file is attached)"},
   {"length", (PyCFunction)Database_length, METH_VARARGS, "length(address) -> the bytes the object's block holds (0: no object)"},
   {"delete", (PyCFunction)Database_delete, METH_VARARGS, "delete(address): the block is free for reuse"},
   {"addresses", (PyCFunction)Database_addresses, METH_NOARGS, "addresses() -> every object's address, in file order"},
@@ -1886,15 +1941,18 @@ static PyObject *mod_clear_alarm(PyObject *, PyObject *args)
   if(rc != 0) return raise(msg);
   return PyUnicode_FromString(msg.c_str());
 }
+// index_check(root, index="") -> (consistent, report). INDEX: a spec, index names only, or "" for every index the
+// node has (7.5 beta 3); one that names no index of the node raises datareel.Error
 static PyObject *mod_index_check(PyObject *, PyObject *args)
 {
-  PyObject *r = 0; const char *ix;
-  if(!PyArg_ParseTuple(args, "O&s", PyUnicode_FSConverter, &r, &ix)) return 0;
+  PyObject *r = 0; const char *ix = "";
+  if(!PyArg_ParseTuple(args, "O&|s", PyUnicode_FSConverter, &r, &ix)) return 0;
   std::string root(PyBytes_AS_STRING(r)), spec(ix); Py_DECREF(r);
   std::string report; int rc;
   Py_BEGIN_ALLOW_THREADS
   rc = gxObjRepl::IndexCheck(root, spec, report);
   Py_END_ALLOW_THREADS
+  if(rc == 64) { while(!report.empty() && report.back() == '\n') report.pop_back(); return raise(report); }
   return Py_BuildValue("(Os)", rc == 0 ? Py_True : Py_False, report.c_str());
 }
 // check(root, settings=None, config=None) -> (level, line): 0 OK, 1 WARN, 2 FAIL, from the status and alarm files
@@ -1934,7 +1992,7 @@ static PyMethodDef module_methods[] = {
   {"rejoin", (PyCFunction)(void (*)(void))mod_rejoin, METH_VARARGS | METH_KEYWORDS, "rejoin(root, incremental=True) -> message: a former primary (or a copy of another history) becomes a copy; beta 3: an incremental rejoin (only the objects either node changed since the split) when the new primary can match the histories and the schemas agree, else a full send"},
   {"swap", (PyCFunction)(void (*)(void))mod_swap, METH_VARARGS | METH_KEYWORDS, "swap(old, new, index='') -> message: after a rebuild into NEW (both stopped), OLD is kept as OLD.before-rebuild-DATE and NEW becomes OLD"},
   {"clear_alarm", mod_clear_alarm, METH_VARARGS, "clear_alarm(root) -> message: the node's alarm file is set aside"},
-  {"index_check", mod_index_check, METH_VARARGS, "index_check(root, index) -> (consistent, report): each index against the objects"},
+  {"index_check", mod_index_check, METH_VARARGS, "index_check(root, index='') -> (consistent, report): each index against the objects; INDEX a spec, index names only, or '' for all (beta 3); an unknown index raises Error"},
   {"check", (PyCFunction)(void (*)(void))mod_check, METH_VARARGS | METH_KEYWORDS, "check(root, settings=None, config=None) -> (0 OK / 1 WARN / 2 FAIL, line)"},
   {"status", mod_status, METH_VARARGS, "status(root) -> dict (epoch, next_seq, acked_seq, applied_seq, in_snapshot, role, digest) of a node no process holds"},
   {"digest", mod_digest, METH_VARARGS, "digest(root, links='') -> (line, detail): ids and contents with links as ids; two nodes with the same objects give the same line"},
@@ -1968,7 +2026,8 @@ PyMODINIT_FUNC PyInit__datareel(void)
 	    "VectorIndex(path, spec=None) - a .vix file, read only. Use it on files no process is writing; "
 	    "for a running node use Reader.nearest().")) return 0;
   if(!ready(DatabaseType, "datareel.Database", sizeof(DatabaseObject), (destructor)Database_dealloc, Database_new, (initproc)Database_init,
-	    Database_methods, 0, "Database(path, create=False, readonly=False): a gxDatabase block file, read and write")) return 0;
+	    Database_methods, Database_getset, "Database(path, create=False, readonly=False, static_size=0): a gxDatabase block file, read and write; "
+	    "static_size (create only): bytes of static area after the header (read_static, write_static)")) return 0;
   if(!ready(BTreeType, "datareel.BTree", sizeof(BTreeObject), (destructor)BTree_dealloc, BTree_new, (initproc)BTree_init,
 	    BTree_methods, BTree_getset, "BTree(path, key_size, create=False, order=16, readonly=False): a gxBtree index file of "
 	    "KEY_SIZE-byte keys (compared as bytes) with an 8-byte value each")) return 0;

@@ -3094,12 +3094,43 @@ int gxObjRepl::Digest(const std::string &root, const std::string &lspec, std::st
   return 0;
 }
 
+static std::string spec_from_defs(const std::string &root);
+// 7.5 beta 3 fix: SPEC as given (NAME:DB:B|V:OFF:LEN,...), or index names only ("rt_day,k0") looked up in the
+// node's .def files, or empty for every index the node has. False (and why) when it is none of these
+static bool resolve_ix(const std::string &root, const std::string &spec, std::vector<IxDef> &out, std::string &why)
+{
+  out.clear();
+  if(spec.find(':') != std::string::npos) {
+    if(parse_ix(spec, out)) return true;
+    why = "bad index spec \"" + spec + "\" (NAME:DB:B:OFFSET:LEN or NAME:DB:V:OFFSET:DIM, comma separated, or index names only)";
+    return false;
+  }
+  std::vector<IxDef> all;
+  parse_ix(spec_from_defs(root), all);
+  std::string names;
+  for(auto &d : all) names += (names.empty() ? "" : ", ") + d.name;
+  if(spec.empty()) {
+    if(all.empty()) { why = "no index spec given, and " + root + " has no index .def files"; return false; }
+    out = all; return true;
+  }
+  size_t i = 0;
+  while(i <= spec.size()) {
+    size_t j = spec.find(',', i); if(j == std::string::npos) j = spec.size();
+    std::string n = spec.substr(i, j - i);
+    bool found = false;
+    for(auto &d : all) if(d.name == n) { out.push_back(d); found = true; break; }
+    if(!found) { why = "no index named \"" + n + "\" in " + root + " (its indexes: " + (names.empty() ? "none" : names) + ")"; out.clear(); return false; }
+    i = j + 1;
+  }
+  return true;
+}
+
 int gxObjRepl::IndexCheck(const std::string &root, const std::string &spec, std::string &report)
 {
   settle(root);
   std::vector<IxDef> ixdefs;
   report.clear();
-  if(!parse_ix(spec, ixdefs)) { report = "bad index\n"; return 5; }
+  { std::string why; if(!resolve_ix(root, spec, ixdefs, why)) { report = why + "\n"; return 64; } }   // a usage error, not a bad index
   int rc = 0;
   for(auto &def : ixdefs) {
     Ix x; x.def = def;

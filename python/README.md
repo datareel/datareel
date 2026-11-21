@@ -5,7 +5,7 @@ or an export file. Beta 2 adds writes: a Python program can be a gxObjRepl prima
 C++ copy.
 
 ```
-pip install datareel-7.5b3-cp312-cp312-linux_x86_64.whl
+pip install datareel-7.5b3.post1-cp312-cp312-linux_x86_64.whl
 ```
 
 ```python

@@ -47,7 +47,7 @@ from ._datareel import (Error, Reader, VectorIndex, BlockFile, Copy, Database, B
                         engine_bits, _Primary, status, digest, takeover, rejoin, check, clear_alarm, index_check,
                         create_vector_index, merge_vector_indexes, swap)
 
-__version__ = "7.5b3"
+__version__ = "7.5b3.post1"
 __all__ = ["Error", "Primary", "Copy", "Reader", "VectorIndex", "BlockFile", "Database", "BTree", "Journal",
            "Stream", "StreamServer", "ObjectClient",
            "library_version", "engine_bits", "status", "digest", "takeover", "rejoin", "check", "clear_alarm",

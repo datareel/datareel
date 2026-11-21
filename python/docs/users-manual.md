@@ -14,7 +14,7 @@ object server. 6. Reference. 7. Errors and what to do. 8. Limits of beta 2.
 ## 1. Install
 
 ```
-python3.12 -m pip install --no-index datareel-7.5b3-cp312-cp312-linux_x86_64.whl
+python3.12 -m pip install --no-index datareel-7.5b3.post1-cp312-cp312-linux_x86_64.whl
 python3.12 -c "import datareel; print(datareel.__version__, datareel.library_version())"
 ```
 
@@ -742,7 +742,9 @@ roles: copy primary equal: True
 
 `datareel.check(root, settings=...)` gives OK, WARN or FAIL (0, 1, 2) and a line from the node's status and
 alarm files, as `objrepl check`; `datareel.clear_alarm(root)` sets an alarm aside once it is dealt with;
-`datareel.index_check(root, index)` checks every index against the objects.
+`datareel.index_check(root, index)` checks every index against the objects. Since beta 3, `index` may be index
+names only (`"rt_day"`, looked up in the node's `.def` files) or left out (every index the node has); a name the
+node does not have raises `datareel.Error`.
 
 ### The incremental rejoin and the schema check (beta 3)
 
@@ -780,9 +782,13 @@ deletes anything. The primary's status file (`ROOT/objrepl.status`) shows `last_
 
 Below gxObjRepl, Python reaches the same files C++ programs build by hand:
 
-- `datareel.Database(path, create=False, readonly=False)`: a gxDatabase block file: `alloc(size)` returns the
+- `datareel.Database(path, create=False, readonly=False, static_size=0)`: a gxDatabase block file: `alloc(size)` returns the
   address of a new block, `write(address, data, offset=0)`, `read(address, size=-1)`, `length(address)`,
-  `delete(address)`, `addresses()`.
+  `delete(address)`, `addresses()`. Since the beta 3 patch, `static_size` (with `create=True` only) reserves that
+  many bytes of static area after the file header, zero filled, as the C++ `gxDatabase::Create(fname,
+  static_size)` does: a fixed record of the application's own (a header, a state block) that is not an object.
+  `read_static(offset=0, size=-1)`, `write_static(data, offset=0)` and the `static_size` property work on it. A
+  write past the end is refused; in a `Journal` transaction it commits and rolls back like any other write.
 - `datareel.BTree(path, key_size, create=False, order=16, readonly=False)`: a gxBtree index file whose entries
   are a `key_size`-byte key (compared as bytes) and an 8-byte value: `insert(key, value)`, `delete`, `find`,
   `contains`, `prefix`, `range(start, stop)`, `count`. A gxObjRepl node's B-tree index file has this layout
@@ -1031,7 +1037,7 @@ report)`. `Journal(path, write_back=False)`: `attach`, `begin`, `commit(durable=
 
 See section 5d.
 
-### datareel.status(root), datareel.digest(root, links=""), datareel.takeover(root), rejoin(root), check(root, settings=None, config=None), clear_alarm(root), index_check(root, index) (beta 2)
+### datareel.status(root), datareel.digest(root, links=""), datareel.takeover(root), rejoin(root), check(root, settings=None, config=None), clear_alarm(root), index_check(root, index="") (beta 2)
 
 Node folder tools for a folder no process holds, as the C++ `objrepl` tool's `status`, `digest` and
 `takeover`: `status()` returns a dict (`epoch`, `next_seq`, `acked_seq`, `applied_seq`, `in_snapshot`,
@@ -1061,7 +1067,7 @@ A `.gxd` file opened read only: `addresses()` (every object's address, in file o
 
 ### Module
 
-`datareel.__version__` (`"7.5b2"`), `datareel.library_version()` (the C++ library, `"7.5 beta2"`),
+`datareel.__version__` (`"7.5b3.post1"`), `datareel.library_version()` (the C++ library, `"7.5 beta3-patch1"`),
 `datareel.engine_bits()` (64), `datareel.Error` (a `RuntimeError`).
 
 Query vectors are lists or tuples of numbers, or any float32 buffer (`array('f')`, a numpy `float32` array).

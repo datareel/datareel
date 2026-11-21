@@ -45,7 +45,9 @@ Usage:
           port 2073, the registered gxStream port, unless a port is
           given; --listen ADDR sets the address only)
   objrepl digest ROOT       every database: ids and content hashes
-  objrepl ixcheck ROOT --index ...   each index against the objects
+  objrepl ixcheck ROOT --index ...   each index against the objects (7.5 beta 3: --index
+          may name indexes only, "k0,v0", or be left out: every index the
+          node has, from its .def files)
   objrepl check ROOT        OK / WARN / FAIL (exit 0 / 1 / 2)
   objrepl clear-alarm ROOT
   objrepl status ROOT
@@ -316,8 +318,10 @@ int main(int argc, char **argv)
   static const std::set<std::string> keys = {"name", "peer-name", "copy", "listen", "ca", "cert", "key", "allow-cn",
 					     "links", "index", "max-lag", "max-behind", "min-cert-days", "idle-timeout",
 					     "ack-timeout", "schema", "rejoin-max-share"};
+  std::string ix_names;                                        // ixcheck: --index may be index names only (7.5 beta 3)
   for(int i = 3; i < argc; i++) {
     std::string a = argv[i];
+    if(cmd == "ixcheck" && a == "--index" && i + 1 < argc && std::string(argv[i + 1]).find(':') == std::string::npos) { ix_names = argv[++i]; continue; }
     auto val = [&]() { return i + 1 < argc ? std::string(argv[++i]) : std::string(); };
     if(a.compare(0, 2, "--") == 0 && keys.count(a.substr(2))) { if(!cfg.Set(a.substr(2), val(), &why)) { fprintf(stderr, "%s\n", why.c_str()); return 64; } }
     else if(a == "--config") val();
@@ -346,7 +350,7 @@ int main(int argc, char **argv)
     if(rc == 0) fprintf(stderr, "objrepl digest: %s\n", detail.c_str());
     return rc;
   }
-  if(cmd == "ixcheck") { rc = gxObjRepl::IndexCheck(root, cfg.index, line); printf("%s", line.c_str()); return rc; }
+  if(cmd == "ixcheck") { rc = gxObjRepl::IndexCheck(root, ix_names.empty() ? cfg.index : ix_names, line); printf("%s", line.c_str()); return rc; }
   if(cmd == "check" || cmd == "monitor") { rc = gxObjRepl::Check(root, cfg, line); printf("%s\n", line.c_str()); return rc; }
   if(cmd == "clear-alarm") { rc = gxObjRepl::ClearAlarm(root, line); printf("%s\n", line.c_str()); return rc; }
   if(cmd == "status") { rc = gxObjRepl::Status(root, line); printf("%s\n", line.c_str()); return rc; }

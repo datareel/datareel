@@ -617,6 +617,53 @@ class DatabaseLayerTest(unittest.TestCase):
         with datareel.Database(self.path("j.gxd"), readonly=True) as d2:
             self.assertEqual(d2.read(a, 9), b"committed")
 
+    def test_static_area(self):
+        """beta 3 patch 1 (OCA): Database(create=True, static_size=N), read_static/write_static, the static_size
+        property; bounds, read only, a reopen, the C++ library's view (an object allocated after it), and a journal
+        rollback of a static write"""
+        f = self.path("st.gxd")
+        with datareel.Database(f, create=True, static_size=64) as db:
+            self.assertEqual(db.static_size, 64)
+            self.assertEqual(db.read_static(), bytes(64))       # zero filled when created
+            db.write_static(b"OCA-HEADER-v1")
+            db.write_static(struct.pack("<Q", 12345), offset=56)
+            a = db.alloc(10)
+            db.write(a, b"an object!")
+            with self.assertRaises(datareel.Error):
+                db.write_static(bytes(9), offset=56)           # past the end
+            with self.assertRaises(datareel.Error):
+                db.read_static(60, 8)
+            self.assertEqual(db.read_static(0, 13), b"OCA-HEADER-v1")
+        with datareel.Database(f, readonly=True) as db:
+            self.assertEqual(db.static_size, 64)
+            self.assertEqual(db.read_static(0, 13), b"OCA-HEADER-v1")
+            self.assertEqual(struct.unpack("<Q", db.read_static(56, 8))[0], 12345)
+            self.assertEqual(db.read(a, 10), b"an object!")    # objects start after the static area
+            self.assertGreater(a, 64)
+            with self.assertRaises(datareel.Error):
+                db.write_static(b"x")                          # read only
+        with self.assertRaises(datareel.Error):
+            datareel.Database(f, static_size=8)                # only when created
+        with datareel.Database(self.path("nost.gxd"), create=True) as db:
+            self.assertEqual(db.static_size, 0)
+            with self.assertRaises(datareel.Error):
+                db.write_static(b"x")
+            self.assertEqual(db.read_static(), b"")
+        j = datareel.Journal(self.path("st.jnl"))
+        db = datareel.Database(f)
+        j.attach(db)
+        with self.assertRaises(KeyError):
+            with datareel.transaction(j):
+                db.write_static(b"ROLLED-BACK!!")
+                raise KeyError("undo")
+        self.assertEqual(db.read_static(0, 13), b"OCA-HEADER-v1")
+        with datareel.transaction(j):
+            db.write_static(b"OCA-HEADER-v2")
+        j.close()
+        db.close()
+        with datareel.Database(f, readonly=True) as db:
+            self.assertEqual(db.read_static(0, 13), b"OCA-HEADER-v2")
+
     def test_journal_crash(self):
         """A Python writer killed (KILL) mid-transaction: the next Journal() replays what was committed, and the
         data file and the B-tree agree."""
@@ -960,6 +1007,30 @@ class HandoffTest(Base):
             with self.assertRaises(datareel.Error):
                 r.find_range("k0", bytes(9))                       # longer than the key
             self.assertEqual(datareel.Reader(self.p, INDEX).index_spec, INDEX)
+
+    def test_index_check_by_name(self):
+        """beta 3 fix: index_check() with index names only, or none, reads the spec from the node's .def files; a
+        name the node does not have, or a bad spec, raises Error (it is not a bad index)"""
+        ok, report = datareel.index_check(self.p, "k0")
+        self.assertTrue(ok, report)
+        self.assertIn("index k0 vec B", report)
+        self.assertNotIn("v0", report)
+        ok, report = datareel.index_check(self.p)
+        self.assertTrue(ok, report)
+        self.assertEqual(sorted(l.split()[1] for l in report.splitlines()), ["k0", "v0"])
+        self.assertTrue(datareel.index_check(self.p, "v0,k0")[0])
+        with self.assertRaises(datareel.Error) as e:
+            datareel.index_check(self.p, "rt_day")
+        self.assertIn('no index named "rt_day"', str(e.exception))
+        self.assertIn("k0, v0", str(e.exception))
+        with self.assertRaises(datareel.Error) as e:
+            datareel.index_check(self.p, "k0:vec:B:0")
+        self.assertIn("bad index spec", str(e.exception))
+        out = subprocess.run([prog("objrepl"), "ixcheck", self.p, "--index", "k0"], stdout=subprocess.PIPE, text=True)
+        self.assertEqual(out.returncode, 0, out.stdout)
+        out = subprocess.run([prog("objrepl"), "ixcheck", self.p, "--index", "rt_day"], stdout=subprocess.PIPE, text=True)
+        self.assertEqual(out.returncode, 64)
+        self.assertIn("no index named", out.stdout)
 
     def test_lock_wait_node_detach(self):
         root = os.path.join(self.tmp, "lockw")

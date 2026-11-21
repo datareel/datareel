@@ -345,7 +345,9 @@ RELEASE HISTORY
 ---------------
 RELEASE_NOTES.txt has the notes of every 7.x release in one file.
 
- 7.5   11/20/2026 Beta 3: the incremental rejoin and the schema check
+ 7.5   11/21/2026 Beta 3 Patch 1 (tag 7.5-beta3-patch1): index_check by
+                  index name (OSA), Database static area (OCA).
+       11/20/2026 Beta 3 (tag 7.5-beta3): the incremental rejoin and the schema check
                   (gxObjRepl, objrepl and Python: rejoin, swap).
        11/20/2026 Beta 2 (tag 7.5-beta2): writes from Python (datareel.Primary, a
                   gxObjRepl primary that replicates to a C++ copy).
