@@ -1,4 +1,4 @@
-DataReel 7.5 Beta 2 Readme File
+DataReel 7.5 Beta 3 Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -345,7 +345,9 @@ RELEASE HISTORY
 ---------------
 RELEASE_NOTES.txt has the notes of every 7.x release in one file.
 
- 7.5   11/20/2026 Beta 2: writes from Python (datareel.Primary, a
+ 7.5   11/20/2026 Beta 3: the incremental rejoin and the schema check
+                  (gxObjRepl, objrepl and Python: rejoin, swap).
+       11/20/2026 Beta 2 (tag 7.5-beta2): writes from Python (datareel.Primary, a
                   gxObjRepl primary that replicates to a C++ copy).
        11/20/2026 Beta 1 (tag 7.5-beta1): the datareel Python module,
                   a pip package, read only (python/, python/docs/

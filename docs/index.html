@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>DataReel 7.5 Beta 2 Readme</title>
+<title>DataReel 7.5 Beta 3 Readme</title>
 <link rel="stylesheet" href="css/datareel.css">
 <link rel="icon" href="images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
@@ -18,7 +18,7 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html" aria-current="page">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>DataReel 7.5 Beta 2 Readme</h1>
+<h1>DataReel 7.5 Beta 3 Readme</h1>
 <div class="dr-toc-title">Contents</div>
 <p class="dr-toc"><a href="#Overview">Overview</a><br>
 <a href="#WhatDatareelIsGoodFor">What DataReel is good for</a><br>
@@ -188,7 +188,9 @@
 <p>Security and the database port: <a href="security_white_paper.html">docs/security_white_paper.html</a> is the security design of the library (TLS, mutual TLS, input checks, database files, replication, limits, FIPS and quantum computing). <a href="gxstream_replication_white_paper.html">docs/gxstream_replication_white_paper.html</a> explains gxStream and object replication on the IANA-registered port 2073 (gxs-data-port), and docs/rfc/draft-gaer-datareel-gxstream-00.txt is the protocol&#x27;s specification, an Internet-Draft for the Independent Submission stream.</p>
 <h2 id="ReleaseHistory">Release history</h2>
 <p><a href="release_notes.html">RELEASE_NOTES.txt</a> has the notes of every 7.x release in one file.</p>
-<pre> 7.5   11/20/2026 Beta 2: writes from Python (datareel.Primary, a
+<pre> 7.5   11/20/2026 Beta 3: the incremental rejoin and the schema check
+                  (gxObjRepl, objrepl and Python: rejoin, swap).
+       11/20/2026 Beta 2 (tag 7.5-beta2): writes from Python (datareel.Primary, a
                   gxObjRepl primary that replicates to a C++ copy).
        11/20/2026 Beta 1 (tag 7.5-beta1): the datareel Python module,
                   a pip package, read only (python/, python/docs/
@@ -238,6 +240,6 @@
                   CODE_REVIEW_FIXES.txt)</pre>
 <p>Release notes for the earlier versions are in <a href="release_notes_6_2.html">docs/release_notes_6_2.html</a>, <a href="release_notes_6_1.html">docs/release_notes_6_1.html</a> and <a href="release_notes_6_0.html">docs/release_notes_6_0.html</a>.</p>
 </main>
-<footer class="dr-footer">DataReel 7.5 beta 2 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 beta 3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

@@ -107,9 +107,10 @@ under `docs/examples`. The full documentation starts at [docs/index.html](docs/i
 
 ### Coming next
 
-- **7.5 beta 2 (branch 7.5-beta, master):** the `datareel` Python module, a pip package built from this
+- **7.5 beta 3 (branch 7.5-beta, master):** the `datareel` Python module, a pip package built from this
   repository (`python/`): it reads gxObjRepl nodes while they run, vector indexes and block files
-  (beta 1), and writes a node as a gxObjRepl primary that replicates to a C++ copy (beta 2). See [python/README.md](python/README.md), the
+  (beta 1), writes and replicates them like the C++ library (beta 2), and gains the incremental rejoin and
+  the schema check, in C++ and Python (beta 3; [replication guide](docs/replication_admin_guide.md), 4.3). See [python/README.md](python/README.md), the
   [user's manual](python/docs/users-manual.md) with simple and detailed examples, the
   [build guide](python/docs/building.md), [python/AGENTS.md](python/AGENTS.md) for AI-assisted work
   and [RELEASE_NOTES_7.5.txt](RELEASE_NOTES_7.5.txt).

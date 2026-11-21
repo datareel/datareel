@@ -1,4 +1,4 @@
-DataReel 7.5 Beta 2 Release Notes (the Python module), 11/20/2026
+DataReel 7.5 Beta 3 Release Notes (the Python module), 11/20/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 DataReel 7.5 adds the datareel Python module, a package that
@@ -6,6 +6,46 @@ installs with pip. It is built from this repository (python/) on top of
 7.4.1, so everything in 7.4.1 is in it (RELEASE_NOTES_7.4.txt, "NEW IN
 7.4.1"). The file formats and the gxStream and gxObjRepl wire formats
 are those of 7.4.
+
+NEW IN 7.5 BETA 3
+-----------------
+- The incremental rejoin (gxObjRepl, C++ and Python): when both nodes
+  wrote after a split (a standby took over while the old primary kept
+  writing, the OSA emergency path), objrepl rejoin / datareel.rejoin()
+  keeps the old primary's data and the list of objects its
+  unacknowledged commits changed. The new primary checks that the two
+  histories match at the seq it took over at (ROOT/epochs, written at
+  each takeover) and sends only the objects either node changed since
+  then (its change list, ROOT/objrepl.changes.gxd), then its digest log
+  past the split: equal digests, with no full send. A full send instead
+  when the histories differ, when the change set is more than
+  rejoin-max-share percent of the objects (default 50), or with
+  objrepl rejoin --full / datareel.rejoin(root, incremental=False).
+  A node killed in the middle keeps waiting and finishes on the next
+  connect.
+- The schema check: a fingerprint of the index spec, the link map and
+  the new "schema" setting (the application's record layout version,
+  such as news-v3) goes with the hello. An incremental rejoin between
+  nodes whose fingerprints differ is refused, with what differs; the
+  node keeps its data and is rebuilt instead: a new copy in an empty
+  folder takes a full send, then objrepl swap OLD NEW /
+  datareel.swap(old, new, index) puts it in place and keeps the old
+  folder as OLD.before-rebuild-DATE (gxObjRepl::Swap). In the running
+  stream a difference is a warning.
+- Status: last_rejoin (incremental or full send) and
+  last_rejoin_objects on the primary. objrepl: --schema,
+  --rejoin-max-share, --drain-secs (the generator's final drain).
+- Wire: new fields at the end of the hello and its reply, and frames
+  F_RJ_SET, F_RJ_BATCH and F_RJ_END. 7.4.1 and 7.5 beta 2 nodes work
+  with beta 3 nodes as before (tested both ways).
+- Tests: utils/objrepl/test_objrepl_rejoin.sh (the emergency path and
+  back, the schema refusal, rebuild and swap, another history, the
+  share limit, --full, a node killed inside a batch and inside the end,
+  and with OBJREPL_OLD_BIN a 7.4.1 node both ways), and Python tests:
+  a C++ production primary and a Python DEV copy that detaches and
+  writes, the rejoin and the roles going back; a Python primary under a
+  C++ new primary; the schema refusal, rebuild and swap from Python.
+- Package version 7.5b3; library version "7.5 beta3".
 
 NEW IN 7.5 BETA 2
 -----------------
@@ -88,8 +128,10 @@ NEW IN 7.5 BETA 1
   node's vector index file and a block file. Built on RHEL 9 (UBI 9,
   CPython 3.12); the same wheel passes on RHEL 10.
 
-LIMITS OF BETA 2
+LIMITS OF BETA 3
 ----------------
+- An incremental rejoin holds the new primary's lock while it sends
+  (capped by rejoin-max-share).
 - Not wrapped: InfoHog and POD persistent objects, the 6.x-style
   gxStream block requests, and the network clients Python's standard
   library has (HTTPS, SMTP, POP3, IMAP, FTPS).

@@ -151,7 +151,9 @@ cmp $D/n1.digest $D/n2.digest && echo "the same objects"
   epoch, so the new primary never hands out an id the old one may have used.
 - **Rejoin.** `objrepl rejoin ROOT` makes the former primary a copy again. If its copy had acknowledged every
   commit (a planned switch), it follows on from there with no full send. Otherwise, the commits the new primary
-  never had are counted and dropped, and the node takes a full send from the new primary.
+  never had are counted and dropped. Since 7.5 beta 3 the node then takes an **incremental rejoin** when it can:
+  see section 4.3. When it cannot, or with `objrepl rejoin ROOT --full`, it takes a full send from the new
+  primary, as before.
 
 Either node can be Windows or Linux. A Windows copy can take over from a Linux primary, and the Linux node then
 rejoins as its copy, or the other way round.
@@ -187,6 +189,46 @@ If the primary is gone, take over on the copy at once (`objrepl takeover`), and 
 the old primary comes back, do not start it as a primary. Run `objrepl rejoin` on it first: the status line says
 how many of its commits the copy never had (`dropped_at_rejoin`). Then start it as a copy.
 
+### 4.3 The incremental rejoin and the schema check (7.5 beta 3)
+
+When both nodes wrote after the split, for example a standby that took over while the old primary kept writing,
+`objrepl rejoin` keeps the old primary's data and the list of objects its unacknowledged commits changed. When it
+connects, the new primary checks three things:
+
+1. **The histories match.** Both nodes have the same digest at the seq the new primary took over at. That seq and
+   digest are recorded in `ROOT/epochs` at each takeover.
+2. **The schemas agree.** The fingerprints match: the index spec, the link map (when the copy has its own), and
+   the `schema` setting, which is free text the application sets for its record layout version, such as `news-v3`.
+3. **The change set is small enough.** It holds at most `rejoin-max-share` percent of the objects (default 50).
+
+When all three hold, the new primary sends only the objects that either node changed since the split, each as it
+is now (or "absent"), followed by its digest log past the split. The rejoining node applies them, and both nodes
+then have the same digest. The status file of the new primary shows `last_rejoin incremental` and
+`last_rejoin_objects N`.
+
+When the check fails:
+
+- **The histories differ:** the node takes a full send, and its log says why.
+- **The share is too large:** the node takes a full send.
+- **The schemas differ:** the rejoin is refused. The alarm names what differs, the node keeps its data and keeps
+  waiting, and you rebuild it:
+
+```
+mkdir NEW                                        # an empty folder, with the new schema's settings
+$B copy NEW --listen PORT ... --schema news-v4   # takes a full send from the primary
+$B digest NEW; $B digest PRIMARY_ROOT            # the same line
+# stop the copy, then:
+$B swap OLD NEW --index SPEC                     # OLD -> OLD.before-rebuild-DATE (kept), NEW -> OLD
+```
+
+`swap` refuses while either node runs, when NEW is in a full send, or when NEW's indexes fail the check. It never
+deletes anything.
+
+In the running stream (not a rejoin), a schema difference is only a warning in the copy's log.
+
+The new primary holds its lock while it sends an incremental rejoin. That is why the change set is capped:
+past the share, a full send, which does not hold the lock, is used instead.
+
 ## 5. Upgrades
 
 - Every node must run a 7.4 build (7.4 beta 5 or later). A peer that sends the old header with 4-byte words (Windows and 32-bit
@@ -197,6 +239,9 @@ how many of its commits the copy never had (`dropped_at_rejoin`). Then start it 
 - Never set `GXD_CREATE_LAYOUT` in production. It creates files in the old 4-byte layout, for readers older than
   beta 5 only.
 - Upgrade the copy first, then switch (section 4.1), then upgrade the old primary.
+- 7.5 beta 3 nodes work with 7.4.1 and 7.5 beta 2 nodes as before. The incremental rejoin needs both nodes at
+  beta 3 or later: a node waiting for one takes a full send from an older primary. A node that took over with an
+  older build has no epoch history, so its first rejoin after the upgrade is a full send.
 
 ## 6. Troubleshooting
 

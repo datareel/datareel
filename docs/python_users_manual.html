@@ -18,11 +18,11 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>The datareel Python module: user's manual (DataReel 7.5 beta 2)</h1>
+<h1>The datareel Python module: user's manual (DataReel 7.5 beta 3)</h1>
 <p>The <code>datareel</code> module reads and writes, from Python, the object databases that programs written with the DataReel C++ library keep: gxObjRepl nodes (a primary or its copy), vector index files (<code>.vix</code>) and block files (<code>.gxd</code>). Python code reads the same stores the production C++ programs write, with no C++ helper and no export file in between, and since 7.5 beta 2 it can also be the primary that writes a node and replicates it to a C++ copy.</p>
 <p>Contents: 1. Install. 2. Ideas you need. 3. A demo node. 4. Simple examples (1 to 4). 5. Detailed examples (5 to 9). 5a. Writing from Python (examples 10 and 11). 5b. Replication from Python (example 14). 5c. The database layer: block files, B-trees, journals and vector files (examples 12 and 13). 5d. gxStream and the object server. 6. Reference. 7. Errors and what to do. 8. Limits of beta 2.</p>
 <h2 id="1Install">1. Install</h2>
-<pre>python3.12 -m pip install --no-index datareel-7.5b2-cp312-cp312-linux_x86_64.whl
+<pre>python3.12 -m pip install --no-index datareel-7.5b3-cp312-cp312-linux_x86_64.whl
 python3.12 -c &quot;import datareel; print(datareel.__version__, datareel.library_version())&quot;</pre>
 <p>The wheel runs on RHEL 9 and RHEL 10 (x86_64, CPython 3.12) and needs only the system OpenSSL 3. To build it, see <code>python/docs/building.md</code>.</p>
 <h2 id="2IdeasYouNeed">2. Ideas you need</h2>
@@ -583,6 +583,22 @@ A and B equal: True
 B epoch 2 drained: True
 roles: copy primary equal: True</pre>
 <p><code>datareel.check(root, settings=...)</code> gives OK, WARN or FAIL (0, 1, 2) and a line from the node's status and alarm files, as <code>objrepl check</code>; <code>datareel.clear_alarm(root)</code> sets an alarm aside once it is dealt with; <code>datareel.index_check(root, index)</code> checks every index against the objects.</p>
+<h3 id="TheIncrementalRejoinAndTheSchemaCheckBeta3">The incremental rejoin and the schema check (beta 3)</h3>
+<p>When both nodes wrote after a split, <code>datareel.rejoin(old_root)</code> no longer means a full send. Take this case: DEV detaches a Python copy of a production node to make emergency changes, while production keeps writing. The old primary keeps its data. When the new primary reaches it, the new primary checks that the two histories match at the seq where it took over, and then sends only the objects either node changed since that point. Both nodes end with the same digest.</p>
+<p>A full send happens instead in three cases:</p>
+<ul>
+<li>the histories differ;</li>
+<li>the change set is more than <code>rejoin-max-share</code> percent of the objects (default 50);</li>
+<li>you call <code>datareel.rejoin(root, incremental=False)</code>.</li>
+</ul>
+<p>The roles going back afterwards (a planned switch) need no full send either.</p>
+<p>The <code>schema</code> setting is the application's record layout version, as free text such as <code>&quot;news-v3&quot;</code>. Together with the index spec and the link map it makes the schema fingerprint. When the fingerprints differ, the incremental rejoin is <strong>refused</strong>: the old node keeps its data and keeps waiting, and the alarm names what differs. You rebuild it into an empty folder instead, then swap it in:</p>
+<pre>new = &quot;/dev/osa/news.rebuild&quot;
+c = datareel.Copy(new, settings=dict(copy_settings, schema=&quot;news-v4&quot;))   # an empty folder
+# ... serve() in a thread until the primary&#x27;s full send ends, then stop() and close()
+print(datareel.swap(&quot;/dev/osa/news&quot;, new, index_spec))
+# &quot;/dev/osa/news.rebuild is now /dev/osa/news; the old node is kept at /dev/osa/news.before-rebuild-...&quot;</pre>
+<p><code>swap()</code> refuses while either node is open, and when the new node's indexes fail <code>index_check()</code>. It never deletes anything. The primary's status file (<code>ROOT/objrepl.status</code>) shows <code>last_rejoin</code> (<code>incremental</code> or <code>full send</code>) and <code>last_rejoin_objects</code>.</p>
 <h2 id="5CTheDatabaseLayerBlockFilesBTreesJournalsAndVectorFiles75Beta2">5c. The database layer: block files, B-trees, journals and vector files (7.5 beta 2)</h2>
 <p>Below gxObjRepl, Python reaches the same files C++ programs build by hand:</p>
 <ul>
@@ -770,7 +786,7 @@ while True:
 <h3 id="StreamStreamserverObjectclientBeta2">Stream, StreamServer, ObjectClient (beta 2)</h3>
 <p>See section 5d.</p>
 <h3 id="DatareelStatusRootDatareelDigestRootLinksDatareelTakeoverRootRejoinRootCheckRootSettingsNoneConfigNoneClearAlarmRootIndexCheckRootIndexBeta2">datareel.status(root), datareel.digest(root, links=""), datareel.takeover(root), rejoin(root), check(root, settings=None, config=None), clear_alarm(root), index_check(root, index) (beta 2)</h3>
-<p>Node folder tools for a folder no process holds, as the C++ <code>objrepl</code> tool's <code>status</code>, <code>digest</code> and <code>takeover</code>: <code>status()</code> returns a dict (<code>epoch</code>, <code>next_seq</code>, <code>acked_seq</code>, <code>applied_seq</code>, <code>in_snapshot</code>, <code>role</code>, <code>digest</code>); <code>digest()</code> returns <code>(line, detail)</code>, where two nodes with the same objects have the same line (pass the node's link map as <code>links</code> when it has one); <code>takeover()</code> makes a stopped copy a primary at the next epoch and returns the tool's message. <code>datareel.detach(root)</code> (beta 2) is the same call under the name the standalone-test-node steps use (section 5a): the stopped copy becomes an independent primary that never follows its old primary again.</p>
+<p>Node folder tools for a folder no process holds, as the C++ <code>objrepl</code> tool's <code>status</code>, <code>digest</code> and <code>takeover</code>: <code>status()</code> returns a dict (<code>epoch</code>, <code>next_seq</code>, <code>acked_seq</code>, <code>applied_seq</code>, <code>in_snapshot</code>, <code>role</code>, <code>digest</code>); <code>digest()</code> returns <code>(line, detail)</code>, where two nodes with the same objects have the same line (pass the node's link map as <code>links</code> when it has one); <code>takeover()</code> makes a stopped copy a primary at the next epoch and returns the tool's message. <code>datareel.detach(root)</code> (beta 2) is the same call under the name the standalone-test-node steps use (section 5a): the stopped copy becomes an independent primary that never follows its old primary again. <code>rejoin(root, incremental=True)</code> (beta 3) is incremental when it can be (section 5b). <code>datareel.swap(old, new, index=&quot;&quot;)</code> (beta 3) puts a rebuilt node in place of the old one, which is kept as <code>OLD.before-rebuild-DATE</code>. The settings take <code>schema</code> and <code>rejoin-max-share</code> (beta 3).</p>
 <h3 id="DatareelVectorindexPathSpecNone">datareel.VectorIndex(path, spec=None)</h3>
 <p>A <code>.vix</code> file opened read only. With <code>spec</code>, a file whose spec differs is refused.</p>
 <table>
@@ -812,6 +828,6 @@ while True:
 <li><code>VectorIndex</code> and <code>BlockFile</code> are for files no process is writing.</li>
 </ul>
 </main>
-<footer class="dr-footer">DataReel 7.5 beta 2 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 beta 3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

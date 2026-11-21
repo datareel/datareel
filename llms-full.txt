@@ -2000,7 +2000,7 @@ their own DataReel copy.
 FILE: docs/ai/python.md
 ========================================================================
 
-# The datareel Python module (7.5 beta 2)
+# The datareel Python module (7.5 beta 3)
 
 The `datareel` pip package reads and writes, from Python, the stores of the DataReel C++ library:
 gxObjRepl nodes while they run (`Reader`), vector index files (`VectorIndex`), block files (`BlockFile`),
@@ -2012,7 +2012,7 @@ and since beta 2 a node written from Python as a gxObjRepl primary (`Primary`). 
 ```
 python3.12 -m pip wheel python/ --no-build-isolation --no-deps -w dist/     # from the source top
 python/tests/run_python_tests.sh /tmp/drpy                                  # every test must pass
-python3.12 -m pip install --no-index dist/datareel-7.5b2-cp312-cp312-linux_x86_64.whl
+python3.12 -m pip install --no-index dist/datareel-7.5b3-cp312-cp312-linux_x86_64.whl
 ```
 
 Build needs `gcc-c++ cmake openssl-devel python3.12-devel python3.12-setuptools python3.12-wheel`
@@ -2028,6 +2028,8 @@ Build needs `gcc-c++ cmake openssl-devel python3.12-devel python3.12-setuptools 
 | Objects by an index key | `Reader.find_key(index, key_bytes)` |
 | A key range (beta 2) | `Reader.find_range(index, lo, hi=None, limit=0)` (bytes compared byte by byte) |
 | The node's own index spec (beta 2) | `Reader(root)` with no spec; `r.index_spec` |
+| Rejoin with only the changed objects (beta 3) | `datareel.rejoin(old_root)` (incremental when it can be), then serve it as a `Copy`; the person decides |
+| A schema change (beta 3) | the `schema` setting; a refused rejoin means a rebuild into an empty folder, then `datareel.swap(old, new, index)` |
 | A standalone test node from a stopped copy (beta 2) | file copy, then `datareel.detach(test_root)`, then `Primary(test_root, ...)` |
 | Similar vectors in a running node | `Reader.nearest(index, query, k)` |
 | Search a closed `.vix` file, with tag filters | `VectorIndex(path, spec).search(query, k, tags=...)` |

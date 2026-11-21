@@ -19,6 +19,9 @@ happens and what to do about it today.
   the whole index often. On Windows the loaded index file stays open
   until `ReleaseVectors()`, which can make a copy's full send fail
   while it is held.
+- **An incremental rejoin holds the new primary's lock** (7.5 beta 3) while it sends the changed
+  objects, so the primary's writers wait for it. The change set is capped by `rejoin-max-share`
+  (default 50% of the objects); past that a full send, which does not hold the lock, goes instead.
 - **Commit size.** One gxObjRepl commit holds at most 60 MB of changes,
   and one object at most 32 MB. Split larger batches into several
   commits.

@@ -1107,5 +1107,208 @@ class HandoffTest(Base):
         self.assertEqual(fin.returncode, 0, fin.stdout)
 
 
+class RejoinTest(Base):
+    """7.5 beta 3: the incremental rejoin between C++ and Python nodes (the emergency path and back), the schema
+    refusal, and the rebuild and swap."""
+    IX = "k0:db0:B:0:8,k1:db1:B:4:6"
+
+    def k(self, f):
+        return os.path.join(self.pki, f)
+
+    def py_copy(self, root, port, schema=None):
+        st = {"listen": "127.0.0.1:%d" % port, "ca": self.k("ca.pem"), "cert": self.k("copy.pem"),
+              "key": self.k("copy.key"), "allow-cn": "objrepl-primary", "index": self.IX}
+        if schema:
+            st["schema"] = schema
+        c = datareel.Copy(root, settings=st, quiet=True)
+        t = threading.Thread(target=c.serve)
+        t.start()
+        time.sleep(0.3)
+        return c, t
+
+    def py_primary(self, root, port, schema=None):
+        st = {"copy": "127.0.0.1:%d" % port, "ca": self.k("ca.pem"), "cert": self.k("primary.pem"),
+              "key": self.k("primary.key"), "index": self.IX}
+        if schema:
+            st["schema"] = schema
+        return datareel.Primary(root, settings=st, quiet=True)
+
+    def cpp_primary(self, root, port, commits, seed, drain=60, extra=()):
+        args = [prog("objrepl"), "primary", root, "--copy", "127.0.0.1:%d" % port, "--ca", self.k("ca.pem"),
+                "--cert", self.k("primary.pem"), "--key", self.k("primary.key"), "--index", self.IX, "--dbs", "2",
+                "--commits", str(commits), "--per", "4", "--seed", str(seed), "--drain-secs", str(drain)] + list(extra)
+        return subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    def cpp_copy(self, root, port, log):
+        os.makedirs(root, exist_ok=True)
+        with open(log.name) as f:
+            seen = f.read().count("listening")
+        cp = subprocess.Popen([prog("objrepl"), "copy", root, "--listen", "127.0.0.1:%d" % port, "--ca", self.k("ca.pem"),
+                               "--cert", self.k("copy.pem"), "--key", self.k("copy.key"), "--allow-cn", "objrepl-primary",
+                               "--index", self.IX], stdout=log, stderr=subprocess.STDOUT)
+        for _ in range(100):
+            with open(log.name) as f:
+                if f.read().count("listening") > seen:
+                    break
+            time.sleep(0.1)
+        return cp
+
+    def py_writes(self, root, n, seed):
+        """N commits from Python on primary ROOT (nothing follows it): updates of existing objects, adds, a remove"""
+        import random
+        rnd = random.Random(seed)
+        with self.py_primary(root, 1) as p:
+            for db in ("db0", "db1"):
+                p.open_database(db)
+            for _ in range(n):
+                with p.transaction():
+                    for db in ("db0", "db1"):
+                        ids = p.ids(db)
+                        if ids and rnd.random() < 0.6:
+                            p.put(db, rnd.choice(ids), bytes(rnd.randrange(256) for _ in range(60)))
+                        else:
+                            p.put(db, p.new_id(), bytes(rnd.randrange(256) for _ in range(60)))
+                    ids = p.ids("db0")
+                    if ids and rnd.random() < 0.3:
+                        p.remove("db0", rnd.choice(ids))
+
+    def status_file(self, root):
+        out = {}
+        with open(os.path.join(root, "objrepl.status")) as f:
+            for line in f:
+                k, _, v = line.rstrip("\n").partition(" ")
+                out[k] = v
+        return out
+
+    def objects(self, root):
+        return int(datareel.digest(root)[0].split()[1])
+
+    def test_emergency_cpp_primary_python_copy(self):
+        """C++ production primary P, Python DEV copy D; D detaches and writes; P writes on; P rejoins under D
+        (incremental), then the roles go back (D rejoins under P with no full send)"""
+        P, D = os.path.join(self.tmp, "em_p"), os.path.join(self.tmp, "em_d")
+        port = free_port()
+        c, t = self.py_copy(D, port)
+        try:
+            out = self.cpp_primary(P, port, 300, 11)
+            self.assertEqual(out.returncode, 0, out.stdout)
+        finally:
+            c.stop(); t.join(30); c.close()
+        self.assertEqual(datareel.digest(P)[0], datareel.digest(D)[0])
+        self.assertIn("epoch", datareel.detach(D))
+        self.py_writes(D, 10, 12)                                   # DEV's emergency changes
+        out = self.cpp_primary(P, free_port(), 15, 13, drain=0)     # production kept writing (nobody follows)
+        self.assertNotEqual(out.returncode, 64, out.stdout)
+        msg = subprocess.run([prog("objrepl"), "rejoin", P], stdout=subprocess.PIPE, text=True).stdout
+        self.assertIn("incremental rejoin", msg)
+        port2 = free_port()
+        log = open(os.path.join(self.tmp, "em_p.copy.log"), "a")
+        cp = self.cpp_copy(P, port2, log)
+        try:
+            with self.py_primary(D, port2) as p:
+                self.assertEqual(p.drain(60), 0)
+            st = self.status_file(D)
+            self.assertEqual(st.get("last_rejoin"), "incremental", st)
+            self.assertLess(int(st["last_rejoin_objects"]), self.objects(D))
+            self.assertGreater(int(st["last_rejoin_objects"]), 0)
+        finally:
+            cp.terminate(); cp.wait(30); log.close()
+        self.assertEqual(datareel.digest(P)[0], datareel.digest(D)[0])
+        ok, report = datareel.index_check(P, self.IX)
+        self.assertTrue(ok, report)
+        # back: P takes over (it has every commit D made), D rejoins with no full send
+        datareel.takeover(P)
+        self.assertIn("no full send", datareel.rejoin(D))
+        port3 = free_port()
+        c, t = self.py_copy(D, port3)
+        try:
+            out = self.cpp_primary(P, port3, 5, 14)
+            self.assertEqual(out.returncode, 0, out.stdout)
+        finally:
+            c.stop(); t.join(30); c.close()
+        self.assertEqual(datareel.digest(P)[0], datareel.digest(D)[0])
+        self.assertEqual((datareel.status(P)["role"], datareel.status(D)["role"]), ("primary", "copy"))
+
+    def test_python_primary_cpp_copy_rejoin(self):
+        """the other way: Python primary P, C++ copy D; D takes over and writes (C++); P writes on (Python);
+        datareel.rejoin(P) is incremental; P as a Python copy takes it from the C++ primary"""
+        P, D = os.path.join(self.tmp, "rv_p"), os.path.join(self.tmp, "rv_d")
+        port = free_port()
+        log = open(os.path.join(self.tmp, "rv_d.copy.log"), "a")
+        cp = self.cpp_copy(D, port, log)
+        try:
+            with self.py_primary(P, port) as p:
+                for db in ("db0", "db1"):
+                    p.open_database(db)
+                for i in range(200):
+                    with p.transaction():
+                        p.put("db0", p.new_id(), struct.pack("<Q", i) + bytes(40))
+                        p.put("db1", p.new_id(), bytes(4) + struct.pack("<6s", b"k%05d" % i) + bytes(30))
+                self.assertEqual(p.drain(60), 0)
+        finally:
+            cp.terminate(); cp.wait(30); log.close()
+        subprocess.run([prog("objrepl"), "takeover", D], stdout=subprocess.DEVNULL, check=True)
+        out = self.cpp_primary(D, free_port(), 8, 21, drain=0)
+        self.assertNotEqual(out.returncode, 64, out.stdout)
+        self.py_writes(P, 6, 22)
+        self.assertIn("incremental rejoin", datareel.rejoin(P))
+        self.assertEqual(datareel.status(P)["in_snapshot"], 2)
+        port2 = free_port()
+        c, t = self.py_copy(P, port2)
+        try:
+            out = self.cpp_primary(D, port2, 1, 23)
+            self.assertEqual(out.returncode, 0, out.stdout)
+        finally:
+            c.stop(); t.join(30); c.close()
+        self.assertEqual(self.status_file(D).get("last_rejoin"), "incremental")
+        self.assertEqual(datareel.digest(P)[0], datareel.digest(D)[0])
+        ok, report = datareel.index_check(P, self.IX)
+        self.assertTrue(ok, report)
+
+    def test_schema_refusal_rebuild_swap(self):
+        """a different schema setting refuses the incremental rejoin (P untouched); a rebuild into an empty folder and
+        datareel.swap() put the new node in place and keep the old one"""
+        P, D = os.path.join(self.tmp, "sc_p"), os.path.join(self.tmp, "sc_d")
+        port = free_port()
+        c, t = self.py_copy(D, port, schema="layout-1")
+        try:
+            out = self.cpp_primary(P, port, 200, 31, extra=["--schema", "layout-1"])
+            self.assertEqual(out.returncode, 0, out.stdout)
+        finally:
+            c.stop(); t.join(30); c.close()
+        datareel.detach(D)
+        out = self.cpp_primary(P, free_port(), 5, 32, drain=0, extra=["--schema", "layout-1"])
+        datareel.rejoin(P)
+        before = datareel.digest(P)[0]
+        port2 = free_port()
+        log = open(os.path.join(self.tmp, "sc_p.copy.log"), "a")
+        cp = self.cpp_copy(P, port2, log)                           # P has no schema setting: layout-1 vs none
+        try:
+            with self.py_primary(D, port2, schema="layout-2") as p:
+                self.assertEqual(p.drain(10), 3)                    # refused
+        finally:
+            cp.terminate(); cp.wait(30); log.close()
+        with open(log.name) as f:
+            self.assertIn("schema differs", f.read())
+        self.assertEqual(datareel.digest(P)[0], before)
+        self.assertEqual(datareel.status(P)["in_snapshot"], 2)
+        new = os.path.join(self.tmp, "sc_p_new")
+        port3 = free_port()
+        c, t = self.py_copy(new, port3, schema="layout-2")
+        try:
+            with self.py_primary(D, port3, schema="layout-2") as p:
+                self.assertEqual(p.drain(60), 0)
+        finally:
+            c.stop(); t.join(30); c.close()
+        msg = datareel.swap(P, new, self.IX)
+        self.assertIn("kept at", msg)
+        kept = msg.rsplit("kept at ", 1)[1].strip()
+        self.assertEqual(datareel.digest(kept)[0], before)
+        self.assertEqual(datareel.digest(P)[0], datareel.digest(D)[0])
+        self.assertFalse(os.path.exists(new))
+        with self.assertRaises(datareel.Error):
+            datareel.swap(P, P)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

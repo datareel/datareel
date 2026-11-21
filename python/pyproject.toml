@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "datareel"
-version = "7.5b2"
+version = "7.5b3"
 description = "DataReel object database for Python: read gxObjRepl nodes, vector indexes and block files written by the DataReel C++ library"
 readme = "README.md"
 requires-python = ">=3.10"

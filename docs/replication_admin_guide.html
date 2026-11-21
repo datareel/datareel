@@ -58,7 +58,6 @@ ls /tmp/objrepl_demo/certs</pre>
 <tr><td><code>index</code></td><td>both</td><td><code>NAME:DB:B:OFFSET:LEN</code> (B-tree) or <code>NAME:DB:V:OFFSET:DIM</code> (vector): this node's own indexes</td></tr>
 <tr><td><code>max-lag</code>, <code>max-behind</code>, <code>min-cert-days</code></td><td>both</td><td><code>check</code> thresholds: commits, seconds, certificate days (100, 60, 30)</td></tr>
 <tr><td><code>idle-timeout</code></td><td>both</td><td>seconds without a frame before a connection is dropped (120)</td></tr>
-<tr><td><code>ack-timeout</code></td><td>primary</td><td>7.4.1: seconds one frame and its answer may take in all before the connection is dropped and Pump() returns (300)</td></tr>
 <tr><td><code>trim</code></td><td>primary</td><td>1: drop outbox entries the copy has (default)</td></tr>
 </tbody>
 </table>
@@ -106,7 +105,7 @@ cmp $D/n1.digest $D/n2.digest &amp;&amp; echo &quot;the same objects&quot;</pre>
 <h2 id="4FailoverAndFailback">4. Failover and failback</h2>
 <ul>
 <li><strong>Takeover.</strong> <code>objrepl takeover ROOT</code> makes a stopped copy the primary at the next epoch. New ids carry the epoch, so the new primary never hands out an id the old one may have used.</li>
-<li><strong>Rejoin.</strong> <code>objrepl rejoin ROOT</code> makes the former primary a copy again. If its copy had acknowledged every commit (a planned switch), it follows on from there with no full send. Otherwise, the commits the new primary never had are counted and dropped, and the node takes a full send from the new primary.</li>
+<li><strong>Rejoin.</strong> <code>objrepl rejoin ROOT</code> makes the former primary a copy again. If its copy had acknowledged every commit (a planned switch), it follows on from there with no full send. Otherwise, the commits the new primary never had are counted and dropped. Since 7.5 beta 3 the node then takes an <strong>incremental rejoin</strong> when it can: see section 4.3. When it cannot, or with <code>objrepl rejoin ROOT --full</code>, it takes a full send from the new primary, as before.</li>
 </ul>
 <p>Either node can be Windows or Linux. A Windows copy can take over from a Linux primary, and the Linux node then rejoins as its copy, or the other way round.</p>
 <h3 id="41APlannedSwitchNoCommitLost">4.1 A planned switch (no commit lost)</h3>
@@ -127,6 +126,24 @@ kill $(cat $D/n1.pid)</pre>
 <p>The demo swaps the certificates as well, because its copy certificate is the server certificate. With one certificate per host that can serve both roles, only <code>copy</code>, <code>listen</code> and <code>allow-cn</code> change.</p>
 <h3 id="42AfterACrash">4.2 After a crash</h3>
 <p>If the primary is gone, take over on the copy at once (<code>objrepl takeover</code>), and point your writers at it. When the old primary comes back, do not start it as a primary. Run <code>objrepl rejoin</code> on it first: the status line says how many of its commits the copy never had (<code>dropped_at_rejoin</code>). Then start it as a copy.</p>
+<h3 id="43TheIncrementalRejoinAndTheSchemaCheck75Beta3">4.3 The incremental rejoin and the schema check (7.5 beta 3)</h3>
+<p>When both nodes wrote after the split, for example a standby that took over while the old primary kept writing, <code>objrepl rejoin</code> keeps the old primary's data and the list of objects its unacknowledged commits changed. When it connects, the new primary checks three things:</p>
+<p>1. <strong>The histories match.</strong> Both nodes have the same digest at the seq the new primary took over at. That seq and digest are recorded in <code>ROOT/epochs</code> at each takeover. 2. <strong>The schemas agree.</strong> The fingerprints match: the index spec, the link map (when the copy has its own), and the <code>schema</code> setting, which is free text the application sets for its record layout version, such as <code>news-v3</code>. 3. <strong>The change set is small enough.</strong> It holds at most <code>rejoin-max-share</code> percent of the objects (default 50).</p>
+<p>When all three hold, the new primary sends only the objects that either node changed since the split, each as it is now (or "absent"), followed by its digest log past the split. The rejoining node applies them, and both nodes then have the same digest. The status file of the new primary shows <code>last_rejoin incremental</code> and <code>last_rejoin_objects N</code>.</p>
+<p>When the check fails:</p>
+<ul>
+<li><strong>The histories differ:</strong> the node takes a full send, and its log says why.</li>
+<li><strong>The share is too large:</strong> the node takes a full send.</li>
+<li><strong>The schemas differ:</strong> the rejoin is refused. The alarm names what differs, the node keeps its data and keeps waiting, and you rebuild it:</li>
+</ul>
+<pre>mkdir NEW                                        # an empty folder, with the new schema&#x27;s settings
+$B copy NEW --listen PORT ... --schema news-v4   # takes a full send from the primary
+$B digest NEW; $B digest PRIMARY_ROOT            # the same line
+# stop the copy, then:
+$B swap OLD NEW --index SPEC                     # OLD -&gt; OLD.before-rebuild-DATE (kept), NEW -&gt; OLD</pre>
+<p><code>swap</code> refuses while either node runs, when NEW is in a full send, or when NEW's indexes fail the check. It never deletes anything.</p>
+<p>In the running stream (not a rejoin), a schema difference is only a warning in the copy's log.</p>
+<p>The new primary holds its lock while it sends an incremental rejoin. That is why the change set is capped: past the share, a full send, which does not hold the lock, is used instead.</p>
 <h2 id="5Upgrades">5. Upgrades</h2>
 <ul>
 <li>Every node must run a 7.4 build (7.4 beta 5 or later). A peer that sends the old header with 4-byte words (Windows and 32-bit builds from before beta 5) is refused with an alarm. Older 64-bit Linux builds always sent the canonical header, but upgrade them anyway.</li>
@@ -134,6 +151,7 @@ kill $(cat $D/n1.pid)</pre>
 <li>Build every binary from one tree (section 2.1).</li>
 <li>Never set <code>GXD_CREATE_LAYOUT</code> in production. It creates files in the old 4-byte layout, for readers older than beta 5 only.</li>
 <li>Upgrade the copy first, then switch (section 4.1), then upgrade the old primary.</li>
+<li>7.5 beta 3 nodes work with 7.4.1 and 7.5 beta 2 nodes as before. The incremental rejoin needs both nodes at beta 3 or later: a node waiting for one takes a full send from an older primary. A node that took over with an older build has no epoch history, so its first rejoin after the upgrade is a full send.</li>
 </ul>
 <h2 id="6Troubleshooting">6. Troubleshooting</h2>
 <ul>
@@ -147,13 +165,12 @@ kill $(cat $D/n1.pid)</pre>
 <li><code>Open()</code> of a node with many databases opens them, and builds any missing index, under the lock: readers wait for it once, at startup.</li>
 <li>A copy's SNAP_BEGIN (the start of a full send) still holds the lock while it sets the old data aside, but readers fail at once ("a full send is under way") rather than wait.</li>
 <li>An object is at most 32 MB, and a commit's changes at most 60 MB.</li>
-<li>7.4.1: one process opens a node; other processes read it with <code>gxObjReplReader</code> (whole commits only, 64-bit engine). See KNOWN_ISSUES.md.</li>
 <li>Index fields may not overlap link fields.</li>
 <li>With the 32-bit engine each database file is limited to 2 GB (FAU_t); 1M-object stores need the 64-bit engine. Mixed 32/64-bit nodes replicate. Not tested: a 32-bit Windows build.</li>
 <li>The property test (<code>prop_objrepl</code>) and the wire fuzzer (<code>fuzz_objrepl</code>) are POSIX only; the API test, the <code>objrepl</code> tool and its test scripts run on Windows and Linux.</li>
 </ul>
 <h2 id="8TheJournalAndTheLock">8. The journal and the lock</h2>
-<p>Each node writes through one gxdJournal (<code>ROOT/node.jnl</code>) in write-back mode: a commit's pages reach the files only after its batch is durable in the journal, as with write-through. This lets the journal sync run without the node's lock, so readers keep going during it. Checkpoints sync the files the same way. <code>Begin()</code>, <code>Close()</code> and a soft checkpoint wait until no commit's sync is running. <code>Pump()</code> gives the lock up for its network I/O. Do not copy a running node's folder: use <code>objrepl digest</code> to compare, and rejoin to rebuild a copy. 7.4.1: the journal's write lock is on, so <code>gxObjReplReader</code> in another process reads whole commits only; a primary's exchange with its copy ends after <code>ack-timeout</code>, and a copy takes a reconnecting primary at once.</p>
+<p>Each node writes through one gxdJournal (<code>ROOT/node.jnl</code>) in write-back mode: a commit's pages reach the files only after its batch is durable in the journal, as with write-through. This lets the journal sync run without the node's lock, so readers keep going during it. Checkpoints sync the files the same way. <code>Begin()</code>, <code>Close()</code> and a soft checkpoint wait until no commit's sync is running. <code>Pump()</code> gives the lock up for its network I/O. Do not copy a running node's folder: use <code>objrepl digest</code> to compare, and rejoin to rebuild a copy.</p>
 <h2 id="9WhenAPlainFileCopyIsEnough">9. When a plain file copy is enough</h2>
 <p>You do not always need replication. A plain copy of the database folder is enough when all of these hold:</p>
 <ul>
@@ -184,6 +201,6 @@ vix_rebuild --digest C:\repl_demo\copy\vectors.vix</pre>
 <h2 id="10TestStatusOfThisGuide">10. Test status of this guide</h2>
 <p>The blocks marked (tested) in sections 2 to 4 were run as printed, in order, with DataReel 7.4 beta 5 (header-fixed-width after the gxObjRepl merge) on one Linux machine: two folders under <code>/tmp/objrepl_demo</code> and the loopback address, with <code>objrepl primary</code> as the writer. The robocopy block in section 9 was run on Windows 11 with 7.4 beta 3. The cross-platform cases (Linux to Windows and back, takeover and rejoin, the 2,500-commit stress run each way, old builds refused) come from the replication tests of 11/16/2026.</p>
 </main>
-<footer class="dr-footer">DataReel 7.5 beta 2 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 beta 3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

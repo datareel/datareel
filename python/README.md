@@ -1,11 +1,11 @@
-# datareel for Python (DataReel 7.5 beta 2)
+# datareel for Python (DataReel 7.5 beta 3)
 
 Read and write the object databases of the DataReel C++ library from Python, without a C++ helper
 or an export file. Beta 2 adds writes: a Python program can be a gxObjRepl primary that replicates to a
 C++ copy.
 
 ```
-pip install datareel-7.5b2-cp312-cp312-linux_x86_64.whl
+pip install datareel-7.5b3-cp312-cp312-linux_x86_64.whl
 ```
 
 ```python

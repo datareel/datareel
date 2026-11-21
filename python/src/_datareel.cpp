@@ -1847,13 +1847,30 @@ static PyObject *mod_merge_vix(PyObject *, PyObject *args, PyObject *kw)
   return PyUnicode_FromString(report.c_str());
 }
 
-static PyObject *mod_rejoin(PyObject *, PyObject *args)
+// rejoin(root, incremental=True): 7.5 beta 3 incremental by default (see gxObjRepl::Rejoin)
+static PyObject *mod_rejoin(PyObject *, PyObject *args, PyObject *kw)
 {
-  PyObject *r = 0; if(!PyArg_ParseTuple(args, "O&", PyUnicode_FSConverter, &r)) return 0;
+  static const char *kwlist[] = {"root", "incremental", 0};
+  PyObject *r = 0; int incr = 1;
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "O&|p", (char **)kwlist, PyUnicode_FSConverter, &r, &incr)) return 0;
   std::string root(PyBytes_AS_STRING(r)); Py_DECREF(r);
   std::string msg; int rc;
   Py_BEGIN_ALLOW_THREADS
-  rc = gxObjRepl::Rejoin(root, msg);
+  rc = gxObjRepl::Rejoin(root, msg, incr != 0);
+  Py_END_ALLOW_THREADS
+  if(rc != 0) return raise(msg);
+  return PyUnicode_FromString(msg.c_str());
+}
+// swap(old, new, index="") -> message (7.5 beta 3, gxObjRepl::Swap)
+static PyObject *mod_swap(PyObject *, PyObject *args, PyObject *kw)
+{
+  static const char *kwlist[] = {"old", "new", "index", 0};
+  PyObject *a = 0, *b = 0; const char *ix = "";
+  if(!PyArg_ParseTupleAndKeywords(args, kw, "O&O&|s", (char **)kwlist, PyUnicode_FSConverter, &a, PyUnicode_FSConverter, &b, &ix)) return 0;
+  std::string o(PyBytes_AS_STRING(a)), n(PyBytes_AS_STRING(b)), spec(ix); Py_DECREF(a); Py_DECREF(b);
+  std::string msg; int rc;
+  Py_BEGIN_ALLOW_THREADS
+  rc = gxObjRepl::Swap(o, n, spec, msg);
   Py_END_ALLOW_THREADS
   if(rc != 0) return raise(msg);
   return PyUnicode_FromString(msg.c_str());
@@ -1914,7 +1931,8 @@ static PyMethodDef module_methods[] = {
    "create_vector_index(path, dim, metric='l2', element='float32', m=16, spec=None, ef_construction=200): a new .vix file"},
   {"merge_vector_indexes", (PyCFunction)(void (*)(void))mod_merge_vix, METH_VARARGS | METH_KEYWORDS,
    "merge_vector_indexes(out, inputs, spec=None, m=0, ef_construction=200) -> report: one index from many (the day files)"},
-  {"rejoin", mod_rejoin, METH_VARARGS, "rejoin(root) -> message: a former primary (or a copy of another history) becomes a copy waiting for a full send"},
+  {"rejoin", (PyCFunction)(void (*)(void))mod_rejoin, METH_VARARGS | METH_KEYWORDS, "rejoin(root, incremental=True) -> message: a former primary (or a copy of another history) becomes a copy; beta 3: an incremental rejoin (only the objects either node changed since the split) when the new primary can match the histories and the schemas agree, else a full send"},
+  {"swap", (PyCFunction)(void (*)(void))mod_swap, METH_VARARGS | METH_KEYWORDS, "swap(old, new, index='') -> message: after a rebuild into NEW (both stopped), OLD is kept as OLD.before-rebuild-DATE and NEW becomes OLD"},
   {"clear_alarm", mod_clear_alarm, METH_VARARGS, "clear_alarm(root) -> message: the node's alarm file is set aside"},
   {"index_check", mod_index_check, METH_VARARGS, "index_check(root, index) -> (consistent, report): each index against the objects"},
   {"check", (PyCFunction)(void (*)(void))mod_check, METH_VARARGS | METH_KEYWORDS, "check(root, settings=None, config=None) -> (0 OK / 1 WARN / 2 FAIL, line)"},

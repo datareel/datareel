@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>DataReel 7.5 Beta 2 Release Notes</title>
+<title>DataReel 7.5 Beta 3 Release Notes</title>
 <link rel="stylesheet" href="css/datareel.css">
 <link rel="icon" href="images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
@@ -18,13 +18,23 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>DataReel 7.5 Beta 2 Release Notes</h1>
+<h1>DataReel 7.5 Beta 3 Release Notes</h1>
 <div class="dr-toc-title">Contents</div>
-<p class="dr-toc"><a href="#NewIn75Beta2">New in 7.5 beta 2</a><br>
+<p class="dr-toc"><a href="#NewIn75Beta3">New in 7.5 beta 3</a><br>
+<a href="#NewIn75Beta2">New in 7.5 beta 2</a><br>
 <a href="#NewIn75Beta1">New in 7.5 beta 1</a><br>
-<a href="#LimitsOfBeta2">Limits of beta 2</a><br>
+<a href="#LimitsOfBeta3">Limits of beta 3</a><br>
 <a href="#PlannedForLater75Betas">Planned for later 7.5 betas</a></p>
 <p>DataReel 7.5 adds the datareel Python module, a package that installs with pip. It is built from this repository (python/) on top of 7.4.1, so everything in 7.4.1 is in it (<a href="release_notes_7_4.html">RELEASE_NOTES_7.4.txt</a>, &quot;NEW IN 7.4.1&quot;). The file formats and the gxStream and gxObjRepl wire formats are those of 7.4.</p>
+<h2 id="NewIn75Beta3">New in 7.5 beta 3</h2>
+<ul>
+<li>The incremental rejoin (gxObjRepl, C++ and Python): when both nodes wrote after a split (a standby took over while the old primary kept writing, the OSA emergency path), objrepl rejoin / datareel.rejoin() keeps the old primary&#x27;s data and the list of objects its unacknowledged commits changed. The new primary checks that the two histories match at the seq it took over at (ROOT/epochs, written at each takeover) and sends only the objects either node changed since then (its change list, ROOT/objrepl.changes.gxd), then its digest log past the split: equal digests, with no full send. A full send instead when the histories differ, when the change set is more than rejoin-max-share percent of the objects (default 50), or with objrepl rejoin --full / datareel.rejoin(root, incremental=False). A node killed in the middle keeps waiting and finishes on the next connect.</li>
+<li>The schema check: a fingerprint of the index spec, the link map and the new &quot;schema&quot; setting (the application&#x27;s record layout version, such as news-v3) goes with the hello. An incremental rejoin between nodes whose fingerprints differ is refused, with what differs; the node keeps its data and is rebuilt instead: a new copy in an empty folder takes a full send, then objrepl swap OLD NEW / datareel.swap(old, new, index) puts it in place and keeps the old folder as OLD.before-rebuild-DATE (gxObjRepl::Swap). In the running stream a difference is a warning.</li>
+<li>Status: last_rejoin (incremental or full send) and last_rejoin_objects on the primary. objrepl: --schema, --rejoin-max-share, --drain-secs (the generator&#x27;s final drain).</li>
+<li>Wire: new fields at the end of the hello and its reply, and frames F_RJ_SET, F_RJ_BATCH and F_RJ_END. 7.4.1 and 7.5 beta 2 nodes work with beta 3 nodes as before (tested both ways).</li>
+<li>Tests: utils/objrepl/test_objrepl_rejoin.sh (the emergency path and back, the schema refusal, rebuild and swap, another history, the share limit, --full, a node killed inside a batch and inside the end, and with OBJREPL_OLD_BIN a 7.4.1 node both ways), and Python tests: a C++ production primary and a Python DEV copy that detaches and writes, the rejoin and the roles going back; a Python primary under a C++ new primary; the schema refusal, rebuild and swap from Python.</li>
+<li>Package version 7.5b3; library version &quot;7.5 beta3&quot;.</li>
+</ul>
 <h2 id="NewIn75Beta2">New in 7.5 beta 2</h2>
 <ul>
 <li>Writes from Python: datareel.Primary(root, config=None, settings=None, quiet=False) opens a node as a gxObjRepl primary in the Python process: open_database, begin, commit, rollback, transaction() (commit, or rollback when the block raises), new_id, put, remove, purge, pump, drain, and the primary&#x27;s reads (get, is_live, ids, databases, find_key, nearest); last_seq, epoch, copy_applied. Settings are the objrepl.conf keys, as a dict or a file. Calls release the GIL.</li>
@@ -51,8 +61,9 @@
 <li>The extension uses the plain CPython C API: no third-party packages to build or to run. setup.py builds it with CMake (python/ CMakeLists.txt), with the DataReel library inside it (static, the 64-bit engine); it links the system OpenSSL 3.</li>
 <li>Tests: python/tests/run_python_tests.sh builds the wheel and the C++ test programs, installs the wheel in a throwaway virtual environment and runs python/tests/test_datareel.py: a node written by the C++ library read through every call, readers in Python threads while a C++ primary writes 2000 commits and while a copy applies 800, the node&#x27;s vector index file and a block file. Built on RHEL 9 (UBI 9, CPython 3.12); the same wheel passes on RHEL 10.</li>
 </ul>
-<h2 id="LimitsOfBeta2">Limits of beta 2</h2>
+<h2 id="LimitsOfBeta3">Limits of beta 3</h2>
 <ul>
+<li>An incremental rejoin holds the new primary&#x27;s lock while it sends (capped by rejoin-max-share).</li>
 <li>Not wrapped: InfoHog and POD persistent objects, the 6.x-style gxStream block requests, and the network clients Python&#x27;s standard library has (HTTPS, SMTP, POP3, IMAP, FTPS).</li>
 <li>The 64-bit database engine only.</li>
 <li>Linux x86_64, CPython 3.12. Windows wheels are not built yet.</li>
@@ -62,6 +73,6 @@
 <li>Windows wheels.</li>
 </ul>
 </main>
-<footer class="dr-footer">DataReel 7.5 beta 2 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 beta 3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

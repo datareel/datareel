@@ -1,4 +1,4 @@
-# The datareel Python module: user's manual (DataReel 7.5 beta 2)
+# The datareel Python module: user's manual (DataReel 7.5 beta 3)
 
 The `datareel` module reads and writes, from Python, the object databases that programs written with the
 DataReel C++ library keep: gxObjRepl nodes (a primary or its copy), vector index files (`.vix`) and block
@@ -14,7 +14,7 @@ object server. 6. Reference. 7. Errors and what to do. 8. Limits of beta 2.
 ## 1. Install
 
 ```
-python3.12 -m pip install --no-index datareel-7.5b2-cp312-cp312-linux_x86_64.whl
+python3.12 -m pip install --no-index datareel-7.5b3-cp312-cp312-linux_x86_64.whl
 python3.12 -c "import datareel; print(datareel.__version__, datareel.library_version())"
 ```
 
@@ -744,6 +744,38 @@ roles: copy primary equal: True
 alarm files, as `objrepl check`; `datareel.clear_alarm(root)` sets an alarm aside once it is dealt with;
 `datareel.index_check(root, index)` checks every index against the objects.
 
+### The incremental rejoin and the schema check (beta 3)
+
+When both nodes wrote after a split, `datareel.rejoin(old_root)` no longer means a full send. Take this case:
+DEV detaches a Python copy of a production node to make emergency changes, while production keeps writing. The
+old primary keeps its data. When the new primary reaches it, the new primary checks that the two histories match
+at the seq where it took over, and then sends only the objects either node changed since that point. Both nodes
+end with the same digest.
+
+A full send happens instead in three cases:
+- the histories differ;
+- the change set is more than `rejoin-max-share` percent of the objects (default 50);
+- you call `datareel.rejoin(root, incremental=False)`.
+
+The roles going back afterwards (a planned switch) need no full send either.
+
+The `schema` setting is the application's record layout version, as free text such as `"news-v3"`. Together
+with the index spec and the link map it makes the schema fingerprint. When the fingerprints differ, the
+incremental rejoin is **refused**: the old node keeps its data and keeps waiting, and the alarm names what
+differs. You rebuild it into an empty folder instead, then swap it in:
+
+```python
+new = "/dev/osa/news.rebuild"
+c = datareel.Copy(new, settings=dict(copy_settings, schema="news-v4"))   # an empty folder
+# ... serve() in a thread until the primary's full send ends, then stop() and close()
+print(datareel.swap("/dev/osa/news", new, index_spec))
+# "/dev/osa/news.rebuild is now /dev/osa/news; the old node is kept at /dev/osa/news.before-rebuild-..."
+```
+
+`swap()` refuses while either node is open, and when the new node's indexes fail `index_check()`. It never
+deletes anything. The primary's status file (`ROOT/objrepl.status`) shows `last_rejoin` (`incremental` or
+`full send`) and `last_rejoin_objects`.
+
 ## 5c. The database layer: block files, B-trees, journals and vector files (7.5 beta 2)
 
 Below gxObjRepl, Python reaches the same files C++ programs build by hand:
@@ -1007,7 +1039,9 @@ Node folder tools for a folder no process holds, as the C++ `objrepl` tool's `st
 line (pass the node's link map as `links` when it has one); `takeover()` makes a stopped copy a primary at
 the next epoch and returns the tool's message. `datareel.detach(root)` (beta 2) is the same call under the
 name the standalone-test-node steps use (section 5a): the stopped copy becomes an independent primary that
-never follows its old primary again.
+never follows its old primary again. `rejoin(root, incremental=True)` (beta 3) is incremental when it can be
+(section 5b). `datareel.swap(old, new, index="")` (beta 3) puts a rebuilt node in place of the old one, which
+is kept as `OLD.before-rebuild-DATE`. The settings take `schema` and `rejoin-max-share` (beta 3).
 
 ### datareel.VectorIndex(path, spec=None)
 
