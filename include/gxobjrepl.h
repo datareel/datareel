@@ -170,6 +170,16 @@ struct GXDLCODE_API gxObjReplConfig {
   // 7.5: Open(): seconds to wait for a root another process holds
   // before failing ("ROOT is in use by another process"); 0 fails at once
   int lock_wait = 5;
+  // 7.5 beta 3: the application's record layout version (free text,
+  // such as "news-v3"). With the index spec and the link map it makes
+  // the schema fingerprint that two nodes compare: an incremental
+  // rejoin between nodes whose fingerprints differ is refused (the node
+  // is rebuilt instead); in the running stream a difference is a warning
+  std::string schema;
+  // 7.5 beta 3: an incremental rejoin sends only the objects either node
+  // changed since the two histories split; when that is more than this
+  // percent of the primary's objects, a full send goes instead (1-100)
+  int rejoin_max_share = 50;
   unsigned long long max_lag = 100; // Check(): commits behind
   unsigned long long max_behind = 60; // Check(): seconds
   long min_cert_days = 30;          // Check(): certificate days left
@@ -180,7 +190,7 @@ struct GXDLCODE_API gxObjReplConfig {
   // peer-name, copy (HOST[:PORT]), listen ([ADDR:]PORT or ADDR), ca,
   // cert, key, allow-cn,
   // links, index, max-lag, max-behind, min-cert-days, trim (0/1),
-  // idle-timeout, ack-timeout, lock-wait).
+  // idle-timeout, ack-timeout, lock-wait, schema, rejoin-max-share).
   // Returns false (and why) for an unknown key or a bad value
   bool Set(const std::string &key, const std::string &value,
 	   std::string *why = 0);
@@ -311,6 +321,22 @@ public: // Folders, without an open node
   // (some may have reached the new primary; the rest are lost).
   // Returns 0, or 1 (and msg). The node must not be open
   static int Rejoin(const std::string &root, std::string &msg);
+  // 7.5 beta 3: INCREMENTAL (the default of Rejoin(root, msg)): a former
+  // primary that made commits its copy never acknowledged keeps its data
+  // and the list of objects those commits changed. When the new primary
+  // can match the two histories (the digest at the seq it took over at)
+  // and the schema fingerprints agree, it sends only the objects either
+  // node changed since then; otherwise a full send (or, for a schema
+  // difference, a refusal). false: wait for a full send, as before
+  static int Rejoin(const std::string &root, std::string &msg, bool incremental);
+  // 7.5 beta 3: after a rebuild into NEW (a new node that took a full
+  // send, or one the application rewrote), with both nodes stopped: OLD
+  // is renamed OLD.before-rebuild-YYYYMMDD-HHMMSS (kept, never deleted)
+  // and NEW becomes OLD. Refused while either is open, when NEW is not
+  // a node or is in a full send, or when NEW's indexes fail IndexCheck()
+  // with INDEX. Returns 0, or 1 (and msg)
+  static int Swap(const std::string &old_root, const std::string &new_root,
+		  const std::string &index, std::string &msg);
 
 public:
   struct Impl;

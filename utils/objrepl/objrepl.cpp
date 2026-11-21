@@ -51,9 +51,16 @@ Usage:
   objrepl status ROOT
   objrepl engine            the database engine (exit 0 for 64-bit, 1 for 32-bit)
   objrepl takeover ROOT     a copy becomes primary: epoch + 1
-  objrepl rejoin ROOT       a former primary becomes a copy (full send)
+  objrepl rejoin ROOT [--full]  a former primary becomes a copy (7.5 beta 3:
+          an incremental rejoin when the new primary can match the two
+          histories and the schemas agree, else a full send; --full: a
+          full send in any case)
+  objrepl swap OLD NEW [--index SPEC]  7.5 beta 3: after a rebuild into
+          NEW (both stopped), OLD is kept as OLD.before-rebuild-DATE and
+          NEW becomes OLD (NEW's indexes checked first with --index)
   Common: --name N --peer-name N --links SPEC --index SPEC --max-lag N
   --max-behind S --min-cert-days N --idle-timeout S --ack-timeout S (7.4.1, primary)
+  --schema TEXT --rejoin-max-share PERCENT (7.5 beta 3)
   --config FILE. Any of them may come
   from ROOT/objrepl.conf (or --config FILE), one "key value" line each
   (the option without "--"); the command line wins.
@@ -132,7 +139,7 @@ static void ix_fields(const std::vector<IxDef> &ixdefs, const std::string &db, s
 }
 
 struct GenOpts { long commits = 100, per = 10, ndbs = 3, sleep_ms = 0; bool drain = false; long drop_linked = 0, unknown_removes = 0;
-		 bool purge = false, defer_target = false; };
+		 bool purge = false, defer_target = false; long drain_secs = 120; };
 
 static int run_primary(const std::string &root, const gxObjReplConfig &cfg, const GenOpts &o)
 {
@@ -244,7 +251,7 @@ static int run_primary(const std::string &root, const gxObjReplConfig &cfg, cons
     if(r.Commit() != 0) return die("commit");
     printf("objrepl primary: purged %zu tombstone(s), %zu kept (links point to them)\n", n, linked.size());
   }
-  rc = r.Drain(120);
+  rc = r.Drain((int)o.drain_secs);
   if(rc == 3) return 3;
   printf("objrepl primary: epoch %llu, last seq %llu, copy applied %llu, %ld snapshot(s), outbox %s\n",
 	 (unsigned long long)r.Epoch(), (unsigned long long)r.LastSeq(), (unsigned long long)r.CopyApplied(),
@@ -290,8 +297,16 @@ int main(int argc, char **argv)
     printf("engine %s (file signature %d bytes)\n", gxSignatureSize == 10 ? "64-bit" : "32-bit", gxSignatureSize);
     return gxSignatureSize == 10 ? 0 : 1;
   }
-  if(argc < 3) { fprintf(stderr, "usage: objrepl primary|copy|digest|ixcheck|status|check|clear-alarm|takeover|rejoin ROOT [options]\n"); return 64; }
+  if(argc < 3) { fprintf(stderr, "usage: objrepl primary|copy|digest|ixcheck|status|check|clear-alarm|takeover|rejoin|swap ROOT [options]\n"); return 64; }
   std::string cmd = argv[1], root = argv[2], why;
+  if(cmd == "swap") {                                          // 7.5 beta 3: objrepl swap OLD NEW [--index SPEC]
+    if(argc != 4 && !(argc == 6 && std::string(argv[4]) == "--index")) { fprintf(stderr, "usage: objrepl swap OLD NEW [--index SPEC]\n"); return 64; }
+    std::string line;
+    int rc = gxObjRepl::Swap(root, argv[3], argc == 6 ? argv[5] : "", line);
+    if(rc == 0) printf("objrepl swap: %s\n", line.c_str()); else fprintf(stderr, "objrepl swap: %s\n", line.c_str());
+    return rc;
+  }
+  bool full = false;
   gxObjReplConfig cfg;
   GenOpts o;
   // the config: ROOT/objrepl.conf or --config FILE, then the command line (which wins)
@@ -300,7 +315,7 @@ int main(int argc, char **argv)
   if((conf_given || access(conf.c_str(), F_OK) == 0) && !cfg.Load(conf, &why)) { fprintf(stderr, "%s\n", why.c_str()); return 64; }
   static const std::set<std::string> keys = {"name", "peer-name", "copy", "listen", "ca", "cert", "key", "allow-cn",
 					     "links", "index", "max-lag", "max-behind", "min-cert-days", "idle-timeout",
-					     "ack-timeout"};
+					     "ack-timeout", "schema", "rejoin-max-share"};
   for(int i = 3; i < argc; i++) {
     std::string a = argv[i];
     auto val = [&]() { return i + 1 < argc ? std::string(argv[++i]) : std::string(); };
@@ -313,6 +328,8 @@ int main(int argc, char **argv)
     else if(a == "--seed") rng = (unsigned)atol(val().c_str());
     else if(a == "--drain") o.drain = true;
     else if(a == "--no-trim") cfg.trim = false;
+    else if(a == "--full") full = true;
+    else if(a == "--drain-secs") o.drain_secs = std::max(0L, atol(val().c_str()));
     else if(a == "--drop-linked") o.drop_linked = atol(val().c_str());
     else if(a == "--unknown-removes") o.unknown_removes = atol(val().c_str());
     else if(a == "--purge") o.purge = true;
@@ -334,7 +351,7 @@ int main(int argc, char **argv)
   if(cmd == "clear-alarm") { rc = gxObjRepl::ClearAlarm(root, line); printf("%s\n", line.c_str()); return rc; }
   if(cmd == "status") { rc = gxObjRepl::Status(root, line); printf("%s\n", line.c_str()); return rc; }
   if(cmd == "rejoin") {
-    rc = gxObjRepl::Rejoin(root, line);
+    rc = gxObjRepl::Rejoin(root, line, !full);
     if(rc == 0) printf("objrepl rejoin: %s\n", line.c_str()); else fprintf(stderr, "objrepl rejoin: %s\n", line.c_str());
     return rc;
   }

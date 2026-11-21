@@ -46,6 +46,20 @@ gxObjRepl, object replication (see gxobjrepl.h). The wire format:
   F_EPOCH          u8 5, u64 epoch: sent once the primary has accepted the
                    copy (after the hello); the copy saves the epoch
   ack (copy)       u64 seq applied
+7.5 beta 3, the incremental rejoin (appended fields: older nodes ignore
+them, and a node that does not send them gets the older behavior):
+  hello (primary)  ... then u32 RJ_MAGIC, u64 epoch base seq, u64 digest
+                   there, str schema fingerprint
+  reply (copy)     ... then u32 RJ_MAGIC, u8 incremental ok, str schema
+                   fingerprint
+  F_RJ_SET         u8 7, u64 base seq, u64 up-to seq; the answer: u8 ok,
+                   u32 entries, each: str db, u64 id (what the copy changed
+                   after the base)
+  F_RJ_BATCH       u8 8, u32 records, each: u8 1 and a full-send record,
+                   or u8 2, str db, u64 id (absent on the primary)
+  F_RJ_END         u8 9, u64 up-to seq, u64 digest, u64 records + digest-
+                   log entries sent, u64 hash chained over them (as sent)
+  (the primary's digest log after the base goes as F_SNAP_DLOG frames)
 Every number is little endian; every length read is checked against
 the frame.
 */
@@ -141,7 +155,12 @@ const uint32_t MAX_OBJECT = 32u * 1024 * 1024;                 // the bytes of o
 const size_t MAX_FRAME = 60u * 1024 * 1024;                     // a commit frame
 const uint64_t MAX_RECORD = MAX_OBJECT + 64;                    // a record's capacity (head + bytes), from the wire too
 enum { OP_ADD = 1, OP_UPDATE = 2, OP_REMOVE = 3, OP_PURGE = 4 };   // every op names (database, object id)
-enum { F_COMMIT = 1, F_SNAP_BEGIN = 2, F_SNAP_BATCH = 3, F_SNAP_END = 4, F_EPOCH = 5, F_SNAP_DLOG = 6 };
+enum { F_COMMIT = 1, F_SNAP_BEGIN = 2, F_SNAP_BATCH = 3, F_SNAP_END = 4, F_EPOCH = 5, F_SNAP_DLOG = 6,
+       F_RJ_SET = 7, F_RJ_BATCH = 8, F_RJ_END = 9 };
+// 7.5 beta 3: the incremental rejoin's hello fields, and State::in_snapshot 2 = a former primary waiting for one
+// (its old data still here; reads are refused as in a full send, and a primary that cannot do it sends a full send)
+const uint32_t RJ_MAGIC = 0x31304a52u;   // "RJ01"
+const uint32_t SNAP_INCR = 2;
 // the digest log keeps the last DLOG_KEEP commits: a copy further behind than that cannot be checked and must rejoin
 const uint64_t DLOG_KEEP = 1000000;
 const uint32_t DLOG_BATCH = 65536;                              // entries per F_SNAP_DLOG frame
@@ -387,6 +406,32 @@ struct Unlocked {
 bool sync_files(const std::vector<std::string> &paths);   // below: sync by path
 int sync_path(const std::string &f, bool data_only);
 
+// 7.5 beta 3: ROOT/epochs, the epoch history: "EPOCH BASE_SEQ BASE_DIGEST" lines, one appended at each Takeover()
+// (the seq and running digest the node took over at). Written and synced before the takeover's state commit, so a
+// line may name an epoch the state never reached; only the line of the node's current epoch is used
+bool epoch_line_add(const std::string &root, uint64_t epoch, uint64_t seq, uint64_t dig)
+{
+  std::string f = path(root, "epochs");
+  FILE *o = fopen(f.c_str(), "ab");
+  if(!o) return false;
+  char line[96]; snprintf(line, sizeof(line), "%llu %llu %016llx\n", (unsigned long long)epoch, (unsigned long long)seq, (unsigned long long)dig);
+  bool ok = fputs(line, o) >= 0 && fflush(o) == 0;
+  fclose(o);
+  return ok && sync_files({f});
+}
+bool epoch_base(const std::string &root, uint64_t epoch, uint64_t &seq, uint64_t &dig)
+{
+  std::string t = read_file(path(root, "epochs"));
+  bool found = false; size_t i = 0;
+  while(i < t.size()) {
+    size_t j = t.find('\n', i); if(j == std::string::npos) j = t.size();
+    unsigned long long e = 0, q = 0, d = 0;
+    if(sscanf(t.substr(i, j - i).c_str(), "%llu %llu %llx", &e, &q, &d) == 3 && e == epoch) { seq = q; dig = d; found = true; }
+    i = j + 1;
+  }
+  return found;
+}
+
 // ---------- one database: NAME.gxd + NAME.id.btx ----------
 struct Db {
   std::string name;
@@ -554,6 +599,11 @@ public:
 struct Node {
   gxdJournal j;
   gxDatabase sdb, ob;
+  // 7.5 beta 3: chg (ROOT/objrepl.changes.gxd) holds, for each commit this node made as a primary since its last
+  // takeover, the (database, id) of its ops, so an incremental rejoin knows what changed past the takeover even after
+  // the outbox was trimmed; rjs (ROOT/objrepl.rejoin.gxd), on a former primary waiting for an incremental rejoin, the
+  // same for its commits its copy never acknowledged. One block per commit: u64 seq, u32 n, n x (str db, u64 id)
+  gxDatabase chg, rjs;
   bool primary = false, is_open = false;
   std::map<std::string, std::unique_ptr<Db>> dbs;
   std::vector<std::unique_ptr<Ix>> ixs;
@@ -669,6 +719,11 @@ struct Node {
       if(sdb.Create(s.c_str(), (FAU_t)sizeof(State)) != gxDBASE_NO_ERROR) return fail("cannot create " + s);
     }
     if(j.Attach(&sdb) != gxDBASE_NO_ERROR) return fail("cannot attach " + s);
+    for(auto fx : {std::make_pair(&chg, "objrepl.changes.gxd"), std::make_pair(&rjs, "objrepl.rejoin.gxd")}) {
+      std::string f = path(root, fx.second);
+      if(fx.first->Open(f.c_str()) != gxDBASE_NO_ERROR && fx.first->Create(f.c_str()) != gxDBASE_NO_ERROR) return fail("cannot open " + f);
+      if(j.Attach(fx.first) != gxDBASE_NO_ERROR) return fail("cannot attach " + f);
+    }
     if(primary) {
       std::string o = path(root, "outbox.gxd");
       if(ob.Open(o.c_str()) != gxDBASE_NO_ERROR && ob.Create(o.c_str()) != gxDBASE_NO_ERROR) return fail("cannot open " + o);
@@ -863,6 +918,7 @@ struct Node {
     for(auto &d : dead_dbs) d->close();
     dlog.Close();
     if(primary) ob.Close();
+    chg.Close(); rjs.Close();
     sdb.Close();
     ixs.clear(); dbs.clear(); dead_ixs.clear(); dead_dbs.clear();
     is_open = false;
@@ -906,6 +962,48 @@ struct Node {
     std::vector<uint64_t> old;
     for(int ok = dlog.FindFirst(k); ok && k.k.seq < cutoff && old.size() < limit; ok = dlog.FindNext(k, c)) old.push_back(k.k.seq);
     for(uint64_t q : old) { DKey d(q); if(!dlog.Delete(d, c)) return false; }
+    return true;
+  }
+  // 7.5 beta 3: the change lists (chg, rjs): one block per commit (u64 seq, u32 n, n x (str db, u64 id))
+  typedef std::set<std::pair<std::string, uint64_t>> IdSet;
+  static bool list_add(gxDatabase &f, uint64_t seq, const IdSet &ids) {
+    Buf b; b.u64(seq); b.u32((uint32_t)ids.size());
+    for(auto &x : ids) { b.str(x.first); b.u64(x.second); }
+    FAU_t a = f.Alloc((__ULWORD__)b.b.size());
+    return a && f.Write(b.b.data(), (__ULWORD__)b.b.size(), a) == gxDBASE_NO_ERROR;
+  }
+  // every (database, id) of the blocks past AFTER; false when a block cannot be read
+  static bool list_since(gxDatabase &f, uint64_t after, IdSet &out, uint64_t *first = 0) {
+    if(first) *first = 0;
+    for(FAU_t a = f.FindFirstObject(); a != (FAU_t)0; a = f.FindNextObject(a)) {
+      __ULWORD__ n = f.ObjectLength(a);
+      std::vector<unsigned char> b(n);
+      if(n < 12 || f.Read(b.data(), n, a) != gxDBASE_NO_ERROR) return false;
+      Rd r(b.data(), b.size()); uint64_t q = r.u64(); uint32_t k = r.u32();
+      if(first && (!*first || q < *first)) *first = q;
+      if(q <= after) continue;
+      for(uint32_t i = 0; i < k; i++) { std::string d = r.str(); uint64_t id = r.u64(); if(!r.ok) return false; out.insert({d, id}); }
+      if(!r.ok) return false;
+    }
+    return true;
+  }
+  // blocks with a seq below CUTOFF out (every block when CUTOFF is UINT64_MAX), at most LIMIT
+  static bool list_trim(gxDatabase &f, uint64_t cutoff, size_t limit = (size_t)-1) {
+    std::vector<FAU_t> old;
+    for(FAU_t a = f.FindFirstObject(); a != (FAU_t)0 && old.size() < limit; a = f.FindNextObject(a)) {
+      unsigned char h[8];
+      if(f.Read(h, 8, a) != gxDBASE_NO_ERROR) return false;
+      Rd r(h, 8);
+      if(cutoff == UINT64_MAX || r.u64() < cutoff) old.push_back(a);
+    }
+    for(FAU_t a : old) if(!f.Delete(a)) return false;
+    return true;
+  }
+  // digest log entries past SEQ out (a former primary's own commits, replaced in an incremental rejoin)
+  bool dlog_drop_after(uint64_t seq) {
+    DKey k(seq + 1), c; std::vector<uint64_t> v;
+    for(int ok = dlog.PartialFind(k, c); ok; ok = dlog.FindNext(k, c)) if(k.k.seq > seq) v.push_back(k.k.seq);
+    for(uint64_t q : v) { DKey d(q); if(!dlog.Delete(d, c)) return false; }
     return true;
   }
   // the state lives in state.gxd's static area, right after the file header
@@ -1207,6 +1305,8 @@ bool gxObjReplConfig::Set(const std::string &k, const std::string &v, std::strin
   else if(k == "min-cert-days") { if(!num(u)) return bad("min-cert-days is a number"); min_cert_days = (long)u; }
   else if(k == "trim") { if(v != "0" && v != "1") return bad("trim is 0 or 1"); trim = v == "1"; }
   else if(k == "idle-timeout") { if(!num(u) || u > 86400) return bad("idle-timeout is seconds (0 = none)"); idle_timeout = (int)u; }
+  else if(k == "schema") { if(v.size() > 200 || v.find_first_of(";\r\n") != std::string::npos) return bad("schema is text of at most 200 characters, no ';'"); schema = v; }
+  else if(k == "rejoin-max-share") { if(!num(u) || u < 1 || u > 100) return bad("rejoin-max-share is a percent (1 to 100)"); rejoin_max_share = (int)u; }
   else if(k == "lock-wait") { if(!num(u) || u > 3600) return bad("lock-wait is seconds (0 to 3600)"); lock_wait = (int)u; }
   else if(k == "ack-timeout") { if(!num(u) || u < 1 || u > 86400) return bad("ack-timeout is seconds (1 to 86400)"); ack_timeout = (int)u; }
   else return bad("unknown key " + k);
@@ -1255,6 +1355,40 @@ struct gxObjRepl::Impl {
   std::vector<LinkDef> links_own;      // copy: the map this node was configured with (the hello must match it)
   std::vector<IxDef> ixdefs;
   ErrStr err;
+  // 7.5 beta 3: the schema fingerprint: "index=...;links=...;schema=..." (each part in canonical order). The copy
+  // compares the links part only when it has a link map of its own (otherwise it takes the primary's)
+  std::string fingerprint(const std::vector<LinkDef> &lk) const {
+    std::vector<std::string> v;
+    for(auto &d : ixdefs) v.push_back(d.name + ":" + d.db + ":" + std::string(1, d.kind) + ":" + std::to_string(d.off) + ":" + std::to_string(d.len));
+    std::sort(v.begin(), v.end());
+    std::string ix;
+    for(auto &x : v) ix += (ix.empty() ? "" : ",") + x;
+    return "index=" + ix + ";links=" + links_canon(lk) + ";schema=" + cfg.schema;
+  }
+  // what differs between two fingerprints, in words ("" when they agree)
+  static std::string fp_diff(const std::string &mine, const std::string &theirs) {
+    auto parts = [](const std::string &f) {
+      std::map<std::string, std::string> m; size_t i = 0;
+      while(i <= f.size()) {
+	size_t j = f.find(';', i); if(j == std::string::npos) j = f.size();
+	std::string p = f.substr(i, j - i); size_t e = p.find('=');
+	if(e != std::string::npos) m[p.substr(0, e)] = p.substr(e + 1);
+	i = j + 1;
+      }
+      return m;
+    };
+    auto a = parts(mine), b = parts(theirs);
+    std::string d;
+    for(const char *k : {"index", "links", "schema"}) {
+      std::string x = a.count(k) ? a[k] : "?", y = b.count(k) ? b[k] : "?";
+      if(x != y) d += (d.empty() ? "" : "; ") + std::string(k == std::string("index") ? "index spec" : k == std::string("links") ? "link map" : "schema") +
+		      " differs: [" + y + "] here, [" + x + "] on the other node";
+    }
+    return d;
+  }
+  bool copy_incr = false;              // primary: the copy said it waits for an incremental rejoin we can do
+  std::string copy_fp;                 // primary: the copy's schema fingerprint (empty: an older copy)
+  uint64_t last_rejoin_objects = 0; std::string last_rejoin = "none";
   // a copy in a full send (s.st.in_snapshot), as of the last time the node's lock was given up: reads fail at once
   // then, without waiting for the batch being applied (11/16/2026)
   std::atomic<int> snapflag{0};
@@ -1436,6 +1570,11 @@ struct gxObjRepl::Impl {
     // digest at that seq; any change of roles or histories stops the stream with an alarm
     Buf h; h.u32(STATE_MAGIC); h.u64(s.st.epoch); h.str(links_spec(links));
     h.str(cfg.name); h.u8(ROLE_PRIMARY); h.u64(s.st.next_seq - 1); h.u64(s.st.cur_digest);
+    {                                                          // 7.5 beta 3 (older copies ignore these)
+      uint64_t bseq = 0, bdig = 0;
+      if(!epoch_base(s.root, s.st.epoch, bseq, bdig)) bseq = bdig = 0;
+      h.u32(RJ_MAGIC); h.u64(bseq); h.u64(bdig); h.str(fingerprint(links));
+    }
     std::vector<unsigned char> rep;
     if(!io(h.b, rep)) {
       if(io_net_failed && io_old_header) { alarm("the copy sends the gxStream block header with 4-byte words (DataReel before 7.4 beta 5 on Windows or a 32-bit build): refused"); L.refused = true; }
@@ -1446,6 +1585,11 @@ struct gxObjRepl::Impl {
     Rd r(rep.data(), rep.size());
     uint8_t ok = r.u8(); uint64_t applied = r.u64(), cep = r.u64(); uint8_t snap = r.u8();
     std::string cname = r.str(); uint8_t crole = r.u8(); uint64_t cdig = r.u64(); std::string why = r.str();
+    copy_incr = false; copy_fp.clear();
+    if(r.ok && r.o + 4 <= r.n) {                               // 7.5 beta 3 fields (an older copy has none)
+      Rd x(r.p + r.o, r.n - r.o);
+      if(x.u32() == RJ_MAGIC) { uint8_t inc = x.u8(); std::string f = x.str(); if(x.ok) { copy_incr = inc != 0; copy_fp = f; } }
+    }
     if(!r.ok || !ok) {
       alarm("the copy " + cname + " refused this primary (epoch " + std::to_string(s.st.epoch) + ", its epoch " +
 	    std::to_string(cep) + "): " + (why.empty() ? "refused" : why));
@@ -1654,6 +1798,82 @@ struct gxObjRepl::Impl {
     L.copy_applied = base; L.copy_in_snapshot = false; L.snapshots++;
     return true;
   }
+  // ---------- 7.5 beta 3: the incremental rejoin ----------
+  // A former primary waiting for one (the copy said so at the hello, and its history matches this node's at the seq
+  // this node took over at): it lists what its own commits changed past that base (F_RJ_SET), this node adds what it
+  // changed since (its change list), and sends each of those objects as it is now (or "absent"), then its digest log
+  // past the base and the end with the count and hash of what was sent. The node's lock is held throughout (the set
+  // is small by design: past rejoin-max-share of the objects a full send goes instead). Returns 1 done, 0 failed
+  // (the connection dropped, or a transaction stays open: fs_waits), 2 a full send instead
+  int repair() {
+    mu.at("incremental rejoin");
+    fs_waits = false;
+    for(int i = 0; s.j.InTransaction() || durable_seq + 1 < s.st.next_seq; i++) {
+      if(i >= 2000 || !mu.Once()) { err = "a transaction stays open: the rejoin waits"; fs_waits = true; return 0; }
+      unsigned long g = gen;
+      { Unlocked u(mu); std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
+      if(closing || g != gen || !s.is_open) { err = "the node was closed while pumping"; return 0; }
+    }
+    uint64_t base = 0, bdig = 0, d0 = 0;
+    if(!epoch_base(s.root, s.st.epoch, base, bdig) || !base) { say("primary: no epoch base for epoch " + std::to_string(s.st.epoch) + ": a full send instead of an incremental rejoin"); return 2; }
+    if(!s.digest_at(base, d0) || d0 != bdig) { say("primary: seq " + std::to_string(base) + " is no longer in the digest log: a full send instead of an incremental rejoin"); return 2; }
+    uint64_t upto = s.st.next_seq - 1, updig = s.st.cur_digest, acked = 0;
+    Node::IdSet u;
+    if(!Node::list_since(s.chg, base, u)) { err = "cannot read the change list"; return 0; }
+    size_t own = u.size();
+    Buf q; q.u8(F_RJ_SET); q.u64(base); q.u64(upto);
+    std::vector<unsigned char> in;
+    if(!io(q.b, in, true)) return 0;
+    L.last_contact = time(0); L.exchanges++;
+    Rd r(in.data(), in.size()); uint8_t ok = r.u8(); uint32_t n = r.u32();
+    if(!r.ok) { L.drop(); return 0; }
+    if(!ok) { say("primary: the copy changed too many objects to list: a full send instead of an incremental rejoin"); return 2; }
+    for(uint32_t i = 0; i < n && r.ok; i++) { std::string d = r.str(); uint64_t id = r.u64(); if(r.ok) u.insert({d, id}); }
+    if(!r.ok) { L.drop(); return 0; }
+    size_t total = 0; for(auto &d : s.dbs) total += d.second->where.size();
+    if(total && (unsigned long long)u.size() * 100 > (unsigned long long)total * (unsigned)cfg.rejoin_max_share) {
+      say("primary: an incremental rejoin would send " + std::to_string(u.size()) + " of " + std::to_string(total) + " objects (over rejoin-max-share " +
+	  std::to_string(cfg.rejoin_max_share) + "%): a full send instead");
+      return 2;
+    }
+    uint64_t scount = 0, shash = DIGEST0;
+    auto it = u.begin();
+    while(it != u.end()) {
+      Buf f; f.u8(F_RJ_BATCH); size_t cnt_at = f.b.size(); f.u32(0); uint32_t nobj = 0;
+      for(; it != u.end() && f.b.size() < SNAP_BATCH_BYTES; ++it) {
+	size_t at0 = f.b.size();
+	auto di = s.dbs.find(it->first);
+	Db *d = di == s.dbs.end() ? 0 : di->second.get();
+	auto w = d ? d->where.find(it->second) : std::map<uint64_t, FAU_t>::iterator();
+	if(d && w != d->where.end()) { f.u8(1); if(!snap_entry(d, w->second, f)) { err = "cannot read " + it->first + " " + std::to_string(it->second) + " for the rejoin"; return 0; } }
+	else { f.u8(2); f.str(it->first); f.u64(it->second); }
+	shash = fnv(f.b.data() + at0, f.b.size() - at0, shash); scount++; nobj++;
+      }
+      for(int i = 0; i < 4; i++) f.b[cnt_at + i] = (unsigned char)(nobj >> (8 * i));
+      if(!exchange(f.b, acked, true)) return 0;
+    }
+    for(uint64_t next = base + 1;;) {                          // the digest log past the base
+      Buf g; g.u8(F_SNAP_DLOG); size_t at = g.b.size(); g.u32(0); uint32_t k = 0;
+      DKey dk(next), c;
+      for(int ok2 = s.dlog.PartialFind(dk, c); ok2 && dk.k.seq <= upto; ok2 = s.dlog.FindNext(dk, c)) {
+	if(dk.k.seq < next) continue;
+	g.u64(dk.k.seq); g.u64(dk.k.digest); k++; next = dk.k.seq + 1;
+	shash = fnv(g.b.data() + g.b.size() - 16, 16, shash); scount++;
+	if(k == DLOG_STEP) break;
+      }
+      if(!k) break;
+      for(int i = 0; i < 4; i++) g.b[at + i] = (unsigned char)(k >> (8 * i));
+      if(!exchange(g.b, acked, true)) return 0;
+      if(k < DLOG_STEP) break;
+    }
+    Buf e; e.u8(F_RJ_END); e.u64(upto); e.u64(updig); e.u64(scount); e.u64(shash);
+    if(!exchange(e.b, acked, true) || acked != upto) return 0;
+    L.copy_applied = upto; L.copy_in_snapshot = false; copy_incr = false;
+    last_rejoin_objects = u.size(); last_rejoin = "incremental";
+    say("primary: incremental rejoin to seq " + std::to_string(upto) + " from base " + std::to_string(base) + ": " + std::to_string(u.size()) +
+	" object(s) sent (" + std::to_string(own) + " changed here, " + std::to_string(n) + " on the rejoining node)");
+    return 1;
+  }
   void tombstone_count(unsigned long long &t) { t = 0; for(auto &d : s.dbs) t += d.second->tombs.size(); }
   // the primary's status: its seq, the copy's applied seq as last acknowledged, the lag and how long it has lasted
   void primary_status(bool force, const std::string &state) {
@@ -1683,6 +1903,7 @@ struct gxObjRepl::Impl {
     mon.set("lag_seq", (unsigned long long)lag); mon.set("behind_secs", behind);
     mon.set("outbox_entries", (unsigned long long)n); mon.set("outbox_bytes", bytes);
     mon.set("snapshots", (unsigned long long)L.snapshots); mon.set("cert_days_left", std::to_string(cert_days));
+    mon.set("last_rejoin", last_rejoin); mon.set("last_rejoin_objects", (unsigned long long)last_rejoin_objects);
     mon.write(force);
   }
   bool pump1() {
@@ -1691,7 +1912,12 @@ struct gxObjRepl::Impl {
     bool need_snap = L.copy_in_snapshot || (L.copy_applied + 1 < s.st.next_seq &&
 					    (v.empty() || v.front().first > L.copy_applied + 1));
     if(need_snap) {
-      if(!snapshot()) return fs_waits;                         // a transaction stayed open: the next Pump() sends it
+      int rj = L.copy_in_snapshot && copy_incr ? repair() : 2;   // 7.5 beta 3: an incremental rejoin when it can
+      if(rj == 0) return fs_waits;
+      if(rj == 2) {
+	if(!snapshot()) return fs_waits;                       // a transaction stayed open: the next Pump() sends it
+	last_rejoin = "full send"; last_rejoin_objects = 0;
+      }
       v = outbox_entries();                                    // the commits made while it was sent follow
 #ifdef GXREPL_TEST_HOOKS
       if(getenv("OBJREPL_TEST_ONLY_FULL_SEND")) return true;   // test only: the copy stays at the full send's base
@@ -1727,6 +1953,9 @@ struct gxObjRepl::Impl {
       if(cfg.trim) for(auto &e : v) if(e.first <= L.copy_applied && del++ < TRIM_STEP && !s.ob.Delete(e.second)) dok = false;
       if(!dok) { s.j.Rollback(); err = "cannot trim the outbox"; reopen(); return false; }
       if(s.st.next_seq > DLOG_KEEP && !s.trim_digests(std::min(s.st.next_seq - DLOG_KEEP, L.copy_applied), TRIM_STEP)) { s.j.Rollback(); err = "cannot trim the digest log"; reopen(); return false; }
+      // 7.5 beta 3: the change list keeps the same window as the digest log, so an incremental rejoin whose base is
+      // still in the digest log has every change since it
+      if(s.st.next_seq > DLOG_KEEP && !Node::list_trim(s.chg, std::min(s.st.next_seq - DLOG_KEEP, L.copy_applied), TRIM_STEP)) { s.j.Rollback(); err = "cannot trim the change list"; reopen(); return false; }
       uint64_t keep_seq = s.st.acked_seq, keep_dig = s.st.acked_digest;
       s.st.acked_seq = L.copy_applied;
       s.put_state();
@@ -1769,6 +1998,11 @@ struct gxObjRepl::Impl {
     f.u64(s.st.cur_digest);                                    // the running digest after it (the last 8 bytes)
     FAU_t oa = s.ob.Alloc((__ULWORD__)f.b.size());
     if(!oa || s.ob.Write(f.b.data(), (__ULWORD__)f.b.size(), oa) != gxDBASE_NO_ERROR) { err = "the outbox write failed"; return false; }
+    {                                                          // 7.5 beta 3: the change list
+      Node::IdSet ids;
+      for(auto &t : touched) ids.insert({std::get<1>(t), std::get<2>(t)});
+      if(!Node::list_add(s.chg, seq, ids)) { err = "the change list write failed"; return false; }
+    }
     s.st.next_seq = seq + 1;
     s.put_state();
     mu.at("Commit journal");
@@ -2154,12 +2388,17 @@ int gxObjRepl::Impl::serve()
   auto s_drop_aside = [](const std::string &r) { std::error_code ec; fs::remove_all(path(r, "prev"), ec); fs::remove_all(path(r, "prev.tmp"), ec); };
   bool rolled = false;      // a rolled-back apply: the maps and index memory are stale, the node is opened again
   unsigned long long frames_total = 0, rollbacks = 0, refusals = 0;
+  bool rj_ok = false;                                          // 7.5 beta 3: this connection may do an incremental rejoin
+  Node::IdSet rj_ids;                                          // and the objects its batches wrote (links fixed at F_RJ_END)
+  bool rj_started = false;
   time_t last_frame = 0, snap_since = 0;
   std::string primary_now;
   long drop_every = 0;
 #ifdef GXREPL_TEST_HOOKS
   drop_every = getenv("OBJREPL_TEST_DROP_EVERY") ? atol(getenv("OBJREPL_TEST_DROP_EVERY")) : 0;
   bool kill_in_fixup = getenv("OBJREPL_TEST_KILL_IN_FIXUP") != 0;
+  // 7.5 beta 3: killed inside an incremental rejoin's batch ("batch") or end ("end") transaction
+  std::string kill_in_rejoin = getenv("OBJREPL_TEST_KILL_IN_REJOIN") ? getenv("OBJREPL_TEST_KILL_IN_REJOIN") : "";
   // 7.4.1: a copy that stalls (a slow disk) for SECS seconds before it applies frame AT, once, not reading its socket
   long stall_at = getenv("OBJREPL_TEST_STALL_AT") ? atol(getenv("OBJREPL_TEST_STALL_AT")) : 0;
   long stall_secs = getenv("OBJREPL_TEST_STALL_SECS") ? atol(getenv("OBJREPL_TEST_STALL_SECS")) : 0;
@@ -2218,6 +2457,12 @@ int gxObjRepl::Impl::serve()
     mu.at("copy hello");
     Rd h(b.data(), b.size()); uint32_t magic = h.u32(); uint64_t pep = h.u64(); std::string lspec = h.str();
     std::string pname = h.str(); uint8_t prole = h.u8(); uint64_t plast = h.u64(); h.u64();
+    // 7.5 beta 3 fields (an older primary has none): its epoch base and schema fingerprint
+    bool has_rj = false; uint64_t rj_base = 0, rj_bdig = 0; std::string pfp;
+    if(h.ok && h.o + 4 <= h.n) {
+      Rd x(h.p + h.o, h.n - h.o);
+      if(x.u32() == RJ_MAGIC) { rj_base = x.u64(); rj_bdig = x.u64(); pfp = x.str(); has_rj = x.ok; }
+    }
     std::string why;
     std::vector<LinkDef> plinks;
     if(!h.ok || magic != STATE_MAGIC) why = "not an objrepl primary (format)";
@@ -2236,6 +2481,24 @@ int gxObjRepl::Impl::serve()
     else for(auto &x : ixdefs) for(auto &l : plinks)
       if(why.empty() && x.db == l.db && l.off < x.off + (x.kind == 'B' ? x.len : 4 * x.len) && x.off < l.off + 8)
 	why = "the primary's link field " + l.db + ":" + std::to_string(l.off) + " overlaps this copy's index " + x.name;
+    // 7.5 beta 3: a former primary waiting for an incremental rejoin takes one only when the primary's history
+    // matches its own at the primary's epoch base (the same digest there) and the schemas agree; a schema difference
+    // refuses the primary (the node is rebuilt instead); otherwise it waits for a full send
+    std::string myfp = fingerprint(cfg.links.empty() ? plinks : links_own);
+    rj_ok = false; rj_started = false; rj_ids.clear();
+    if(why.empty() && s.st.in_snapshot == SNAP_INCR) {
+      // the histories first: when they do not match, a full send replaces this node's data whatever its schema
+      uint64_t d = 0;
+      std::string fd = has_rj ? fp_diff(pfp, myfp) : std::string();
+      if(!has_rj) say("copy: " + pname + " is an older primary: this node waits for a full send instead of an incremental rejoin");
+      else if(!rj_base) say("copy: " + pname + " has no epoch base: a full send instead of an incremental rejoin");
+      else if(!s.digest_at(rj_base, d) || d != rj_bdig) say("copy: " + pname + "'s history does not match this node's at seq " + std::to_string(rj_base) + ": a full send instead of an incremental rejoin");
+      else if(!fd.empty()) why = "the schema differs, so an incremental rejoin is refused (rebuild this node): " + fd;
+      else rj_ok = true;
+    } else if(why.empty() && has_rj && !s.st.in_snapshot) {
+      std::string fd = fp_diff(pfp, myfp);
+      if(!fd.empty()) say("copy: warning: the schema of " + pname + " differs from this copy's: " + fd);
+    }
     bool ok = why.empty();
     if(ok) pending_links = plinks;                             // adopted when the primary accepts this copy (F_EPOCH)
     if(!ok) { alarm("refused " + pname + ": " + why); refusals++; status(true, "refused " + pname, false); }
@@ -2243,6 +2506,7 @@ int gxObjRepl::Impl::serve()
     Buf rep;
     rep.u8(ok ? 1 : 0); rep.u64(s.st.applied_seq); rep.u64(s.st.epoch); rep.u8(s.st.in_snapshot ? 1 : 0);
     rep.str(cfg.name); rep.u8(ROLE_COPY); rep.u64(s.st.applied_digest); rep.str(why);
+    rep.u32(RJ_MAGIC); rep.u8(rj_ok ? 1 : 0); rep.str(myfp);  // 7.5 beta 3 (older primaries ignore these)
     hl.unlock();                                               // the answer goes out without the node held
     send_frame(st, rep.b);
     if(!ok) { st.Close(); continue; }
@@ -2514,6 +2778,119 @@ int gxObjRepl::Impl::serve()
 	if(!jcommit()) { rolled = true; break; }
 	aside = true;                                          // the full send is whole: the old data goes (after the ack)
 	Buf a; a.u64(base);
+	if(!ack(a)) break;
+      } else if(kind == F_RJ_SET) {
+	// 7.5 beta 3, the incremental rejoin: this node's own commits past BASE are dropped from its digest log (the
+	// primary's follow as F_SNAP_DLOG up to UPTO), and the answer lists what those commits changed
+	mu.at("copy F_RJ_SET");
+	uint64_t base = r.u64(), upto = r.u64(), d = 0;
+	if(!r.ok || !rj_ok || s.st.in_snapshot != SNAP_INCR || upto < base || !s.digest_at(base, d)) { alarm("an incremental rejoin from " + pname + " that does not match this node: refused"); break; }
+	Node::IdSet mine;
+	if(!Node::list_since(s.rjs, base, mine)) { alarm("cannot read " + path(s.root, "objrepl.rejoin.gxd")); break; }
+	if(!s.begin()) break;
+	good = s.dlog_drop_after(base);
+	s.st.snapshot_base = upto; s.st.snap_count = 0; s.st.snap_hash = DIGEST0;
+	if(good) s.put_state();
+	if(!good) { s.j.Rollback(); rolled = true; break; }
+	if(!jcommit()) { rolled = true; break; }
+	rj_started = true; rj_ids.clear();
+	Buf a; a.u8(1);
+	size_t sz = 5; for(auto &x : mine) sz += 10 + x.first.size();
+	if(sz > MAX_FRAME) { a.b.clear(); a.u8(0); a.u32(0); }  // too many: the primary sends a full send
+	else { a.u32((uint32_t)mine.size()); for(auto &x : mine) { a.str(x.first); a.u64(x.second); } }
+	say("copy: incremental rejoin from " + pname + " at seq " + std::to_string(base) + ": " + std::to_string(mine.size()) + " object(s) changed here since");
+	if(!ack(a)) break;
+      } else if(kind == F_RJ_BATCH) {
+	mu.at("copy F_RJ_BATCH");
+	if(!rj_started || s.st.in_snapshot != SNAP_INCR) break;
+	uint32_t nobj = r.u32();
+	// the databases first (outside the transaction, as open_named() does for a commit)
+	{
+	  Rd q(b.data() + r.o, b.size() - r.o);
+	  for(uint32_t i = 0; i < nobj && q.ok; i++) {
+	    uint8_t k = q.u8(); std::string name = q.str(); q.u64();
+	    if(k == 1) { q.u32(); q.u32(); q.u32(); q.u64(); q.u32(); uint32_t n = q.u32(); q.raw(n); }
+	    else if(k != 2) q.ok = false;
+	    if(q.ok && (!good_name(name) || (k == 1 && !s.get(name)))) q.ok = false;
+	  }
+	  if(!q.ok) { alarm("a malformed incremental-rejoin batch from " + pname + ": refused"); break; }
+	}
+	if(!s.begin()) break;
+	s.seen_seq = s.st.snapshot_base;
+	for(uint32_t i = 0; i < nobj && good; i++) {
+	  size_t at0 = r.o;
+	  uint8_t k = r.u8(); std::string name = r.str(); uint64_t id = r.u64();
+	  if(k == 2) {                                         // absent on the primary: gone here too
+	    s.st.snap_hash = fnv(b.data() + at0, r.o - at0, s.st.snap_hash); s.st.snap_count++;
+	    auto di = s.dbs.find(name);
+	    if(di == s.dbs.end()) continue;
+	    Db *d = di->second.get();
+	    if(d->where.count(id)) good = (d->tombs.count(id) || d->tombstone(id, TR_REMOVED, s.seen_seq)) && d->purge(id);
+	    continue;
+	  }
+	  uint32_t ver = r.u32(), flags = r.u32(), reason = r.u32(); uint64_t seen = r.u64(); uint32_t cap = r.u32();
+	  uint32_t n = r.u32(); const unsigned char *pb = r.raw(n);
+	  Db *d = s.get(name);
+	  if(!r.ok || !d) { good = false; break; }
+	  s.st.snap_hash = fnv(b.data() + at0, r.o - at0, s.st.snap_hash); s.st.snap_count++;
+	  if(n > MAX_OBJECT || cap > MAX_RECORD || (!(flags & OF_TOMB) && cap < sizeof(ObjHead) + n)) { say("copy: an incremental-rejoin record out of bounds: refused"); good = false; break; }
+	  s.st.max_id = std::max(s.st.max_id, id);
+	  bool mv = false;
+	  if(flags & OF_TOMB) {
+	    // a tombstone: one that is here already is replaced by the primary's (its reason and seq)
+	    if(d->where.count(id) && d->tombs.count(id)) good = d->purge(id);
+	    if(good) good = d->tombstone(id, reason, seen, cap);
+	  } else {
+	    good = d->put(id, ver, pb, n, cap, false, false, mv);
+	    if(good) rj_ids.insert({name, id});
+	  }
+	}
+	if(good) s.put_state();
+#ifdef GXREPL_TEST_HOOKS
+	if(good && kill_in_rejoin == "batch") _exit(9);           // test only: killed with the batch's transaction open
+#endif
+	if(!good) { s.j.Rollback(); rolled = true; rj_started = false; break; }
+	if(!jcommit()) { rolled = true; rj_started = false; break; }
+	Buf a; a.u64(0);
+	if(!ack(a)) break;
+      } else if(kind == F_RJ_END) {
+	mu.at("copy F_RJ_END");
+	uint64_t upto = r.u64(), sdig = r.u64(), scount = r.u64(), shash = r.u64();
+	if(!r.ok || !rj_started || s.st.in_snapshot != SNAP_INCR || upto != s.st.snapshot_base) { alarm("an incremental-rejoin end that does not match the one under way: refused"); break; }
+	if(scount != s.st.snap_count || shash != s.st.snap_hash) {
+	  alarm("the incremental rejoin to seq " + std::to_string(upto) + " arrived incomplete or changed (" + std::to_string(s.st.snap_count) + " of " +
+		std::to_string(scount) + " records): not ended; the primary sends it again");
+	  break;
+	}
+	if(!s.begin()) break;
+	s.seen_seq = upto;
+	// the links of the objects the batches wrote came as ids: now each to this node's address
+	for(auto &w : rj_ids) {
+	  if(!good) break;
+	  bool has = false;
+	  for(auto &l : links) if(l.db == w.first) has = true;
+	  if(!has) continue;
+	  Db *d = s.get(w.first);
+	  auto it = d ? d->where.find(w.second) : std::map<uint64_t, FAU_t>::iterator();
+	  if(!d || it == d->where.end() || d->tombs.count(w.second)) continue;
+	  __ULWORD__ n = d->db.ObjectLength(it->second);
+	  std::vector<unsigned char> rec(n);
+	  if(n < sizeof(ObjHead) || d->db.Read(rec.data(), n, it->second) != gxDBASE_NO_ERROR) { good = false; break; }
+	  ObjHead oh; memcpy(&oh, rec.data(), sizeof(oh));
+	  good = oh.len <= n - sizeof(oh) && s.translate(w.first, rec.data() + sizeof(oh), oh.len, false) &&
+		 d->db.Write(rec.data(), n, it->second) == gxDBASE_NO_ERROR;
+	}
+	if(good) good = s.log_digest(upto, sdig) && Node::list_trim(s.rjs, UINT64_MAX);
+	if(!good) { s.j.Rollback(); rolled = true; rj_started = false; break; }
+	s.st.in_snapshot = 0; s.st.applied_seq = upto; s.st.applied_digest = sdig; s.st.snapshot_base = 0;
+	s.put_state();
+#ifdef GXREPL_TEST_HOOKS
+	if(kill_in_rejoin == "end") _exit(9);                    // test only: killed with the end's transaction open
+#endif
+	if(!jcommit()) { rolled = true; rj_started = false; break; }
+	say("copy: incremental rejoin from " + pname + " ended at seq " + std::to_string(upto) + " (" + std::to_string(scount) + " records)");
+	rj_started = false; rj_ok = false; rj_ids.clear();
+	Buf a; a.u64(upto);
 	if(!ack(a)) break;
       } else { alarm("an unknown frame (kind " + std::to_string(kind) + ") from " + pname + ": refused"); break; }
     }
@@ -2851,6 +3228,41 @@ int gxObjRepl::ClearAlarm(const std::string &root, std::string &msg)
   return 0;
 }
 
+// 7.5 beta 3: NEW in place of OLD after a rebuild, OLD kept as OLD.before-rebuild-YYYYMMDD-HHMMSS
+int gxObjRepl::Swap(const std::string &old_root, const std::string &new_root, const std::string &index, std::string &msg)
+{
+  if(old_root.empty() || new_root.empty() || fs::path(old_root).lexically_normal() == fs::path(new_root).lexically_normal()) { msg = "swap: two different folders"; return 1; }
+  if(!exists(path(old_root, "state.gxd"))) { msg = old_root + " is not a node folder"; return 1; }
+  std::string line;
+  if(Status(new_root, line) != 0) { msg = new_root + " is not a node folder (" + line + ")"; return 1; }
+  if(line.find(" in_snapshot 0 ") == std::string::npos) { msg = new_root + " is in a full send or waiting for a rejoin: refused"; return 1; }
+  for(auto &r : {old_root, new_root}) {                        // both stopped: each lock taken and given back
+    Node n; n.root = r;
+    if(!n.lock(0)) { msg = n.err + ": stop it first"; return 1; }
+    n.unlock();
+  }
+  std::string report;
+  if(!index.empty() && IndexCheck(new_root, index, report) != 0) { msg = new_root + ": the index check failed:\n" + report; return 1; }
+  time_t t = time(0); struct tm tmv;
+#if defined(_WIN32)
+  localtime_s(&tmv, &t);
+#else
+  localtime_r(&t, &tmv);
+#endif
+  char ts[32]; strftime(ts, sizeof(ts), "%Y%m%d-%H%M%S", &tmv);
+  std::string kept = fs::path(old_root).lexically_normal().string();
+  while(!kept.empty() && (kept.back() == '/' || kept.back() == '\\')) kept.pop_back();
+  kept += std::string(".before-rebuild-") + ts;
+  if(exists(kept)) { msg = kept + " is there already: refused"; return 1; }
+  std::error_code ec;
+  fs::rename(old_root, kept, ec);
+  if(ec) { msg = "cannot rename " + old_root + ": " + ec.message(); return 1; }
+  fs::rename(new_root, old_root, ec);
+  if(ec) { std::error_code e2; fs::rename(kept, old_root, e2); msg = "cannot rename " + new_root + ": " + ec.message() + (e2 ? " (and " + old_root + " is at " + kept + ")" : " (nothing changed)"); return 1; }
+  msg = new_root + " is now " + old_root + "; the old node is kept at " + kept;
+  return 0;
+}
+
 int gxObjRepl::Status(const std::string &root, std::string &line)
 {
   settle(root);
@@ -2871,8 +3283,16 @@ int gxObjRepl::Takeover(const std::string &root, std::string &msg)
   std::vector<LinkDef> nolinks; s.links = &nolinks;
   if(!s.open(root, false)) { msg = s.err; s.close(); return 1; }
   if(s.st.role != ROLE_COPY) { msg = root + " is not a copy (role " + std::to_string(s.st.role) + "): takeover refused"; s.close(); return 1; }
-  if(s.st.in_snapshot) { msg = root + " is in the middle of a full send: refused"; s.close(); return 1; }
+  if(s.st.in_snapshot) {
+    msg = root + (s.st.in_snapshot == SNAP_INCR ? " is waiting for an incremental rejoin (its data is its old history): refused" :
+		  " is in the middle of a full send: refused");
+    s.close(); return 1;
+  }
+  // 7.5 beta 3: the epoch history line (the seq and digest this node takes over at), synced before the state commit
+  if(!epoch_line_add(root, s.st.epoch + 1, s.st.applied_seq, s.st.applied_digest)) { msg = "cannot write " + path(root, "epochs"); s.close(); return 1; }
   if(!s.begin()) { msg = s.err; s.close(); return 1; }
+  // the change list starts again: it holds this node's own commits since this takeover
+  if(!Node::list_trim(s.chg, UINT64_MAX) || !Node::list_trim(s.rjs, UINT64_MAX)) { s.j.Rollback(); msg = "cannot clear the change lists"; s.close(); return 1; }
   s.st.epoch += 1; s.st.next_seq = s.st.applied_seq + 1; s.st.role = ROLE_PRIMARY;
   s.st.cur_digest = s.st.acked_digest = s.st.applied_digest; s.st.acked_seq = s.st.applied_seq; s.put_state();
   int rc = s.commit() ? 0 : 1;
@@ -2881,7 +3301,8 @@ int gxObjRepl::Takeover(const std::string &root, std::string &msg)
   return rc;
 }
 
-int gxObjRepl::Rejoin(const std::string &root, std::string &msg)
+int gxObjRepl::Rejoin(const std::string &root, std::string &msg) { return Rejoin(root, msg, true); }
+int gxObjRepl::Rejoin(const std::string &root, std::string &msg, bool incremental)
 {
   Node s;
   std::vector<LinkDef> nolinks; s.links = &nolinks;
@@ -2890,6 +3311,33 @@ int gxObjRepl::Rejoin(const std::string &root, std::string &msg)
   bool was_primary = s.st.role == ROLE_PRIMARY;
   uint64_t last = s.st.next_seq - 1, unacked = was_primary && last > s.st.acked_seq ? last - s.st.acked_seq : 0;
   if(!s.begin()) { msg = s.err; s.close(); return 1; }
+  // 7.5 beta 3: an incremental rejoin keeps the (database, id) of every op of the commits past the last one its copy
+  // acknowledged (all still in the outbox: it is trimmed only by acknowledgements), one block per commit in rjs
+  bool fast = was_primary && unacked == 0 && last > 0;
+  bool incr = incremental && was_primary && unacked > 0;
+  size_t incr_ids = 0;
+  if(!Node::list_trim(s.rjs, UINT64_MAX) || !Node::list_trim(s.chg, UINT64_MAX)) { s.j.Rollback(); msg = "cannot clear the change lists"; s.close(); return 1; }
+  if(incr) {
+    Node::IdSet all;
+    for(FAU_t a = s.ob.FindFirstObject(); a != (FAU_t)0 && incr; a = s.ob.FindNextObject(a)) {
+      __ULWORD__ n = s.ob.ObjectLength(a);
+      std::vector<unsigned char> b(n);
+      if(n < 16 || s.ob.Read(b.data(), n, a) != gxDBASE_NO_ERROR) { incr = false; break; }
+      Rd r(b.data(), n - 16); uint8_t kind = r.u8(); uint64_t seq = r.u64(); r.u64(); uint32_t nops = r.u32();
+      if(!r.ok || kind != F_COMMIT) { incr = false; break; }
+      if(seq <= s.st.acked_seq) continue;
+      Node::IdSet ids;
+      for(uint32_t i = 0; i < nops && r.ok; i++) {
+	uint8_t op = r.u8(); std::string db = r.str(); uint64_t id = r.u64();
+	if(op == OP_ADD || op == OP_UPDATE) { r.u32(); r.u8(); uint32_t len = r.u32(); r.raw(len); }
+	ids.insert({db, id});
+      }
+      if(!r.ok || !Node::list_add(s.rjs, seq, ids)) { incr = false; break; }
+      all.insert(ids.begin(), ids.end());
+    }
+    if(!incr && !Node::list_trim(s.rjs, UINT64_MAX)) { s.j.Rollback(); msg = "cannot clear " + path(root, "objrepl.rejoin.gxd"); s.close(); return 1; }
+    incr_ids = all.size();
+  }
   for(FAU_t a = s.ob.FindFirstObject(); a != (FAU_t)0;) {      // the outbox
     FAU_t n = s.ob.FindNextObject(a);
     if(!s.ob.Delete(a)) { s.j.Rollback(); msg = "cannot clear the outbox"; s.close(); return 1; }
@@ -2898,14 +3346,17 @@ int gxObjRepl::Rejoin(const std::string &root, std::string &msg)
   // a former primary whose copy acknowledged every commit (a planned switchover) holds exactly the history the new
   // primary started from: it follows on from its last seq with no full send (the new primary checks the digest at
   // that seq). Otherwise it waits for a full send
-  bool fast = was_primary && unacked == 0 && last > 0;
   s.st.role = ROLE_COPY; s.st.snapshot_base = 0; s.st.rejoin_dropped = unacked;
   if(fast) { s.st.in_snapshot = 0; s.st.applied_seq = last; s.st.applied_digest = s.st.cur_digest; }
-  else { s.st.in_snapshot = 1; s.st.applied_seq = 0; s.st.applied_digest = DIGEST0; }
+  else { s.st.in_snapshot = incr ? SNAP_INCR : 1; s.st.applied_seq = 0; s.st.applied_digest = DIGEST0; }
   s.put_state();
   int rc = s.commit() ? 0 : 1;
   msg = rc ? s.err : fast ? root + " is a copy at epoch " + std::to_string(s.st.epoch) + ", following on from seq " + std::to_string(last) +
 	" (its copy had every commit: no full send)" :
+	incr ? root + " is a copy at epoch " + std::to_string(s.st.epoch) + ", waiting for an incremental rejoin: " + std::to_string(unacked) +
+	" commit(s) past seq " + std::to_string(s.st.acked_seq) + " (the last its copy acknowledged) changed " + std::to_string(incr_ids) +
+	" object(s); the new primary sends those and the objects it changed since it took over, or a full send when it cannot match the "
+	"two histories" :
 	root + " is a copy at epoch " + std::to_string(s.st.epoch) + ", waiting for a full send" +
 	(was_primary ? "; " + std::to_string(unacked) + " commit(s) past seq " + std::to_string(s.st.acked_seq) +
 	 " (the last its copy acknowledged) are replaced by what the new primary has" : "");
