@@ -1,4 +1,4 @@
-DataReel 7.5 Beta 3 Patch 1 Release Notes (the Python module), 11/21/2026
+DataReel 7.5 Beta 3 Patch 2 Release Notes (the Python module), 11/21/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 DataReel 7.5 adds the datareel Python module, a package that
@@ -6,6 +6,21 @@ installs with pip. It is built from this repository (python/) on top of
 7.4.1, so everything in 7.4.1 is in it (RELEASE_NOTES_7.4.txt, "NEW IN
 7.4.1"). The file formats and the gxStream and gxObjRepl wire formats
 are those of 7.4.
+
+NEW IN 7.5 BETA 3 PATCH 2 (tag 7.5-beta3-patch2, 11/21/2026)
+-------------------------------------------------------------
+- databases() (Reader, Primary, Copy) leaves out names starting with
+  "_": an application's own bookkeeping databases, such as OSA's _log
+  and _meta (asked for by OSA). databases(hidden=True) lists them too;
+  ids(), get() and the other reads work on them by name either way.
+- python\build_wheel_windows.bat: builds a Windows x64 wheel (Visual
+  Studio, CMake, CPython 3.12, OpenSSL 3), for anyone who needs one.
+  python/CMakeLists.txt now builds DataReel with OpenSSL on every
+  platform (DATAREEL_SSL OPENSSL; the Windows default is Schannel, and
+  replication uses PEM certificates), from OSA's Windows test build.
+  Not tested; no Windows wheel is distributed (python/docs/
+  building.md, "Windows").
+- Package version 7.5b3.post2; library version "7.5 beta3-patch2".
 
 NEW IN 7.5 BETA 3 PATCH 1 (tag 7.5-beta3-patch1, 11/21/2026)
 -------------------------------------------------------------
@@ -59,8 +74,8 @@ NEW IN 7.5 BETA 3
   a C++ production primary and a Python DEV copy that detaches and
   writes, the rejoin and the roles going back; a Python primary under a
   C++ new primary; the schema refusal, rebuild and swap from Python.
-- Package version 7.5b3 (patch 1: 7.5b3.post1); library version "7.5 beta3"
-  (patch 1: "7.5 beta3-patch1").
+- Package version 7.5b3 (patch 1: 7.5b3.post1, patch 2: 7.5b3.post2); library
+  version "7.5 beta3" (patch 1: "7.5 beta3-patch1", patch 2: "7.5 beta3-patch2").
 
 NEW IN 7.5 BETA 2
 -----------------
@@ -151,8 +166,5 @@ LIMITS OF BETA 3
   gxStream block requests, and the network clients Python's standard
   library has (HTTPS, SMTP, POP3, IMAP, FTPS).
 - The 64-bit database engine only.
-- Linux x86_64, CPython 3.12. Windows wheels are not built yet.
-
-PLANNED FOR LATER 7.5 BETAS
----------------------------
-- Windows wheels.
+- Linux x86_64, CPython 3.12 wheels. Windows: a build script only
+  (python\build_wheel_windows.bat), not tested or distributed.

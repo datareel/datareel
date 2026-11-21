@@ -1008,6 +1008,27 @@ class HandoffTest(Base):
                 r.find_range("k0", bytes(9))                       # longer than the key
             self.assertEqual(datareel.Reader(self.p, INDEX).index_spec, INDEX)
 
+    def test_databases_hide_underscore(self):
+        """beta 3 patch 2: databases() leaves out names starting with "_" (OSA's _log and _meta); hidden=True lists
+        them; reads by name work either way, on a Primary, a Reader and a Copy's folder"""
+        root = os.path.join(self.tmp, "hidden_dbs")
+        with datareel.Primary(root, settings=self.settings(), quiet=True) as p:
+            for db in ("events", "_log", "_meta"):
+                p.open_database(db)
+            with p.transaction():
+                p.put("events", p.new_id(), b"e1")
+                p.put("_log", 1, b"log entry")
+                p.put("_meta", 1, struct.pack("<Q", 7))
+            self.assertEqual(p.databases(), ["events"])
+            self.assertEqual(sorted(p.databases(hidden=True)), ["_log", "_meta", "events"])
+            self.assertEqual(p.get("_meta", 1), struct.pack("<Q", 7))
+        with datareel.Reader(root) as r:
+            self.assertEqual(r.databases(), ["events"])
+            self.assertEqual(sorted(r.databases(hidden=True)), ["_log", "_meta", "events"])
+            self.assertEqual(r.ids("_log"), [1])
+            self.assertEqual(r.get("_log", 1), b"log entry")
+            self.assertEqual(r.databases(False), ["events"])
+
     def test_index_check_by_name(self):
         """beta 3 fix: index_check() with index names only, or none, reads the spec from the node's .def files; a
         name the node does not have, or a bad spec, raises Error (it is not a bad index)"""

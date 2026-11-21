@@ -22,7 +22,7 @@
 <p>The <code>datareel</code> module reads and writes, from Python, the object databases that programs written with the DataReel C++ library keep: gxObjRepl nodes (a primary or its copy), vector index files (<code>.vix</code>) and block files (<code>.gxd</code>). Python code reads the same stores the production C++ programs write, with no C++ helper and no export file in between, and since 7.5 beta 2 it can also be the primary that writes a node and replicates it to a C++ copy.</p>
 <p>Contents: 1. Install. 2. Ideas you need. 3. A demo node. 4. Simple examples (1 to 4). 5. Detailed examples (5 to 9). 5a. Writing from Python (examples 10 and 11). 5b. Replication from Python (example 14). 5c. The database layer: block files, B-trees, journals and vector files (examples 12 and 13). 5d. gxStream and the object server. 6. Reference. 7. Errors and what to do. 8. Limits of beta 2.</p>
 <h2 id="1Install">1. Install</h2>
-<pre>python3.12 -m pip install --no-index datareel-7.5b3.post1-cp312-cp312-linux_x86_64.whl
+<pre>python3.12 -m pip install --no-index datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl
 python3.12 -c &quot;import datareel; print(datareel.__version__, datareel.library_version())&quot;</pre>
 <p>The wheel runs on RHEL 9 and RHEL 10 (x86_64, CPython 3.12) and needs only the system OpenSSL 3. To build it, see <code>python/docs/building.md</code>.</p>
 <h2 id="2IdeasYouNeed">2. Ideas you need</h2>
@@ -737,7 +737,7 @@ only 11/19: [20261119]</pre>
 <tr><td><code>get(db, id)</code></td><td>the object's bytes, or <code>None</code> when it is not live (removed or never there)</td></tr>
 <tr><td><code>is_live(db, id)</code></td><td><code>True</code> or <code>False</code></td></tr>
 <tr><td><code>ids(db, tombstones=False, after=0, limit=0)</code></td><td>the sorted ids of the live objects (or of the tombstones); <code>[]</code> for a database that is not there. Beta 2: with <code>after</code> or <code>limit</code>, one page: at most <code>limit</code> ids greater than <code>after</code>, read from the id index, so a large database is walked in short calls (each holds the node's read lock only for its page)</td></tr>
-<tr><td><code>databases()</code></td><td>the database names</td></tr>
+<tr><td><code>databases(hidden=False)</code></td><td>the database names. Since the beta 3 patch 2, names starting with <code>_</code> (an application's own bookkeeping databases, such as OSA's <code>_log</code> and <code>_meta</code>) are left out; <code>hidden=True</code> lists them too. <code>ids()</code>, <code>get()</code> and the other reads work on them by name either way</td></tr>
 <tr><td><code>find_key(index, key)</code></td><td>ids whose key in B-tree index <code>index</code> starts with the bytes <code>key</code> (at most 32)</td></tr>
 <tr><td><code>find_range(index, lo, hi=None, limit=0)</code></td><td>beta 2: ids whose key in B-tree index <code>index</code> is <code>&gt;= lo</code> and <code>&lt; hi</code> (bytes, compared byte by byte, zero padded to the key length; <code>hi=None</code>: no upper bound), in key order, at most <code>limit</code> (0: all). Store numbers big-endian in key fields when you want numeric ranges</td></tr>
 <tr><td><code>nearest(index, query, k=10)</code></td><td><code>[(id, distance)]</code>, closest first, from vector index <code>index</code></td></tr>
@@ -801,7 +801,7 @@ while True:
 <h3 id="DatareelBlockfilePath">datareel.BlockFile(path)</h3>
 <p>A <code>.gxd</code> file opened read only: <code>addresses()</code> (every object's address, in file order), <code>read(address)</code> (the whole block's bytes), <code>close()</code>.</p>
 <h3 id="Module">Module</h3>
-<p><code>datareel.__version__</code> (<code>&quot;7.5b3.post1&quot;</code>), <code>datareel.library_version()</code> (the C++ library, <code>&quot;7.5 beta3-patch1&quot;</code>), <code>datareel.engine_bits()</code> (64), <code>datareel.Error</code> (a <code>RuntimeError</code>).</p>
+<p><code>datareel.__version__</code> (<code>&quot;7.5b3.post2&quot;</code>), <code>datareel.library_version()</code> (the C++ library, <code>&quot;7.5 beta3-patch2&quot;</code>), <code>datareel.engine_bits()</code> (64), <code>datareel.Error</code> (a <code>RuntimeError</code>).</p>
 <p>Query vectors are lists or tuples of numbers, or any float32 buffer (<code>array(&#x27;f&#x27;)</code>, a numpy <code>float32</code> array). Calls that read files release the GIL, so threads read in parallel. A <code>Reader</code>, <code>VectorIndex</code> or <code>BlockFile</code> is not thread safe: give each thread its own.</p>
 <h2 id="7ErrorsAndWhatToDo">7. Errors and what to do</h2>
 <table>

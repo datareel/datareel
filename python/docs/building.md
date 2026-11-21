@@ -28,7 +28,7 @@ python3.12 -m pip wheel python/ --no-build-isolation --no-deps -w dist/
 ```
 
 `--no-build-isolation` uses the setuptools and wheel already installed, so pip downloads nothing. The
-result is `dist/datareel-7.5b3.post1-cp312-cp312-linux_x86_64.whl`.
+result is `dist/datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl`.
 
 What happens inside:
 
@@ -85,7 +85,7 @@ two test files with `DR_TEST_BIN` set to a folder that holds the C++ `objrepl` a
 
 ```
 python3.12 -m venv /tmp/drvenv
-/tmp/drvenv/bin/python -m pip install --no-index --no-deps dist/datareel-7.5b3.post1-cp312-cp312-linux_x86_64.whl
+/tmp/drvenv/bin/python -m pip install --no-index --no-deps dist/datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl
 cd /tmp
 DR_TEST_BIN=$BUILD/utils DR_TEST_CERTS_SH=$SRC/utils/objrepl/objrepl_certs.sh \
   /tmp/drvenv/bin/python -I $SRC/python/tests/test_datareel.py
@@ -94,11 +94,11 @@ DR_TEST_BIN=$BUILD/utils DR_TEST_CERTS_SH=$SRC/utils/objrepl/objrepl_certs.sh \
 ## Install
 
 ```
-python3.12 -m pip install --no-index datareel-7.5b3.post1-cp312-cp312-linux_x86_64.whl
+python3.12 -m pip install --no-index datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl
 python3.12 -c "import datareel; print(datareel.__version__, datareel.library_version())"
 ```
 
-The second line prints `7.5b3.post1 7.5 beta3-patch1`. Install into a virtual environment, or with `--user`, rather
+The second line prints `7.5b3.post2 7.5 beta3-patch2`. Install into a virtual environment, or with `--user`, rather
 than into the system Python.
 
 ## Problems
@@ -112,7 +112,28 @@ than into the system Python.
 | `ImportError: libssl.so.3` on the target | OpenSSL 3 missing there | RHEL 9 and 10 have it; older systems are not supported |
 | `datareel.Error: cannot lock .../node.jnl (gxObjReplReader needs the 64-bit engine)` | not seen with this wheel (it is always 64-bit) | report it with the full message |
 
-## Not in beta 2
+## Windows (a build script, not tested or distributed)
 
-Windows wheels and wheels for other Python versions are not built yet. The extension's source builds with
-any CPython 3.10 or later that has its headers, but only 3.12 is tested.
+DataReel ships and tests Linux wheels only. So that a Windows wheel can be built if one is ever needed,
+`python\build_wheel_windows.bat` builds one with Visual Studio (2022 or later, x64), CMake, CPython 3.12 x64 and
+OpenSSL 3.x for x64. It has **not been tested**, and no Windows wheel is published. From a "x64 Native Tools Command
+Prompt for VS", at the repository top:
+
+```
+py -3.12 -m pip install setuptools wheel
+python\build_wheel_windows.bat "C:\Program Files\OpenSSL-Win64"
+py -3.12 -m pip install --no-index dist\datareel-<version>-cp312-cp312-win_amd64.whl
+py -3.12 -c "import datareel; print(datareel.library_version())"
+```
+
+`python/CMakeLists.txt` builds DataReel with OpenSSL on every platform (`DATAREEL_SSL OPENSSL`): Windows builds
+of DataReel default to Schannel, but replication and gxStream use PEM certificates. The script sets
+`OPENSSL_ROOT_DIR` for CMake, runs the same `pip wheel` as on Linux, and adds OpenSSL's two DLLs
+(`libssl-3-x64.dll`, `libcrypto-3-x64.dll`) to the wheel next to `_datareel.pyd`. Before using such a wheel, run
+`python/tests/run_python_tests.sh`'s tests on Windows (they need the C++ test programs built with the 64-bit
+engine), and expect to fix what they find.
+
+## Other Python versions
+
+Wheels for other Python versions are not built. The extension's source builds with any CPython 3.10 or later
+that has its headers, but only 3.12 is tested.

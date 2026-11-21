@@ -191,22 +191,36 @@ static PyObject *Reader_ids(ReaderObject *self, PyObject *args, PyObject *kw)
   return id_list(ids);
 }
 
-static PyObject *Reader_databases(ReaderObject *self, PyObject *)
+// 7.5 beta 3 patch 2: databases() leaves out names starting with "_" (an application's own bookkeeping, such as
+// OSA's _log and _meta); databases(hidden=True) lists them too. Reads by name work either way
+static PyObject *db_names(const std::vector<std::string> &v, int hidden)
 {
+  PyObject *l = PyList_New(0);
+  if(!l) return 0;
+  for(auto &n : v) {
+    if(!hidden && !n.empty() && n[0] == '_') continue;
+    PyObject *s = PyUnicode_FromString(n.c_str());
+    if(!s || PyList_Append(l, s) < 0) { Py_XDECREF(s); Py_DECREF(l); return 0; }
+    Py_DECREF(s);
+  }
+  return l;
+}
+static int hidden_arg(PyObject *args, PyObject *kw, int &hidden)
+{
+  static const char *kwlist[] = {"hidden", 0};
+  hidden = 0;
+  return PyArg_ParseTupleAndKeywords(args, kw, "|p", (char **)kwlist, &hidden);
+}
+static PyObject *Reader_databases(ReaderObject *self, PyObject *args, PyObject *kw)
+{
+  int hidden; if(!hidden_arg(args, kw, hidden)) return 0;
   READER_OPEN(self);
   std::vector<std::string> v; int rc;
   Py_BEGIN_ALLOW_THREADS
   rc = self->r->Databases(v);
   Py_END_ALLOW_THREADS
   if(rc != 0) return raise(self->r->Error());
-  PyObject *l = PyList_New((Py_ssize_t)v.size());
-  if(!l) return 0;
-  for(size_t i = 0; i < v.size(); i++) {
-    PyObject *s = PyUnicode_FromString(v[i].c_str());
-    if(!s) { Py_DECREF(l); return 0; }
-    PyList_SET_ITEM(l, (Py_ssize_t)i, s);
-  }
-  return l;
+  return db_names(v, hidden);
 }
 
 static PyObject *Reader_find_key(ReaderObject *self, PyObject *args)
@@ -297,7 +311,7 @@ static PyMethodDef Reader_methods[] = {
   {"get", (PyCFunction)Reader_get, METH_VARARGS, "get(db, id) -> bytes, or None when the object is not live"},
   {"is_live", (PyCFunction)Reader_is_live, METH_VARARGS, "is_live(db, id) -> bool"},
   {"ids", (PyCFunction)(void (*)(void))Reader_ids, METH_VARARGS | METH_KEYWORDS, "ids(db, tombstones=False, after=0, limit=0) -> sorted ids; with AFTER or LIMIT one page (a short read)"},
-  {"databases", (PyCFunction)Reader_databases, METH_NOARGS, "databases() -> list of database names"},
+  {"databases", (PyCFunction)(void (*)(void))Reader_databases, METH_VARARGS | METH_KEYWORDS, "databases(hidden=False) -> database names; names starting with '_' (bookkeeping such as _log, _meta) only with hidden=True"},
   {"find_key", (PyCFunction)Reader_find_key, METH_VARARGS, "find_key(index, key: bytes) -> ids whose B-tree key starts with key"},
   {"find_range", (PyCFunction)(void (*)(void))Reader_find_range, METH_VARARGS | METH_KEYWORDS, "find_range(index, lo, hi=None, limit=0) -> ids with lo <= key < hi, in key order"},
   {"nearest", (PyCFunction)(void (*)(void))Reader_nearest, METH_VARARGS | METH_KEYWORDS, "nearest(index, query, k=10) -> [(id, distance)], closest first"},
@@ -791,14 +805,12 @@ static PyObject *Primary_ids(PrimaryObject *self, PyObject *args, PyObject *kw)
   }
   return id_list(ids);
 }
-static PyObject *Primary_databases(PrimaryObject *self, PyObject *)
+static PyObject *Primary_databases(PrimaryObject *self, PyObject *args, PyObject *kw)
 {
+  int hidden; if(!hidden_arg(args, kw, hidden)) return 0;
   PRIMARY_OPEN(self);
   std::vector<std::string> v = self->r->Databases();
-  PyObject *l = PyList_New((Py_ssize_t)v.size());
-  if(!l) return 0;
-  for(size_t i = 0; i < v.size(); i++) PyList_SET_ITEM(l, (Py_ssize_t)i, PyUnicode_FromString(v[i].c_str()));
-  return l;
+  return db_names(v, hidden);
 }
 static PyObject *Primary_find_key(PrimaryObject *self, PyObject *args)
 {
@@ -899,7 +911,7 @@ static PyMethodDef Primary_methods[] = {
   {"get", (PyCFunction)Primary_get, METH_VARARGS, "get(db, id) -> bytes, or None (also sees this transaction's changes)"},
   {"is_live", (PyCFunction)Primary_is_live, METH_VARARGS, "is_live(db, id) -> bool"},
   {"ids", (PyCFunction)(void (*)(void))Primary_ids, METH_VARARGS | METH_KEYWORDS, "ids(db, tombstones=False, after=0, limit=0) -> sorted ids (with AFTER or LIMIT: one page)"},
-  {"databases", (PyCFunction)Primary_databases, METH_NOARGS, "databases() -> names"},
+  {"databases", (PyCFunction)(void (*)(void))Primary_databases, METH_VARARGS | METH_KEYWORDS, "databases(hidden=False) -> names; names starting with '_' only with hidden=True"},
   {"find_key", (PyCFunction)Primary_find_key, METH_VARARGS, "find_key(index, key) -> ids"},
   {"nearest", (PyCFunction)(void (*)(void))Primary_nearest, METH_VARARGS | METH_KEYWORDS, "nearest(index, query, k=10) -> [(id, distance)]"},
   {"close", (PyCFunction)Primary_close, METH_NOARGS, "close(): checkpoint and close (an open transaction is rolled back)"},
@@ -922,7 +934,7 @@ static PyMethodDef Copy_methods[] = {
   {"get", (PyCFunction)Primary_get, METH_VARARGS, "get(db, id) -> bytes, or None"},
   {"is_live", (PyCFunction)Primary_is_live, METH_VARARGS, "is_live(db, id) -> bool"},
   {"ids", (PyCFunction)(void (*)(void))Primary_ids, METH_VARARGS | METH_KEYWORDS, "ids(db, tombstones=False, after=0, limit=0) -> sorted ids (with AFTER or LIMIT: one page)"},
-  {"databases", (PyCFunction)Primary_databases, METH_NOARGS, "databases() -> names"},
+  {"databases", (PyCFunction)(void (*)(void))Primary_databases, METH_VARARGS | METH_KEYWORDS, "databases(hidden=False) -> names; names starting with '_' only with hidden=True"},
   {"find_key", (PyCFunction)Primary_find_key, METH_VARARGS, "find_key(index, key) -> ids"},
   {"nearest", (PyCFunction)(void (*)(void))Primary_nearest, METH_VARARGS | METH_KEYWORDS, "nearest(index, query, k=10) -> [(id, distance)]"},
   {"address_of", (PyCFunction)Primary_address_of, METH_VARARGS, "address_of(db, id) -> this node's address (0 if none)"},

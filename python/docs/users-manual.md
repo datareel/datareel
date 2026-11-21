@@ -14,7 +14,7 @@ object server. 6. Reference. 7. Errors and what to do. 8. Limits of beta 2.
 ## 1. Install
 
 ```
-python3.12 -m pip install --no-index datareel-7.5b3.post1-cp312-cp312-linux_x86_64.whl
+python3.12 -m pip install --no-index datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl
 python3.12 -c "import datareel; print(datareel.__version__, datareel.library_version())"
 ```
 
@@ -968,7 +968,7 @@ a node or the spec is bad. A context manager (`with`), or call `close()`.
 | `get(db, id)` | the object's bytes, or `None` when it is not live (removed or never there) |
 | `is_live(db, id)` | `True` or `False` |
 | `ids(db, tombstones=False, after=0, limit=0)` | the sorted ids of the live objects (or of the tombstones); `[]` for a database that is not there. Beta 2: with `after` or `limit`, one page: at most `limit` ids greater than `after`, read from the id index, so a large database is walked in short calls (each holds the node's read lock only for its page) |
-| `databases()` | the database names |
+| `databases(hidden=False)` | the database names. Since the beta 3 patch 2, names starting with `_` (an application's own bookkeeping databases, such as OSA's `_log` and `_meta`) are left out; `hidden=True` lists them too. `ids()`, `get()` and the other reads work on them by name either way |
 | `find_key(index, key)` | ids whose key in B-tree index `index` starts with the bytes `key` (at most 32) |
 | `find_range(index, lo, hi=None, limit=0)` | beta 2: ids whose key in B-tree index `index` is `>= lo` and `< hi` (bytes, compared byte by byte, zero padded to the key length; `hi=None`: no upper bound), in key order, at most `limit` (0: all). Store numbers big-endian in key fields when you want numeric ranges |
 | `nearest(index, query, k=10)` | `[(id, distance)]`, closest first, from vector index `index` |
@@ -1067,7 +1067,7 @@ A `.gxd` file opened read only: `addresses()` (every object's address, in file o
 
 ### Module
 
-`datareel.__version__` (`"7.5b3.post1"`), `datareel.library_version()` (the C++ library, `"7.5 beta3-patch1"`),
+`datareel.__version__` (`"7.5b3.post2"`), `datareel.library_version()` (the C++ library, `"7.5 beta3-patch2"`),
 `datareel.engine_bits()` (64), `datareel.Error` (a `RuntimeError`).
 
 Query vectors are lists or tuples of numbers, or any float32 buffer (`array('f')`, a numpy `float32` array).

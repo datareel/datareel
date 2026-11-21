@@ -21,7 +21,7 @@
 <h1>DataReel 7 Release Notes (all 7.x releases)</h1>
 <p>Every DataReel 7.x release, newest first. Each release also has its own page and text file.</p>
 <div class="dr-toc-title">Releases</div>
-<p class="dr-toc"><a href="#v7_5">DataReel 7.5 Beta 3 Patch 1 Release Notes (the Python module), 11/21/2026</a><br>
+<p class="dr-toc"><a href="#v7_5">DataReel 7.5 Beta 3 Patch 2 Release Notes (the Python module), 11/21/2026</a><br>
 <a href="#v7_4">DataReel 7.4.1 Release Notes (vector extensions), 11/20/2026 (7.4: 11/17/2026)</a><br>
 <a href="#v7_3_3">DataReel 7.3.3 Beta Release Notes, 11/14/2026</a><br>
 <a href="#v7_3_2">DataReel 7.3.2 Beta Release Notes, 11/14/2026</a><br>
@@ -30,8 +30,14 @@
 <a href="#v7_2">DataReel 7.2 Beta Release Notes, 10/31/2026</a><br>
 <a href="#v7_1">DataReel 7.1 Beta Release Notes, 10/31/2026</a><br>
 <a href="#v7_0">DataReel 7.0 Beta Release Notes, 10/26/2026</a></p>
-<h2 id="v7_5">DataReel 7.5 Beta 3 Patch 1 Release Notes (the Python module), 11/21/2026</h2>
+<h2 id="v7_5">DataReel 7.5 Beta 3 Patch 2 Release Notes (the Python module), 11/21/2026</h2>
 <p>DataReel 7.5 adds the datareel Python module, a package that installs with pip. It is built from this repository (python/) on top of 7.4.1, so everything in 7.4.1 is in it (<a href="#v7_4">RELEASE_NOTES_7.4.txt</a>, &quot;NEW IN 7.4.1&quot;). The file formats and the gxStream and gxObjRepl wire formats are those of 7.4.</p>
+<h3 id="v7_5_NewIn75Beta3Patch2Tag75Beta3Patch211212026">NEW IN 7.5 BETA 3 PATCH 2 (tag 7.5-beta3-patch2, 11/21/2026)</h3>
+<ul>
+<li>databases() (Reader, Primary, Copy) leaves out names starting with &quot;_&quot;: an application&#x27;s own bookkeeping databases, such as OSA&#x27;s _log and _meta (asked for by OSA). databases(hidden=True) lists them too; ids(), get() and the other reads work on them by name either way.</li>
+<li>python\build_wheel_windows.bat: builds a Windows x64 wheel (Visual Studio, CMake, CPython 3.12, OpenSSL 3), for anyone who needs one. python/CMakeLists.txt now builds DataReel with OpenSSL on every platform (DATAREEL_SSL OPENSSL; the Windows default is Schannel, and replication uses PEM certificates), from OSA&#x27;s Windows test build. Not tested; no Windows wheel is distributed (python/docs/ building.md, &quot;Windows&quot;).</li>
+<li>Package version 7.5b3.post2; library version &quot;7.5 beta3-patch2&quot;.</li>
+</ul>
 <h3 id="v7_5_NewIn75Beta3Patch1Tag75Beta3Patch111212026">NEW IN 7.5 BETA 3 PATCH 1 (tag 7.5-beta3-patch1, 11/21/2026)</h3>
 <ul>
 <li>index_check / objrepl ixcheck take index names only (&quot;rt_day&quot;, looked up in the node&#x27;s .def files) or none (every index the node has). A spec that names no index of the node, or that cannot be read, is a usage error with its own message (IndexCheck returns 64; Python raises datareel.Error), no longer &quot;bad index&quot;, which looked like a damaged index (reported from OSA, 11/20).</li>
@@ -44,7 +50,7 @@
 <li>Status: last_rejoin (incremental or full send) and last_rejoin_objects on the primary. objrepl: --schema, --rejoin-max-share, --drain-secs (the generator&#x27;s final drain).</li>
 <li>Wire: new fields at the end of the hello and its reply, and frames F_RJ_SET, F_RJ_BATCH and F_RJ_END. 7.4.1 and 7.5 beta 2 nodes work with beta 3 nodes as before (tested both ways).</li>
 <li>Tests: utils/objrepl/test_objrepl_rejoin.sh (the emergency path and back, the schema refusal, rebuild and swap, another history, the share limit, --full, a node killed inside a batch and inside the end, and with OBJREPL_OLD_BIN a 7.4.1 node both ways), and Python tests: a C++ production primary and a Python DEV copy that detaches and writes, the rejoin and the roles going back; a Python primary under a C++ new primary; the schema refusal, rebuild and swap from Python.</li>
-<li>Package version 7.5b3 (patch 1: 7.5b3.post1); library version &quot;7.5 beta3&quot; (patch 1: &quot;7.5 beta3-patch1&quot;).</li>
+<li>Package version 7.5b3 (patch 1: 7.5b3.post1, patch 2: 7.5b3.post2); library version &quot;7.5 beta3&quot; (patch 1: &quot;7.5 beta3-patch1&quot;, patch 2: &quot;7.5 beta3-patch2&quot;).</li>
 </ul>
 <h3 id="v7_5_NewIn75Beta2">New in 7.5 beta 2</h3>
 <ul>
@@ -77,11 +83,7 @@
 <li>An incremental rejoin holds the new primary&#x27;s lock while it sends (capped by rejoin-max-share).</li>
 <li>Not wrapped: InfoHog and POD persistent objects, the 6.x-style gxStream block requests, and the network clients Python&#x27;s standard library has (HTTPS, SMTP, POP3, IMAP, FTPS).</li>
 <li>The 64-bit database engine only.</li>
-<li>Linux x86_64, CPython 3.12. Windows wheels are not built yet.</li>
-</ul>
-<h3 id="v7_5_PlannedForLater75Betas">Planned for later 7.5 betas</h3>
-<ul>
-<li>Windows wheels.</li>
+<li>Linux x86_64, CPython 3.12 wheels. Windows: a build script only (python\build_wheel_windows.bat), not tested or distributed.</li>
 </ul>
 <h2 id="v7_4">DataReel 7.4.1 Release Notes (vector extensions), 11/20/2026 (7.4: 11/17/2026)</h2>
 <p>DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the replication fixes and the security scan below (BETA 3). Beta 2:</p>

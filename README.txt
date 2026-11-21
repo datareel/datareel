@@ -345,7 +345,9 @@ RELEASE HISTORY
 ---------------
 RELEASE_NOTES.txt has the notes of every 7.x release in one file.
 
- 7.5   11/21/2026 Beta 3 Patch 1 (tag 7.5-beta3-patch1): index_check by
+ 7.5   11/21/2026 Beta 3 Patch 2 (tag 7.5-beta3-patch2): databases() hides
+                  names starting with "_" (OSA).
+       11/21/2026 Beta 3 Patch 1 (tag 7.5-beta3-patch1): index_check by
                   index name (OSA), Database static area (OCA).
        11/20/2026 Beta 3 (tag 7.5-beta3): the incremental rejoin and the schema check
                   (gxObjRepl, objrepl and Python: rejoin, swap).

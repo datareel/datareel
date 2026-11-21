@@ -36,7 +36,7 @@
 <h2 id="BuildTheWheel">Build the wheel</h2>
 <p>From the top of the DataReel source tree (branch <code>7.5-beta</code>):</p>
 <pre>python3.12 -m pip wheel python/ --no-build-isolation --no-deps -w dist/</pre>
-<p><code>--no-build-isolation</code> uses the setuptools and wheel already installed, so pip downloads nothing. The result is <code>dist/datareel-7.5b3.post1-cp312-cp312-linux_x86_64.whl</code>.</p>
+<p><code>--no-build-isolation</code> uses the setuptools and wheel already installed, so pip downloads nothing. The result is <code>dist/datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl</code>.</p>
 <p>What happens inside:</p>
 <p>1. <code>python/setup.py</code> runs CMake on <code>python/CMakeLists.txt</code> in pip's build folder. 2. That project adds the DataReel source as a subproject with the 64-bit database engine (<code>DATAREEL_64BIT_DATABASE=ON</code>), builds it as a static library with position independent code, and builds <code>_datareel</code> with CMake's <code>Python3_add_library</code>. 3. setup.py copies the extension into the wheel next to <code>datareel/__init__.py</code>.</p>
 <p>Settings:</p>
@@ -64,14 +64,14 @@ podman run --rm -v &quot;$PWD&quot;:/w:Z drpy-ubi9 bash -c \
 <p>Every test must pass. A test that fails once on a loaded machine is run again on its own before it is treated as a bug; never skip one.</p>
 <p>To test a wheel on another machine (RHEL 10, for example), install it in a virtual environment and run the two test files with <code>DR_TEST_BIN</code> set to a folder that holds the C++ <code>objrepl</code> and <code>test_gxobjrepl_reader</code> programs (a 64-bit engine build of DataReel) and <code>DR_TEST_CERTS_SH</code> set to <code>utils/objrepl/objrepl_certs.sh</code>:</p>
 <pre>python3.12 -m venv /tmp/drvenv
-/tmp/drvenv/bin/python -m pip install --no-index --no-deps dist/datareel-7.5b3.post1-cp312-cp312-linux_x86_64.whl
+/tmp/drvenv/bin/python -m pip install --no-index --no-deps dist/datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl
 cd /tmp
 DR_TEST_BIN=$BUILD/utils DR_TEST_CERTS_SH=$SRC/utils/objrepl/objrepl_certs.sh \
   /tmp/drvenv/bin/python -I $SRC/python/tests/test_datareel.py</pre>
 <h2 id="Install">Install</h2>
-<pre>python3.12 -m pip install --no-index datareel-7.5b3.post1-cp312-cp312-linux_x86_64.whl
+<pre>python3.12 -m pip install --no-index datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl
 python3.12 -c &quot;import datareel; print(datareel.__version__, datareel.library_version())&quot;</pre>
-<p>The second line prints <code>7.5b3.post1 7.5 beta3-patch1</code>. Install into a virtual environment, or with <code>--user</code>, rather than into the system Python.</p>
+<p>The second line prints <code>7.5b3.post2 7.5 beta3-patch2</code>. Install into a virtual environment, or with <code>--user</code>, rather than into the system Python.</p>
 <h2 id="Problems">Problems</h2>
 <table>
 <thead><tr><th>What you see</th><th>Why</th><th>What to do</th></tr></thead>
@@ -84,8 +84,15 @@ python3.12 -c &quot;import datareel; print(datareel.__version__, datareel.librar
 <tr><td><code>datareel.Error: cannot lock .../node.jnl (gxObjReplReader needs the 64-bit engine)</code></td><td>not seen with this wheel (it is always 64-bit)</td><td>report it with the full message</td></tr>
 </tbody>
 </table>
-<h2 id="NotInBeta2">Not in beta 2</h2>
-<p>Windows wheels and wheels for other Python versions are not built yet. The extension's source builds with any CPython 3.10 or later that has its headers, but only 3.12 is tested.</p>
+<h2 id="WindowsABuildScriptNotTestedOrDistributed">Windows (a build script, not tested or distributed)</h2>
+<p>DataReel ships and tests Linux wheels only. So that a Windows wheel can be built if one is ever needed, <code>python\build_wheel_windows.bat</code> builds one with Visual Studio (2022 or later, x64), CMake, CPython 3.12 x64 and OpenSSL 3.x for x64. It has <strong>not been tested</strong>, and no Windows wheel is published. From a "x64 Native Tools Command Prompt for VS", at the repository top:</p>
+<pre>py -3.12 -m pip install setuptools wheel
+python\build_wheel_windows.bat &quot;C:\Program Files\OpenSSL-Win64&quot;
+py -3.12 -m pip install --no-index dist\datareel-&lt;version&gt;-cp312-cp312-win_amd64.whl
+py -3.12 -c &quot;import datareel; print(datareel.library_version())&quot;</pre>
+<p><code>python/CMakeLists.txt</code> builds DataReel with OpenSSL on every platform (<code>DATAREEL_SSL OPENSSL</code>): Windows builds of DataReel default to Schannel, but replication and gxStream use PEM certificates. The script sets <code>OPENSSL_ROOT_DIR</code> for CMake, runs the same <code>pip wheel</code> as on Linux, and adds OpenSSL's two DLLs (<code>libssl-3-x64.dll</code>, <code>libcrypto-3-x64.dll</code>) to the wheel next to <code>_datareel.pyd</code>. Before using such a wheel, run <code>python/tests/run_python_tests.sh</code>'s tests on Windows (they need the C++ test programs built with the 64-bit engine), and expect to fix what they find.</p>
+<h2 id="OtherPythonVersions">Other Python versions</h2>
+<p>Wheels for other Python versions are not built. The extension's source builds with any CPython 3.10 or later that has its headers, but only 3.12 is tested.</p>
 </main>
 <footer class="dr-footer">DataReel 7.5 beta 3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
