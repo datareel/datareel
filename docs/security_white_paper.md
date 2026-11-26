@@ -117,4 +117,4 @@ Source: `include/gxdbase.h`, `include/gxdjrnl.h`, `src/gxdjrnl.cpp`, `include/gx
 
 ## 12. Reporting a security issue
 
-Report security issues privately through the [contact page](https://datareel.com/contact.php), not in public issue trackers. Projects maintained by DataReel Software Development report DataReel issues through DataReel's internal handoff process. Fixes go into the next release: 7.4.x for DataReel 7, and 6.4.x (bug fixes and security updates only) for the legacy DataReel 6 release.
+Report security issues privately through the [contact page](https://datareel.com/contact.php), not in public issue trackers. Projects maintained by DataReel Software Development report DataReel issues through DataReel's internal handoff process. Fixes go into the next release: 7.5.x for DataReel 7, and 6.4.x (bug fixes and security updates only) for the legacy DataReel 6 release.

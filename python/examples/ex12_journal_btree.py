@@ -1,4 +1,4 @@
-"""Example 12 (detailed, 7.5 beta 2): a block file and a B-tree index written together in journal transactions.
+"""Example 12 (detailed): a block file and a B-tree index written together in journal transactions.
 
 The C++ pattern of a gxDatabase data file with a gxBtree index, from Python: each record is a block in the data
 file, its key goes in the B-tree with the block's address, and a gxdJournal makes both changes one transaction.

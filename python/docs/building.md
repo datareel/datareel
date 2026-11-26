@@ -1,4 +1,4 @@
-# Building the datareel Python package (DataReel 7.5 beta 3)
+# Building the datareel Python package (DataReel 7.5)
 
 This guide builds the `datareel` wheel from the DataReel source, tests it, and installs it. The package
 is one C++ extension (`datareel._datareel`) plus a small Python wrapper. The DataReel C++ library is built
@@ -21,14 +21,14 @@ CPython C API. numpy is optional; the examples use it when it is installed.
 
 ## Build the wheel
 
-From the top of the DataReel source tree (branch `7.5-beta`):
+From the top of the DataReel source tree (tag `7.5`):
 
 ```
 python3.12 -m pip wheel python/ --no-build-isolation --no-deps -w dist/
 ```
 
 `--no-build-isolation` uses the setuptools and wheel already installed, so pip downloads nothing. The
-result is `dist/datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl`.
+result is `dist/datareel-7.5-cp312-cp312-linux_x86_64.whl`.
 
 What happens inside:
 
@@ -85,7 +85,7 @@ two test files with `DR_TEST_BIN` set to a folder that holds the C++ `objrepl` a
 
 ```
 python3.12 -m venv /tmp/drvenv
-/tmp/drvenv/bin/python -m pip install --no-index --no-deps dist/datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl
+/tmp/drvenv/bin/python -m pip install --no-index --no-deps dist/datareel-7.5-cp312-cp312-linux_x86_64.whl
 cd /tmp
 DR_TEST_BIN=$BUILD/utils DR_TEST_CERTS_SH=$SRC/utils/objrepl/objrepl_certs.sh \
   /tmp/drvenv/bin/python -I $SRC/python/tests/test_datareel.py
@@ -94,11 +94,11 @@ DR_TEST_BIN=$BUILD/utils DR_TEST_CERTS_SH=$SRC/utils/objrepl/objrepl_certs.sh \
 ## Install
 
 ```
-python3.12 -m pip install --no-index datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl
+python3.12 -m pip install --no-index datareel-7.5-cp312-cp312-linux_x86_64.whl
 python3.12 -c "import datareel; print(datareel.__version__, datareel.library_version())"
 ```
 
-The second line prints `7.5b3.post2 7.5 beta3-patch2`. Install into a virtual environment, or with `--user`, rather
+The second line prints `7.5 7.5`. Install into a virtual environment, or with `--user`, rather
 than into the system Python.
 
 ## Problems

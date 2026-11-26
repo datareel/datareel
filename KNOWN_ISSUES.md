@@ -1,7 +1,7 @@
-# DataReel 7.4 known issues
+# DataReel 7.5 known issues
 
 This file lists the known limits, untested areas and flaky tests of the
-7.4 line. Fixes for 7.4 go on the 7.4.1 branch. Each entry says what
+7.4 and 7.5 line. 7.4.1 gets no more fixes: fixes go into 7.5. Each entry says what
 happens and what to do about it today.
 
 ## Limits
@@ -19,7 +19,7 @@ happens and what to do about it today.
   the whole index often. On Windows the loaded index file stays open
   until `ReleaseVectors()`, which can make a copy's full send fail
   while it is held.
-- **An incremental rejoin holds the new primary's lock** (7.5 beta 3) while it sends the changed
+- **An incremental rejoin holds the new primary's lock** (7.5) while it sends the changed
   objects, so the primary's writers wait for it. The change set is capped by `rejoin-max-share`
   (default 50% of the objects); past that a full send, which does not hold the lock, goes instead.
 - **Commit size.** One gxObjRepl commit holds at most 60 MB of changes,

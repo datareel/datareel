@@ -1,11 +1,11 @@
-# datareel for Python (DataReel 7.5 beta 3)
+# datareel for Python (DataReel 7.5)
 
 Read and write the object databases of the DataReel C++ library from Python, without a C++ helper
-or an export file. Beta 2 adds writes: a Python program can be a gxObjRepl primary that replicates to a
+or an export file. A Python program can also write: it can be a gxObjRepl primary that replicates to a
 C++ copy.
 
 ```
-pip install datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl
+pip install datareel-7.5-cp312-cp312-linux_x86_64.whl
 ```
 
 ```python
@@ -43,7 +43,7 @@ with datareel.BlockFile("/data/old_day.gxd") as f:
 
 ## What it does
 
-- `Primary(root, config=None, settings=None, quiet=False)` (beta 2) opens a node as a gxObjRepl primary in
+- `Primary(root, config=None, settings=None, quiet=False)` opens a node as a gxObjRepl primary in
   this process: `open_database`, `begin`/`commit`/`rollback` (or `with p.transaction():`), `new_id`,
   `put`, `remove`, `purge`, `pump`, `drain`, and the reads below. Commits are durable when `commit()`
   returns; `pump()`/`drain()` send them to the copy.
@@ -58,13 +58,13 @@ with datareel.BlockFile("/data/old_day.gxd") as f:
   exact=False, tags=None)` returns `[(id, distance, tags)]`; `get(id)`, `dim`, `count`, `spec`,
   `metric`.
 - `BlockFile(path)` opens a `.gxd` file read only: `addresses()` and `read(address)`.
-- `Copy(root, ...)` (beta 2) runs a copy node (`serve()` in a thread, `stop()`); `takeover()`, `rejoin()`,
+- `Copy(root, ...)` runs a copy node (`serve()` in a thread, `stop()`); `takeover()`, `rejoin()`,
   `check()`, `clear_alarm()`, `index_check()`, `status()` and `digest()` are the `objrepl` tool's node
   commands.
-- `Database`, `BTree`, `Journal` (beta 2): gxDatabase block files, gxBtree index files of byte keys,
+- `Database`, `BTree`, `Journal`: gxDatabase block files, gxBtree index files of byte keys,
   gxdJournal transactions over them; `create_vector_index()`, `VectorIndex(path, write=True)` and
   `merge_vector_indexes()` write vector files.
-- `Stream`, `StreamServer`, `ObjectClient` (beta 2): gxStream over TLS on port 2073, and the object
+- `Stream`, `StreamServer`, `ObjectClient`: gxStream over TLS on port 2073, and the object
   service of a DataReel object server (objects and vector searches).
 - A query vector can be a list of numbers or any float32 buffer (`array('f')`, a numpy float32 array).
 - Calls that read files release the GIL. Use one object per thread.
@@ -73,12 +73,14 @@ Objects come back as the bytes the C++ program stored. Decode them with `struct`
 program's record layout. In a gxObjRepl node, `Reader.get()` returns the object's own bytes;
 `BlockFile.read()` returns the whole block, with gxObjRepl's 40-byte record head in front.
 
-## Limits (beta 2)
+## Limits
 
-- Python is a primary only: a copy, takeover and rejoin run with the C++ `objrepl` tool.
+- Not wrapped: InfoHog and POD persistent objects, the 6.x-style gxStream block requests, and the
+  network clients Python's standard library has (HTTPS, SMTP, POP3, IMAP, FTPS).
 - The 64-bit database engine only (the engine nodes and OSA use).
 - Linux x86_64 and CPython 3.12 wheels, built on RHEL 9 (UBI 9) and tested on RHEL 9 and 10. The
-  wheel links the system OpenSSL 3 (`libssl.so.3`); the DataReel library is inside the extension.
+  wheel links the system OpenSSL 3 (`libssl.so.3`); the DataReel library is inside the extension. Windows: a build
+  script only (`python\build_wheel_windows.bat`), not tested; no Windows wheel is distributed.
 - `VectorIndex` and `BlockFile` are for files no process is writing. For a running node use `Reader`.
 
 ## Building

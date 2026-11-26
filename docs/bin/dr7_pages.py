@@ -11,7 +11,7 @@ text here and run the script again rather than editing the .htm files.
 import glob, html, os, re
 
 DOCS = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
-VERSION = '7.5 beta 3'
+VERSION = '7.5'
 
 HEAD = '''<!doctype html>
 <!-- ******************************* -->
@@ -312,7 +312,7 @@ c.Serve();                                   // until Stop() (signal-safe) or Cl
 <P>The lock is one recursive mutex per node. Pump() gives it up for its network I/O and readers run in between; Serve() takes it per frame it applies. A test build (<CODE>-DGXREPL_TEST_HOOKS=ON</CODE>) with <CODE>OBJREPL_TEST_HOLD_MS=N</CODE> set prints every hold of the lock of N ms or more on stderr, by phase ("objrepl hold: PHASE MS ms"), so a wait a reader sees can be traced to what held the lock. Release builds have no such output.</P>
 """),
  ('Tool', 'The objrepl Tool and Checks', """
-<P>The <CODE>objrepl</CODE> tool (utils/objrepl/objrepl.cpp) runs a node from the command line and from <CODE>ROOT/objrepl.conf</CODE>: <CODE>objrepl copy ROOT</CODE>, <CODE>objrepl digest|ixcheck|status|check|clear-alarm|takeover|rejoin ROOT</CODE>, and (7.5 beta 3) <CODE>objrepl swap OLD NEW</CODE>. <CODE>objrepl check</CODE> prints one line, OK / WARN / FAIL (exit 0 / 1 / 2), for cron or a monitor. <CODE>utils/objrepl/objrepl_certs.sh</CODE> makes a private CA and the two node certificates.</P>
+<P>The <CODE>objrepl</CODE> tool (utils/objrepl/objrepl.cpp) runs a node from the command line and from <CODE>ROOT/objrepl.conf</CODE>: <CODE>objrepl copy ROOT</CODE>, <CODE>objrepl digest|ixcheck|status|check|clear-alarm|takeover|rejoin ROOT</CODE>, and (7.5) <CODE>objrepl swap OLD NEW</CODE>. <CODE>objrepl check</CODE> prints one line, OK / WARN / FAIL (exit 0 / 1 / 2), for cron or a monitor. <CODE>utils/objrepl/objrepl_certs.sh</CODE> makes a private CA and the two node certificates.</P>
 """)],
  functions=[
  ('Config', 'Configuration', [
@@ -1839,12 +1839,12 @@ objrepl clear-alarm ROOT
 objrepl status ROOT
 objrepl engine                     the database engine (exit 0 for 64-bit, 1 for 32-bit)
 objrepl takeover ROOT              a copy becomes primary: epoch + 1
-objrepl rejoin ROOT [--full]       a former primary becomes a copy (7.5 beta 3: an incremental
+objrepl rejoin ROOT [--full]       a former primary becomes a copy (7.5: an incremental
                                    rejoin when it can be; --full: a full send)
-objrepl swap OLD NEW [--index SPEC]  7.5 beta 3: a rebuilt NEW in place of OLD (OLD is kept)
+objrepl swap OLD NEW [--index SPEC]  7.5: a rebuilt NEW in place of OLD (OLD is kept)
 Common: --name N --peer-name N --links SPEC --index SPEC --max-lag N --max-behind S
         --min-cert-days N --idle-timeout S --ack-timeout S --config FILE
-        7.5 beta 3: --schema TEXT --rejoin-max-share PERCENT --drain-secs S (the generator's drain)
+        7.5: --schema TEXT --rejoin-max-share PERCENT --drain-secs S (the generator's drain)
 ''') + '''
 <P>A node is a folder (ROOT). Any option may come from ROOT/objrepl.conf (or --config FILE), one "key value" line each, the option without "--"; the command line wins. The keys are listed in the <A HREF="../replication_admin_guide.html">administrator's guide</A>, section 2.3. <CODE>objrepl primary</CODE> is a test data generator: it writes test commits (adds, updates, removes, linked objects), sends them to the copy and waits up to 120 s (--drain-secs) for the copy to have them all, exit 0 (drained), 2 (not drained), 3 (refused), 4 (ROOT is a copy) or 64 (configuration or certificates). Programs write through the <A HREF="../classes/database/gxobjrepl.htm">gxObjRepl</A> API instead. <CODE>objrepl copy</CODE> runs until TERM or INT (Ctrl+C or Ctrl+Break on Windows), or until ROOT/objrepl.stop appears.</P>
 '''),

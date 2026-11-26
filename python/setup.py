@@ -1,4 +1,4 @@
-# DataReel 7.5 beta: builds the datareel Python package. The _datareel extension is built with CMake
+# DataReel 7.5: builds the datareel Python package. The _datareel extension is built with CMake
 # (python/CMakeLists.txt), which builds the DataReel C++ library from the repository top (or DATAREEL_SOURCE)
 # and links it in statically. Needs a C++17 compiler, CMake 3.16+, the Python headers and the OpenSSL headers.
 #

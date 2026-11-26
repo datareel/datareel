@@ -21,7 +21,7 @@
 <h1>DataReel 7 Release Notes (all 7.x releases)</h1>
 <p>Every DataReel 7.x release, newest first. Each release also has its own page and text file.</p>
 <div class="dr-toc-title">Releases</div>
-<p class="dr-toc"><a href="#v7_5">DataReel 7.5 Beta 3 Patch 2 Release Notes (the Python module), 11/21/2026</a><br>
+<p class="dr-toc"><a href="#v7_5">DataReel 7.5 Release Notes (the Python module), 11/28/2026</a><br>
 <a href="#v7_4">DataReel 7.4.1 Release Notes (vector extensions), 11/20/2026 (7.4: 11/17/2026)</a><br>
 <a href="#v7_3_3">DataReel 7.3.3 Beta Release Notes, 11/14/2026</a><br>
 <a href="#v7_3_2">DataReel 7.3.2 Beta Release Notes, 11/14/2026</a><br>
@@ -30,8 +30,23 @@
 <a href="#v7_2">DataReel 7.2 Beta Release Notes, 10/31/2026</a><br>
 <a href="#v7_1">DataReel 7.1 Beta Release Notes, 10/31/2026</a><br>
 <a href="#v7_0">DataReel 7.0 Beta Release Notes, 10/26/2026</a></p>
-<h2 id="v7_5">DataReel 7.5 Beta 3 Patch 2 Release Notes (the Python module), 11/21/2026</h2>
-<p>DataReel 7.5 adds the datareel Python module, a package that installs with pip. It is built from this repository (python/) on top of 7.4.1, so everything in 7.4.1 is in it (<a href="#v7_4">RELEASE_NOTES_7.4.txt</a>, &quot;NEW IN 7.4.1&quot;). The file formats and the gxStream and gxObjRepl wire formats are those of 7.4.</p>
+<h2 id="v7_5">DataReel 7.5 Release Notes (the Python module), 11/28/2026</h2>
+<p>DataReel 7.5 adds the datareel Python module, a package that installs with pip. It is built from this repository (python/) on top of 7.4.1, so everything in 7.4.1 is in it (<a href="#v7_4">RELEASE_NOTES_7.4.txt</a>, &quot;NEW IN 7.4.1&quot;). The file formats are those of 7.4; the gxStream and gxObjRepl wire formats are those of 7.4 with new fields at the end of the replication hello (7.4.1 and 7.5 nodes work together).</p>
+<p>DataReel 7.5 is the main, fully supported release. 7.4.1 is the previous 7.x release; 6.4.2 is the legacy release (bug fixes and security updates only).</p>
+<h3 id="v7_5_NewIn75Tag7511282026">NEW IN 7.5 (tag 7.5, 11/28/2026)</h3>
+<p>7.5 is 7.5 beta 3 patch 2 as tested by OSA and OCA, released. The sections below list what each beta added. In short:</p>
+<ul>
+<li>The datareel Python module (pip package datareel 7.5, wheel datareel-7.5-cp312-cp312-linux_x86_64.whl for Linux x86_64 and CPython 3.12, RHEL 9 and 10): read gxObjRepl nodes from another process (Reader), write them as a gxObjRepl primary (Primary), run a copy (Copy), and take over, rejoin, check and swap nodes, all working with C++ nodes; the database layer (Database, BTree, Journal); vector index files (VectorIndex, create_vector_index(), merge_vector_indexes()); gxStream over TLS (Stream, StreamServer) and the object service client (ObjectClient).</li>
+<li>gxObjRepl (C++ and Python): the incremental rejoin (only the objects either node changed after a split are sent), the schema check (refused rejoin between nodes with different record layouts, then rebuild and objrepl swap), index_check by index name, and the objrepl options --schema, --rejoin-max-share and --drain-secs.</li>
+<li>The user&#x27;s manual (<a href="python_users_manual.html">python/docs/users-manual.md</a>) with 14 examples, the build guide (<a href="python_building.html">python/docs/building.md</a>), python/AGENTS.md and the AI-assisted guide (docs/ai/python.md).</li>
+<li>Package version 7.5; library version &quot;7.5&quot;.</li>
+</ul>
+<h3 id="v7_5_UpgradingFrom741">Upgrading from 7.4.1</h3>
+<ul>
+<li>C++ programs build against 7.5 unchanged. Existing database, index, vector and journal files open as they are.</li>
+<li>Replication: upgrade the copy first, then switch, then upgrade the old primary (replication administrator&#x27;s guide, section 5). 7.4.1 and 7.5 nodes replicate with each other in both directions. The incremental rejoin needs 7.5 on both nodes: with an older primary a rejoin is a full send, as before, and a node that took over with an older build makes its first rejoin after the upgrade a full send.</li>
+<li>Python programs written against a 7.5 beta: install the 7.5 wheel over the beta. Since beta 3 patch 2, databases() leaves out names starting with &quot;_&quot; (databases(hidden=True) lists them).</li>
+</ul>
 <h3 id="v7_5_NewIn75Beta3Patch2Tag75Beta3Patch211212026">NEW IN 7.5 BETA 3 PATCH 2 (tag 7.5-beta3-patch2, 11/21/2026)</h3>
 <ul>
 <li>databases() (Reader, Primary, Copy) leaves out names starting with &quot;_&quot;: an application&#x27;s own bookkeeping databases, such as OSA&#x27;s _log and _meta (asked for by OSA). databases(hidden=True) lists them too; ids(), get() and the other reads work on them by name either way.</li>
@@ -78,7 +93,7 @@
 <li>The extension uses the plain CPython C API: no third-party packages to build or to run. setup.py builds it with CMake (python/ CMakeLists.txt), with the DataReel library inside it (static, the 64-bit engine); it links the system OpenSSL 3.</li>
 <li>Tests: python/tests/run_python_tests.sh builds the wheel and the C++ test programs, installs the wheel in a throwaway virtual environment and runs python/tests/test_datareel.py: a node written by the C++ library read through every call, readers in Python threads while a C++ primary writes 2000 commits and while a copy applies 800, the node&#x27;s vector index file and a block file. Built on RHEL 9 (UBI 9, CPython 3.12); the same wheel passes on RHEL 10.</li>
 </ul>
-<h3 id="v7_5_LimitsOfBeta3">Limits of beta 3</h3>
+<h3 id="v7_5_LimitsOf75">Limits of 7.5</h3>
 <ul>
 <li>An incremental rejoin holds the new primary&#x27;s lock while it sends (capped by rejoin-max-share).</li>
 <li>Not wrapped: InfoHog and POD persistent objects, the 6.x-style gxStream block requests, and the network clients Python&#x27;s standard library has (HTTPS, SMTP, POP3, IMAP, FTPS).</li>
@@ -86,6 +101,7 @@
 <li>Linux x86_64, CPython 3.12 wheels. Windows: a build script only (python\build_wheel_windows.bat), not tested or distributed.</li>
 </ul>
 <h2 id="v7_4">DataReel 7.4.1 Release Notes (vector extensions), 11/20/2026 (7.4: 11/17/2026)</h2>
+<p>DataReel 7.4.1 is the last 7.4 release. DataReel 7.5 (11/28/2026, the Python module: <a href="#v7_5">RELEASE_NOTES_7.5.txt</a>) is now the main release, and all 7.x fixes go into 7.5.</p>
 <p>DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the replication fixes and the security scan below (BETA 3). Beta 2:</p>
 <p>DataReel 7.4 beta 2 (tag 7.4-beta2, 11/14/2026): the OODB with AI extensions. It follows the 11/12/2026 7.4-beta preview (tag 7.4-beta, 171a3f2: vector phases A and B) and adds vector phases C and D (below), the gxrepl fixes F4, F6 and F7, the DataReel 7.3.2 replication fixes and the later ones of rel-7.3.2-next3 (the seal per folder, a stream naming new files verified again, promote-check reading each unit under a shared apply lock, GXREPL_TORN_LOCK_WAIT 15 s), and the gxrepl per-object derived apply (derived_apply = incremental, with object notes and index stamps; off by default: rebuild stays the default and the ship log is unchanged while object notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md). derived_apply = incremental is not yet for production use; fixes land in the next 7.4 build. The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
 <h3 id="v7_4_NewIn74111202026">New in 7.4.1 (11/20/2026)</h3>
@@ -468,7 +484,7 @@
 <li>The Python module as a package that installs with pip.</li>
 </ul>
 <h2 id="v7_3_3">DataReel 7.3.3 Beta Release Notes, 11/14/2026</h2>
-<p>DataReel 7.3.3 is a beta bug fix release of 7.3.2. DataReel 7.4.1 (11/20/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
+<p>DataReel 7.3.3 is a beta bug fix release of 7.3.2. DataReel 7.5 (11/28/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
 <p>7.3.3 fixes more database replication (gxrepl, utils/gxrepl) problems found while it ran in production between two nodes. Database file formats and replication protocol 3 are unchanged, and the API changes are additions. A copy&#x27;s seal gains a field that a 7.3.2 gxrepl reads and ignores. Run the same version on both nodes, and rebuild programs against 7.3.3.</p>
 <p>The library version is 7.3.3 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.3.3); the soname stays libdatareel.so.7.</p>
 <h3 id="v7_3_3_ReplicationFixes">Replication fixes</h3>
@@ -536,7 +552,7 @@
 </ul>
 <h2 id="v7_3_2">DataReel 7.3.2 Beta Release Notes, 11/14/2026</h2>
 <p>DataReel 7.3.3 fixes more database replication (gxrepl) problems found in production; see <a href="#v7_3_3">RELEASE_NOTES_7.3.3.txt</a>.</p>
-<p>DataReel 7.3.2 is a beta bug fix release of 7.3.1. DataReel 7.4.1 (11/20/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
+<p>DataReel 7.3.2 is a beta bug fix release of 7.3.1. DataReel 7.5 (11/28/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
 <p>7.3.2 fixes database replication (gxrepl, utils/gxrepl) problems found while it ran in production between two nodes. Database file formats are unchanged, replication protocol 3 is unchanged (a 7.3.1 node and a 7.3.2 node talk to each other, but run the same version on both), and the API changes are additions. Rebuild programs against 7.3.2.</p>
 <p>The library version is 7.3.2 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.3.2); the soname stays libdatareel.so.7.</p>
 <h3 id="v7_3_2_ReplicationFixes">Replication fixes</h3>
@@ -609,7 +625,7 @@
 </ul>
 <h2 id="v7_3_1">DataReel 7.3.1 Beta Release Notes, 11/01/2026</h2>
 <p>DataReel 7.3.2 fixes database replication (gxrepl) problems found in production; see <a href="#v7_3_2">RELEASE_NOTES_7.3.2.txt</a>.</p>
-<p>DataReel 7.3.1 is a beta bug fix release of 7.3. DataReel 7.4.1 (11/20/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
+<p>DataReel 7.3.1 is a beta bug fix release of 7.3. DataReel 7.5 (11/28/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
 <p>7.3.1 fixes the problems found by a security scan of the object database code (gxDatabase, gxBtree, BtreeCache, gxdJournal, the page cache and the file I/O layer) and by a full sweep of the rest of the library (TLS, the gxStream database protocol, HTTP, SMTP, POP3, FTPS, telnet, RS-232, ping, config, log file, thread pool and the repair tools), and adds mutual TLS to gxStream database servers. The file formats are unchanged and the API changes are additions. Rebuild programs against 7.3.1.</p>
 <p>The library version is 7.3.1 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.3.1); the soname stays libdatareel.so.7.</p>
 <h3 id="v7_3_1_Fixes">Fixes</h3>
@@ -800,7 +816,7 @@
 </ul>
 <h2 id="v7_3">DataReel 7.3 Beta Release Notes, 10/31/2026</h2>
 <p>DataReel 7.3.1 fixes the problems a security scan found; see <a href="#v7_3_1">RELEASE_NOTES_7.3.1.txt</a>.</p>
-<p>DataReel 7.3 is a beta release. DataReel 7.4.1 (11/20/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
+<p>DataReel 7.3 is a beta release. DataReel 7.5 (11/28/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
 <p>7.3 makes reads and key-order scans faster. Everything in 7.2 (the journal, the page cache, positional I/O, the hashed B-tree cache) is unchanged; see <a href="#v7_2">RELEASE_NOTES_7.2.txt</a>.</p>
 <p>The library version is 7.3 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.3). The shared library soname (libdatareel.so.7) and the database file format are unchanged, and find_package(DataReel 7) finds 7.3. Programs built against 7.2 must be rebuilt (gxdPageCache and gxBtree have new members).</p>
 <h3 id="v7_3_WhatChanged">What changed</h3>
@@ -847,7 +863,7 @@
 </ul>
 <h2 id="v7_2">DataReel 7.2 Beta Release Notes, 10/31/2026</h2>
 <p>DataReel 7.3 followed on the same day with memory-mapped reads and faster scans; see <a href="#v7_3">RELEASE_NOTES_7.3.txt</a>.</p>
-<p>DataReel 7.2 is a beta release. DataReel 7.4.1 (11/20/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
+<p>DataReel 7.2 is a beta release. DataReel 7.5 (11/28/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
 <p>The library version is 7.2 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.2). The shared library soname (libdatareel.so.7) and the database file format version are unchanged, and find_package(DataReel 7) finds 7.2. Programs built against 7.1 must be rebuilt (see COMPATIBILITY).</p>
 <p>7.2 makes the object database fast and crash safe without changing the database or index file formats. Files written by 7.2 open in 7.1, 7.0 and 6.2, and the other way around.</p>
 <h3 id="v7_2_WhatChanged">What changed</h3>
@@ -953,7 +969,7 @@
 </ul>
 <h2 id="v7_1">DataReel 7.1 Beta Release Notes, 10/31/2026</h2>
 <p>DataReel 7.2 followed on the same day with the journal, the page cache and faster I/O; see <a href="#v7_2">RELEASE_NOTES_7.2.txt</a>.</p>
-<p>DataReel 7.1 is a beta release. DataReel 7.4.1 (11/20/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
+<p>DataReel 7.1 is a beta release. DataReel 7.5 (11/28/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
 <p>DataReel is an object database (OODB) and cross platform communications toolkit for C++. 7.1 removes the gxRDBMS relational tables so the library is made of its two parts: the object database (gxDatabase, gxBtree, POD, InfoHog and the database utilities) and TLS networking. Everything else is unchanged from 7.0; see <a href="#v7_0">RELEASE_NOTES_7.0.txt</a> for the move from 6.x to DataReel 7.</p>
 <p>The library version is 7.1 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.1). The shared library soname (libdatareel.so.7) and the database file format version (gxDatabaseVersionNumber 4630) are unchanged, and find_package(DataReel 7) finds 7.1.</p>
 <h3 id="v7_1_RemovedAndWhatToUseInstead">Removed, and what to use instead</h3>
@@ -972,7 +988,7 @@
 <li>Open Stock Analysis and Open Crypto Analysis built against 7.1 with no warnings; the OSA read_trend_forecast parity test gave identical output to the 7.0 build in all 51 cases.</li>
 </ul>
 <h2 id="v7_0">DataReel 7.0 Beta Release Notes, 10/26/2026</h2>
-<p>DataReel 7.0 is a beta release. DataReel 7.4.1 (11/20/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
+<p>DataReel 7.0 is a beta release. DataReel 7.5 (11/28/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
 <p>DataReel 7.1 removed the gxRDBMS relational tables; see <a href="#v7_1">RELEASE_NOTES_7.1.txt</a>.</p>
 <p>DataReel 7.0 is a modernization release. The library now requires C++17, uses the C++ standard library for strings, containers, threads, files and time, and keeps the parts the standard library does not have: the object database, TLS networking and the portable file formats. Every network protocol except telnet and ping uses TLS.</p>
 <p>Database, index, InfoHog and gxRDBMS files are unchanged. The same programs built against 6.2 and 7.0 write byte-for-byte identical files, and 7.0 reads files written by 6.2.</p>
@@ -1089,6 +1105,6 @@
 <li>Windows: Windows 11 and Windows Server 2022 and 2025, 64-bit, with Visual Studio 2022 or 2026, using Schannel or OpenSSL 3.5.x LTS.</li>
 </ul>
 </main>
-<footer class="dr-footer">DataReel 7.5 beta 3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

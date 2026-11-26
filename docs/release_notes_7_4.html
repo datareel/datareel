@@ -37,6 +37,7 @@
 <a href="#NewIn74AfterBeta5">New in 7.4 (after beta 5)</a><br>
 <a href="#UpgradingTo74Beta5">Upgrading to 7.4 beta 5</a><br>
 <a href="#PlannedForTheNextRelease75">Planned for the next release (7.5)</a></p>
+<p>DataReel 7.4.1 is the last 7.4 release. DataReel 7.5 (11/28/2026, the Python module: <a href="release_notes_7_5.html">RELEASE_NOTES_7.5.txt</a>) is now the main release, and all 7.x fixes go into 7.5.</p>
 <p>DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the replication fixes and the security scan below (BETA 3). Beta 2:</p>
 <p>DataReel 7.4 beta 2 (tag 7.4-beta2, 11/14/2026): the OODB with AI extensions. It follows the 11/12/2026 7.4-beta preview (tag 7.4-beta, 171a3f2: vector phases A and B) and adds vector phases C and D (below), the gxrepl fixes F4, F6 and F7, the DataReel 7.3.2 replication fixes and the later ones of rel-7.3.2-next3 (the seal per folder, a stream naming new files verified again, promote-check reading each unit under a shared apply lock, GXREPL_TORN_LOCK_WAIT 15 s), and the gxrepl per-object derived apply (derived_apply = incremental, with object notes and index stamps; off by default: rebuild stays the default and the ship log is unchanged while object notes are off; see utils/gxrepl/DERIVED_APPLY_STATUS.md). derived_apply = incremental is not yet for production use; fixes land in the next 7.4 build. The file formats of 7.3 are unchanged, and the vector index is a new file type built on them.</p>
 <h2 id="NewIn74111202026">New in 7.4.1 (11/20/2026)</h2>
@@ -419,6 +420,6 @@
 <li>The Python module as a package that installs with pip.</li>
 </ul>
 </main>
-<footer class="dr-footer">DataReel 7.5 beta 3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

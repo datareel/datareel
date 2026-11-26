@@ -18,11 +18,11 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>The datareel Python module: user's manual (DataReel 7.5 beta 3)</h1>
-<p>The <code>datareel</code> module reads and writes, from Python, the object databases that programs written with the DataReel C++ library keep: gxObjRepl nodes (a primary or its copy), vector index files (<code>.vix</code>) and block files (<code>.gxd</code>). Python code reads the same stores the production C++ programs write, with no C++ helper and no export file in between, and since 7.5 beta 2 it can also be the primary that writes a node and replicates it to a C++ copy.</p>
-<p>Contents: 1. Install. 2. Ideas you need. 3. A demo node. 4. Simple examples (1 to 4). 5. Detailed examples (5 to 9). 5a. Writing from Python (examples 10 and 11). 5b. Replication from Python (example 14). 5c. The database layer: block files, B-trees, journals and vector files (examples 12 and 13). 5d. gxStream and the object server. 6. Reference. 7. Errors and what to do. 8. Limits of beta 2.</p>
+<h1>The datareel Python module: user's manual (DataReel 7.5)</h1>
+<p>The <code>datareel</code> module reads and writes, from Python, the object databases that programs written with the DataReel C++ library keep: gxObjRepl nodes (a primary or its copy), vector index files (<code>.vix</code>) and block files (<code>.gxd</code>). Python code reads the same stores the production C++ programs write, with no C++ helper and no export file in between, and it can also be the primary that writes a node and replicates it to a C++ copy.</p>
+<p>Contents: 1. Install. 2. Ideas you need. 3. A demo node. 4. Simple examples (1 to 4). 5. Detailed examples (5 to 9). 5a. Writing from Python (examples 10 and 11). 5b. Replication from Python (example 14). 5c. The database layer: block files, B-trees, journals and vector files (examples 12 and 13). 5d. gxStream and the object server. 6. Reference. 7. Errors and what to do. 8. Limits of 7.5.</p>
 <h2 id="1Install">1. Install</h2>
-<pre>python3.12 -m pip install --no-index datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl
+<pre>python3.12 -m pip install --no-index datareel-7.5-cp312-cp312-linux_x86_64.whl
 python3.12 -c &quot;import datareel; print(datareel.__version__, datareel.library_version())&quot;</pre>
 <p>The wheel runs on RHEL 9 and RHEL 10 (x86_64, CPython 3.12) and needs only the system OpenSSL 3. To build it, see <code>python/docs/building.md</code>.</p>
 <h2 id="2IdeasYouNeed">2. Ideas you need</h2>
@@ -32,8 +32,8 @@ python3.12 -c &quot;import datareel; print(datareel.__version__, datareel.librar
 <li><strong>A removed object</strong> stays as a <strong>tombstone</strong> with its id; <code>get()</code> returns <code>None</code> for it, and <code>ids(db, tombstones=True)</code> lists them.</li>
 <li><strong>Indexes</strong> belong to the node: B-tree indexes on up to 32 bytes at an offset of the object, and vector indexes on floats at an offset. The node's <strong>index spec</strong> names them, for example <code>k0:vec:B:0:8,v0:vec:V:8:4</code> ("k0 is a B-tree on 8 bytes at offset 0 of database vec; v0 is a vector index on 4 floats at offset 8"). Give <code>Reader</code> the same spec the node uses.</li>
 <li><strong>Whole commits only.</strong> A <code>Reader</code> reads while the node runs. Each call takes the node journal's shared lock, so it sees only whole commits, never half of one. <code>reader.seq</code> names the commit the last call read (a primary's last commit, a copy's last applied one). Two calls may see different commits.</li>
-<li><strong>One process writes.</strong> A node folder is held by one process at a time: the C++ program, or (beta 2) the Python program that opened it with <code>datareel.Primary</code>. Readers never block it for long and never write. Never open a running node's files with <code>BlockFile</code> or <code>VectorIndex</code>: use <code>Reader</code>.</li>
-<li><strong>Transactions</strong> (beta 2). A <code>Primary</code> changes objects only inside a transaction: <code>begin()</code>, then <code>put</code>/<code>remove</code>/<code>purge</code>, then <code>commit()</code> (durable when it returns) or <code>rollback()</code>. <code>with p.transaction():</code> does that for you and rolls back when the block raises.</li>
+<li><strong>One process writes.</strong> A node folder is held by one process at a time: the C++ program, or the Python program that opened it with <code>datareel.Primary</code>. Readers never block it for long and never write. Never open a running node's files with <code>BlockFile</code> or <code>VectorIndex</code>: use <code>Reader</code>.</li>
+<li><strong>Transactions</strong>. A <code>Primary</code> changes objects only inside a transaction: <code>begin()</code>, then <code>put</code>/<code>remove</code>/<code>purge</code>, then <code>commit()</code> (durable when it returns) or <code>rollback()</code>. <code>with p.transaction():</code> does that for you and rolls back when the block raises.</li>
 </ul>
 <h2 id="3ADemoNode">3. A demo node</h2>
 <p>Every example runs against a demo node that a C++ program writes. With a 64-bit engine build of DataReel in <code>$BUILD</code> (<code>cmake -DDATAREEL_64BIT_DATABASE=ON</code>, which builds <code>utils/test_gxobjrepl_reader</code>):</p>
@@ -385,12 +385,12 @@ print(&quot;threads&quot;, nthreads, &quot;objects checked&quot;, total, &quot;o
 <p>&lt;!-- end sample --&gt;</p>
 <pre>$ python3.12 ex9_threads.py /tmp/demo/node 4
 threads 4 objects checked 300 of 300 in 0.05 s</pre>
-<h2 id="5AWritingFromPython75Beta2">5a. Writing from Python (7.5 beta 2)</h2>
+<h2 id="5AWritingFromPython">5a. Writing from Python</h2>
 <p><code>datareel.Primary(root, config=None, settings=None, quiet=False)</code> opens (or makes) a node folder as a gxObjRepl primary in this Python process. <code>settings</code> is a dict of the node's configuration keys, the same ones <code>objrepl.conf</code> holds (<code>copy</code>, <code>ca</code>, <code>cert</code>, <code>key</code>, <code>index</code>, <code>links</code>, <code>name</code>, <code>peer-name</code>, <code>trim</code>, <code>idle-timeout</code>, <code>ack-timeout</code>); <code>config</code> names an <code>objrepl.conf</code> file instead, and <code>settings</code> wins over it. A primary always needs its certificates, even before any copy listens. <code>quiet=True</code> drops the node's messages, which otherwise go to stderr.</p>
 <h3 id="Example10WriteObjectsThenReadThemBack">Example 10: write objects, then read them back</h3>
 <p>&lt;!-- sample: python/examples/ex10_write_objects.py --&gt;</p>
 <pre># python/examples/ex10_write_objects.py
-&quot;&quot;&quot;Example 10 (simple, 7.5 beta 2): write objects from Python as a gxObjRepl primary, then read them back.
+&quot;&quot;&quot;Example 10 (simple): write objects from Python as a gxObjRepl primary, then read them back.
 
 A primary needs the node&#x27;s certificates even when no copy is listening (it connects when you pump()). The
 demo node&#x27;s certificates are in the folder make_demo_node.sh made (PKI). ROOT is a new folder for this node.
@@ -432,7 +432,7 @@ reader: seq 1 objects 3</pre>
 <h3 id="Example11AnEventLogWithUpdatesRemovesARolledBackBatchAndACopy">Example 11: an event log with updates, removes, a rolled back batch and a copy</h3>
 <p>&lt;!-- sample: python/examples/ex11_event_log.py --&gt;</p>
 <pre># python/examples/ex11_event_log.py
-&quot;&quot;&quot;Example 11 (detailed, 7.5 beta 2): an event log written from Python: batches, updates, removes, a rolled
+&quot;&quot;&quot;Example 11 (detailed): an event log written from Python: batches, updates, removes, a rolled
 back batch, and replication to a copy.
 
 Each batch is one transaction. A batch that fails half way is rolled back, so the node never holds part of
@@ -514,12 +514,12 @@ with datareel.Primary(&quot;/dev/test/news&quot;, settings=test_settings) as p:
     with p.transaction():
         p.put(&quot;events&quot;, p.new_id(), record_bytes)
 print(datareel.status(&quot;/dev/test/news&quot;))                       # role primary, the new epoch and seqs</pre>
-<h2 id="5BReplicationFromPython75Beta2">5b. Replication from Python (7.5 beta 2)</h2>
+<h2 id="5BReplicationFromPython">5b. Replication from Python</h2>
 <p>Both nodes of a replicated pair can run in Python. <code>datareel.Copy(root, settings=...)</code> is a copy node: its settings are the copy's <code>objrepl.conf</code> keys (<code>listen</code>, <code>ca</code>, <code>cert</code>, <code>key</code>, <code>allow-cn</code>, <code>index</code>, <code>name</code>, <code>peer-name</code>). <code>serve()</code> applies what the primary sends until <code>stop()</code>; it blocks, so run it in a thread (the GIL is released while it waits and applies). The copy reads like the primary: <code>get</code>, <code>ids</code>, <code>find_key</code>, <code>nearest</code>, and <code>applied_seq</code>. For a failover, <code>datareel.takeover(copy_root)</code> makes the stopped copy the primary and <code>datareel.rejoin(old_root)</code> brings the old primary back as its copy (a full send when their histories differ).</p>
 <h3 id="Example14APrimaryAndACopyInPythonAFailoverAndARejoin">Example 14: a primary and a copy in Python, a failover and a rejoin</h3>
 <p>&lt;!-- sample: python/examples/ex14_primary_and_copy.py --&gt;</p>
 <pre># python/examples/ex14_primary_and_copy.py
-&quot;&quot;&quot;Example 14 (detailed, 7.5 beta 2): replication with both nodes in Python: a copy serving in a thread, a
+&quot;&quot;&quot;Example 14 (detailed): replication with both nodes in Python: a copy serving in a thread, a
 primary writing and draining to it, then a failover (takeover) and the old primary brought back (rejoin).
 
     python ex14_primary_and_copy.py DIR PKI [PORT]
@@ -582,8 +582,8 @@ A and B equal: True
 /tmp/ex14/node_a is a copy at epoch 1, following on from seq 5 (its copy had every commit: no full send)
 B epoch 2 drained: True
 roles: copy primary equal: True</pre>
-<p><code>datareel.check(root, settings=...)</code> gives OK, WARN or FAIL (0, 1, 2) and a line from the node's status and alarm files, as <code>objrepl check</code>; <code>datareel.clear_alarm(root)</code> sets an alarm aside once it is dealt with; <code>datareel.index_check(root, index)</code> checks every index against the objects. Since beta 3, <code>index</code> may be index names only (<code>&quot;rt_day&quot;</code>, looked up in the node's <code>.def</code> files) or left out (every index the node has); a name the node does not have raises <code>datareel.Error</code>.</p>
-<h3 id="TheIncrementalRejoinAndTheSchemaCheckBeta3">The incremental rejoin and the schema check (beta 3)</h3>
+<p><code>datareel.check(root, settings=...)</code> gives OK, WARN or FAIL (0, 1, 2) and a line from the node's status and alarm files, as <code>objrepl check</code>; <code>datareel.clear_alarm(root)</code> sets an alarm aside once it is dealt with; <code>datareel.index_check(root, index)</code> checks every index against the objects. <code>index</code> may be index names only (<code>&quot;rt_day&quot;</code>, looked up in the node's <code>.def</code> files) or left out (every index the node has); a name the node does not have raises <code>datareel.Error</code>.</p>
+<h3 id="TheIncrementalRejoinAndTheSchemaCheck">The incremental rejoin and the schema check</h3>
 <p>When both nodes wrote after a split, <code>datareel.rejoin(old_root)</code> no longer means a full send. Take this case: DEV detaches a Python copy of a production node to make emergency changes, while production keeps writing. The old primary keeps its data. When the new primary reaches it, the new primary checks that the two histories match at the seq where it took over, and then sends only the objects either node changed since that point. Both nodes end with the same digest.</p>
 <p>A full send happens instead in three cases:</p>
 <ul>
@@ -599,10 +599,10 @@ c = datareel.Copy(new, settings=dict(copy_settings, schema=&quot;news-v4&quot;))
 print(datareel.swap(&quot;/dev/osa/news&quot;, new, index_spec))
 # &quot;/dev/osa/news.rebuild is now /dev/osa/news; the old node is kept at /dev/osa/news.before-rebuild-...&quot;</pre>
 <p><code>swap()</code> refuses while either node is open, and when the new node's indexes fail <code>index_check()</code>. It never deletes anything. The primary's status file (<code>ROOT/objrepl.status</code>) shows <code>last_rejoin</code> (<code>incremental</code> or <code>full send</code>) and <code>last_rejoin_objects</code>.</p>
-<h2 id="5CTheDatabaseLayerBlockFilesBTreesJournalsAndVectorFiles75Beta2">5c. The database layer: block files, B-trees, journals and vector files (7.5 beta 2)</h2>
+<h2 id="5CTheDatabaseLayerBlockFilesBTreesJournalsAndVectorFiles">5c. The database layer: block files, B-trees, journals and vector files</h2>
 <p>Below gxObjRepl, Python reaches the same files C++ programs build by hand:</p>
 <ul>
-<li><code>datareel.Database(path, create=False, readonly=False, static_size=0)</code>: a gxDatabase block file: <code>alloc(size)</code> returns the address of a new block, <code>write(address, data, offset=0)</code>, <code>read(address, size=-1)</code>, <code>length(address)</code>, <code>delete(address)</code>, <code>addresses()</code>. Since the beta 3 patch, <code>static_size</code> (with <code>create=True</code> only) reserves that many bytes of static area after the file header, zero filled, as the C++ <code>gxDatabase::Create(fname, static_size)</code> does: a fixed record of the application's own (a header, a state block) that is not an object. <code>read_static(offset=0, size=-1)</code>, <code>write_static(data, offset=0)</code> and the <code>static_size</code> property work on it. A write past the end is refused; in a <code>Journal</code> transaction it commits and rolls back like any other write.</li>
+<li><code>datareel.Database(path, create=False, readonly=False, static_size=0)</code>: a gxDatabase block file: <code>alloc(size)</code> returns the address of a new block, <code>write(address, data, offset=0)</code>, <code>read(address, size=-1)</code>, <code>length(address)</code>, <code>delete(address)</code>, <code>addresses()</code>. <code>static_size</code> (with <code>create=True</code> only) reserves that many bytes of static area after the file header, zero filled, as the C++ <code>gxDatabase::Create(fname, static_size)</code> does: a fixed record of the application's own (a header, a state block) that is not an object. <code>read_static(offset=0, size=-1)</code>, <code>write_static(data, offset=0)</code> and the <code>static_size</code> property work on it. A write past the end is refused; in a <code>Journal</code> transaction it commits and rolls back like any other write.</li>
 <li><code>datareel.BTree(path, key_size, create=False, order=16, readonly=False)</code>: a gxBtree index file whose entries are a <code>key_size</code>-byte key (compared as bytes) and an 8-byte value: <code>insert(key, value)</code>, <code>delete</code>, <code>find</code>, <code>contains</code>, <code>prefix</code>, <code>range(start, stop)</code>, <code>count</code>. A gxObjRepl node's B-tree index file has this layout with 32-byte keys and the object id as the value, so <code>BTree(path, 32, readonly=True)</code> reads one. Store numbers big endian in keys when they must sort as numbers.</li>
 <li><code>datareel.Journal(path)</code> with <code>attach(file)</code> and <code>begin</code>/<code>commit</code>/<code>rollback</code> (or <code>with datareel.transaction(j):</code>): the changes to every attached <code>Database</code>, <code>BTree</code> and <code>VectorIndex</code> are one transaction, durable when <code>commit()</code> returns, and a crashed program's committed transactions are replayed by the next <code>Journal(path)</code>. Open the journal before the files, attach every file before the first <code>begin()</code>, and close the journal before the files.</li>
 <li>Vector files: <code>datareel.create_vector_index(path, dim, metric=&quot;l2&quot;, element=&quot;float32&quot;, m=16, spec=None)</code>, then <code>VectorIndex(path, spec, write=True)</code> with <code>insert(id, vector, tags=None)</code>, <code>update</code>, <code>delete</code>, <code>repair()</code>, <code>verify()</code>; <code>datareel.merge_vector_indexes(out, inputs, spec=None)</code> builds one index from many (the day files of a month).</li>
@@ -610,7 +610,7 @@ print(datareel.swap(&quot;/dev/osa/news&quot;, new, index_spec))
 <h3 id="Example12ABlockFileAndABTreeInJournalTransactions">Example 12: a block file and a B-tree in journal transactions</h3>
 <p>&lt;!-- sample: python/examples/ex12_journal_btree.py --&gt;</p>
 <pre># python/examples/ex12_journal_btree.py
-&quot;&quot;&quot;Example 12 (detailed, 7.5 beta 2): a block file and a B-tree index written together in journal transactions.
+&quot;&quot;&quot;Example 12 (detailed): a block file and a B-tree index written together in journal transactions.
 
 The C++ pattern of a gxDatabase data file with a gxBtree index, from Python: each record is a block in the data
 file, its key goes in the B-tree with the block&#x27;s address, and a gxdJournal makes both changes one transaction.
@@ -674,7 +674,7 @@ ACME 11/19 to 11/20: [11.0, 10.75]</pre>
 <h3 id="Example13VectorDayFilesAMergeAndTagFilters">Example 13: vector day files, a merge and tag filters</h3>
 <p>&lt;!-- sample: python/examples/ex13_vector_files_write.py --&gt;</p>
 <pre># python/examples/ex13_vector_files_write.py
-&quot;&quot;&quot;Example 13 (detailed, 7.5 beta 2): write vector index files from Python: day files with tags, an update, a
+&quot;&quot;&quot;Example 13 (detailed): write vector index files from Python: day files with tags, an update, a
 delete, a check, and a merge into one month file.
 
     python ex13_vector_files_write.py DIR
@@ -718,7 +718,7 @@ day_20261120.vix vectors 99 problems 0
 month: vectors 297 metric cosine
 nearest to (1, 0, 0, 0): [20261118000, 20261119000, 20261120000]
 only 11/19: [20261119]</pre>
-<h2 id="5DGxstreamAndTheObjectServer75Beta2">5d. gxStream and the object server (7.5 beta 2)</h2>
+<h2 id="5DGxstreamAndTheObjectServer">5d. gxStream and the object server</h2>
 <ul>
 <li><code>datareel.Stream(host, port=2073, ca=None, cert=None, key=None, timeout=30)</code> connects to a gxStream server over TLS (the server's certificate is checked against <code>ca</code>; <code>cert</code> and <code>key</code> are this client's, which gxStream servers require): <code>write_block(data)</code>, <code>read_block()</code>.</li>
 <li><code>datareel.StreamServer(port, cert, key, client_ca, allow_cn=None, address=&quot;127.0.0.1&quot;)</code> listens with mutual TLS: clients need a certificate from <code>client_ca</code>, and with <code>allow_cn</code> one of those names. <code>accept(timeout=None)</code> returns a <code>Stream</code> (its <code>peer</code> is the client's CN and fingerprint), or <code>None</code> after the timeout; a client that fails the checks raises <code>datareel.Error</code> and is closed.</li>
@@ -730,16 +730,16 @@ only 11/19: [20261119]</pre>
 <p>The other network clients of the C++ library (HTTPS, SMTP, POP3, IMAP, FTPS) are not wrapped: use Python's own <code>ssl</code>, <code>http.client</code>, <code>smtplib</code>, <code>poplib</code>, <code>imaplib</code> and <code>ftplib</code>, which speak the same protocols.</p>
 <h2 id="6Reference">6. Reference</h2>
 <h3 id="DatareelReaderRootIndex">datareel.Reader(root, index="")</h3>
-<p>A gxObjRepl node folder, read only, while the node runs in another process (or none runs). <code>index</code> is the node's index spec, needed for <code>find_key()</code>, <code>find_range()</code> and <code>nearest()</code>; since beta 2 an empty <code>index</code> reads the spec the node wrote beside its index files (<code>DB.NAME.ix.btx.def</code>, <code>DB.NAME.vix.def</code>), and <code>index_spec</code> shows the spec in use. Raises <code>datareel.Error</code> when the folder is not a node or the spec is bad. A context manager (<code>with</code>), or call <code>close()</code>.</p>
+<p>A gxObjRepl node folder, read only, while the node runs in another process (or none runs). <code>index</code> is the node's index spec, needed for <code>find_key()</code>, <code>find_range()</code> and <code>nearest()</code>; an empty <code>index</code> reads the spec the node wrote beside its index files (<code>DB.NAME.ix.btx.def</code>, <code>DB.NAME.vix.def</code>), and <code>index_spec</code> shows the spec in use. Raises <code>datareel.Error</code> when the folder is not a node or the spec is bad. A context manager (<code>with</code>), or call <code>close()</code>.</p>
 <table>
 <thead><tr><th>Call</th><th>Returns</th></tr></thead>
 <tbody>
 <tr><td><code>get(db, id)</code></td><td>the object's bytes, or <code>None</code> when it is not live (removed or never there)</td></tr>
 <tr><td><code>is_live(db, id)</code></td><td><code>True</code> or <code>False</code></td></tr>
-<tr><td><code>ids(db, tombstones=False, after=0, limit=0)</code></td><td>the sorted ids of the live objects (or of the tombstones); <code>[]</code> for a database that is not there. Beta 2: with <code>after</code> or <code>limit</code>, one page: at most <code>limit</code> ids greater than <code>after</code>, read from the id index, so a large database is walked in short calls (each holds the node's read lock only for its page)</td></tr>
-<tr><td><code>databases(hidden=False)</code></td><td>the database names. Since the beta 3 patch 2, names starting with <code>_</code> (an application's own bookkeeping databases, such as OSA's <code>_log</code> and <code>_meta</code>) are left out; <code>hidden=True</code> lists them too. <code>ids()</code>, <code>get()</code> and the other reads work on them by name either way</td></tr>
+<tr><td><code>ids(db, tombstones=False, after=0, limit=0)</code></td><td>the sorted ids of the live objects (or of the tombstones); <code>[]</code> for a database that is not there. With <code>after</code> or <code>limit</code>, one page: at most <code>limit</code> ids greater than <code>after</code>, read from the id index, so a large database is walked in short calls (each holds the node's read lock only for its page)</td></tr>
+<tr><td><code>databases(hidden=False)</code></td><td>the database names. Names starting with <code>_</code> (an application's own bookkeeping databases, such as OSA's <code>_log</code> and <code>_meta</code>) are left out; <code>hidden=True</code> lists them too. <code>ids()</code>, <code>get()</code> and the other reads work on them by name either way</td></tr>
 <tr><td><code>find_key(index, key)</code></td><td>ids whose key in B-tree index <code>index</code> starts with the bytes <code>key</code> (at most 32)</td></tr>
-<tr><td><code>find_range(index, lo, hi=None, limit=0)</code></td><td>beta 2: ids whose key in B-tree index <code>index</code> is <code>&gt;= lo</code> and <code>&lt; hi</code> (bytes, compared byte by byte, zero padded to the key length; <code>hi=None</code>: no upper bound), in key order, at most <code>limit</code> (0: all). Store numbers big-endian in key fields when you want numeric ranges</td></tr>
+<tr><td><code>find_range(index, lo, hi=None, limit=0)</code></td><td>ids whose key in B-tree index <code>index</code> is <code>&gt;= lo</code> and <code>&lt; hi</code> (bytes, compared byte by byte, zero padded to the key length; <code>hi=None</code>: no upper bound), in key order, at most <code>limit</code> (0: all). Store numbers big-endian in key fields when you want numeric ranges</td></tr>
 <tr><td><code>nearest(index, query, k=10)</code></td><td><code>[(id, distance)]</code>, closest first, from vector index <code>index</code></td></tr>
 <tr><td><code>refresh()</code></td><td>reads the node's state now (<code>seq</code>, <code>epoch</code>, <code>role</code>)</td></tr>
 <tr><td><code>release_vectors()</code></td><td>closes the vector indexes <code>nearest()</code> loaded</td></tr>
@@ -757,7 +757,7 @@ while True:
         handle(r.get(&quot;events&quot;, i))           # None: removed since the page was read
     after = page[-1]</pre>
 <p><code>nearest()</code> keeps the vector index in memory and reads it again when the node has moved past the commit it was loaded at. On a busy node with a large index, search in batches between commits, or search a merged <code>.vix</code> file with <code>VectorIndex</code>.</p>
-<h3 id="DatareelPrimaryRootConfigNoneSettingsNoneQuietFalseBeta2">datareel.Primary(root, config=None, settings=None, quiet=False) (beta 2)</h3>
+<h3 id="DatareelPrimaryRootConfigNoneSettingsNoneQuietFalse">datareel.Primary(root, config=None, settings=None, quiet=False)</h3>
 <p>A gxObjRepl primary in this process (see section 5a). A context manager (<code>with</code>), or call <code>close()</code>.</p>
 <table>
 <thead><tr><th>Call</th><th>Does</th></tr></thead>
@@ -774,19 +774,19 @@ while True:
 <tr><td><code>get</code>, <code>is_live</code>, <code>ids</code>, <code>databases</code>, <code>find_key</code>, <code>nearest</code></td><td>as <code>Reader</code>, and they see the open transaction's own changes</td></tr>
 <tr><td><code>close()</code></td><td>checkpoints and closes (an open transaction is rolled back)</td></tr>
 <tr><td><code>last_seq</code>, <code>epoch</code>, <code>copy_applied</code>, <code>is_open</code></td><td>the last commit, the epoch, the copy's applied commit as last heard</td></tr>
-<tr><td><code>seq</code>, <code>role</code></td><td>beta 2: <code>last_seq</code>, and <code>&#x27;primary&#x27;</code></td></tr>
+<tr><td><code>seq</code>, <code>role</code></td><td><code>last_seq</code>, and <code>&#x27;primary&#x27;</code></td></tr>
 </tbody>
 </table>
 <p>A root another process holds is refused at once from Python (<code>lock-wait</code> 0); set <code>&quot;lock-wait&quot;: &quot;SECONDS&quot;</code> (0 to 3600) to wait that long first. The C++ library waits 5 seconds by default.</p>
-<p><code>datareel.Node(root, config=None, role=&quot;primary&quot;, quiet=False)</code> (beta 2) opens a <code>Primary</code> or (<code>role=&quot;copy&quot;</code>) a <code>Copy</code>; <code>config</code> is a settings dict or the path of an objrepl.conf file.</p>
-<h3 id="DatareelCopyRootConfigNoneSettingsNoneQuietFalseBeta2">datareel.Copy(root, config=None, settings=None, quiet=False) (beta 2)</h3>
+<p><code>datareel.Node(root, config=None, role=&quot;primary&quot;, quiet=False)</code> opens a <code>Primary</code> or (<code>role=&quot;copy&quot;</code>) a <code>Copy</code>; <code>config</code> is a settings dict or the path of an objrepl.conf file.</p>
+<h3 id="DatareelCopyRootConfigNoneSettingsNoneQuietFalse">datareel.Copy(root, config=None, settings=None, quiet=False)</h3>
 <p>A gxObjRepl copy in this process (section 5b): <code>serve()</code> (blocks until <code>stop()</code>, which any thread may call), <code>stop()</code>, the reads <code>get</code>, <code>is_live</code>, <code>ids</code>, <code>databases</code>, <code>find_key</code>, <code>nearest</code>, <code>address_of</code>, <code>id_at</code>, <code>close()</code>; <code>applied_seq</code> (also <code>seq</code>), <code>role</code> (<code>&#x27;copy&#x27;</code>), <code>epoch</code>, <code>in_snapshot</code>, <code>is_open</code>.</p>
-<h3 id="DatabaseBtreeJournalCreateVectorIndexMergeVectorIndexesBeta2">Database, BTree, Journal, create_vector_index, merge_vector_indexes (beta 2)</h3>
+<h3 id="DatabaseBtreeJournalCreateVectorIndexMergeVectorIndexes">Database, BTree, Journal, create_vector_index, merge_vector_indexes</h3>
 <p>See section 5c. <code>VectorIndex(path, spec=None, write=False)</code>: with <code>write=True</code> also <code>insert(id, vector, tags=None)</code>, <code>update(id, vector, tags=None)</code>, <code>delete(id)</code>, <code>flush()</code>, <code>repair()</code>, <code>verify()</code> -&gt; <code>(problems, report)</code>. <code>Journal(path, write_back=False)</code>: <code>attach</code>, <code>begin</code>, <code>commit(durable=True)</code>, <code>rollback</code>, <code>checkpoint</code>, <code>close</code>; <code>in_transaction</code>, <code>recovered</code>. <code>datareel.transaction(journal)</code> is the <code>with</code> form.</p>
-<h3 id="StreamStreamserverObjectclientBeta2">Stream, StreamServer, ObjectClient (beta 2)</h3>
+<h3 id="StreamStreamserverObjectclient">Stream, StreamServer, ObjectClient</h3>
 <p>See section 5d.</p>
-<h3 id="DatareelStatusRootDatareelDigestRootLinksDatareelTakeoverRootRejoinRootCheckRootSettingsNoneConfigNoneClearAlarmRootIndexCheckRootIndexBeta2">datareel.status(root), datareel.digest(root, links=""), datareel.takeover(root), rejoin(root), check(root, settings=None, config=None), clear_alarm(root), index_check(root, index="") (beta 2)</h3>
-<p>Node folder tools for a folder no process holds, as the C++ <code>objrepl</code> tool's <code>status</code>, <code>digest</code> and <code>takeover</code>: <code>status()</code> returns a dict (<code>epoch</code>, <code>next_seq</code>, <code>acked_seq</code>, <code>applied_seq</code>, <code>in_snapshot</code>, <code>role</code>, <code>digest</code>); <code>digest()</code> returns <code>(line, detail)</code>, where two nodes with the same objects have the same line (pass the node's link map as <code>links</code> when it has one); <code>takeover()</code> makes a stopped copy a primary at the next epoch and returns the tool's message. <code>datareel.detach(root)</code> (beta 2) is the same call under the name the standalone-test-node steps use (section 5a): the stopped copy becomes an independent primary that never follows its old primary again. <code>rejoin(root, incremental=True)</code> (beta 3) is incremental when it can be (section 5b). <code>datareel.swap(old, new, index=&quot;&quot;)</code> (beta 3) puts a rebuilt node in place of the old one, which is kept as <code>OLD.before-rebuild-DATE</code>. The settings take <code>schema</code> and <code>rejoin-max-share</code> (beta 3).</p>
+<h3 id="DatareelStatusRootDatareelDigestRootLinksDatareelTakeoverRootRejoinRootCheckRootSettingsNoneConfigNoneClearAlarmRootIndexCheckRootIndex">datareel.status(root), datareel.digest(root, links=""), datareel.takeover(root), rejoin(root), check(root, settings=None, config=None), clear_alarm(root), index_check(root, index="")</h3>
+<p>Node folder tools for a folder no process holds, as the C++ <code>objrepl</code> tool's <code>status</code>, <code>digest</code> and <code>takeover</code>: <code>status()</code> returns a dict (<code>epoch</code>, <code>next_seq</code>, <code>acked_seq</code>, <code>applied_seq</code>, <code>in_snapshot</code>, <code>role</code>, <code>digest</code>); <code>digest()</code> returns <code>(line, detail)</code>, where two nodes with the same objects have the same line (pass the node's link map as <code>links</code> when it has one); <code>takeover()</code> makes a stopped copy a primary at the next epoch and returns the tool's message. <code>datareel.detach(root)</code> is the same call under the name the standalone-test-node steps use (section 5a): the stopped copy becomes an independent primary that never follows its old primary again. <code>rejoin(root, incremental=True)</code> is incremental when it can be (section 5b). <code>datareel.swap(old, new, index=&quot;&quot;)</code> puts a rebuilt node in place of the old one, which is kept as <code>OLD.before-rebuild-DATE</code>. The settings take <code>schema</code> and <code>rejoin-max-share</code>.</p>
 <h3 id="DatareelVectorindexPathSpecNone">datareel.VectorIndex(path, spec=None)</h3>
 <p>A <code>.vix</code> file opened read only. With <code>spec</code>, a file whose spec differs is refused.</p>
 <table>
@@ -801,7 +801,7 @@ while True:
 <h3 id="DatareelBlockfilePath">datareel.BlockFile(path)</h3>
 <p>A <code>.gxd</code> file opened read only: <code>addresses()</code> (every object's address, in file order), <code>read(address)</code> (the whole block's bytes), <code>close()</code>.</p>
 <h3 id="Module">Module</h3>
-<p><code>datareel.__version__</code> (<code>&quot;7.5b3.post2&quot;</code>), <code>datareel.library_version()</code> (the C++ library, <code>&quot;7.5 beta3-patch2&quot;</code>), <code>datareel.engine_bits()</code> (64), <code>datareel.Error</code> (a <code>RuntimeError</code>).</p>
+<p><code>datareel.__version__</code> (<code>&quot;7.5&quot;</code>), <code>datareel.library_version()</code> (the C++ library, <code>&quot;7.5&quot;</code>), <code>datareel.engine_bits()</code> (64), <code>datareel.Error</code> (a <code>RuntimeError</code>).</p>
 <p>Query vectors are lists or tuples of numbers, or any float32 buffer (<code>array(&#x27;f&#x27;)</code>, a numpy <code>float32</code> array). Calls that read files release the GIL, so threads read in parallel. A <code>Reader</code>, <code>VectorIndex</code> or <code>BlockFile</code> is not thread safe: give each thread its own.</p>
 <h2 id="7ErrorsAndWhatToDo">7. Errors and what to do</h2>
 <table>
@@ -820,14 +820,15 @@ while True:
 <tr><td><code>id 0 is not an object id</code></td><td><code>put</code> with id 0</td><td>use <code>new_id()</code></td></tr>
 </tbody>
 </table>
-<h2 id="8LimitsOfBeta2">8. Limits of beta 2</h2>
+<h2 id="8LimitsOf75">8. Limits of 7.5</h2>
 <ul>
 <li>Not wrapped: InfoHog and POD persistent objects (use <code>Database</code> and <code>BTree</code> with your own record layout), the 6.x-style gxStream block requests, and the network clients Python's standard library has (HTTPS, SMTP, POP3, IMAP, FTPS).</li>
 <li>The 64-bit database engine only (the one gxObjRepl nodes use).</li>
-<li>Linux x86_64 and CPython 3.12 wheels. Windows wheels are not built yet.</li>
+<li>Linux x86_64 and CPython 3.12 wheels. Windows: a build script only (<code>python\build_wheel_windows.bat</code>, see <code>python/docs/building.md</code>), not tested; no Windows wheel is distributed.</li>
+<li>An incremental rejoin holds the new primary's lock while it sends (capped by <code>rejoin-max-share</code>).</li>
 <li><code>VectorIndex</code> and <code>BlockFile</code> are for files no process is writing.</li>
 </ul>
 </main>
-<footer class="dr-footer">DataReel 7.5 beta 3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

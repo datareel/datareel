@@ -151,7 +151,7 @@ cmp $D/n1.digest $D/n2.digest && echo "the same objects"
   epoch, so the new primary never hands out an id the old one may have used.
 - **Rejoin.** `objrepl rejoin ROOT` makes the former primary a copy again. If its copy had acknowledged every
   commit (a planned switch), it follows on from there with no full send. Otherwise, the commits the new primary
-  never had are counted and dropped. Since 7.5 beta 3 the node then takes an **incremental rejoin** when it can:
+  never had are counted and dropped. Since 7.5 the node then takes an **incremental rejoin** when it can:
   see section 4.3. When it cannot, or with `objrepl rejoin ROOT --full`, it takes a full send from the new
   primary, as before.
 
@@ -189,7 +189,7 @@ If the primary is gone, take over on the copy at once (`objrepl takeover`), and 
 the old primary comes back, do not start it as a primary. Run `objrepl rejoin` on it first: the status line says
 how many of its commits the copy never had (`dropped_at_rejoin`). Then start it as a copy.
 
-### 4.3 The incremental rejoin and the schema check (7.5 beta 3)
+### 4.3 The incremental rejoin and the schema check (7.5)
 
 When both nodes wrote after the split, for example a standby that took over while the old primary kept writing,
 `objrepl rejoin` keeps the old primary's data and the list of objects its unacknowledged commits changed. When it
@@ -239,8 +239,8 @@ past the share, a full send, which does not hold the lock, is used instead.
 - Never set `GXD_CREATE_LAYOUT` in production. It creates files in the old 4-byte layout, for readers older than
   beta 5 only.
 - Upgrade the copy first, then switch (section 4.1), then upgrade the old primary.
-- 7.5 beta 3 nodes work with 7.4.1 and 7.5 beta 2 nodes as before. The incremental rejoin needs both nodes at
-  beta 3 or later: a node waiting for one takes a full send from an older primary. A node that took over with an
+- 7.5 nodes work with 7.4.1 nodes (and the 7.5 betas) as before. The incremental rejoin needs both nodes at
+  7.5 (7.5 beta 3 or later): a node waiting for one takes a full send from an older primary. A node that took over with an
   older build has no epoch history, so its first rejoin after the upgrade is a full send.
 
 ## 6. Troubleshooting

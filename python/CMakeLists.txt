@@ -1,4 +1,4 @@
-# DataReel 7.5 beta: the datareel Python module's extension (_datareel), built by setup.py. It builds the DataReel
+# DataReel 7.5: the datareel Python module's extension (_datareel), built by setup.py. It builds the DataReel
 # library from DATAREEL_SOURCE (the repository top) as a static library with the 64-bit database engine and links it
 # into the extension. OpenSSL is linked from the system (libssl.so.3 on RHEL 9 and 10).
 cmake_minimum_required(VERSION 3.16)

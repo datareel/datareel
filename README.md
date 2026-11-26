@@ -8,7 +8,7 @@ There are two release tracks:
 
 | Track | For | API |
 |---|---|---|
-| **DataReel 7.x** (7.4.1, released 11/20/2026: the main, fully supported release) | New projects, modern C++ pipelines, AI-assisted development | Database, vector index, sockets, replication, on standard C++ (`std::`) |
+| **DataReel 7.x** (7.5, released 11/28/2026: the main, fully supported release; 7.4.1 is the previous release) | New projects, modern C++ pipelines, Python programs, AI-assisted development | Database, vector index, sockets, replication, on standard C++ (`std::`), and the `datareel` Python package |
 | **DataReel 6.4.2** (the legacy release: bug fixes and security updates only, no new features) | Existing 6.x systems where moving to 7.x is too large a rewrite | The full 6.x API plus the vector index and replication, backported |
 
 Online documentation: [Version 7](https://datareel.com/clib7/) and [Version 6 (legacy)](https://datareel.com/clib/).
@@ -105,15 +105,23 @@ under `docs/examples`. The full documentation starts at [docs/index.html](docs/i
 [README.txt](README.txt) has the complete release notes index, and
 [RELEASE_NOTES.txt](RELEASE_NOTES.txt) has every 7.x release's notes in one file, newest first.
 
-### Coming next
+### Python (7.5)
 
-- **7.5 beta 3 (branch 7.5-beta, master):** the `datareel` Python module, a pip package built from this
-  repository (`python/`): it reads gxObjRepl nodes while they run, vector indexes and block files
-  (beta 1), writes and replicates them like the C++ library (beta 2), and gains the incremental rejoin and
-  the schema check, in C++ and Python (beta 3; [replication guide](docs/replication_admin_guide.md), 4.3). See [python/README.md](python/README.md), the
-  [user's manual](python/docs/users-manual.md) with simple and detailed examples, the
-  [build guide](python/docs/building.md), [python/AGENTS.md](python/AGENTS.md) for AI-assisted work
-  and [RELEASE_NOTES_7.5.txt](RELEASE_NOTES_7.5.txt).
+7.5 adds the `datareel` Python module, a pip package built from this repository (`python/`).
+It reads gxObjRepl nodes while they run, writes and replicates them like the C++ library (a
+Python primary or copy works with C++ nodes on the other side), and covers block files,
+B-trees, journals, vector index files, and gxStream over TLS with the object server. 7.5 also
+adds the incremental rejoin and the schema check, in C++ and Python
+([replication guide](docs/replication_admin_guide.md), 4.3).
+
+```
+pip install datareel-7.5-cp312-cp312-linux_x86_64.whl
+```
+
+See [python/README.md](python/README.md), the [user's manual](python/docs/users-manual.md)
+with simple and detailed examples, the [build guide](python/docs/building.md),
+[python/AGENTS.md](python/AGENTS.md) for AI-assisted work and
+[RELEASE_NOTES_7.5.txt](RELEASE_NOTES_7.5.txt).
 
 ## DataReel 6.4.2: the legacy version
 

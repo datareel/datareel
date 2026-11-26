@@ -45,7 +45,7 @@ Usage:
           port 2073, the registered gxStream port, unless a port is
           given; --listen ADDR sets the address only)
   objrepl digest ROOT       every database: ids and content hashes
-  objrepl ixcheck ROOT --index ...   each index against the objects (7.5 beta 3: --index
+  objrepl ixcheck ROOT --index ...   each index against the objects (7.5: --index
           may name indexes only, "k0,v0", or be left out: every index the
           node has, from its .def files)
   objrepl check ROOT        OK / WARN / FAIL (exit 0 / 1 / 2)
@@ -53,16 +53,16 @@ Usage:
   objrepl status ROOT
   objrepl engine            the database engine (exit 0 for 64-bit, 1 for 32-bit)
   objrepl takeover ROOT     a copy becomes primary: epoch + 1
-  objrepl rejoin ROOT [--full]  a former primary becomes a copy (7.5 beta 3:
+  objrepl rejoin ROOT [--full]  a former primary becomes a copy (7.5:
           an incremental rejoin when the new primary can match the two
           histories and the schemas agree, else a full send; --full: a
           full send in any case)
-  objrepl swap OLD NEW [--index SPEC]  7.5 beta 3: after a rebuild into
+  objrepl swap OLD NEW [--index SPEC]  7.5: after a rebuild into
           NEW (both stopped), OLD is kept as OLD.before-rebuild-DATE and
           NEW becomes OLD (NEW's indexes checked first with --index)
   Common: --name N --peer-name N --links SPEC --index SPEC --max-lag N
   --max-behind S --min-cert-days N --idle-timeout S --ack-timeout S (7.4.1, primary)
-  --schema TEXT --rejoin-max-share PERCENT (7.5 beta 3)
+  --schema TEXT --rejoin-max-share PERCENT (7.5)
   --config FILE. Any of them may come
   from ROOT/objrepl.conf (or --config FILE), one "key value" line each
   (the option without "--"); the command line wins.

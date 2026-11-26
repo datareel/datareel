@@ -1,5 +1,5 @@
 #!/bin/bash
-# make_demo_node.sh - DataReel 7.5 beta: a demo gxObjRepl node for the Python examples. Throwaway folders only.
+# make_demo_node.sh - DataReel 7.5: a demo gxObjRepl node for the Python examples. Throwaway folders only.
 #
 #   python/examples/make_demo_node.sh BUILD DIR [COMMITS]
 #

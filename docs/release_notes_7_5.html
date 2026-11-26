@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>DataReel 7.5 Beta 3 Patch 2 Release Notes</title>
+<title>DataReel 7.5 Release Notes</title>
 <link rel="stylesheet" href="css/datareel.css">
 <link rel="icon" href="images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
@@ -18,15 +18,32 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>DataReel 7.5 Beta 3 Patch 2 Release Notes</h1>
+<h1>DataReel 7.5 Release Notes</h1>
 <div class="dr-toc-title">Contents</div>
-<p class="dr-toc"><a href="#NewIn75Beta3Patch2Tag75Beta3Patch211212026">NEW IN 7.5 BETA 3 PATCH 2 (tag 7.5-beta3-patch2, 11/21/2026)</a><br>
+<p class="dr-toc"><a href="#NewIn75Tag7511282026">NEW IN 7.5 (tag 7.5, 11/28/2026)</a><br>
+<a href="#UpgradingFrom741">Upgrading from 7.4.1</a><br>
+<a href="#NewIn75Beta3Patch2Tag75Beta3Patch211212026">NEW IN 7.5 BETA 3 PATCH 2 (tag 7.5-beta3-patch2, 11/21/2026)</a><br>
 <a href="#NewIn75Beta3Patch1Tag75Beta3Patch111212026">NEW IN 7.5 BETA 3 PATCH 1 (tag 7.5-beta3-patch1, 11/21/2026)</a><br>
 <a href="#NewIn75Beta3">New in 7.5 beta 3</a><br>
 <a href="#NewIn75Beta2">New in 7.5 beta 2</a><br>
 <a href="#NewIn75Beta1">New in 7.5 beta 1</a><br>
-<a href="#LimitsOfBeta3">Limits of beta 3</a></p>
-<p>DataReel 7.5 adds the datareel Python module, a package that installs with pip. It is built from this repository (python/) on top of 7.4.1, so everything in 7.4.1 is in it (<a href="release_notes_7_4.html">RELEASE_NOTES_7.4.txt</a>, &quot;NEW IN 7.4.1&quot;). The file formats and the gxStream and gxObjRepl wire formats are those of 7.4.</p>
+<a href="#LimitsOf75">Limits of 7.5</a></p>
+<p>DataReel 7.5 adds the datareel Python module, a package that installs with pip. It is built from this repository (python/) on top of 7.4.1, so everything in 7.4.1 is in it (<a href="release_notes_7_4.html">RELEASE_NOTES_7.4.txt</a>, &quot;NEW IN 7.4.1&quot;). The file formats are those of 7.4; the gxStream and gxObjRepl wire formats are those of 7.4 with new fields at the end of the replication hello (7.4.1 and 7.5 nodes work together).</p>
+<p>DataReel 7.5 is the main, fully supported release. 7.4.1 is the previous 7.x release; 6.4.2 is the legacy release (bug fixes and security updates only).</p>
+<h2 id="NewIn75Tag7511282026">NEW IN 7.5 (tag 7.5, 11/28/2026)</h2>
+<p>7.5 is 7.5 beta 3 patch 2 as tested by OSA and OCA, released. The sections below list what each beta added. In short:</p>
+<ul>
+<li>The datareel Python module (pip package datareel 7.5, wheel datareel-7.5-cp312-cp312-linux_x86_64.whl for Linux x86_64 and CPython 3.12, RHEL 9 and 10): read gxObjRepl nodes from another process (Reader), write them as a gxObjRepl primary (Primary), run a copy (Copy), and take over, rejoin, check and swap nodes, all working with C++ nodes; the database layer (Database, BTree, Journal); vector index files (VectorIndex, create_vector_index(), merge_vector_indexes()); gxStream over TLS (Stream, StreamServer) and the object service client (ObjectClient).</li>
+<li>gxObjRepl (C++ and Python): the incremental rejoin (only the objects either node changed after a split are sent), the schema check (refused rejoin between nodes with different record layouts, then rebuild and objrepl swap), index_check by index name, and the objrepl options --schema, --rejoin-max-share and --drain-secs.</li>
+<li>The user&#x27;s manual (<a href="python_users_manual.html">python/docs/users-manual.md</a>) with 14 examples, the build guide (<a href="python_building.html">python/docs/building.md</a>), python/AGENTS.md and the AI-assisted guide (docs/ai/python.md).</li>
+<li>Package version 7.5; library version &quot;7.5&quot;.</li>
+</ul>
+<h2 id="UpgradingFrom741">Upgrading from 7.4.1</h2>
+<ul>
+<li>C++ programs build against 7.5 unchanged. Existing database, index, vector and journal files open as they are.</li>
+<li>Replication: upgrade the copy first, then switch, then upgrade the old primary (replication administrator&#x27;s guide, section 5). 7.4.1 and 7.5 nodes replicate with each other in both directions. The incremental rejoin needs 7.5 on both nodes: with an older primary a rejoin is a full send, as before, and a node that took over with an older build makes its first rejoin after the upgrade a full send.</li>
+<li>Python programs written against a 7.5 beta: install the 7.5 wheel over the beta. Since beta 3 patch 2, databases() leaves out names starting with &quot;_&quot; (databases(hidden=True) lists them).</li>
+</ul>
 <h2 id="NewIn75Beta3Patch2Tag75Beta3Patch211212026">NEW IN 7.5 BETA 3 PATCH 2 (tag 7.5-beta3-patch2, 11/21/2026)</h2>
 <ul>
 <li>databases() (Reader, Primary, Copy) leaves out names starting with &quot;_&quot;: an application&#x27;s own bookkeeping databases, such as OSA&#x27;s _log and _meta (asked for by OSA). databases(hidden=True) lists them too; ids(), get() and the other reads work on them by name either way.</li>
@@ -73,7 +90,7 @@
 <li>The extension uses the plain CPython C API: no third-party packages to build or to run. setup.py builds it with CMake (python/ CMakeLists.txt), with the DataReel library inside it (static, the 64-bit engine); it links the system OpenSSL 3.</li>
 <li>Tests: python/tests/run_python_tests.sh builds the wheel and the C++ test programs, installs the wheel in a throwaway virtual environment and runs python/tests/test_datareel.py: a node written by the C++ library read through every call, readers in Python threads while a C++ primary writes 2000 commits and while a copy applies 800, the node&#x27;s vector index file and a block file. Built on RHEL 9 (UBI 9, CPython 3.12); the same wheel passes on RHEL 10.</li>
 </ul>
-<h2 id="LimitsOfBeta3">Limits of beta 3</h2>
+<h2 id="LimitsOf75">Limits of 7.5</h2>
 <ul>
 <li>An incremental rejoin holds the new primary&#x27;s lock while it sends (capped by rejoin-max-share).</li>
 <li>Not wrapped: InfoHog and POD persistent objects, the 6.x-style gxStream block requests, and the network clients Python&#x27;s standard library has (HTTPS, SMTP, POP3, IMAP, FTPS).</li>
@@ -81,6 +98,6 @@
 <li>Linux x86_64, CPython 3.12 wheels. Windows: a build script only (python\build_wheel_windows.bat), not tested or distributed.</li>
 </ul>
 </main>
-<footer class="dr-footer">DataReel 7.5 beta 3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

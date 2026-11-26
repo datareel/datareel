@@ -18,9 +18,9 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>datareel for Python (DataReel 7.5 beta 3)</h1>
-<p>Read and write the object databases of the DataReel C++ library from Python, without a C++ helper or an export file. Beta 2 adds writes: a Python program can be a gxObjRepl primary that replicates to a C++ copy.</p>
-<pre>pip install datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl</pre>
+<h1>datareel for Python (DataReel 7.5)</h1>
+<p>Read and write the object databases of the DataReel C++ library from Python, without a C++ helper or an export file. A Python program can also write: it can be a gxObjRepl primary that replicates to a C++ copy.</p>
+<pre>pip install datareel-7.5-cp312-cp312-linux_x86_64.whl</pre>
 <pre>import struct
 import datareel
 
@@ -51,24 +51,24 @@ with datareel.BlockFile(&quot;/data/old_day.gxd&quot;) as f:
 </ul>
 <h2 id="WhatItDoes">What it does</h2>
 <ul>
-<li><code>Primary(root, config=None, settings=None, quiet=False)</code> (beta 2) opens a node as a gxObjRepl primary in this process: <code>open_database</code>, <code>begin</code>/<code>commit</code>/<code>rollback</code> (or <code>with p.transaction():</code>), <code>new_id</code>, <code>put</code>, <code>remove</code>, <code>purge</code>, <code>pump</code>, <code>drain</code>, and the reads below. Commits are durable when <code>commit()</code> returns; <code>pump()</code>/<code>drain()</code> send them to the copy.</li>
+<li><code>Primary(root, config=None, settings=None, quiet=False)</code> opens a node as a gxObjRepl primary in this process: <code>open_database</code>, <code>begin</code>/<code>commit</code>/<code>rollback</code> (or <code>with p.transaction():</code>), <code>new_id</code>, <code>put</code>, <code>remove</code>, <code>purge</code>, <code>pump</code>, <code>drain</code>, and the reads below. Commits are durable when <code>commit()</code> returns; <code>pump()</code>/<code>drain()</code> send them to the copy.</li>
 </ul>
 <ul>
 <li><code>Reader(root, index=&quot;&quot;)</code> reads a gxObjRepl node (a primary or a copy) from another process while the node runs. Each call reads under the node journal's shared lock, so it sees whole commits only: <code>get(db, id)</code> (None when the object is not live), <code>is_live</code>, <code>ids(db, tombstones=False)</code>, <code>databases()</code>, <code>find_key(index, key_bytes)</code>, <code>nearest(index, query, k=10)</code>, <code>refresh()</code>, and the <code>seq</code>, <code>epoch</code> and <code>role</code> of the commit read. A call can raise <code>datareel.Error</code> for a moment while the node creates a database file or a copy takes a full send: try it again.</li>
 <li><code>VectorIndex(path, spec=None)</code> opens a <code>.vix</code> file read only: <code>search(query, k=10, ef=64, exact=False, tags=None)</code> returns <code>[(id, distance, tags)]</code>; <code>get(id)</code>, <code>dim</code>, <code>count</code>, <code>spec</code>, <code>metric</code>.</li>
 <li><code>BlockFile(path)</code> opens a <code>.gxd</code> file read only: <code>addresses()</code> and <code>read(address)</code>.</li>
-<li><code>Copy(root, ...)</code> (beta 2) runs a copy node (<code>serve()</code> in a thread, <code>stop()</code>); <code>takeover()</code>, <code>rejoin()</code>, <code>check()</code>, <code>clear_alarm()</code>, <code>index_check()</code>, <code>status()</code> and <code>digest()</code> are the <code>objrepl</code> tool's node commands.</li>
-<li><code>Database</code>, <code>BTree</code>, <code>Journal</code> (beta 2): gxDatabase block files, gxBtree index files of byte keys, gxdJournal transactions over them; <code>create_vector_index()</code>, <code>VectorIndex(path, write=True)</code> and <code>merge_vector_indexes()</code> write vector files.</li>
-<li><code>Stream</code>, <code>StreamServer</code>, <code>ObjectClient</code> (beta 2): gxStream over TLS on port 2073, and the object service of a DataReel object server (objects and vector searches).</li>
+<li><code>Copy(root, ...)</code> runs a copy node (<code>serve()</code> in a thread, <code>stop()</code>); <code>takeover()</code>, <code>rejoin()</code>, <code>check()</code>, <code>clear_alarm()</code>, <code>index_check()</code>, <code>status()</code> and <code>digest()</code> are the <code>objrepl</code> tool's node commands.</li>
+<li><code>Database</code>, <code>BTree</code>, <code>Journal</code>: gxDatabase block files, gxBtree index files of byte keys, gxdJournal transactions over them; <code>create_vector_index()</code>, <code>VectorIndex(path, write=True)</code> and <code>merge_vector_indexes()</code> write vector files.</li>
+<li><code>Stream</code>, <code>StreamServer</code>, <code>ObjectClient</code>: gxStream over TLS on port 2073, and the object service of a DataReel object server (objects and vector searches).</li>
 <li>A query vector can be a list of numbers or any float32 buffer (<code>array(&#x27;f&#x27;)</code>, a numpy float32 array).</li>
 <li>Calls that read files release the GIL. Use one object per thread.</li>
 </ul>
 <p>Objects come back as the bytes the C++ program stored. Decode them with <code>struct</code> or numpy using that program's record layout. In a gxObjRepl node, <code>Reader.get()</code> returns the object's own bytes; <code>BlockFile.read()</code> returns the whole block, with gxObjRepl's 40-byte record head in front.</p>
-<h2 id="LimitsBeta2">Limits (beta 2)</h2>
+<h2 id="Limits">Limits</h2>
 <ul>
-<li>Python is a primary only: a copy, takeover and rejoin run with the C++ <code>objrepl</code> tool.</li>
+<li>Not wrapped: InfoHog and POD persistent objects, the 6.x-style gxStream block requests, and the network clients Python's standard library has (HTTPS, SMTP, POP3, IMAP, FTPS).</li>
 <li>The 64-bit database engine only (the engine nodes and OSA use).</li>
-<li>Linux x86_64 and CPython 3.12 wheels, built on RHEL 9 (UBI 9) and tested on RHEL 9 and 10. The wheel links the system OpenSSL 3 (<code>libssl.so.3</code>); the DataReel library is inside the extension.</li>
+<li>Linux x86_64 and CPython 3.12 wheels, built on RHEL 9 (UBI 9) and tested on RHEL 9 and 10. The wheel links the system OpenSSL 3 (<code>libssl.so.3</code>); the DataReel library is inside the extension. Windows: a build script only (<code>python\build_wheel_windows.bat</code>), not tested; no Windows wheel is distributed.</li>
 <li><code>VectorIndex</code> and <code>BlockFile</code> are for files no process is writing. For a running node use <code>Reader</code>.</li>
 </ul>
 <h2 id="Building">Building</h2>
@@ -79,6 +79,6 @@ python/tests/run_python_tests.sh /tmp/drpy      # builds, installs in a venv, ru
 <h2 id="License">License</h2>
 <p>LGPL 3 or later, as the DataReel library (see LICENSE at the repository top).</p>
 </main>
-<footer class="dr-footer">DataReel 7.5 beta 3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

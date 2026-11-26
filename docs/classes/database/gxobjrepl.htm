@@ -103,7 +103,7 @@ c.Serve();                                   // until Stop() (signal-safe) or Cl
 <P>The lock is one recursive mutex per node. Pump() gives it up for its network I/O and readers run in between; Serve() takes it per frame it applies. A test build (<CODE>-DGXREPL_TEST_HOOKS=ON</CODE>) with <CODE>OBJREPL_TEST_HOLD_MS=N</CODE> set prints every hold of the lock of N ms or more on stderr, by phase ("objrepl hold: PHASE MS ms"), so a wait a reader sees can be traced to what held the lock. Release builds have no such output.</P>
 
 <h2 id="Tool">The objrepl Tool and Checks</h2>
-<P>The <CODE>objrepl</CODE> tool (utils/objrepl/objrepl.cpp) runs a node from the command line and from <CODE>ROOT/objrepl.conf</CODE>: <CODE>objrepl copy ROOT</CODE>, <CODE>objrepl digest|ixcheck|status|check|clear-alarm|takeover|rejoin ROOT</CODE>, and (7.5 beta 3) <CODE>objrepl swap OLD NEW</CODE>. <CODE>objrepl check</CODE> prints one line, OK / WARN / FAIL (exit 0 / 1 / 2), for cron or a monitor. <CODE>utils/objrepl/objrepl_certs.sh</CODE> makes a private CA and the two node certificates.</P>
+<P>The <CODE>objrepl</CODE> tool (utils/objrepl/objrepl.cpp) runs a node from the command line and from <CODE>ROOT/objrepl.conf</CODE>: <CODE>objrepl copy ROOT</CODE>, <CODE>objrepl digest|ixcheck|status|check|clear-alarm|takeover|rejoin ROOT</CODE>, and (7.5) <CODE>objrepl swap OLD NEW</CODE>. <CODE>objrepl check</CODE> prints one line, OK / WARN / FAIL (exit 0 / 1 / 2), for cron or a monitor. <CODE>utils/objrepl/objrepl_certs.sh</CODE> makes a private CA and the two node certificates.</P>
 
 <h2 id="Config">Configuration</h2>
 <div class="dr-fn" id="struct_gxObjReplConfig_name_peer_name_ca"><code class="dr-sig">struct gxObjReplConfig { name, peer_name, ca, cert, key, allow_cn, copy, listen_addr, listen_port, links, index, trim, idle_timeout, ack_timeout, max_lag, max_behind, min_cert_days, log }</code><p class="dr-desc">name and peer_name: this node and the expected peer; ca, cert, key: TLS with certificates on both sides; allow_cn: the CN of the primary's client certificate (copy); copy: HOST[:PORT] (primary; port 2073 when none is given, 7.4.1); listen_addr/listen_port (copy; 127.0.0.1 and 2073, the registered gxStream port, by default, 7.4.1); links: "DB:OFFSET:TARGET_DB,..."; index: "NAME:DB:B:OFFSET:LEN" or "NAME:DB:V:OFFSET:DIM", comma separated; idle_timeout: seconds without a frame before the copy drops a connection (120); ack_timeout: seconds one frame and the copy's answer may take in all before the primary drops the connection and Pump() returns (300, 7.4.1); log: where messages go (stderr).</p></div>
@@ -145,7 +145,7 @@ c.Serve();                                   // until Stop() (signal-safe) or Cl
 <div class="dr-fn" id="Takeover"><span id="Rejoin"></span><code class="dr-sig">static int Takeover(const std::string &amp;root, std::string &amp;msg) / static int Rejoin(const std::string &amp;root, std::string &amp;msg)</code><p class="dr-desc">A stopped copy becomes primary at the next epoch; a former primary (or a copy) becomes a copy again, with a full send unless every commit was acknowledged.</p></div>
 
 </main>
-<footer class="dr-footer">DataReel 7.5 beta 3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>
 <!-- ******************************* -->

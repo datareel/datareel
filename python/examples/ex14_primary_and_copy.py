@@ -1,4 +1,4 @@
-"""Example 14 (detailed, 7.5 beta 2): replication with both nodes in Python: a copy serving in a thread, a
+"""Example 14 (detailed): replication with both nodes in Python: a copy serving in a thread, a
 primary writing and draining to it, then a failover (takeover) and the old primary brought back (rejoin).
 
     python ex14_primary_and_copy.py DIR PKI [PORT]

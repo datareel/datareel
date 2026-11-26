@@ -1,4 +1,4 @@
-"""Example 11 (detailed, 7.5 beta 2): an event log written from Python: batches, updates, removes, a rolled
+"""Example 11 (detailed): an event log written from Python: batches, updates, removes, a rolled
 back batch, and replication to a copy.
 
 Each batch is one transaction. A batch that fails half way is rolled back, so the node never holds part of

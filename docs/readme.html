@@ -24,7 +24,7 @@
 <table>
 <thead><tr><th>Track</th><th>For</th><th>API</th></tr></thead>
 <tbody>
-<tr><td><strong>DataReel 7.x</strong> (7.4.1, released 11/20/2026: the main, fully supported release)</td><td>New projects, modern C++ pipelines, AI-assisted development</td><td>Database, vector index, sockets, replication, on standard C++ (<code>std::</code>)</td></tr>
+<tr><td><strong>DataReel 7.x</strong> (7.5, released 11/28/2026: the main, fully supported release; 7.4.1 is the previous release)</td><td>New projects, modern C++ pipelines, Python programs, AI-assisted development</td><td>Database, vector index, sockets, replication, on standard C++ (<code>std::</code>), and the <code>datareel</code> Python package</td></tr>
 <tr><td><strong>DataReel 6.4.2</strong> (the legacy release: bug fixes and security updates only, no new features)</td><td>Existing 6.x systems where moving to 7.x is too large a rewrite</td><td>The full 6.x API plus the vector index and replication, backported</td></tr>
 </tbody>
 </table>
@@ -73,10 +73,10 @@
 cmake --build build -j
 tests/run_tests.sh</pre>
 <p>The examples in <code>examples/</code> show typed objects, journal crash recovery, a day-organized event database, replication, trading sessions and the string utilities; each has a page under <code>docs/examples</code>. The full documentation starts at <a href="index.html">docs/index.html</a>, <a href="index.html">README.txt</a> has the complete release notes index, and <a href="release_notes.html">RELEASE_NOTES.txt</a> has every 7.x release's notes in one file, newest first.</p>
-<h3 id="ComingNext">Coming next</h3>
-<ul>
-<li><strong>7.5 beta 3 (branch 7.5-beta, master):</strong> the <code>datareel</code> Python module, a pip package built from this repository (<code>python/</code>): it reads gxObjRepl nodes while they run, vector indexes and block files (beta 1), writes and replicates them like the C++ library (beta 2), and gains the incremental rejoin and the schema check, in C++ and Python (beta 3; <a href="replication_admin_guide.html">replication guide</a>, 4.3). See <a href="python_readme.html">python/README.md</a>, the <a href="python_users_manual.html">user's manual</a> with simple and detailed examples, the <a href="python_building.html">build guide</a>, <a href="../python/AGENTS.md">python/AGENTS.md</a> for AI-assisted work and <a href="release_notes_7_5.html">RELEASE_NOTES_7.5.txt</a>.</li>
-</ul>
+<h3 id="Python75">Python (7.5)</h3>
+<p>7.5 adds the <code>datareel</code> Python module, a pip package built from this repository (<code>python/</code>). It reads gxObjRepl nodes while they run, writes and replicates them like the C++ library (a Python primary or copy works with C++ nodes on the other side), and covers block files, B-trees, journals, vector index files, and gxStream over TLS with the object server. 7.5 also adds the incremental rejoin and the schema check, in C++ and Python (<a href="replication_admin_guide.html">replication guide</a>, 4.3).</p>
+<pre>pip install datareel-7.5-cp312-cp312-linux_x86_64.whl</pre>
+<p>See <a href="python_readme.html">python/README.md</a>, the <a href="python_users_manual.html">user's manual</a> with simple and detailed examples, the <a href="python_building.html">build guide</a>, <a href="../python/AGENTS.md">python/AGENTS.md</a> for AI-assisted work and <a href="release_notes_7_5.html">RELEASE_NOTES_7.5.txt</a>.</p>
 <h2 id="Datareel642TheLegacyVersion">DataReel 6.4.2: the legacy version</h2>
 <h3 id="Why">Why</h3>
 <p>DataReel 7.x is the way forward for new projects, but several mature production systems depend on the 6.x utility classes, containers and threading model. Rewriting them to remove those dependencies would be a large job with real regression risk.</p>
@@ -102,6 +102,6 @@ tests/run_tests.sh</pre>
 </tbody>
 </table>
 </main>
-<footer class="dr-footer">DataReel 7.5 beta 3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>

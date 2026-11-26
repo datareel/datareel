@@ -30,7 +30,7 @@ GUIDES = [
      'strip_ansi/AnsiStripper, gxCSVReader/gxCSVWriter, gxProcessLock, hexdump, ffind, txfilter (7.4)'),
     ('troubleshooting-and-support.md', 'Troubleshooting and support',
      'Read-only checks, problems by area, when to stop and escalate, the support summary'),
-    ('python.md', 'The datareel Python module (7.5 beta)',
+    ('python.md', 'The datareel Python module (7.5)',
      'Build the pip package, read gxObjRepl nodes, vector index files and block files from Python'),
 ]
 
@@ -105,11 +105,11 @@ def main():
         index.append('- [%s](docs/ai/%s): %s' % (title, f, desc))
     index += ['', '## Reference', '',
               '- [Readme](README.txt): What the library is for, building, file formats',
-              '- [Python package](python/README.md): the datareel pip package (7.5 beta 1), '
+              '- [Python package](python/README.md): the datareel pip package (7.5), '
               'its [user\'s manual](python/docs/users-manual.md), [build guide](python/docs/building.md) '
               'and [AGENTS.md](python/AGENTS.md)',
               '- [Release notes, all 7.x](RELEASE_NOTES.txt): every 7.x release in one file, newest first',
-              '- [Release notes 7.5](RELEASE_NOTES_7.5.txt): 7.5 beta 1, the datareel Python module',
+              '- [Release notes 7.5](RELEASE_NOTES_7.5.txt): 7.5, the datareel Python module',
               '- [Release notes 7.4](RELEASE_NOTES_7.4.txt): Vector extensions: '
               'vector index file, exact and HNSW nearest-neighbor search',
               '- [Release notes 7.3.3](RELEASE_NOTES_7.3.3.txt): Database '

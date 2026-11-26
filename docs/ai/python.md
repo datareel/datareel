@@ -1,8 +1,8 @@
-# The datareel Python module (7.5 beta 3)
+# The datareel Python module (7.5)
 
 The `datareel` pip package reads and writes, from Python, the stores of the DataReel C++ library:
 gxObjRepl nodes while they run (`Reader`), vector index files (`VectorIndex`), block files (`BlockFile`),
-and since beta 2 a node written from Python as a gxObjRepl primary (`Primary`). The rules for agents are in `python/AGENTS.md`; the user's manual is
+and a node written from Python as a gxObjRepl primary (`Primary`). The rules for agents are in `python/AGENTS.md`; the user's manual is
 `python/docs/users-manual.md` and the build guide `python/docs/building.md`.
 
 ## Build and install
@@ -10,7 +10,7 @@ and since beta 2 a node written from Python as a gxObjRepl primary (`Primary`). 
 ```
 python3.12 -m pip wheel python/ --no-build-isolation --no-deps -w dist/     # from the source top
 python/tests/run_python_tests.sh /tmp/drpy                                  # every test must pass
-python3.12 -m pip install --no-index dist/datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl
+python3.12 -m pip install --no-index dist/datareel-7.5-cp312-cp312-linux_x86_64.whl
 ```
 
 Build needs `gcc-c++ cmake openssl-devel python3.12-devel python3.12-setuptools python3.12-wheel`
@@ -22,21 +22,21 @@ Build needs `gcc-c++ cmake openssl-devel python3.12-devel python3.12-setuptools 
 | --- | --- |
 | Read a gxObjRepl node, running or not | `Reader(root, index_spec)` |
 | Objects of a database | `Reader.ids(db)`, `Reader.get(db, id)` (bytes or None) |
-| Walk a large database in pages (beta 2) | `Reader.ids(db, after=last_id, limit=1000)` until `[]` |
+| Walk a large database in pages | `Reader.ids(db, after=last_id, limit=1000)` until `[]` |
 | Objects by an index key | `Reader.find_key(index, key_bytes)` |
-| A key range (beta 2) | `Reader.find_range(index, lo, hi=None, limit=0)` (bytes compared byte by byte) |
-| The node's own index spec (beta 2) | `Reader(root)` with no spec; `r.index_spec` |
-| Rejoin with only the changed objects (beta 3) | `datareel.rejoin(old_root)` (incremental when it can be), then serve it as a `Copy`; the person decides |
-| A schema change (beta 3) | the `schema` setting; a refused rejoin means a rebuild into an empty folder, then `datareel.swap(old, new, index)` |
-| A standalone test node from a stopped copy (beta 2) | file copy, then `datareel.detach(test_root)`, then `Primary(test_root, ...)` |
+| A key range | `Reader.find_range(index, lo, hi=None, limit=0)` (bytes compared byte by byte) |
+| The node's own index spec | `Reader(root)` with no spec; `r.index_spec` |
+| Rejoin with only the changed objects | `datareel.rejoin(old_root)` (incremental when it can be), then serve it as a `Copy`; the person decides |
+| A schema change | the `schema` setting; a refused rejoin means a rebuild into an empty folder, then `datareel.swap(old, new, index)` |
+| A standalone test node from a stopped copy | file copy, then `datareel.detach(test_root)`, then `Primary(test_root, ...)` |
 | Similar vectors in a running node | `Reader.nearest(index, query, k)` |
 | Search a closed `.vix` file, with tag filters | `VectorIndex(path, spec).search(query, k, tags=...)` |
 | Walk a closed `.gxd` file | `BlockFile(path).addresses()`, `.read(address)` |
-| Write a node from Python (beta 2) | `Primary(root, settings=...)`, `with p.transaction(): p.put(...)`, `p.drain()` |
-| Run a copy, fail over, rejoin (beta 2) | `Copy(root, settings=...).serve()` in a thread, `takeover()`, `rejoin()`, `check()` |
-| Block files, B-trees, journals (beta 2) | `Database`, `BTree(path, key_size)`, `Journal` + `attach` + `datareel.transaction(j)` |
-| Write vector files (beta 2) | `create_vector_index()`, `VectorIndex(path, spec, write=True).insert()`, `merge_vector_indexes()` |
-| gxStream and the object server (beta 2) | `Stream`, `StreamServer`, `ObjectClient` |
+| Write a node from Python | `Primary(root, settings=...)`, `with p.transaction(): p.put(...)`, `p.drain()` |
+| Run a copy, fail over, rejoin | `Copy(root, settings=...).serve()` in a thread, `takeover()`, `rejoin()`, `check()` |
+| Block files, B-trees, journals | `Database`, `BTree(path, key_size)`, `Journal` + `attach` + `datareel.transaction(j)` |
+| Write vector files | `create_vector_index()`, `VectorIndex(path, spec, write=True).insert()`, `merge_vector_indexes()` |
+| gxStream and the object server | `Stream`, `StreamServer`, `ObjectClient` |
 
 ## Open a node and list it
 
@@ -221,12 +221,12 @@ with datareel.VectorIndex(path, spec) as v:
 ```
 <!-- end sample -->
 
-## Write a node from Python (beta 2)
+## Write a node from Python
 
 <!-- sample: python/examples/ex11_event_log.py -->
 ```python
 # python/examples/ex11_event_log.py
-"""Example 11 (detailed, 7.5 beta 2): an event log written from Python: batches, updates, removes, a rolled
+"""Example 11 (detailed): an event log written from Python: batches, updates, removes, a rolled
 back batch, and replication to a copy.
 
 Each batch is one transaction. A batch that fails half way is rolled back, so the node never holds part of
@@ -285,12 +285,12 @@ with datareel.Primary(root, settings=settings, quiet=True) as p:
 ```
 <!-- end sample -->
 
-## Block files and a B-tree in journal transactions (beta 2)
+## Block files and a B-tree in journal transactions
 
 <!-- sample: python/examples/ex12_journal_btree.py -->
 ```python
 # python/examples/ex12_journal_btree.py
-"""Example 12 (detailed, 7.5 beta 2): a block file and a B-tree index written together in journal transactions.
+"""Example 12 (detailed): a block file and a B-tree index written together in journal transactions.
 
 The C++ pattern of a gxDatabase data file with a gxBtree index, from Python: each record is a block in the data
 file, its key goes in the B-tree with the block's address, and a gxdJournal makes both changes one transaction.

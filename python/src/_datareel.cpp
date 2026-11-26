@@ -26,9 +26,10 @@ You should have received a copy of the GNU Lesser General Public
 License along with this library. If not, see
 <https://www.gnu.org/licenses/>.
 
-DataReel 7.5 beta: the "datareel" Python module (the _datareel
+DataReel 7.5: the "datareel" Python module (the _datareel
 extension; datareel/__init__.py is the public face). Plain CPython C
-API, no third-party packages. Read only in this beta:
+API, no third-party packages. The read-only classes (7.5 beta 1; the
+write, replication, database layer and gxStream classes follow below):
 
   Reader       gxObjReplReader: a gxObjRepl node folder, read while the
                node runs in another process (whole commits only)

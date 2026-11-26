@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_python_tests.sh - DataReel 7.5 beta: builds the datareel wheel and the C++ test programs, installs the wheel
+# run_python_tests.sh - DataReel 7.5: builds the datareel wheel and the C++ test programs, installs the wheel
 # in a throwaway virtual environment and runs python/tests/test_datareel.py and test_examples.py (every program in
 # python/examples). Throwaway folders only.
 #

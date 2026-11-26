@@ -6,7 +6,7 @@ the per-release files RELEASE_NOTES_7.*.txt; edit those, not this file.
 
 CONTENTS
 --------
-- DataReel 7.5 Beta 3 Patch 2 Release Notes (the Python module), 11/21/2026 (RELEASE_NOTES_7.5.txt)
+- DataReel 7.5 Release Notes (the Python module), 11/28/2026 (RELEASE_NOTES_7.5.txt)
 - DataReel 7.4.1 Release Notes (vector extensions), 11/20/2026 (7.4: 11/17/2026) (RELEASE_NOTES_7.4.txt)
 - DataReel 7.3.3 Beta Release Notes, 11/14/2026 (RELEASE_NOTES_7.3.3.txt)
 - DataReel 7.3.2 Beta Release Notes, 11/14/2026 (RELEASE_NOTES_7.3.2.txt)
@@ -20,14 +20,57 @@ CONTENTS
 RELEASE_NOTES_7.5.txt
 ========================================================================
 
-DataReel 7.5 Beta 3 Patch 2 Release Notes (the Python module), 11/21/2026
+DataReel 7.5 Release Notes (the Python module), 11/28/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 DataReel 7.5 adds the datareel Python module, a package that
 installs with pip. It is built from this repository (python/) on top of
 7.4.1, so everything in 7.4.1 is in it (RELEASE_NOTES_7.4.txt, "NEW IN
-7.4.1"). The file formats and the gxStream and gxObjRepl wire formats
-are those of 7.4.
+7.4.1"). The file formats are those of 7.4; the gxStream and gxObjRepl
+wire formats are those of 7.4 with new fields at the end of the
+replication hello (7.4.1 and 7.5 nodes work together).
+
+DataReel 7.5 is the main, fully supported release. 7.4.1 is the
+previous 7.x release; 6.4.2 is the legacy release (bug fixes and
+security updates only).
+
+NEW IN 7.5 (tag 7.5, 11/28/2026)
+--------------------------------
+7.5 is 7.5 beta 3 patch 2 as tested by OSA and OCA, released. The
+sections below list what each beta added. In short:
+
+- The datareel Python module (pip package datareel 7.5, wheel
+  datareel-7.5-cp312-cp312-linux_x86_64.whl for Linux x86_64 and
+  CPython 3.12, RHEL 9 and 10): read gxObjRepl nodes from another
+  process (Reader), write them as a gxObjRepl primary (Primary), run a
+  copy (Copy), and take over, rejoin, check and swap nodes, all working
+  with C++ nodes; the database layer (Database, BTree, Journal);
+  vector index files (VectorIndex, create_vector_index(),
+  merge_vector_indexes()); gxStream over TLS (Stream, StreamServer)
+  and the object service client (ObjectClient).
+- gxObjRepl (C++ and Python): the incremental rejoin (only the objects
+  either node changed after a split are sent), the schema check
+  (refused rejoin between nodes with different record layouts, then
+  rebuild and objrepl swap), index_check by index name, and the
+  objrepl options --schema, --rejoin-max-share and --drain-secs.
+- The user's manual (python/docs/users-manual.md) with 14 examples,
+  the build guide (python/docs/building.md), python/AGENTS.md and the
+  AI-assisted guide (docs/ai/python.md).
+- Package version 7.5; library version "7.5".
+
+UPGRADING FROM 7.4.1
+--------------------
+- C++ programs build against 7.5 unchanged. Existing database, index,
+  vector and journal files open as they are.
+- Replication: upgrade the copy first, then switch, then upgrade the
+  old primary (replication administrator's guide, section 5). 7.4.1
+  and 7.5 nodes replicate with each other in both directions. The
+  incremental rejoin needs 7.5 on both nodes: with an older primary a
+  rejoin is a full send, as before, and a node that took over with an
+  older build makes its first rejoin after the upgrade a full send.
+- Python programs written against a 7.5 beta: install the 7.5 wheel
+  over the beta. Since beta 3 patch 2, databases() leaves out names
+  starting with "_" (databases(hidden=True) lists them).
 
 NEW IN 7.5 BETA 3 PATCH 2 (tag 7.5-beta3-patch2, 11/21/2026)
 -------------------------------------------------------------
@@ -180,8 +223,8 @@ NEW IN 7.5 BETA 1
   node's vector index file and a block file. Built on RHEL 9 (UBI 9,
   CPython 3.12); the same wheel passes on RHEL 10.
 
-LIMITS OF BETA 3
-----------------
+LIMITS OF 7.5
+-------------
 - An incremental rejoin holds the new primary's lock while it sends
   (capped by rejoin-max-share).
 - Not wrapped: InfoHog and POD persistent objects, the 6.x-style
@@ -197,6 +240,10 @@ RELEASE_NOTES_7.4.txt
 
 DataReel 7.4.1 Release Notes (vector extensions), 11/20/2026 (7.4: 11/17/2026)
 DataReel Copyright (c) 2001-2026 DataReel Software Development
+
+DataReel 7.4.1 is the last 7.4 release. DataReel 7.5 (11/28/2026, the
+Python module: RELEASE_NOTES_7.5.txt) is now the main release, and all
+7.x fixes go into 7.5.
 
 DataReel 7.4 beta 3 (tag 7.4-beta3, 11/14/2026) follows beta 2 with the
 replication fixes and the security scan below (BETA 3). Beta 2:
@@ -1026,8 +1073,8 @@ RELEASE_NOTES_7.3.3.txt
 DataReel 7.3.3 Beta Release Notes, 11/14/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
-DataReel 7.3.3 is a beta bug fix release of 7.3.2. DataReel 7.4.1
-(11/20/2026) is now the stable release, and DataReel 6.4.2 the legacy
+DataReel 7.3.3 is a beta bug fix release of 7.3.2. DataReel 7.5
+(11/28/2026) is now the stable release, and DataReel 6.4.2 the legacy
 release (bug fixes and security updates only); please report problems
 through https://datareel.com/contact.php.
 
@@ -1118,8 +1165,8 @@ DataReel Copyright (c) 2001-2026 DataReel Software Development
 DataReel 7.3.3 fixes more database replication (gxrepl) problems found
 in production; see RELEASE_NOTES_7.3.3.txt.
 
-DataReel 7.3.2 is a beta bug fix release of 7.3.1. DataReel 7.4.1
-(11/20/2026) is now the stable release, and DataReel 6.4.2 the legacy
+DataReel 7.3.2 is a beta bug fix release of 7.3.1. DataReel 7.5
+(11/28/2026) is now the stable release, and DataReel 6.4.2 the legacy
 release (bug fixes and security updates only); please report problems
 through https://datareel.com/contact.php.
 
@@ -1226,8 +1273,8 @@ DataReel Copyright (c) 2001-2026 DataReel Software Development
 DataReel 7.3.2 fixes database replication (gxrepl) problems found in
 production; see RELEASE_NOTES_7.3.2.txt.
 
-DataReel 7.3.1 is a beta bug fix release of 7.3. DataReel 7.4.1
-(11/20/2026) is now the stable release, and DataReel 6.4.2 the legacy
+DataReel 7.3.1 is a beta bug fix release of 7.3. DataReel 7.5
+(11/28/2026) is now the stable release, and DataReel 6.4.2 the legacy
 release (bug fixes and security updates only); please report problems
 through https://datareel.com/contact.php.
 
@@ -1572,7 +1619,7 @@ DataReel Copyright (c) 2001-2026 DataReel Software Development
 DataReel 7.3.1 fixes the problems a security scan found; see
 RELEASE_NOTES_7.3.1.txt.
 
-DataReel 7.3 is a beta release. DataReel 7.4.1 (11/20/2026) is now the
+DataReel 7.3 is a beta release. DataReel 7.5 (11/28/2026) is now the
 stable release, and DataReel 6.4.2 the legacy release (bug fixes and
 security updates only); please report problems through
 https://datareel.com/contact.php.
@@ -1659,7 +1706,7 @@ DataReel Copyright (c) 2001-2026 DataReel Software Development
 DataReel 7.3 followed on the same day with memory-mapped reads and
 faster scans; see RELEASE_NOTES_7.3.txt.
 
-DataReel 7.2 is a beta release. DataReel 7.4.1 (11/20/2026) is now the
+DataReel 7.2 is a beta release. DataReel 7.5 (11/28/2026) is now the
 stable release, and DataReel 6.4.2 the legacy release (bug fixes and
 security updates only); please report problems through
 https://datareel.com/contact.php.
@@ -1817,7 +1864,7 @@ DataReel Copyright (c) 2001-2026 DataReel Software Development
 DataReel 7.2 followed on the same day with the journal, the page
 cache and faster I/O; see RELEASE_NOTES_7.2.txt.
 
-DataReel 7.1 is a beta release. DataReel 7.4.1 (11/20/2026) is now the
+DataReel 7.1 is a beta release. DataReel 7.5 (11/28/2026) is now the
 stable release, and DataReel 6.4.2 the legacy release (bug fixes and
 security updates only); please report problems through
 https://datareel.com/contact.php.
@@ -1872,7 +1919,7 @@ RELEASE_NOTES_7.0.txt
 DataReel 7.0 Beta Release Notes, 10/26/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
-DataReel 7.0 is a beta release. DataReel 7.4.1 (11/20/2026) is now the
+DataReel 7.0 is a beta release. DataReel 7.5 (11/28/2026) is now the
 stable release, and DataReel 6.4.2 the legacy release (bug fixes and
 security updates only); please report problems through
 https://datareel.com/contact.php.

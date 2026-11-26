@@ -1,4 +1,4 @@
-"""Example 10 (simple, 7.5 beta 2): write objects from Python as a gxObjRepl primary, then read them back.
+"""Example 10 (simple): write objects from Python as a gxObjRepl primary, then read them back.
 
 A primary needs the node's certificates even when no copy is listening (it connects when you pump()). The
 demo node's certificates are in the folder make_demo_node.sh made (PKI). ROOT is a new folder for this node.

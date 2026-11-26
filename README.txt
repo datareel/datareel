@@ -1,4 +1,4 @@
-DataReel 7.5 Beta 3 Readme File
+DataReel 7.5 Readme File
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 https://datareel.com
@@ -36,16 +36,20 @@ rest:
   certificate checking, and HTTPS, SMTP, POP3, FTPS and database block
   clients and servers.
 - Object replication between Windows and Linux nodes, in both
-  directions, with takeover and rejoin (7.4).
+  directions, with takeover and rejoin (7.4), and the incremental
+  rejoin (7.5).
+- A Python module (7.5): the datareel pip package reads and writes
+  the same databases and replicated nodes from Python (python/).
 - Stable, portable file formats: files written by DataReel releases
   going back to 2001 still open, byte for byte.
 
 The library has no dependencies except the system TLS library
 (OpenSSL on Linux, Schannel or OpenSSL on Windows).
 
-DataReel 7.4.1, released 11/20/2026, is the current DataReel release
-(7.4 with fixes: see "NEW IN 7.4.1" in RELEASE_NOTES_7.4.txt).
-DataReel 7 is the main, fully supported release line. DataReel 6
+DataReel 7.5, released 11/28/2026, is the current DataReel release
+(7.4.1 plus the datareel Python module and the incremental rejoin:
+see RELEASE_NOTES_7.5.txt). 7.4.1 (11/20/2026) is the previous 7.x
+release. DataReel 7 is the main, fully supported release line. DataReel 6
 (6.4.2) is the legacy release line: it is still supported with bug
 fixes and security updates, but gets no new features. Online documentation:
 https://datareel.com/clib7/ (Version 7) and https://datareel.com/clib/
@@ -345,7 +349,11 @@ RELEASE HISTORY
 ---------------
 RELEASE_NOTES.txt has the notes of every 7.x release in one file.
 
- 7.5   11/21/2026 Beta 3 Patch 2 (tag 7.5-beta3-patch2): databases() hides
+ 7.5   11/28/2026 Release: 7.5 beta 3 patch 2 as tested, the datareel
+                  Python module (pip package datareel 7.5) and the
+                  incremental rejoin ("NEW IN 7.5" in
+                  RELEASE_NOTES_7.5.txt).
+       11/21/2026 Beta 3 Patch 2 (tag 7.5-beta3-patch2): databases() hides
                   names starting with "_" (OSA).
        11/21/2026 Beta 3 Patch 1 (tag 7.5-beta3-patch1): index_check by
                   index name (OSA), Database static area (OCA).

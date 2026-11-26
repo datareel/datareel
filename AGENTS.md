@@ -19,7 +19,8 @@ https://datareel.com/clib7/. This file points to them instead of
 repeating them. When this file and the code disagree, the code wins:
 say so to the person you work for.
 
-DataReel 7.4.1 is the main, fully supported release. DataReel 6.4.2 is
+DataReel 7.5 is the main, fully supported release (7.4.1, the previous
+release, gets no more fixes). DataReel 6.4.2 is
 the legacy release: bug fixes and security updates only, no new
 features (it has its own `AGENTS.md`).
 
@@ -158,13 +159,15 @@ Manual: `README.txt` and `docs/ai/building.md`.
 
 1. Download the release from
    https://datareel.com/downloads/datareel7_downloads.php: the source
-   (`datareel-7.4.1.tar.gz` or `datareel-7.4.1.zip`) or, on Windows, a prebuilt
-   static library (`datareel-7.4.1-windows-x64-schannel.zip`, 64-bit
-   database engine, or `-x86-schannel.zip`, 32-bit engine), each with its
-   `.sha256sum` file.
+   (`datareel-7.5.tar.gz` or `datareel-7.5.zip`), the Python wheel
+   (`datareel-7.5-cp312-cp312-linux_x86_64.whl`, see `python/AGENTS.md`)
+   or, on Windows, a prebuilt static library where the page lists one
+   (`datareel-VERSION-windows-x64-schannel.zip`, 64-bit database engine,
+   or `-x86-schannel.zip`, 32-bit engine), each with its `.sha256sum`
+   file.
 2. Check it before unpacking, and stop if it fails:
-   `sha256sum -c datareel-7.4.1.tar.gz.sha256sum` (Linux) or
-   `Get-FileHash datareel-7.4.1.zip -Algorithm SHA256` compared with the
+   `sha256sum -c datareel-7.5.tar.gz.sha256sum` (Linux) or
+   `Get-FileHash datareel-7.5.zip -Algorithm SHA256` compared with the
    `.sha256sum` file (Windows PowerShell).
 3. Install the build tools: on RHEL `dnf install gcc-c++ cmake
    openssl-devel` (the person runs it, as root or with sudo); on Windows
@@ -457,7 +460,7 @@ are.
 | `examples/tls/` | TLS echo, HTTPS, SMTP, POP3, FTPS, gxStream programs |
 | `examples/general/` | gxConfig, LogFile, ThreadPool |
 | `docs/ai/` | Task guides and their sample programs |
-| `python/` | 7.5 beta: the `datareel` Python package; its own `AGENTS.md`, `docs/` (user's manual, build guide), `examples/`, `tests/` |
+| `python/` | 7.5: the `datareel` Python package; its own `AGENTS.md`, `docs/` (user's manual, build guide), `examples/`, `tests/` |
 | `docs/classes/` | HTML reference for each class |
 | `tests/` | `run_tests.sh`, mock mail/FTPS servers, damaged file test |
 | `utils/` | `db_debug`, `ix_debug`, `dr_digest`, `gxd_upgrade` and other file tools |

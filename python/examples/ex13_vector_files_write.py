@@ -1,4 +1,4 @@
-"""Example 13 (detailed, 7.5 beta 2): write vector index files from Python: day files with tags, an update, a
+"""Example 13 (detailed): write vector index files from Python: day files with tags, an update, a
 delete, a check, and a merge into one month file.
 
     python ex13_vector_files_write.py DIR

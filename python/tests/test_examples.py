@@ -1,4 +1,4 @@
-"""DataReel 7.5 beta: runs every program in python/examples against a demo node, as the user's manual shows them,
+"""DataReel 7.5: runs every program in python/examples against a demo node, as the user's manual shows them,
 and checks what they print. Run by python/tests/run_python_tests.sh (DR_TEST_BIN: the folder with
 test_gxobjrepl_reader; DR_TEST_CERTS_SH: utils/objrepl/objrepl_certs.sh).
 """

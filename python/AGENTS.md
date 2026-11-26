@@ -1,6 +1,6 @@
 # DataReel 7.5 Python module: AI-assisted builds, use and support
 
-This file is for AI-assisted work with the `datareel` Python module (DataReel 7.5 beta 3), the
+This file is for AI-assisted work with the `datareel` Python module (DataReel 7.5), the
 pip package that reads the object databases the DataReel C++ library writes. It tells an AI agent
 how to assist a site's own developers and administrators to build the wheel, install it, write Python
 code that reads DataReel stores, and troubleshoot. The agent assists; it never acts autonomously
@@ -79,7 +79,7 @@ in advisory mode, with no tool execution by the agent.
 
 ## 1. Rules for agents (read these first)
 
-1. **Writes go through `datareel.Primary` only (beta 2).** Never change a `.gxd`, `.btx`, `.vix` or node
+1. **Writes go through `datareel.Primary` only.** Never change a `.gxd`, `.btx`, `.vix` or node
    file by other means (open(..., "r+b"), mmap writes): that damages the database. A node has one writer:
    never open as a `Primary` a node that a C++ program (or another Python process) runs, and never a copy.
    Writing to a production node from Python is the person's decision, made explicitly; propose it, do not
@@ -89,7 +89,7 @@ in advisory mode, with no tool execution by the agent.
    folder made a primary with `datareel.detach()` (the same call as `takeover()`; user's manual, section
    5a). Never run `detach()` or `takeover()`
    on a production copy (the standby): that ends its replication. Give a test node no `copy` setting that
-   points at a production node. The emergency path (beta 3: production rejoins under a DEV primary, and only
+   points at a production node. The emergency path (production rejoins under a DEV primary, and only
    the changed objects cross) is always the person's decision, made by hand: propose the steps (the user's
    manual, section 5b), never start it. Never run `swap()` on production folders without the person's go.
 3. **A running node is read with `Reader` only.** `BlockFile` and `VectorIndex` are for files no process
@@ -100,7 +100,7 @@ in advisory mode, with no tool execution by the agent.
    format or numpy dtype from it (user's manual, example 5). Never guess a layout from the bytes; ask the
    person for the header.
 5. **Give `Reader` the node's own index spec** (`gxObjReplConfig::index`, the `index` line in
-   `ROOT/objrepl.conf`), or since beta 2 none: `Reader(root)` reads it from the node's `.def` files
+   `ROOT/objrepl.conf`), or none: `Reader(root)` reads it from the node's `.def` files
    (`r.index_spec`). Keys for `find_key()` and `find_range()` are the index's bytes, in the C++ field's
    size and byte order. Walk a large database in pages (`ids(db, after=last, limit=1000)`), not with one
    `ids()` call.
@@ -118,11 +118,11 @@ in advisory mode, with no tool execution by the agent.
 
 | Class | Does | When |
 | --- | --- | --- |
-| `datareel.Primary(root, config=None, settings=None, quiet=False)` (beta 2) | writes a node as a gxObjRepl primary: transactions, `put`, `remove`, `purge`, `new_id`, `pump`, `drain`, and reads | when this Python process is the node's only writer |
-| `datareel.Copy(root, ...)` (beta 2) | a copy node: `serve()` until `stop()`, reads | a copy this process runs |
-| `datareel.Database`, `BTree`, `Journal`, vector writes (beta 2) | block files, B-tree indexes, journal transactions, `.vix` writes and merges | files this process owns |
-| `datareel.Stream`, `StreamServer`, `ObjectClient` (beta 2) | gxStream over TLS (port 2073), the object server's object service | network peers with certificates |
-| `datareel.Node(root, config, role=)` (beta 2) | a `Primary` or a `Copy` (`role="copy"`) | as those |
+| `datareel.Primary(root, config=None, settings=None, quiet=False)` | writes a node as a gxObjRepl primary: transactions, `put`, `remove`, `purge`, `new_id`, `pump`, `drain`, and reads | when this Python process is the node's only writer |
+| `datareel.Copy(root, ...)` | a copy node: `serve()` until `stop()`, reads | a copy this process runs |
+| `datareel.Database`, `BTree`, `Journal`, vector writes | block files, B-tree indexes, journal transactions, `.vix` writes and merges | files this process owns |
+| `datareel.Stream`, `StreamServer`, `ObjectClient` | gxStream over TLS (port 2073), the object server's object service | network peers with certificates |
+| `datareel.Node(root, config, role=)` | a `Primary` or a `Copy` (`role="copy"`) | as those |
 | `status`, `digest`, `takeover`, `detach`, `rejoin`, `check`, `clear_alarm`, `index_check` | node folder tools, as the `objrepl` tool | folders no process holds (check: any time) |
 | `datareel.Reader(root, index="")` | a gxObjRepl node (primary or copy): `get`, `is_live`, `ids` (pages: `after`, `limit`), `databases`, `find_key`, `find_range`, `nearest`, `refresh`; `seq`, `epoch`, `role`, `index_spec` | while the node runs, or when none runs |
 | `datareel.VectorIndex(path, spec=None)` | a `.vix` file: `search` (tags, exact or graph), `get`; `dim`, `count`, `spec`, `metric` | files no process is writing |
@@ -134,7 +134,7 @@ Wheels: Linux x86_64, CPython 3.12, built on RHEL 9 and tested on RHEL 9 and 10.
 
 ## 3. Builds
 
-Follow `python/docs/building.md`. The short form, from the top of the source tree (branch `7.5-beta`):
+Follow `python/docs/building.md`. The short form, from the top of the source tree (tag `7.5`):
 
 ```
 python3.12 -m pip wheel python/ --no-build-isolation --no-deps -w dist/
@@ -147,7 +147,7 @@ describes. Show the person each command first (section 0).
 ## 4. Using it in a project
 
 1. Install the wheel in the project's virtual environment:
-   `python -m pip install --no-index datareel-7.5b3.post2-cp312-cp312-linux_x86_64.whl`.
+   `python -m pip install --no-index datareel-7.5-cp312-cp312-linux_x86_64.whl`.
 2. Find the store's facts: the node folder, its index spec, the C++ record struct of each database.
 3. Start from the user's manual examples: example 1 (open and list), 2 (decode), 3 (keys), 4 (vectors),
    5 (layout class and rows), 6 (follow a running node), 7 (vector files), 8 (block files), 9 (threads).

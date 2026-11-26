@@ -1,4 +1,4 @@
-"""DataReel 7.5 beta: tests of the datareel Python module against node folders, vector indexes and block files
+"""DataReel 7.5: tests of the datareel Python module against node folders, vector indexes and block files
 that the C++ library writes. Run by python/tests/run_python_tests.sh, which sets DR_TEST_BIN to a folder holding
 the C++ objrepl tool and test_gxobjrepl_reader (utils/objrepl), built with the 64-bit engine.
 

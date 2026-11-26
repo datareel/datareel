@@ -42,12 +42,12 @@ objrepl clear-alarm ROOT
 objrepl status ROOT
 objrepl engine                     the database engine (exit 0 for 64-bit, 1 for 32-bit)
 objrepl takeover ROOT              a copy becomes primary: epoch + 1
-objrepl rejoin ROOT [--full]       a former primary becomes a copy (7.5 beta 3: an incremental
+objrepl rejoin ROOT [--full]       a former primary becomes a copy (7.5: an incremental
                                    rejoin when it can be; --full: a full send)
-objrepl swap OLD NEW [--index SPEC]  7.5 beta 3: a rebuilt NEW in place of OLD (OLD is kept)
+objrepl swap OLD NEW [--index SPEC]  7.5: a rebuilt NEW in place of OLD (OLD is kept)
 Common: --name N --peer-name N --links SPEC --index SPEC --max-lag N --max-behind S
         --min-cert-days N --idle-timeout S --ack-timeout S --config FILE
-        7.5 beta 3: --schema TEXT --rejoin-max-share PERCENT --drain-secs S (the generator&#x27;s drain)</PRE>
+        7.5: --schema TEXT --rejoin-max-share PERCENT --drain-secs S (the generator&#x27;s drain)</PRE>
 <P>A node is a folder (ROOT). Any option may come from ROOT/objrepl.conf (or --config FILE), one "key value" line each, the option without "--"; the command line wins. The keys are listed in the <A HREF="../replication_admin_guide.html">administrator's guide</A>, section 2.3. <CODE>objrepl primary</CODE> is a test data generator: it writes test commits (adds, updates, removes, linked objects), sends them to the copy and waits up to 120 s (--drain-secs) for the copy to have them all, exit 0 (drained), 2 (not drained), 3 (refused), 4 (ROOT is a copy) or 64 (configuration or certificates). Programs write through the <A HREF="../classes/database/gxobjrepl.htm">gxObjRepl</A> API instead. <CODE>objrepl copy</CODE> runs until TERM or INT (Ctrl+C or Ctrl+Break on Windows), or until ROOT/objrepl.stop appears.</P>
 
 <h2 id="Examples">Examples</h2>
@@ -106,7 +106,7 @@ no alarm
 $ kill $(cat n1.pid)</PRE><P>The <A HREF="../replication_admin_guide.html">administrator's guide</A> covers the same steps in more detail, failover after a crash, upgrades, troubleshooting and the plain file copy alternative.</P>
 
 </main>
-<footer class="dr-footer">DataReel 7.5 beta 3 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
+<footer class="dr-footer">DataReel 7.5 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>
 </html>
 <!-- ******************************* -->
