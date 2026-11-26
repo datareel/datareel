@@ -79,7 +79,7 @@ static bool floats(PyObject *o, std::vector<float> &v)
     Py_buffer b;
     if(PyObject_GetBuffer(o, &b, PyBUF_FORMAT | PyBUF_C_CONTIGUOUS) == 0) {
       bool f32 = b.itemsize == 4 && b.format && (strcmp(b.format, "f") == 0 || strcmp(b.format, "<f") == 0 || strcmp(b.format, "=f") == 0);
-      if(f32) { v.resize((size_t)(b.len / 4)); memcpy(v.data(), b.buf, (size_t)b.len); }
+      if(f32 && b.len > 0) { v.resize((size_t)(b.len / 4)); memcpy(v.data(), b.buf, (size_t)(b.len / 4) * 4); }
       PyBuffer_Release(&b);
       if(f32) return true;
     }
