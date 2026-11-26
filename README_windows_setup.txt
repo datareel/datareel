@@ -223,8 +223,8 @@ use vcvars32.bat instead of vcvars64.bat.
 Schannel Private Keys (PEM and DER files)
 -----------------------------------------
 A Schannel build reads a PEM or DER private key and gives it to
-Windows. Schannel uses the key in the LSA process, so DataReel 7.4
-tries three places and keeps the first one Schannel accepts:
+Windows. Schannel uses the key in the LSA process, so DataReel (7.4
+and later) tries three places and keeps the first one Schannel accepts:
 
   1. the user key store: a named key in the current user's profile
      (the DataReel 7.3 method). Tested on Windows 11 from a console,

@@ -34,6 +34,18 @@ sections below list what each beta added. In short:
 - The user's manual (python/docs/users-manual.md) with 14 examples,
   the build guide (python/docs/building.md), python/AGENTS.md and the
   AI-assisted guide (docs/ai/python.md).
+- Windows: prebuilt static libraries again, as for 7.4.1:
+  datareel-7.5-windows-x64-schannel.zip (64-bit database engine) and
+  datareel-7.5-windows-x86-schannel.zip (32-bit engine), release
+  builds with Visual Studio 2026 (/MT, native Schannel TLS) and a CMake
+  package (find_package(DataReel)). Still no Windows Python wheel.
+- Documentation for 7.5: the security and the gxStream and replication
+  white papers (the incremental rejoin, the 7.5 hello fields, the
+  Python package), the port 2073 protocol specification
+  draft-gaer-datareel-gxstream-01 (docs/rfc/: the optional hello
+  fields and the frames F_RJ_SET, F_RJ_BATCH and F_RJ_END; -00 is
+  kept), the replication administrator's guide, the AI-assisted
+  guides and the benchmarks page.
 - Package version 7.5; library version "7.5".
 
 UPGRADING FROM 7.4.1

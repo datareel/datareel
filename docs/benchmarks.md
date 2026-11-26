@@ -1,8 +1,9 @@
-# DataReel 7.4 Benchmarks
+# DataReel 7.5 Benchmarks
 
-What the DataReel 7.4 database and vector index cost on one Linux machine, measured by one program
+What the DataReel 7.5 database and vector index cost on one Linux machine, measured by one program
 (`utils/dr_bench`, built with the utilities) with fixed random seeds. Every number below comes from the run of
-11/15/2026 described under "How it was measured"; run `dr_bench` on your own hardware for yours.
+11/15/2026 described under "How it was measured"; run `dr_bench` on your own hardware for yours. The run used DataReel 7.4; 7.5 changes only the replication rejoin (gxObjRepl) and adds the Python
+package, and none of the code measured here, so the numbers hold for 7.5.
 
 ## How it was measured
 

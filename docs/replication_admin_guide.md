@@ -1,9 +1,9 @@
 # DataReel Replication Administrator's Guide (gxObjRepl)
 
 This guide is for the person who runs object replication on two nodes: setting it up, watching it, taking over
-when the primary fails, and getting back. It covers gxObjRepl as shipped in DataReel 7.4. The class
+when the primary fails, and getting back. It covers gxObjRepl as shipped in DataReel 7.5 (7.4 and 7.4.1 work the same, without the incremental rejoin of section 4.3). The class
 reference is [gxobjrepl.htm](docs/classes/database/gxobjrepl.htm). The tool is `utils/objrepl/objrepl.cpp`, and the release
-notes are `RELEASE_NOTES_7.4.txt`.
+notes are `RELEASE_NOTES_7.5.txt` and `RELEASE_NOTES_7.4.txt`.
 
 > **7.4:** gxObjRepl replaces gxrepl page shipping, which 7.4 no longer has. A gxrepl binary installed
 > from a 7.4 beta keeps working as it is, but it is not part of 7.4. The gxrepl guide of the 7.4 betas 1 to 4 is

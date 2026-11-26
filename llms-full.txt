@@ -296,9 +296,13 @@ cmake --build /tmp/dr-off -j && tests/run_tests.sh /tmp/dr-off
 
 ### 5.1 What changes, and what does not
 
+- **From 7.4.1 to 7.5:** nothing to change: 7.5 adds the incremental
+  rejoin and the Python package (`RELEASE_NOTES_7.5.txt`, "UPGRADING FROM
+  7.4.1"). For replication, upgrade the copy first, then switch, then
+  the old primary (`docs/replication_admin_guide.md`, section 5).
 - **From 7.0 to 7.3.x:** the API is the same apart from the items in the
   release notes (`RELEASE_NOTES_7.x.txt`). Files written by 7.x and 6.2
-  open in 7.4 with the same build settings.
+  open in 7.4 and 7.5 with the same build settings.
 - **From 7.4 betas:** 7.4 beta 5 and later write the library's file
   headers in one layout on every platform. Older-layout files are read
   and written as they are; `utils/gxd_upgrade` converts one data file
@@ -378,7 +382,7 @@ cause and the fix (rule 1).
 
 | What | Command or file |
 | --- | --- |
-| Version | `version.txt`, `RELEASE_NOTES_7.4.txt` |
+| Version | `version.txt`, `RELEASE_NOTES_7.5.txt` |
 | Known issues and flaky tests | `KNOWN_ISSUES.md` |
 | Build options | `cmake-build/CMakeCache.txt` (`DATAREEL_64BIT_DATABASE`, `DATAREEL_NATIVE_TYPES`, `DATAREEL_SSL`) |
 | Library self-test | `tests/run_tests.sh <build folder>` |
@@ -921,7 +925,7 @@ Pick a layer:
 | A data file and its indexes opened together | `POD` | `pod.h` |
 | Objects with a key and variable length members | `InfoHog<KeyType>` | `infohog.h` |
 | Faster repeated reads | `gxDatabaseCache`, `BtreeCache` | `dbfcache.h`, `btcache.h` |
-| Nearest neighbor search on float vectors (7.4, in development) | `gxVectorIndex` | `gxvindex.h` |
+| Nearest neighbor search on float vectors (7.4) | `gxVectorIndex` | `gxvindex.h` |
 | Check and repair files | `db_debug`, `ix_debug` utilities | `utils/` |
 
 ## Concepts
@@ -1550,7 +1554,11 @@ vector index can make it again from its own records (`vix_rebuild`).
 with `gxObjReplReader` (Get, Ids, FindKey, Nearest), which reads whole
 commits under the node journal's shared lock (64-bit engine only).
 Never open a running node's files with gxDatabase or gxBtree directly:
-they can be read mid-batch.
+they can be read mid-batch. 7.5: after a split, `Rejoin()` makes the
+old primary take an incremental rejoin (only the objects either node
+changed are sent) when both nodes run 7.5 and their histories and
+schemas match (`schema` setting), and `Swap()` puts a rebuilt node in
+place; the same calls are in the Python package (`docs/ai/python.md`).
 
 ## Checking and repairing files
 

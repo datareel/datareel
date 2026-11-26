@@ -1,0 +1,1624 @@
+
+
+
+
+Network Working Group                                            D. Gaer
+Internet-Draft                             DataReel Software Development
+Intended status: Informational                          28 November 2026
+Expires: 1 June 2027
+
+
+  The DataReel gxStream Database Block Protocol and Object Replication
+                           over TCP Port 2073
+                    draft-gaer-datareel-gxstream-01
+
+Abstract
+
+   This document describes gxStream, the database block protocol of the
+   DataReel C++ library, and the services carried on it: the DataReel
+   database object server with its channel multiplex, remote access to
+   database objects and vector searches, and gxObjRepl object
+   replication between two independent object databases. gxStream runs
+   over TLS with certificates on both sides on TCP port 2073, which is
+   registered with IANA under the service name "gxs-data-port".  The
+   port was registered before a protocol description was required; this
+   document provides that description, as implemented in DataReel 7.5.
+   It is published for information and does not specify an Internet
+   standard.
+
+Note
+
+   This is an Independent Submission.  The protocol is defined by its
+   reference implementation, the DataReel library, which is free
+   software under the GNU Lesser General Public License version 3 or
+   later (https://datareel.com).  Where this document and the DataReel
+   7.5 source differ, the difference is listed in Appendix A.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 1 June 2027.
+
+
+
+Gaer                       Expires 1 June 2027                  [Page 1]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents (https://trustee.ietf.org/
+   license-info) in effect on the date of publication of this document.
+   Please review these documents carefully, as they describe your rights
+   and restrictions with respect to this document.
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   3
+     1.1.  Requirements Language . . . . . . . . . . . . . . . . . .   4
+     1.2.  Terminology . . . . . . . . . . . . . . . . . . . . . . .   4
+   2.  Transport . . . . . . . . . . . . . . . . . . . . . . . . . .   4
+     2.1.  TCP . . . . . . . . . . . . . . . . . . . . . . . . . . .   5
+     2.2.  TLS . . . . . . . . . . . . . . . . . . . . . . . . . . .   5
+     2.3.  Timeouts  . . . . . . . . . . . . . . . . . . . . . . . .   6
+   3.  The gxStream Block  . . . . . . . . . . . . . . . . . . . . .   6
+     3.1.  Block Header  . . . . . . . . . . . . . . . . . . . . . .   6
+     3.2.  Control Codes . . . . . . . . . . . . . . . . . . . . . .   7
+     3.3.  Maximum Block Size  . . . . . . . . . . . . . . . . . . .   9
+   4.  Basic Block Exchanges . . . . . . . . . . . . . . . . . . . .   9
+   5.  The Database Object Server  . . . . . . . . . . . . . . . . .   9
+     5.1.  Legacy Object Sessions  . . . . . . . . . . . . . . . . .  10
+   6.  The Channel Multiplex . . . . . . . . . . . . . . . . . . . .  10
+     6.1.  Frames  . . . . . . . . . . . . . . . . . . . . . . . . .  10
+     6.2.  Session and Channels  . . . . . . . . . . . . . . . . . .  12
+     6.3.  Flow Control  . . . . . . . . . . . . . . . . . . . . . .  13
+   7.  The Object Service  . . . . . . . . . . . . . . . . . . . . .  13
+     7.1.  Requests and Replies  . . . . . . . . . . . . . . . . . .  14
+     7.2.  Vector Searches . . . . . . . . . . . . . . . . . . . . .  15
+   8.  Object Replication (gxObjRepl)  . . . . . . . . . . . . . . .  15
+     8.1.  Connection  . . . . . . . . . . . . . . . . . . . . . . .  15
+     8.2.  Hello and Reply . . . . . . . . . . . . . . . . . . . . .  16
+     8.3.  Frames  . . . . . . . . . . . . . . . . . . . . . . . . .  17
+       8.3.1.  F_COMMIT  . . . . . . . . . . . . . . . . . . . . . .  19
+       8.3.2.  Full Send . . . . . . . . . . . . . . . . . . . . . .  19
+       8.3.3.  Incremental Rejoin  . . . . . . . . . . . . . . . . .  20
+     8.4.  Digests . . . . . . . . . . . . . . . . . . . . . . . . .  22
+     8.5.  Epochs, Takeover and Rejoin . . . . . . . . . . . . . . .  22
+     8.6.  Port  . . . . . . . . . . . . . . . . . . . . . . . . . .  22
+   9.  Legacy Transports (DataReel 6.x)  . . . . . . . . . . . . . .  23
+     9.1.  gxStream over Plain TCP . . . . . . . . . . . . . . . . .  23
+     9.2.  gxDatagram over UDP . . . . . . . . . . . . . . . . . . .  23
+   10. Error Handling  . . . . . . . . . . . . . . . . . . . . . . .  23
+
+
+
+Gaer                       Expires 1 June 2027                  [Page 2]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   11. Security Considerations . . . . . . . . . . . . . . . . . . .  24
+     11.1.  Confidentiality and Integrity  . . . . . . . . . . . . .  24
+     11.2.  Authentication and Authorization . . . . . . . . . . . .  24
+     11.3.  Replication  . . . . . . . . . . . . . . . . . . . . . .  25
+     11.4.  Resource Exhaustion  . . . . . . . . . . . . . . . . . .  25
+     11.5.  Server Control Codes . . . . . . . . . . . . . . . . . .  25
+     11.6.  Stored Data  . . . . . . . . . . . . . . . . . . . . . .  25
+   12. IANA Considerations . . . . . . . . . . . . . . . . . . . . .  25
+   13. References  . . . . . . . . . . . . . . . . . . . . . . . . .  26
+     13.1.  Normative References . . . . . . . . . . . . . . . . . .  26
+     13.2.  Informative References . . . . . . . . . . . . . . . . .  27
+   Appendix A.  Implementation Status  . . . . . . . . . . . . . . .  28
+   Acknowledgments . . . . . . . . . . . . . . . . . . . . . . . . .  29
+   Changes since -00 . . . . . . . . . . . . . . . . . . . . . . . .  29
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  29
+
+1.  Introduction
+
+   DataReel is a cross-platform C++ library with an embedded object
+   database and TLS communication classes.  Since 1999 it has had a
+   block protocol, gxStream, that carries database blocks between
+   programs: the same block header the database writes before every
+   object in its files is sent on the network, followed by the block's
+   bytes.  TCP and UDP port 2073 were registered with IANA for this
+   protocol as "gxs-data-port", "DataReel Database Socket".
+
+   DataReel 7 (2026) rewrote the protocol on TLS: no block is ever sent
+   or accepted in cleartext, servers require client certificates by
+   default, and every length received is checked before it is used.
+   DataReel 7.3.1 added the database object server, which carries
+   several services over one listener and a multiplex of independent
+   channels.  DataReel 7.4 added vector searches to the object service,
+   a canonical block header on every platform, and gxObjRepl, which
+   replicates objects (never file pages) from a primary node to a copy.
+   DataReel 7.5 added the incremental rejoin to gxObjRepl and a Python
+   package that uses the same protocol.
+
+   This document specifies:
+
+   *  the transport and TLS requirements (Section 2);
+
+   *  the gxStream block and its control codes (Section 3) and the basic
+      block exchanges (Section 4);
+
+   *  the database object server's service selection (Section 5);
+
+   *  the channel multiplex (Section 6), the object service and vector
+      searches (Section 7);
+
+
+
+Gaer                       Expires 1 June 2027                  [Page 3]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   *  the gxObjRepl replication protocol (Section 8).
+
+   DataReel 6.x, the legacy release line, can also carry gxStream blocks
+   over plain TCP and over UDP.  These legacy transports are described
+   in Section 9 for completeness; they have no authentication or
+   encryption and are NOT RECOMMENDED.
+
+1.1.  Requirements Language
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   This document describes an existing protocol.  The requirement words
+   state what an implementation needs to do to interoperate with
+   DataReel 7.5 (and 7.4) and to keep its security properties.
+
+1.2.  Terminology
+
+   Block:  A 32-byte block header followed by zero or more body bytes.
+
+   Client, server:  The TLS client (the side that opens the TCP
+      connection) and the TLS server.
+
+   Object:  A record stored in a DataReel database file, identified by
+      its file address on one node or, in replication, by a 64-bit
+      object id shared by both nodes.
+
+   Channel:  One independent stream of messages inside a multiplex
+      session.
+
+   Primary, copy:  The replication node that takes writes, and the node
+      that receives them.
+
+   Epoch:  A replication generation number, raised by each takeover.
+
+   Integer types are written u8, u16, u32 and u64 (unsigned, 1, 2, 4 and
+   8 bytes), i64 (signed, 8 bytes, two's complement) and f32 (IEEE 754
+   binary32).  Unless a section says otherwise, every integer and float
+   is sent in little endian byte order.
+
+2.  Transport
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                  [Page 4]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+2.1.  TCP
+
+   gxStream runs over TCP [RFC9293].  Servers listen on port 2073 unless
+   configured otherwise, and clients connect to port 2073 unless given
+   another port.  A server MAY listen on IPv6 and IPv4 at once.
+   Implementations SHOULD disable the Nagle algorithm on replication
+   connections, since each frame is answered by a small acknowledgment.
+
+2.2.  TLS
+
+   Every gxStream connection MUST be protected with TLS.  The TLS
+   handshake starts immediately after the TCP connection is established;
+   there is no cleartext phase and no STARTTLS command.
+
+   *  Implementations MUST support TLS 1.2 [RFC5246] and SHOULD support
+      TLS 1.3 [RFC8446].  They MUST NOT negotiate SSL 2.0, SSL 3.0, TLS
+      1.0 or TLS 1.1, and SHOULD follow [RFC9325] in the choice of
+      cipher suites.
+
+   *  Neither side may send or accept a block before the handshake has
+      completed.  An implementation MUST NOT send blocks on, or accept
+      blocks from, a connection whose handshake failed or was not run.
+
+   *  A client MUST send the server name indication extension when it
+      connects by host name, and MUST verify the server's certificate
+      chain [RFC5280] and the server's identity [RFC9525] (DNS name, or
+      IP address for a numeric host).  Partial-label wildcards MUST NOT
+      be accepted.  A failed check closes the connection before any
+      block is sent.
+
+   *  A gxStream server SHOULD require a client certificate.  Such a
+      server MUST verify the client's chain against a configured set of
+      client certification authorities only (not a general trust store)
+      and MUST accept only clients named in a configured allow list, by
+      the SHA-256 fingerprint of the certificate or by its subject
+      common name (exact, case sensitive match).  A server that accepts
+      clients without certificates MUST be configured to do so
+      explicitly.
+
+   *  No application-layer protocol negotiation (ALPN) identifier is
+      used.  The service is selected by the first block (Section 5).
+
+   A failed handshake, failed certificate check or failed allow list
+   check closes the TCP connection.
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                  [Page 5]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+2.3.  Timeouts
+
+   Every handshake, read and write SHOULD be bounded by a timeout.
+   DataReel 7.5 uses 10 seconds for the handshake and 120 seconds for
+   each block on the database object server, 30 seconds for the
+   replication handshake and hello, and a configurable idle timeout
+   (default 120 seconds) for replication frames.
+
+3.  The gxStream Block
+
+3.1.  Block Header
+
+   Every block begins with a 32-byte header of four 64-bit little endian
+   words:
+
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                    Check Word (64 bits)                       |
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                    Length (64 bits)                           |
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                    Status (64 bits)                           |
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                    Result (64 bits)                           |
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+                           Figure 1: Block Header
+
+   Check Word:
+      0x000000000000FEFE.  A receiver MUST treat any other value as a
+      loss of synchronization and close the connection.
+
+   Length:
+      The number of body bytes that follow the header.  The high 32 bits
+      MUST be zero; a sender MUST NOT send a block longer than
+      2147483647 bytes.  A receiver MUST compare the length with its
+      maximum block size before it allocates memory for the body, and
+      MUST close the connection if it is larger.
+
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                  [Page 6]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   Status:
+      Byte 0 (the least significant byte) is the data status.  Senders
+      set it to 0x56 ("V", a block received from a remote device);
+      receivers MUST ignore it.  Byte 1 is the control code
+      (Section 3.2).  Bytes 2 to 7 MUST be zero.
+
+   Result:
+      A signed 64-bit value carried by a result block (Section 4); zero
+      in every other block.
+
+   The high four bytes of the Check Word and of the Status word are
+   always zero.  A receiver that finds a non-zero byte there has met a
+   peer that sends the obsolete header with 32-bit words (a 24-byte or
+   16-byte header sent by DataReel builds older than 7.4 beta 5 on
+   64-bit Windows, or by 32-bit builds).  It MUST close the connection
+   and SHOULD report that cause; it MUST NOT try to read the block.
+
+   The block header is the one DataReel writes before each block in its
+   database files; on the network the Result word carries what the file
+   uses as a free list pointer.
+
+3.2.  Control Codes
+
+   The control code is one ASCII character:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                  [Page 7]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   +==========+=============+==========================================+
+   | Code     | Name        | Meaning                                  |
+   +==========+=============+==========================================+
+   | 0x41     | Add         | The body is a new object to add.         |
+   | "A"      |             |                                          |
+   +----------+-------------+------------------------------------------+
+   | 0x43     | Change      | The body names an object to change; an   |
+   | "C"      |             | "S" block with the new contents follows. |
+   +----------+-------------+------------------------------------------+
+   | 0x44     | Delete      | The body names an object to delete.      |
+   | "D"      |             |                                          |
+   +----------+-------------+------------------------------------------+
+   | 0x4B     | Kill server | Header only.  Asks the server to shut    |
+   | "K"      |             | down.                                    |
+   +----------+-------------+------------------------------------------+
+   | 0x4C     | Close       | Header only.  The sender is done with    |
+   | "L"      | connection  | the connection.                          |
+   +----------+-------------+------------------------------------------+
+   | 0x52     | Request     | The body is a request; the reply is a    |
+   | "R"      |             | block.                                   |
+   +----------+-------------+------------------------------------------+
+   | 0x53     | Send        | The body is data: a reply, a multiplex   |
+   | "S"      |             | frame or a replication frame.            |
+   +----------+-------------+------------------------------------------+
+   | 0x54     | Restart     | Header only.  Asks the server to         |
+   | "T"      | server      | restart.                                 |
+   +----------+-------------+------------------------------------------+
+   | 0x57     | Acknowledge | Header only.  An acknowledgment; the     |
+   | "W"      |             | Result word carries the result.          |
+   +----------+-------------+------------------------------------------+
+
+                           Table 1: Control Codes
+
+   Other code values are defined in the DataReel headers for database
+   file use or for earlier designs and are not sent by the services in
+   this document.  A server MUST close a session that sends a code its
+   service does not expect.  "K" and "T" give a client control over the
+   server process: a server MUST NOT act on them unless the client is
+   authorized to administer the server; the DataReel 7.5 database object
+   server does not act on them and closes the session.
+
+
+
+
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                  [Page 8]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+3.3.  Maximum Block Size
+
+   Each receiver has a maximum block size.  DataReel 7.5 uses 67108864
+   bytes (64 MiB) by default and 17825792 bytes (17 MiB) on the database
+   object server.  A sender SHOULD NOT send a block larger than the peer
+   is known to accept: multiplex senders split messages into frames of
+   at most 1 MiB (Section 6.3), and replication limits objects to 32 MiB
+   and commits to 60 MiB.
+
+4.  Basic Block Exchanges
+
+   The original gxStream exchanges use the control codes directly.  The
+   object service accepts them from DataReel 6.x style ("legacy")
+   clients (Section 5.1).
+
+   Request:
+      The client sends an "R" block whose body is the request; the
+      server answers with one "S" block whose body is the reply
+      (possibly empty).
+
+   Add:
+      The client sends an "A" block whose body is the object; the server
+      answers with a result block.
+
+   Change:
+      The client sends a "C" block whose body names the object, then an
+      "S" block with the new contents.
+
+   Delete:
+      The client sends a "D" block whose body names the object.
+
+   Result block:
+      A "W" header with Length 0 and the result (for example a file
+      address, 0 for none) in the Result word.
+
+   Acknowledgment:
+      A "W" header with Length 0 and Result 0.
+
+   Close:
+      An "L" header.  The receiver closes the session.
+
+5.  The Database Object Server
+
+   The DataReel database object server carries several services on one
+   listener.  After the TLS handshake and the client certificate checks,
+   the server reads the session's first block and gives the session to
+   the first service that claims it:
+
+
+
+
+Gaer                       Expires 1 June 2027                  [Page 9]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   1.  An "S" block whose body is a multiplex HELLO frame (Section 6):
+       the multiplex, with the object service on its channels.
+
+   2.  An "A" or "R" block: the legacy object service, if the server is
+       configured with a legacy database.
+
+   A first block that no service claims closes the session.  The first
+   byte of a multiplex body is 0x4D ("M"); services that use "S" blocks
+   for other messages MUST NOT start their first message with that byte.
+
+   To resist connections that never complete TLS, a server SHOULD run
+   each handshake apart from its accept loop with a short timeout and a
+   limit on concurrent handshakes (DataReel 7.5: 10 seconds, 16
+   handshakes), and SHOULD limit the number of authenticated sessions
+   (DataReel 7.5: 4 by default).  Only sessions that passed the
+   certificate checks count against the session limit.
+
+5.1.  Legacy Object Sessions
+
+   On a server configured with a legacy database:
+
+   *  An "A" block adds its body as a new object.  The reply is a result
+      block with the new object's file address, or 0 if the add failed
+      (for example because the database is read-only).
+
+   *  An "R" block whose body is an 8-byte object address is answered
+      with an "S" block holding that object, or an empty "S" block if
+      there is none.
+
+   *  An "L" block ends the session.  Any other block also ends it.
+
+6.  The Channel Multiplex
+
+   The multiplex carries numbered channels over one connection.  Each
+   channel has its own order, flow control and errors, so one slow or
+   failed channel does not hold up the others.
+
+6.1.  Frames
+
+   Each multiplex frame is one "S" block.  Its body is an 18-byte frame
+   header followed by the payload:
+
+
+
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 10]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   +--------+--------+--------------------+-------------------------+
+   | Mark   | Kind   | Channel (u32)      | Sequence (u64)          |
+   | 1 byte | 1 byte | 4 bytes            | 8 bytes                 |
+   +--------+--------+--------------------+-------------------------+
+   | Flags (u32)     | Payload (Length - 18 bytes)                  |
+   | 4 bytes         |                                              |
+   +-----------------+----------------------------------------------+
+
+                       Figure 2: Multiplex Frame Body
+
+   Mark:  0x4D ("M").
+
+   Kind:  The frame kind, 1 to 9 (Table 2).
+
+   Channel:  The channel number.  Channel 0 is the connection itself
+      (HELLO, and CLOSE of the whole connection).
+
+   Sequence:  For DATA frames, a per-channel counter starting at 1 and
+      increasing by 1 for each DATA frame the sender sends on the
+      channel.  Control frames carry 0.
+
+   Flags:  Bit 0 (LAST) marks the last DATA frame of a message.  Other
+      bits MUST be zero.
+
+   In payloads, "str" is a u32 length followed by that many bytes, and
+   "bytes" is a u64 length followed by that many bytes.  Every length
+   MUST be checked against the remaining payload; a payload that is too
+   short is malformed.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 11]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+     +======+=========+=============================================+
+     | Kind | Name    | Payload                                     |
+     +======+=========+=============================================+
+     | 1    | HELLO   | str "GXDBMUX", u32 version (1)              |
+     +------+---------+---------------------------------------------+
+     | 2    | OPEN    | str service, str name, str mode, u64 credit |
+     +------+---------+---------------------------------------------+
+     | 3    | OPENED  | u64 credit, bytes extra                     |
+     +------+---------+---------------------------------------------+
+     | 4    | REFUSED | str reason                                  |
+     +------+---------+---------------------------------------------+
+     | 5    | DATA    | service data                                |
+     +------+---------+---------------------------------------------+
+     | 6    | CREDIT  | u64 bytes                                   |
+     +------+---------+---------------------------------------------+
+     | 7    | ACK     | u64 seq, u64 lsn                            |
+     +------+---------+---------------------------------------------+
+     | 8    | ERROR   | str reason                                  |
+     +------+---------+---------------------------------------------+
+     | 9    | CLOSE   | (empty)                                     |
+     +------+---------+---------------------------------------------+
+
+                      Table 2: Multiplex Frame Kinds
+
+   A block that is not an "S" block, or whose body is not a frame
+   (shorter than 18 bytes, a wrong mark, an unknown kind), ends the
+   connection.  An "L" block ends the connection.
+
+6.2.  Session and Channels
+
+   1.  The client sends HELLO on channel 0.  The server answers with its
+       own HELLO.  A side that receives a HELLO with another magic
+       string or version MUST end the connection.  A client MUST send
+       HELLO before any OPEN.
+
+   2.  The client opens a channel with OPEN, choosing an unused non-zero
+       channel number.  The payload names the service ("object" for
+       Section 7), the object to open (a database name) and the mode
+       ("read" or "write"), and gives the opener's receive credit
+       (Section 6.3).
+
+   3.  The accepting side answers OPENED (with its own credit and
+       optional service data) or REFUSED (with a reason).  It MUST
+       refuse an OPEN on channel 0, on a channel that is open, or with a
+       malformed payload.
+
+   4.  Either side sends DATA on an open channel.  A message is a run of
+       DATA frames ending with one that has the LAST flag.
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 12]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   5.  Either side closes a channel with CLOSE, or with ERROR and a
+       reason.  A CLOSE on channel 0 ends the connection.  DATA that
+       arrives for a closed channel is discarded.
+
+   Frames of one channel are delivered in the order they were sent; TLS
+   over TCP provides that order.  ACK frames are passed to the channel's
+   consumer in order with its DATA frames; a service uses them to report
+   that the data up to a DATA sequence number is durable at a log
+   sequence number (lsn) of its own.
+
+6.3.  Flow Control
+
+   Flow control is per channel and counts DATA payload bytes only;
+   control frames are not counted.
+
+   *  Each side's credit for a channel starts at the value the other
+      side gave in OPEN or OPENED: the size of its receive queue for
+      that channel (DataReel 7.5: 16 MiB).
+
+   *  A sender MUST NOT send a DATA frame larger than its remaining
+      credit, and subtracts each DATA payload from the credit as it
+      sends it.
+
+   *  As the receiver's consumer takes data, the receiver returns the
+      room with CREDIT frames.  DataReel 7.5 sends CREDIT when a quarter
+      of the queue has been consumed, or when the queue becomes empty.
+
+   *  A receiver MUST count the DATA bytes it has received on each
+      channel and, if they exceed the credit it has granted in total,
+      MUST close the channel with ERROR ("over credit").
+
+   *  Senders SHOULD NOT send DATA payloads larger than 1 MiB, and
+      SHOULD share the connection between channels fairly.  DataReel 7.5
+      sends control frames first, then DATA frames by deficit round
+      robin with a quantum of 256 KiB.
+
+7.  The Object Service
+
+   The object service gives remote access to the objects of the
+   databases a server is configured with.  A client opens a multiplex
+   channel with service "object", the database name and mode "read" or
+   "write".  The server MUST refuse the open for a database it does not
+   serve, for any other mode, and for mode "write" on a database that is
+   read-only or is a replicated copy.
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 13]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+7.1.  Requests and Replies
+
+   Each request is one message: a u8 operation followed by its
+   arguments.  Each reply is one message: a u8 status (0 success, 1
+   error) followed by the result on success, or by a str (u32 length and
+   bytes) with the error on failure.  An empty request message closes
+   the channel with an error.
+
+      +====+===============+====================+===================+
+      | Op | Name          | Arguments          | Result            |
+      +====+===============+====================+===================+
+      | 1  | ADD           | bytes data (length | u64 address       |
+      |    |               | at least 1)        |                   |
+      +----+---------------+--------------------+-------------------+
+      | 2  | REQUEST       | u64 address        | bytes data        |
+      +----+---------------+--------------------+-------------------+
+      | 3  | CHANGE        | u64 address, bytes | (empty)           |
+      |    |               | data               |                   |
+      +----+---------------+--------------------+-------------------+
+      | 4  | DELETE        | u64 address        | (empty)           |
+      +----+---------------+--------------------+-------------------+
+      | 5  | FIRST         | (none)             | u64 address, 0 if |
+      |    |               |                    | none              |
+      +----+---------------+--------------------+-------------------+
+      | 6  | NEXT          | u64 address        | u64 next address, |
+      |    |               |                    | 0 if none         |
+      +----+---------------+--------------------+-------------------+
+      | 7  | VECTOR_SEARCH | Section 7.2        | Section 7.2       |
+      +----+---------------+--------------------+-------------------+
+      | 8  | VECTOR_INFO   | (none)             | Section 7.2       |
+      +----+---------------+--------------------+-------------------+
+
+                     Table 3: Object Service Operations
+
+   *  Addresses are the object's file address in the server's database;
+      address 0 is never an object.
+
+   *  ADD, CHANGE and DELETE are refused on a channel opened "read".  On
+      a writable database each one is one durable transaction.  CHANGE
+      MUST carry exactly the object's existing length.
+
+   *  Reads of a replicated copy MUST NOT observe a partly applied
+      replication commit.
+
+   *  A request whose arguments do not exactly fill the message is
+      malformed and answered with an error.
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 14]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+7.2.  Vector Searches
+
+   A database configured with a vector index answers VECTOR_SEARCH and
+   VECTOR_INFO on any channel, read only.  The VECTOR_SEARCH arguments
+   are, in order: u32 version (1); u32 k (1 to 1000); u32 ef (0 for the
+   server default of 64, at most 4096); u32 dim (MUST equal the index's
+   dimension); u32 flags (bit 0: apply the day range; bit 1: strict, a
+   missing index file is an error; other bits MUST be zero); u32
+   tag_mask (bits 0 to 3; other bits MUST be zero); u32 lo[4]; u32 hi[4]
+   (when bit i of tag_mask is set, tag i must be within lo[i]..hi[i]);
+   u32 day_lo; u32 day_hi; and f32 query[dim].  The arguments MUST be
+   exactly that long and every query value MUST be finite.
+
+   The VECTOR_SEARCH result is: u32 version (1); u32 count; u32 files
+   skipped by their day range; u32 files missing; count entries of { i64
+   id, f32 distance, u32 tags[4], u32 file }, sorted by distance, then
+   file, then id; u32 names; and names entries of { u32 file, str path }
+   for the files the results name, with paths relative to the index
+   manifest's folder.
+
+   The VECTOR_INFO result is: u32 version (1), u32 dim, u32 element
+   type, u32 metric, u32 files, u64 nodes, u64 deleted, str spec.
+
+   A server SHOULD limit concurrent searches; DataReel 7.5 runs at most
+   4 at once and answers a search that waits more than 5 seconds for a
+   slot with the error "busy".
+
+8.  Object Replication (gxObjRepl)
+
+   gxObjRepl replicates the object databases of a primary node to a copy
+   node.  Only objects travel; each node keeps its own file addresses,
+   free space and indexes.  Objects are identified by 64-bit ids shared
+   by both nodes.  Replication is asynchronous.
+
+8.1.  Connection
+
+   The primary is the TLS client and the copy is the TLS server.  The
+   copy MUST require a client certificate from the configured
+   certification authority with the configured subject common name; the
+   primary MUST verify the copy's certificate and identity
+   (Section 2.2).
+
+   Each replication frame is the body of one "S" block.  The copy
+   answers each frame with exactly one "S" block.  The primary sends the
+   next frame only after it has the answer.  In this section a "str" is
+   a u16 length followed by that many bytes.
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 15]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   The copy handles one primary connection at a time.  It closes the
+   connection, without an answer, when a frame breaks the rules below;
+   it SHOULD record the reason where an administrator will see it
+   (DataReel writes an alarm file).
+
+8.2.  Hello and Reply
+
+   The first frame on each connection is the primary's hello:
+
+   hello = u32 magic         ; 0x3550524F ("ORP5" in byte order)
+           u64 epoch         ; the primary's epoch
+           str link-map      ; link fields, "DB:OFFSET:TARGET_DB,..."
+           str name          ; the primary's node name
+           u8  role          ; 1 (primary)
+           u64 last-seq      ; the primary's last commit
+           u64 digest        ; the running digest at last-seq
+           ; since DataReel 7.5 (optional, see below):
+           u32 rj-magic      ; 0x31304A52 ("RJ01" in byte order)
+           u64 base-seq      ; the seq at which this primary took over
+           u64 base-digest   ; the running digest at base-seq
+           str fingerprint   ; the schema fingerprint
+
+   The copy answers:
+
+   reply = u8  ok            ; 1 accepted, 0 refused
+           u64 applied-seq   ; the last commit the copy applied
+           u64 epoch         ; the copy's epoch
+           u8  in-full-send  ; 1 if a full send is under way
+           str name          ; the copy's node name
+           u8  role          ; 2 (copy)
+           u64 digest        ; the running digest at applied-seq
+           str why           ; the reason when ok = 0
+           ; since DataReel 7.5 (optional, see below):
+           u32 rj-magic      ; 0x31304A52
+           u8  incremental   ; 1 if the copy takes an incremental rejoin
+           str fingerprint   ; the copy's schema fingerprint
+
+   The copy MUST refuse (ok = 0, then close) a hello that is malformed
+   or has another magic number; a hello received while the copy is
+   itself a primary; a role other than 1; a name other than the
+   configured peer name, if one is configured; an epoch lower than the
+   copy's; a last-seq lower than the copy's applied-seq when no full
+   send is under way; a malformed link map; or, when the copy has its
+   own link map configured, a link map that differs from it or link
+   fields that overlap the copy's index fields.
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 16]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   The primary MUST stop (and SHOULD raise an alarm) when the reply has
+   ok = 0, a role other than 2, or a name other than its configured copy
+   name.  Unless the copy is in a full send or has applied nothing, the
+   primary MUST also check the copy's history: applied-seq MUST NOT
+   exceed the primary's last commit, and the copy's digest MUST equal
+   the primary's digest at applied-seq.  A primary that no longer knows
+   its digest at that sequence MUST refuse the copy; an administrator
+   then has the copy rejoin.
+
+   The fields after the rj-magic are optional in both directions.  A
+   receiver that finds fewer than 4 bytes after the fields above, or
+   another magic number, MUST treat the peer as one that does not have
+   them (a DataReel 7.4 node), and MUST ignore bytes after the fields it
+   knows.  A primary sends base-seq 0 when it has no recorded takeover.
+   The schema fingerprint is the text
+   "index=SPEC;links=MAP;schema=TEXT": the node's index specification
+   and link map, each in a canonical order, and the application's record
+   layout version (free text of at most 200 characters, no ";").
+   Outside an incremental rejoin a fingerprint that differs is not a
+   reason to refuse; an implementation SHOULD log it.
+
+   Having accepted the copy, the primary sends F_EPOCH (Section 8.3).
+   The copy MUST refuse every other frame kind on the connection until
+   it has received F_EPOCH.  The copy saves the epoch durably on
+   F_EPOCH, never at the hello, so that a primary that then refuses the
+   copy cannot fence out the real one.
+
+8.3.  Frames
+
+   Each frame starts with a u8 kind:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 17]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+    +======+==============+=====================+=====================+
+    | Kind | Name         | Contents after the  | Copy's answer       |
+    |      |              | kind                |                     |
+    +======+==============+=====================+=====================+
+    | 1    | F_COMMIT     | u64 seq, u64 epoch, | u64 seq applied     |
+    |      |              | u32 ops, ops        |                     |
+    +------+--------------+---------------------+---------------------+
+    | 2    | F_SNAP_BEGIN | u64 base seq, u64   | u64 0               |
+    |      |              | epoch               |                     |
+    +------+--------------+---------------------+---------------------+
+    | 3    | F_SNAP_BATCH | u32 records,        | u64 0               |
+    |      |              | records             |                     |
+    +------+--------------+---------------------+---------------------+
+    | 4    | F_SNAP_END   | u64 base seq, u64   | u64 base seq        |
+    |      |              | digest, u64 count,  |                     |
+    |      |              | u64 hash            |                     |
+    +------+--------------+---------------------+---------------------+
+    | 5    | F_EPOCH      | u64 epoch           | u64 applied seq     |
+    +------+--------------+---------------------+---------------------+
+    | 6    | F_SNAP_DLOG  | u32 entries,        | u64 0               |
+    |      |              | entries of {u64     |                     |
+    |      |              | seq, u64 digest}    |                     |
+    +------+--------------+---------------------+---------------------+
+    | 7    | F_RJ_SET     | u64 base seq, u64   | u8 ok, u32 entries, |
+    |      |              | up-to seq           | entries of {str     |
+    |      |              |                     | database, u64 id}   |
+    +------+--------------+---------------------+---------------------+
+    | 8    | F_RJ_BATCH   | u32 records,        | u64 0               |
+    |      |              | records             |                     |
+    +------+--------------+---------------------+---------------------+
+    | 9    | F_RJ_END     | u64 up-to seq, u64  | u64 up-to seq       |
+    |      |              | digest, u64 count,  |                     |
+    |      |              | u64 hash            |                     |
+    +------+--------------+---------------------+---------------------+
+
+                        Table 4: Replication Frames
+
+   An answer is an "S" block whose body is at least 8 bytes; its first 8
+   bytes are the u64 shown.  The answer to F_RJ_SET is the exception:
+   its body is the u8, u32 and entries shown.  A frame of an unknown
+   kind is refused.  Frames 7 to 9 are used only by DataReel 7.5 and
+   later, in an incremental rejoin (Section 8.3.3).
+
+
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 18]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+8.3.1.  F_COMMIT
+
+   Each op is: u8 op (1 ADD, 2 UPDATE, 3 REMOVE, 4 PURGE), str database,
+   u64 object id; ADD and UPDATE then carry u32 capacity (the record
+   size the primary allocated), u8 moved (1 if the object moved to a new
+   block on the primary), u32 length and that many bytes of object data.
+   In the object data, every link field named by the link map carries
+   the target's object id instead of a file address (0 for no link).
+
+   A database name consists of letters, digits, "_" and "-" only.  The
+   copy MUST:
+
+   *  refuse a commit whose epoch is lower than the copy's epoch, or
+      that arrives during a full send;
+
+   *  answer a commit whose seq is not greater than its applied-seq with
+      its applied-seq, without applying it again (a resend);
+
+   *  refuse a commit whose seq is not applied-seq + 1 (a gap);
+
+   *  refuse a commit with a malformed op, a bad database name, an
+      object over 32 MiB, or a capacity smaller than the object's data
+      or larger than 32 MiB plus 64 bytes (a primary limits a commit to
+      60 MiB, so its frame fits the default maximum block size);
+
+   *  apply all ops of the commit in one durable transaction,
+      translating each link from an id to its own file address (creating
+      a placeholder for a target it does not have yet), raise its epoch
+      to the commit's epoch if that is higher, and answer with seq only
+      after the transaction is durable.  A commit that cannot be applied
+      is rolled back and not answered.
+
+   REMOVE leaves a tombstone that keeps the object's id and address, so
+   links to it still resolve.  PURGE frees a tombstone.
+
+8.3.2.  Full Send
+
+   When the copy is in a full send, or the primary no longer has the
+   commits that follow the copy's applied-seq, the primary sends a full
+   copy of its databases as of its last commit (the base):
+
+   1.  F_SNAP_BEGIN with the base and the epoch.  The copy records that
+       a full send is under way, sets its current data aside (it is not
+       deleted until the full send ends) and starts empty.  A copy MUST
+       refuse F_SNAP_BEGIN with an epoch lower than its own.
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 19]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   2.  F_SNAP_BATCH frames.  Each record is: str database, u64 id, u32
+       version, u32 flags (bit 0: tombstone), u32 reason, u64 seen seq,
+       u32 capacity, u32 length, and that many bytes (links as ids).
+       The copy MUST refuse a batch outside a full send, and records
+       whose length exceeds 32 MiB or whose capacity is too small for
+       the data.
+
+   3.  F_SNAP_DLOG frames with the primary's digest log up to the base
+       (at most 65536 entries a frame), so that the copy can later prove
+       its history.
+
+   4.  F_SNAP_END with the base, the running digest at the base, the
+       number of batch records and digest log entries sent, and a hash
+       chained over them.  The copy MUST refuse an F_SNAP_END whose base
+       differs from F_SNAP_BEGIN, or whose count and hash differ from
+       what it received; the full send then stays open and the primary
+       sends it again.  Otherwise the copy translates all links, sets
+       its applied-seq to the base and its digest to the given digest,
+       ends the full send and answers with the base.
+
+   The commits made on the primary after the base then follow as
+   F_COMMIT frames.
+
+8.3.3.  Incremental Rejoin
+
+   After a takeover the former primary may hold commits the new primary
+   never received.  Since DataReel 7.5 such a node can rejoin as a copy
+   without a full send.  Each node records, at every takeover, the epoch
+   it took over at with the sequence number and running digest it had
+   then (its epoch base), and, for each commit it makes as a primary,
+   the databases and ids that commit changed (its change list).  A
+   former primary that is to rejoin records which of its commits were
+   never acknowledged, with what they changed, and waits for an
+   incremental rejoin.
+
+   At the hello such a copy MUST answer incremental = 1 only when the
+   primary sent the optional fields, base-seq is not 0, the copy's own
+   digest at base-seq equals base-digest, and the two schema
+   fingerprints are equal.  When the fingerprints differ, the copy MUST
+   refuse the primary (ok = 0): its data cannot be patched, and an
+   administrator rebuilds it with a full send into an empty node.  In
+   the other cases it answers incremental = 0 and takes a full send
+   (Section 8.3.2).
+
+   When the copy answered incremental = 1, the primary MAY send, instead
+   of a full send:
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 20]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   1.  F_RJ_SET with its base-seq and its last commit (up-to).  The copy
+       MUST refuse it unless it answered incremental = 1 on this
+       connection, up-to is not below the base and it has a digest at
+       the base.  It drops its digest log entries after the base,
+       records that an incremental rejoin to up-to is under way, and
+       answers with ok = 1 and the (database, id) of every object its
+       own commits after the base changed.  When that list does not fit
+       one frame it answers ok = 0 with no entries, and the primary
+       sends a full send instead.
+
+   2.  F_RJ_BATCH frames.  Each record is either u8 1 followed by a
+       full-send record (Section 8.3.2: the object as it is now on the
+       primary, or its tombstone), or u8 2, str database, u64 id: the
+       primary has no such object, and the copy removes it.  The primary
+       sends a record for each object of the copy's list and of its own
+       change list after the base.  Records are checked as in a full
+       send; each batch is applied in one durable transaction before it
+       is answered.
+
+   3.  F_SNAP_DLOG frames with the primary's digest log after the base,
+       up to up-to.
+
+   4.  F_RJ_END with up-to, the running digest at up-to, the number of
+       batch records and digest log entries sent, and a hash chained
+       over them (Section 8.4).  The copy MUST refuse an F_RJ_END whose
+       up-to differs from F_RJ_SET's, or whose count and hash differ
+       from what it received; the rejoin then stays open and the primary
+       sends it again on a later connection.  Otherwise the copy
+       translates the links of the objects the batches wrote, sets its
+       applied-seq to up-to and its digest to the given digest, ends the
+       rejoin and answers with up-to.
+
+   The commits made on the primary after up-to then follow as F_COMMIT
+   frames.  A node that stops in the middle of an incremental rejoin
+   keeps waiting for one and finishes on the next connection.
+
+   An implementation SHOULD bound the work of an incremental rejoin:
+   DataReel sends one only when the objects to send are at most a
+   configured share of the primary's objects (50 percent by default),
+   and a full send otherwise.
+
+
+
+
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 21]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+8.4.  Digests
+
+   The running digest is the 64-bit FNV-1a hash [FNV] (offset basis
+   14695981039346656037, prime 1099511628211) chained over the bytes of
+   every F_COMMIT frame body in sequence order: it starts at the offset
+   basis, and each commit continues the hash from the previous value
+   over the whole frame body, from its kind byte to its last op.  The
+   primary computes it when it records a commit; the copy when it
+   applies one.  Each node keeps a log of (seq, digest) pairs for at
+   least the last 1000000 commits.
+
+   The full send hash is the same FNV-1a function chained, from the
+   offset basis, over the bytes of each F_SNAP_BATCH record and of each
+   16-byte F_SNAP_DLOG entry, in the order sent.  The incremental rejoin
+   hash is computed the same way over each F_RJ_BATCH record (from its
+   leading u8) and each F_SNAP_DLOG entry.
+
+   These digests detect divergent histories and lost, repeated or
+   altered frames caused by faults.  They are not cryptographic and do
+   not authenticate the stream (Section 11.3).
+
+8.5.  Epochs, Takeover and Rejoin
+
+   A node starts at epoch 1.  A takeover makes a copy the primary at its
+   epoch plus one.  Object ids that a primary issues carry its epoch in
+   bits 40 and above, so a new primary never issues an id that an older
+   primary may have issued in commits the new primary never received.
+   Every copy that has saved the new epoch refuses an older primary.  A
+   former primary rejoins as a copy that waits for a full send, which
+   replaces its databases, or, since DataReel 7.5, for an incremental
+   rejoin (Section 8.3.3).
+
+8.6.  Port
+
+   Replication is a gxStream object stream and uses TCP port 2073.  A
+   copy listens on port 2073, and a primary connects to port 2073,
+   unless configured with another port; a host that runs a copy and
+   another gxStream service on the same address gives one of them
+   another port.  DataReel 7.4.1 makes 2073 the default of both
+   settings; DataReel 7.4 had no default.
+
+
+
+
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 22]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+9.  Legacy Transports (DataReel 6.x)
+
+   DataReel 6.x is the legacy release line (bug fixes and security
+   updates only).  Its gxStream and gxDatagram classes predate the TLS
+   requirement of Section 2.2.  Since DataReel 6.4 they send the same
+   canonical block header as DataReel 7.4 (Section 3.1) and check
+   received lengths before allocating memory.  Both transports below are
+   described so that implementations and network operators can recognize
+   them; neither meets the requirements of this document.
+
+9.1.  gxStream over Plain TCP
+
+   A DataReel 6.x gxStream client uses TLS only when the program enables
+   it.  A DataReel 6.4 gxStream server refuses to accept clients unless
+   it either uses TLS with client certificates and an allow list (as in
+   Section 2.2) or the program explicitly opts out; a server that opts
+   out without a server certificate exchanges blocks over plain TCP.
+   Blocks on such a connection have no confidentiality, integrity or
+   authentication.  New deployments MUST NOT use plain TCP, and DataReel
+   7 does not support it.
+
+9.2.  gxDatagram over UDP
+
+   The DataReel 6.x gxDatagram class sends blocks over UDP [RFC0768]:
+   each block is one datagram holding the 32-byte block header, followed
+   by one datagram holding the body (so a body is at most 65507 bytes).
+   The control codes and exchanges of Section 4 apply.  There is no
+   retransmission, ordering, encryption or authentication: any host that
+   can reach the port can send blocks, and a lost or reordered datagram
+   leaves the two sides out of step.  Receivers check the header form
+   and the length against a maximum before reading the body.
+
+   This is the use for which UDP port 2073 was registered. gxDatagram is
+   not part of DataReel 7, and implementations of this document do not
+   use UDP.  New deployments MUST NOT use gxDatagram on networks where
+   any host is untrusted.
+
+10.  Error Handling
+
+   *  Block level: a wrong check word, an oversize length, non-zero
+      reserved header bytes, or a read or write failure ends the
+      connection.
+
+   *  Multiplex: a malformed frame ends the connection; a refused open,
+      an over-credit channel, an ERROR or a CLOSE ends that channel
+      only.
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 23]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   *  Object service: a request error is a reply with status 1 and a
+      message; the channel stays open.
+
+   *  Replication: a refused hello is answered with ok = 0 and a reason;
+      any other violation closes the connection without an answer.  The
+      primary connects again on its next attempt and the hello checks
+      start over.
+
+11.  Security Considerations
+
+11.1.  Confidentiality and Integrity
+
+   All traffic is protected by TLS (Section 2.2), and implementations
+   refuse to send or accept blocks before the handshake completes, so
+   there is no cleartext mode to downgrade to.  The block header, the
+   multiplex and the replication frames add no cryptographic protection
+   of their own.  Implementations should require TLS 1.3 where both
+   peers support it.  With TLS libraries that offer a hybrid key
+   exchange such as X25519MLKEM768 (ML-KEM [FIPS203]), recorded traffic
+   is protected against a future quantum computer; certificates remain
+   RSA or ECDSA.
+
+11.2.  Authentication and Authorization
+
+   Servers authenticate clients by certificate (mutual TLS) and an allow
+   list.  Server certificates are checked against the server's name.
+   Authorization is by service: a certificate in the allow list may use
+   every database the server serves, in every mode the server's
+   configuration allows for that database.  A client allowed "write"
+   access can change or delete any object of that database.  Deployments
+   that need finer authorization should run separate servers or
+   databases per client group.
+
+   A server MUST accept a client-supplied object address only if it is
+   the start of a live object of that database: the block header in
+   front of it must be valid and not deleted, the block must lie inside
+   the file, and the address must be a block boundary rather than a
+   place inside another object, whose bytes a client may have written to
+   look like a block header.  DataReel 7.4 checked only the header's
+   check word, so a client with write access could damage the database
+   it may change and a client with read access could read deleted
+   blocks; DataReel 7.4.1 makes the full check for writable databases
+   (Appendix A).
+
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 24]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+11.3.  Replication
+
+   A peer whose certificate the copy accepts is trusted with the stream.
+   Such a peer can raise the copy's epoch, which fences out the
+   legitimate primary, or replace the copy's data with a full send.  The
+   epoch, sequence and digest checks protect against operational
+   mistakes (a stale primary, two primaries, a diverged history); they
+   do not protect against a compromised key.  Replication keys should be
+   dedicated to replication, kept readable only by their owner (DataReel
+   refuses a key file that group or others can read), and the copy's
+   allow list should name only the primary.
+
+11.4.  Resource Exhaustion
+
+   Every length received is checked against the remaining data and
+   against a maximum before memory is allocated.  Servers limit
+   concurrent handshakes, handshake time, sessions and concurrent vector
+   searches, and the multiplex bounds each channel's queue with credit.
+   An attacker who can reach the port can still occupy handshake slots
+   for the handshake timeout, and a replication copy, which serves one
+   connection at a time, can be delayed by a connection that stalls its
+   handshake.  The number of channels in one multiplex session is not
+   limited in DataReel 7.5.  Access to port 2073 should be limited by
+   firewall to the hosts that need it, and servers used only locally
+   should listen on the loopback address.
+
+11.5.  Server Control Codes
+
+   The "K" (kill) and "T" (restart) control codes let a client stop or
+   restart a server process.  They must not be honored for clients that
+   are not authorized administrators; DataReel 7.5 servers do not honor
+   them.
+
+11.6.  Stored Data
+
+   The legacy DataReel 6.x transports (Section 9) carry blocks in
+   cleartext and, over UDP, without any peer authentication.  Operators
+   should block them at the network edge and replace them with TLS
+   connections.
+
+   DataReel database files are not encrypted by the library; data is
+   protected on the wire, not at rest.  Block check words and optional
+   CRC-32 checksums in the files detect accidental damage only.
+
+12.  IANA Considerations
+
+   IANA has assigned port 2073 for TCP and UDP in the "Service Name and
+   Transport Protocol Port Number Registry" [RFC6335]:
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 25]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   Service Name:  gxs-data-port
+   Port Number:   2073
+   Transport:     tcp, udp
+   Description:   DataReel Database Socket
+
+   This document asks IANA to update the Reference of the TCP assignment
+   to this document, keeping the service name, port number, assignee and
+   contact.
+
+   The UDP assignment is used only by the legacy DataReel 6.x gxDatagram
+   transport (Section 9.2).  This document asks IANA to update the
+   Reference of the UDP assignment to this document as well, and
+   otherwise to keep it unchanged while DataReel 6.x is maintained.
+
+   This document creates no new registry.  The control codes, multiplex
+   frame kinds, object service operations and replication frame kinds
+   are maintained by the DataReel project with its source code.
+
+13.  References
+
+13.1.  Normative References
+
+   [RFC0768]  Postel, J., "User Datagram Protocol", STD 6, RFC 768,
+              DOI 10.17487/RFC0768, August 1980,
+              <https://www.rfc-editor.org/info/rfc768>.
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC5246]  Dierks, T. and E. Rescorla, "The Transport Layer Security
+              (TLS) Protocol Version 1.2", RFC 5246,
+              DOI 10.17487/RFC5246, August 2008,
+              <https://www.rfc-editor.org/info/rfc5246>.
+
+   [RFC5280]  Cooper, D., Santesson, S., Farrell, S., Boeyen, S.,
+              Housley, R., and W. Polk, "Internet X.509 Public Key
+              Infrastructure Certificate and Certificate Revocation List
+              (CRL) Profile", RFC 5280, DOI 10.17487/RFC5280, May 2008,
+              <https://www.rfc-editor.org/info/rfc5280>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 26]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   [RFC8446]  Rescorla, E., "The Transport Layer Security (TLS) Protocol
+              Version 1.3", RFC 8446, DOI 10.17487/RFC8446, August 2018,
+              <https://www.rfc-editor.org/info/rfc8446>.
+
+   [RFC9293]  Eddy, W., Ed., "Transmission Control Protocol (TCP)",
+              STD 7, RFC 9293, DOI 10.17487/RFC9293, August 2022,
+              <https://www.rfc-editor.org/info/rfc9293>.
+
+   [RFC9525]  Saint-Andre, P. and R. Salz, "Service Identity in TLS",
+              RFC 9525, DOI 10.17487/RFC9525, November 2023,
+              <https://www.rfc-editor.org/info/rfc9525>.
+
+13.2.  Informative References
+
+   [DATAREEL] DataReel Software Development, "DataReel C++ Library,
+              Release 7.5", November 2026, <https://datareel.com>.
+
+   [FIPS203]  National Institute of Standards and Technology, "Module-
+              Lattice-Based Key-Encapsulation Mechanism Standard",
+              FIPS 203, DOI 10.6028/NIST.FIPS.203, August 2024,
+              <https://doi.org/10.6028/NIST.FIPS.203>.
+
+   [FNV]      Fowler, G., Noll, L., Vo, K.-P., Eastlake, D., and T.
+              Hansen, "The FNV Non-Cryptographic Hash Algorithm", Work
+              in Progress, Internet-Draft, draft-eastlake-fnv, 2025,
+              <https://datatracker.ietf.org/doc/draft-eastlake-fnv/>.
+
+   [RFC6335]  Cotton, M., Eggert, L., Touch, J., Westerlund, M., and S.
+              Cheshire, "Internet Assigned Numbers Authority (IANA)
+              Procedures for the Management of the Service Name and
+              Transport Protocol Port Number Registry", BCP 165,
+              RFC 6335, DOI 10.17487/RFC6335, August 2011,
+              <https://www.rfc-editor.org/info/rfc6335>.
+
+   [RFC7942]  Sheffer, Y. and A. Farrel, "Improving Awareness of Running
+              Code: The Implementation Status Section", BCP 205,
+              RFC 7942, DOI 10.17487/RFC7942, July 2016,
+              <https://www.rfc-editor.org/info/rfc7942>.
+
+   [RFC9325]  Sheffer, Y., Saint-Andre, P., and T. Fossati,
+              "Recommendations for Secure Use of Transport Layer
+              Security (TLS) and Datagram Transport Layer Security
+              (DTLS)", BCP 195, RFC 9325, DOI 10.17487/RFC9325, November
+              2022, <https://www.rfc-editor.org/info/rfc9325>.
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 27]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+Appendix A.  Implementation Status
+
+   This section follows [RFC7942].  The reference implementation is the
+   DataReel C++ library [DATAREEL], release 7.5, on Linux (OpenSSL) and
+   Windows (Schannel or OpenSSL), and the datareel Python package built
+   from it.  Release 7.4.1 implements everything except the optional
+   hello fields and Section 8.3.3, and interoperates with 7.5.  The
+   DataReel 6.4 legacy release sends the same block header and
+   interoperates with 7.4 and 7.5 over TLS.  Files: include/gxheader.h,
+   include/gxstream.h, src/gxstream.cpp, include/gxstls.h, src/
+   gxstls.cpp, src/gxdbserver.cpp, src/gxdbmux.cpp, src/gxdbobject.cpp,
+   src/gxobjrepl.cpp.
+
+   The DataReel 6.4 legacy release (6.4.1 and the 6.4.2 branch)
+   implements the block header and the basic exchanges in its own
+   gxStream class (include/gxstream.h, src/gxstream.cpp), with TLS,
+   client certificates and an allow list as in Section 2.2, and also the
+   legacy transports of Section 9 (src/gxdatagm.cpp for UDP).  Its
+   optional dr7features library links the DataReel 7.4 code for the
+   object service client (vector searches) and for gxObjRepl
+   replication, so a 6.4 program and a 7.4 program replicate to each
+   other with the protocol of Section 8.  The utils/objrepl/xver tests
+   of DataReel 7.4 check 6.4 and 7.4 peers against each other, and
+   utils/objrepl/test_objrepl_rejoin.sh checks 7.4.1 and 7.5 replication
+   nodes against each other.
+
+   Known differences between DataReel 7.5 and this document, to be
+   resolved in a later 7.5.x release:
+
+   *  The high 32 bits of the Length word are not checked on builds
+      where the in-memory length field is 32 bits wide (Windows, and
+      builds without native integer types); the length is truncated
+      instead of refused.  Such a block then fails the next header
+      check.  The multiplex reader also does not check the reserved high
+      bytes of the Check Word and Status words.
+
+   *  The object service of DataReel 7.4 checked a client-supplied
+      object address only by the check word of the block header in front
+      of it.  DataReel 7.4.1 requires a valid, not deleted block inside
+      the file, and for a writable database one of its live objects.  A
+      read-only database, opened for each request, does not check that
+      the address is a block boundary: an address behind a block header
+      copied into an object's bytes can still be read there (bytes of
+      the same file only).
+
+   *  The multiplex server does not require HELLO before OPEN, and does
+      not limit the number of channels in a session.
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 28]
+
+Internet-Draft              DataReel gxStream              November 2026
+
+
+   *  DataReel 7.4 had no default replication port; 7.4.1 uses 2073
+      (Section 8.6).
+
+   *  Multiplex and object service integers are sent in the host byte
+      order.  Every platform DataReel 7.5 supports is little endian, so
+      this matches the little endian order specified here.
+
+Acknowledgments
+
+   The gxStream protocol has been part of DataReel since 1999.  This
+   description was written from the DataReel 7.4 source code (-00) and
+   updated from the DataReel 7.5 source code (-01).
+
+Changes since -00
+
+   This section is to be removed before publishing as an RFC.
+
+   *  The optional DataReel 7.5 fields at the end of the replication
+      hello and reply (rejoin magic, epoch base, schema fingerprint)
+      (Section 8.2).
+
+   *  The incremental rejoin and its frames F_RJ_SET, F_RJ_BATCH and
+      F_RJ_END (Section 8.3.3, Section 8.4).
+
+   *  Implementation status: DataReel 7.5 and the Python package; the
+      defaults are those of 7.5 (unchanged from 7.4).
+
+Author's Address
+
+   Douglas Gaer
+   DataReel Software Development
+   Email: datareel@datareel.com
+   URI:   https://datareel.com
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Gaer                       Expires 1 June 2027                 [Page 29]

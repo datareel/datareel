@@ -288,9 +288,13 @@ cmake --build /tmp/dr-off -j && tests/run_tests.sh /tmp/dr-off
 
 ### 5.1 What changes, and what does not
 
+- **From 7.4.1 to 7.5:** nothing to change: 7.5 adds the incremental
+  rejoin and the Python package (`RELEASE_NOTES_7.5.txt`, "UPGRADING FROM
+  7.4.1"). For replication, upgrade the copy first, then switch, then
+  the old primary (`docs/replication_admin_guide.md`, section 5).
 - **From 7.0 to 7.3.x:** the API is the same apart from the items in the
   release notes (`RELEASE_NOTES_7.x.txt`). Files written by 7.x and 6.2
-  open in 7.4 with the same build settings.
+  open in 7.4 and 7.5 with the same build settings.
 - **From 7.4 betas:** 7.4 beta 5 and later write the library's file
   headers in one layout on every platform. Older-layout files are read
   and written as they are; `utils/gxd_upgrade` converts one data file
@@ -370,7 +374,7 @@ cause and the fix (rule 1).
 
 | What | Command or file |
 | --- | --- |
-| Version | `version.txt`, `RELEASE_NOTES_7.4.txt` |
+| Version | `version.txt`, `RELEASE_NOTES_7.5.txt` |
 | Known issues and flaky tests | `KNOWN_ISSUES.md` |
 | Build options | `cmake-build/CMakeCache.txt` (`DATAREEL_64BIT_DATABASE`, `DATAREEL_NATIVE_TYPES`, `DATAREEL_SSL`) |
 | Library self-test | `tests/run_tests.sh <build folder>` |

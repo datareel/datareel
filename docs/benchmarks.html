@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="datareel-docs-modern">
-<title>DataReel 7.4 Benchmarks</title>
+<title>DataReel 7.5 Benchmarks</title>
 <link rel="stylesheet" href="css/datareel.css">
 <link rel="icon" href="images/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="images/datareel_icon_192.png">
@@ -18,8 +18,8 @@
   <nav class="dr-nav" aria-label="Documentation sections"><a href="index.html">Readme</a><a href="classes/classes.htm">Library</a><a href="examples/examples.htm">Examples</a><a href="utils/utils.htm">Utilities</a><a href="drcm.html">Cluster Manager</a><a href="code_review_fixes.html">Code Review</a></nav>
 </header>
 <main class="dr-main">
-<h1>DataReel 7.4 Benchmarks</h1>
-<p>What the DataReel 7.4 database and vector index cost on one Linux machine, measured by one program (<code>utils/dr_bench</code>, built with the utilities) with fixed random seeds. Every number below comes from the run of 11/15/2026 described under "How it was measured"; run <code>dr_bench</code> on your own hardware for yours.</p>
+<h1>DataReel 7.5 Benchmarks</h1>
+<p>What the DataReel 7.5 database and vector index cost on one Linux machine, measured by one program (<code>utils/dr_bench</code>, built with the utilities) with fixed random seeds. Every number below comes from the run of 11/15/2026 described under "How it was measured"; run <code>dr_bench</code> on your own hardware for yours. The run used DataReel 7.4; 7.5 changes only the replication rejoin (gxObjRepl) and adds the Python package, and none of the code measured here, so the numbers hold for 7.5.</p>
 <h2 id="HowItWasMeasured">How it was measured</h2>
 <ul>
 <li><strong>Machine:</strong> a 4-core, 8-thread Intel Xeon W-2223 (3.6 GHz) workstation with 64-bit Linux, an XFS file system on an encrypted (dm-crypt) volume. The machine was in its normal use, at a 1-minute load of 2.5 to 3.7.</li>

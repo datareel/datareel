@@ -1,0 +1,951 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DataReel gxStream and replication protocol specification, written from the DataReel 7.5 source
+     (11/28/2026; -00 was written from 7.4, 11/18/2026). Build: xml2rfc (text and html output) draft-gaer-datareel-gxstream-01.xml -->
+<!DOCTYPE rfc [
+  <!ENTITY nbsp "&#160;">
+]>
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude"
+     category="info"
+     submissionType="independent"
+     docName="draft-gaer-datareel-gxstream-01"
+     ipr="trust200902"
+     version="3"
+     tocInclude="true"
+     sortRefs="true"
+     symRefs="true">
+
+  <front>
+    <title abbrev="DataReel gxStream">The DataReel gxStream Database Block Protocol and Object Replication over TCP Port 2073</title>
+    <seriesInfo name="Internet-Draft" value="draft-gaer-datareel-gxstream-01"/>
+    <author initials="D." surname="Gaer" fullname="Douglas Gaer">
+      <organization>DataReel Software Development</organization>
+      <address>
+        <email>datareel@datareel.com</email>
+        <uri>https://datareel.com</uri>
+      </address>
+    </author>
+    <date year="2026" month="November" day="28"/>
+    <area>Applications and Real-Time</area>
+    <keyword>DataReel</keyword>
+    <keyword>gxStream</keyword>
+    <keyword>database</keyword>
+    <keyword>replication</keyword>
+    <keyword>gxs-data-port</keyword>
+
+    <abstract>
+      <t>This document describes gxStream, the database block protocol of the DataReel C++ library, and the
+      services carried on it: the DataReel database object server with its channel multiplex, remote access to
+      database objects and vector searches, and gxObjRepl object replication between two independent object
+      databases. gxStream runs over TLS with certificates on both sides on TCP port 2073, which is registered
+      with IANA under the service name "gxs-data-port". The port was registered before a protocol description
+      was required; this document provides that description, as implemented in DataReel 7.5. It is published
+      for information and does not specify an Internet standard.</t>
+    </abstract>
+
+    <note removeInRFC="false">
+      <name>Note</name>
+      <t>This is an Independent Submission. The protocol is defined by its reference implementation, the DataReel
+      library, which is free software under the GNU Lesser General Public License version 3 or later
+      (https://datareel.com). Where this document and the DataReel 7.5 source differ, the difference is listed in
+      <xref target="impl-status"/>.</t>
+    </note>
+  </front>
+
+  <middle>
+
+    <section anchor="intro">
+      <name>Introduction</name>
+      <t>DataReel is a cross-platform C++ library with an embedded object database and TLS communication classes.
+      Since 1999 it has had a block protocol, gxStream, that carries database blocks between programs: the same
+      block header the database writes before every object in its files is sent on the network, followed by the
+      block's bytes. TCP and UDP port 2073 were registered with IANA for this protocol as "gxs-data-port",
+      "DataReel Database Socket".</t>
+      <t>DataReel 7 (2026) rewrote the protocol on TLS: no block is ever sent or accepted in cleartext, servers
+      require client certificates by default, and every length received is checked before it is used. DataReel
+      7.3.1 added the database object server, which carries several services over one listener and a multiplex of
+      independent channels. DataReel 7.4 added vector searches to the object service, a canonical block header on
+      every platform, and gxObjRepl, which replicates objects (never file pages) from a primary node to a copy.
+      DataReel 7.5 added the incremental rejoin to gxObjRepl and a Python package that uses the same
+      protocol.</t>
+      <t>This document specifies:</t>
+      <ul>
+        <li>the transport and TLS requirements (<xref target="transport"/>);</li>
+        <li>the gxStream block and its control codes (<xref target="block"/>) and the basic block exchanges
+        (<xref target="basic"/>);</li>
+        <li>the database object server's service selection (<xref target="server"/>);</li>
+        <li>the channel multiplex (<xref target="mux"/>), the object service and vector searches
+        (<xref target="object"/>);</li>
+        <li>the gxObjRepl replication protocol (<xref target="repl"/>).</li>
+      </ul>
+      <t>DataReel 6.x, the legacy release line, can also carry gxStream blocks over plain TCP and over UDP. These
+      legacy transports are described in <xref target="legacy-transports"/> for completeness; they have no
+      authentication or encryption and are NOT RECOMMENDED.</t>
+
+      <section anchor="reqs">
+        <name>Requirements Language</name>
+        <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>",
+        "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+        "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>", "<bcp14>MAY</bcp14>", and
+        "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as described in BCP&nbsp;14
+        <xref target="RFC2119"/> <xref target="RFC8174"/> when, and only when, they appear in all capitals, as
+        shown here.</t>
+        <t>This document describes an existing protocol. The requirement words state what an implementation needs
+        to do to interoperate with DataReel 7.5 (and 7.4) and to keep its security properties.</t>
+      </section>
+
+      <section anchor="terms">
+        <name>Terminology</name>
+        <dl newline="false" spacing="normal">
+          <dt>Block:</dt><dd>A 32-byte block header followed by zero or more body bytes.</dd>
+          <dt>Client, server:</dt><dd>The TLS client (the side that opens the TCP connection) and the TLS server.</dd>
+          <dt>Object:</dt><dd>A record stored in a DataReel database file, identified by its file address on one
+          node or, in replication, by a 64-bit object id shared by both nodes.</dd>
+          <dt>Channel:</dt><dd>One independent stream of messages inside a multiplex session.</dd>
+          <dt>Primary, copy:</dt><dd>The replication node that takes writes, and the node that receives them.</dd>
+          <dt>Epoch:</dt><dd>A replication generation number, raised by each takeover.</dd>
+        </dl>
+        <t>Integer types are written u8, u16, u32 and u64 (unsigned, 1, 2, 4 and 8 bytes), i64 (signed, 8 bytes,
+        two's complement) and f32 (IEEE 754 binary32). Unless a section says otherwise, every integer and float is
+        sent in little endian byte order.</t>
+      </section>
+    </section>
+
+    <section anchor="transport">
+      <name>Transport</name>
+      <section>
+        <name>TCP</name>
+        <t>gxStream runs over TCP <xref target="RFC9293"/>. Servers listen on port 2073 unless configured
+        otherwise, and clients connect to port 2073 unless given another port. A server MAY listen on IPv6 and IPv4
+        at once. Implementations SHOULD disable the Nagle algorithm on replication connections, since each frame is
+        answered by a small acknowledgment.</t>
+      </section>
+      <section anchor="tls">
+        <name>TLS</name>
+        <t>Every gxStream connection MUST be protected with TLS. The TLS handshake starts immediately after the
+        TCP connection is established; there is no cleartext phase and no STARTTLS command.</t>
+        <ul>
+          <li>Implementations MUST support TLS 1.2 <xref target="RFC5246"/> and SHOULD support TLS 1.3
+          <xref target="RFC8446"/>. They MUST NOT negotiate SSL 2.0, SSL 3.0, TLS 1.0 or TLS 1.1, and SHOULD follow
+          <xref target="RFC9325"/> in the choice of cipher suites.</li>
+          <li>Neither side may send or accept a block before the handshake has completed. An implementation MUST
+          NOT send blocks on, or accept blocks from, a connection whose handshake failed or was not run.</li>
+          <li>A client MUST send the server name indication extension when it connects by host name, and MUST
+          verify the server's certificate chain <xref target="RFC5280"/> and the server's identity
+          <xref target="RFC9525"/> (DNS name, or IP address for a numeric host). Partial-label wildcards MUST NOT be
+          accepted. A failed check closes the connection before any block is sent.</li>
+          <li>A gxStream server SHOULD require a client certificate. Such a server MUST verify the client's chain
+          against a configured set of client certification authorities only (not a general trust store) and MUST
+          accept only clients named in a configured allow list, by the SHA-256 fingerprint of the certificate or by
+          its subject common name (exact, case sensitive match). A server that accepts clients without certificates
+          MUST be configured to do so explicitly.</li>
+          <li>No application-layer protocol negotiation (ALPN) identifier is used. The service is selected by the
+          first block (<xref target="server"/>).</li>
+        </ul>
+        <t>A failed handshake, failed certificate check or failed allow list check closes the TCP connection.</t>
+      </section>
+      <section>
+        <name>Timeouts</name>
+        <t>Every handshake, read and write SHOULD be bounded by a timeout. DataReel 7.5 uses 10 seconds for the
+        handshake and 120 seconds for each block on the database object server, 30 seconds for the replication
+        handshake and hello, and a configurable idle timeout (default 120 seconds) for replication frames.</t>
+      </section>
+    </section>
+
+    <section anchor="block">
+      <name>The gxStream Block</name>
+      <section anchor="header">
+        <name>Block Header</name>
+        <t>Every block begins with a 32-byte header of four 64-bit little endian words:</t>
+        <figure>
+          <name>Block Header</name>
+          <artwork type="ascii-art"><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Check Word (64 bits)                       |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Length (64 bits)                           |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Status (64 bits)                           |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Result (64 bits)                           |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+        </figure>
+        <dl newline="true" spacing="normal">
+          <dt>Check Word:</dt>
+          <dd>0x000000000000FEFE. A receiver MUST treat any other value as a loss of synchronization and close the
+          connection.</dd>
+          <dt>Length:</dt>
+          <dd>The number of body bytes that follow the header. The high 32 bits MUST be zero; a sender MUST NOT
+          send a block longer than 2147483647 bytes. A receiver MUST compare the length with its maximum block size
+          before it allocates memory for the body, and MUST close the connection if it is larger.</dd>
+          <dt>Status:</dt>
+          <dd>Byte 0 (the least significant byte) is the data status. Senders set it to 0x56 ("V", a block received
+          from a remote device); receivers MUST ignore it. Byte 1 is the control code (<xref target="codes"/>).
+          Bytes 2 to 7 MUST be zero.</dd>
+          <dt>Result:</dt>
+          <dd>A signed 64-bit value carried by a result block (<xref target="basic"/>); zero in every other
+          block.</dd>
+        </dl>
+        <t>The high four bytes of the Check Word and of the Status word are always zero. A receiver that finds a
+        non-zero byte there has met a peer that sends the obsolete header with 32-bit words (a 24-byte or 16-byte
+        header sent by DataReel builds older than 7.4 beta 5 on 64-bit Windows, or by 32-bit builds). It MUST
+        close the connection and SHOULD report that cause; it MUST NOT try to read the block.</t>
+        <t>The block header is the one DataReel writes before each block in its database files; on the network
+        the Result word carries what the file uses as a free list pointer.</t>
+      </section>
+
+      <section anchor="codes">
+        <name>Control Codes</name>
+        <t>The control code is one ASCII character:</t>
+        <table anchor="tbl-codes">
+          <name>Control Codes</name>
+          <thead><tr><th>Code</th><th>Name</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>0x41 "A"</td><td>Add</td><td>The body is a new object to add.</td></tr>
+            <tr><td>0x43 "C"</td><td>Change</td><td>The body names an object to change; an "S" block with the new contents follows.</td></tr>
+            <tr><td>0x44 "D"</td><td>Delete</td><td>The body names an object to delete.</td></tr>
+            <tr><td>0x4B "K"</td><td>Kill server</td><td>Header only. Asks the server to shut down.</td></tr>
+            <tr><td>0x4C "L"</td><td>Close connection</td><td>Header only. The sender is done with the connection.</td></tr>
+            <tr><td>0x52 "R"</td><td>Request</td><td>The body is a request; the reply is a block.</td></tr>
+            <tr><td>0x53 "S"</td><td>Send</td><td>The body is data: a reply, a multiplex frame or a replication frame.</td></tr>
+            <tr><td>0x54 "T"</td><td>Restart server</td><td>Header only. Asks the server to restart.</td></tr>
+            <tr><td>0x57 "W"</td><td>Acknowledge</td><td>Header only. An acknowledgment; the Result word carries the result.</td></tr>
+          </tbody>
+        </table>
+        <t>Other code values are defined in the DataReel headers for database file use or for earlier designs and
+        are not sent by the services in this document. A server MUST close a session that sends a code its
+        service does not expect. "K" and "T" give a client control over the server process: a server MUST NOT act
+        on them unless the client is authorized to administer the server; the DataReel 7.5 database object server
+        does not act on them and closes the session.</t>
+      </section>
+
+      <section anchor="limits">
+        <name>Maximum Block Size</name>
+        <t>Each receiver has a maximum block size. DataReel 7.5 uses 67108864 bytes (64 MiB) by default and
+        17825792 bytes (17 MiB) on the database object server. A sender SHOULD NOT send a block larger than the
+        peer is known to accept: multiplex senders split messages into frames of at most 1 MiB
+        (<xref target="mux-flow"/>), and replication limits objects to 32 MiB and commits to 60 MiB.</t>
+      </section>
+    </section>
+
+    <section anchor="basic">
+      <name>Basic Block Exchanges</name>
+      <t>The original gxStream exchanges use the control codes directly. The object service accepts them from
+      DataReel 6.x style ("legacy") clients (<xref target="legacy"/>).</t>
+      <dl newline="true" spacing="normal">
+        <dt>Request:</dt>
+        <dd>The client sends an "R" block whose body is the request; the server answers with one "S" block whose
+        body is the reply (possibly empty).</dd>
+        <dt>Add:</dt>
+        <dd>The client sends an "A" block whose body is the object; the server answers with a result block.</dd>
+        <dt>Change:</dt>
+        <dd>The client sends a "C" block whose body names the object, then an "S" block with the new contents.</dd>
+        <dt>Delete:</dt>
+        <dd>The client sends a "D" block whose body names the object.</dd>
+        <dt>Result block:</dt>
+        <dd>A "W" header with Length 0 and the result (for example a file address, 0 for none) in the Result
+        word.</dd>
+        <dt>Acknowledgment:</dt>
+        <dd>A "W" header with Length 0 and Result 0.</dd>
+        <dt>Close:</dt>
+        <dd>An "L" header. The receiver closes the session.</dd>
+      </dl>
+    </section>
+
+    <section anchor="server">
+      <name>The Database Object Server</name>
+      <t>The DataReel database object server carries several services on one listener. After the TLS handshake
+      and the client certificate checks, the server reads the session's first block and gives the session to the
+      first service that claims it:</t>
+      <ol>
+        <li>An "S" block whose body is a multiplex HELLO frame (<xref target="mux"/>): the multiplex, with the
+        object service on its channels.</li>
+        <li>An "A" or "R" block: the legacy object service, if the server is configured with a legacy
+        database.</li>
+      </ol>
+      <t>A first block that no service claims closes the session. The first byte of a multiplex body is 0x4D
+      ("M"); services that use "S" blocks for other messages MUST NOT start their first message with that
+      byte.</t>
+      <t>To resist connections that never complete TLS, a server SHOULD run each handshake apart from its accept
+      loop with a short timeout and a limit on concurrent handshakes (DataReel 7.5: 10 seconds, 16 handshakes),
+      and SHOULD limit the number of authenticated sessions (DataReel 7.5: 4 by default). Only sessions that
+      passed the certificate checks count against the session limit.</t>
+
+      <section anchor="legacy">
+        <name>Legacy Object Sessions</name>
+        <t>On a server configured with a legacy database:</t>
+        <ul>
+          <li>An "A" block adds its body as a new object. The reply is a result block with the new object's file
+          address, or 0 if the add failed (for example because the database is read-only).</li>
+          <li>An "R" block whose body is an 8-byte object address is answered with an "S" block holding that
+          object, or an empty "S" block if there is none.</li>
+          <li>An "L" block ends the session. Any other block also ends it.</li>
+        </ul>
+      </section>
+    </section>
+
+    <section anchor="mux">
+      <name>The Channel Multiplex</name>
+      <t>The multiplex carries numbered channels over one connection. Each channel has its own order, flow control
+      and errors, so one slow or failed channel does not hold up the others.</t>
+
+      <section anchor="mux-frame">
+        <name>Frames</name>
+        <t>Each multiplex frame is one "S" block. Its body is an 18-byte frame header followed by the payload:</t>
+        <figure>
+          <name>Multiplex Frame Body</name>
+          <artwork type="ascii-art"><![CDATA[
++--------+--------+--------------------+-------------------------+
+| Mark   | Kind   | Channel (u32)      | Sequence (u64)          |
+| 1 byte | 1 byte | 4 bytes            | 8 bytes                 |
++--------+--------+--------------------+-------------------------+
+| Flags (u32)     | Payload (Length - 18 bytes)                  |
+| 4 bytes         |                                              |
++-----------------+----------------------------------------------+
+]]></artwork>
+        </figure>
+        <dl newline="false" spacing="normal">
+          <dt>Mark:</dt><dd>0x4D ("M").</dd>
+          <dt>Kind:</dt><dd>The frame kind, 1 to 9 (<xref target="tbl-kinds"/>).</dd>
+          <dt>Channel:</dt><dd>The channel number. Channel 0 is the connection itself (HELLO, and CLOSE of the
+          whole connection).</dd>
+          <dt>Sequence:</dt><dd>For DATA frames, a per-channel counter starting at 1 and increasing by 1 for each
+          DATA frame the sender sends on the channel. Control frames carry 0.</dd>
+          <dt>Flags:</dt><dd>Bit 0 (LAST) marks the last DATA frame of a message. Other bits MUST be zero.</dd>
+        </dl>
+        <t>In payloads, "str" is a u32 length followed by that many bytes, and "bytes" is a u64 length followed by
+        that many bytes. Every length MUST be checked against the remaining payload; a payload that is too short
+        is malformed.</t>
+        <table anchor="tbl-kinds">
+          <name>Multiplex Frame Kinds</name>
+          <thead><tr><th>Kind</th><th>Name</th><th>Payload</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>HELLO</td><td>str "GXDBMUX", u32 version (1)</td></tr>
+            <tr><td>2</td><td>OPEN</td><td>str service, str name, str mode, u64 credit</td></tr>
+            <tr><td>3</td><td>OPENED</td><td>u64 credit, bytes extra</td></tr>
+            <tr><td>4</td><td>REFUSED</td><td>str reason</td></tr>
+            <tr><td>5</td><td>DATA</td><td>service data</td></tr>
+            <tr><td>6</td><td>CREDIT</td><td>u64 bytes</td></tr>
+            <tr><td>7</td><td>ACK</td><td>u64 seq, u64 lsn</td></tr>
+            <tr><td>8</td><td>ERROR</td><td>str reason</td></tr>
+            <tr><td>9</td><td>CLOSE</td><td>(empty)</td></tr>
+          </tbody>
+        </table>
+        <t>A block that is not an "S" block, or whose body is not a frame (shorter than 18 bytes, a wrong mark,
+        an unknown kind), ends the connection. An "L" block ends the connection.</t>
+      </section>
+
+      <section anchor="mux-session">
+        <name>Session and Channels</name>
+        <ol>
+          <li>The client sends HELLO on channel 0. The server answers with its own HELLO. A side that receives a
+          HELLO with another magic string or version MUST end the connection. A client MUST send HELLO before
+          any OPEN.</li>
+          <li>The client opens a channel with OPEN, choosing an unused non-zero channel number. The payload names
+          the service ("object" for <xref target="object"/>), the object to open (a database name) and the mode
+          ("read" or "write"), and gives the opener's receive credit (<xref target="mux-flow"/>).</li>
+          <li>The accepting side answers OPENED (with its own credit and optional service data) or REFUSED (with
+          a reason). It MUST refuse an OPEN on channel 0, on a channel that is open, or with a malformed
+          payload.</li>
+          <li>Either side sends DATA on an open channel. A message is a run of DATA frames ending with one that
+          has the LAST flag.</li>
+          <li>Either side closes a channel with CLOSE, or with ERROR and a reason. A CLOSE on channel 0 ends the
+          connection. DATA that arrives for a closed channel is discarded.</li>
+        </ol>
+        <t>Frames of one channel are delivered in the order they were sent; TLS over TCP provides that order.
+        ACK frames are passed to the channel's consumer in order with its DATA frames; a service uses them to
+        report that the data up to a DATA sequence number is durable at a log sequence number (lsn) of its
+        own.</t>
+      </section>
+
+      <section anchor="mux-flow">
+        <name>Flow Control</name>
+        <t>Flow control is per channel and counts DATA payload bytes only; control frames are not counted.</t>
+        <ul>
+          <li>Each side's credit for a channel starts at the value the other side gave in OPEN or OPENED: the size
+          of its receive queue for that channel (DataReel 7.5: 16 MiB).</li>
+          <li>A sender MUST NOT send a DATA frame larger than its remaining credit, and subtracts each DATA
+          payload from the credit as it sends it.</li>
+          <li>As the receiver's consumer takes data, the receiver returns the room with CREDIT frames. DataReel
+          7.5 sends CREDIT when a quarter of the queue has been consumed, or when the queue becomes empty.</li>
+          <li>A receiver MUST count the DATA bytes it has received on each channel and, if they exceed the credit
+          it has granted in total, MUST close the channel with ERROR ("over credit").</li>
+          <li>Senders SHOULD NOT send DATA payloads larger than 1 MiB, and SHOULD share the connection between
+          channels fairly. DataReel 7.5 sends control frames first, then DATA frames by deficit round robin with a
+          quantum of 256 KiB.</li>
+        </ul>
+      </section>
+    </section>
+
+    <section anchor="object">
+      <name>The Object Service</name>
+      <t>The object service gives remote access to the objects of the databases a server is configured with.
+      A client opens a multiplex channel with service "object", the database name and mode "read" or "write".
+      The server MUST refuse the open for a database it does not serve, for any other mode, and for mode "write"
+      on a database that is read-only or is a replicated copy.</t>
+
+      <section anchor="object-msgs">
+        <name>Requests and Replies</name>
+        <t>Each request is one message: a u8 operation followed by its arguments. Each reply is one message: a u8
+        status (0 success, 1 error) followed by the result on success, or by a str (u32 length and bytes) with the
+        error on failure. An empty request message closes the channel with an error.</t>
+        <table anchor="tbl-ops">
+          <name>Object Service Operations</name>
+          <thead><tr><th>Op</th><th>Name</th><th>Arguments</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>ADD</td><td>bytes data (length at least 1)</td><td>u64 address</td></tr>
+            <tr><td>2</td><td>REQUEST</td><td>u64 address</td><td>bytes data</td></tr>
+            <tr><td>3</td><td>CHANGE</td><td>u64 address, bytes data</td><td>(empty)</td></tr>
+            <tr><td>4</td><td>DELETE</td><td>u64 address</td><td>(empty)</td></tr>
+            <tr><td>5</td><td>FIRST</td><td>(none)</td><td>u64 address, 0 if none</td></tr>
+            <tr><td>6</td><td>NEXT</td><td>u64 address</td><td>u64 next address, 0 if none</td></tr>
+            <tr><td>7</td><td>VECTOR_SEARCH</td><td><xref target="vector"/></td><td><xref target="vector"/></td></tr>
+            <tr><td>8</td><td>VECTOR_INFO</td><td>(none)</td><td><xref target="vector"/></td></tr>
+          </tbody>
+        </table>
+        <ul>
+          <li>Addresses are the object's file address in the server's database; address 0 is never an object.</li>
+          <li>ADD, CHANGE and DELETE are refused on a channel opened "read". On a writable database each one is
+          one durable transaction. CHANGE MUST carry exactly the object's existing length.</li>
+          <li>Reads of a replicated copy MUST NOT observe a partly applied replication commit.</li>
+          <li>A request whose arguments do not exactly fill the message is malformed and answered with an
+          error.</li>
+        </ul>
+      </section>
+
+      <section anchor="vector">
+        <name>Vector Searches</name>
+        <t>A database configured with a vector index answers VECTOR_SEARCH and VECTOR_INFO on any channel, read
+        only. The VECTOR_SEARCH arguments are, in order: u32 version (1); u32 k (1 to 1000); u32 ef (0 for the
+        server default of 64, at most 4096); u32 dim (MUST equal the index's dimension); u32 flags (bit 0: apply
+        the day range; bit 1: strict, a missing index file is an error; other bits MUST be zero); u32 tag_mask
+        (bits 0 to 3; other bits MUST be zero); u32 lo[4]; u32 hi[4] (when bit i of tag_mask is set, tag i must be
+        within lo[i]..hi[i]); u32 day_lo; u32 day_hi; and f32 query[dim]. The arguments MUST be exactly that long
+        and every query value MUST be finite.</t>
+        <t>The VECTOR_SEARCH result is: u32 version (1); u32 count; u32 files skipped by their day range; u32
+        files missing; count entries of { i64 id, f32 distance, u32 tags[4], u32 file }, sorted by distance, then
+        file, then id; u32 names; and names entries of { u32 file, str path } for the files the results name,
+        with paths relative to the index manifest's folder.</t>
+        <t>The VECTOR_INFO result is: u32 version (1), u32 dim, u32 element type, u32 metric, u32 files, u64
+        nodes, u64 deleted, str spec.</t>
+        <t>A server SHOULD limit concurrent searches; DataReel 7.5 runs at most 4 at once and answers a search
+        that waits more than 5 seconds for a slot with the error "busy".</t>
+      </section>
+    </section>
+
+    <section anchor="repl">
+      <name>Object Replication (gxObjRepl)</name>
+      <t>gxObjRepl replicates the object databases of a primary node to a copy node. Only objects travel; each
+      node keeps its own file addresses, free space and indexes. Objects are identified by 64-bit ids shared by
+      both nodes. Replication is asynchronous.</t>
+
+      <section anchor="repl-conn">
+        <name>Connection</name>
+        <t>The primary is the TLS client and the copy is the TLS server. The copy MUST require a client
+        certificate from the configured certification authority with the configured subject common name; the
+        primary MUST verify the copy's certificate and identity (<xref target="tls"/>).</t>
+        <t>Each replication frame is the body of one "S" block. The copy answers each frame with exactly one "S"
+        block. The primary sends the next frame only after it has the answer. In this section a "str" is a u16
+        length followed by that many bytes.</t>
+        <t>The copy handles one primary connection at a time. It closes the connection, without an answer, when a
+        frame breaks the rules below; it SHOULD record the reason where an administrator will see it (DataReel
+        writes an alarm file).</t>
+      </section>
+
+      <section anchor="repl-hello">
+        <name>Hello and Reply</name>
+        <t>The first frame on each connection is the primary's hello:</t>
+        <artwork type="ascii-art"><![CDATA[
+hello = u32 magic         ; 0x3550524F ("ORP5" in byte order)
+        u64 epoch         ; the primary's epoch
+        str link-map      ; link fields, "DB:OFFSET:TARGET_DB,..."
+        str name          ; the primary's node name
+        u8  role          ; 1 (primary)
+        u64 last-seq      ; the primary's last commit
+        u64 digest        ; the running digest at last-seq
+        ; since DataReel 7.5 (optional, see below):
+        u32 rj-magic      ; 0x31304A52 ("RJ01" in byte order)
+        u64 base-seq      ; the seq at which this primary took over
+        u64 base-digest   ; the running digest at base-seq
+        str fingerprint   ; the schema fingerprint
+]]></artwork>
+        <t>The copy answers:</t>
+        <artwork type="ascii-art"><![CDATA[
+reply = u8  ok            ; 1 accepted, 0 refused
+        u64 applied-seq   ; the last commit the copy applied
+        u64 epoch         ; the copy's epoch
+        u8  in-full-send  ; 1 if a full send is under way
+        str name          ; the copy's node name
+        u8  role          ; 2 (copy)
+        u64 digest        ; the running digest at applied-seq
+        str why           ; the reason when ok = 0
+        ; since DataReel 7.5 (optional, see below):
+        u32 rj-magic      ; 0x31304A52
+        u8  incremental   ; 1 if the copy takes an incremental rejoin
+        str fingerprint   ; the copy's schema fingerprint
+]]></artwork>
+        <t>The copy MUST refuse (ok = 0, then close) a hello that is malformed or has another magic number; a
+        hello received while the copy is itself a primary; a role other than 1; a name other than the configured
+        peer name, if one is configured; an epoch lower than the copy's; a last-seq lower than the copy's
+        applied-seq when no full send is under way; a malformed link map; or, when the copy has its own link map
+        configured, a link map that differs from it or link fields that overlap the copy's index fields.</t>
+        <t>The primary MUST stop (and SHOULD raise an alarm) when the reply has ok = 0, a role other than 2, or a
+        name other than its configured copy name. Unless the copy is in a full send or has applied nothing, the
+        primary MUST also check the copy's history: applied-seq MUST NOT exceed the primary's last commit, and the
+        copy's digest MUST equal the primary's digest at applied-seq. A primary that no longer knows its digest
+        at that sequence MUST refuse the copy; an administrator then has the copy rejoin.</t>
+        <t>The fields after the rj-magic are optional in both directions. A receiver that finds fewer than 4 bytes
+        after the fields above, or another magic number, MUST treat the peer as one that does not have them (a
+        DataReel 7.4 node), and MUST ignore bytes after the fields it knows. A primary sends base-seq 0 when it has
+        no recorded takeover. The schema fingerprint is the text "index=SPEC;links=MAP;schema=TEXT": the node's
+        index specification and link map, each in a canonical order, and the application's record layout version
+        (free text of at most 200 characters, no ";"). Outside an incremental rejoin a fingerprint that differs
+        is not a reason to refuse; an implementation SHOULD log it.</t>
+        <t>Having accepted the copy, the primary sends F_EPOCH (<xref target="repl-frames"/>). The copy MUST
+        refuse every other frame kind on the connection until it has received F_EPOCH. The copy saves the epoch
+        durably on F_EPOCH, never at the hello, so that a primary that then refuses the copy cannot fence out the
+        real one.</t>
+      </section>
+
+      <section anchor="repl-frames">
+        <name>Frames</name>
+        <t>Each frame starts with a u8 kind:</t>
+        <table anchor="tbl-repl">
+          <name>Replication Frames</name>
+          <thead><tr><th>Kind</th><th>Name</th><th>Contents after the kind</th><th>Copy's answer</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>F_COMMIT</td><td>u64 seq, u64 epoch, u32 ops, ops</td><td>u64 seq applied</td></tr>
+            <tr><td>2</td><td>F_SNAP_BEGIN</td><td>u64 base seq, u64 epoch</td><td>u64 0</td></tr>
+            <tr><td>3</td><td>F_SNAP_BATCH</td><td>u32 records, records</td><td>u64 0</td></tr>
+            <tr><td>4</td><td>F_SNAP_END</td><td>u64 base seq, u64 digest, u64 count, u64 hash</td><td>u64 base seq</td></tr>
+            <tr><td>5</td><td>F_EPOCH</td><td>u64 epoch</td><td>u64 applied seq</td></tr>
+            <tr><td>6</td><td>F_SNAP_DLOG</td><td>u32 entries, entries of {u64 seq, u64 digest}</td><td>u64 0</td></tr>
+            <tr><td>7</td><td>F_RJ_SET</td><td>u64 base seq, u64 up-to seq</td><td>u8 ok, u32 entries, entries of {str database, u64 id}</td></tr>
+            <tr><td>8</td><td>F_RJ_BATCH</td><td>u32 records, records</td><td>u64 0</td></tr>
+            <tr><td>9</td><td>F_RJ_END</td><td>u64 up-to seq, u64 digest, u64 count, u64 hash</td><td>u64 up-to seq</td></tr>
+          </tbody>
+        </table>
+        <t>An answer is an "S" block whose body is at least 8 bytes; its first 8 bytes are the u64 shown. The
+        answer to F_RJ_SET is the exception: its body is the u8, u32 and entries shown. A frame of an unknown kind
+        is refused. Frames 7 to 9 are used only by DataReel 7.5 and later, in an incremental rejoin
+        (<xref target="repl-incr"/>).</t>
+
+        <section anchor="repl-commit">
+          <name>F_COMMIT</name>
+          <t>Each op is: u8 op (1 ADD, 2 UPDATE, 3 REMOVE, 4 PURGE), str database, u64 object id; ADD and UPDATE
+          then carry u32 capacity (the record size the primary allocated), u8 moved (1 if the object moved to a
+          new block on the primary), u32 length and that many bytes of object data. In the object data, every link
+          field named by the link map carries the target's object id instead of a file address (0 for no
+          link).</t>
+          <t>A database name consists of letters, digits, "_" and "-" only. The copy MUST:</t>
+          <ul>
+            <li>refuse a commit whose epoch is lower than the copy's epoch, or that arrives during a full
+            send;</li>
+            <li>answer a commit whose seq is not greater than its applied-seq with its applied-seq, without
+            applying it again (a resend);</li>
+            <li>refuse a commit whose seq is not applied-seq + 1 (a gap);</li>
+            <li>refuse a commit with a malformed op, a bad database name, an object over 32 MiB, or a capacity
+            smaller than the object's data or larger than 32 MiB plus 64 bytes (a primary limits a commit to
+            60 MiB, so its frame fits the default maximum block size);</li>
+            <li>apply all ops of the commit in one durable transaction, translating each link from an id to its
+            own file address (creating a placeholder for a target it does not have yet), raise its epoch to the
+            commit's epoch if that is higher, and answer with seq only after the transaction is durable. A commit
+            that cannot be applied is rolled back and not answered.</li>
+          </ul>
+          <t>REMOVE leaves a tombstone that keeps the object's id and address, so links to it still resolve.
+          PURGE frees a tombstone.</t>
+        </section>
+
+        <section anchor="repl-full">
+          <name>Full Send</name>
+          <t>When the copy is in a full send, or the primary no longer has the commits that follow the copy's
+          applied-seq, the primary sends a full copy of its databases as of its last commit (the base):</t>
+          <ol>
+            <li>F_SNAP_BEGIN with the base and the epoch. The copy records that a full send is under way, sets its
+            current data aside (it is not deleted until the full send ends) and starts empty. A copy MUST refuse
+            F_SNAP_BEGIN with an epoch lower than its own.</li>
+            <li>F_SNAP_BATCH frames. Each record is: str database, u64 id, u32 version, u32 flags (bit 0:
+            tombstone), u32 reason, u64 seen seq, u32 capacity, u32 length, and that many bytes (links as ids).
+            The copy MUST refuse a batch outside a full send, and records whose length exceeds 32 MiB or whose
+            capacity is too small for the data.</li>
+            <li>F_SNAP_DLOG frames with the primary's digest log up to the base (at most 65536 entries a frame),
+            so that the copy can later prove its history.</li>
+            <li>F_SNAP_END with the base, the running digest at the base, the number of batch records and digest
+            log entries sent, and a hash chained over them. The copy MUST refuse an F_SNAP_END whose base differs
+            from F_SNAP_BEGIN, or whose count and hash differ from what it received; the full send then stays
+            open and the primary sends it again. Otherwise the copy translates all links, sets its applied-seq to
+            the base and its digest to the given digest, ends the full send and answers with the base.</li>
+          </ol>
+          <t>The commits made on the primary after the base then follow as F_COMMIT frames.</t>
+        </section>
+
+        <section anchor="repl-incr">
+          <name>Incremental Rejoin</name>
+          <t>After a takeover the former primary may hold commits the new primary never received. Since DataReel
+          7.5 such a node can rejoin as a copy without a full send. Each node records, at every takeover, the
+          epoch it took over at with the sequence number and running digest it had then (its epoch base), and,
+          for each commit it makes as a primary, the databases and ids that commit changed (its change list). A
+          former primary that is to rejoin records which of its commits were never acknowledged, with what they
+          changed, and waits for an incremental rejoin.</t>
+          <t>At the hello such a copy MUST answer incremental = 1 only when the primary sent the optional fields,
+          base-seq is not 0, the copy's own digest at base-seq equals base-digest, and the two schema fingerprints
+          are equal. When the fingerprints differ, the copy MUST refuse the primary (ok = 0): its data cannot be
+          patched, and an administrator rebuilds it with a full send into an empty node. In the other cases it
+          answers incremental = 0 and takes a full send (<xref target="repl-full"/>).</t>
+          <t>When the copy answered incremental = 1, the primary MAY send, instead of a full send:</t>
+          <ol>
+            <li>F_RJ_SET with its base-seq and its last commit (up-to). The copy MUST refuse it unless it
+            answered incremental = 1 on this connection, up-to is not below the base and it has a digest at the
+            base. It drops its digest log entries after the base, records that an incremental rejoin to up-to is
+            under way, and answers with ok = 1 and the (database, id) of every object its own commits after the
+            base changed. When that list does not fit one frame it answers ok = 0 with no entries, and the
+            primary sends a full send instead.</li>
+            <li>F_RJ_BATCH frames. Each record is either u8 1 followed by a full-send record
+            (<xref target="repl-full"/>: the object as it is now on the primary, or its tombstone), or u8 2, str
+            database, u64 id: the primary has no such object, and the copy removes it. The primary sends a record
+            for each object of the copy's list and of its own change list after the base. Records are checked as
+            in a full send; each batch is applied in one durable transaction before it is answered.</li>
+            <li>F_SNAP_DLOG frames with the primary's digest log after the base, up to up-to.</li>
+            <li>F_RJ_END with up-to, the running digest at up-to, the number of batch records and digest log
+            entries sent, and a hash chained over them (<xref target="repl-digest"/>). The copy MUST refuse an
+            F_RJ_END whose up-to differs from F_RJ_SET's, or whose count and hash differ from what it received;
+            the rejoin then stays open and the primary sends it again on a later connection. Otherwise the copy
+            translates the links of the objects the batches wrote, sets its applied-seq to up-to and its digest to
+            the given digest, ends the rejoin and answers with up-to.</li>
+          </ol>
+          <t>The commits made on the primary after up-to then follow as F_COMMIT frames. A node that stops in the
+          middle of an incremental rejoin keeps waiting for one and finishes on the next connection.</t>
+          <t>An implementation SHOULD bound the work of an incremental rejoin: DataReel sends one only when the
+          objects to send are at most a configured share of the primary's objects (50 percent by default), and a
+          full send otherwise.</t>
+        </section>
+      </section>
+
+      <section anchor="repl-digest">
+        <name>Digests</name>
+        <t>The running digest is the 64-bit FNV-1a hash <xref target="FNV"/> (offset basis 14695981039346656037,
+        prime 1099511628211) chained over the bytes of every F_COMMIT frame body in sequence order: it starts at
+        the offset basis, and each commit continues the hash from the previous value over the whole frame body,
+        from its kind byte to its last op. The primary computes it when it records a commit; the copy when it
+        applies one. Each node keeps a log of (seq, digest) pairs for at least the last 1000000 commits.</t>
+        <t>The full send hash is the same FNV-1a function chained, from the offset basis, over the bytes of each
+        F_SNAP_BATCH record and of each 16-byte F_SNAP_DLOG entry, in the order sent. The incremental rejoin hash
+        is computed the same way over each F_RJ_BATCH record (from its leading u8) and each F_SNAP_DLOG
+        entry.</t>
+        <t>These digests detect divergent histories and lost, repeated or altered frames caused by faults. They
+        are not cryptographic and do not authenticate the stream (<xref target="sec-repl"/>).</t>
+      </section>
+
+      <section anchor="repl-failover">
+        <name>Epochs, Takeover and Rejoin</name>
+        <t>A node starts at epoch 1. A takeover makes a copy the primary at its epoch plus one. Object ids that
+        a primary issues carry its epoch in bits 40 and above, so a new primary never issues an id that an older
+        primary may have issued in commits the new primary never received. Every copy that has saved the new epoch
+        refuses an older primary. A former primary rejoins as a copy that waits for a full send, which replaces
+        its databases, or, since DataReel 7.5, for an incremental rejoin (<xref target="repl-incr"/>).</t>
+      </section>
+
+      <section anchor="repl-port">
+        <name>Port</name>
+        <t>Replication is a gxStream object stream and uses TCP port 2073. A copy listens on port 2073, and a
+        primary connects to port 2073, unless configured with another port; a host that runs a copy and another
+        gxStream service on the same address gives one of them another port. DataReel 7.4.1 makes 2073 the
+        default of both settings; DataReel 7.4 had no default.</t>
+      </section>
+    </section>
+
+    <section anchor="legacy-transports">
+      <name>Legacy Transports (DataReel 6.x)</name>
+      <t>DataReel 6.x is the legacy release line (bug fixes and security updates only). Its gxStream and gxDatagram
+      classes predate the TLS requirement of <xref target="tls"/>. Since DataReel 6.4 they send the same canonical
+      block header as DataReel 7.4 (<xref target="header"/>) and check received lengths before allocating memory.
+      Both transports below are described so that implementations and network operators can recognize them;
+      neither meets the requirements of this document.</t>
+      <section anchor="legacy-tcp">
+        <name>gxStream over Plain TCP</name>
+        <t>A DataReel 6.x gxStream client uses TLS only when the program enables it. A DataReel 6.4 gxStream server
+        refuses to accept clients unless it either uses TLS with client certificates and an allow list (as in
+        <xref target="tls"/>) or the program explicitly opts out; a server that opts out without a server
+        certificate exchanges blocks over plain TCP. Blocks on such a connection have no confidentiality,
+        integrity or authentication. New deployments MUST NOT use plain TCP, and DataReel 7 does not support
+        it.</t>
+      </section>
+      <section anchor="legacy-udp">
+        <name>gxDatagram over UDP</name>
+        <t>The DataReel 6.x gxDatagram class sends blocks over UDP <xref target="RFC0768"/>: each block is one
+        datagram holding the 32-byte block header, followed by one datagram holding the body (so a body is at most
+        65507 bytes). The control codes and exchanges of <xref target="basic"/> apply. There is no retransmission,
+        ordering, encryption or authentication: any host that can reach the port can send blocks, and a lost or
+        reordered datagram leaves the two sides out of step. Receivers check the header form and the length
+        against a maximum before reading the body.</t>
+        <t>This is the use for which UDP port 2073 was registered. gxDatagram is not part of DataReel 7, and
+        implementations of this document do not use UDP. New deployments MUST NOT use gxDatagram on networks
+        where any host is untrusted.</t>
+      </section>
+    </section>
+
+    <section anchor="errors">
+      <name>Error Handling</name>
+      <ul>
+        <li>Block level: a wrong check word, an oversize length, non-zero reserved header bytes, or a read or
+        write failure ends the connection.</li>
+        <li>Multiplex: a malformed frame ends the connection; a refused open, an over-credit channel, an ERROR or
+        a CLOSE ends that channel only.</li>
+        <li>Object service: a request error is a reply with status 1 and a message; the channel stays open.</li>
+        <li>Replication: a refused hello is answered with ok = 0 and a reason; any other violation closes the
+        connection without an answer. The primary connects again on its next attempt and the hello checks start
+        over.</li>
+      </ul>
+    </section>
+
+    <section anchor="security">
+      <name>Security Considerations</name>
+      <section>
+        <name>Confidentiality and Integrity</name>
+        <t>All traffic is protected by TLS (<xref target="tls"/>), and implementations refuse to send or accept
+        blocks before the handshake completes, so there is no cleartext mode to downgrade to. The block header,
+        the multiplex and the replication frames add no cryptographic protection of their own. Implementations
+        should require TLS 1.3 where both peers support it. With TLS libraries that offer a hybrid key exchange
+        such as X25519MLKEM768 (ML-KEM <xref target="FIPS203"/>), recorded traffic is protected against a future
+        quantum computer; certificates remain RSA or ECDSA.</t>
+      </section>
+      <section>
+        <name>Authentication and Authorization</name>
+        <t>Servers authenticate clients by certificate (mutual TLS) and an allow list. Server certificates are
+        checked against the server's name. Authorization is by service: a certificate in the allow list may use
+        every database the server serves, in every mode the server's configuration allows for that database. A
+        client allowed "write" access can change or delete any object of that database. Deployments that need
+        finer authorization should run separate servers or databases per client group.</t>
+        <t>A server MUST accept a client-supplied object address only if it is the start of a live object of
+        that database: the block header in front of it must be valid and not deleted, the block must lie inside
+        the file, and the address must be a block boundary rather than a place inside another object, whose bytes
+        a client may have written to look like a block header. DataReel 7.4 checked only the header's check word,
+        so a client with write access could damage the database it may change and a client with read access could
+        read deleted blocks; DataReel 7.4.1 makes the full check for writable databases
+        (<xref target="impl-status"/>).</t>
+      </section>
+      <section anchor="sec-repl">
+        <name>Replication</name>
+        <t>A peer whose certificate the copy accepts is trusted with the stream. Such a peer can raise the copy's
+        epoch, which fences out the legitimate primary, or replace the copy's data with a full send. The epoch,
+        sequence and digest checks protect against operational mistakes (a stale primary, two primaries, a
+        diverged history); they do not protect against a compromised key. Replication keys should be dedicated
+        to replication, kept readable only by their owner (DataReel refuses a key file that group or others can
+        read), and the copy's allow list should name only the primary.</t>
+      </section>
+      <section>
+        <name>Resource Exhaustion</name>
+        <t>Every length received is checked against the remaining data and against a maximum before memory is
+        allocated. Servers limit concurrent handshakes, handshake time, sessions and concurrent vector searches,
+        and the multiplex bounds each channel's queue with credit. An attacker who can reach the port can still
+        occupy handshake slots for the handshake timeout, and a replication copy, which serves one connection at
+        a time, can be delayed by a connection that stalls its handshake. The number of channels in one multiplex
+        session is not limited in DataReel 7.5. Access to port 2073 should be limited by firewall to the hosts
+        that need it, and servers used only locally should listen on the loopback address.</t>
+      </section>
+      <section>
+        <name>Server Control Codes</name>
+        <t>The "K" (kill) and "T" (restart) control codes let a client stop or restart a server process. They
+        must not be honored for clients that are not authorized administrators; DataReel 7.5 servers do not honor
+        them.</t>
+      </section>
+      <section>
+        <name>Stored Data</name>
+        <t>The legacy DataReel 6.x transports (<xref target="legacy-transports"/>) carry blocks in cleartext
+        and, over UDP, without any peer authentication. Operators should block them at the network edge and
+        replace them with TLS connections.</t>
+        <t>DataReel database files are not encrypted by the library; data is protected on the wire, not at rest.
+        Block check words and optional CRC-32 checksums in the files detect accidental damage only.</t>
+      </section>
+    </section>
+
+    <section anchor="iana">
+      <name>IANA Considerations</name>
+      <t>IANA has assigned port 2073 for TCP and UDP in the "Service Name and Transport Protocol Port Number
+      Registry" <xref target="RFC6335"/>:</t>
+      <artwork type="ascii-art"><![CDATA[
+Service Name:  gxs-data-port
+Port Number:   2073
+Transport:     tcp, udp
+Description:   DataReel Database Socket
+]]></artwork>
+      <t>This document asks IANA to update the Reference of the TCP assignment to this document, keeping the
+      service name, port number, assignee and contact.</t>
+      <t>The UDP assignment is used only by the legacy DataReel 6.x gxDatagram transport
+      (<xref target="legacy-udp"/>). This document asks IANA to update the Reference of the UDP assignment to
+      this document as well, and otherwise to keep it unchanged while DataReel 6.x is maintained.</t>
+      <t>This document creates no new registry. The control codes, multiplex frame kinds, object service
+      operations and replication frame kinds are maintained by the DataReel project with its source code.</t>
+    </section>
+
+  </middle>
+
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <reference anchor="RFC2119" target="https://www.rfc-editor.org/info/rfc2119">
+          <front><title>Key words for use in RFCs to Indicate Requirement Levels</title>
+          <author initials="S." surname="Bradner" fullname="S. Bradner"/><date year="1997" month="March"/></front>
+          <seriesInfo name="BCP" value="14"/><seriesInfo name="RFC" value="2119"/>
+          <seriesInfo name="DOI" value="10.17487/RFC2119"/>
+        </reference>
+        <reference anchor="RFC8174" target="https://www.rfc-editor.org/info/rfc8174">
+          <front><title>Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words</title>
+          <author initials="B." surname="Leiba" fullname="B. Leiba"/><date year="2017" month="May"/></front>
+          <seriesInfo name="BCP" value="14"/><seriesInfo name="RFC" value="8174"/>
+          <seriesInfo name="DOI" value="10.17487/RFC8174"/>
+        </reference>
+        <reference anchor="RFC5246" target="https://www.rfc-editor.org/info/rfc5246">
+          <front><title>The Transport Layer Security (TLS) Protocol Version 1.2</title>
+          <author initials="T." surname="Dierks" fullname="T. Dierks"/>
+          <author initials="E." surname="Rescorla" fullname="E. Rescorla"/><date year="2008" month="August"/></front>
+          <seriesInfo name="RFC" value="5246"/><seriesInfo name="DOI" value="10.17487/RFC5246"/>
+        </reference>
+        <reference anchor="RFC8446" target="https://www.rfc-editor.org/info/rfc8446">
+          <front><title>The Transport Layer Security (TLS) Protocol Version 1.3</title>
+          <author initials="E." surname="Rescorla" fullname="E. Rescorla"/><date year="2018" month="August"/></front>
+          <seriesInfo name="RFC" value="8446"/><seriesInfo name="DOI" value="10.17487/RFC8446"/>
+        </reference>
+        <reference anchor="RFC5280" target="https://www.rfc-editor.org/info/rfc5280">
+          <front><title>Internet X.509 Public Key Infrastructure Certificate and Certificate Revocation List (CRL) Profile</title>
+          <author initials="D." surname="Cooper" fullname="D. Cooper"/>
+          <author initials="S." surname="Santesson" fullname="S. Santesson"/>
+          <author initials="S." surname="Farrell" fullname="S. Farrell"/>
+          <author initials="S." surname="Boeyen" fullname="S. Boeyen"/>
+          <author initials="R." surname="Housley" fullname="R. Housley"/>
+          <author initials="W." surname="Polk" fullname="W. Polk"/><date year="2008" month="May"/></front>
+          <seriesInfo name="RFC" value="5280"/><seriesInfo name="DOI" value="10.17487/RFC5280"/>
+        </reference>
+        <reference anchor="RFC9525" target="https://www.rfc-editor.org/info/rfc9525">
+          <front><title>Service Identity in TLS</title>
+          <author initials="P." surname="Saint-Andre" fullname="P. Saint-Andre"/>
+          <author initials="R." surname="Salz" fullname="R. Salz"/><date year="2023" month="November"/></front>
+          <seriesInfo name="RFC" value="9525"/><seriesInfo name="DOI" value="10.17487/RFC9525"/>
+        </reference>
+        <reference anchor="RFC0768" target="https://www.rfc-editor.org/info/rfc768">
+          <front><title>User Datagram Protocol</title>
+          <author initials="J." surname="Postel" fullname="J. Postel"/><date year="1980" month="August"/></front>
+          <seriesInfo name="STD" value="6"/><seriesInfo name="RFC" value="768"/>
+          <seriesInfo name="DOI" value="10.17487/RFC0768"/>
+        </reference>
+        <reference anchor="RFC9293" target="https://www.rfc-editor.org/info/rfc9293">
+          <front><title>Transmission Control Protocol (TCP)</title>
+          <author initials="W." surname="Eddy" fullname="W. Eddy" role="editor"/><date year="2022" month="August"/></front>
+          <seriesInfo name="STD" value="7"/><seriesInfo name="RFC" value="9293"/>
+          <seriesInfo name="DOI" value="10.17487/RFC9293"/>
+        </reference>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <reference anchor="RFC6335" target="https://www.rfc-editor.org/info/rfc6335">
+          <front><title>Internet Assigned Numbers Authority (IANA) Procedures for the Management of the Service Name and Transport Protocol Port Number Registry</title>
+          <author initials="M." surname="Cotton" fullname="M. Cotton"/>
+          <author initials="L." surname="Eggert" fullname="L. Eggert"/>
+          <author initials="J." surname="Touch" fullname="J. Touch"/>
+          <author initials="M." surname="Westerlund" fullname="M. Westerlund"/>
+          <author initials="S." surname="Cheshire" fullname="S. Cheshire"/><date year="2011" month="August"/></front>
+          <seriesInfo name="BCP" value="165"/><seriesInfo name="RFC" value="6335"/>
+          <seriesInfo name="DOI" value="10.17487/RFC6335"/>
+        </reference>
+        <reference anchor="RFC9325" target="https://www.rfc-editor.org/info/rfc9325">
+          <front><title>Recommendations for Secure Use of Transport Layer Security (TLS) and Datagram Transport Layer Security (DTLS)</title>
+          <author initials="Y." surname="Sheffer" fullname="Y. Sheffer"/>
+          <author initials="P." surname="Saint-Andre" fullname="P. Saint-Andre"/>
+          <author initials="T." surname="Fossati" fullname="T. Fossati"/><date year="2022" month="November"/></front>
+          <seriesInfo name="BCP" value="195"/><seriesInfo name="RFC" value="9325"/>
+          <seriesInfo name="DOI" value="10.17487/RFC9325"/>
+        </reference>
+        <reference anchor="RFC7942" target="https://www.rfc-editor.org/info/rfc7942">
+          <front><title>Improving Awareness of Running Code: The Implementation Status Section</title>
+          <author initials="Y." surname="Sheffer" fullname="Y. Sheffer"/>
+          <author initials="A." surname="Farrel" fullname="A. Farrel"/><date year="2016" month="July"/></front>
+          <seriesInfo name="BCP" value="205"/><seriesInfo name="RFC" value="7942"/>
+          <seriesInfo name="DOI" value="10.17487/RFC7942"/>
+        </reference>
+        <reference anchor="FIPS203" target="https://doi.org/10.6028/NIST.FIPS.203">
+          <front><title>Module-Lattice-Based Key-Encapsulation Mechanism Standard</title>
+          <author><organization>National Institute of Standards and Technology</organization></author>
+          <date year="2024" month="August"/></front>
+          <seriesInfo name="FIPS" value="203"/><seriesInfo name="DOI" value="10.6028/NIST.FIPS.203"/>
+        </reference>
+        <reference anchor="FNV" target="https://datatracker.ietf.org/doc/draft-eastlake-fnv/">
+          <front><title>The FNV Non-Cryptographic Hash Algorithm</title>
+          <author initials="G." surname="Fowler" fullname="G. Fowler"/>
+          <author initials="L." surname="Noll" fullname="L. Noll"/>
+          <author initials="K.-P." surname="Vo" fullname="K.-P. Vo"/>
+          <author initials="D." surname="Eastlake" fullname="D. Eastlake"/>
+          <author initials="T." surname="Hansen" fullname="T. Hansen"/>
+          <date year="2025"/></front>
+          <seriesInfo name="Internet-Draft" value="draft-eastlake-fnv"/>
+        </reference>
+        <reference anchor="DATAREEL" target="https://datareel.com">
+          <front><title>DataReel C++ Library, Release 7.5</title>
+          <author><organization>DataReel Software Development</organization></author>
+          <date year="2026" month="November"/></front>
+        </reference>
+      </references>
+    </references>
+
+    <section anchor="impl-status" numbered="true">
+      <name>Implementation Status</name>
+      <t>This section follows <xref target="RFC7942"/>. The reference implementation is the DataReel C++ library
+      <xref target="DATAREEL"/>, release 7.5, on Linux (OpenSSL) and Windows (Schannel or OpenSSL), and the datareel
+      Python package built from it. Release 7.4.1 implements everything except the optional hello fields and
+      <xref target="repl-incr"/>, and interoperates with 7.5. The DataReel 6.4 legacy release sends the same
+      block header and interoperates with 7.4 and 7.5 over TLS. Files:
+      include/gxheader.h, include/gxstream.h, src/gxstream.cpp, include/gxstls.h, src/gxstls.cpp,
+      src/gxdbserver.cpp, src/gxdbmux.cpp, src/gxdbobject.cpp, src/gxobjrepl.cpp.</t>
+      <t>The DataReel 6.4 legacy release (6.4.1 and the 6.4.2 branch) implements the block header and the basic
+      exchanges in its own gxStream class (include/gxstream.h, src/gxstream.cpp), with TLS, client certificates
+      and an allow list as in <xref target="tls"/>, and also the legacy transports of
+      <xref target="legacy-transports"/> (src/gxdatagm.cpp for UDP). Its optional dr7features library links the
+      DataReel 7.4 code for the object service client (vector searches) and for gxObjRepl replication, so a 6.4
+      program and a 7.4 program replicate to each other with the protocol of <xref target="repl"/>. The
+      utils/objrepl/xver tests of DataReel 7.4 check 6.4 and 7.4 peers against each other, and
+      utils/objrepl/test_objrepl_rejoin.sh checks 7.4.1 and 7.5 replication nodes against each other.</t>
+      <t>Known differences between DataReel 7.5 and this document, to be resolved in a later 7.5.x release:</t>
+      <ul>
+        <li>The high 32 bits of the Length word are not checked on builds where the in-memory length field is
+        32 bits wide (Windows, and builds without native integer types); the length is truncated instead of
+        refused. Such a block then fails the next header check. The multiplex reader also does not check the
+        reserved high bytes of the Check Word and Status words.</li>
+        <li>The object service of DataReel 7.4 checked a client-supplied object address only by the check word of
+        the block header in front of it. DataReel 7.4.1 requires a valid, not deleted block inside the file, and
+        for a writable database one of its live objects. A read-only database, opened for each request, does not
+        check that the address is a block boundary: an address behind a block header copied into an object's
+        bytes can still be read there (bytes of the same file only).</li>
+        <li>The multiplex server does not require HELLO before OPEN, and does not limit the number of channels in
+        a session.</li>
+        <li>DataReel 7.4 had no default replication port; 7.4.1 uses 2073 (<xref target="repl-port"/>).</li>
+        <li>Multiplex and object service integers are sent in the host byte order. Every platform DataReel 7.5
+        supports is little endian, so this matches the little endian order specified here.</li>
+      </ul>
+    </section>
+
+    <section anchor="ack" numbered="false">
+      <name>Acknowledgments</name>
+      <t>The gxStream protocol has been part of DataReel since 1999. This description was written from the
+      DataReel 7.4 source code (-00) and updated from the DataReel 7.5 source code (-01).</t>
+    </section>
+
+    <section anchor="changes" numbered="false" removeInRFC="true">
+      <name>Changes since -00</name>
+      <ul>
+        <li>The optional DataReel 7.5 fields at the end of the replication hello and reply (rejoin magic, epoch
+        base, schema fingerprint) (<xref target="repl-hello"/>).</li>
+        <li>The incremental rejoin and its frames F_RJ_SET, F_RJ_BATCH and F_RJ_END (<xref target="repl-incr"/>,
+        <xref target="repl-digest"/>).</li>
+        <li>Implementation status: DataReel 7.5 and the Python package; the defaults are those of 7.5 (unchanged
+        from 7.4).</li>
+      </ul>
+    </section>
+  </back>
+</rfc>

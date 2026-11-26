@@ -341,7 +341,8 @@ the security design of the library (TLS, mutual TLS, input checks,
 database files, replication, limits, FIPS and quantum computing).
 docs/gxstream_replication_white_paper.html explains gxStream and
 object replication on the IANA-registered port 2073 (gxs-data-port),
-and docs/rfc/draft-gaer-datareel-gxstream-00.txt is the protocol's
+and docs/rfc/draft-gaer-datareel-gxstream-01.txt (7.5; -00 described
+7.4) is the protocol's
 specification, an Internet-Draft for the Independent Submission
 stream.
 

@@ -19,14 +19,14 @@
 </header>
 <main class="dr-main">
 <h1>gxStream and Replication on Port 2073 (White Paper)</h1>
-<p><strong>Release:</strong> DataReel 7.4 (the 7.4.1 branch), 11/18/2026. <strong>Audience:</strong> network and security reviewers, firewall administrators, and developers who write gxStream clients and servers or run DataReel replication. Everything in this paper was written from the DataReel 7.4 source: <code>include/gxstypes.h</code>, <code>include/gxheader.h</code>, <code>include/gxstream.h</code>, <code>src/gxstream.cpp</code>, <code>include/gxstls.h</code>, <code>src/gxstls.cpp</code>, <code>include/gxdbserver.h</code>, <code>src/gxdbserver.cpp</code>, <code>include/gxdbmux.h</code>, <code>src/gxdbmux.cpp</code>, <code>include/gxdbobject.h</code>, <code>src/gxdbobject.cpp</code>, <code>include/gxobjrepl.h</code> and <code>src/gxobjrepl.cpp</code>. When this paper and the code disagree, the code wins.</p>
-<p>The exact wire format, with every field, is in the <a href="rfc/draft-gaer-datareel-gxstream-00.html">protocol specification</a> (<code>docs/rfc/draft-gaer-datareel-gxstream-00.txt</code>, an Internet-Draft for the Independent Submission stream). The security design of the library as a whole is in the <a href="security_white_paper.html">DataReel security white paper</a>.</p>
+<p><strong>Release:</strong> DataReel 7.5, 11/28/2026 (first published for 7.4, 11/18/2026). <strong>Audience:</strong> network and security reviewers, firewall administrators, and developers who write gxStream clients and servers or run DataReel replication. Everything in this paper was written from the DataReel 7.5 source: <code>include/gxstypes.h</code>, <code>include/gxheader.h</code>, <code>include/gxstream.h</code>, <code>src/gxstream.cpp</code>, <code>include/gxstls.h</code>, <code>src/gxstls.cpp</code>, <code>include/gxdbserver.h</code>, <code>src/gxdbserver.cpp</code>, <code>include/gxdbmux.h</code>, <code>src/gxdbmux.cpp</code>, <code>include/gxdbobject.h</code>, <code>src/gxdbobject.cpp</code>, <code>include/gxobjrepl.h</code> and <code>src/gxobjrepl.cpp</code>. When this paper and the code disagree, the code wins.</p>
+<p>The exact wire format, with every field, is in the <a href="rfc/draft-gaer-datareel-gxstream-01.html">protocol specification</a> (<code>docs/rfc/draft-gaer-datareel-gxstream-01.txt</code>, an Internet-Draft for the Independent Submission stream). The security design of the library as a whole is in the <a href="security_white_paper.html">DataReel security white paper</a>.</p>
 <h2 id="1Port2073">1. Port 2073</h2>
 <p>TCP and UDP port 2073 are registered with IANA for DataReel under the service name <code>gxs-data-port</code>, "DataReel Database Socket". The registration was made in the 1990s, when a protocol description was not required with it; this paper and the specification are that description. The DataReel source has carried the services file entries since its early releases (<code>include/gxstypes.h</code>):</p>
 <pre>gxs-data-port   2073/tcp   DataReel Database Socket
 gxs-data-port   2073/udp   DataReel Database Socket</pre>
 <p>and the port number as constants (<code>gxsDATA_PORT</code>, <code>gxSOCKET_DBS_PORT</code>, <code>gxSOCKET_DEFAULT_PORT</code>, all 2073).</p>
-<p>What uses it in DataReel 7.4:</p>
+<p>What uses it in DataReel 7.5:</p>
 <table>
 <thead><tr><th>Use</th><th>Port 2073</th><th>Where</th></tr></thead>
 <tbody>
@@ -36,6 +36,7 @@ gxs-data-port   2073/udp   DataReel Database Socket</pre>
 <tr><td>Vector searches (7.4)</td><td>carried by the object service</td><td><code>gxdbobject.h</code></td></tr>
 <tr><td>6.x style clients (legacy add/request blocks)</td><td>carried by the object service</td><td><code>gxdbobject.h</code></td></tr>
 <tr><td>Object replication (gxObjRepl)</td><td>the default port of the copy and of the primary's copy address (7.4.1)</td><td><code>gxobjrepl.h</code></td></tr>
+<tr><td>Python programs (7.5)</td><td>the <code>datareel</code> package's <code>Stream</code>, <code>StreamServer</code>, <code>ObjectClient</code>, <code>Primary</code> and <code>Copy</code> use the same C++ code, so the same wire</td><td><code>python/</code></td></tr>
 </tbody>
 </table>
 <p>UDP is not used by DataReel 7. The UDP registration is for the legacy DataReel 6.x class gxDatagram, which sends the same blocks over UDP (one datagram for the header and one for the body) in cleartext and with no peer authentication. DataReel 6.x gxStream can also run over plain TCP when a server explicitly opts out of client authentication. Both are legacy transports, described in the specification for completeness and not recommended.</p>
@@ -162,26 +163,36 @@ gxs-data-port   2073/udp   DataReel Database Socket</pre>
     |        ... one commit at a time ...          |</pre>
 <ul>
 <li><strong>The hello</strong> carries the magic number <code>0x3550524F</code> ("ORP5"), the primary's epoch, its link map (which 8-byte fields of which objects are links to other objects), its name and role, its last sequence number and its running digest. The copy refuses a primary with an older epoch, a peer that is not a primary, an unexpected name, a primary that is behind the copy, or a link map that differs from the copy's own (when the copy has one configured). A refusal is a reply with ok = 0 and the reason, then the copy closes the connection and writes an alarm.</li>
+<li><strong>The 7.5 hello fields.</strong> Since 7.5 the hello ends with the magic <code>0x31304A52</code> ("RJ01"), the sequence number and digest at which the primary took over (its epoch base, from <code>ROOT/epochs</code>) and its schema fingerprint (<code>index=...;links=...;schema=...</code>: the index spec, the link map and the application's <code>schema</code> setting). The reply ends with the same magic, a flag saying whether the copy will take an incremental rejoin, and the copy's own fingerprint. A 7.4.1 node ignores the extra fields, and a node that does not send them gets the 7.4.1 behavior, so 7.4.1 and 7.5 nodes replicate with each other in both directions. In the running stream a fingerprint that differs is only a warning in the log.</li>
 <li><strong>History check.</strong> The primary checks the copy's reply: the copy must be a copy, at a sequence the primary has committed, with the same running digest the primary had at that sequence. A copy whose history differs, or that is past the primary, is refused with an alarm.</li>
 <li><strong>F_EPOCH</strong> comes next. The copy saves the primary's epoch when it applies it, so from then on it refuses any older primary. The copy refuses data frames that come before F_EPOCH.</li>
 <li><strong>F_COMMIT</strong> carries one commit: its sequence number, its epoch and its operations (add, update, remove, purge), each naming a database and a 64-bit object id; adds and updates carry the object's bytes with its links as ids. The copy applies a commit only if it is the next one (a resend of one it has is acknowledged again; a gap is refused), in one journal transaction, and acknowledges it once that transaction is durable.</li>
 </ul>
 <h3 id="72TheFullSend">7.2 The full send</h3>
 <p>When the copy is new, was told to rejoin, or is further behind than the primary's outbox reaches, the primary sends everything instead: F_SNAP_BEGIN (the base sequence), F_SNAP_BATCH frames of objects and tombstones, F_SNAP_DLOG frames with the primary's digest log, and F_SNAP_END with the base's digest, the number of records sent and a hash chained over them. The copy ends the full send only if the count and the hash match what it received; otherwise it waits for the primary to send it again. The copy's old data is set aside, not deleted, until the full send is whole. Commits made while the full send was under way follow from the outbox.</p>
-<h3 id="73Failover">7.3 Failover</h3>
+<h3 id="73TheIncrementalRejoin75">7.3 The incremental rejoin (7.5)</h3>
+<p>After a split (a copy took over while the old primary kept writing), the old primary rejoins as a copy. With 7.5 on both nodes it keeps its data, and the new primary sends only the objects either node changed since the split:</p>
+<ul>
+<li>At the hello the old primary, waiting for an incremental rejoin, compares the new primary's epoch base with its own digest log: the same digest at that sequence means the two histories match up to the split. If they do not match, or the new primary is older, it waits for a full send instead. If the schema fingerprints differ it refuses the primary (ok = 0): the node is rebuilt into an empty folder with a full send and put in place with <code>objrepl swap</code>, not patched.</li>
+<li><strong>F_RJ_SET</strong> (frame 7) carries the base and the new primary's last sequence. The old primary drops its own commits past the base from its digest log and answers with the list of objects those commits changed (<code>ROOT/objrepl.rejoin.gxd</code>), or with "too many", which makes it a full send.</li>
+<li><strong>F_RJ_BATCH</strong> frames (8) carry each object of the two lists (the old primary's and the new primary's own change list, <code>ROOT/objrepl.changes.gxd</code>) as it is now on the new primary, as a full-send record, or as "absent" when the new primary has no such object. The new primary's digest log past the base follows as F_SNAP_DLOG frames.</li>
+<li><strong>F_RJ_END</strong> (9) carries the last sequence, its digest, the number of records and log entries sent and a hash chained over them. As with a full send, the copy ends the rejoin only if the count and the hash match; otherwise it waits and the rejoin is sent again on the next connect. A node killed in the middle keeps waiting.</li>
+</ul>
+<p>The new primary holds its node lock while it sends the rejoin, so it sends one only when the change set is at most <code>rejoin-max-share</code> percent of the objects (50 by default); past that, a full send, which does not hold the lock, goes instead.</p>
+<h3 id="74Failover">7.4 Failover</h3>
 <ul>
 <li><strong>Takeover:</strong> a copy becomes the primary at the next epoch. Object ids carry the epoch in their high bits, so the new primary never reuses an id the old one handed out.</li>
 <li><strong>Fencing:</strong> every copy that has heard from the new primary refuses the old one (its epoch is older).</li>
-<li><strong>Rejoin:</strong> the old primary becomes a copy waiting for a full send, and records how many of its own commits never reached the new primary.</li>
+<li><strong>Rejoin:</strong> the old primary becomes a copy and records how many of its own commits never reached the new primary. It then takes an incremental rejoin (section 7.3) when both nodes run 7.5 and the histories and schemas allow it, or a full send otherwise.</li>
 </ul>
 <p>Replication is asynchronous: a commit is durable on the primary when <code>Commit()</code> returns, and on the copy once it is acknowledged. If the primary is lost, the commits the copy did not acknowledge are lost with it, and the status shows how many.</p>
-<h3 id="74ThePort">7.4 The port</h3>
+<h3 id="75ThePort">7.5 The port</h3>
 <p>Replication is a gxStream object stream, so it uses the gxStream port. Since 7.4.1 the copy listens on port 2073 and the primary connects to port 2073 unless the configuration names another port (<code>listen [ADDR:]PORT</code>, <code>copy HOST:PORT</code>). In 7.4 the port had no default. A host that runs a copy and another gxStream service on the same address gives one of them another port.</p>
 <h2 id="8Compatibility">8. Compatibility</h2>
 <ul>
-<li><strong>Byte order and layout:</strong> the block header is canonical little endian on every platform, with the same 32 bytes a 64-bit Linux build has always sent. DataReel 6.4 and 7.4 interoperate: the 6.4 legacy release sends the same header, and <code>utils/objrepl/xver</code> tests 6.4 and 7.4 peers against each other in both directions, as server and as client.</li>
-<li><strong>Old peers are refused, not misread:</strong> a 7.4 receiver detects a 4-byte-word header and closes the connection with a clear error (<code>PeerOldHeader()</code>), and replication writes an alarm.</li>
-<li><strong>Versioning:</strong> the multiplex HELLO carries a version (1), replication's hello a magic number for the replication state format, and vector requests their own version (1). A peer that does not match is refused.</li>
+<li><strong>Byte order and layout:</strong> the block header is canonical little endian on every platform, with the same 32 bytes a 64-bit Linux build has always sent. DataReel 6.4, 7.4 and 7.5 interoperate: the 6.4 legacy release sends the same header, and <code>utils/objrepl/xver</code> tests 6.4 and 7.4 peers against each other in both directions, as server and as client. <code>utils/objrepl/test_objrepl_rejoin.sh</code> (with <code>OBJREPL_OLD_BIN</code>) tests 7.4.1 and 7.5 replication nodes against each other both ways.</li>
+<li><strong>Old peers are refused, not misread:</strong> a 7.4 or later receiver detects a 4-byte-word header and closes the connection with a clear error (<code>PeerOldHeader()</code>), and replication writes an alarm.</li>
+<li><strong>Versioning:</strong> the multiplex HELLO carries a version (1), replication's hello a magic number for the replication state format (and, since 7.5, a second magic for the rejoin fields at its end), and vector requests their own version (1). A peer that does not match is refused.</li>
 </ul>
 <h2 id="9Security">9. Security</h2>
 <p>The design choices that matter for a reviewer of port 2073 (the <a href="security_white_paper.html">security white paper</a> has the details):</p>
@@ -190,9 +201,9 @@ gxs-data-port   2073/udp   DataReel Database Socket</pre>
 <li>Mutual TLS by default for gxStream servers: a client CA (not the system store) and an allow list of fingerprints or common names. Opting out needs an explicit call.</li>
 <li>Every length from the peer is checked before it is used: block lengths against the maximum block size, multiplex fields against the frame, replication fields against the frame and against object and commit size limits (32 MB per object, 60 MB per commit).</li>
 <li>Bounded resources: handshake threads and their timeout, a session limit, per-channel credit, a limit on concurrent vector searches.</li>
-<li>Replication refuses older epochs, gaps, reordering, changed histories and incomplete full sends, and writes an alarm for each.</li>
+<li>Replication refuses older epochs, gaps, reordering, changed histories, incomplete full sends and incremental rejoins, and (7.5) an incremental rejoin between nodes whose schemas differ, and writes an alarm for each.</li>
 </ul>
-<p>Limits: a trusted certificate is trusted with everything its service allows (a <code>write</code> client can change any object of its database; a replication peer the copy accepts can raise the copy's epoch or replace its data). The replication digests are FNV-1a hashes that catch mistakes, not forgeries; the mutual TLS check is what keeps forged streams out. Anyone who can reach the port can use up handshake slots for their timeout, so firewall port 2073 to the hosts that need it.</p>
+<p>Limits: a trusted certificate is trusted with everything its service allows (a <code>write</code> client can change any object of its database; a replication peer the copy accepts can raise the copy's epoch or replace its data, by a full send or an incremental rejoin). The replication digests are FNV-1a hashes that catch mistakes, not forgeries; the mutual TLS check is what keeps forged streams out. Anyone who can reach the port can use up handshake slots for their timeout, so firewall port 2073 to the hosts that need it.</p>
 </main>
 <footer class="dr-footer">DataReel 7.5 &middot; Copyright (c) 2001-2026 DataReel Software Development</footer>
 </body>

@@ -37,7 +37,7 @@ and networking engine:
 - **Security and port 2073:** the [security white paper](docs/security_white_paper.md) covers
   the library's security design, the [gxStream and replication white paper](docs/gxstream_replication_white_paper.md)
   explains the database protocol on the IANA-registered port 2073 (gxs-data-port), and
-  [draft-gaer-datareel-gxstream-00](docs/rfc/draft-gaer-datareel-gxstream-00.txt) specifies it.
+  [draft-gaer-datareel-gxstream-01](docs/rfc/draft-gaer-datareel-gxstream-01.txt) specifies it (7.5: the incremental rejoin; -00 described 7.4).
 
 ### Legacy utility classes removed
 

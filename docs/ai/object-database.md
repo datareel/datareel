@@ -17,7 +17,7 @@ Pick a layer:
 | A data file and its indexes opened together | `POD` | `pod.h` |
 | Objects with a key and variable length members | `InfoHog<KeyType>` | `infohog.h` |
 | Faster repeated reads | `gxDatabaseCache`, `BtreeCache` | `dbfcache.h`, `btcache.h` |
-| Nearest neighbor search on float vectors (7.4, in development) | `gxVectorIndex` | `gxvindex.h` |
+| Nearest neighbor search on float vectors (7.4) | `gxVectorIndex` | `gxvindex.h` |
 | Check and repair files | `db_debug`, `ix_debug` utilities | `utils/` |
 
 ## Concepts
@@ -653,7 +653,11 @@ vector index can make it again from its own records (`vix_rebuild`).
 with `gxObjReplReader` (Get, Ids, FindKey, Nearest), which reads whole
 commits under the node journal's shared lock (64-bit engine only).
 Never open a running node's files with gxDatabase or gxBtree directly:
-they can be read mid-batch.
+they can be read mid-batch. 7.5: after a split, `Rejoin()` makes the
+old primary take an incremental rejoin (only the objects either node
+changed are sent) when both nodes run 7.5 and their histories and
+schemas match (`schema` setting), and `Swap()` puts a rebuilt node in
+place; the same calls are in the Python package (`docs/ai/python.md`).
 
 ## Checking and repairing files
 
