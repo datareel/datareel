@@ -1,7 +1,7 @@
 DataReel 7.4.1 Release Notes (vector extensions), 11/20/2026 (7.4: 11/17/2026)
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
-DataReel 7.4.1 is the last 7.4 release. DataReel 7.5 (11/28/2026, the
+DataReel 7.4.1 is the last 7.4 release. DataReel 7.5 (11/26/2026, the
 Python module: RELEASE_NOTES_7.5.txt) is now the main release, and all
 7.x fixes go into 7.5.
 

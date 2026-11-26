@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- DataReel gxStream and replication protocol specification, written from the DataReel 7.5 source
-     (11/28/2026; -00 was written from 7.4, 11/18/2026). Build: xml2rfc (text and html output) draft-gaer-datareel-gxstream-01.xml -->
+     (11/26/2026; -00 was written from 7.4, 11/18/2026). Build: xml2rfc (text and html output) draft-gaer-datareel-gxstream-01.xml -->
 <!DOCTYPE rfc [
   <!ENTITY nbsp "&#160;">
 ]>
@@ -24,7 +24,7 @@
         <uri>https://datareel.com</uri>
       </address>
     </author>
-    <date year="2026" month="November" day="28"/>
+    <date year="2026" month="November" day="26"/>
     <area>Applications and Real-Time</area>
     <keyword>DataReel</keyword>
     <keyword>gxStream</keyword>

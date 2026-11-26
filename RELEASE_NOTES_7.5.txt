@@ -1,4 +1,4 @@
-DataReel 7.5 Release Notes (the Python module), 11/28/2026
+DataReel 7.5 Release Notes (the Python module), 11/26/2026
 DataReel Copyright (c) 2001-2026 DataReel Software Development
 
 DataReel 7.5 adds the datareel Python module, a package that
@@ -12,7 +12,7 @@ DataReel 7.5 is the main, fully supported release. 7.4.1 is the
 previous 7.x release; 6.4.2 is the legacy release (bug fixes and
 security updates only).
 
-NEW IN 7.5 (tag 7.5, 11/28/2026)
+NEW IN 7.5 (tag 7.5, 11/26/2026)
 --------------------------------
 7.5 is the 7.5 beta 3 patch 2 code, released with version 7.5. The
 sections below list what each beta added. In short:

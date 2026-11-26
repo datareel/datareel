@@ -1,6 +1,6 @@
 # DataReel 7.5 Security Design (White Paper)
 
-**Release:** DataReel 7.5, 11/28/2026 (first published for 7.4, 11/18/2026). **Audience:** security reviewers, system administrators and developers deciding whether to trust DataReel with their data and their network traffic. DataReel is free software and its source is published, so everything in this paper can be checked against the code; the design does not depend on keeping any of it secret. Each section names the source files it was written from. When this paper and the code disagree, the code wins, and the paper is wrong: report it (section 12).
+**Release:** DataReel 7.5, 11/26/2026 (first published for 7.4, 11/18/2026). **Audience:** security reviewers, system administrators and developers deciding whether to trust DataReel with their data and their network traffic. DataReel is free software and its source is published, so everything in this paper can be checked against the code; the design does not depend on keeping any of it secret. Each section names the source files it was written from. When this paper and the code disagree, the code wins, and the paper is wrong: report it (section 12).
 
 The companion papers are the [gxStream and replication white paper](docs/gxstream_replication_white_paper.md), which explains the database protocol on the IANA-registered port 2073, and its [protocol specification](docs/rfc/draft-gaer-datareel-gxstream-01.html) (`docs/rfc/draft-gaer-datareel-gxstream-01.txt`, an Internet-Draft for the Independent Submission stream).
 

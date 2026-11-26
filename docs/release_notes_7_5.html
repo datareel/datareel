@@ -20,7 +20,7 @@
 <main class="dr-main">
 <h1>DataReel 7.5 Release Notes</h1>
 <div class="dr-toc-title">Contents</div>
-<p class="dr-toc"><a href="#NewIn75Tag7511282026">NEW IN 7.5 (tag 7.5, 11/28/2026)</a><br>
+<p class="dr-toc"><a href="#NewIn75Tag7511262026">NEW IN 7.5 (tag 7.5, 11/26/2026)</a><br>
 <a href="#UpgradingFrom741">Upgrading from 7.4.1</a><br>
 <a href="#NewIn75Beta3Patch2Tag75Beta3Patch211212026">NEW IN 7.5 BETA 3 PATCH 2 (tag 7.5-beta3-patch2, 11/21/2026)</a><br>
 <a href="#NewIn75Beta3Patch1Tag75Beta3Patch111212026">NEW IN 7.5 BETA 3 PATCH 1 (tag 7.5-beta3-patch1, 11/21/2026)</a><br>
@@ -30,7 +30,7 @@
 <a href="#LimitsOf75">Limits of 7.5</a></p>
 <p>DataReel 7.5 adds the datareel Python module, a package that installs with pip. It is built from this repository (python/) on top of 7.4.1, so everything in 7.4.1 is in it (<a href="release_notes_7_4.html">RELEASE_NOTES_7.4.txt</a>, &quot;NEW IN 7.4.1&quot;). The file formats are those of 7.4; the gxStream and gxObjRepl wire formats are those of 7.4 with new fields at the end of the replication hello (7.4.1 and 7.5 nodes work together).</p>
 <p>DataReel 7.5 is the main, fully supported release. 7.4.1 is the previous 7.x release; 6.4.2 is the legacy release (bug fixes and security updates only).</p>
-<h2 id="NewIn75Tag7511282026">NEW IN 7.5 (tag 7.5, 11/28/2026)</h2>
+<h2 id="NewIn75Tag7511262026">NEW IN 7.5 (tag 7.5, 11/26/2026)</h2>
 <p>7.5 is the 7.5 beta 3 patch 2 code, released with version 7.5. The sections below list what each beta added. In short:</p>
 <ul>
 <li>The datareel Python module (pip package datareel 7.5, wheel datareel-7.5-cp312-cp312-linux_x86_64.whl for Linux x86_64 and CPython 3.12, RHEL 9 and 10): read gxObjRepl nodes from another process (Reader), write them as a gxObjRepl primary (Primary), run a copy (Copy), and take over, rejoin, check and swap nodes, all working with C++ nodes; the database layer (Database, BTree, Journal); vector index files (VectorIndex, create_vector_index(), merge_vector_indexes()); gxStream over TLS (Stream, StreamServer) and the object service client (ObjectClient).</li>

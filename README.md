@@ -8,7 +8,7 @@ There are two release tracks:
 
 | Track | For | API |
 |---|---|---|
-| **DataReel 7.x** (7.5, released 11/28/2026: the main, fully supported release; 7.4.1 is the previous release) | New projects, modern C++ pipelines, Python programs, AI-assisted development | Database, vector index, sockets, replication, on standard C++ (`std::`), and the `datareel` Python package |
+| **DataReel 7.x** (7.5, released 11/26/2026: the main, fully supported release; 7.4.1 is the previous release) | New projects, modern C++ pipelines, Python programs, AI-assisted development | Database, vector index, sockets, replication, on standard C++ (`std::`), and the `datareel` Python package |
 | **DataReel 6.4.2** (the legacy release: bug fixes and security updates only, no new features) | Existing 6.x systems where moving to 7.x is too large a rewrite | The full 6.x API plus the vector index and replication, backported |
 
 Online documentation: [Version 7](https://datareel.com/clib7/) and [Version 6 (legacy)](https://datareel.com/clib/).

@@ -22,7 +22,7 @@
 <div class="dr-toc-title">Contents</div>
 <p class="dr-toc"><a href="#ReplicationFixes">Replication fixes</a><br>
 <a href="#Tests">Tests</a></p>
-<p>DataReel 7.3.3 is a beta bug fix release of 7.3.2. DataReel 7.5 (11/28/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
+<p>DataReel 7.3.3 is a beta bug fix release of 7.3.2. DataReel 7.5 (11/26/2026) is now the stable release, and DataReel 6.4.2 the legacy release (bug fixes and security updates only); please report problems through <a href="https://datareel.com/contact.php">https://datareel.com/contact.php</a>.</p>
 <p>7.3.3 fixes more database replication (gxrepl, utils/gxrepl) problems found while it ran in production between two nodes. Database file formats and replication protocol 3 are unchanged, and the API changes are additions. A copy&#x27;s seal gains a field that a 7.3.2 gxrepl reads and ignores. Run the same version on both nodes, and rebuild programs against 7.3.3.</p>
 <p>The library version is 7.3.3 (version.txt, DATAREEL_VERSION_STRING in gxdlcode.h, libdatareel.so.7.3.3); the soname stays libdatareel.so.7.</p>
 <h2 id="ReplicationFixes">Replication fixes</h2>

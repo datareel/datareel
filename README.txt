@@ -46,7 +46,7 @@ rest:
 The library has no dependencies except the system TLS library
 (OpenSSL on Linux, Schannel or OpenSSL on Windows).
 
-DataReel 7.5, released 11/28/2026, is the current DataReel release
+DataReel 7.5, released 11/26/2026, is the current DataReel release
 (7.4.1 plus the datareel Python module and the incremental rejoin:
 see RELEASE_NOTES_7.5.txt). 7.4.1 (11/20/2026) is the previous 7.x
 release. DataReel 7 is the main, fully supported release line. DataReel 6
@@ -350,7 +350,7 @@ RELEASE HISTORY
 ---------------
 RELEASE_NOTES.txt has the notes of every 7.x release in one file.
 
- 7.5   11/28/2026 Release: the 7.5 beta 3 patch 2 code, the datareel
+ 7.5   11/26/2026 Release: the 7.5 beta 3 patch 2 code, the datareel
                   Python module (pip package datareel 7.5) and the
                   incremental rejoin ("NEW IN 7.5" in
                   RELEASE_NOTES_7.5.txt).
