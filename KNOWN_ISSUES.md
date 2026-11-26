@@ -25,6 +25,18 @@ happens and what to do about it today.
 - **Commit size.** One gxObjRepl commit holds at most 60 MB of changes,
   and one object at most 32 MB. Split larger batches into several
   commits.
+- **A copy's index builds are slow on a slow disk.** A copy keeps its
+  B-tree and vector indexes up to date as it applies each commit. On a
+  slow cloud disk (AWS EBS, 11/19/2026) that was the bottleneck: about
+  1 commit a minute with indexes against about 6 with no index spec
+  (ids only). On a slow disk, give a copy no index spec when nothing
+  reads its indexes there.
+- **Full key-order scans are slower than SQLite.** The data and the
+  index are separate files, so a scan in key order reads the data in
+  random order: about 652k records a second against SQLite's 7.4M
+  (1M records, the journal on, SQLite in WAL mode). Read in id order
+  (`IdsAfter()`, Python `ids(after=, limit=)`), or by key range
+  (`FindRange()`), where a scan of the whole store is not needed.
 
 ## Untested areas
 

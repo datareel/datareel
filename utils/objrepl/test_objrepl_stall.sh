@@ -13,6 +13,8 @@
 #              loses it without a close) and another primary process connects with the same certificate: the copy
 #              takes the new connection at once, not after idle-timeout (60 s here); it refuses that primary (another
 #              history), and the first primary, resumed, reconnects and finishes: equal
+#   idle drops the primary is stopped three times for longer than the copy's idle-timeout (3 s): the copy drops each
+#              silent connection, the primary reconnects, and no dropped socket is left open on the copy (OSA's A1)
 set -u
 . "$(dirname "$0")/objrepl_proc.sh"
 X=${1:?usage: test_objrepl_stall.sh BIN}
@@ -85,6 +87,38 @@ if [ $rrc -eq 3 ] && [ $dt -lt 20 ] && [ $qrc -eq 0 ] && same q b && { [ $PPID1_
   ok "reconnect: the copy took the new connection in ${dt} s (idle-timeout 60), refused that primary (exit 3), and the first primary, resumed, finished: equal"
 else
   bad "reconnect" "second primary rc $rrc in ${dt} s, first primary rc $qrc, said $(grep -c 'is dropped' "$T/copy_b.log") $(tail -n 1 "$T/q.log")"
+fi
+
+# idle drops (11/26/2026, OSA's A1 from 11/19): the copy drops a silent connection after idle-timeout ("no frame
+# from ... connection dropped") three times while the primary is stopped, and the primary reconnects each time. The
+# copy must close every dropped socket: none in CLOSE-WAIT on its port, and the copy process holds at most its
+# listener and the live connection
+if [ $OBJREPL_WIN = 1 ]; then
+  echo "SKIP idle drops: Git Bash cannot stop a native process"
+else
+  P2=$((P0 + 2))
+  mkdir -p "$T/u" "$T/c"
+  "$X" copy "$T/c" --listen $P2 "${CTLS[@]}" --idle-timeout 3 >> "$T/copy_c.log" 2>&1 & CPID=$!
+  for i in $(seq 1 50); do grep -q "listening" "$T/copy_c.log" && break; sleep 0.2; done
+  "$X" primary "$T/u" --copy 127.0.0.1:$P2 "${PTLS[@]}" --commits 300 --per 3 --sleep 50 --seed 74 > "$T/u.log" 2>&1 & PPID1=$!
+  for round in 1 2 3; do
+    for i in $(seq 1 100); do [ "$(st c applied_seq)" -ge $((round * 30)) ] 2>/dev/null && break; sleep 0.1; done
+    n0=$(grep -c "no frame from" "$T/copy_c.log")
+    kill -STOP $PPID1
+    for i in $(seq 1 100); do [ "$(grep -c "no frame from" "$T/copy_c.log")" -gt "$n0" ] && break; sleep 0.1; done
+    kill -CONT $PPID1
+  done
+  wait $PPID1; urc=$?; PPID1=""
+  sleep 2
+  drops=$(grep -c "no frame from" "$T/copy_c.log")
+  cw=$(closewait $P2)
+  socks=$(ls -l /proc/$CPID/fd 2>/dev/null | grep -c "socket:")
+  stop_copy
+  if [ $urc -eq 0 ] && same u c && [ "$drops" -ge 3 ] && [ "$cw" -eq 0 ] && [ "$socks" -le 2 ]; then
+    ok "idle drops: the copy dropped $drops silent connections (idle-timeout 3), the primary reconnected and finished: equal, $cw in CLOSE-WAIT, the copy holds $socks sockets"
+  else
+    bad "idle drops" "primary rc $urc, $drops drops, close-wait $cw, the copy held $socks sockets, $(tail -n 1 "$T/u.log")"
+  fi
 fi
 
 echo "$PASS passed, $FAIL failed"

@@ -402,6 +402,10 @@ public:
   // live (Error() empty)
   int Get(const std::string &db, uint64_t id, std::vector<unsigned char> &bytes);
   int IsLive(const std::string &db, uint64_t id);       // 1, 0, or -1
+  // Ids(): every id, sorted. 7.5: read from the id index in pages of
+  // 16384, each under the lock, so a long walk does not hold up the
+  // node's commits; past one page an object added or removed during the
+  // walk may or may not be listed
   int Ids(const std::string &db, std::vector<uint64_t> &ids,
 	  gxObjRepl::Which which = gxObjRepl::LIVE);
   int Databases(std::vector<std::string> &dbs);
