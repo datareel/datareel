@@ -36,7 +36,7 @@ security updates only).
 
 NEW IN 7.5 (tag 7.5, 11/28/2026)
 --------------------------------
-7.5 is 7.5 beta 3 patch 2 as tested by OSA and OCA, released. The
+7.5 is the 7.5 beta 3 patch 2 code, released with version 7.5. The
 sections below list what each beta added. In short:
 
 - The datareel Python module (pip package datareel 7.5, wheel

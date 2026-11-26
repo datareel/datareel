@@ -349,7 +349,7 @@ RELEASE HISTORY
 ---------------
 RELEASE_NOTES.txt has the notes of every 7.x release in one file.
 
- 7.5   11/28/2026 Release: 7.5 beta 3 patch 2 as tested, the datareel
+ 7.5   11/28/2026 Release: the 7.5 beta 3 patch 2 code, the datareel
                   Python module (pip package datareel 7.5) and the
                   incremental rejoin ("NEW IN 7.5" in
                   RELEASE_NOTES_7.5.txt).
