@@ -56,6 +56,17 @@ sections below list what each beta added. In short:
 - The user's manual (python/docs/users-manual.md) with 14 examples,
   the build guide (python/docs/building.md), python/AGENTS.md and the
   AI-assisted guide (docs/ai/python.md).
+- gxObjReplReader::Ids() (Python Reader.ids() with no after/limit)
+  reads the id index in pages of 16384 keys, each page under the
+  journal read lock, so a whole walk of a large database no longer
+  holds up the node's commits. On a 2M-object node, one commit used to
+  wait 5.1 s for the walk; now the slowest commit waits 0.48 s, and the
+  walk takes 3.5 s instead of 6.9 s. A database that fits in one page
+  is still read at one commit. On a larger one, an object added or
+  removed during the call may or may not be listed. (OSA report 1.1.)
+  Also: test_objrepl_stall.sh has a new 'idle drops' case confirming
+  the 7.4.1 CLOSE-WAIT fix, and KNOWN_ISSUES.md lists slow copy index
+  builds on slow disks and key-order scan speed.
 - Windows: prebuilt static libraries again, as for 7.4.1:
   datareel-7.5-windows-x64-schannel.zip (64-bit database engine) and
   datareel-7.5-windows-x86-schannel.zip (32-bit engine), release

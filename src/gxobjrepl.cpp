@@ -3457,6 +3457,32 @@ struct gxObjReplReader::Impl {
     if(bt.Open(x.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) { db.Close(); return fail("cannot open " + x); }
     return 1;
   }
+  // one page of DB's id index under the lock: the ids past AFTER whose objects are WHICH (live or tombstones), at most
+  // LIMIT of them (0: no cap), and at most about SCAN index keys visited (0: no cap; the page ends between two ids,
+  // never inside the keys of one id). LAST: the last id visited, END: the index has no more keys. 0, or -1 (err)
+  int ids_page(const std::string &db, uint64_t after, size_t limit, size_t scan, std::vector<uint64_t> &ids,
+	       gxObjRepl::Which which, uint64_t &last, bool &end) {
+    ids.clear(); last = after; end = true;
+    gxdJournalReadLock rl;
+    if(begin(rl) != 0) return -1;
+    gxDatabase d; IdKey type; gxBtree bt(type, ORDER);
+    int o = open_db(db, d, bt);
+    if(o <= 0) return o;
+    IdKey k(after + 1, 0), c;
+    uint64_t pushed = 0; size_t seen = 0;
+    for(int ok = after == UINT64_MAX ? 0 : bt.PartialFind(k, c); ok; ok = bt.FindNext(k, c)) {
+      if(k.d.id <= after) continue;
+      if(k.d.id != last && ((limit && ids.size() >= limit) || (scan && seen >= scan))) { end = false; break; }
+      last = k.d.id; seen++;
+      if(k.d.id == pushed) continue;
+      ObjHead h;
+      if(d.Read(&h, sizeof(h), (FAU_t)k.d.addr) != gxDBASE_NO_ERROR || h.id != k.d.id || (h.flags & OF_STUB)) continue;
+      bool tomb = (h.flags & OF_TOMB) != 0;
+      if(tomb == (which == gxObjRepl::TOMBSTONES)) { ids.push_back(k.d.id); pushed = k.d.id; }
+    }
+    bt.Close(); d.Close();
+    return 0;
+  }
 };
 
 gxObjReplReader::gxObjReplReader() : p(new Impl) { }
@@ -3552,23 +3578,8 @@ int gxObjReplReader::IsLive(const std::string &db, uint64_t id)
 int gxObjReplReader::IdsAfter(const std::string &db, uint64_t after, size_t limit, std::vector<uint64_t> &ids,
 			      gxObjRepl::Which which)
 {
-  ids.clear();
-  gxdJournalReadLock rl;
-  if(p->begin(rl) != 0) return -1;
-  gxDatabase d; IdKey type; gxBtree bt(type, ORDER);
-  int o = p->open_db(db, d, bt);
-  if(o <= 0) return o;
-  IdKey k(after + 1, 0), c;
-  uint64_t last = 0;
-  for(int ok = after == UINT64_MAX ? 0 : bt.PartialFind(k, c); ok && (!limit || ids.size() < limit); ok = bt.FindNext(k, c)) {
-    if(k.d.id <= after || k.d.id == last) continue;
-    ObjHead h;
-    if(d.Read(&h, sizeof(h), (FAU_t)k.d.addr) != gxDBASE_NO_ERROR || h.id != k.d.id || (h.flags & OF_STUB)) continue;
-    bool tomb = (h.flags & OF_TOMB) != 0;
-    if(tomb == (which == gxObjRepl::TOMBSTONES)) { ids.push_back(k.d.id); last = k.d.id; }
-  }
-  bt.Close(); d.Close();
-  return 0;
+  uint64_t last = 0; bool end = false;
+  return p->ids_page(db, after, limit, 0, ids, which, last, end);
 }
 // 7.5: ids whose B-tree key K has LO <= K < HI (keys compared as bytes, LO and HI zero padded to the key length;
 // an empty HI: no upper bound), in key order, at most LIMIT (0: all)
@@ -3606,24 +3617,22 @@ std::string gxObjReplReader::IndexSpec() const
   return s;
 }
 
+// 11/26/2026 (7.5, OSA's 1.1): the id index is read in pages of IDS_PAGE keys, each under the journal's shared lock,
+// so a whole walk of a large database no longer holds the node's commits for its whole length (a 2M-object walk
+// held a writer's commit 5 s). Before, the walk read every block of the data file under one lock. A database that
+// fits in one page is still read at one commit; a larger one page by page, each page at one commit, so an object
+// added or removed during the walk may or may not be listed (as with IdsAfter() in a loop)
+static const size_t IDS_PAGE = 16384;
 int gxObjReplReader::Ids(const std::string &db, std::vector<uint64_t> &ids, gxObjRepl::Which which)
 {
   ids.clear();
-  gxdJournalReadLock rl;
-  if(p->begin(rl) != 0) return -1;
-  if(!good_name(db)) return p->fail("bad database name " + db);
-  std::string g = path(p->root, db + ".gxd");
-  if(!exists(g)) return 0;
-  gxDatabase d;
-  if(d.Open(g.c_str(), gxDBASE_READONLY) != gxDBASE_NO_ERROR) return p->fail("cannot open " + g);
-  for(FAU_t a = d.FindFirstObject(); a != (FAU_t)0; a = d.FindNextObject(a)) {
-    ObjHead h;
-    if(d.Read(&h, sizeof(h), a) != gxDBASE_NO_ERROR || (h.flags & OF_STUB)) continue;
-    bool tomb = (h.flags & OF_TOMB) != 0;
-    if(tomb == (which == gxObjRepl::TOMBSTONES)) ids.push_back(h.id);
+  std::vector<uint64_t> pg;
+  uint64_t after = 0, last = 0;
+  for(bool end = false; !end; after = last) {
+    if(p->ids_page(db, after, 0, IDS_PAGE, pg, which, last, end) != 0) { ids.clear(); return -1; }
+    ids.insert(ids.end(), pg.begin(), pg.end());
+    if(last == after) break;                                   // nothing past AFTER
   }
-  d.Close();
-  std::sort(ids.begin(), ids.end());
   return 0;
 }
 int gxObjReplReader::Databases(std::vector<std::string> &dbs)

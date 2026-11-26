@@ -1008,6 +1008,63 @@ class HandoffTest(Base):
                 r.find_range("k0", bytes(9))                       # longer than the key
             self.assertEqual(datareel.Reader(self.p, INDEX).index_spec, INDEX)
 
+    def test_whole_ids_in_pages(self):
+        """7.5 (OSA 1.1, 11/26/2026): a whole ids() reads the id index 16384 keys at a time, each under the read
+        lock: the same list as a paged walk on a database of several pages, tombstones too, and a writer in another
+        process commits while a Reader walks it (before, one commit waited for the whole walk)"""
+        root = os.path.join(self.tmp, "many_ids")
+        n = 40000
+        with datareel.Primary(root, settings=self.settings(), quiet=True) as p:
+            p.open_database("ev")
+            ids = []
+            with p.transaction():
+                for i in range(n):
+                    ids.append(p.new_id())
+                    p.put("ev", ids[-1], struct.pack("<Q", i))
+            gone = ids[100:30000:7]                                 # tombstones on every page
+            with p.transaction():
+                for i in gone:
+                    p.remove("ev", i)
+        live = sorted(set(ids) - set(gone))
+        with datareel.Reader(root) as r:
+            self.assertEqual(r.ids("ev"), live)
+            self.assertEqual(r.ids("ev", tombstones=True), sorted(gone))
+            pages, after = [], 0
+            while True:
+                page = r.ids("ev", after=after, limit=5000)
+                if not page:
+                    break
+                pages += page
+                after = page[-1]
+            self.assertEqual(pages, live)
+            self.assertEqual(r.ids("nosuchdb"), [])
+        # a writer in another process commits while this Reader walks the database again and again
+        prog_w = (
+            "import datareel, struct, sys, time\n"
+            "st = %r\n"
+            "p = datareel.Primary(%r, settings=st, quiet=True)\n"
+            "worst = 0.0\n"
+            "for k in range(40):\n"
+            "    t = time.time()\n"
+            "    p.begin(); p.put('ev', p.new_id(), struct.pack('<Q', k)); p.commit()\n"
+            "    worst = max(worst, time.time() - t)\n"
+            "    time.sleep(0.02)\n"
+            "p.close()\n"
+            "print('%%.3f' %% worst)\n") % (self.settings(), root)
+        w = subprocess.Popen([sys.executable, "-I", "-c", prog_w], stdout=subprocess.PIPE, text=True)
+        walks = 0
+        with datareel.Reader(root) as r:
+            while w.poll() is None:
+                got = r.ids("ev")
+                self.assertGreaterEqual(len(got), len(live))
+                self.assertEqual(got, sorted(got))
+                walks += 1
+        out, _ = w.communicate()
+        self.assertEqual(w.returncode, 0)
+        self.assertGreater(walks, 0)
+        with datareel.Reader(root) as r:
+            self.assertEqual(len(r.ids("ev")), len(live) + 40)
+
     def test_databases_hide_underscore(self):
         """beta 3 patch 2: databases() leaves out names starting with "_" (OSA's _log and _meta); hidden=True lists
         them; reads by name work either way, on a Primary, a Reader and a Copy's folder"""
